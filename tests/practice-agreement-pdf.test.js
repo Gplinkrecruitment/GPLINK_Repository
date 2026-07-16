@@ -11,6 +11,11 @@ var AGREEMENT_PATH = path.join(__dirname, '..', 'assets', 'legal', 'gp-link-prac
 var TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
+async function sourcePageCount(agreementBytes) {
+  var doc = await PDFDocument.load(agreementBytes, { ignoreEncryption: true });
+  return doc.getPageCount();
+}
+
 function baseParams(overrides) {
   var agreementBytes = fs.readFileSync(AGREEMENT_PATH);
   return Object.assign(
@@ -19,7 +24,10 @@ function baseParams(overrides) {
       signaturePngDataUrl: TINY_PNG_DATA_URL,
       signedName: 'Dr Jane Smith',
       practiceName: 'Riverside Medical Centre',
-      dateLabel: '2026-07-05',
+      legalEntityName: 'Riverside Medical Centre Pty Ltd',
+      abnAcn: 'ABN 12345678901',
+      signerJobTitle: 'Practice Manager',
+      dateLabel: '2026-07-15',
       ipAddress: '203.0.113.42',
       token: 'abc123def456ghi789'
     },
@@ -28,26 +36,24 @@ function baseParams(overrides) {
 }
 
 describe('stampAgreementExecutionPage', function () {
-  it('adds an execution page (12 pages total) and adds real content vs. an unmodified round trip', async function () {
+  it('adds exactly one execution page and adds real content vs. an unmodified round trip', async function () {
     var agreementBytes = fs.readFileSync(AGREEMENT_PATH);
     var params = baseParams({ agreementBytes: agreementBytes });
+    var srcPages = await sourcePageCount(agreementBytes);
 
     var result = await stampAgreementExecutionPage(params);
 
     expect(Buffer.isBuffer(result)).toBe(true);
 
     var stamped = await PDFDocument.load(result);
-    expect(stamped.getPageCount()).toBe(12);
+    expect(stamped.getPageCount()).toBe(srcPages + 1);
 
     // Note: pdf-lib re-serializes the whole document more compactly than
     // however this particular asset was originally produced, so a plain
-    // load+save round trip of the *unmodified* source is already smaller
-    // than the raw input file (verified: ~1.78MB -> ~1.5MB with zero
-    // changes). Comparing the stamped output against raw input bytes would
-    // therefore not reliably reflect whether the execution page was added.
-    // Instead we compare against a same-library, no-op round trip of the
-    // same bytes, which isolates the bytes actually contributed by the new
-    // execution page.
+    // load+save round trip of the *unmodified* source can already differ in
+    // size from the raw input file. Comparing the stamped output against a
+    // same-library, no-op round trip of the same bytes isolates the bytes
+    // actually contributed by the new execution page.
     var baselineDoc = await PDFDocument.load(agreementBytes, { ignoreEncryption: true });
     var baselineBytes = await baselineDoc.save();
     expect(result.length).toBeGreaterThan(baselineBytes.length);
@@ -61,16 +67,37 @@ describe('stampAgreementExecutionPage', function () {
     await expect(stampAgreementExecutionPage(params)).rejects.toThrow('invalid_signature_image');
   });
 
-  it('does not throw for a practice/signed name with emoji + Vietnamese diacritics, and still stamps a 12-page PDF', async function () {
+  it('does not throw for a practice/signed name with emoji + Vietnamese diacritics, and still stamps the execution page', async function () {
+    var agreementBytes = fs.readFileSync(AGREEMENT_PATH);
+    var srcPages = await sourcePageCount(agreementBytes);
     var params = baseParams({
+      agreementBytes: agreementBytes,
       practiceName: 'Phòng khám Nguyễn 🏥✨',
-      signedName: 'Bác sĩ Nguyễn Thị Hương 😀'
+      signedName: 'Bác sĩ Nguyễn Thị Hương 😀',
+      legalEntityName: 'Phòng khám Nguyễn Pty Ltd 🏥'
     });
 
     var result = await stampAgreementExecutionPage(params);
 
     expect(Buffer.isBuffer(result)).toBe(true);
     var stamped = await PDFDocument.load(result);
-    expect(stamped.getPageCount()).toBe(12);
+    expect(stamped.getPageCount()).toBe(srcPages + 1);
+  });
+
+  it('still stamps when the entity fields are missing (backwards compatibility)', async function () {
+    var agreementBytes = fs.readFileSync(AGREEMENT_PATH);
+    var srcPages = await sourcePageCount(agreementBytes);
+    var params = baseParams({
+      agreementBytes: agreementBytes,
+      legalEntityName: undefined,
+      abnAcn: undefined,
+      signerJobTitle: undefined
+    });
+
+    var result = await stampAgreementExecutionPage(params);
+
+    expect(Buffer.isBuffer(result)).toBe(true);
+    var stamped = await PDFDocument.load(result);
+    expect(stamped.getPageCount()).toBe(srcPages + 1);
   });
 });

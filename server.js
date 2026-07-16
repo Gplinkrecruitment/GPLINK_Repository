@@ -140,6 +140,12 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
+var consultLead = require('./lib/consult-lead.js');
+// apex/www (mygplink.com.au) still serve the LEGACY site until the DNS cutover — only
+// app.mygplink.com.au is guaranteed to serve /start, so consult-lead links must not
+// depend on the apex. process.env read directly here (not the APP_BASE_URL const below)
+// to avoid any const-ordering hazard. See docs/superpowers/specs/2026-07-14-meta-ads-gp-funnel-design.md §7.
+const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
 const careerIntro = require('./lib/career-intro.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -1635,6 +1641,17 @@ async function checkAndRecordWebhookEvent(provider, eventId, eventType, payload)
   });
   if (!inserted.ok && inserted.status === 409) return true;
   return false;
+}
+
+// Read-only half of checkAndRecordWebhookEvent — checks for an existing
+// dedupe marker without recording one. Lets a caller defer the record step
+// until after its own side effect (e.g. a DB insert) has succeeded, so a
+// failed side effect stays retryable instead of getting silently swallowed
+// by a marker that was written too early.
+async function hasRecordedWebhookEvent(provider, eventId) {
+  if (!eventId) return false;
+  const existing = await supabaseDbRequest('webhook_events', 'provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
+  return existing.ok && Array.isArray(existing.data) && existing.data.length > 0;
 }
 // ── End Zoom Call Scheduling helpers ──────────────────────
 
@@ -7354,6 +7371,7 @@ const CRON_SCHEDULES = {
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'consult-nudge': { schedule: '20 * * * *', cadenceMinutes: 60 },
   'reconcile-doc-tasks': { schedule: '30 * * * *', cadenceMinutes: 60 },
   'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
@@ -8045,10 +8063,21 @@ function applyQualificationNameMatchPolicy(verification, profileName, verifiedNa
   }
 
   if (nameCheck.match === 'mismatch') {
+    // A name that differs from the account is almost always a NAME CHANGE (e.g.
+    // marriage or deed poll), NOT a wrong/fraudulent document. A qualification
+    // certificate can only ever carry the holder's name at the time it was issued
+    // (their former/maiden name), so telling the user to "upload a matching document"
+    // is impossible advice. If the AI otherwise read this as a genuine document, tag
+    // it as a suspected name change so callers can record it and ask for name-change
+    // evidence later instead of rejecting it. We still flip verified=false so it can
+    // never silently auto-pass without a human (or the AMC name-change step) confirming.
+    verification.nameChange = verification.verified === true;
     verification.verified = false;
     pushVerificationIssue(
       verification,
-      'The name on this document does not match your account name. Please upload a document with the name matching your profile.'
+      verification.nameChange
+        ? 'The name on this document (' + (verification.nameFound || 'the document') + ') looks like a previous name — it is different from your account name' + (normalizedProfileName ? ' (' + normalizedProfileName + ')' : '') + '. If you have changed your name, for example after marriage, that is fine: we will record it and ask you for proof of your name change at a later step. You do not need to upload a different document.'
+        : 'The name on this document is different from your account name, and we could not confirm the document itself. Please check you have uploaded the correct document.'
     );
     return;
   }
@@ -8940,13 +8969,14 @@ const SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
   'Content-Security-Policy': [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
+    // /start's Calendly embed loads assets.calendly.com's widget script and iframes calendly.com — see script-src/frame-src below.
+    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://assets.calendly.com${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
-    "frame-src 'self' blob: *.google.com https://scribehow.com",
+    "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
     "base-uri 'self'",
@@ -10066,6 +10096,39 @@ async function handleFacebookLeadWebhook(req, res) {
     body = await readJsonBody(req);
   } catch {
     sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
+    return;
+  }
+
+  // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
+  // site_enquiries as consult leads instead of the practice pipeline.
+  const gpFormIds = consultLead.parseGpFormIds(process.env.FB_GP_LEAD_FORM_IDS);
+  const gpLead = gpFormIds.length ? consultLead.normalizeFacebookGpLead(body, gpFormIds) : null;
+  if (gpLead) {
+    if (await hasRecordedWebhookEvent('facebook_lead', gpLead.leadId)) {
+      sendJson(res, 200, { ok: true, action: 'duplicate_ignored' }); return;
+    }
+    const gpRow = buildConsultLeadRow({
+      name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
+      isGp: gpLead.isGp === true, country: gpLead.country, question: gpLead.question,
+      source: 'meta_lead_ad', leadId: gpLead.leadId, ip: ip,
+      userAgent: req.headers['user-agent']
+    });
+    const gpStored = await insertSiteEnquiryRow(gpRow);
+    if (!gpStored) { sendJson(res, 500, { ok: false, error: 'store_failed' }); return; }
+    // Record the dedupe marker only after the store succeeds — recording
+    // after the store (not before) means a failed store is retryable; a
+    // race here duplicates a lead at worst, never loses one.
+    await checkAndRecordWebhookEvent('facebook_lead', gpLead.leadId, 'gp_lead', {
+      event: 'gp_lead', created_at: new Date().toISOString()
+    });
+    // Speed-to-lead: owner alert (uses SITE_ENQUIRY_NOTIFY_EMAIL; no-op if unset)
+    await maybeNotifySiteEnquiry(gpRow);
+    // Magic link so they can book with zero re-typing (qualified leads only)
+    if (gpRow.metadata.consult.qualified) {
+      try { await sendConsultMagicLinkEmail(gpRow); }
+      catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
+    }
+    sendJson(res, 200, { ok: true, kind: 'gp_lead', lead_id: gpRow.id });
     return;
   }
 
@@ -19399,19 +19462,190 @@ function __seedSiteEnquiriesForTest(rows) {
   saveDbState();
 }
 
+// ── Consult-lead helpers (Meta-ads GP funnel) ──────────────────────────────
+// Funnel state lives in site_enquiries.metadata.consult (jsonb) — no migration.
+async function updateSiteEnquiryRow(id, patch) {
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries', 'id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+    return !!r.ok;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  const row = rows.find((r) => String(r.id) === String(id));
+  if (!row) return false;
+  Object.assign(row, patch);
+  saveDbState();
+  return true;
+}
+
+function _consultRowHasToken(row, token) {
+  return !!(row && row.kind === 'gp' && row.metadata && row.metadata.consult &&
+    row.metadata.consult.token && row.metadata.consult.token === token);
+}
+
+async function findConsultLeadByToken(token) {
+  const tok = String(token || '').trim();
+  if (!tok || tok.length < 20) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&metadata->consult->>token=eq.' + encodeURIComponent(tok) + '&limit=1',
+      { method: 'GET' });
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return rows.find((row) => _consultRowHasToken(row, tok)) || null;
+}
+
+const CONSULT_MATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+async function findRecentConsultLeadByEmail(email) {
+  const addr = String(email || '').trim().toLowerCase();
+  if (!addr) return null;
+  const cutoffIso = new Date(Date.now() - CONSULT_MATCH_WINDOW_MS).toISOString();
+  let rows = [];
+  if (isSupabaseDbConfigured()) {
+    // Escape LIKE wildcards so an email containing % or _ is matched literally,
+    // not as a pattern — mirrors markCandidateLeadUnsubscribed's ilike escaping.
+    const addrPattern = addr.replace(/([\\%_])/g, '\\$1');
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&email=ilike.' + encodeURIComponent(addrPattern) +
+      '&created_at=gte.' + encodeURIComponent(cutoffIso) + '&order=created_at.desc&limit=10',
+      { method: 'GET' });
+    rows = r.ok && Array.isArray(r.data) ? r.data : [];
+  } else {
+    rows = (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [])
+      .filter((row) => row.kind === 'gp' && String(row.email || '').toLowerCase() === addr &&
+        new Date(row.created_at).getTime() >= Date.now() - CONSULT_MATCH_WINDOW_MS)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  return rows.find((row) =>
+    String(row.email || '').toLowerCase() === addr &&
+    row.metadata && row.metadata.source === 'meta_lead_ad' &&
+    row.metadata.consult && row.metadata.consult.token &&
+    row.metadata.consult.qualified === true &&
+    !row.metadata.consult.screened_out) || null;
+}
+
+function _capUtm(utm) {
+  const out = {};
+  if (utm && typeof utm === 'object') {
+    for (const key of Object.keys(utm)) {
+      if (!/^utm_[a-z_]{1,30}$/.test(key)) continue;
+      out[key] = String(utm[key] == null ? '' : utm[key]).slice(0, 200);
+      if (Object.keys(out).length >= 8) break;
+    }
+  }
+  return out;
+}
+
+function buildConsultLeadRow(input) {
+  const qualified = consultLead.screenConsultLead({ isGp: input.isGp, country: input.country });
+  const consult = {
+    qualified,
+    is_gp: input.isGp === true,
+    country: input.country || 'other',
+    call_booked: false,
+    nudges: []
+  };
+  if (qualified) consult.token = consultLead.generateConsultToken();
+  else consult.screened_out = true;
+  return {
+    id: crypto.randomUUID(),
+    created_at: new Date().toISOString(),
+    kind: 'gp',
+    name: input.name,
+    email: input.email,
+    phone: input.phone || null,
+    practice_name: null,
+    state: input.country || null,
+    message: input.question || null,
+    status: 'new',
+    metadata: {
+      source: input.source,
+      ip: input.ip || null,
+      user_agent: String(input.userAgent || '').slice(0, 300),
+      utm: _capUtm(input.utm),
+      fb_lead_id: input.leadId || null,
+      consult
+    }
+  };
+}
+
+// Magic-link email sent to a qualified FB-webhook GP lead (Task 3): re-uses
+// the token buildConsultLeadRow already generated so booking a call takes no
+// re-typing. Best-effort — caller (handleFacebookLeadWebhook) wraps this in
+// its own try/catch so a send failure never fails the webhook response.
+async function sendConsultMagicLinkEmail(row) {
+  const consult = row.metadata && row.metadata.consult;
+  if (!consult || !consult.token) return { ok: false, error: 'no token' };
+  const displayName = consultLead.consultDisplayName(row.name);
+  const bookUrl = CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book';
+  const body = 'Hi ' + displayName + ',\n\n' +
+    'Thanks for reaching out about working as a GP in Australia. The next step is a free 30-minute call — we’ll answer your questions about registration, visas, timing and pay, with no obligation.\n\n' +
+    'Your details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.';
+  return sendEmail({
+    to: row.email,
+    subject: 'Ready when you are — book your free GP Link call',
+    html: buildCareerEmailHtml({
+      title: 'Your free call is ready to book',
+      body,
+      ctaText: 'Pick a time',
+      ctaUrl: bookUrl,
+      footer: 'Questions in the meantime? Just reply to this email.'
+    }),
+    text: body + '\n\nBook here: ' + bookUrl,
+    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+  });
+}
+
+// Hourly nudge email (Task 4 of the Meta-ads GP funnel): sent by
+// /api/cron/consult-nudge for a lead whose nextConsultNudge() step is due —
+// either "started but never booked" (sequence A, anchored at lead creation)
+// or "booked but never signed up" (sequence B, anchored at call_booked_at).
+// category:'marketing' gives this the suppression-list check + auto
+// List-Unsubscribe headers that sendEmail() builds for marketing sends.
+async function sendConsultNudgeEmail(row, due) {
+  const consult = row.metadata.consult;
+  const displayName = consultLead.consultDisplayName(row.name);
+  const bookUrl = consult.token
+    ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
+    : CONSULT_START_BASE + '/start#book';
+  const signupUrl = CONSULT_START_BASE + '/pages/signin?signup=1&email=' + encodeURIComponent(row.email);
+  const copy = consultLead.consultNudgeCopy(due.seq, due.step, { displayName, bookUrl, signupUrl });
+  const unsubUrl = buildMarketingUnsubUrl(row.email);
+  return sendEmail({
+    to: row.email,
+    subject: copy.subject,
+    html: buildCareerEmailHtml({
+      title: copy.title,
+      body: copy.body,
+      ctaText: copy.ctaText,
+      ctaUrl: copy.ctaUrl,
+      secondaryCtaText: copy.secondaryCtaText,
+      secondaryCtaUrl: copy.secondaryCtaUrl,
+      footer: '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
+    }),
+    text: copy.body + '\n\n' + copy.ctaText + ': ' + copy.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+    category: 'marketing',
+    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+  });
+}
+
 // Enquiry list — consumed by the CEO CSV export (exportRowsForEnquiries). Same
 // dual-path idiom as insertSiteEnquiryRow: Supabase in prod, dbState.siteEnquiries
 // in local-JSON-db dev/test mode. Always returns newest-first. (The in-admin
 // "Website" tab that used to render this list was removed.)
-async function listSiteEnquiryRows(status) {
+async function listSiteEnquiryRows(status, kind) {
   if (isSupabaseDbConfigured()) {
     let query = 'select=*&order=created_at.desc';
     if (status) query += '&status=eq.' + encodeURIComponent(status);
+    if (kind) query += '&kind=eq.' + encodeURIComponent(kind);
     const r = await supabaseDbRequest('site_enquiries', query, { method: 'GET' });
     return r.ok && Array.isArray(r.data) ? r.data : [];
   }
   const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries.slice() : [];
-  const filtered = status ? rows.filter((r) => r.status === status) : rows;
+  let filtered = status ? rows.filter((r) => r.status === status) : rows;
+  if (kind) filtered = filtered.filter((r) => r.kind === kind);
   return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
@@ -24005,7 +24239,13 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
             body: { status: 'under_review', flag_reason: outcome.reasonKind, rejection_reason: reason, updated_at: new Date().toISOString() }
           });
           await createFlaggedDocTask(userId, documentKey, docTypeLabel, reason, reviewStage);
-          await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
+          if (outcome.reasonKind === 'name_change') {
+            // A name change is not a rejection — tell the GP their document was
+            // received and that we're confirming the name change, not that it failed.
+            await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' received — confirming your name change', detail: reason });
+          } else {
+            await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
+          }
           return; // handled — skip the generic type-only pipeline
         }
         // approve path: clear any stale flag.
@@ -30531,6 +30771,129 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Hourly: chase Meta-ads GP consult leads (Task 4 of the 2026-07-14
+  // Meta-ads GP funnel plan). Two independent sequences per lead, both driven
+  // by lib/consult-lead.js's nextConsultNudge():
+  //  - not_booked: started the consult flow (qualified lead row created) but
+  //    never booked a call — anchored at lead created_at, nudges at 2h/48h.
+  //  - booked_no_signup: booked a call but never created a GP Link account —
+  //    anchored at call_booked_at, nudges at 3d/7d.
+  // Stops forever once the lead's email shows up in dbState.users/Supabase
+  // auth (signed up — status flips to 'converted'), on suppression-list
+  // bounce/unsubscribe (send returns {suppressed:true}), or once both nudges
+  // in the active sequence have been sent (isConsultExhausted → stopped:
+  // 'exhausted', a terminal state — see the loop body for why this matters
+  // for cost, not just tidiness). A late call_booked flip can re-open an
+  // exhausted not_booked lead into booked_no_signup (see the /booked
+  // endpoint, which clears the exhausted stop but never an unsubscribe or
+  // signed_up stop).
+  // 45s time-box mirrors onboarding-nudge above — a rerun is idempotent since
+  // each lead's due-ness is independently recomputed from its own state.
+  if (req.method === 'GET' && pathname === '/api/cron/consult-nudge') {
+    var cnSecret = String(process.env.CRON_SECRET || '').trim();
+    var cnAuth = req.headers['authorization'] || '';
+    if (!cnSecret || cnAuth !== 'Bearer ' + cnSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var cnStart = Date.now();
+    var CN_TIME_BUDGET_MS = 45000;
+    var cnScanned = 0, cnSent = 0, cnStopped = 0, cnSkipped = 0, cnPartial = false;
+    // Spec §3.6: "a person who submits twice gets one sequence; newest row
+    // wins." listSiteEnquiryRows orders created_at desc, so the first row
+    // seen per (lowercased) email in this pass is the newest — track seen
+    // emails and skip every older duplicate row for the same person.
+    var cnSeenEmails = new Set();
+    try {
+      var cnRows = await listSiteEnquiryRows('', 'gp');
+      for (var cnRow of cnRows) {
+        if (Date.now() - cnStart > CN_TIME_BUDGET_MS) { cnPartial = true; break; }
+        var cnMeta = cnRow && cnRow.metadata;
+        if (!cnMeta || cnRow.kind !== 'gp' || !cnMeta.consult) continue;
+        var cnEmailLower = String(cnRow.email || '').trim().toLowerCase();
+        if (cnEmailLower) {
+          if (cnSeenEmails.has(cnEmailLower)) { cnSkipped++; continue; }
+          cnSeenEmails.add(cnEmailLower);
+        }
+        var cnConsult = cnMeta.consult;
+        cnScanned++;
+        if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) { cnSkipped++; continue; }
+        var cnDue = consultLead.nextConsultNudge({
+          consult: cnConsult,
+          createdAtMs: new Date(cnRow.created_at).getTime(),
+          nowMs: Date.now()
+        });
+        // Nothing due right now. Either the active sequence is fully sent —
+        // this lead is about to get a terminal stop so it's skipped by the
+        // stopped-check above forever after (no more hourly re-scans, and in
+        // Supabase mode no more getSupabaseUserIdByEmail HTTP calls) — or it
+        // just isn't time yet, so leave it alone for next hour. Since the
+        // terminal stop is permanent, this is the LAST chance to notice a
+        // signup (the final nudge's CTA is the signup link, so post-final-
+        // email conversions land exactly here): run the existence check once
+        // more before choosing between 'signed_up'/converted and 'exhausted'.
+        if (!cnDue) {
+          if (consultLead.isConsultExhausted(cnConsult)) {
+            var cnExhUserExists = false;
+            if (isSupabaseDbConfigured()) {
+              cnExhUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
+            } else {
+              cnExhUserExists = !!(dbState.users && dbState.users[String(cnRow.email || '').toLowerCase()]);
+            }
+            if (cnExhUserExists) {
+              var cnMetaExhConv = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'signed_up' }) });
+              await updateSiteEnquiryRow(cnRow.id, { status: 'converted', metadata: cnMetaExhConv });
+            } else {
+              var cnMetaExhausted = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'exhausted' }) });
+              await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaExhausted });
+            }
+            cnStopped++;
+          } else {
+            cnSkipped++;
+          }
+          continue;
+        }
+        // A nudge is actually due — worth the "did they sign up?" existence
+        // check (a real HTTP call in Supabase mode). Existence is checked
+        // when a nudge is due AND once at exhaustion (above), so the cohort
+        // converted by the last email still gets stamped 'converted', at the
+        // cost of exactly one extra check per lead lifetime; quiet leads in
+        // between cost nothing.
+        var cnUserExists = false;
+        if (isSupabaseDbConfigured()) {
+          cnUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
+        } else {
+          cnUserExists = !!(dbState.users && dbState.users[String(cnRow.email || '').toLowerCase()]);
+        }
+        if (cnUserExists) {
+          var cnMetaConv = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'signed_up' }) });
+          await updateSiteEnquiryRow(cnRow.id, { status: 'converted', metadata: cnMetaConv });
+          cnStopped++;
+          continue;
+        }
+        var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
+        if (cnSendRes && cnSendRes.suppressed) {
+          var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed' }) });
+          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
+          cnStopped++;
+          continue;
+        }
+        if (cnSendRes && cnSendRes.ok) {
+          var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([
+            { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString() }
+          ]);
+          var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
+          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
+          cnSent++;
+        } else {
+          cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
+        }
+      }
+      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, partial: cnPartial });
+    } catch (e) {
+      console.error('[ConsultNudge] cron failed:', e.message);
+      sendJson(res, 500, { ok: false, error: 'Internal error' });
+    }
+    return;
+  }
+
   // ── Hourly: AI-matching lifecycle — reminders + expiry (Task 5 of the
   // 2026-07-06 AI matching plan; final-call nudge added by Task 2 of the
   // 2026-07-11 nudges plan). Four independently-bounded passes so a slow
@@ -32823,6 +33186,19 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Execution-page identity details — the legal entity is who the contract
+    // binds (a trading name is not enforceable on its own), so these are
+    // required and stamped onto the signed PDF alongside the trading name.
+    const legalEntityName = String((body && body.legal_entity_name) || '').trim();
+    const abnAcnDigits = String((body && body.abn_acn) || '').replace(/[^0-9]/g, '');
+    const signerJobTitle = String((body && body.signer_job_title) || '').trim();
+    if (!legalEntityName || legalEntityName.length > 200 || !signerJobTitle || signerJobTitle.length > 120 ||
+        (abnAcnDigits.length !== 11 && abnAcnDigits.length !== 9)) {
+      sendJson(res, 400, { ok: false, error: 'Please complete the legal entity name, ABN/ACN (11 or 9 digits) and your job title. If you cannot see those fields, refresh this page.' });
+      return;
+    }
+    const abnAcnLabel = (abnAcnDigits.length === 11 ? 'ABN ' : 'ACN ') + abnAcnDigits;
+
     if (!_agreementPdfBytes) {
       try {
         _agreementPdfBytes = fs.readFileSync(path.join(process.cwd(), 'assets/legal/gp-link-practice-agreement-2026.pdf'));
@@ -32843,6 +33219,9 @@ async function handleApi(req, res, pathname) {
         signaturePngDataUrl: signaturePngDataUrl,
         signedName: signedName,
         practiceName: practice.name || '',
+        legalEntityName: legalEntityName,
+        abnAcn: abnAcnLabel,
+        signerJobTitle: signerJobTitle,
         dateLabel: dateLabel,
         ipAddress: clientIp,
         token: token
@@ -32885,7 +33264,17 @@ async function handleApi(req, res, pathname) {
       agreement_signed_by: signedName,
       agreement_signed_pdf_key: signedKey
     };
-    let savedPractice = await atsUpdatePracticeRow(practice.id, practicePatch);
+    // The legal entity / ABN-ACN / job title captured at signing live under
+    // metadata (no dedicated columns), merged so intake and other stashes
+    // are preserved.
+    const metadataWithSigning = Object.assign({}, practice.metadata || {}, {
+      agreement_signing: {
+        legal_entity_name: legalEntityName,
+        abn_acn: abnAcnLabel,
+        signer_job_title: signerJobTitle
+      }
+    });
+    let savedPractice = await atsUpdatePracticeRow(practice.id, Object.assign({}, practicePatch, { metadata: metadataWithSigning }));
     if (!savedPractice && isSupabaseDbConfigured()) {
       // Missing-column tolerance: agreement_status/agreement_signed_* columns
       // may not exist yet (migration 20260705100000 not applied). Fall back
@@ -32894,7 +33283,7 @@ async function handleApi(req, res, pathname) {
       // still durably persisted. Local mode (dev/tests) never hits this path.
       console.error('[practice-intake] pipeline columns missing — run migration 20260705100000');
       savedPractice = await atsUpdatePracticeRow(practice.id, {
-        metadata: Object.assign({}, practice.metadata || {}, { pipeline_agreement: practicePatch })
+        metadata: Object.assign({}, metadataWithSigning, { pipeline_agreement: practicePatch })
       });
     }
     if (!savedPractice) {
@@ -32932,7 +33321,7 @@ async function handleApi(req, res, pathname) {
       subject: 'New signed practice: ' + (practice.name || '') + ' — job pending approval',
       html: buildCareerEmailHtml({
         title: 'New signed practice',
-        body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval).',
+        body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval). Signed by ' + signedName + ' (' + signerJobTitle + ') for ' + legalEntityName + ' (' + abnAcnLabel + ').',
         ctaText: 'View in CEO dashboard',
         ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard#practice=' + practice.id
       })
@@ -33622,6 +34011,77 @@ async function handleApi(req, res, pathname) {
 
     await maybeNotifySiteEnquiry(row);
 
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Meta-ads GP consult funnel (public, no session) ──────────────────────
+  if (pathname === '/api/public/consult-lead' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    if (isSiteEnquiryHoneypotFilled(body)) { sendJson(res, 200, { ok: true, qualified: true }); return; }
+    const validated = consultLead.validateConsultLeadPayload(body);
+    if (!validated.ok) { sendJson(res, 400, { ok: false, error: validated.error }); return; }
+    const ip = getClientIp(req);
+    if (!checkSiteEnquiryRateLimit(ip)) { sendJson(res, 429, { ok: false, error: 'Too many requests from this address. Please try again later.' }); return; }
+    const row = buildConsultLeadRow(Object.assign({}, validated.value, {
+      source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
+    }));
+    const stored = await insertSiteEnquiryRow(row);
+    if (!stored) { sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' }); return; }
+    recordSiteEnquiryRateLimitHit(ip);
+    await maybeNotifySiteEnquiry(row);
+    const out = { ok: true, qualified: row.metadata.consult.qualified };
+    if (row.metadata.consult.token) out.token = row.metadata.consult.token;
+    sendJson(res, 200, out);
+    return;
+  }
+
+  if (pathname === '/api/public/consult-lead' && req.method === 'GET') {
+    const tok = String(url.searchParams.get('token') || '').trim();
+    const row = tok ? await findConsultLeadByToken(tok) : null;
+    if (!row || row.metadata.consult.qualified !== true) { sendJson(res, 404, { ok: false }); return; }
+    sendJson(res, 200, { ok: true, displayName: consultLead.consultDisplayName(row.name), email: row.email, qualified: true });
+    return;
+  }
+
+  if (pathname === '/api/public/consult-lead/match' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('consult_match:' + ip, 10, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, error: 'Too many attempts. Please try again later.' }); return; }
+    const row = await findRecentConsultLeadByEmail(body && body.email);
+    if (!row) { sendJson(res, 200, { ok: true, found: false }); return; }
+    // Privacy: display name + token only — never phone or answers.
+    sendJson(res, 200, { ok: true, found: true, displayName: consultLead.consultDisplayName(row.name), token: row.metadata.consult.token });
+    return;
+  }
+
+  if (pathname === '/api/public/consult-lead/booked' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+    const row = await findConsultLeadByToken(body && body.token);
+    if (!row) { sendJson(res, 404, { ok: false }); return; }
+    // A recognised lead can type a question right before booking (Door 2
+    // skips the enquiry form entirely, so this is the first chance to
+    // capture it) — sanitize the same way validateConsultLeadPayload does.
+    const question = String((body && body.question) || '').trim().replace(/[<>&]/g, '').slice(0, 2000);
+    const metadata = Object.assign({}, row.metadata);
+    metadata.consult = Object.assign({}, metadata.consult, {
+      call_booked: true,
+      call_booked_at: metadata.consult.call_booked_at || new Date().toISOString()
+    });
+    if (question) metadata.consult.call_question = question;
+    // A late booking after the not_booked sequence exhausted itself should
+    // re-open booked_no_signup rather than stay stopped forever — but a real
+    // unsubscribe/signed_up stop must still hold, so only 'exhausted' clears.
+    if (metadata.consult.stopped === 'exhausted') delete metadata.consult.stopped;
+    const patch = { status: 'contacted', metadata };
+    // Also surface it as the row's own message so the owner sees it in the
+    // lead browser, but never clobber a question already captured at signup.
+    if (question && !row.message) patch.message = question;
+    await updateSiteEnquiryRow(row.id, patch);
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -39943,7 +40403,12 @@ async function handleApi(req, res, pathname) {
     if (qualDocKey && result.verification) {
       const vq = result.verification;
       const qNameOk = vq.nameMatch === 'exact' || vq.nameMatch === 'fuzzy';
-      if (!(vq.verified === true && qNameOk)) {
+      // A suspected name change is NOT a scan failure: the certificate genuinely
+      // carries the GP's former name and can never be re-issued in the new name.
+      // Don't burn a retry or demand a re-upload — the client accepts it as
+      // "Verified (name change pending)" and we record the change below.
+      const qNameChange = vq.nameChange === true;
+      if (!qNameChange && !(vq.verified === true && qNameOk)) {
         const qRaw = stripBase64DataUrlPrefix(imageBase64);
         qualScanMeta = await handleServerScanFailure(session, {
           docKey: qualDocKey,
@@ -39954,6 +40419,22 @@ async function handleApi(req, res, pathname) {
           reason: Array.isArray(vq.issues) && vq.issues.length ? vq.issues.join(' ') : 'The document details could not be verified against your account.'
         });
       }
+    }
+
+    // Record a suspected name change proactively so the AMC "Establishment" step
+    // asks the GP for their name-change evidence (e.g. marriage certificate). A
+    // qualification whose name differs from the account is almost always a name
+    // change — set the flag now rather than waiting for an RSO to approve a flag.
+    if (result.verification && result.verification.nameChange === true && verifyEmail && isSupabaseDbConfigured()) {
+      try {
+        const ncUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(verifyEmail);
+        if (ncUserId) {
+          await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(ncUserId), {
+            method: 'PATCH',
+            body: { name_change_detected: true, name_change_note: 'Document name: ' + (result.verification.nameFound || '') }
+          });
+        }
+      } catch (ncErr) { console.error('[verify-qualification] name-change flag failed:', ncErr && ncErr.message); }
     }
 
     sendJson(res, 200, {
@@ -58340,10 +58821,13 @@ const SITE_PUBLIC_ROUTES = {
   // Matches the owner's old Wix page (www.mygplink.com.au/gp-jobs) so
   // existing inbound links keep working after the DNS cutover.
   '/gp-jobs': 'pages/site-gp-jobs.html',
+  // Matches the old Wix /visa page — same URL, rebuilt copy (482 → 186/189).
+  '/visa': 'pages/site-visa.html',
   // Task 19: honest "exclusive placement" scarcity/teaser page. Linked from
   // the job board's zero-real-match locked teaser cards; not itself a nav
   // item.
   '/exclusive-placements': 'pages/site-exclusive.html',
+  '/start': 'pages/site-start.html',
 };
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
 
@@ -59497,6 +59981,23 @@ module.exports.__testUtils = {
   __seedSiteEnquiriesForTest,
   insertSiteEnquiryRow,
   listSiteEnquiryRows,
+  updateSiteEnquiryRow,
+  findConsultLeadByToken,
+  findRecentConsultLeadByEmail,
+  buildConsultLeadRow,
+  sendConsultNudgeEmail,
+  // Test-only: seeds a signed-up account directly into dbState.users (local-
+  // JSON mode) — dbState is loaded once at module import, so a raw write to
+  // the DB file mid-test would never be seen by the running process; cron
+  // endpoints that gate on "has this lead signed up?" (consult-nudge) need
+  // this in-memory seed instead of a real signup flow.
+  __seedUserForTest: function (email, patch) {
+    const key = String(email || '').trim().toLowerCase();
+    if (!key) return;
+    dbState.users = dbState.users || {};
+    dbState.users[key] = Object.assign({ email: key }, patch || {});
+    saveDbState();
+  },
   listOnboardingReminders,
   upsertOnboardingReminder,
   sendOnboardingNudgeEmail,

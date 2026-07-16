@@ -323,10 +323,9 @@ describe('GET /jobs/view (Task 9 job detail page)', () => {
     expect(res.raw).toContain('signup=1&next=/pages/career');
   });
 
-  it('has the Calendly "ask us" secondary CTA opening in a new tab', async () => {
+  it('has the "ask us" secondary CTA pointing at the /start#book funnel', async () => {
     const res = await get('/jobs/view?id=anything');
-    expect(res.raw).toContain('https://calendly.com/hello-mygplink/30min');
-    expect(res.raw).toMatch(/target="_blank" rel="noopener">Ask us about this role/);
+    expect(res.raw).toMatch(/href="\/start#book">Ask us about this role/);
   });
 
   it('has a not-found panel with a link back to /jobs', async () => {

@@ -31,6 +31,12 @@
 /* ---------- base / reset ---------- */
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+/* Kill sideways panning at the root. Directional reveals (rv-right) and
+   overscanned parallax layers poke past the right edge until they animate;
+   overflow-x on <body> alone isn't honoured reliably by iOS Safari.
+   `clip` (with `hidden` as the older-browser fallback) blocks user scroll
+   without creating a new scroll container. */
+html, body { overflow-x: hidden; overflow-x: clip; }
 body {
   margin: 0;
   background: var(--bg);
@@ -38,7 +44,6 @@ body {
   font-family: var(--sys);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
 }
 /* Soft page entrance — opacity only (a transform on <body> would break the
    fixed header), paired with each page's own hero stage animation. */
@@ -240,6 +245,12 @@ h2.sec-title {
 .reveal.rv-scale { transform: scale(.92) translateY(18px); }
 .reveal.rv-blur { transform: translateY(24px); filter: blur(10px); }
 .reveal.in { opacity: 1; transform: none; filter: none; }
+/* Narrow screens: gentler slide offsets so waiting elements can't reach far
+   past the viewport edge even before the root-level clip catches them. */
+@media (max-width: 680px) {
+  .reveal.rv-left { transform: translateX(-20px); }
+  .reveal.rv-right { transform: translateX(20px); }
+}
 .reveal.dl1 { transition-delay: .08s; }
 .reveal.dl2 { transition-delay: .16s; }
 .reveal.dl3 { transition-delay: .24s; }
@@ -274,7 +285,10 @@ h2.sec-title {
   z-index: 200;
   pointer-events: none;
   background: linear-gradient(135deg, #0c2e66 0%, #0d5ee0 55%, #116dff 100%);
-  transform: translateY(103%);
+  /* Rest fully off-screen: the ::after dome arcs 15vh above the veil's top
+     edge, so anything under ~115% leaves a blue sliver visible at the bottom
+     of every page. 120% keeps the dome clear of the viewport at rest. */
+  transform: translateY(120%);
   transition: transform .42s var(--ease-wipe);
 }
 .page-veil::after {

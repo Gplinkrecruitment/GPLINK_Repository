@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GP Link Pricing Schedule 2026</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: A4; margin: 0; }
+  html, body { background: #fff; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #333; }
+
+  .page { width: 210mm; height: 297mm; position: relative; page-break-after: always; overflow: hidden; }
+  .page:last-child { page-break-after: auto; }
+
+  .logo { position: absolute; left: 8.5mm; top: 9mm; width: 64mm; }
+  .footer-line { position: absolute; left: 17mm; right: 17mm; bottom: 34mm; border-top: 0.6pt solid #c9cdd1; }
+  .footer-text { position: absolute; left: 17mm; bottom: 26mm; font-size: 9pt; color: #1a1a1a; }
+  .pagenum { position: absolute; right: 17mm; bottom: 30mm; font-size: 9.5pt; color: #71afdb; }
+
+  .content { position: absolute; left: 17mm; right: 17mm; top: 38mm; }
+
+  /* ── Cover ─────────────────────────────────────────── */
+  .cover-strip { position: absolute; left: 18.5mm; width: 173mm; top: 103mm; }
+  .cover-title { position: absolute; left: 0; right: 0; top: 178mm; text-align: center; color: #59a3d6; font-weight: bold; font-size: 25pt; line-height: 1.45; }
+  .cover-acn { position: absolute; left: 0; right: 0; top: 206mm; text-align: center; color: #59a3d6; font-weight: bold; font-style: italic; font-size: 16pt; }
+  .cover-sub { position: absolute; left: 0; right: 0; top: 232mm; text-align: center; color: #111; font-weight: bold; font-size: 21pt; line-height: 1.3; }
+
+  /* ── Marketing pages ───────────────────────────────── */
+  .goal-line { text-align: center; color: #59a3d6; font-weight: bold; font-size: 12.5pt; margin-bottom: 9mm; }
+  .howline { text-align: center; color: #59a3d6; font-weight: bold; font-size: 12.5pt; margin-bottom: 8mm; }
+  h2.grey { color: #929497; font-weight: normal; font-size: 17pt; margin: 9mm 0 6mm; }
+  h2.grey:first-child { margin-top: 0; }
+  .body, .body p, ul.dots li { color: #929497; font-size: 10.5pt; line-height: 1.62; }
+  .body p + p { margin-top: 4.5mm; }
+  .body b { color: #808285; }
+  ul.dots { list-style: none; margin-top: 2mm; }
+  ul.dots li { padding-left: 7mm; position: relative; }
+  ul.dots li::before { content: "•"; position: absolute; left: 1.5mm; }
+  .blue-h2 { color: #59a3d6; font-weight: bold; font-size: 17pt; line-height: 1.25; margin-bottom: 8mm; }
+
+  /* ── Fees pages ────────────────────────────────────── */
+  h1.blue { color: #59a3d6; font-weight: normal; font-size: 16pt; margin-bottom: 5mm; }
+  h3.fees { color: #111; font-weight: bold; font-size: 13.5pt; margin: 6mm 0 3.5mm; }
+  table.fees { width: 100%; border-collapse: collapse; margin: 4mm 0; }
+  table.fees th { background: #7caad9; color: #fff; font-size: 10pt; font-weight: bold; padding: 4.2mm 2.5mm; text-align: center; vertical-align: middle; }
+  table.fees td { font-size: 10pt; color: #111; padding: 3.6mm 2.5mm; text-align: center; vertical-align: middle; }
+  table.fees th + th, table.fees td + td { border-left: 0.9pt solid #2b2b2b; }
+  table.fees tr.alt td { background: #c5e1fc; }
+  table.fees td.bold, table.fees th.col1 { font-weight: bold; }
+  table.fees td.left { text-align: left; padding-left: 4mm; }
+  .note-h { color: #6d7073; font-weight: bold; font-size: 10.5pt; margin: 4mm 0 2.5mm; }
+  .tier-table { margin: 1.5mm 0 2.5mm 6mm; }
+  .tier-table div { color: #929497; font-size: 10pt; line-height: 1.7; }
+  .tier-table span { display: inline-block; width: 42mm; }
+  .fineprint { color: #929497; font-size: 10pt; line-height: 1.55; }
+  .fineprint + .fineprint { margin-top: 3mm; }
+  .fineprint b, .warn b { color: #6d7073; }
+  .warn { color: #6d7073; font-size: 10pt; line-height: 1.55; font-weight: bold; font-style: italic; }
+
+  /* ── Sign page ─────────────────────────────────────── */
+  .sign-box { border: 0.9pt solid #7caad9; border-radius: 2mm; padding: 4.5mm 7mm; margin: 4mm 0; }
+  .sign-box .row { display: flex; margin-bottom: 2.4mm; }
+  .sign-box .row:last-child { margin-bottom: 0; }
+  .sign-box .lbl { flex: none; width: 78mm; color: #59a3d6; font-weight: bold; font-size: 10.5pt; }
+  .sign-box .val { flex: 1; color: #929497; font-size: 10.5pt; }
+
+  /* ── Agreement pages ───────────────────────────────── */
+  .rsa-title { color: #7caad9; font-weight: normal; font-size: 20pt; margin-bottom: 8mm; }
+  .sec { margin-bottom: 4.5mm; }
+  .sec-h { display: flex; border-bottom: 0.6pt solid #c9cdd1; padding-bottom: 1mm; margin-bottom: 2.2mm; }
+  .sec-h .n { flex: none; width: 12mm; font-weight: bold; font-size: 10.5pt; color: #111; }
+  .sec-h .t { font-weight: bold; font-size: 10.5pt; color: #111; letter-spacing: 0.2pt; }
+  .cl { display: flex; margin-bottom: 2.4mm; }
+  .cl .n { flex: none; width: 12mm; font-size: 9.8pt; color: #111; }
+  .cl .b { flex: 1; font-size: 9.8pt; color: #111; line-height: 1.5; }
+  .sub { display: flex; margin-top: 1.4mm; }
+  .sub .n { flex: none; width: 9mm; font-size: 9.8pt; color: #111; }
+  .sub .b { flex: 1; font-size: 9.8pt; color: #111; line-height: 1.5; }
+  .def { margin-bottom: 1.8mm; font-size: 9.8pt; color: #111; line-height: 1.5; }
+  .b p + p { margin-top: 1.4mm; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ PAGE 1 — COVER ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <img class="cover-strip" src="{{STRIP}}" alt="">
+  <div class="cover-title">GP LINK RECRUITMENT AUSTRALIA<br>PTY LTD</div>
+  <div class="cover-acn">ACN: 693 259 737</div>
+  <div class="cover-sub">Australia Medical Recruitment<br>Pricing Schedule 2026</div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">1</div>
+</div>
+
+<!-- ═══════════════ PAGE 2 — HOW WE DO IT ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="goal-line">As recruiters, we have one goal: &lsquo;Matching the best GPs with the best GP jobs&rsquo;</div>
+    <div class="howline">How do we do it?</div>
+
+    <h2 class="grey">Matching</h2>
+    <div class="body">
+      <p>We work to achieve a good match between a doctor and a practice. Our experience shows that a good match means
+      doctors stay longer and work more effectively. We aim to present you with candidates that fit with the needs and culture
+      of your practice as closely as possible. To achieve this, we advertise widely and filter applications to identify GPs who
+      meet your requirements, therefore only presenting you with candidates who have a genuine interest in working with you.
+      <b>Historically, for every 3 interviews we schedule between you and the GP, at least 1 successful placement is made.</b></p>
+    </div>
+
+    <h2 class="grey">Contractual arrangements</h2>
+    <div class="body">
+      <p>If both the practice owners and the GPs express an interest in working together, GP Link will negotiate between the
+      parties the terms of the contract and will assist in agreeing the contractual details. We aim to minimise the work
+      required by the practice and aim to deliver a signed contract as quickly as possible. We encourage candidates to
+      commit to ongoing placements to build relationships with a patient base.</p>
+    </div>
+
+    <h2 class="grey">Registration support for doctors based overseas</h2>
+    <div class="body">
+      <p>Most doctors sourced from overseas require extensive support for a period of 6&ndash;9 months as they work on
+      arrangements to come to Australia. For most of this period, our GPs require our support several times a week to
+      navigate the complex labyrinth of regulation as well as covering off everything they need to move to a new country.
+      This support includes, but is not limited to:</p>
+      <ul class="dots">
+        <li>Preparation of AMC/EPIC documentation</li>
+        <li>Liaison with the RACGP, AHPRA and Medicare, where we act as authorised agent of the doctor and deal with
+        most issues that arise</li>
+        <li>Assistance with visas and migration (involvement of migration agents incurs an additional cost)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">2</div>
+</div>
+
+<!-- ═══════════════ PAGE 3 — THE GP LINK DIFFERENCE ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="blue-h2">The GP Link<br>Difference</div>
+
+    <h2 class="grey">We make matches that are made to last</h2>
+    <div class="body">
+      <p>We want to place GPs in jobs where they stay for the long term because they are happy and engaged in the practice.
+      Rather than making money by placing the same GP in clinic after clinic, we aim to find the best match so that doctors
+      are more likely to stay longer term. We also rely heavily on referrals from our candidates, so we want to make sure
+      they are 100% happy with our service.</p>
+      <p>We usually only submit each candidate to 2&ndash;3 practices. We don&rsquo;t just send you a barrage of CVs and expect you to
+      sort through the rest. We aim to send you only GPs that are interested in your GP job and who we think are a good
+      match for your practice.</p>
+    </div>
+
+    <h2 class="grey">We only work in General Practice</h2>
+    <div class="body">
+      <p>We are not a recruitment agency that just dabbles in GP jobs but mostly works with hospital doctors. All of our
+      recruitment and consulting work is 100% focused on General Practice. We are focused and committed to the
+      provision of recruitment and business solutions for Australian GP Practices.</p>
+    </div>
+
+    <h2 class="grey">We support the whole process</h2>
+    <div class="body">
+      <p>We check that GPs have the right type of registration, and that they will be able to obtain a provider number to work in
+      your practice.</p>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">3</div>
+</div>
+
+<!-- ═══════════════ PAGE 4 — RECRUITMENT FEES ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <h1 class="blue">1. Recruitment fees</h1>
+
+    <h3 class="fees">1.1 Permanent placement &mdash; full-time General Practitioner</h3>
+    <div class="fineprint">A <b>full-time</b> placement is an engagement averaging eight (8) or more sessions (approximately 35 or more hours) per
+    week. The total fee for an overseas-based GP is payable in two payments: the first 50% is invoiced when the doctor
+    accepts your contract; the second 50% is invoiced when the doctor commences work for you. For Australian-based
+    GPs, the full fee is invoiced when the placed doctor commences work. All fees are exclusive of GST.</div>
+
+    <table class="fees">
+      <tr>
+        <th class="col1" style="width:22mm;">Payment</th>
+        <th>Timing of payment</th>
+        <th style="width:33mm;">GP candidates<br>based overseas</th>
+        <th style="width:33mm;">GP candidates<br>based in Australia</th>
+      </tr>
+      <tr class="alt">
+        <td class="bold">1st Payment</td>
+        <td class="left">Invoiced once the GP candidate <b>accepts</b> your contract</td>
+        <td class="bold">$12,500</td>
+        <td class="bold">$0</td>
+      </tr>
+      <tr>
+        <td class="bold">2nd Payment</td>
+        <td class="left">Invoiced when the GP <b>commences</b> work for you</td>
+        <td class="bold">$12,500</td>
+        <td class="bold">$21,000</td>
+      </tr>
+      <tr class="alt">
+        <td class="bold">Total</td>
+        <td class="left"></td>
+        <td class="bold">$25,000</td>
+        <td class="bold">$21,000</td>
+      </tr>
+    </table>
+
+    <h3 class="fees">1.2 Permanent placement &mdash; part-time General Practitioner</h3>
+    <div class="fineprint">A <b>part-time</b> placement is an engagement averaging fewer than eight (8) sessions (approximately fewer than 35
+    hours) per week. The same payment structure and timing apply as for full-time placements. If a part-time placement
+    increases to full-time hours within 12 months of commencement, the difference between the part-time and full-time
+    fee becomes payable (clause 6 of the Recruitment Services Agreement).</div>
+
+    <table class="fees">
+      <tr>
+        <th class="col1" style="width:22mm;">Payment</th>
+        <th>Timing of payment</th>
+        <th style="width:33mm;">GP candidates<br>based overseas</th>
+        <th style="width:33mm;">GP candidates<br>based in Australia</th>
+      </tr>
+      <tr class="alt">
+        <td class="bold">1st Payment</td>
+        <td class="left">Invoiced once the GP candidate <b>accepts</b> your contract</td>
+        <td class="bold">$10,500</td>
+        <td class="bold">$0</td>
+      </tr>
+      <tr>
+        <td class="bold">2nd Payment</td>
+        <td class="left">Invoiced when the GP <b>commences</b> work for you</td>
+        <td class="bold">$10,500</td>
+        <td class="bold">$18,000</td>
+      </tr>
+      <tr class="alt">
+        <td class="bold">Total</td>
+        <td class="left"></td>
+        <td class="bold">$21,000</td>
+        <td class="bold">$18,000</td>
+      </tr>
+    </table>
+
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">4</div>
+</div>
+
+<!-- ═══════════════ PAGE 5 — GUARANTEE / LOCUM / WITHDRAWAL ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <h3 class="fees" style="margin-top:0;">Guarantee period and credits</h3>
+    <div class="fineprint">A 12-week guarantee period applies to permanent placements. If our candidate leaves the practice within the
+    following period (subject to the conditions in clause 7 of the Recruitment Services Agreement), you will receive
+    credit towards future placements or services:</div>
+    <div class="tier-table">
+      <div><span>Up to 4 weeks</span>80% of the placement fee is credited for future placements or services</div>
+      <div><span>Between 4&ndash;8 weeks</span>50% of the placement fee is credited for future placements or services</div>
+      <div><span>Between 8&ndash;12 weeks</span>35% of the placement fee is credited for future placements or services</div>
+    </div>
+    <div class="warn">Please note all calculations are made on the candidate&rsquo;s last working day with the practice, not on the day
+    they give notice of their intention to leave.</div>
+    <div class="fineprint" style="margin-top:3mm;"><b>The guarantee only applies while your account is in good standing.</b> Invoices are payable within seven (7) days
+    of issue. If any invoice is not paid in full by its due date, all guarantee and credit entitlements are forfeited
+    (clauses 6 and 7 of the Recruitment Services Agreement).</div>
+    <div class="fineprint">If a credit has not been applied to a new placement or service within 12 months of the date it was issued, it will be
+    refunded to you on request.</div>
+    <div class="fineprint">Any candidates based overseas that we present to you will be eligible for specialist registration (VR) once they have
+    worked in Australia for 6&ndash;12 months (full-time). Most candidates already based in Australia will hold, or be
+    immediately eligible for, specialist registration (VR).</div>
+    <div class="fineprint">By agreeing to these terms, you agree that you (and/or other related parties) will not under any circumstances
+    require a doctor to contribute to payment of our recruitment fees &mdash; either directly or indirectly.</div>
+
+    <h3 class="fees">1.3 Locum placements</h3>
+    <div class="fineprint">For locum (temporary) placements, our fee is <b>20% of the gross fees or billings payable to, or in respect of, the
+    locum GP</b> for the assignment, exclusive of GST, invoiced weekly and payable within seven (7) days.</div>
+    <div class="fineprint">If, within 12 months of the end of a locum assignment (or of our last presentation of the locum to you), you or a
+    related entity engages that GP on a permanent or ongoing basis, the applicable permanent placement fee in
+    sections 1.1&ndash;1.2 becomes payable in full, in addition to locum fees already invoiced.</div>
+
+    <h1 class="blue" style="margin-top:7mm;">2. Withdrawal of an accepted offer</h1>
+    <div class="fineprint">If the client (i.e. the practice owners) withdraws their offer of a position after the candidate has signed a contract,
+    the client is liable for <b>50% of the total applicable recruitment fee</b>. This payment compensates GP Link and the
+    candidate for the significant work and investment that both parties have undertaken to reach this point. This fee
+    applies where the position is withdrawn due to operational reasons or any factors not related to the performance or
+    availability of the doctor.</div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">5</div>
+</div>
+
+<!-- ═══════════════ PAGE 6 — AGREEMENT TO TERMS ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <h1 class="blue">3. Agreement to terms and conditions</h1>
+    <div class="fineprint">The client acknowledges that candidates introduced to the client are subject to our Recruitment Services Agreement,
+    which follows in this document. This includes privacy and confidentiality provisions relating to the use and disclosure
+    of information.</div>
+    <div class="fineprint">This agreement is accepted by <b>signing electronically through the GP Link portal</b>. When you sign, the details
+    below are collected and stamped onto the execution page appended to your signed copy, which together with this
+    document forms your agreement with us. A copy of the executed agreement is emailed to you for your records.
+    Acceptance may also occur by email confirmation or by conduct, as set out in clause 1 of the Recruitment Services
+    Agreement.</div>
+
+    <div class="sign-box">
+      <div class="row"><div class="lbl">Full legal registered entity name</div><div class="val">Collected at electronic signing</div></div>
+      <div class="row"><div class="lbl">ABN / ACN</div><div class="val">Collected at electronic signing</div></div>
+      <div class="row"><div class="lbl">Full name of authorised representative</div><div class="val">Collected at electronic signing</div></div>
+      <div class="row"><div class="lbl">Job title</div><div class="val">Collected at electronic signing</div></div>
+      <div class="row"><div class="lbl">Signature of authorised representative</div><div class="val">Drawn or typed at electronic signing</div></div>
+      <div class="row"><div class="lbl">Date signed</div><div class="val">Recorded automatically, with IP address and verification reference</div></div>
+    </div>
+
+    <h3 class="fees" style="margin-top:3mm;">Fee summary</h3>
+    <table class="fees" style="margin:2.5mm 0;">
+      <tr>
+        <th class="col1" style="width:34mm;">Placement</th>
+        <th>Fee</th>
+        <th style="width:52mm;">Timing</th>
+      </tr>
+      <tr class="alt">
+        <td class="bold">Full-time &mdash; overseas GP</td>
+        <td>$25,000 (two payments of $12,500)</td>
+        <td class="left">On acceptance; on commencement</td>
+      </tr>
+      <tr>
+        <td class="bold">Full-time &mdash; Australian GP</td>
+        <td>$21,000</td>
+        <td class="left">On commencement</td>
+      </tr>
+      <tr class="alt">
+        <td class="bold">Part-time &mdash; overseas GP</td>
+        <td>$21,000 (two payments of $10,500)</td>
+        <td class="left">On acceptance; on commencement</td>
+      </tr>
+      <tr>
+        <td class="bold">Part-time &mdash; Australian GP</td>
+        <td>$18,000</td>
+        <td class="left">On commencement</td>
+      </tr>
+      <tr class="alt">
+        <td class="bold">Locum GP</td>
+        <td>20% of gross fees/billings payable to the locum</td>
+        <td class="left">Invoiced weekly</td>
+      </tr>
+    </table>
+    <div class="fineprint">All fees are exclusive of GST. Invoices are payable within seven (7) days of issue.</div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">6</div>
+</div>
+
+<!-- ═══════════════ PAGE 7 — RSA CLAUSES 1–2 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="rsa-title">Recruitment Services Agreement</div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">1.</div><div class="t">APPLICATION</div></div>
+      <div class="cl"><div class="n">1.1</div><div class="b">This document sets out the terms on which we offer to supply our placement services to you and is accompanied by
+      our fee schedule. These terms apply if you accept them: by signing electronically through the GP Link portal (including
+      by drawing or typing a signature); by signing the fee schedule and returning it to us by email; by sending an email to us
+      with the word &ldquo;Approved&rdquo; in the email; or your consent is inferred if you continue to use our placement services after
+      having received a copy of this Recruitment Services Agreement and the fee schedule.</div></div>
+      <div class="cl"><div class="n">1.2</div><div class="b">Acceptance may be express, implied or by conduct and, without limiting the variety of circumstances that might
+      constitute acceptance, occurs if you:
+        <div class="sub"><div class="n">(a)</div><div class="b">tell us you have accepted them; or</div></div>
+        <div class="sub"><div class="n">(b)</div><div class="b">ask us for help to fill a position after you have received a copy of them; or</div></div>
+        <div class="sub"><div class="n">(c)</div><div class="b">use or disclose, without our consent and in connection with an offer of work that is or may be made by you or
+        any other person to our candidate, any personal information about our candidate that we have provided to you
+        (including the name or contact details of our candidate).</div></div>
+      </div></div>
+      <div class="cl"><div class="n">1.3</div><div class="b">These terms apply to your engagement of our placement services on a contingent basis (i.e. where we are only paid a
+      fee if one of our candidates whom we have presented to you obtains a position with you, or with someone to whom
+      you have passed on personal information about that candidate without our consent) AND even though other
+      employment service providers might have been engaged to help to fill the position or have presented the same
+      candidate.</div></div>
+      <div class="cl"><div class="n">1.4</div><div class="b">Once they are in operation, these terms remain in force for all future engagements of our placement services unless
+      they have been varied in writing.</div></div>
+      <div class="cl"><div class="n">1.5</div><div class="b">This agreement may be executed electronically. An electronic signature made through the GP Link portal (or any
+      other electronic acceptance under this clause 1) is valid and binding to the same extent as a handwritten signature,
+      consistent with the Electronic Transactions Act 1999 (Cth) and the Electronic Transactions Act 2000 (NSW).</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">7</div>
+</div>
+
+<!-- ═══════════════ PAGE 8 — RSA CLAUSE 2 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">2.</div><div class="t">INTERPRETATION</div></div>
+      <div class="def"><b>Contract</b> means the contract of (or for) employment or other engagement, whether in writing or not, between you and
+      our candidate in relation to the placement;</div>
+      <div class="def"><b>Fee schedule</b> means the pricing schedule that accompanies this Recruitment Services Agreement and outlines our fees
+      for placement and payment terms;</div>
+      <div class="def"><b>Full-time placement</b> means a placement averaging eight (8) or more sessions (approximately 35 or more hours) per
+      week; <b>part-time placement</b> means a placement averaging less than that;</div>
+      <div class="def"><b>Guarantee period</b> means the period of twelve (12) weeks from the date the candidate commences the placement;</div>
+      <div class="def"><b>Locum placement</b> means a temporary or short-term engagement of a candidate, including fixed-term cover;</div>
+      <div class="def"><b>Our candidate/s</b> means anyone: (a) who is seeking a position through us; or (b) whom we have identified as a person
+      who might consider seeking a position through us, and about whom we are able to provide relevant information
+      regarding that person&rsquo;s availability or suitability for a position;</div>
+      <div class="def"><b>Placement</b> means the filling of a position that you require to be filled and, where the context so requires, includes a
+      position that a third party requires to be filled;</div>
+      <div class="def"><b>Placement services</b> means activities to facilitate the filling of a position &mdash; for example, providing contact information
+      for a candidate, presentation of a candidate, introduction to a candidate, interviews (face to face and telephone), and
+      assistance with medical assessment and registration requirements;</div>
+      <div class="def"><b>Related entity</b> has the same meaning as in the Corporations Act 2001 (Cth) and applies, with the necessary changes
+      being made, if you are not a body corporate under that Act;</div>
+      <div class="def"><b>Third party</b> means a person or entity that is not a party to this agreement;</div>
+      <div class="def"><b>Us, our</b> or <b>we</b> refers to GP Link Recruitment Australia Pty Ltd (ACN 693 259 737) and related entities;</div>
+      <div class="def"><b>You</b> or <b>your</b> refers to the client identified at electronic signing (or in the fee schedule) and includes any of your related
+      entities for whom you have authority (whether actual, implied or ostensible) to enter into this agreement.</div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">8</div>
+</div>
+
+<!-- ═══════════════ PAGE 8 — RSA CLAUSES 3–4 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">3.</div><div class="t">PRESENTATION OF OUR CANDIDATES</div></div>
+      <div class="cl"><div class="n">3.1</div><div class="b">The presentation of one of our candidates commences when we first forward to you any information about the
+      candidate, whether on an identified, anonymous or pseudonymous basis.</div></div>
+      <div class="cl"><div class="n">3.2</div><div class="b">When we first present one of our candidates to you, the candidate is presented on a contingent basis.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">4.</div><div class="t">OUR RESPONSIBILITIES</div></div>
+      <div class="cl"><div class="n">4.1</div><div class="b">If we present a candidate on a contingent basis:
+        <div class="sub"><div class="n">(a)</div><div class="b">we will take reasonable steps to ensure that we have the candidate&rsquo;s permission to present that candidate to
+        you;</div></div>
+        <div class="sub"><div class="n">(b)</div><div class="b">we make no representation that:
+          <div class="sub"><div class="n">(i)</div><div class="b">the candidate will be suitable for any position with you;</div></div>
+          <div class="sub"><div class="n">(ii)</div><div class="b">the candidate&rsquo;s details and information as shown in the candidate&rsquo;s r&eacute;sum&eacute; or other background are
+          accurate, relevant, complete or up to date;</div></div>
+          <div class="sub"><div class="n">(iii)</div><div class="b">the candidate&rsquo;s nominated referees have given positive references;</div></div>
+          <div class="sub"><div class="n">(iv)</div><div class="b">we have any exclusive entitlement to present the candidate; or</div></div>
+          <div class="sub"><div class="n">(v)</div><div class="b">the candidate has not already been presented to you by other means.</div></div>
+        </div></div>
+      </div></div>
+      <div class="cl"><div class="n">4.2</div><div class="b">After we have presented a candidate on a contingent basis, if you ask us (and we agree) to take steps to assess the
+      candidate&rsquo;s suitability with a view to short-listing candidates for your consideration, or to conduct pre-placement
+      investigations or evaluation:
+        <div class="sub"><div class="n">(a)</div><div class="b">we will take reasonable steps to present only candidates who, in our opinion, are potentially suitable for
+        placement with a view to short-listing or assessing them for your consideration;</div></div>
+        <div class="sub"><div class="n">(b)</div><div class="b">we will:
+          <div class="sub"><div class="n">(i)</div><div class="b">when short-listing or evaluating our candidates, take reasonable steps to: (1) validate relevant information
+          which we collect from our candidates &mdash; however, we make no warranties in relation to the validity of a
+          candidate&rsquo;s registration(s) and/or qualifications if they were obtained outside Australia or New Zealand;
+          (2) ensure so far as practicable that the information we provide when short-listing our candidates is
+          substantially accurate, relevant, complete and up to date; and (3) alert you to those relevant aspects of our
+          short-listed candidate&rsquo;s information that we have not been able to satisfy ourselves are substantially
+          accurate, complete or up to date;</div></div>
+          <div class="sub"><div class="n">(ii)</div><div class="b">arrange interviews with selected candidates, involving our staff, and you if necessary;</div></div>
+          <div class="sub"><div class="n">(iii)</div><div class="b">make our short-listing or evaluation observations to you; and</div></div>
+          <div class="sub"><div class="n">(iv)</div><div class="b">subject to negotiating fees and charges, undertake such further tasks as are specifically agreed in writing.</div></div>
+        </div></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">9</div>
+</div>
+
+<!-- ═══════════════ PAGE 9 — RSA CLAUSE 5 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">5.</div><div class="t">YOUR RESPONSIBILITIES</div></div>
+      <div class="cl"><div class="n">5.1</div><div class="b">You agree:
+        <div class="sub"><div class="n">(a)</div><div class="b">to notify us immediately of:
+          <div class="sub"><div class="n">(i)</div><div class="b">the outcome of any interview between you and our candidate;</div></div>
+          <div class="sub"><div class="n">(ii)</div><div class="b">any offer (or acceptance of any offer) in relation to the placement of our candidate with you, or a person
+          on whose behalf or for whose benefit you may be acting, or to whom you have communicated any
+          personal information about our candidate. Your notification must include details of the remuneration and
+          benefits offered; and</div></div>
+          <div class="sub"><div class="n">(iii)</div><div class="b">your employment or engagement of our candidate;</div></div>
+        </div></div>
+        <div class="sub"><div class="n">(b)</div><div class="b">to provide us with a copy of the contract, or an accurate summary of its contents, within seven days of its being
+        agreed by both you and the candidate;</div></div>
+        <div class="sub"><div class="n">(c)</div><div class="b">to include the following information in the contract or summary: (i) the name of the candidate; (ii) the name of
+        the person or entity engaging the candidate; (iii) the status of the placement &mdash; whether fixed term/task, casual
+        or non-casual, and whether as employment or in some other capacity; (iv) the location of the job; (v) the start
+        date for the placement; (vi) the hours or sessions the candidate is to work per week; (vii) a job description
+        describing the work that the candidate will be expected to perform; (viii) the experience, training and
+        qualifications required of the candidate; (ix) details of any authorisation required by law or any professional body
+        in order for the candidate to undertake the placement (including but not limited to professional registration or
+        validation); and (x) the candidate&rsquo;s remuneration;</div></div>
+        <div class="sub"><div class="n">(d)</div><div class="b">to pay us our fee for the placement of our candidate if you breach any contract for the employment or
+        engagement of our candidate before the placement is complete and the contract terminates for that reason;</div></div>
+        <div class="sub"><div class="n">(e)</div><div class="b">that you are responsible for satisfying yourself: (i) that our candidate has the qualifications, training and
+        experience necessary to undertake the placement; (ii) that our candidate meets any suitability, security, trade,
+        professional or occupational health and safety requirements imposed by law in order to work in the placement;
+        and (iii) that our candidate meets any other inherent requirements of the placement;</div></div>
+        <div class="sub"><div class="n">(f)</div><div class="b">that you are responsible for obtaining work permits or the appropriate authorisation for the candidate to work,
+        including the provision of any required documentation about the placement that our candidate requires in order
+        to apply for any necessary work permit, work authorisation, visa or entry clearance, including certification of
+        suitability to work with any special population;</div></div>
+        <div class="sub"><div class="n">(g)</div><div class="b">that you will not require us (or our consultants) to act in a way that would breach any applicable law, regulation
+        or professional conduct standard that binds us; and</div></div>
+        <div class="sub"><div class="n">(h)</div><div class="b">that you will not seek or receive any unlawful premium in respect of the engagement of our candidates,
+        regardless of whether it is to be paid by the candidate or by any other person. For the purpose of this provision,
+        &ldquo;premium&rdquo; includes a consideration, gift, allowance or forbearance for the engagement of our candidate.</div></div>
+      </div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">10</div>
+</div>
+
+<!-- ═══════════════ PAGE 10 — RSA CLAUSE 6 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">6.</div><div class="t">OUR FEES AND CHARGES</div></div>
+      <div class="cl"><div class="n">6.1</div><div class="b">When engaged, we will charge you the fees outlined in the fee schedule. All fees are set on a contingent basis. These
+      fees also apply if, within a twelve-month period of our last presentation of our candidate to you, that candidate accepts
+      a position (whether full-time, part-time, locum or in any other capacity) with: (a) you; or (b) another person (i) on whose
+      behalf or for whose benefit you may be acting, or (ii) to whom, without our consent, you have disclosed personal
+      information about that candidate that we have provided to you.</div></div>
+      <div class="cl"><div class="n">6.2</div><div class="b">Expenses &mdash; we will notify you of our anticipated charges for advertising and any other disbursements or services
+      provided by third parties that you expressly authorise us in writing to incur.</div></div>
+      <div class="cl"><div class="n">6.3</div><div class="b">We may vary our fees and charges by giving fourteen (14) days&rsquo; written notice to you. The variations apply if you tell us
+      that you accept them, or if you ask us to help (or continue to help) to fill a position after the notice period has ended. If
+      you do not accept the varied fees and charges, we may decline your requests for our help to fill positions, or terminate
+      this agreement in accordance with clause 9.</div></div>
+      <div class="cl"><div class="n">6.4</div><div class="b">All fees and charges quoted by us are exclusive of GST. GST at the prevailing rate will be added to tax invoices.</div></div>
+      <div class="cl"><div class="n">6.5</div><div class="b">You must pay our fees and charges (including any GST component) within seven (7) days of the date of invoice. If you
+      do not pay our fees and charges by the due date: (a) you must pay us the amount outstanding together with interest
+      calculated on a daily basis at the rate of 10% per annum; and (b) <b>all credit and guarantee entitlements under clause 7
+      and under the fee schedule are forfeited</b>, in addition to our other rights under this agreement.</div></div>
+      <div class="cl"><div class="n">6.6</div><div class="b">No claim or dispute raised with respect to our charges entitles you to set off against, or withhold payment of, the
+      unpaid sum of our invoices.</div></div>
+      <div class="cl"><div class="n">6.7</div><div class="b">We will provide a receipt to you when we receive full payment of the placement fee.</div></div>
+      <div class="cl"><div class="n">6.8</div><div class="b">You indemnify us for any costs (including legal costs on a solicitor and client basis) that we incur in taking any lawful
+      steps to obtain overdue payment. You agree that we may recover the amount of those costs from you as a debt upon
+      production of an invoice, which shall be sufficient proof of their amount.</div></div>
+      <div class="cl"><div class="n">6.9</div><div class="b">Our fees and any expenses will only be charged to you, the client. All of our fees must be paid by you, the
+      client/employer, not the candidate, whether directly or indirectly.</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">11</div>
+</div>
+
+<!-- ═══════════════ PAGE 12 — RSA CLAUSES 6.10–7.1 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="cl"><div class="n">6.10</div><div class="b">If the client (i.e. the practice owners) withdraws their offer of a position after the candidate has signed a contract, the
+      client must pay <b>50% of the total applicable recruitment fee</b>. This payment compensates GP Link and the candidate for
+      the significant work and investment that both parties have undertaken to reach this point. This fee applies where the
+      position is withdrawn due to operational reasons or any factors not related to the performance or availability of the
+      doctor.</div></div>
+      <div class="cl"><div class="n">6.11</div><div class="b">For locum placements, our fee is 20% of the gross fees or billings payable to, or in respect of, the locum candidate for
+      the assignment (exclusive of GST), invoiced weekly and payable within seven (7) days. If, within twelve (12) months of
+      the end of a locum assignment (or of our last presentation of the locum to you), you or a related entity engages that
+      candidate on a permanent or ongoing basis, the applicable permanent placement fee in the fee schedule becomes
+      payable in full, in addition to locum fees already invoiced.</div></div>
+      <div class="cl"><div class="n">6.12</div><div class="b">If a part-time placement increases to an average of eight (8) or more sessions (approximately 35 or more hours) per
+      week within twelve (12) months of commencement, the difference between the part-time fee paid and the applicable
+      full-time fee becomes payable and will be invoiced at that time.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">7.</div><div class="t">GUARANTEE PERIOD</div></div>
+      <div class="cl"><div class="n">7.1</div><div class="b">If, within the guarantee period of twelve (12) weeks, one of the candidates whom we have placed with you:
+      (a) performs unsatisfactorily in the placement for which he or she was presented and the placement is terminated for
+      that reason; or (b) terminates the contract, then, subject to clauses 7.2 and 7.3, you will receive the following credit
+      towards future placement services:
+        <div class="sub"><div class="n">&bull;</div><div class="b">Up to 4 weeks &mdash; 80% of the placement fee is credited for future placements or services</div></div>
+        <div class="sub"><div class="n">&bull;</div><div class="b">Between 4&ndash;8 weeks &mdash; 50% of the placement fee is credited for future placements or services</div></div>
+        <div class="sub"><div class="n">&bull;</div><div class="b">Between 8&ndash;12 weeks &mdash; 35% of the placement fee is credited for future placements or services</div></div>
+        <p>All calculations are made on the candidate&rsquo;s last working day with you, not on the day they give notice of their
+        intention to leave.</p>
+      </div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">12</div>
+</div>
+
+<!-- ═══════════════ PAGE 13 — RSA CLAUSES 7.2–7.6 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="cl"><div class="n">7.2</div><div class="b">Our obligations under clause 7.1 arise if and only if:
+        <div class="sub"><div class="n">(a)</div><div class="b">the candidate was short-listed for the placement under clause 4.2;</div></div>
+        <div class="sub"><div class="n">(b)</div><div class="b">the placement fee was not paid using credit funds from a previous candidate;</div></div>
+        <div class="sub"><div class="n">(c)</div><div class="b">you have paid every invoice we have issued to you in full by its due date &mdash; the guarantee is forfeited where any
+        invoice is or has been overdue (clause 6.5);</div></div>
+        <div class="sub"><div class="n">(d)</div><div class="b">you notify us immediately of any circumstance that may result in our being required to perform our obligations
+        under this clause 7;</div></div>
+        <div class="sub"><div class="n">(e)</div><div class="b">you have provided accurate information on a regular basis during the guarantee period so that we can conduct
+        confidential and timely performance checks (and counselling) with you and with the candidate for our own
+        benefit and at our discretion. You release us from any obligation to pass on to you any information we collect
+        from the candidate;</div></div>
+        <div class="sub"><div class="n">(f)</div><div class="b">you notify us in writing of the termination of the employment, engagement or contract promptly, stating the date
+        and reason(s) for termination;</div></div>
+        <div class="sub"><div class="n">(g)</div><div class="b">you have made a reasonable attempt to induct and orient the candidate into the workplace;</div></div>
+        <div class="sub"><div class="n">(h)</div><div class="b">you have fulfilled all your other obligations arising under this agreement in respect of the placement;</div></div>
+        <div class="sub"><div class="n">(i)</div><div class="b">the termination of the candidate&rsquo;s placement is not due to: (i) any false or misleading representation made to the
+        successful candidate in connection with the placement; (ii) redundancy, retrenchment or your operational
+        requirements; (iii) any action on your part which might make the termination of the successful candidate&rsquo;s
+        employment or engagement unlawful, harsh, unjust or unreasonable; or (iv) any breach by you of the terms of the
+        contract with the successful candidate; and</div></div>
+        <div class="sub"><div class="n">(j)</div><div class="b">you agree to pay any advertising or additional charges which you authorise us to incur in locating another
+        suitable candidate.</div></div>
+      </div></div>
+      <div class="cl"><div class="n">7.3</div><div class="b">It is the responsibility of the practice to ensure the doctor has correct expectations about working conditions and
+      about the number of patients they will see, and to ensure sufficient marketing is conducted so that the doctor is busy.
+      If a candidate leaves during the guarantee period for a reason which is clearly outside the control of the candidate &mdash;
+      for example, lack of support from the practice, failure to provide key conditions within the contract, or insufficient
+      patient load (i.e. an average of fewer than 21 patients per day) &mdash; this will not result in credit funds unless the
+      candidate has not performed satisfactorily; any credit in those circumstances is provided at our discretion.</div></div>
+      <div class="cl"><div class="n">7.4</div><div class="b">If a candidate does not commence employment, any initial permanent placement fees paid will be refunded, less an
+      administration fee of $2,500 where the candidate received registration support from us.</div></div>
+      <div class="cl"><div class="n">7.5</div><div class="b">If a credit is not used within twelve (12) months of the date it was issued, it will be refunded to you on request.</div></div>
+      <div class="cl"><div class="n">7.6</div><div class="b">The guarantee period, if applicable, is subject to the conditions outlined in the fee schedule for the individual
+      candidate. The provisions of clauses 4, 5, 8 and 11 of these terms apply during the guarantee period.</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">13</div>
+</div>
+
+<!-- ═══════════════ PAGE 12 — RSA CLAUSES 8–10 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">8.</div><div class="t">EXCLUSIONS AND LIABILITY</div></div>
+      <div class="cl"><div class="n">8.1</div><div class="b">Because you are ultimately responsible for your decision to employ or engage our candidates, and because once they
+      are employed or engaged they work under your control, supervision and direction:
+        <div class="sub"><div class="n">(a)</div><div class="b">(NO REPRESENTATIONS) we make no representation or guarantee that they will achieve a certain level of
+        performance, achieve a certain outcome, solve a particular problem or attain a specific goal;</div></div>
+        <div class="sub"><div class="n">(b)</div><div class="b">(LIMITED LIABILITY) to the maximum extent permitted by law: (i) we are not liable to you for any indirect or
+        consequential loss, loss of profit, loss of revenue or loss of opportunity, however caused, arising out of or in
+        connection with a placement or this agreement; and (ii) our total aggregate liability to you arising out of or in
+        connection with a placement or this agreement is limited to the fees actually paid by you to us for the placement
+        concerned; and</div></div>
+        <div class="sub"><div class="n">(c)</div><div class="b">(IMPLIED TERMS) our liability for any breach of a term implied into this agreement by any Act of Parliament that
+        cannot be excluded will be limited, at our option, to supplying the services again or paying the cost of having the
+        services supplied again.</div></div>
+      </div></div>
+      <div class="cl"><div class="n">8.2</div><div class="b">Nothing in this agreement excludes, restricts or modifies any right or remedy you have under the Australian Consumer
+      Law or any other law that cannot be excluded, restricted or modified by agreement.</div></div>
+      <div class="cl"><div class="n">8.3</div><div class="b">The provisions of this clause 8 continue to bind the parties after this agreement ends.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">9.</div><div class="t">TERMINATION</div></div>
+      <div class="cl"><div class="n">9.1</div><div class="b">Either of us can terminate this agreement by providing fourteen (14) days&rsquo; written notice.</div></div>
+      <div class="cl"><div class="n">9.2</div><div class="b">We can terminate this agreement immediately, and without incurring any liability to you as a result, due to: (a) any
+      failure by you to pay any amounts outstanding to us; and/or (b) a breach of clause 5, 11 or 12 of these terms.</div></div>
+      <div class="cl"><div class="n">9.3</div><div class="b">Termination of this agreement does not affect: (a) any obligation to pay fees or charges that accrued before, or that
+      arise from a placement, presentation or introduction made before, termination (including fees arising under clauses 6.1,
+      6.10, 6.11 and 6.12 after termination); or (b) clauses 8, 11 and 12, which survive termination.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">10.</div><div class="t">DISPUTE RESOLUTION</div></div>
+      <div class="cl"><div class="n">10.1</div><div class="b">If any dispute between the parties arises about the terms of this agreement or its effect, the parties will first try to
+      resolve the dispute by negotiation in good faith. If, after a reasonable time (not exceeding 21 days), the dispute has not
+      been resolved, either party may refer the dispute to mediation administered by the Resolution Institute (or another
+      mediator agreed between the parties), with the costs of the mediator shared equally. Nothing in this clause ousts the
+      jurisdiction of a court or tribunal with respect to the subject matter of the dispute, or prevents us from commencing
+      proceedings to recover unpaid fees.</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">14</div>
+</div>
+
+<!-- ═══════════════ PAGE 13 — RSA CLAUSES 11–16 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">11.</div><div class="t">PRIVACY &amp; CONFIDENTIALITY</div></div>
+      <div class="cl"><div class="n">11.1</div><div class="b">You agree to preserve the privacy of personal information concerning any of our candidates whose personal
+      information has been provided to you, or accessed by you, to a standard not less than that prescribed by the Privacy
+      Act 1988 (Cth), and additionally to hold yourself as a trustee of the promise to do so for the benefit of our candidate.</div></div>
+      <div class="cl"><div class="n">11.2</div><div class="b">So far as the law allows, you must maintain the confidentiality of any information that we communicate to you and
+      identify as being confidential (including the fact that one of our candidates may be seeking a new position). You must
+      not use or disclose confidential information that we communicate to you without our written consent, except that you
+      may use confidential information that we have communicated to you about our candidate for the purpose of engaging
+      our services.</div></div>
+      <div class="cl"><div class="n">11.3</div><div class="b">You must identify any information that you require us to keep confidential. If you do not expressly identify information
+      that you communicate to us as being confidential, we may use and disclose it as we think fit for the purpose of
+      providing or offering our placement services to you, and you must indemnify us against any claims (including costs) for
+      breach of confidentiality that may flow from our use or disclosure of it.</div></div>
+      <div class="cl"><div class="n">11.4</div><div class="b">For the purposes of clause 11.3, the following information is expressly identified as being confidential: information
+      about (a) your current staff; and (b) your human resources strategies. We will not use or disclose it without your
+      consent.</div></div>
+      <div class="cl"><div class="n">11.5</div><div class="b">If you do not employ or engage a candidate, you must, on our request, securely destroy or delete all personal
+      information about that candidate that we have provided to you (and direct anyone to whom you have disclosed it to
+      do the same).</div></div>
+      <div class="cl"><div class="n">11.6</div><div class="b">You must notify us promptly of any actual or suspected loss of, or unauthorised access to or disclosure of, personal
+      information about our candidates that we have provided to you.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">12.</div><div class="t">NON-SOLICITATION OF OUR STAFF</div></div>
+      <div class="cl"><div class="n">12.1</div><div class="b">During the term of this agreement and for twelve (12) months after it ends, you must not, without our prior written
+      consent, directly or indirectly solicit, employ or engage any of our staff or consultants who were materially involved in
+      providing services to you. If you do, you must pay us a fee equal to the full-time overseas placement fee set out in the
+      fee schedule, which the parties agree is a genuine pre-estimate of our loss.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">13.</div><div class="t">WAIVER</div></div>
+      <div class="cl"><div class="n">13.1</div><div class="b">If we do not take action to enforce or require strict compliance with your obligations and responsibilities under these
+      terms, or if we grant you any extension or indulgence in the performance of your obligations, we may still exercise all
+      our rights as though they were fully available to us.</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">15</div>
+</div>
+
+<!-- ═══════════════ PAGE 16 — RSA CLAUSES 14–16 ═══════════════ -->
+<div class="page">
+  <img class="logo" src="{{LOGO}}" alt="GP Link">
+  <div class="content">
+    <div class="sec">
+      <div class="sec-h"><div class="n">14.</div><div class="t">JURISDICTION</div></div>
+      <div class="cl"><div class="n">14.1</div><div class="b">These terms are governed by, and take effect in accordance with, the laws in force in New South Wales, Australia, and
+      the parties submit to the non-exclusive jurisdiction of the courts of New South Wales.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">15.</div><div class="t">SEVERANCE</div></div>
+      <div class="cl"><div class="n">15.1</div><div class="b">If any of these terms is held to be invalid in any way, or unenforceable, it will be severed and the remaining terms will
+      not be affected or impaired, but will be construed so as to most nearly give effect to the intent of the parties at the
+      time the agreement was originally executed.</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-h"><div class="n">16.</div><div class="t">ENTIRE AGREEMENT</div></div>
+      <div class="cl"><div class="n">16.1</div><div class="b">These terms, together with the fee schedule and the execution page generated at electronic signing, represent the
+      entire agreement between us and you in relation to its subject matter. All implied and statutory terms, to the extent to
+      which they are inconsistent with these terms, are excluded to the fullest extent permitted by law.</div></div>
+      <div class="cl"><div class="n">16.2</div><div class="b">By accepting the terms set out in this document, you acknowledge that neither we, nor anyone acting on our behalf,
+      has made any warranty or representation to you in relation to the matters covered by this agreement which is not fully
+      set out in these terms, that you have not relied upon any such warranty or representation, that you have read these
+      terms together with the fee schedule, and that you have understood them.</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-text">GP Link Pricing Schedule 2026</div>
+  <div class="pagenum">16</div>
+</div>
+
+</body>
+</html>
