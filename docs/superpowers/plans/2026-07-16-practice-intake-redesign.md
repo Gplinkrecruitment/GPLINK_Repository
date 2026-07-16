@@ -1382,6 +1382,14 @@ Already failing on main, untouched by this branch: `eligibility-waitlist`, `onbo
 
 **Judge regressions against `30 failed`, not against zero.** Note `tests/practice-intake-endpoints.test.js` already fails on main (the sign happy-path and `already_signed` cases) — Task 7 extends that file, so characterise those two failures before adding to it.
 
+## Follow-up found during Task 5 — `employment_type` still lands in a blank box
+
+`createPendingJobFromIntake` hardcodes `employment_type: ''` on the job row (`server.js`, inside `intakeJobRow`). `atsJobEditorPayload` reads `j.employment_type` — **the column, not `details`**. So the practice's new full-time / part-time answer reaches `details.employment_type` but never the column the editor renders, and the box stays blank.
+
+This is the same bug class Task 5 exists to kill, missed because the plan's `details` contract didn't cover it. **Fix in Task 7** (which already touches persistence): set `employment_type: intake.employment_type || ''` on `intakeJobRow`, and add a test asserting the editor payload shows it. Check `gps_needed` and `supervision_available` for the same shape while you are there — `gps_needed` has no column and no editor box at all, so decide use-or-drop rather than leaving it stranded in `details`.
+
+Also note: `title: intake.role_title || buildMaskedTitle(...)`. Task 4 removed `role_title`, so this now always falls through to the generated masked title — which is the intended behaviour ("the system generates it"), not a bug. Leave it.
+
 ## Shipping
 
 After Task 10, in this order:
