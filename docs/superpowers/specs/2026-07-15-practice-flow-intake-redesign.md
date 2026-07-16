@@ -40,6 +40,8 @@ Step 3 **The pitch** — about the area & the job, incentives, earnings, visa sp
 Step 4 **Your practices** — one by default; "add another" for groups, each with its own address/billing/split/DPA/urgency, and a per-clinic "trades under a different company" override. Reversible: adding a second practice must never trap the practice into a group (bug found in prototype testing, fixed there).
 Step 5 **Sign** — the agreement PDF embedded, 8 gates, nothing pre-filled, live "n of 8 completed".
 
+**Signing is NOT gated on reading (owner decision, 2026-07-16).** The agreement stays embedded and visible — a practice must always be able to read what they are signing (that was the owner's earlier objection: *"how can a practice sign without seeing the agreement"*). But do **not** require them to scroll it, dwell on it, or tick "I have read it" before the signature fields unlock. Showing it is our obligation; reading it is their choice. The only gates are the 8 fields themselves.
+
 ## Why
 
 The practice pipeline (FB lead → intake → e-sign → masked job → accept → interview → placement) shipped on 2026-07-05 and works end to end. Two problems remain:

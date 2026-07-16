@@ -1192,6 +1192,8 @@ Rewrite `pages/practice-intake.html` as the 5 steps in the spec, porting from th
 4. **Your practices** — one by default. "Add another" for groups; per-clinic "trades under a different company" override. **Adding a second practice must be reversible** — the prototype fixed this; do not reintroduce the trap.
 5. **Sign** — embedded agreement PDF, 8 gates, no pre-fill, live "n of 8 completed" listing what is missing.
 
+**Signing is NOT gated on reading the agreement (owner decision, 2026-07-16).** Keep the PDF embedded and visible — the practice must always be able to read what they sign. But do **not** require scrolling, dwell time, or an "I have read it" tick before the signature fields unlock. The 8 field gates are the only gates. If the current page gates on scroll position or a read-receipt checkbox, remove that.
+
 Rules to carry across:
 - Google Places is called **from the browser** with `GOOGLE_MAPS_BROWSER_API_KEY` (already exposed to the client at `server.js:20791-20793`). The key is referrer-locked, which is the protection. **Do not proxy it** — a server key would need that protection removed. (The prototype proxied it only because it ran on localhost.)
 - The DPA panel calls **our** `/api/dpa/check`. On any error: say we could not check, leave DPA unanswered, require an answer. Never pre-select.
