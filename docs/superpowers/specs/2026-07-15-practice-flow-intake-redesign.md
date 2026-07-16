@@ -1,8 +1,44 @@
 # Practice flow — Facebook lead → signed client → placed GP (intake redesign)
 
-**Date:** 2026-07-15
-**Status:** Design approved, ready for implementation plan
-**Prototypes:** `form.html` (intake), `corporate.html` (groups), `index.html` (flow map) — served locally during design
+**Date:** 2026-07-15 · **Revised:** 2026-07-16 (v2 — supersedes the sections flagged below)
+**Status:** Design approved + prototype proven. Ready for implementation plan.
+**Prototypes:** `practice-form.html` (the complete 5-step form — current design source of truth), `server.py` (dry-run API), `corporate.html` (groups), `index.html` (flow map), `where.html` (field→screen trace). All under `~/.claude/jobs/eead77ab/tmp/map/`.
+
+## v2 changelog — decisions taken after the original draft
+
+Reached by building the prototype and testing it against real addresses and the real government API.
+
+| Area | v1 said | v2 (binding) |
+|---|---|---|
+| DPA source | "No official source wired — ship DPA as an unanswered question, never suggest" | **Superseded.** The Department of Health's Health Workforce Locator backend is reachable (`trueview.spectrumspatial.com`, guest token, no credentials). Field `dpa_gps` is the official IMG/FGAMS answer. We **do** suggest, and the practice must still confirm. If the lookup fails we fall back to v1 behaviour — ask, never guess |
+| Employment | `sessions per week`, `days & hours` | **Full-time / Part-time / Either** dropdown. Days & hours removed entirely |
+| Role title | Asked | **Removed** — the system generates it |
+| Income guarantee | Own field | **Folded into Incentives** as a worked example in the placeholder |
+| Practice website | Not asked | **Asked** — AI uses it plus the "about the area" text to craft the polished advert |
+| ABN | "ABN (11 digits, validated)" | **ABN *or* ACN**, real checksum on both |
+| Split | Free text, unparsed | **Parsed.** The larger share always goes to the GP. `70`, `70/30` and `30/70` all mean GP 70 / practice 30 |
+| Agreement gates | 7 | **8** (the drawn-or-typed signature becomes its own gate) |
+| Draft persistence | Not specified | **localStorage** (`gplink_intake_draft_v3`) — a long form must survive a reload or a phone call |
+| Downstream display | "Out of scope — nothing downstream changes" | **Superseded.** See "The display fixes" — the form's answers must actually reach a GP's screen |
+
+## The display fixes (owner-confirmed 2026-07-16)
+
+The form has always collected more than the app can show. Four gaps, all confirmed in code, all in scope:
+
+1. **`intro_text` is written and never read.** The practice writes the single most-read paragraph a candidate sees, and no page renders it. Add an **"About the practice & the area"** section to both `pages/job.html` and `pages/site-job.html`.
+2. **`packageTerms` is dead render code.** Both job pages already render a package/terms table; nothing in the repo has ever written `gpLink.packageTerms`. Wire the parsed split and incentives into it. This activates existing UI rather than adding any.
+3. **Six CEO job-editor boxes are permanently blank.** `atsJobEditorPayload` (`server.js:29458-29463`) reads `gp_count`, `percentage_split`, `incentives`, `nursing_on_site`, `years_operating`, `general_location` from `career_roles.details`, and `address` from `career_roles.address` — but `createPendingJobFromIntake` writes neither. The practice fills them in, we store them, the CEO sees empty boxes.
+4. **`gp_count`, `years_operating`, `nursing_on_site` go nowhere.** Surface them on the job page as practice facts — they are trust signals for a GP deciding whether to apply.
+
+**The common root cause:** `practices.metadata.intake` (JSONB) is the real system of record for 13 of 20 intake fields. They are invisible to SQL, to the CEO editor, and to every GP-facing page. This redesign fixes the seam, not just the form.
+
+## The form, as prototyped (5 steps)
+
+Step 1 **Where** — address (Google Places autocomplete, manual fallback) → derived strip → DPA confirm → urgency → billing style → split.
+Step 2 **The job** — GPs needed, employment (FT/PT/either).
+Step 3 **The pitch** — about the area & the job, incentives, earnings, visa sponsorship, website, years operating, ownership, nursing on site, supervision, intro video.
+Step 4 **Your practices** — one by default; "add another" for groups, each with its own address/billing/split/DPA/urgency, and a per-clinic "trades under a different company" override. Reversible: adding a second practice must never trap the practice into a group (bug found in prototype testing, fixed there).
+Step 5 **Sign** — the agreement PDF embedded, 8 gates, nothing pre-filled, live "n of 8 completed".
 
 ## Why
 
@@ -116,9 +152,18 @@ DPA decides which GPs can see the job at all. A wrong value silently hides a lis
 2. The practice sees the answer and **must click "Yes" or "No"** to accept it. A submit is blocked until they do.
 3. If they contradict our suggestion, **we take their answer** and flag `dpa_mismatch = true` for the team to verify.
 
-**Do not use AI to infer DPA.** It is an official Department of Health classification tied to the address (DoctorConnect). Implement the lookup against the official DPA list, keyed on postcode/SA2. An LLM guess here is the one place in this flow where being confidently wrong is expensive. MMM should come from the same source.
+**Do not use AI to infer DPA.** It is an official Department of Health classification tied to the address (DoctorConnect). An LLM guess here is the one place in this flow where being confidently wrong is expensive. MMM comes from the same source.
 
-Until that dataset is wired in, ship with DPA as an unanswered required question (no suggestion) rather than an AI guess.
+**v2 — the official source is wired in.** The public Health Workforce Locator (health.gov.au) is an Angular front end over `https://trueview.spectrumspatial.com/trueviewapi`, which issues a guest token to anyone with no credentials:
+
+- `POST /auth/guest-token` body `{"workspace":"dhac"}` → `{accessToken, expiresIn}` (cache it; refresh 60s before expiry)
+- `POST /theme/getResult/locator/address` with the point geometry + `Authorization: Bearer <token>` → `results.dpa_gps.features[0].properties.{value,class,catchment}`
+
+`dpa_gps` is the IMG/FGAMS answer — the exact field the official tool renders under "Distribution Priority Area for GPs", verified against the downloadable DPA shapefile. Also read `dpa_bmp` (bonded) and `mmm2023` (→ `MM<n>`). A `value` outside `Y`/`N` is an error, not a default.
+
+**This must be called server-side** (`GET /api/dpa/check?lat=&lon=`) — the browser cannot reach it. **If it fails, never guess:** show "we couldn't check this automatically", leave DPA unanswered, and require the practice to answer. That is the v1 fallback, retained.
+
+**Longer term:** import the DPA + MMM shapefiles into Supabase PostGIS and query locally instead of depending on a third party's undocumented endpoint at signup time. PostGIS is not currently enabled. Until then the live call is the source, with the fail-safe above.
 
 ## Corporate groups — option C
 
@@ -175,10 +220,12 @@ The stamped execution page (`lib/practice-agreement-pdf.js`) gains **Schedule 1*
 
 ## Out of scope
 
-Everything downstream of signing is unchanged: job auto-creation, CEO approval with the mandatory suburb photo, identity masking, the DPA visibility gate, accept-and-reveal, self-serve interview booking, offers and placements.
+The *mechanics* downstream of signing are unchanged: job auto-creation, CEO approval with the mandatory suburb photo, identity masking, the DPA visibility gate, accept-and-reveal, self-serve interview booking, offers and placements. What changes is only *what data reaches them* — see "The display fixes".
 
 ## Open items
 
-1. **Should the intake form also ask the six "would block a placement" questions** — headcount needed, sessions per week, days/hours, after-hours/on-call? Recommendation: add them, make only headcount compulsory, and split the form across steps so it doesn't read as a wall. Not yet decided.
-2. **Owner actions outstanding:** tick "Places API (New)" on the Maps key; set `FB_LEAD_WEBHOOK_SECRET` + `FB_LEAD_VERIFY_TOKEN` in Vercel and point Meta at the webhook.
-3. **Pre-existing bug, unrelated but adjacent:** most live `career_roles` rows may still carry `dpa = false` from the old Zoho sync, which would blur nearly the whole board for overseas-trained GPs. Verify in production before spending on ads.
+1. ~~Should the form ask the six "would block a placement" questions?~~ **Decided (v2):** headcount + employment type are in, as step 2. Days/hours and sessions are out. The form is split across 5 steps so it never reads as a wall.
+2. **Owner actions outstanding:** set `FB_LEAD_WEBHOOK_SECRET` + `FB_LEAD_VERIFY_TOKEN` in Vercel and point Meta's Lead Ads webhook at `/api/webhooks/facebook-lead?secret=…`. ("Places API (New)" was ticked on the Maps key on 2026-07-14 and is verified working.)
+3. **Recommended:** set a daily quota cap (e.g. 500/day) on the Places API key so a runaway or abusive loop cannot produce a large bill. The intake page is unauthenticated by design (token-gated only).
+4. **Pre-existing bug, unrelated but adjacent:** most live `career_roles` rows may still carry `dpa = false` from the old Zoho sync, which would blur nearly the whole board for overseas-trained GPs. Verify in production before spending on ads.
+5. **Not yet built:** DPA/MMM shapefiles in PostGIS (see the DPA section). Live HWL calls until then.
