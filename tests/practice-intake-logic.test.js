@@ -28,6 +28,26 @@ describe('parseSplit — the GP always takes the larger share', () => {
     expect(parseSplit('100')).toBeNull();
     expect(parseSplit(null)).toBeNull();
   });
+  it('reads the pair that sums to 100 even when other numbers are in the way', () => {
+    expect(parseSplit('Rent is $30/week, split is 20/80')).toMatchObject({ gp: 80, practice: 20 });
+  });
+  it('is not fooled by a larger unrelated number', () => {
+    expect(parseSplit('70/30 split, 90 minute drive to the coast')).toMatchObject({ gp: 70, practice: 30 });
+  });
+  it('reads a lone number as the GP share', () => {
+    expect(parseSplit('70% split, 15 minute appointments')).toBeNull(); // two numbers, no pair sums to 100 -> ambiguous
+  });
+  it('refuses to guess when the numbers are ambiguous', () => {
+    expect(parseSplit('somewhere between 60 and 75')).toBeNull();
+  });
+  it('still handles the ordinary cases', () => {
+    expect(parseSplit('70')).toMatchObject({ gp: 70, practice: 30 });
+    expect(parseSplit('70/30')).toMatchObject({ gp: 70, practice: 30 });
+    expect(parseSplit('30/70')).toMatchObject({ gp: 70, practice: 30 });
+    expect(parseSplit('50/50')).toMatchObject({ gp: 50, practice: 50 });
+    expect(parseSplit('67.5/32.5')).toMatchObject({ gp: 67.5, practice: 32.5 });
+    expect(parseSplit('65% to the doctor, 35% to us')).toMatchObject({ gp: 65, practice: 35 });
+  });
 });
 
 describe('nearestCity — measured, never inferred', () => {
