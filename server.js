@@ -128,6 +128,7 @@ var interviewScheduler = require('./lib/interview-scheduler');
 var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
 const { buildIntakeJobDetails, buildPackageTerms } = require('./lib/practice-intake-logic');
+const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
@@ -33014,6 +33015,41 @@ async function handleApi(req, res, pathname) {
     // Static marketing-site figures — served verbatim from SITE_STATS. No live
     // computation and no owner override (the admin website tab was removed).
     sendJson(res, 200, Object.assign({ ok: true }, SITE_STATS));
+    return;
+  }
+
+  // ── DPA/MMM lookup for the practice intake form (no session) ────────────
+  // Server-side because the government Health Workforce Locator endpoint is
+  // not CORS-enabled and the intake page is token-gated, not session-gated.
+  // DPA decides which overseas-trained GPs may even see a job, so on ANY
+  // failure this returns an error, never a value — no defaulting to false.
+  // The intake form is built to fall back to asking the practice directly.
+  if (pathname === '/api/dpa/check' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('dpa_check:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) {
+      sendJson(res, 429, { ok: false, message: 'Too many requests' });
+      return;
+    }
+
+    // Number(null) coerces to 0 (finite!), so a missing param would silently
+    // read as (0, 0) rather than failing validation — check presence first.
+    const latParam = url.searchParams.get('lat');
+    const lonParam = url.searchParams.get('lon');
+    const lat = latParam === null || latParam === '' ? NaN : Number(latParam);
+    const lon = lonParam === null || lonParam === '' ? NaN : Number(lonParam);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      sendJson(res, 400, { ok: false, error: 'lat and lon are required' });
+      return;
+    }
+
+    try {
+      const result = await lookupDpa(lat, lon);
+      sendJson(res, 200, result);
+    } catch (err) {
+      console.warn('[dpa] lookup failed', err && err.message);
+      sendJson(res, 502, { ok: false, error: 'dpa_lookup_failed' });
+    }
     return;
   }
 
