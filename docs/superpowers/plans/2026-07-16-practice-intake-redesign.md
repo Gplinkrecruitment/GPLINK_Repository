@@ -14,6 +14,7 @@
 - **Run tests from the worktree:** `/Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.claude/worktrees/practice-intake-build` (`node_modules` is symlinked there).
 - **Syntax-check `server.js` before every commit:** `node --check server.js`. It is a huge file; a syntax error takes production down.
 - **CommonJS.** This repo uses `require`/`module.exports`, not ESM.
+- **Never `require('vitest')` in a test file.** `vitest.config.js` sets `globals: true`, so `describe`/`it`/`expect` are already global; requiring vitest from CommonJS throws *"Vitest cannot be imported in a CommonJS module using require()"*. All 205 existing test files rely on the globals. (Found the hard way in Task 1.)
 - **Never guess DPA.** A failed lookup means "ask the practice", never a default value. Confidently-wrong DPA silently hides a job from every overseas-trained GP.
 - **The larger share of a split always goes to the GP.** `70`, `70/30`, `30/70` all mean GP 70 / practice 30.
 - **Cache busters** on changed script/style tags: `?v=20260716a`.
@@ -48,7 +49,6 @@ The rules worth testing, with no network or DB in the way. Ported from the prove
 Create `tests/practice-intake-logic.test.js`:
 
 ```js
-const { describe, it, expect } = require('vitest');
 const {
   parseSplit, nearestCity, abnOk, acnOk, idKind, derivePlace, buildGeneralLocation,
 } = require('../lib/practice-intake-logic');
@@ -326,7 +326,6 @@ git commit -m "feat(intake): pure logic module - split parser, nearest city, ABN
 Create `tests/dpa-lookup.test.js`:
 
 ```js
-const { describe, it, expect } = require('vitest');
 const { parseHwlResult } = require('../lib/dpa-lookup');
 
 const hwlResponse = (dpaValue, mmmValue = 2, catchment = 'Gosford') => ({
@@ -773,7 +772,6 @@ Note exactly which keys `atsJobEditorPayload` reads from `j.details` — your `d
 Create `tests/practice-intake-job-handoff.test.js`:
 
 ```js
-const { describe, it, expect } = require('vitest');
 const { buildIntakeJobDetails, buildPackageTerms } = require('../lib/practice-intake-logic');
 
 const intake = {
@@ -1120,7 +1118,6 @@ And read the prototype end to end. The prototype is the design; the existing pag
 Create `tests/practice-intake-form.test.js`:
 
 ```js
-const { describe, it, expect } = require('vitest');
 const fs = require('fs');
 const path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'pages', 'practice-intake.html'), 'utf8');
@@ -1243,7 +1240,6 @@ sed -n '18995,19010p' server.js
 Create `tests/job-page-practice-about.test.js`:
 
 ```js
-const { describe, it, expect } = require('vitest');
 const fs = require('fs');
 const path = require('path');
 const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
