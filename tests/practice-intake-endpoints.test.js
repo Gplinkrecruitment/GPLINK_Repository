@@ -50,7 +50,10 @@ function validIntakePayload(token) {
     suburb: 'Fitzroy',
     nearest_city: 'Melbourne',
     state: 'VIC',
-    address: '1 Smith St, Fitzroy VIC 3065'
+    address: '1 Smith St, Fitzroy VIC 3065',
+    urgency: 'asap',
+    employment_type: 'either',
+    gps_needed: '1'
   };
 }
 

@@ -24,6 +24,9 @@ function validPayload(overrides) {
       nearest_city: 'Melbourne',
       state: 'VIC',
       address: '1 Smith St, Fitzroy VIC 3065',
+      urgency: 'asap',
+      employment_type: 'either',
+      gps_needed: '1',
     },
     overrides
   );
@@ -493,5 +496,67 @@ describe('buildCongratsEmailCopy', () => {
     expect(copy.body).toMatch(/Fitzroy Medical/);
     expect(copy.ctaText).toBe('Secure My Interview');
     expect(copy.ctaUrl).toBe('https://app.mygplink.com.au/secure/xyz789');
+  });
+});
+
+describe('intake redesign - new fields', () => {
+  it('asks for urgency, employment type, headcount and website', () => {
+    const keys = INTAKE_FIELDS.map((f) => f.key);
+    expect(keys).toContain('urgency');
+    expect(keys).toContain('employment_type');
+    expect(keys).toContain('gps_needed');
+    expect(keys).toContain('website');
+    expect(keys).toContain('supervision_available');
+  });
+  it('no longer asks for the role title - the system generates it', () => {
+    expect(INTAKE_FIELDS.map((f) => f.key)).not.toContain('role_title');
+  });
+  it('accepts a valid urgency', () => {
+    const r = validatePracticeIntakePayload({ urgency: 'asap' }, { partial: true });
+    expect(r.ok).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+  it('rejects an urgency outside the closed set', () => {
+    const r = validatePracticeIntakePayload({ urgency: 'someday' }, { partial: true });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeTruthy();
+  });
+  it('rejects an employment type outside the closed set', () => {
+    const r = validatePracticeIntakePayload({ employment_type: 'casual' }, { partial: true });
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeTruthy();
+  });
+  it('accepts full_time, part_time and either', () => {
+    for (const v of ['full_time', 'part_time', 'either']) {
+      const r = validatePracticeIntakePayload({ employment_type: v }, { partial: true });
+      expect(r.ok).toBe(true);
+      expect(r.error).toBeUndefined();
+    }
+  });
+});
+
+describe('facebook lead - the three new qualifiers', () => {
+  it('maps the native Meta field_data shape', () => {
+    const out = normalizeFacebookLeadPayload({
+      field_data: [
+        { name: 'practice_name', values: ['Erina Medical'] },
+        { name: 'email', values: ['manager@erina.com.au'] },
+        { name: 'contact_role', values: ['owner'] },
+        { name: 'gp_needed_by', values: ['asap'] },
+        { name: 'postcode', values: ['2250'] },
+      ],
+    });
+    expect(out).toMatchObject({
+      practice_name: 'Erina Medical', contact_role: 'owner', urgency: 'asap', postcode: '2250',
+    });
+  });
+  it('maps the flat Zapier/Make shape too', () => {
+    const out = normalizeFacebookLeadPayload({
+      practice_name: 'X', contact_role: 'practice_manager', gp_needed_by: '3_6m', postcode: '3030',
+    });
+    expect(out).toMatchObject({ contact_role: 'practice_manager', urgency: '3_6m', postcode: '3030' });
+  });
+  it('survives a lead with none of the new fields', () => {
+    expect(() => normalizeFacebookLeadPayload({ practice_name: 'Old Lead' })).not.toThrow();
   });
 });

@@ -263,7 +263,8 @@ describe('POST /api/ats/jobs — full manual creation via intake', () => {
     percentage_split: '65%', incentives: 'Sign-on bonus', earnings_text: '$350k+ estimated',
     suburb: 'Wilsonton', nearest_city: 'Toowoomba', state: 'QLD', address: '4 Clinic Road, Wilsonton',
     general_location: 'Darling Downs', role_title: '', role_summary: 'Join a friendly team.',
-    intro_text: 'Welcome to our practice', intro_video_url: 'https://videos.example.com/wilsonton.mp4'
+    intro_text: 'Welcome to our practice', intro_video_url: 'https://videos.example.com/wilsonton.mp4',
+    urgency: 'asap', employment_type: 'either', gps_needed: '1'
   };
   let createdId = null;
 
