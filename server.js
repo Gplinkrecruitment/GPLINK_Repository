@@ -127,6 +127,7 @@ var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
+const { buildIntakeJobDetails, buildPackageTerms } = require('./lib/practice-intake-logic');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
@@ -26478,13 +26479,19 @@ async function createPendingJobFromIntake(practice, intake) {
     suburb: intake.suburb || '', nearest_city: intake.nearest_city || '',
     billing_model: intake.billing_style || '', dpa: intake.dpa === true, mmm: intake.mmm || '',
     earnings_text: intake.earnings_text || '',
+    address: intake.address || '',
     summary: [intake.role_summary, intake.incentives ? 'Additional incentives: ' + intake.incentives : '', intake.percentage_split ? 'Percentage split: ' + intake.percentage_split : ''].filter(Boolean).join('\n\n'),
     employment_type: '', practice_type: intake.ownership || '',
     mixed_billing: intake.billing_style === 'mixed', private_billing: intake.billing_style === 'private',
     visa_pathway_aligned: intake.visa_sponsorship === true,
     is_active: false, job_status: 'open', approval_status: 'pending',
     ats_created: true, posted_by: 'practice_intake',
-    source_payload: { intake: intake, practice_intro: { text: practice.intro_text || intake.intro_text || '', video_url: practice.intro_video_url || intake.intro_video_url || '' } },
+    details: buildIntakeJobDetails(intake),
+    source_payload: {
+      intake: intake,
+      practice_intro: { text: practice.intro_text || intake.intro_text || '', video_url: practice.intro_video_url || intake.intro_video_url || '' },
+      gpLink: { packageTerms: buildPackageTerms(intake) }
+    },
     synced_at: atsNowIso()
   };
 
@@ -29440,6 +29447,12 @@ function atsJobEditorPayload(job) {
   else if (/^bulk/.test(bm)) billingStyle = 'bulk';
   else if (/^private/.test(bm)) billingStyle = 'private';
   var detailStr = function (key) { return details[key] == null ? '' : String(details[key]); };
+  // Rows created before this fix shipped never had career_roles.details or
+  // .address written (createPendingJobFromIntake dropped them) -- but their raw
+  // intake answers are still sitting in source_payload.intake. Fall back there so
+  // those pre-existing rows also prefill, not just rows created after this change.
+  var intakeStash = (sp.intake && typeof sp.intake === 'object') ? sp.intake : {};
+  var detailOrIntake = function (key) { return detailStr(key) || (intakeStash[key] == null ? '' : String(intakeStash[key])); };
   return {
     title: j.title || '',
     billing_style: billingStyle,
@@ -29449,18 +29462,18 @@ function atsJobEditorPayload(job) {
     nearest_city: j.nearest_city || '',
     state: j.location_state || '',
     city: j.location_city || '',
-    address: j.address || '',
+    address: j.address || (intakeStash.address == null ? '' : String(intakeStash.address)),
     mmm: j.mmm || '',
     earnings_text: j.earnings_text || '',
     ownership: j.practice_type || '',
     visa_sponsorship: (typeof j.visa_pathway_aligned === 'boolean') ? j.visa_pathway_aligned : null,
     role_summary: j.summary || '',
-    gp_count: detailStr('gp_count'),
-    percentage_split: detailStr('percentage_split'),
-    incentives: detailStr('incentives'),
-    nursing_on_site: (typeof details.nursing_on_site === 'boolean') ? details.nursing_on_site : null,
-    years_operating: detailStr('years_operating'),
-    general_location: detailStr('general_location'),
+    gp_count: detailOrIntake('gp_count'),
+    percentage_split: detailOrIntake('percentage_split'),
+    incentives: detailOrIntake('incentives'),
+    nursing_on_site: (typeof details.nursing_on_site === 'boolean') ? details.nursing_on_site : ((typeof intakeStash.nursing_on_site === 'boolean') ? intakeStash.nursing_on_site : null),
+    years_operating: detailOrIntake('years_operating'),
+    general_location: detailOrIntake('general_location'),
     // Details win when set (the editor writes them); otherwise fall back to the
     // intake-era stash so pre-editor rows still prefill.
     intro_text: detailStr('intro_text') || String(intro.text || ''),
