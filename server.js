@@ -17821,6 +17821,7 @@ async function handleCalendlyInviteeCreated(payload) {
   const invitee = payload.payload || {};
   const inviteeUri = String(invitee.uri || '');
   const email = String(invitee.email || '').toLowerCase().trim();
+  const inviteeName = String(invitee.name || [invitee.first_name, invitee.last_name].filter(Boolean).join(' ') || '').trim();
   const timezone = String(invitee.timezone || '');
   const scheduledEventUri = String((invitee.scheduled_event && invitee.scheduled_event.uri) || '');
 
@@ -17854,8 +17855,7 @@ async function handleCalendlyInviteeCreated(payload) {
   }
 
   if (!callRecord) {
-    console.warn('[calendly invitee.created] No matching scheduled_call for email:', email, '| token:', correlationToken);
-    return;
+    console.warn('[calendly invitee.created] No matching scheduled_call for email:', email, '| token:', correlationToken, '— treating as a direct booking');
   }
 
   // Determine scheduled_at time from Calendly event
@@ -17906,6 +17906,26 @@ async function handleCalendlyInviteeCreated(payload) {
   }
 
   const now = new Date().toISOString();
+
+  // Nobody invited this person, so there is no row to update — create one instead of
+  // dropping the booking on the floor (it would never reach the CEO Meetings tab).
+  if (!callRecord) {
+    await createScheduledCallFromDirectCalendlyBooking({
+      nowIso: now,
+      email,
+      name: inviteeName,
+      timezone,
+      inviteeUri,
+      scheduledEventUri,
+      scheduledAt,
+      zoomJoinUrl,
+      zoomMeetingId,
+      zoomMeetingPassword,
+      inviteeNotes
+    });
+    return;
+  }
+
   const callPatch = {
     status: 'booked',
     booked_at: now,
@@ -17939,6 +17959,92 @@ async function handleCalendlyInviteeCreated(payload) {
       }
     });
     console.log('[calendly invitee.created] Updated registration_task', registrationTaskId, '→ waiting');
+  }
+}
+
+// Records a Calendly booking that matched no invited call (someone booked the public
+// link directly). Never throws: the webhook must still answer 200 to Calendly.
+async function createScheduledCallFromDirectCalendlyBooking(d) {
+  const row = interviewMeetings.buildScheduledCallFromCalendly({
+    correlationToken: generateCorrelationToken(),
+    nowIso: d.nowIso,
+    inviteeEmail: d.email,
+    timezone: d.timezone,
+    calendlyInviteeUri: d.inviteeUri,
+    calendlyEventUri: d.scheduledEventUri,
+    scheduledAt: d.scheduledAt,
+    zoomJoinUrl: d.zoomJoinUrl,
+    zoomMeetingId: d.zoomMeetingId,
+    zoomPasscode: d.zoomMeetingPassword,
+    inviteeNotes: d.inviteeNotes
+  });
+
+  const insertRes = await supabaseDbRequest('scheduled_calls', '', {
+    method: 'POST', headers: { Prefer: 'return=minimal' }, body: [row]
+  });
+  if (!insertRes.ok) {
+    // 409 = the partial unique index on calendly_invitee_uri fired, so this booking is
+    // already recorded — a webhook retry that slipped past the webhook_events dedupe.
+    if (insertRes.status === 409) {
+      console.log('[calendly invitee.created] Direct booking already recorded for', d.email, '— skipping');
+    } else {
+      console.warn('[calendly invitee.created] Failed to create scheduled_call for direct booking:', insertRes.status,
+        insertRes.data && (insertRes.data.message || insertRes.data));
+    }
+    return;
+  }
+  console.log('[calendly invitee.created] CREATED CEO consultation from direct booking |', d.email,
+    '| scheduled_at:', d.scheduledAt || '(unknown)');
+
+  await captureCalendlyDirectBookerLead(d);
+}
+
+// Captures a direct booker as a lead so they are visible in the leads view, and so the
+// Meetings tab can resolve their NAME (scheduled_calls has no gp_name column and this
+// row has no user_id to read a profile from). Best-effort — a failure here must not
+// undo the meeting we just created.
+async function captureCalendlyDirectBookerLead(d) {
+  const email = String(d.email || '').trim();
+  if (!email) return;
+  try {
+    // The /start funnel owns any lead it already created (screening answers, consult
+    // token, nudge history) — never duplicate it and never clobber its consult state.
+    const existing = await findSiteEnquiryByEmail(email);
+    if (existing) {
+      console.log('[calendly invitee.created] Lead already exists for', email, '— left untouched');
+      return;
+    }
+
+    // isGp/country are unknowable here: this person answered NO screening questions, so
+    // screenConsultLead leaves the row unqualified. That is deliberate and load-bearing —
+    // the consult-nudge cron only emails GP-targeted nudges to qualified leads, and a
+    // stranger off the public Calendly link (possibly a practice owner) must never get them.
+    // Strip <, >, & from the Calendly-supplied name/notes — buildConsultLeadRow's other
+    // callers hand it already-sanitized text (see normalizeFacebookGpLead), and lead
+    // freeform fields reach HTML email bodies that switch to raw mode on a tag.
+    const safeName = String(d.name || '').replace(/[<>&]/g, '').trim().slice(0, 200);
+    const safeNotes = String(d.inviteeNotes || '').replace(/[<>&]/g, '').trim().slice(0, 2000);
+    const row = buildConsultLeadRow({
+      name: safeName || email,
+      email,
+      isGp: null,
+      country: 'other',
+      source: 'calendly_direct',
+      question: safeNotes || null
+    });
+    row.metadata.consult.call_booked = true;
+    row.metadata.consult.call_booked_at = d.nowIso;
+    // buildConsultLeadRow flags every unqualified lead screened_out, which here would
+    // read as "we asked and turned them down". We never asked — they booked straight off
+    // the Calendly link. Both stay unqualified (so both stay nudge-ineligible), but the
+    // leads view must be able to tell "failed screening" from "never screened".
+    delete row.metadata.consult.screened_out;
+    row.metadata.consult.not_screened = true;
+
+    const ok = await insertSiteEnquiryRow(row);
+    console.log('[calendly invitee.created] Lead capture for', email, ok ? '→ created' : '→ FAILED');
+  } catch (e) {
+    console.warn('[calendly invitee.created] Lead capture error for', email, ':', e && e.message);
   }
 }
 
@@ -19479,6 +19585,12 @@ async function updateSiteEnquiryRow(id, patch) {
   return true;
 }
 
+// Funnel state for a site_enquiries row, or {} for rows that never went through
+// the consult funnel (plain website GP enquiries have no metadata.consult).
+function _clConsult(row) {
+  return (row && row.metadata && row.metadata.consult) || {};
+}
+
 function _consultRowHasToken(row, token) {
   return !!(row && row.kind === 'gp' && row.metadata && row.metadata.consult &&
     row.metadata.consult.token && row.metadata.consult.token === token);
@@ -19495,6 +19607,25 @@ async function findConsultLeadByToken(token) {
   }
   const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
   return rows.find((row) => _consultRowHasToken(row, tok)) || null;
+}
+
+// Any lead row for this email, regardless of kind/source/age — asks only "does the
+// funnel already know this person?" (unlike findRecentConsultLeadByEmail, which is
+// narrowed to nudge-eligible meta_lead_ad rows).
+async function findSiteEnquiryByEmail(email) {
+  const addr = String(email || '').trim().toLowerCase();
+  if (!addr) return null;
+  if (isSupabaseDbConfigured()) {
+    // Escape LIKE wildcards so an email containing % or _ is matched literally
+    // (mirrors findRecentConsultLeadByEmail's ilike escaping).
+    const addrPattern = addr.replace(/([\\%_])/g, '\\$1');
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&email=ilike.' + encodeURIComponent(addrPattern) + '&order=created_at.desc&limit=1',
+      { method: 'GET' });
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return rows.find((row) => String(row.email || '').toLowerCase() === addr) || null;
 }
 
 const CONSULT_MATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -34157,6 +34288,74 @@ async function handleApi(req, res, pathname) {
       created_at: (l && l.created_at) || ''
     }));
     sendJson(res, 200, { ok: true, leads: lPage, total: lTotal, offset: lOffset, limit: lLimit });
+    return;
+  }
+
+  // ── GET /api/ceo/leads — consult/funnel lead browser (CEO Leads tab) ───────
+  // Source is site_enquiries kind=gp: the Meta-ads funnel (metadata.consult),
+  // plus plain website GP enquiries, which carry NO consult object at all —
+  // hence every consult read is defensive.
+  // PRIVACY: metadata also holds ip + user_agent. The projection below is
+  // explicit for that reason — never spread raw metadata into the response.
+  if (pathname === '/api/ceo/leads' && req.method === 'GET') {
+    const clCtx = requireCeoSession(req, res);
+    if (!clCtx) return;
+    const clQ = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    const clFilterRaw = String(url.searchParams.get('filter') || 'all').trim().toLowerCase();
+    const CL_FILTERS = {
+      all:           () => true,
+      qualified:     (r) => _clConsult(r).qualified === true,
+      booked:        (r) => _clConsult(r).call_booked === true,
+      converted:     (r) => r && r.status === 'converted',
+      not_qualified: (r) => _clConsult(r).qualified !== true
+    };
+    const clFilter = Object.prototype.hasOwnProperty.call(CL_FILTERS, clFilterRaw) ? clFilterRaw : 'all';
+    const clLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 200));
+    const clOffset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+
+    let clRows = await listSiteEnquiryRows('', 'gp'); // already newest-first
+    if (clQ) {
+      clRows = clRows.filter((r) =>
+        String((r && r.name) || '').toLowerCase().indexOf(clQ) !== -1
+        || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1);
+    }
+    // Chip counts are computed over the q-filtered set (not the page) so the
+    // numbers stay truthful while a search is active.
+    const clCounts = {};
+    Object.keys(CL_FILTERS).forEach((k) => { clCounts[k] = clRows.filter(CL_FILTERS[k]).length; });
+
+    const clMatched = clRows.filter(CL_FILTERS[clFilter]);
+    const clTotal = clMatched.length;
+    const clPage = clMatched.slice(clOffset, clOffset + clLimit).map((r) => {
+      const meta = (r && r.metadata) || {};
+      const c = meta.consult || {};
+      const nudges = Array.isArray(c.nudges) ? c.nudges : [];
+      const lastNudge = nudges.length ? nudges[nudges.length - 1] : null;
+      return {
+        id: (r && r.id) || '',
+        name: (r && r.name) || '',
+        email: (r && r.email) || '',
+        phone: (r && r.phone) || '',
+        country: (r && r.state) || '',
+        created_at: (r && r.created_at) || '',
+        status: (r && r.status) || '',
+        source: meta.source || '',
+        qualified: c.qualified === true,
+        screened_out: c.screened_out === true,
+        // Distinct from screened_out: they booked the Calendly link direct and
+        // were never asked the screening questions (handleCalendlyInviteeCreated).
+        not_screened: c.not_screened === true,
+        call_booked: c.call_booked === true,
+        call_booked_at: c.call_booked_at || '',
+        // The start form stores the question on the row itself; a question typed
+        // at booking time lands in consult.call_question. Either is "they asked us".
+        call_question: c.call_question || (r && r.message) || '',
+        nudges_sent: nudges.length,
+        last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
+        stopped: c.stopped || ''
+      };
+    });
+    sendJson(res, 200, { ok: true, leads: clPage, total: clTotal, counts: clCounts, offset: clOffset, limit: clLimit });
     return;
   }
 
@@ -58738,8 +58937,16 @@ Return ONLY valid JSON with no markdown formatting:
         if (mtgKind !== 'all' && r.meeting_kind !== mtgKind) return false;
         return true;
       });
+      var mtgLocalLeadNames = {};
+      (dbState.siteEnquiries || []).forEach(function (l) {
+        var lem = String(l.email || '').trim().toLowerCase();
+        if (lem && !mtgLocalLeadNames[lem]) mtgLocalLeadNames[lem] = String(l.name || '').trim();
+      });
       var mtgLocalMeetings = mtgLocalRows.map(function (r) {
-        return interviewMeetings.normalizeMeetingForApi(normalizeScheduledCallForApi(Object.assign({}, r)));
+        var lbase = normalizeScheduledCallForApi(Object.assign({}, r));
+        lbase.gp_name = lbase.gp_name ||
+          mtgLocalLeadNames[String(r.invitee_email || '').trim().toLowerCase()] || '';
+        return interviewMeetings.normalizeMeetingForApi(lbase);
       });
       sendJson(res, 200, { ok: true, meetings: mtgLocalMeetings });
       return;
@@ -58759,8 +58966,17 @@ Return ONLY valid JSON with no markdown formatting:
     // Batch into one user_id=in.(...) query to avoid N+1.
     var mtgUserIds = [];
     var seenMtgUser = {};
+    var mtgLeadEmails = [];
+    var seenMtgEmail = {};
     mtgAllRows.forEach(function (r) {
-      if (r.user_id && !seenMtgUser[r.user_id]) { seenMtgUser[r.user_id] = true; mtgUserIds.push(r.user_id); }
+      if (r.user_id) {
+        if (!seenMtgUser[r.user_id]) { seenMtgUser[r.user_id] = true; mtgUserIds.push(r.user_id); }
+        return;
+      }
+      // No user_id (e.g. a stranger who booked the public Calendly link) → no profile to
+      // read; their name lives on the lead row captured at booking time.
+      var rem = String(r.invitee_email || '').trim().toLowerCase();
+      if (rem && !seenMtgEmail[rem]) { seenMtgEmail[rem] = true; mtgLeadEmails.push(rem); }
     });
     var mtgNameMap = {};
     if (mtgUserIds.length) {
@@ -58770,9 +58986,23 @@ Return ONLY valid JSON with no markdown formatting:
         mtgNameMap[p.user_id] = [String(p.first_name || '').trim(), String(p.last_name || '').trim()].filter(Boolean).join(' ');
       });
     }
+    // One or=(...) query for every no-user_id row, not one lookup per row.
+    var mtgLeadNameMap = {};
+    if (mtgLeadEmails.length) {
+      var mtgLeadOr = mtgLeadEmails.slice(0, 50).map(function (em) {
+        return 'email.ilike.' + encodeURIComponent(em.replace(/([\\%_])/g, '\\$1'));
+      }).join(',');
+      var mtgLeadRes = await supabaseDbRequest('site_enquiries',
+        'select=name,email&or=(' + mtgLeadOr + ')&order=created_at.desc&limit=200');
+      ((mtgLeadRes.ok && mtgLeadRes.data) || []).forEach(function (l) {
+        var lem = String(l.email || '').trim().toLowerCase();
+        if (lem && !mtgLeadNameMap[lem]) mtgLeadNameMap[lem] = String(l.name || '').trim();
+      });
+    }
     var mtgMeetings = mtgAllRows.map(function (r) {
       var base = normalizeScheduledCallForApi(r);
-      base.gp_name = mtgNameMap[r.user_id] || base.gp_name || '';
+      base.gp_name = mtgNameMap[r.user_id] ||
+        mtgLeadNameMap[String(r.invitee_email || '').trim().toLowerCase()] || base.gp_name || '';
       return interviewMeetings.normalizeMeetingForApi(base);
     });
     sendJson(res, 200, { ok: true, meetings: mtgMeetings });
@@ -59984,7 +60214,9 @@ module.exports.__testUtils = {
   updateSiteEnquiryRow,
   findConsultLeadByToken,
   findRecentConsultLeadByEmail,
+  findSiteEnquiryByEmail,
   buildConsultLeadRow,
+  captureCalendlyDirectBookerLead,
   sendConsultNudgeEmail,
   // Test-only: seeds a signed-up account directly into dbState.users (local-
   // JSON mode) — dbState is loaded once at module import, so a raw write to

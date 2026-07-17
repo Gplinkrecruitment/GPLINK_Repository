@@ -19,6 +19,9 @@ const CEO_INTERVIEW_ID   = 'sc_ceo_int_' + RUN_ID;
 const CEO_CONSULT_ID     = 'sc_ceo_con_' + RUN_ID;
 const RSO_CONSULT_ID     = 'sc_rso_con_' + RUN_ID;
 const CEO_DRAFT_ID       = 'sc_ceo_dft_' + RUN_ID;
+// An unsolicited Calendly booking: no user_id / case_id, name only knowable via the lead row.
+const CEO_DIRECT_ID      = 'sc_ceo_dir_' + RUN_ID;
+const DIRECT_EMAIL       = 'khaleedmahmoud1211@gmail.com';
 // c1 is seeded by seed-ats-dev.js (application id 'c1', career_role_id 'j1').
 const SEED_APP_ID        = 'c1';
 
@@ -145,6 +148,37 @@ beforeAll(async () => {
       gp_name: 'Dr Marcus Webb',
       created_at: '2026-07-01T04:00:00.000Z',
       updated_at: '2026-07-01T04:00:00.000Z'
+    },
+    {
+      // The production bug: a stranger booked the owner's Calendly with no invite.
+      // Shaped exactly like buildScheduledCallFromCalendly's output — null user_id
+      // (no profile to read a name from) and host_kind 'ceo' (the visibility key).
+      id: CEO_DIRECT_ID,
+      meeting_kind: 'consultation',
+      host_kind: 'ceo',
+      application_id: null,
+      case_id: null,
+      user_id: null,
+      stage: null,
+      status: 'booked',
+      invitee_email: DIRECT_EMAIL,
+      scheduled_at: '2026-07-20T04:30:00.000Z',
+      booked_at: '2026-07-16T09:00:00.000Z',
+      meeting_summary: null,
+      created_at: '2026-07-16T09:00:00.000Z',
+      updated_at: '2026-07-16T09:00:00.000Z'
+    }
+  ];
+  // The lead row captured at booking time — the ONLY place this person's name exists.
+  state.siteEnquiries = [
+    {
+      id: 'se_direct_' + RUN_ID,
+      created_at: '2026-07-16T09:00:00.000Z',
+      kind: 'gp',
+      name: 'Khaleed Mahmoud',
+      email: DIRECT_EMAIL,
+      status: 'new',
+      metadata: { source: 'calendly_direct', consult: { qualified: false, screened_out: true, call_booked: true, call_booked_at: '2026-07-16T09:00:00.000Z', nudges: [] } }
     }
   ];
   fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2));
@@ -163,16 +197,17 @@ afterAll(async () => {
 // ─── GET /api/ceo/meetings ──────────────────────────────────────────────────
 
 describe('GET /api/ceo/meetings — kind=all', () => {
-  it('returns exactly the 2 CEO non-draft meetings (excludes RSO + draft)', async () => {
+  it('returns exactly the 3 CEO non-draft meetings (excludes RSO + draft)', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=all');
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     const ids = (res.body.meetings || []).map((m) => m.id);
     expect(ids).toContain(CEO_INTERVIEW_ID);
     expect(ids).toContain(CEO_CONSULT_ID);
+    expect(ids).toContain(CEO_DIRECT_ID);          // unsolicited booking, still the CEO's meeting
     expect(ids).not.toContain(RSO_CONSULT_ID);    // RSO-owned, must be excluded
     expect(ids).not.toContain(CEO_DRAFT_ID);       // abandoned draft, must be excluded
-    expect(res.body.meetings.length).toBe(2);
+    expect(res.body.meetings.length).toBe(3);
   });
 
   it('each meeting has is_interview and meeting_kind_label fields (normalizeMeetingForApi applied)', async () => {
@@ -213,13 +248,116 @@ describe('GET /api/ceo/meetings — kind=interview', () => {
 });
 
 describe('GET /api/ceo/meetings — kind=consultation', () => {
-  it('returns only the consultation meeting', async () => {
+  it('returns only the consultation meetings', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=consultation');
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.meetings.length).toBe(1);
-    expect(res.body.meetings[0].id).toBe(CEO_CONSULT_ID);
-    expect(res.body.meetings[0].meeting_kind).toBe('consultation');
+    expect(res.body.meetings.length).toBe(2);
+    expect(res.body.meetings.map((m) => m.id).sort()).toEqual([CEO_CONSULT_ID, CEO_DIRECT_ID].sort());
+    res.body.meetings.forEach((m) => expect(m.meeting_kind).toBe('consultation'));
+  });
+});
+
+// ─── Regression: unsolicited Calendly booking (null user_id) ───────────────
+// A GP booked the owner's Calendly with no correlation token; the webhook dropped
+// the booking, so the meeting never reached this tab.
+describe('GET /api/ceo/meetings — direct booking with null user_id', () => {
+  it('appears in kind=consultation despite having no user_id/case_id', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=consultation');
+    expect(res.status).toBe(200);
+    const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
+    expect(direct).toBeTruthy();
+    expect(direct.user_id).toBeNull();
+    expect(direct.case_id).toBeNull();
+    expect(direct.host_kind).toBe('ceo');
+    expect(direct.status).toBe('booked');
+    expect(direct.scheduled_at).toBe('2026-07-20T04:30:00.000Z');
+  });
+
+  it('resolves gp_name from the lead row — the UI must not render "—"', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=consultation');
+    const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
+    expect(direct.gp_name).toBe('Khaleed Mahmoud');
+    // js/ceo-ats-meetings.js renders `m.gp_name || '—'`.
+    expect(direct.gp_name || '—').not.toBe('—');
+  });
+
+  it('is labelled a standard consultation, not an interview', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=consultation');
+    const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
+    expect(direct.is_interview).toBe(false);
+    expect(direct.meeting_kind_label).toBe('Standard consultation');
+  });
+});
+
+// ─── Lead capture for a direct booker (safety) ─────────────────────────────
+// Someone who books the public Calendly link answered NO screening questions. The
+// consult-nudge cron skips rows where metadata.consult.qualified !== true, so this
+// lead MUST stay unqualified — otherwise strangers (possibly practice owners) start
+// receiving GP-targeted nudge emails.
+describe('captureCalendlyDirectBookerLead — nudge safety', () => {
+  const NOW = '2026-07-16T09:00:00.000Z';
+  const NEW_EMAIL = 'stranger-' + RUN_ID + '@example.com';
+  let testUtils, consultLead;
+
+  beforeAll(async () => {
+    testUtils = (await import('../server.js')).__testUtils;
+    consultLead = (await import('../lib/consult-lead.js')).default;
+  });
+
+  it('creates a lead for a booker the funnel has never seen', async () => {
+    await testUtils.captureCalendlyDirectBookerLead({
+      nowIso: NOW, email: NEW_EMAIL, name: 'Jane Stranger', inviteeNotes: 'Curious about Australia'
+    });
+    const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
+    expect(lead).toBeTruthy();
+    expect(lead.name).toBe('Jane Stranger');
+    expect(lead.metadata.source).toBe('calendly_direct');
+  });
+
+  it('records that they booked a call', async () => {
+    const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
+    expect(lead.metadata.consult.call_booked).toBe(true);
+    expect(lead.metadata.consult.call_booked_at).toBe(NOW);
+  });
+
+  it('SAFETY: the lead is NOT qualified, so the nudge cron skips it', async () => {
+    const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
+    expect(lead.metadata.consult.qualified).toBeFalsy();
+    expect(lead.metadata.consult.qualified).not.toBe(true);
+    // The cron's own gate: `if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) continue;`
+    const cn = lead.metadata.consult;
+    expect(cn.stopped || cn.screened_out || cn.qualified !== true).toBe(true);
+  });
+
+  it('SAFETY: nextConsultNudge never returns a due nudge, however long we wait', async () => {
+    const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
+    const createdAtMs = Date.parse(lead.created_at);
+    // Well past every threshold in both sequences (max is 7 days).
+    [1, 3, 49, 24 * 30].forEach((hours) => {
+      expect(consultLead.nextConsultNudge({
+        consult: lead.metadata.consult,
+        createdAtMs,
+        nowMs: createdAtMs + hours * 60 * 60 * 1000
+      })).toBeNull();
+    });
+  });
+
+  it('never issues a consult token to someone who was not screened', async () => {
+    const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
+    expect(lead.metadata.consult.token).toBeUndefined();
+  });
+
+  it('does not duplicate or clobber an existing lead (the /start funnel owns it)', async () => {
+    const before = await testUtils.findSiteEnquiryByEmail(DIRECT_EMAIL);
+    await testUtils.captureCalendlyDirectBookerLead({
+      nowIso: '2026-07-17T09:00:00.000Z', email: DIRECT_EMAIL, name: 'Someone Else'
+    });
+    const rows = (await testUtils.listSiteEnquiryRows('', 'gp'))
+      .filter((r) => String(r.email).toLowerCase() === DIRECT_EMAIL);
+    expect(rows.length).toBe(1);
+    expect(rows[0].name).toBe(before.name);
+    expect(rows[0].metadata).toEqual(before.metadata);
   });
 });
 

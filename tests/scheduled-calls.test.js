@@ -161,6 +161,101 @@ describe('scheduled-calls helpers', () => {
     });
   });
 
+  describe('buildScheduledCallFromCalendly (unmatched/direct Calendly booking)', () => {
+    const { buildScheduledCallFromCalendly } = require('../lib/interview-meetings.js');
+    const { generateCorrelationToken } = require('../server-test-helpers.js');
+    const NOW = '2026-07-16T09:00:00.000Z';
+
+    function build(extra) {
+      return buildScheduledCallFromCalendly(Object.assign({
+        correlationToken: generateCorrelationToken(),
+        nowIso: NOW,
+        inviteeEmail: 'khaleedmahmoud1211@gmail.com',
+        timezone: 'Europe/London',
+        calendlyInviteeUri: 'https://api.calendly.com/scheduled_events/EVT/invitees/INV',
+        calendlyEventUri: 'https://api.calendly.com/scheduled_events/EVT'
+      }, extra || {}));
+    }
+
+    // The three fields that make the meeting visible and correct in the CEO tab.
+    it('is CEO-hosted — host_kind MUST be ceo or /api/ceo/meetings never returns it', () => {
+      expect(build().host_kind).toBe('ceo');
+    });
+
+    it('is a consultation (renders as "Standard consultation")', () => {
+      expect(build().meeting_kind).toBe('consultation');
+    });
+
+    it('is already booked (the invitee picked a time; nobody invited them)', () => {
+      expect(build().status).toBe('booked');
+    });
+
+    it('carries a correlation_token — the column is NOT NULL UNIQUE', () => {
+      const row = build();
+      expect(row.correlation_token).toMatch(/^[a-f0-9]{32}$/);
+      expect(buildScheduledCallFromCalendly({
+        correlationToken: generateCorrelationToken(), nowIso: NOW
+      }).correlation_token).not.toBe(row.correlation_token);
+    });
+
+    it('leaves case_id/user_id/stage/application_id/task ids null (a stranger has no case)', () => {
+      const row = build();
+      expect(row.case_id).toBeNull();
+      expect(row.user_id).toBeNull();
+      expect(row.stage).toBeNull();
+      expect(row.application_id).toBeNull();
+      expect(row.registration_task_id).toBeNull();
+      expect(row.origin_task_id).toBeNull();
+    });
+
+    it('mirrors the match path: booked_at/invitee_email/timezone/calendly uris + timestamps', () => {
+      const row = build();
+      expect(row.booked_at).toBe(NOW);
+      expect(row.created_at).toBe(NOW);
+      expect(row.updated_at).toBe(NOW);
+      expect(row.invitee_email).toBe('khaleedmahmoud1211@gmail.com');
+      expect(row.timezone).toBe('Europe/London');
+      expect(row.calendly_invitee_uri).toBe('https://api.calendly.com/scheduled_events/EVT/invitees/INV');
+      expect(row.calendly_event_uri).toBe('https://api.calendly.com/scheduled_events/EVT');
+    });
+
+    it('includes optional scheduled_at/zoom/notes only when present', () => {
+      const full = build({
+        scheduledAt: '2026-07-20T04:30:00.000Z',
+        zoomJoinUrl: 'https://zoom.us/j/123',
+        zoomMeetingId: '123',
+        zoomPasscode: 'pw',
+        inviteeNotes: 'Keen to hear about visas'
+      });
+      expect(full.scheduled_at).toBe('2026-07-20T04:30:00.000Z');
+      expect(full.zoom_join_url).toBe('https://zoom.us/j/123');
+      expect(full.zoom_meeting_id).toBe('123');
+      expect(full.zoom_passcode).toBe('pw');
+      expect(full.invitee_notes).toBe('Keen to hear about visas');
+
+      const bare = build();
+      expect(bare).not.toHaveProperty('scheduled_at');
+      expect(bare).not.toHaveProperty('zoom_join_url');
+      expect(bare).not.toHaveProperty('zoom_meeting_id');
+      expect(bare).not.toHaveProperty('zoom_passcode');
+      expect(bare).not.toHaveProperty('invitee_notes');
+    });
+
+    it('is pure — same input, identical row (no clock read inside)', () => {
+      const token = generateCorrelationToken();
+      const a = buildScheduledCallFromCalendly({ correlationToken: token, nowIso: NOW, inviteeEmail: 'a@b.com' });
+      const b = buildScheduledCallFromCalendly({ correlationToken: token, nowIso: NOW, inviteeEmail: 'a@b.com' });
+      expect(a).toEqual(b);
+    });
+
+    it('normalizeMeetingForApi labels it "Standard consultation", not an interview', () => {
+      const { normalizeMeetingForApi } = require('../lib/interview-meetings.js');
+      const api = normalizeMeetingForApi(build());
+      expect(api.is_interview).toBe(false);
+      expect(api.meeting_kind_label).toBe('Standard consultation');
+    });
+  });
+
   describe('pickScheduledCallRso (assigned-RSO auto-host + CEO override)', () => {
     const roster = [
       { user_id: 'rso-hazel', name: 'Hazel', email: 'hazel@mygplink.com.au' },
