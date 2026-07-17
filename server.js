@@ -130,6 +130,7 @@ const practicePipeline = require('./lib/practice-pipeline');
 const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation } = require('./lib/practice-intake-logic');
 const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
+const { buildWriteupPrompt, parseWriteupResponse, scrubWriteup } = require('./lib/job-writeup.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
@@ -26666,6 +26667,107 @@ async function atsUpdateJobRow(id, patch) {
   var j = (dbState.atsJobs || []).find(function (x) { return String(x.id) === String(id); });
   if (!j) return null;
   Object.assign(j, patch); saveDbState(); return j;
+}
+
+// AI job write-up (2026-07-18 design doc): server-side fetch of the
+// practice's OWN website, used ONLY as an input fact for the AI write-up —
+// the URL and any scraped text are never rendered on any listing (see
+// lib/job-writeup.js's identity-masking backstop). Non-fatal by design: any
+// failure (bad/unsupported scheme, timeout, non-2xx, malformed markup)
+// returns '' so a broken practice website can never block generation.
+async function fetchWebsiteText(url) {
+  try {
+    var parsedUrl = new URL(String(url || '').trim());
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return '';
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 10000);
+    var res;
+    try {
+      res = await fetch(parsedUrl.href, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(to);
+    }
+    if (!res || !res.ok) return '';
+    var html = await res.text();
+    var text = String(html || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.slice(0, 4000);
+  } catch (err) {
+    return '';
+  }
+}
+
+// AI job write-up: draft an identity-masked "about the practice & area"
+// write-up for a job from (1) the practice's own form answers, (2) its raw
+// intro text, (3) its website (AI input only), and (4) the model's general
+// knowledge of the area — then run the result through the safety backstop
+// (scrubWriteup) before returning it. Never throws: every failure mode
+// (no API key — the local-dev path, a network/API error, an unparseable
+// model reply) resolves to { ok:false, reason } so a signed-off review
+// screen can never be blocked by this call.
+async function generateJobWriteup(job) {
+  var jobRow = job || {};
+  var details = (jobRow.details && typeof jobRow.details === 'object') ? jobRow.details : {};
+  var sourcePayload = (jobRow.source_payload && typeof jobRow.source_payload === 'object') ? jobRow.source_payload : {};
+  var practiceIntro = (sourcePayload.practice_intro && typeof sourcePayload.practice_intro === 'object') ? sourcePayload.practice_intro : {};
+  var introText = practiceIntro.text || details.intro_text || jobRow.summary || '';
+  var suburb = jobRow.suburb || '';
+  var nearestCity = jobRow.nearest_city || '';
+  var state = jobRow.location_state || '';
+
+  var websiteText = details.website ? await fetchWebsiteText(details.website) : '';
+
+  // Graceful degradation (must, per design doc): no key = local dev — never
+  // a hard failure, the listing simply falls back to the raw intro_text.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return { ok: false, reason: 'ai_unavailable' };
+  }
+
+  var prompt = buildWriteupPrompt({ details: details, introText: introText, websiteText: websiteText, suburb: suburb, nearestCity: nearestCity, state: state });
+
+  var rawText = '';
+  try {
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 30000);
+    var res;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 900, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+      });
+    } finally {
+      clearTimeout(to);
+    }
+    var data = await res.json();
+    if (typeof recordAnthropicSpend === 'function' && data && data.usage) {
+      recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0, data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    }
+    rawText = (data && data.content && data.content[0]) ? data.content[0].text : '';
+  } catch (err) {
+    console.error('[job-writeup] Anthropic call failed:', err && err.message);
+    return { ok: false, reason: 'ai_unavailable' };
+  }
+
+  var parsed = parseWriteupResponse(rawText);
+  if (!parsed) return { ok: false, reason: 'ai_parse_failed' };
+
+  var scrubbed = scrubWriteup(parsed, { practiceName: jobRow.practice_name, address: jobRow.address });
+  // Server-authoritative sources: 'website' can only be true if we actually
+  // fetched non-empty text (never trust the model's own claim here); 'form'
+  // is always present since form details are always part of the prompt.
+  var sources = Array.isArray(scrubbed.sources) ? scrubbed.sources.slice() : [];
+  sources = sources.filter(function (s) { return s !== 'website' || !!websiteText; });
+  if (websiteText && sources.indexOf('website') === -1) sources.push('website');
+  if (sources.indexOf('form') === -1) sources.push('form');
+  scrubbed.sources = sources;
+  scrubbed.generatedAt = new Date().toISOString();
+
+  return { ok: true, writeup: scrubbed };
 }
 
 // Build + insert the career_roles row auto-created when a practice signs the
@@ -56902,6 +57004,26 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 200, { ok: true, job: atsJobCard(ajUpdated, {}, {}) });
+    return;
+  }
+
+  // AI job write-up (2026-07-18 design doc): admin-only, generates (or
+  // regenerates on demand from the CEO review screen) the identity-masked
+  // write-up for a job and persists it on source_payload.gpLink.aiWriteup.
+  // Always 200 on the generation-failed paths (ok:false + reason) — the
+  // caller falls back to the practice's raw intro_text, never a hard error.
+  if (pathname === '/api/ats/job/ai-writeup' && req.method === 'POST') {
+    var ctxAW = requireAtsSession(req, res); if (!ctxAW) return;
+    var awId = url.searchParams.get('id'); if (!awId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var awJob = await atsGetJobRow(awId); if (!awJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var awResult = await generateJobWriteup(awJob);
+    if (!awResult.ok) { sendJson(res, 200, { ok: false, reason: awResult.reason }); return; }
+    var awSp = (awJob.source_payload && typeof awJob.source_payload === 'object') ? awJob.source_payload : {};
+    var awGpLink = (awSp.gpLink && typeof awSp.gpLink === 'object') ? awSp.gpLink : {};
+    var awNextSp = Object.assign({}, awSp, { gpLink: Object.assign({}, awGpLink, { aiWriteup: awResult.writeup }) });
+    var awUpdated = await atsUpdateJobRow(awId, { source_payload: awNextSp });
+    if (!awUpdated) { sendJson(res, 502, { ok: false, message: 'Could not save write-up.' }); return; }
+    sendJson(res, 200, { ok: true, writeup: awResult.writeup });
     return;
   }
 
