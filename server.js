@@ -19591,6 +19591,35 @@ function _clConsult(row) {
   return (row && row.metadata && row.metadata.consult) || {};
 }
 
+// The funnel context a site_enquiries row holds about a person who booked a
+// meeting — what they told us on /start (or the Meta lead form) and how to
+// reach them, for the `lead` object on /api/ceo/meetings.
+// PRIVACY: metadata also holds the submitter's ip + user_agent. This projection
+// is explicit — named fields only — for exactly that reason. Never spread raw
+// metadata (or the row) onto a meeting.
+function _mtgLeadProjection(row) {
+  if (!row) return null;
+  const meta = (row && row.metadata) || {};
+  const c = _clConsult(row);
+  const nudges = Array.isArray(c.nudges) ? c.nudges : [];
+  return {
+    phone: (row && row.phone) || '',
+    country: (row && row.state) || '',
+    // The start form stores the question on the row itself; a question typed at
+    // booking time lands in consult.call_question. Either is "they asked us".
+    question: c.call_question || (row && row.message) || '',
+    source: meta.source || '',
+    is_gp: c.is_gp === true,
+    qualified: c.qualified === true,
+    screened_out: c.screened_out === true,
+    // Distinct from screened_out: they booked the Calendly link direct and were
+    // never asked the screening questions.
+    not_screened: c.not_screened === true,
+    nudges_sent: nudges.length,
+    call_booked_at: c.call_booked_at || ''
+  };
+}
+
 function _consultRowHasToken(row, token) {
   return !!(row && row.kind === 'gp' && row.metadata && row.metadata.consult &&
     row.metadata.consult.token && row.metadata.consult.token === token);
@@ -58937,15 +58966,16 @@ Return ONLY valid JSON with no markdown formatting:
         if (mtgKind !== 'all' && r.meeting_kind !== mtgKind) return false;
         return true;
       });
-      var mtgLocalLeadNames = {};
+      var mtgLocalLeadRows = {};
       (dbState.siteEnquiries || []).forEach(function (l) {
         var lem = String(l.email || '').trim().toLowerCase();
-        if (lem && !mtgLocalLeadNames[lem]) mtgLocalLeadNames[lem] = String(l.name || '').trim();
+        if (lem && !mtgLocalLeadRows[lem]) mtgLocalLeadRows[lem] = l;
       });
       var mtgLocalMeetings = mtgLocalRows.map(function (r) {
         var lbase = normalizeScheduledCallForApi(Object.assign({}, r));
-        lbase.gp_name = lbase.gp_name ||
-          mtgLocalLeadNames[String(r.invitee_email || '').trim().toLowerCase()] || '';
+        var lLead = mtgLocalLeadRows[String(r.invitee_email || '').trim().toLowerCase()] || null;
+        lbase.gp_name = lbase.gp_name || String((lLead && lLead.name) || '').trim();
+        if (lLead) lbase.lead = _mtgLeadProjection(lLead);
         return interviewMeetings.normalizeMeetingForApi(lbase);
       });
       sendJson(res, 200, { ok: true, meetings: mtgLocalMeetings });
@@ -58986,23 +59016,31 @@ Return ONLY valid JSON with no markdown formatting:
         mtgNameMap[p.user_id] = [String(p.first_name || '').trim(), String(p.last_name || '').trim()].filter(Boolean).join(' ');
       });
     }
-    // One or=(...) query for every no-user_id row, not one lookup per row.
+    // One or=(...) query for every no-user_id row, not one lookup per row. It
+    // carries both the name and the funnel context (_mtgLeadProjection) — one
+    // read, two uses.
     var mtgLeadNameMap = {};
+    var mtgLeadCtxMap = {};
     if (mtgLeadEmails.length) {
       var mtgLeadOr = mtgLeadEmails.slice(0, 50).map(function (em) {
         return 'email.ilike.' + encodeURIComponent(em.replace(/([\\%_])/g, '\\$1'));
       }).join(',');
       var mtgLeadRes = await supabaseDbRequest('site_enquiries',
-        'select=name,email&or=(' + mtgLeadOr + ')&order=created_at.desc&limit=200');
+        'select=name,email,phone,state,message,metadata&or=(' + mtgLeadOr + ')&order=created_at.desc&limit=200');
       ((mtgLeadRes.ok && mtgLeadRes.data) || []).forEach(function (l) {
         var lem = String(l.email || '').trim().toLowerCase();
-        if (lem && !mtgLeadNameMap[lem]) mtgLeadNameMap[lem] = String(l.name || '').trim();
+        if (!lem || mtgLeadCtxMap[lem]) return;
+        mtgLeadNameMap[lem] = String(l.name || '').trim();
+        // PRIVACY: projection only — the raw row (metadata.ip / user_agent) never
+        // leaves this scope.
+        mtgLeadCtxMap[lem] = _mtgLeadProjection(l);
       });
     }
     var mtgMeetings = mtgAllRows.map(function (r) {
       var base = normalizeScheduledCallForApi(r);
-      base.gp_name = mtgNameMap[r.user_id] ||
-        mtgLeadNameMap[String(r.invitee_email || '').trim().toLowerCase()] || base.gp_name || '';
+      var rLeadKey = String(r.invitee_email || '').trim().toLowerCase();
+      base.gp_name = mtgNameMap[r.user_id] || mtgLeadNameMap[rLeadKey] || base.gp_name || '';
+      if (mtgLeadCtxMap[rLeadKey]) base.lead = mtgLeadCtxMap[rLeadKey];
       return interviewMeetings.normalizeMeetingForApi(base);
     });
     sendJson(res, 200, { ok: true, meetings: mtgMeetings });

@@ -677,9 +677,11 @@ describe('cache buster + dead CSS pruned', () => {
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260711a');
   });
   it('ceo-dashboard.html loads the bumped board stylesheet (a stale pin serves pre-board CSS from cache)', () => {
-    // Bumped to 20260717a by the Leads tab, which appends lead-* rules to the
-    // same stylesheet. Any edit to css/ceo-ats.css must move this forward.
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260717a');
+    // Bumped to 20260717b by the Meetings tab's booking-detail panel, which
+    // appends mtg-detail-* rules to the same stylesheet. Any edit to
+    // css/ceo-ats.css must move this forward.
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260717b');
+    expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260717a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260712a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260711b');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260707a');
