@@ -1839,7 +1839,13 @@
   }
 
   function buildBenefitsHtml(role) {
-    const items = (Array.isArray(role.benefits) ? role.benefits.filter(Boolean) : []).slice(0, 4);
+    // AI write-up highlights (Task 3) win over the derived benefits list when
+    // present — up to 5 per the write-up spec; falls back to the existing
+    // masked benefits when no write-up has been generated for this role yet.
+    const aiItems = (Array.isArray(role.aiHighlights) ? role.aiHighlights.filter(Boolean) : []).slice(0, 5);
+    const items = aiItems.length
+      ? aiItems
+      : (Array.isArray(role.benefits) ? role.benefits.filter(Boolean) : []).slice(0, 4);
     const lis = items.length
       ? items.map((benefit) =>
           '<li><span class="at-bi">' + AT_CHECK_SVG + '</span>' + escapeHtml(benefit) + '</li>'
@@ -2437,7 +2443,13 @@
       renderOfferBody(role);
       return;
     }
-    const summary = String(role.summary || "A well-established practice partnered with GP Link. Structured onboarding, a supportive team and a stable patient base.");
+    // AI write-up "about" (Task 3) wins over the existing publicIntro/summary
+    // fallback when present — already masked server-side (buildCareerRoleGpLinkMetaFromRow).
+    const summary = String(
+      (role.aiAbout && String(role.aiAbout).trim())
+        ? role.aiAbout
+        : (role.summary || "A well-established practice partnered with GP Link. Structured onboarding, a supportive team and a stable patient base.")
+    );
     dbodyEl.innerHTML =
       (isApplied(role.id) ? buildReceivedHtml() : "") +
       buildUrgencyHtml(role) +

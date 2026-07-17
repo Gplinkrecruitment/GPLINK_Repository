@@ -16699,6 +16699,20 @@ function getCareerRoleRawPayload(row) {
 
 function buildCareerRoleGpLinkMetaFromRow(row) {
   const record = getCareerRoleRawPayload(row);
+  // AI job write-up (2026-07-18 design doc, Task 3): source_payload.gpLink.aiWriteup
+  // is generated/stored by the ai-writeup endpoint (Task 2). Re-apply the
+  // identity-masking backstop (scrubWriteup -> maskIdentity) HERE, at read
+  // time, as defense-in-depth — even though the write-up was already scrubbed
+  // before being stored, this guarantees the public/in-app payloads can never
+  // leak a practice name/address even if a future write path forgets to scrub.
+  const sourcePayloadForWriteup = getCareerRoleSourcePayload(row);
+  const rawAiWriteup = (sourcePayloadForWriteup.gpLink && typeof sourcePayloadForWriteup.gpLink === 'object'
+    && sourcePayloadForWriteup.gpLink.aiWriteup && typeof sourcePayloadForWriteup.gpLink.aiWriteup === 'object')
+    ? sourcePayloadForWriteup.gpLink.aiWriteup
+    : null;
+  const scrubbedAiWriteup = rawAiWriteup
+    ? scrubWriteup(rawAiWriteup, { practiceName: row && row.practice_name, address: row && row.address })
+    : null;
   const websiteUrl = extractCareerWebsiteUrl(record);
   const suburb = deriveCareerSuburb(record, row && row.location_label, row && row.location_city);
   const billingLabel = normalizeCareerBillingLabel(row && row.billing_model);
@@ -16751,6 +16765,11 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
       earningsText: row && row.earnings_text
     }),
     publicBenefits: sourceBenefits.slice(0, 4),
+    // AI write-up (Task 3): masked-safe "about" + "highlights" derived from
+    // source_payload.gpLink.aiWriteup, empty when no write-up has been
+    // generated yet — callers fall back to publicIntro/publicBenefits.
+    aiAbout: scrubbedAiWriteup ? scrubbedAiWriteup.about : '',
+    aiHighlights: scrubbedAiWriteup ? scrubbedAiWriteup.highlights : [],
     publicSupport: redactCareerIdentifiers(row && row.support_summary ? String(row.support_summary) : buildCareerPublicSupport({
       supportText: row && row.support_summary,
       visaPathwayAligned: !!(row && row.visa_pathway_aligned),
@@ -18974,6 +18993,11 @@ function mapCareerRoleRowToClient(row) {
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
     tags: tags.slice(0, 4),
     benefits: Array.isArray(gpLinkMeta.publicBenefits) ? gpLinkMeta.publicBenefits.slice(0, 4) : [],
+    // AI write-up (Task 3): already masked/scrubbed by buildCareerRoleGpLinkMetaFromRow.
+    // Empty string/array when no write-up has been generated — job.html falls
+    // back to `summary`/`benefits` in that case.
+    aiAbout: gpLinkMeta.aiAbout || '',
+    aiHighlights: Array.isArray(gpLinkMeta.aiHighlights) ? gpLinkMeta.aiHighlights : [],
     // Structured commercial terms (billing split, income guarantee, agreement
     // bonus, visa, supervision) so the job page's "The package" box can show the
     // owner's exact figures as distinct rows rather than only as marketing
@@ -19116,7 +19140,7 @@ const PUBLIC_JOB_FIELDS = [
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
   'employment_type', 'tags', 'published_at',
   'display_label', 'header_image_url', 'suburb', 'nearest_city',
-  'visa', 'packageTerms'
+  'visa', 'packageTerms', 'aiAbout', 'aiHighlights'
 ];
 const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
@@ -19161,6 +19185,12 @@ function mapCareerRoleRowToPublicJob(row) {
     summary: (row && row.provider === 'internal_ats' && row.summary && String(row.summary).trim())
       ? String(row.summary).trim()
       : (gpLinkMeta.publicIntro || ''),
+    // AI write-up (Task 3): masked by buildCareerRoleGpLinkMetaFromRow, then
+    // re-filtered through sanitizePublicJob's PUBLIC_JOB_FIELDS allow-list
+    // below (defense-in-depth) — never the raw stored aiWriteup object, and
+    // never the practice website URL (that stays generation-input only).
+    aiAbout: gpLinkMeta.aiAbout || '',
+    aiHighlights: Array.isArray(gpLinkMeta.aiHighlights) ? gpLinkMeta.aiHighlights : [],
     employment_type: row && row.employment_type ? String(row.employment_type) : '',
     tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
     published_at: row && row.published_at ? row.published_at : null,

@@ -398,7 +398,11 @@
       earningsWrap.hidden = true;
     }
 
-    var summaryHtml = renderSummaryHtml(job.summary);
+    // AI write-up "about" (Task 3, 2026-07-18 design) wins over the existing
+    // publicIntro-derived summary when present — already masked server-side
+    // (buildCareerRoleGpLinkMetaFromRow + the sanitizePublicJob whitelist).
+    var aboutText = (job.aiAbout && String(job.aiAbout).trim()) ? job.aiAbout : job.summary;
+    var summaryHtml = renderSummaryHtml(aboutText);
     summaryEl.innerHTML = summaryHtml;
 
     renderPracticeProfile(job);
