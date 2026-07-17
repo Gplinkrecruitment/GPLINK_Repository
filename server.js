@@ -56517,7 +56517,16 @@ Return ONLY valid JSON with no markdown formatting:
     if (qj) cards = cards.filter(function (c) { return (c.title || '').toLowerCase().indexOf(qj) !== -1 || (c.practice_name || '').toLowerCase().indexOf(qj) !== -1; });
     if (stateF) cards = cards.filter(function (c) { return String(c.state || '').toLowerCase() === stateF; });
     if (statusF === 'open') cards = cards.filter(function (c) { return c.status === 'open'; });
-    sendJson(res, 200, { ok: true, jobs: cards, open_count: cards.filter(function (c) { return c.status === 'open'; }).length, total: cards.length });
+    // Jobs awaiting approval need the CEO to act on them, so surface them at the
+    // top of the list. They are merged in last above (is_active:false, so they
+    // never came from atsListJobRows) and would otherwise sit below every open
+    // job — which is what made a freshly-signed practice's job impossible to
+    // find. Stable sort (V8) keeps each group's existing order.
+    cards.sort(function (a, b) {
+      return (a.approval_status === 'pending' ? 0 : 1) - (b.approval_status === 'pending' ? 0 : 1);
+    });
+    var pendingCount = cards.filter(function (c) { return c.approval_status === 'pending'; }).length;
+    sendJson(res, 200, { ok: true, jobs: cards, open_count: cards.filter(function (c) { return c.status === 'open'; }).length, pending_count: pendingCount, total: cards.length });
     return;
   }
 

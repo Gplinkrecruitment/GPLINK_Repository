@@ -104,6 +104,21 @@ describe('ATS jobs', () => {
     expect(j1.practice_name).toBe('Greenslopes Family Medical');
     expect(j1.active_count).toBeGreaterThan(0);
   });
+  it('surfaces pending-approval jobs at the TOP so a signed practice is not buried', async () => {
+    // A freshly-signed practice's job lands as approval_status:'pending'. If it
+    // sorts below every open job, the CEO cannot find the one job that needs
+    // action — exactly the bug reported for Erina Medical Centre.
+    const r = await req('GET', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie() });
+    const b = parse(r.raw);
+    const pendingIds = b.jobs.filter((j) => j.approval_status === 'pending').map((j) => j.id);
+    expect(pendingIds).toContain('jp1');
+    expect(pendingIds).toContain('jp2');
+    // Every pending job appears before every non-pending job.
+    const firstNonPending = b.jobs.findIndex((j) => j.approval_status !== 'pending');
+    const lastPending = b.jobs.map((j) => j.approval_status).lastIndexOf('pending');
+    expect(lastPending).toBeLessThan(firstNonPending);
+    expect(b.pending_count).toBe(pendingIds.length);
+  });
   it('rejects an unknown host', async () => {
     const r = await req('GET', '/api/ats/jobs', { host: 'evil.example.com', cookie: superCookie() });
     expect([302, 401, 403, 404]).toContain(r.status);
