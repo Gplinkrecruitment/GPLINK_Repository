@@ -60,3 +60,13 @@ describe('practice intake form - the redesign', () => {
     expect(html).toMatch(/noindex/);
   });
 });
+
+describe('DPA is named correctly', () => {
+  // "District of Priority Area" is not a thing. The Department of Health term is
+  // "Distribution Priority Area" -- and this label is read by practices deciding
+  // an answer that governs which overseas-trained GPs may work for them.
+  it('calls it a Distribution Priority Area, not a District of Priority Area', () => {
+    expect(html).toMatch(/Distribution Priority Area \(DPA\)/);
+    expect(html).not.toMatch(/District of Priority/);
+  });
+});
