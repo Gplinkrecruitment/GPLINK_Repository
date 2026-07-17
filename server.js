@@ -11712,6 +11712,35 @@ function requireAtsSession(req, res) {
   return adminCtx;
 }
 
+// Soft (non-responding) equivalent of requireAtsSession — returns the admin
+// context or null WITHOUT ever writing a 401/403/404 response, unlike
+// resolveAdminRequestContext/requireAtsSession which send one on failure.
+// Used ONLY to decide whether an incoming request is ALSO carrying a valid
+// admin/ATS session before honoring an optional flag like the job-preview
+// `?preview=1` param (2026-07-18 admin-only job preview) — a request that
+// fails this check must fall through to normal, unprivileged behavior rather
+// than getting its own error response. Mirrors resolveAdminRequestContext +
+// requireAtsSession's exact validation (host scope -> session -> role-vs-host
+// match -> super_admin/consultant role) so the two checks can never drift.
+function getAtsSessionSoft(req) {
+  const hostScope = getAdminHostScope(req);
+  if (!hostScope) return null;
+  const session = getAdminSession(req);
+  if (!session) return null;
+  const role = getAdminRoleFromSession(session);
+  if (!doesAdminRoleMatchHost(role, hostScope)) return null;
+  const normalizedRole = normalizeAdminRole(role);
+  if (normalizedRole !== 'super_admin' && normalizedRole !== 'consultant') return null;
+  return {
+    session,
+    email: getSessionEmail(session),
+    role: normalizedRole,
+    roleLabel: getAdminRoleLabel(normalizedRole),
+    hostScope,
+    hostLabel: getAdminHostLabel(hostScope)
+  };
+}
+
 // Routes that are BOTH admin-ops tooling and ATS-functional (currently only
 // submit-to-practice) accept every requireAdminSession-passing role AND the
 // consultant role. resolveAdminRequestContext already enforces the host↔role
@@ -18629,6 +18658,23 @@ async function getCareerRoleRow(provider, providerRoleId) {
   return result.data[0];
 }
 
+// Admin-preview-only row lookup (2026-07-18 admin job-preview design):
+// resolves a career_role row by its public (provider:provider_role_id) id
+// regardless of is_active/approval_status — getCareerRoleRow above already
+// carries no active/approval filter against Supabase, so this only ADDS the
+// local-JSON dev/test fallback (mirrors the inline fallback GET
+// /api/career/role has always used for internal_ats rows in local-JSON mode,
+// where dbState.atsJobs is the only store). Callers MUST already have
+// verified an admin/ATS session (getAtsSessionSoft) before calling this —
+// it performs no auth/visibility gating of its own.
+async function getCareerRoleRowForPreview(provider, providerRoleId) {
+  let row = await getCareerRoleRow(provider, providerRoleId);
+  if (!row && provider === 'internal_ats' && !isSupabaseDbConfigured()) {
+    row = (dbState.atsJobs || []).find((job) => job && job.provider === 'internal_ats' && String(job.provider_role_id || '') === providerRoleId) || null;
+  }
+  return row;
+}
+
 async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
   if (!row || !row.provider || !row.provider_role_id) return row;
   const nextMeta = {
@@ -19418,7 +19464,18 @@ async function serveJobDetailPageWithSeo(req, res, requestUrl) {
   try {
     const id = String(requestUrl.searchParams.get('id') || '').trim();
     if (!id) return false;
-    const rows = await getPublicJobsRows();
+    // Admin-only preview (2026-07-18 design): ?preview=1 only ever swaps in
+    // the not-yet-live row when the request ALSO carries a valid admin/ATS
+    // session (getAtsSessionSoft — never writes its own response). Any
+    // other case (no session, no matching row) falls straight back to the
+    // normal active-only rows, same as today.
+    let rows = null;
+    if (requestUrl.searchParams.get('preview') === '1' && getAtsSessionSoft(req)) {
+      const parsedPreviewId = parseCareerRolePublicId(id);
+      const previewRow = parsedPreviewId ? await getCareerRoleRowForPreview(parsedPreviewId.provider, parsedPreviewId.providerRoleId) : null;
+      if (previewRow) rows = [previewRow];
+    }
+    if (!rows) rows = await getPublicJobsRows();
     const params = new URLSearchParams();
     params.set('id', id);
     const result = buildPublicJobsResponse(rows, params);
@@ -33360,6 +33417,24 @@ async function handleApi(req, res, pathname) {
   // ── Public marketing-site jobs + stats (no session) ──────────────────────
   if (pathname === '/api/public/jobs' && req.method === 'GET') {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    // Admin-only preview (2026-07-18 design): ?preview=1&id=<publicId> only
+    // ever reveals a not-yet-live (pending/inactive) job when the request
+    // ALSO carries a valid admin/ATS session (getAtsSessionSoft — never
+    // writes its own response). Without that session, or without an id, this
+    // falls straight through to the normal active-only path below — a bare
+    // preview=1 can never surface a pending job publicly.
+    const previewJobId = String(requestUrl.searchParams.get('id') || '').trim();
+    const isAdminPreviewJobs = previewJobId && requestUrl.searchParams.get('preview') === '1' && !!getAtsSessionSoft(req);
+    if (isAdminPreviewJobs) {
+      const parsedPreviewId = parseCareerRolePublicId(previewJobId);
+      const previewRow = parsedPreviewId ? await getCareerRoleRowForPreview(parsedPreviewId.provider, parsedPreviewId.providerRoleId) : null;
+      if (previewRow) {
+        sendJson(res, 200, buildPublicJobsResponse([previewRow], requestUrl.searchParams));
+        return;
+      }
+      // No such row (bad id) — fall through to the normal path, which will
+      // likewise resolve to an empty jobs array (same as any unknown id).
+    }
     const rows = await getPublicJobsRows();
     sendJson(res, 200, buildPublicJobsResponse(rows, requestUrl.searchParams));
     return;
@@ -34829,14 +34904,23 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/career/role' && req.method === 'GET') {
-    const session = requireSession(req, res);
-    if (!session) return;
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    // Admin-only preview (2026-07-18 design): ?preview=1 only ever bypasses
+    // GP gating (session requirement below + the DPA qualification gate
+    // further down) when the request ALSO carries a valid admin/ATS session
+    // — getAtsSessionSoft never sends its own response, so an unauthenticated
+    // preview=1 request just falls through to the normal (gated) path and
+    // 404s/401s exactly as it does today. SECURITY: this is the ONLY switch
+    // that flips isAdminPreviewRole — the query param alone can never do it.
+    const isAdminPreviewRole = requestUrl.searchParams.get('preview') === '1' && !!getAtsSessionSoft(req);
+
+    const session = isAdminPreviewRole ? null : requireSession(req, res);
+    if (!isAdminPreviewRole && !session) return;
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Career role details require Supabase database configuration.' });
       return;
     }
 
-    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const parsedId = parseCareerRolePublicId(requestUrl.searchParams.get('id') || '');
     if (!parsedId) {
       sendJson(res, 400, { ok: false, message: 'Missing or invalid role id.' });
@@ -34865,9 +34949,13 @@ async function handleApi(req, res, pathname) {
     // Task 11 DPA gate — a GP who can't be shown this role on /api/career/roles
     // (blurred filler) must not be able to fetch its full detail either, e.g.
     // by loading pages/job.html directly with a guessed/shared/cached role id.
+    // Admin preview has no GP profile to gate (roleDetailUserId is always
+    // null there) and isn't a real applicant, so it skips this redaction —
+    // the whole point is to see the actual listing, not a "you don't
+    // qualify" stub.
     const roleDetailGpProfile = await _resolveGpJobsProfile(roleDetailUserId, roleDetailEmail);
     const roleDetailQualification = practicePipeline.gpQualifiesForRole({ dpa: finalRoleRow.dpa }, { australiaTrained: roleDetailGpProfile.australiaTrained });
-    if (!roleDetailQualification.qualifies) {
+    if (!isAdminPreviewRole && !roleDetailQualification.qualifies) {
       sendJson(res, 200, {
         ok: true,
         role: practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, roleDetailQualification))
@@ -34941,6 +35029,7 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    if (isAdminPreviewRole) roleClientPayload.preview = true;
     sendJson(res, 200, {
       ok: true,
       role: roleClientPayload
