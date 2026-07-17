@@ -350,6 +350,63 @@
   .mtg-row-right { flex-wrap:wrap; }
 }
 
+/* ============================================================
+ *  Leads tab  (lead-*)
+ * ============================================================ */
+
+.lead-toolbar {
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:16px 20px 4px;
+}
+.lead-filters { display:flex; gap:8px; flex-wrap:wrap; flex:1; min-width:0; }
+.lead-chip {
+  padding:6px 14px; border-radius:20px; border:1px solid var(--ats-border);
+  background:var(--ats-panel); color:var(--ats-muted); font:inherit; font-size:12.5px;
+  cursor:pointer; transition:all .15s;
+}
+.lead-chip:hover { border-color:var(--ats-border-hover); color:var(--ats-text); }
+.lead-chip.active { background:var(--ats-blue-dim); border-color:var(--ats-blue); color:var(--ats-blue); font-weight:600; }
+.lead-chip-n { opacity:.7; font-size:11px; }
+
+.lead-search {
+  padding:7px 12px; border-radius:8px; border:1px solid var(--ats-border);
+  background:var(--ats-panel); color:var(--ats-text); font:inherit; font-size:12.5px;
+  min-width:200px;
+}
+.lead-search:focus { outline:none; border-color:var(--ats-blue); }
+.lead-search::placeholder { color:var(--ats-dim); }
+
+.lead-group { padding:12px 20px 20px; }
+
+.lead-row {
+  display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;
+  padding:12px 0; border-bottom:1px solid var(--ats-border);
+}
+.lead-row:last-child { border-bottom:none; }
+.lead-row-main { flex:1; min-width:0; }
+.lead-row-right { display:flex; align-items:center; gap:8px; flex-shrink:0; margin-top:2px; }
+
+.lead-name { font-size:13.5px; font-weight:600; color:var(--ats-text); margin-bottom:3px; }
+.lead-contact { font-size:12px; color:var(--ats-muted); margin-bottom:5px; word-break:break-word; }
+.lead-sep { color:var(--ats-dim); }
+.lead-meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.lead-source { font-size:12px; color:var(--ats-text); font-weight:500; }
+.lead-fact { font-size:12px; color:var(--ats-muted); }
+.lead-nudges { font-size:11.5px; color:var(--ats-dim); margin-top:5px; }
+
+.lead-question {
+  margin-top:8px; padding:8px 10px;
+  background:rgba(255,255,255,0.03); border-left:2px solid var(--ats-blue);
+  border-radius:0 6px 6px 0; font-size:12.5px; color:var(--ats-muted);
+  line-height:1.6; white-space:pre-wrap; word-break:break-word;
+}
+.lead-question-label { color:var(--ats-dim); font-weight:600; }
+
+@media (max-width: 700px) {
+  .lead-row { flex-direction:column; }
+  .lead-search { width:100%; }
+}
+
 /* ============================================================================
  * AI Matching (Task 3) — kanban Shortlist-card status line + the Matching tab.
  * ========================================================================== */

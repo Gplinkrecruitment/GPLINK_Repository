@@ -244,13 +244,15 @@ h2.sec-title {
 .reveal.rv-right { transform: translateX(44px); }
 .reveal.rv-scale { transform: scale(.92) translateY(18px); }
 .reveal.rv-blur { transform: translateY(24px); filter: blur(10px); }
-.reveal.in { opacity: 1; transform: none; filter: none; }
 /* Narrow screens: gentler slide offsets so waiting elements can't reach far
-   past the viewport edge even before the root-level clip catches them. */
+   past the viewport edge even before the root-level clip catches them.
+   Must stay ABOVE .reveal.in: same specificity, so on source order the resting
+   offset would otherwise win and revealed elements would never settle. */
 @media (max-width: 680px) {
   .reveal.rv-left { transform: translateX(-20px); }
   .reveal.rv-right { transform: translateX(20px); }
 }
+.reveal.in { opacity: 1; transform: none; filter: none; }
 .reveal.dl1 { transition-delay: .08s; }
 .reveal.dl2 { transition-delay: .16s; }
 .reveal.dl3 { transition-delay: .24s; }

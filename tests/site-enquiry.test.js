@@ -313,8 +313,8 @@ describe('GET /employers (Task 10 employers page)', () => {
 
   it('links the shared site chrome css/js and has SEO head tags', async () => {
     const res = await get('/employers');
-    expect(res.raw).toContain('/css/site.css?v=20260703');
-    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
+    expect(res.raw).toContain('/js/site.js?v=20260714a');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/employers">');
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,200}">/);
   });

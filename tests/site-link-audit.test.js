@@ -27,12 +27,16 @@ const RUN_ID = crypto.randomBytes(4).toString('hex');
 let server;
 let addrPort;
 
-const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs', '/exclusive-placements'];
+const PUBLIC_ROUTES = ['/', '/jobs', '/jobs/view', '/employers', '/about', '/faq', '/the-app', '/gp-jobs', '/exclusive-placements', '/visa'];
 const PUBLIC_BASE_URL = 'https://www.mygplink.com.au';
 
 const ALLOWED_EXTERNAL = [
   /^https:\/\/calendly\.com\/hello-mygplink(\/|$)/,
   /^https:\/\/(www\.)?facebook\.com(\/|$)/,
+  // Figtree, loaded by the site chrome. Both origins are in the page CSP
+  // (style-src fonts.googleapis.com, font-src fonts.gstatic.com).
+  /^https:\/\/fonts\.googleapis\.com(\/|$)/,
+  /^https:\/\/fonts\.gstatic\.com(\/|$)/,
 ];
 const ALLOWED_MAILTO = new Set(['mailto:hello@mygplink.com.au']);
 

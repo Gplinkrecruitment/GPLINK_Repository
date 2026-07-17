@@ -84,13 +84,13 @@ describe('GET /jobs (Task 8 job board page)', () => {
 
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toContain('/css/site.css?v=20260703');
-    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
+    expect(res.raw).toContain('/js/site.js?v=20260714a');
   });
 
   it('has SEO head tags (title, canonical, description, OG)', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toContain('<title>GP Jobs in Australia — Browse 1,400+ Roles | GP Link</title>');
+    expect(res.raw).toContain('<title>GP Jobs in Australia: Browse 1,400+ Roles | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/jobs">');
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,220}">/);
     expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg"');
@@ -151,7 +151,7 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
 
   it('the filtered results-count header replaces the numeric count with the unlock message', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toContain('Top match shown — create a free account to unlock the rest');
+    expect(res.raw).toContain('Top match shown. Create a free account to unlock the rest');
   });
 
   it('never prints a specific numeric claim about hidden/matching roles', async () => {
@@ -190,7 +190,7 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
     const res = await get('/jobs');
     expect(res.raw).toMatch(/function buildExclusiveCard/);
     expect(res.raw).toContain('a.href = "/exclusive-placements?from=jobs"');
-    expect(res.raw).toContain('Exclusive placement — create a free account to view');
+    expect(res.raw).toContain('Exclusive placement. Create a free account to view');
     // it must be an <a>, not a decorative aria-hidden div like the skeleton teasers
     expect(res.raw).toMatch(/var a = document\.createElement\("a"\);\s*\n\s*a\.className = "job-card exclusive-teaser";/);
   });
@@ -204,7 +204,7 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
 
   it('the exclusive-zero-match header uses the honest intro line (no numeric roles-found claim)', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toContain('No public listings match your search — but many of our best roles are never advertised.');
+    expect(res.raw).toContain('No public listings match your search, but many of our best roles are never advertised.');
   });
 
   it('the exclusive-zero-match CTA panel has the exact required copy', async () => {
@@ -304,8 +304,8 @@ describe('GET /jobs/view (Task 9 job detail page)', () => {
 
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs/view?id=anything');
-    expect(res.raw).toContain('/css/site.css?v=20260703');
-    expect(res.raw).toContain('/js/site.js?v=20260703');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
+    expect(res.raw).toContain('/js/site.js?v=20260714a');
   });
 
   it('marks Jobs as the current nav section', async () => {
