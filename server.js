@@ -127,7 +127,7 @@ var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
-const { buildIntakeJobDetails, buildPackageTerms } = require('./lib/practice-intake-logic');
+const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation } = require('./lib/practice-intake-logic');
 const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
@@ -7128,6 +7128,9 @@ function createEmptyState() {
     hybridAgentBridgeStore: null,
     // In-app ATS collections (dev / local-JSON mode). In prod these live in Supabase.
     atsPractices: [],
+    // Corporate-group intake (Task 7). A solo practice gets a group of one —
+    // one code path, no "is this a group?" branch downstream. In prod: practice_groups table.
+    practiceGroups: [],
     atsJobs: [],
     atsApplications: [],
     atsCandidates: [],
@@ -7167,6 +7170,7 @@ function loadDbState() {
         ? parsed.hybridAgentBridgeStore
         : null,
       atsPractices: Array.isArray(parsed && parsed.atsPractices) ? parsed.atsPractices : [],
+      practiceGroups: Array.isArray(parsed && parsed.practiceGroups) ? parsed.practiceGroups : [],
       atsJobs: Array.isArray(parsed && parsed.atsJobs) ? parsed.atsJobs : [],
       atsApplications: Array.isArray(parsed && parsed.atsApplications) ? parsed.atsApplications : [],
       atsCandidates: Array.isArray(parsed && parsed.atsCandidates) ? parsed.atsCandidates : [],
@@ -26215,6 +26219,49 @@ async function atsUpdatePracticeRow(id, patch) {
   Object.assign(p, patch); saveDbState(); return p;
 }
 
+// ---- Practice groups (Task 7: corporate-group intake) ---------------------
+// A corporate group can sign once for several clinics. One `practice_groups`
+// row anchors the shared entity/ABN/agreement; every practices row (one per
+// clinic) points at it via group_id. A lone practice is a "group of one" —
+// same shape, so callers never need an is-this-a-group branch. Dual-mode,
+// mirrors atsInsertPracticeRow/atsUpdatePracticeRow exactly.
+async function findPracticeGroupByToken(token) {
+  if (!token) return null;
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practice_groups', 'select=*&intake_token=eq.' + encodeURIComponent(token) + '&limit=1');
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  return (dbState.practiceGroups || []).find(function (g) { return g.intake_token === token; }) || null;
+}
+async function insertPracticeGroupRow(row) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practice_groups', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var local = Object.assign({ id: atsLocalId('pgrp_'), created_at: atsNowIso() }, row, { updated_at: atsNowIso() });
+  dbState.practiceGroups = dbState.practiceGroups || [];
+  dbState.practiceGroups.push(local); saveDbState();
+  return local;
+}
+async function updatePracticeGroupRow(id, patch) {
+  patch.updated_at = atsNowIso();
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practice_groups', 'id=eq.' + encodeURIComponent(id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var g = (dbState.practiceGroups || []).find(function (x) { return String(x.id) === String(id); });
+  if (!g) return null;
+  Object.assign(g, patch); saveDbState(); return g;
+}
+async function listPracticesByGroupId(groupId) {
+  if (!groupId) return [];
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practices', 'select=*&group_id=eq.' + encodeURIComponent(groupId));
+    return (r.ok && Array.isArray(r.data)) ? r.data : [];
+  }
+  return (dbState.atsPractices || []).filter(function (p) { return p.group_id && String(p.group_id) === String(groupId); });
+}
+
 // Resolve a practices-table row id for a free-text practice name
 // (case-insensitive match, same lower(name) key as the unique index).
 // Creates the row when it doesn't exist yet — source 'backfill', which the
@@ -33130,50 +33177,176 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const validated = practicePipeline.validatePracticeIntakePayload(body);
-    if (!validated.ok) {
-      sendJson(res, 400, { ok: false, error: validated.error });
-      return;
+    // A corporate group can now sign once for several clinics. The
+    // redesigned form sends `practices: [...]`; the currently-live form
+    // (and any in-flight intake link that predates this change) sends one
+    // clinic's answers directly at the top level — treat that as a group
+    // of one so there is exactly one code path below, never an
+    // is-this-a-group branch.
+    const clinicPayloads = Array.isArray(body && body.practices) && body.practices.length ? body.practices : [body];
+
+    // Validate every clinic BEFORE writing anything — a bad clinic 3 of 3
+    // must not leave clinics 1-2 half-saved.
+    const validatedClinics = [];
+    for (const clinicBody of clinicPayloads) {
+      const validated = practicePipeline.validatePracticeIntakePayload(clinicBody);
+      if (!validated.ok) {
+        sendJson(res, 400, { ok: false, error: validated.error });
+        return;
+      }
+      validatedClinics.push({ raw: clinicBody, value: validated.value });
     }
-    const value = validated.value;
 
-    // Map the validated intake value onto real `practices` columns (added by
-    // migration 20260705100000) AND stash the full object under
-    // metadata.intake (merging — never clobbering fb_lead/fb_raw/intake_token
-    // that the Facebook webhook already stored there).
-    const fullPatch = {
-      billing_style: value.billing_style,
-      dpa: value.dpa,
-      nearest_city: value.nearest_city,
-      suburb: value.suburb,
-      address: value.address,
-      intro_text: value.intro_text,
-      intro_video_url: value.intro_video_url,
-      location_state: value.state,
-      location_city: value.nearest_city,
-      metadata: Object.assign({}, practice.metadata || {}, { intake: value })
-    };
+    const trimOrNull = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
 
-    let saved = await atsUpdatePracticeRow(practice.id, fullPatch);
-    if (!saved && isSupabaseDbConfigured()) {
-      // Missing-column tolerance: migration 20260705100000 may not be applied
-      // yet, so the pipeline columns (and the new `metadata` column) don't
-      // exist. Do NOT silently retry with only location_city/location_state —
-      // that would drop every other intake answer (billing style, DPA, intro
-      // text/video, address) while still reporting success. Fail loud instead,
-      // mirroring the /api/practice-intake/sign 503 below, so the practice
-      // contact isn't told their form saved when almost none of it did.
-      console.error('[practice-intake] cannot persist intake answers — run migration 20260705100000');
+    // Resolve (or create) the group this token belongs to. Every practice
+    // gets a group — even a lone clinic — so a resubmit, the entity/ABN
+    // inheritance rule, and later CEO-side reads never have to ask "is this
+    // a group?". A token backfilled with its own group (migration
+    // 20260716120000) or one created on an earlier submission is reused.
+    let group = await findPracticeGroupByToken(token);
+    if (!group) {
+      group = await insertPracticeGroupRow({
+        entity_name: trimOrNull(body && body.entity_name),
+        abn: trimOrNull(body && body.abn),
+        contact_name: practice.contact_name || null,
+        contact_email: practice.contact_email || null,
+        contact_phone: practice.contact_phone || null,
+        intake_token: token,
+        agreement_status: practice.agreement_status || 'unsigned',
+        source: practice.source || null,
+        metadata: {}
+      });
+    } else if (body && (body.entity_name !== undefined || body.abn !== undefined)) {
+      // Resubmitting the group step (e.g. correcting a typo'd ABN) updates
+      // the group in place — practice rows never store their own copy of
+      // an inherited entity/ABN, so there is nothing to keep in sync there.
+      const groupPatch = {};
+      if (body.entity_name !== undefined) groupPatch.entity_name = trimOrNull(body.entity_name);
+      if (body.abn !== undefined) groupPatch.abn = trimOrNull(body.abn);
+      group = await updatePracticeGroupRow(group.id, groupPatch);
+    }
+    if (!group && isSupabaseDbConfigured()) {
+      // Missing-table tolerance: migration 20260716120000 (practice_groups +
+      // the new practices columns) may not be applied yet. Fail loud with NO
+      // side effects, same convention as every other pipeline_migration_required
+      // path in this route — never tell the practice their form saved when
+      // nothing did.
+      console.error('[practice-intake] cannot persist practice group — run migration 20260716120000');
       sendJson(res, 503, { ok: false, error: 'pipeline_migration_required' });
       return;
     }
-
-    if (!saved) {
+    if (!group) {
       sendJson(res, 500, { ok: false, message: 'Failed to save intake details.' });
       return;
     }
 
-    const response = { ok: true };
+    // Existing rows already tied to this group (a resubmit) are matched to
+    // this submission's clinics by position — the seed practice (found by
+    // token, above) always fills slot 0 so its id/agreement state never
+    // moves. Extra clinics beyond what already exists get a brand-new row;
+    // this task does not attempt to detect a clinic being *removed* from a
+    // resubmit.
+    const existingGroupPractices = (await listPracticesByGroupId(group.id)).filter((p) => p.id !== practice.id);
+    const existingPool = [practice].concat(existingGroupPractices);
+
+    const savedPractices = [];
+    for (let i = 0; i < validatedClinics.length; i++) {
+      const raw = validatedClinics[i].raw;
+      const value = validatedClinics[i].value;
+      const targetRow = existingPool[i] || null;
+
+      // Compute the location fields SERVER-SIDE from lat/lon when the
+      // (Google-Places-backed) new form supplies coordinates — never trust
+      // free-text the browser sent, since this lands on a live job ad. A
+      // legacy payload with no coordinates falls back to the client's
+      // validated nearest_city, exactly as before.
+      const rawLat = Number(raw && raw.latitude);
+      const rawLon = Number(raw && raw.longitude);
+      const hasCoords = Number.isFinite(rawLat) && Number.isFinite(rawLon);
+      let nearestCityName = value.nearest_city;
+      if (hasCoords) {
+        const nc = nearestCity(rawLat, rawLon);
+        nearestCityName = nc.city;
+        // general_location has no `practices` column (Task 3's migration
+        // deliberately doesn't add one) — it only ever lives in
+        // metadata.intake, from where createPendingJobFromIntake carries it
+        // onto career_roles.details at sign time (buildIntakeJobDetails).
+        // Overwrite the validated value in place so the server-computed
+        // location (not whatever the browser sent) is what gets stashed a
+        // few lines down, and what the job eventually ships with.
+        value.general_location = buildGeneralLocation({ suburb: value.suburb, state: value.state, nearestCity: nc.city });
+      }
+
+      // The practice's answer always wins — we flag a mismatch against the
+      // official DPA lookup for a human to review, we never overrule them.
+      const dpaSuggestedRaw = raw && raw.dpa_suggested;
+      const dpaSuggested = (dpaSuggestedRaw === true || dpaSuggestedRaw === false) ? dpaSuggestedRaw : null;
+      const dpaMismatch = dpaSuggested !== null && value.dpa !== dpaSuggested;
+
+      // Map the validated intake value onto real `practices` columns (added
+      // by migrations 20260705100000 + 20260716120000) AND stash the full
+      // object under metadata.intake (merging — never clobbering
+      // fb_lead/fb_raw/intake_token the Facebook webhook already stored
+      // there). entity_name/abn stay NULL unless THIS clinic overrides —
+      // never copy the group's value down, so a later group-level edit
+      // never leaves a stale copy on a clinic that never overrode it.
+      const clinicPatch = {
+        billing_style: value.billing_style,
+        dpa: value.dpa,
+        nearest_city: nearestCityName,
+        suburb: value.suburb,
+        address: value.address,
+        intro_text: value.intro_text,
+        intro_video_url: value.intro_video_url,
+        location_state: value.state,
+        location_city: nearestCityName,
+        urgency: value.urgency,
+        employment_type: value.employment_type,
+        gps_needed: value.gps_needed,
+        supervision_available: value.supervision_available,
+        postcode: trimOrNull(raw && raw.postcode),
+        latitude: hasCoords ? rawLat : null,
+        longitude: hasCoords ? rawLon : null,
+        google_place_id: trimOrNull(raw && raw.google_place_id),
+        dpa_suggested: dpaSuggested,
+        dpa_mismatch: dpaMismatch,
+        entity_name: trimOrNull(raw && raw.entity_name),
+        abn: trimOrNull(raw && raw.abn),
+        group_id: group.id,
+        metadata: Object.assign({}, (targetRow && targetRow.metadata) || {}, { intake: value })
+      };
+
+      const savedRow = targetRow
+        ? await atsUpdatePracticeRow(targetRow.id, clinicPatch)
+        : await atsInsertPracticeRow(Object.assign({
+          name: (practice.name || 'Practice') + ' (clinic ' + (i + 1) + ')',
+          contact_name: practice.contact_name,
+          contact_email: practice.contact_email,
+          contact_phone: practice.contact_phone,
+          stage: 'prospective',
+          source: practice.source
+        }, clinicPatch));
+
+      if (!savedRow && isSupabaseDbConfigured()) {
+        // Missing-column tolerance: migration 20260716120000 may not be
+        // applied yet. Do NOT silently retry with a reduced column set —
+        // that would drop most of this clinic's answers while still
+        // reporting success. Fail loud instead, mirroring the
+        // /api/practice-intake/sign 503 below, so the practice contact
+        // isn't told their form saved when almost none of it did.
+        console.error('[practice-intake] cannot persist intake answers — run migration 20260716120000');
+        sendJson(res, 503, { ok: false, error: 'pipeline_migration_required' });
+        return;
+      }
+      if (!savedRow) {
+        sendJson(res, 500, { ok: false, message: 'Failed to save intake details.' });
+        return;
+      }
+      savedPractices.push(savedRow);
+    }
+
+    const response = { ok: true, group_id: group.id, practice_count: savedPractices.length };
     if (practice.agreement_status === 'signed') response.already_signed = true;
     sendJson(res, 200, response);
     return;
