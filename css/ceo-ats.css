@@ -345,9 +345,24 @@
 }
 .mtg-summary-text { margin-top:6px; white-space:pre-wrap; }
 
+/* Booking context inside the expanded panel */
+.mtg-detail { display:flex; flex-direction:column; gap:8px; }
+.mtg-summary-text + .mtg-detail { margin-top:12px; padding-top:10px; border-top:1px solid var(--ats-border); }
+.mtg-detail-row { display:flex; gap:10px; align-items:baseline; }
+.mtg-detail-label {
+  flex:0 0 108px; font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.05em; color:var(--ats-dim);
+}
+.mtg-detail-value { flex:1; min-width:0; color:var(--ats-text); white-space:pre-wrap; overflow-wrap:anywhere; }
+.mtg-detail-value a { color:var(--ats-blue); text-decoration:none; }
+.mtg-detail-value a:hover { text-decoration:underline; }
+.mtg-detail-hint { display:block; font-size:11px; color:var(--ats-dim); font-style:italic; margin-bottom:2px; }
+
 @media (max-width: 700px) {
   .mtg-row { flex-direction:column; }
   .mtg-row-right { flex-wrap:wrap; }
+  .mtg-detail-row { flex-direction:column; gap:2px; }
+  .mtg-detail-label { flex:none; }
 }
 
 /* ============================================================

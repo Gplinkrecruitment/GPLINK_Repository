@@ -38,6 +38,15 @@
   };
   function statusMeta(s) { return STATUS_META[s] || { label: s ? String(s) : '—', mod: 'muted' }; }
 
+  // Plain English for the funnel's stored codes — the owner reads this panel
+  // right before the call, so never print a raw code at them.
+  var COUNTRY_LABELS = { uk: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand' };
+  var SOURCE_LABELS = {
+    site_start_form: 'Landing page',
+    meta_lead_ad:    'Facebook lead form',
+    calendly_direct: 'Booked direct, never screened'
+  };
+
   // Format a UTC datetime string in Sydney local time.
   var sydFmt = null;
   var sydTzFmt = null;
@@ -138,10 +147,12 @@
         });
         return;
       }
-      // Delegated: expand a summary row.
-      var row = e.target.closest ? e.target.closest('.mtg-row[data-summary]') : null;
+      // Delegated: expand a row's detail panel (AI summary and/or booking context).
+      var row = e.target.closest ? e.target.closest('.mtg-row[data-expand]') : null;
       if (!row) return;
-      var body = row.querySelector('.mtg-summary-body');
+      // A link inside the panel (mailto:/tel:/Join) must open, not collapse the panel.
+      if (e.target.closest && e.target.closest('a')) return;
+      var body = row.querySelector('.mtg-expand-body');
       if (!body) return;
       var open = row.classList.toggle('expanded');
       body.style.display = open ? '' : 'none';
@@ -196,6 +207,61 @@
   }
 
   /* =====================================================================
+   *  DETAIL PANEL — what we already know about the person on the call
+   * ===================================================================== */
+  function detailRow(label, valueHtml) {
+    return '<div class="mtg-detail-row">' +
+      '<span class="mtg-detail-label">' + ATS.esc(label) + '</span>' +
+      '<span class="mtg-detail-value">' + valueHtml + '</span>' +
+    '</div>';
+  }
+
+  // Returns '' when we hold nothing worth showing, so the caller can skip the
+  // panel entirely rather than render an empty heading.
+  function detailHtml(m) {
+    var lead = m.lead || null;
+    var parts = '';
+
+    if (lead) {
+      var told = [];
+      // not_screened = they booked the public link and were never ASKED the
+      // screening questions. is_gp would be false there because we never asked,
+      // not because they said no — so say nothing rather than something untrue.
+      if (!lead.not_screened) {
+        told.push('Registered GP: ' + (lead.is_gp ? 'Yes' : 'No'));
+        if (lead.country) {
+          told.push('Country: ' + (COUNTRY_LABELS[String(lead.country).trim().toLowerCase()] || 'Other'));
+        }
+      }
+      var src = SOURCE_LABELS[String(lead.source || '').trim()];
+      if (src) told.push('Came from: ' + src);
+      if (told.length) parts += detailRow('What they told us', ATS.esc(told.join(' · ')));
+      if (lead.question) parts += detailRow('They asked', ATS.esc(lead.question));
+    }
+
+    if (m.invitee_notes) {
+      parts += detailRow('Booking notes',
+        '<span class="mtg-detail-hint">What they answered when booking</span>' +
+        ATS.esc(m.invitee_notes));
+    }
+
+    var contact = [];
+    if (m.invitee_email) {
+      contact.push('<a href="mailto:' + ATS.escAttr(m.invitee_email) + '">' + ATS.esc(m.invitee_email) + '</a>');
+    }
+    if (lead && lead.phone) {
+      contact.push('<a href="tel:' + ATS.escAttr(String(lead.phone).replace(/[^\d+]/g, '')) + '">' +
+        ATS.esc(lead.phone) + '</a>');
+    }
+    if (contact.length) parts += detailRow('Contact', contact.join(' · '));
+
+    if (m.duration_minutes) parts += detailRow('Call length', ATS.esc(m.duration_minutes + ' minutes'));
+    if (m.timezone) parts += detailRow('Their timezone', ATS.esc(m.timezone));
+
+    return parts ? '<div class="mtg-detail">' + parts + '</div>' : '';
+  }
+
+  /* =====================================================================
    *  MEETING ROW
    * ===================================================================== */
   function rowHtml(m, isSummary) {
@@ -223,19 +289,24 @@
       ? '<span class="mtg-practice">' + ATS.esc(m.practice_name) + '</span>'
       : '';
 
-    // Summary expansion for Summaries group.
-    var summaryAttr = isSummary && m.meeting_summary ? ' data-summary="1"' : '';
-    var summaryBody = isSummary && m.meeting_summary
-      ? '<div class="mtg-summary-body" style="display:none">' +
-          '<div class="ats-ai-badge" style="margin-bottom:6px">✦ AI SUMMARY</div>' +
-          '<div class="mtg-summary-text">' + ATS.esc(m.meeting_summary) + '</div>' +
-        '</div>'
+    // Expanded panel: the AI summary (Summaries group) and/or everything the
+    // funnel already told us about this person. Either alone makes the row
+    // expandable; the compact row above stays unchanged.
+    var summaryHtml = isSummary && m.meeting_summary
+      ? '<div class="ats-ai-badge" style="margin-bottom:6px">✦ AI SUMMARY</div>' +
+        '<div class="mtg-summary-text">' + ATS.esc(m.meeting_summary) + '</div>'
       : '';
-    var expandHint = isSummary && m.meeting_summary
-      ? '<span class="mtg-expand-hint">Click to read</span>'
+    var detail = detailHtml(m);
+    var expandable = !!(summaryHtml || detail);
+    var expandAttr = expandable ? ' data-expand="1"' : '';
+    var expandBody = expandable
+      ? '<div class="mtg-expand-body mtg-summary-body" style="display:none">' + summaryHtml + detail + '</div>'
+      : '';
+    var expandHint = expandable
+      ? '<span class="mtg-expand-hint">' + (summaryHtml ? 'Click to read' : 'Click for details') + '</span>'
       : '';
 
-    return '<div class="mtg-row' + (isSummary && m.meeting_summary ? ' has-summary' : '') + '"' + summaryAttr + '>' +
+    return '<div class="mtg-row' + (expandable ? ' has-summary' : '') + '"' + expandAttr + '>' +
       '<div class="mtg-row-main">' +
         '<div class="mtg-name">' + ATS.esc(m.gp_name || '—') + '</div>' +
         '<div class="mtg-meta">' +
@@ -250,7 +321,7 @@
         joinHtml +
         cancelHtml +
       '</div>' +
-      summaryBody +
+      expandBody +
     '</div>';
   }
 

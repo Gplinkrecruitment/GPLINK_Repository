@@ -22,6 +22,13 @@ const CEO_DRAFT_ID       = 'sc_ceo_dft_' + RUN_ID;
 // An unsolicited Calendly booking: no user_id / case_id, name only knowable via the lead row.
 const CEO_DIRECT_ID      = 'sc_ceo_dir_' + RUN_ID;
 const DIRECT_EMAIL       = 'khaleedmahmoud1211@gmail.com';
+// The lead row carries ip + user_agent in metadata — exactly as the real capture
+// paths write them — so the privacy assertion has something real to catch.
+const PRIVATE_IP         = '203.0.113.77';
+const PRIVATE_UA         = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) SecretAgent/1.0';
+const DIRECT_NOTES       = 'Please share your phone number for contact via WhatsApp: +61 406 281 243';
+const DIRECT_QUESTION    = 'testing123';
+const DIRECT_PHONE       = '0406281243';
 // c1 is seeded by seed-ats-dev.js (application id 'c1', career_role_id 'j1').
 const SEED_APP_ID        = 'c1';
 
@@ -162,6 +169,10 @@ beforeAll(async () => {
       stage: null,
       status: 'booked',
       invitee_email: DIRECT_EMAIL,
+      // The Calendly booking questions & answers, plus the call's shape.
+      invitee_notes: DIRECT_NOTES,
+      timezone: 'Australia/Sydney',
+      duration_minutes: 30,
       scheduled_at: '2026-07-20T04:30:00.000Z',
       booked_at: '2026-07-16T09:00:00.000Z',
       meeting_summary: null,
@@ -169,7 +180,9 @@ beforeAll(async () => {
       updated_at: '2026-07-16T09:00:00.000Z'
     }
   ];
-  // The lead row captured at booking time — the ONLY place this person's name exists.
+  // The lead row captured at booking time — the ONLY place this person's name,
+  // phone, country answer and typed question exist. Shaped exactly like the
+  // production row for this booker (screened via /start, then booked).
   state.siteEnquiries = [
     {
       id: 'se_direct_' + RUN_ID,
@@ -177,8 +190,19 @@ beforeAll(async () => {
       kind: 'gp',
       name: 'Khaleed Mahmoud',
       email: DIRECT_EMAIL,
+      phone: DIRECT_PHONE,
+      state: 'uk',
+      message: DIRECT_QUESTION,
       status: 'new',
-      metadata: { source: 'calendly_direct', consult: { qualified: false, screened_out: true, call_booked: true, call_booked_at: '2026-07-16T09:00:00.000Z', nudges: [] } }
+      metadata: {
+        source: 'site_start_form',
+        ip: PRIVATE_IP,
+        user_agent: PRIVATE_UA,
+        consult: {
+          is_gp: true, qualified: true, country: 'uk', call_booked: true,
+          call_booked_at: '2026-07-16T09:00:00.000Z', nudges: [], token: 'tok_' + RUN_ID
+        }
+      }
     }
   ];
   fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2));
@@ -287,6 +311,78 @@ describe('GET /api/ceo/meetings — direct booking with null user_id', () => {
     const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
     expect(direct.is_interview).toBe(false);
     expect(direct.meeting_kind_label).toBe('Standard consultation');
+  });
+});
+
+// ─── Booking context on the meeting row ────────────────────────────────────
+// The owner takes the call off this tab: the name + time alone are useless. The
+// funnel already holds what they told us, what they asked, and how to ring them.
+describe('GET /api/ceo/meetings — lead context', () => {
+  it('attaches a lead object resolved from the booker email', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=all');
+    const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
+    expect(direct.lead).toBeTruthy();
+    expect(direct.lead.question).toBe(DIRECT_QUESTION);
+    expect(direct.lead.phone).toBe(DIRECT_PHONE);
+    expect(direct.lead.country).toBe('uk');
+    expect(direct.lead.is_gp).toBe(true);
+    expect(direct.lead.qualified).toBe(true);
+    expect(direct.lead.source).toBe('site_start_form');
+    expect(direct.lead.not_screened).toBe(false);
+    expect(direct.lead.nudges_sent).toBe(0);
+    expect(direct.lead.call_booked_at).toBe('2026-07-16T09:00:00.000Z');
+  });
+
+  it('keeps the Calendly booking answers + call shape on the row', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=all');
+    const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
+    expect(direct.invitee_notes).toBe(DIRECT_NOTES);
+    expect(direct.invitee_email).toBe(DIRECT_EMAIL);
+    expect(direct.timezone).toBe('Australia/Sydney');
+    expect(direct.duration_minutes).toBe(30);
+  });
+
+  it('a meeting with no matching lead still returns fine, with no lead object', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=all');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const consult = (res.body.meetings || []).find((m) => m.id === CEO_CONSULT_ID);
+    expect(consult).toBeTruthy();
+    expect(consult.lead).toBeUndefined();
+    const interview = (res.body.meetings || []).find((m) => m.id === CEO_INTERVIEW_ID);
+    expect(interview.lead).toBeUndefined();
+    expect(interview.gp_name).toBe('Dr Aisha Khan'); // unchanged by the lead join
+  });
+});
+
+// PRIVACY: site_enquiries.metadata holds the booker's IP + user agent. The lead
+// projection is explicit precisely so these can never reach the browser; assert
+// on the RAW body so a nested/renamed leak is still caught.
+describe('GET /api/ceo/meetings — privacy', () => {
+  it('never returns raw metadata.ip or metadata.user_agent', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=all');
+    expect(res.status).toBe(200);
+    expect(res.raw).not.toContain(PRIVATE_IP);
+    expect(res.raw).not.toContain(PRIVATE_UA);
+    expect(res.raw).not.toContain('SecretAgent');
+    expect(res.raw).not.toContain('user_agent');
+    expect(res.raw).not.toContain('"ip"');
+    // And no meeting's lead carries a metadata blob at all.
+    (res.body.meetings || []).forEach((m) => {
+      if (!m.lead) return;
+      expect(m.lead.metadata).toBeUndefined();
+      expect(m.lead.ip).toBeUndefined();
+      expect(m.lead.user_agent).toBeUndefined();
+      expect(m.lead.token).toBeUndefined();
+    });
+  });
+
+  it('keeps ip/user_agent out of every kind-filtered response too', async () => {
+    for (const p of ['?kind=consultation', '?kind=interview']) {
+      const res = await call('GET', '/api/ceo/meetings' + p);
+      expect(res.raw).not.toContain(PRIVATE_IP);
+      expect(res.raw).not.toContain(PRIVATE_UA);
+    }
   });
 });
 
