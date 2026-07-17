@@ -33044,6 +33044,21 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Publicly-exposed Google Maps browser key for pages with no session at all
+  // (the token-gated practice intake form). Referrer-locked in Google Cloud
+  // Console, same protection the logged-in career-lifestyle map already
+  // relies on (getCareerLifestyleGoogleMapsPayload) — it is safe to hand the
+  // raw key to any caller. Never proxy Places calls through our own server:
+  // a server-side key would need the referrer lock removed, which is worse.
+  if (pathname === '/api/public/maps-config' && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      enabled: !!GOOGLE_MAPS_BROWSER_API_KEY,
+      apiKey: GOOGLE_MAPS_BROWSER_API_KEY || ''
+    }, PUBLIC_CONFIG_CACHE_HEADERS);
+    return;
+  }
+
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
     sendJson(res, 200, { ok: true });

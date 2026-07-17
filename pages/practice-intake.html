@@ -7,385 +7,558 @@
 <meta name="robots" content="noindex, nofollow">
 <style>
   :root{
-    --blue:#2563eb;
-    --blue-dark:#1d4ed8;
-    --ink:#0f172a;
-    --mut:#5b6b82;
-    --line:#e2e8f0;
-    --bg:#f0f4fa;
-    --card:#ffffff;
-    --green:#0e9f6e;
-    --red:#dc2626;
+    --ink:#10151c;--ink-2:#465468;--ink-3:#7e8ca0;--line:#e2e7ee;--line-2:#eef1f6;
+    --bg:#f5f7fa;--card:#fff;--brand:#2563eb;--brand-dk:#1d4ed8;--brand-soft:#eaf3fd;
+    --good:#128a5a;--good-soft:#e6f6ee;--good-line:#c9e9d9;
+    --amber:#b46a00;--amber-soft:#fff5e6;--amber-line:#f2ddb8;--bad:#dc2626;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
   }
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
-  body{
-    background:var(--bg);
-    color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-    line-height:1.5;
-    -webkit-font-smoothing:antialiased;
-  }
-  .wrap{max-width:640px;margin:0 auto;padding:20px 16px 64px;}
-  .brand{display:flex;align-items:center;gap:10px;padding:18px 2px 8px;}
-  .brand .mark{
-    width:34px;height:34px;border-radius:9px;background:var(--blue);color:#fff;
-    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;
-    flex:none;
-  }
-  .brand .name{font-weight:800;font-size:17px;letter-spacing:-.01em;color:var(--ink);}
-  .card{
-    background:var(--card);border:1px solid var(--line);border-radius:16px;
-    padding:26px 22px;margin-top:12px;box-shadow:0 12px 32px -20px rgba(15,23,42,.25);
-  }
-  h1{font-size:21px;font-weight:800;letter-spacing:-.01em;margin:0 0 6px;color:var(--ink);}
-  h2{font-size:17px;font-weight:750;margin:0 0 4px;color:var(--ink);}
-  p{margin:0 0 14px;color:var(--mut);font-size:14.5px;}
-  .lede{color:var(--mut);font-size:14.5px;margin-bottom:18px;}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
 
-  .field{margin-bottom:16px;}
-  .field label{display:block;font-size:13px;font-weight:650;color:var(--ink);margin-bottom:6px;}
-  .field .hint{font-size:12.5px;color:var(--mut);font-weight:400;margin-top:4px;}
-  .field input[type="text"],
-  .field input[type="url"],
-  .field select,
-  .field textarea{
-    width:100%;font:inherit;font-size:14.5px;color:var(--ink);
-    border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff;
-  }
-  .field input:focus,.field select:focus,.field textarea:focus{
-    outline:2px solid var(--blue);outline-offset:1px;border-color:var(--blue);
-  }
-  .field textarea{resize:vertical;min-height:88px;}
-  .req-star{color:var(--red);margin-left:2px;}
-  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;}
-  @media (max-width:480px){.grid-2{grid-template-columns:1fr;}}
+  .shell{max-width:720px;margin:0 auto;padding:20px 16px 90px}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 2px 16px}
+  .logo{width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800;font-size:15px;flex:none}
+  .brand .n{font-weight:800;font-size:17px;letter-spacing:-.01em}
 
-  .hp-field{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden;}
+  .steps{display:flex;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px;margin-bottom:18px}
+  .steps div{flex:1;text-align:center;font-size:11.5px;font-weight:600;color:var(--ink-3);padding:8px 3px;border-radius:999px;white-space:nowrap}
+  .steps div.on{background:var(--brand);color:#fff}
+  .steps div.done{color:var(--good)}
 
-  .section-div{border-top:1px solid var(--line);margin:22px 0 18px;padding-top:18px;}
-  .nudge{
-    background:#eef4ff;border:1px solid #c9dcfb;color:var(--blue-dark);
-    border-radius:10px;padding:12px 14px;font-size:13.5px;font-weight:600;margin-bottom:16px;
-  }
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:16px;box-shadow:0 12px 32px -20px rgba(15,23,42,.2)}
+  h1{font-size:21px;margin:0 0 6px;letter-spacing:-.01em;font-weight:800}
+  .lede{color:var(--ink-2);font-size:14px;margin:0 0 22px}
+  h2.sec{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:26px 0 14px;
+    font-weight:700;border-top:1px solid var(--line-2);padding-top:18px}
+  h2.sec:first-child{margin-top:0;border-top:0;padding-top:0}
 
-  .actions{margin-top:6px;}
-  .btn{
-    display:inline-flex;align-items:center;justify-content:center;gap:8px;
-    background:var(--blue);color:#fff;border:0;border-radius:10px;
-    font:inherit;font-size:15px;font-weight:700;padding:13px 22px;cursor:pointer;
-    width:100%;transition:background .15s ease,transform .15s ease,opacity .15s ease;
-  }
-  .btn:hover:not(:disabled){background:var(--blue-dark);}
-  .btn:disabled{opacity:.5;cursor:not-allowed;}
-  .btn-secondary{
-    background:transparent;color:var(--blue);border:1px solid var(--line);
-  }
-  .btn-secondary:hover{background:#f5f8ff;}
-  .link-row{margin-top:14px;text-align:center;}
-  .link-row a{color:var(--blue);font-size:13.5px;font-weight:650;text-decoration:none;}
-  .link-row a:hover{text-decoration:underline;}
+  .f{margin-bottom:18px;position:relative}
+  label{display:flex;align-items:center;gap:6px;font-weight:600;font-size:14px;margin-bottom:5px}
+  .must{font-size:10px;font-weight:700;color:var(--bad);background:#fdeceb;border:1px solid #f6d3d1;padding:1px 5px;border-radius:4px;letter-spacing:.04em}
+  .opt{font-size:10px;font-weight:600;color:var(--ink-3);border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+  .hint{font-size:12.5px;color:var(--ink-3);margin:-1px 0 7px}
+  .hint b{color:var(--ink-2);font-weight:600}
+  .tip{width:16px;height:16px;border-radius:50%;border:1px solid var(--line);color:var(--ink-3);font-size:10px;
+    display:grid;place-items:center;cursor:help;position:relative;font-weight:700;background:#fafbfd;flex:none}
+  .tip:hover{border-color:var(--brand);color:var(--brand)}
+  .tip span{display:none;position:absolute;bottom:135%;left:50%;transform:translateX(-50%);background:#10151c;color:#fff;
+    font-weight:400;font-size:12px;line-height:1.45;padding:9px 11px;border-radius:8px;width:270px;z-index:40;text-align:left;
+    box-shadow:0 8px 24px rgba(0,0,0,.22)}
+  .tip:hover span{display:block}
 
-  .error-box{
-    background:#fef2f2;border:1px solid #fecaca;color:var(--red);
-    border-radius:10px;padding:11px 13px;font-size:13.5px;font-weight:600;margin:14px 0 0;
-    display:none;
-  }
-  .error-box.show{display:block;}
+  input[type=text],input[type=email],input[type=url],select,textarea{width:100%;padding:11px 13px;border:1px solid var(--line);
+    border-radius:9px;font-size:14.5px;font-family:inherit;color:var(--ink);background:#fff}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  input::placeholder,textarea::placeholder{color:#aab5c4}
+  textarea{resize:vertical;min-height:92px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:560px){.row{grid-template-columns:1fr}}
+  .hp-field{position:absolute;left:-9999px;top:-9999px;height:0;width:0;overflow:hidden}
 
-  .state-panel{text-align:center;padding:36px 10px;}
-  .state-panel .icon{font-size:44px;line-height:1;margin-bottom:14px;}
-  .spinner{
-    width:28px;height:28px;border-radius:50%;border:3px solid #dbe6fb;border-top-color:var(--blue);
-    margin:0 auto 16px;animation:spin .8s linear infinite;
-  }
-  @keyframes spin{to{transform:rotate(360deg);}}
+  .ac{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-top:0;
+    border-radius:0 0 10px 10px;box-shadow:0 12px 28px rgba(16,21,28,.13);z-index:30;max-height:280px;overflow:auto;display:none}
+  .ac.open{display:block}
+  .ac button{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;background:none;border:0;
+    padding:11px 13px;cursor:pointer;font-size:14px;font-family:inherit;border-bottom:1px solid var(--line-2)}
+  .ac button:last-of-type{border-bottom:0}
+  .ac button:hover{background:var(--brand-soft)}
+  .ac .pin{flex:none;margin-top:1px}
+  .ac .a1{font-weight:600}.ac .a2{font-size:12.5px;color:var(--ink-3)}
+  .ac .foot{padding:7px 13px;font-size:11px;color:var(--ink-3);background:#fafbfd;border-top:1px solid var(--line-2)}
 
-  .pdf-frame{width:100%;height:480px;border:1px solid var(--line);border-radius:12px;background:#f8fafc;}
-  .pdf-fallback{margin:10px 0 20px;font-size:13.5px;}
-  .pdf-fallback a{color:var(--blue);font-weight:650;text-decoration:none;}
-  .pdf-fallback a:hover{text-decoration:underline;}
+  .derived{margin-top:9px;background:var(--good-soft);border:1px solid var(--good-line);border-radius:9px;padding:11px 13px;display:none}
+  .derived.on{display:block}
+  .derived .t{font-size:12px;font-weight:700;color:var(--good);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:#fff;border:1px solid var(--good-line);border-radius:6px;padding:3px 9px;font-size:12.5px}
+  .chip b{color:var(--ink-3);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-right:5px}
+  .edit-link{background:none;border:0;color:var(--brand);font-size:12.5px;cursor:pointer;padding:7px 0 0;font-family:inherit;text-decoration:underline}
 
-  .sig-wrap{
-    border:1px solid var(--line);border-radius:12px;padding:12px;background:#fbfcfe;margin-bottom:14px;
-  }
-  canvas#sigPad{
-    width:100%;height:140px;display:block;border:1px dashed #c7d2e4;border-radius:8px;
-    background:#fff;touch-action:none;cursor:crosshair;
-  }
-  .sig-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;}
-  .sig-row .muted{font-size:12.5px;color:var(--mut);}
-  .btn-clear{
-    background:transparent;border:1px solid var(--line);color:var(--mut);
-    font:inherit;font-size:13px;font-weight:650;padding:8px 14px;border-radius:8px;cursor:pointer;width:auto;
-  }
-  .btn-clear:hover{background:#f5f8ff;color:var(--blue-dark);border-color:var(--blue);}
+  .ai{margin-top:9px;background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:9px;padding:13px;display:none}
+  .ai.on{display:block}
+  .ai .t{font-size:12px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+  .ai p{margin:0 0 10px;font-size:13.5px;color:var(--ink-2)}
+  .ai p b{color:var(--ink)}
+  .ai .warn{display:block;margin-top:6px;font-size:11.5px;color:var(--ink-3)}
+  .ai.done{background:var(--good-soft);border-color:var(--good-line)}
+  .ai.done .t{color:var(--good)}
 
-  .type-sig-row{display:flex;gap:8px;margin:10px 0 16px;}
-  .type-sig-row input{flex:1;}
-  .type-sig-row button{
-    flex:none;width:auto;padding:11px 16px;font-size:13.5px;background:var(--ink);
-  }
-  .type-sig-row button:hover:not(:disabled){background:#000;}
+  .seg{display:flex;gap:8px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:105px;padding:11px 8px;border-radius:9px;border:1px solid var(--line);background:#fff;
+    font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink-2)}
+  .seg button:hover{border-color:var(--ink-3)}
+  .seg button.sel{background:var(--brand);border-color:var(--brand);color:#fff}
+  .seg.urg button.sel{background:var(--good);border-color:var(--good)}
 
-  .checkbox-row{display:flex;align-items:flex-start;gap:10px;margin:16px 0 18px;}
-  .checkbox-row input[type="checkbox"]{width:19px;height:19px;flex:none;margin-top:1px;accent-color:var(--blue);}
-  .checkbox-row label{font-size:14px;color:var(--ink);font-weight:600;cursor:pointer;}
+  .prac{background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:9px}
+  .prac .top{display:flex;align-items:center;gap:11px}
+  .prac .ic{width:30px;height:30px;border-radius:8px;background:var(--good-soft);color:var(--good);
+    display:grid;place-items:center;flex:none;font-weight:700;font-size:13px}
+  .prac .n{font-weight:600;font-size:13.5px}
+  .prac .m2{font-size:12px;color:var(--ink-3)}
+  .prac .acts{margin-left:auto;display:flex;gap:4px}
+  .prac .acts button{background:none;border:0;color:var(--ink-3);cursor:pointer;font-size:12.5px;padding:4px 7px;
+    font-family:inherit;border-radius:6px}
+  .prac .acts button:hover{background:#eef1f6;color:var(--ink)}
+  .prac .acts .del:hover{color:var(--bad)}
+  .toggle{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);
+    font-size:12.5px;color:var(--ink-2);cursor:pointer}
+  .toggle input{width:15px;height:15px;accent-color:var(--brand)}
+  .own{margin-top:9px;display:none;gap:8px}
+  .own.on{display:grid;grid-template-columns:1fr 130px}
+  .own input{font-size:13px;padding:9px 11px}
 
-  .date-line{font-size:13.5px;color:var(--mut);margin:0 0 14px;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 22px;border-radius:10px;border:0;
+    background:var(--brand);color:#fff;font-weight:700;font-size:14.5px;font-family:inherit;cursor:pointer}
+  .btn:hover:not(:disabled){background:var(--brand-dk)}
+  .btn:disabled{background:#c9d2dd;cursor:not-allowed;opacity:.75}
+  .btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--line)}
+  .btn.ghost:hover{border-color:var(--brand);background:var(--brand-soft)}
+  .btn.wide{width:100%}
+  .actions{display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid var(--line-2);flex-wrap:wrap}
+  .actions .btn:first-child{flex:1}
 
-  .hidden{display:none !important;}
+  .sig-wrap{border:1px dashed var(--line);border-radius:10px;background:#fafbfd;position:relative;overflow:hidden;padding:0}
+  .sig-wrap.filled{border-style:solid;border-color:var(--good);background:#fff}
+  canvas#sigPad{display:block;width:100%;height:140px;cursor:crosshair;touch-action:none;background:#fff}
+  .sig-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border-top:1px solid var(--line-2)}
+  .sig-row .muted{font-size:12.5px;color:var(--ink-3)}
+  .btn-clear{background:transparent;border:1px solid var(--line);color:var(--ink-3);font:inherit;font-size:12.5px;
+    font-weight:650;padding:7px 12px;border-radius:8px;cursor:pointer;width:auto}
+  .btn-clear:hover{background:#f5f8ff;color:var(--brand-dk);border-color:var(--brand)}
+  .type-sig-row{display:flex;gap:8px;margin:10px 0 16px}
+  .type-sig-row input{flex:1}
+  .type-sig-row button{flex:none;width:auto;padding:11px 16px;font-size:13px;background:var(--ink)}
+  .type-sig-row button:hover:not(:disabled){background:#000}
+
+  .check{display:flex;gap:11px;align-items:flex-start;background:#fafbfd;border:1px solid var(--line);
+    border-radius:10px;padding:14px;margin-top:8px;cursor:pointer}
+  .check input{margin-top:2px;width:17px;height:17px;flex:none;accent-color:var(--brand)}
+  .check span{font-size:13.5px;color:var(--ink-2)}
+
+  .gate{background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:18px}
+  .gate .bar{height:5px;background:var(--line);border-radius:99px;overflow:hidden;margin-bottom:9px}
+  .gate .bar i{display:block;height:100%;background:var(--good);width:0;transition:.3s}
+  .gate .t{font-size:13px;color:var(--ink-2);font-weight:600}
+  .gate .t.ok{color:var(--good)}
+  .gate ul{margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink-3)}
+
+  .doc{background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:18px;font-size:13.5px;color:var(--ink-2)}
+  .doc .h{font-weight:700;color:var(--ink);margin-bottom:6px;font-size:14px}
+  .doc table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+  .doc th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);padding:0 6px 6px;border-bottom:1px solid var(--line)}
+  .doc td{padding:7px 6px;border-bottom:1px solid var(--line-2)}
+  .doc tr:last-child td{border-bottom:0}
+  .doc .abn{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+
+  .note{background:var(--brand-soft);border:1px solid #cfe4f8;border-radius:10px;padding:13px 15px;font-size:13px;color:var(--ink-2);margin-bottom:18px}
+  .note b{color:var(--ink)}
+  .hidden{display:none !important}
+
+  .pdf-frame{width:100%;height:420px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
+  .pdf-fallback{margin:8px 0 20px;font-size:13px}
+  .pdf-fallback a{color:var(--brand);font-weight:650;text-decoration:none}
+  .pdf-fallback a:hover{text-decoration:underline}
+  .date-line{font-size:13.5px;color:var(--ink-3);margin:0 0 14px}
+
+  .state-panel{text-align:center;padding:36px 10px}
+  .state-panel .icon{font-size:44px;line-height:1;margin-bottom:14px}
+  .spinner{width:28px;height:28px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--brand);
+    margin:0 auto 16px;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--brand);
+    border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px}
+
+  .error-box{background:#fef2f2;border:1px solid #fecaca;color:var(--bad);border-radius:10px;padding:11px 13px;
+    font-size:13.5px;font-weight:600;margin:14px 0 0;display:none}
+  .error-box.show{display:block}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="brand"><span class="mark">GP</span><span class="name">GP Link</span></div>
+<div class="shell">
+  <div class="brand"><span class="logo">GP</span><span class="n">GP Link</span></div>
 
   <!-- Loading -->
   <div id="loadingPanel" class="card state-panel">
     <div class="spinner"></div>
-    <p style="margin:0;">Loading your form…</p>
+    <p style="margin:0;color:var(--ink-2)">Loading your form…</p>
   </div>
 
   <!-- Expired / unknown token -->
   <div id="expiredPanel" class="card state-panel hidden">
     <div class="icon">⚠️</div>
     <h1>This link has expired</h1>
-    <p>We couldn't find an active form for this link. If you think this is a mistake, contact us and we'll sort it out.</p>
-    <p style="margin-bottom:0;"><a href="mailto:hello@mygplink.com.au" style="color:var(--blue);font-weight:650;">hello@mygplink.com.au</a></p>
+    <p class="lede">We couldn't find an active form for this link. If you think this is a mistake, contact us and we'll sort it out.</p>
+    <p style="margin-bottom:0"><a href="mailto:hello@mygplink.com.au" style="color:var(--brand);font-weight:650">hello@mygplink.com.au</a></p>
   </div>
 
   <!-- Network / server error (never a real 404) -->
   <div id="somethingWrongPanel" class="card state-panel hidden">
     <div class="icon">⚠️</div>
     <h1>Something went wrong</h1>
-    <p>We couldn't load your form just now — this is usually temporary. Please try again.</p>
+    <p class="lede">We couldn't load your form just now — this is usually temporary. Please try again.</p>
     <button type="button" class="btn" id="retryLoadBtn">Retry</button>
-    <p style="margin-bottom:0;margin-top:16px;">Still stuck? Contact us at <a href="mailto:hello@mygplink.com.au" style="color:var(--blue);font-weight:650;">hello@mygplink.com.au</a></p>
+    <p style="margin-bottom:0;margin-top:16px">Still stuck? Contact us at <a href="mailto:hello@mygplink.com.au" style="color:var(--brand);font-weight:650">hello@mygplink.com.au</a></p>
   </div>
 
-  <!-- Step A: intake form -->
-  <div id="stepAPanel" class="card hidden">
-    <h1>Tell us about your practice</h1>
-    <p class="lede">A few quick details help us match the right GP to your practice. You can come back and finish this later using the same link.</p>
+  <!-- The 5-step form -->
+  <div id="formShell" class="hidden">
+    <div class="steps">
+      <div id="st1" class="on">1 · Where</div>
+      <div id="st2">2 · The job</div>
+      <div id="st3">3 · The pitch</div>
+      <div id="st4">4 · Practices</div>
+      <div id="st5">5 · Sign</div>
+    </div>
 
-    <form id="intakeForm" novalidate>
-      <input class="hp-field" type="text" id="website_hp" name="website_hp" tabindex="-1" autocomplete="off">
+    <!-- ============ STEP 1 — WHERE ============ -->
+    <div class="card" id="p1">
+      <h1 id="p1h">Tell us about your practice</h1>
+      <p class="lede">A few quick questions. Start with your address — we work out the rest. You can come back and finish this later using the same link.</p>
 
-      <div class="field">
-        <label for="billing_style">Billing style<span class="req-star">*</span></label>
-        <select id="billing_style" required>
-          <option value="" disabled selected>Select billing style…</option>
-          <option value="mixed">Mixed Billing</option>
-          <option value="bulk">Bulk Billing</option>
-          <option value="private">Private Billing</option>
+      <div class="f">
+        <label>Practice address <span class="must">REQUIRED</span>
+          <span class="tip">?<span>Start typing and pick your practice from the list. We use this to work out your suburb, state, postcode and nearest city — so you're not asked for those separately.</span></span>
+        </label>
+        <div class="hint" id="addrHint">Start typing your street number and street, then pick it from the list.</div>
+        <input type="text" id="addr" autocomplete="off" placeholder="e.g. 60 Erina Valley Road, Erina">
+        <div class="ac" id="acbox"></div>
+        <button type="button" class="edit-link" id="manualLink" data-action="manual-mode">Can't find your address? Enter it manually →</button>
+
+        <div id="manual" class="hidden" style="margin-top:12px;background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:15px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px">Enter your address manually</div>
+          <div class="hint" style="margin-bottom:10px">This never depends on the address lookup working — fill it in and you can still submit.</div>
+          <div class="f" style="margin-bottom:12px">
+            <label style="font-size:13px">Street address</label>
+            <input type="text" id="mStreet" placeholder="e.g. 60 Erina Valley Road">
+          </div>
+          <div class="row" style="margin-bottom:0">
+            <div class="f" style="margin-bottom:0">
+              <label style="font-size:13px">Suburb</label>
+              <input type="text" id="mSuburb" placeholder="e.g. Erina">
+            </div>
+            <div class="f" style="margin-bottom:0">
+              <label style="font-size:13px">Postcode</label>
+              <input type="text" id="mPostcode" inputmode="numeric" maxlength="4" placeholder="e.g. 2250">
+            </div>
+          </div>
+          <button type="button" class="edit-link" data-action="auto-mode">Use the address lookup instead →</button>
+        </div>
+
+        <div class="derived" id="derived">
+          <div class="t">✓ We've got your location</div>
+          <div class="chips" id="chips"></div>
+          <button type="button" class="edit-link" data-action="clear-addr">Not right? Change the address</button>
+        </div>
+
+        <!-- state is a shared control for both the auto and manual paths -->
+        <select id="state" class="hidden"><option value="">Select…</option>
+          <option value="NSW">NSW</option><option value="QLD">QLD</option><option value="VIC">VIC</option>
+          <option value="SA">SA</option><option value="WA">WA</option><option value="TAS">TAS</option>
+          <option value="NT">NT</option><option value="ACT">ACT</option>
         </select>
       </div>
 
-      <div class="field">
-        <label for="dpa">DPA (District of Priority Area)<span class="req-star">*</span></label>
-        <select id="dpa" required>
-          <option value="" disabled selected>Select…</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="mmm">Modified Monash Model (MMM)</label>
-        <select id="mmm">
-          <option value="">Unsure / not sure</option>
-          <option value="MM1">MM1</option>
-          <option value="MM2">MM2</option>
-          <option value="MM3">MM3</option>
-          <option value="MM4">MM4</option>
-          <option value="MM5">MM5</option>
-          <option value="MM6">MM6</option>
-          <option value="MM7">MM7</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="visa_sponsorship">Visa sponsorship offered</label>
-        <select id="visa_sponsorship">
-          <option value="">Not sure</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="ownership">Ownership</label>
-          <input type="text" id="ownership" maxlength="200">
-        </div>
-        <div class="field">
-          <label for="years_operating">Years operating</label>
-          <input type="text" id="years_operating" maxlength="50">
+      <div class="f">
+        <label>District of Priority Area (DPA) <span class="must">REQUIRED</span>
+          <span class="tip">?<span>A Department of Health classification for your address. It decides which overseas-trained GPs are allowed to work at your practice — so it must be exactly right.</span></span>
+        </label>
+        <div class="hint" id="dpaHint">We'll check this against your address once it's confirmed above.</div>
+        <div class="ai" id="aiDpa">
+          <div class="t" id="aiT">Checking your address…</div>
+          <p id="aiP"></p>
+          <div class="seg">
+            <button type="button" id="dpaYes" data-action="set-dpa" data-value="yes">Yes — we're in a DPA</button>
+            <button type="button" id="dpaNo" data-action="set-dpa" data-value="no">No — we're not</button>
+          </div>
         </div>
       </div>
 
-      <div class="field">
-        <label for="nursing_on_site">Nursing on site</label>
-        <select id="nursing_on_site">
-          <option value="">Not sure</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="gp_count">Number of GPs at practice</label>
-          <input type="text" id="gp_count" maxlength="20">
-        </div>
-        <div class="field">
-          <label for="percentage_split">Percentage split<span class="req-star">*</span></label>
-          <input type="text" id="percentage_split" required maxlength="100" placeholder="e.g. 70/30">
+      <div class="f">
+        <label>When do you need a GP? <span class="must">REQUIRED</span>
+          <span class="tip">?<span>How we prioritise you. "ASAP" practices go to the front of the queue for candidate matching.</span></span>
+        </label>
+        <div class="seg urg" id="urg">
+          <button type="button" data-action="set-urgency" data-value="asap">🔥 ASAP</button>
+          <button type="button" data-action="set-urgency" data-value="3_6m">3–6 months</button>
+          <button type="button" data-action="set-urgency" data-value="12m">12+ months</button>
         </div>
       </div>
 
-      <div class="field">
-        <label for="incentives">Additional incentives</label>
-        <textarea id="incentives" maxlength="2000" placeholder="Relocation support, signing bonus, CPD allowance, etc."></textarea>
-      </div>
-
-      <div class="field">
-        <label for="earnings_text">Estimated earnings guide</label>
-        <input type="text" id="earnings_text" maxlength="300" placeholder="e.g. $250,000–$350,000 p.a.">
-      </div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="suburb">Suburb<span class="req-star">*</span></label>
-          <input type="text" id="suburb" required maxlength="120">
-        </div>
-        <div class="field">
-          <label for="nearest_city">Nearest city<span class="req-star">*</span></label>
-          <input type="text" id="nearest_city" required maxlength="120">
-        </div>
-      </div>
-
-      <div class="grid-2">
-        <div class="field">
-          <label for="state">State<span class="req-star">*</span></label>
-          <select id="state" required>
-            <option value="" disabled selected>Select…</option>
-            <option value="NSW">NSW</option>
-            <option value="QLD">QLD</option>
-            <option value="VIC">VIC</option>
-            <option value="SA">SA</option>
-            <option value="WA">WA</option>
-            <option value="TAS">TAS</option>
-            <option value="NT">NT</option>
-            <option value="ACT">ACT</option>
+      <div class="row">
+        <div class="f">
+          <label for="billing_style">Billing style <span class="must">REQUIRED</span>
+            <span class="tip">?<span>Mixed = some bulk-billed, some private. This appears in the job ad GPs see.</span></span>
+          </label>
+          <select id="billing_style">
+            <option value="" selected>Choose…</option>
+            <option value="mixed">Mixed Billing</option>
+            <option value="bulk">Bulk Billing</option>
+            <option value="private">Private Billing</option>
           </select>
         </div>
-        <div class="field">
-          <label for="general_location">General location</label>
-          <input type="text" id="general_location" maxlength="200" placeholder="e.g. Northern Rivers, NSW">
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="address">Street address<span class="req-star">*</span></label>
-        <input type="text" id="address" required maxlength="300">
-      </div>
-
-      <div class="field">
-        <label for="role_title">Role title</label>
-        <input type="text" id="role_title" maxlength="200" placeholder="e.g. VR General Practitioner">
-      </div>
-
-      <div class="field">
-        <label for="role_summary">Role summary</label>
-        <textarea id="role_summary" maxlength="4000" placeholder="What the role involves day to day."></textarea>
-      </div>
-
-      <div class="section-div">
-        <div class="nudge">Practices that add a personal introduction see a 150% higher match rate.</div>
-        <div class="field">
-          <label for="intro_text">Personal introduction (optional)</label>
-          <textarea id="intro_text" maxlength="4000" placeholder="A short note from the practice — what makes it a great place to work?"></textarea>
-        </div>
-        <div class="field">
-          <label for="intro_video_url">Intro video link (optional)</label>
-          <input type="url" id="intro_video_url" placeholder="link to a short video — Loom, YouTube unlisted, etc.">
+        <div class="f">
+          <label for="percentage_split">Percentage split <span class="must">REQUIRED</span>
+            <span class="tip">?<span>The GP's share of billings. Type it however you like — "70", "70%", "70/30" or "30/70" — we always read the larger share as the GP's.</span></span>
+          </label>
+          <input type="text" id="percentage_split" placeholder="e.g. 70, or 70/30">
+          <div class="derived" id="splitOut" style="margin-top:8px">
+            <div class="chips">
+              <span class="chip"><b>GP keeps</b><b id="splitGp" style="color:var(--good);font-size:13px;margin:0"></b></span>
+              <span class="chip"><b>Practice keeps</b><b id="splitPr" style="color:var(--ink);font-size:13px;margin:0"></b></span>
+            </div>
+          </div>
+          <div id="splitErr" class="hint" style="color:var(--bad);display:none">Enter a percentage between 1 and 99 — e.g. 70 or 70/30.</div>
         </div>
       </div>
 
       <div class="actions">
-        <button type="submit" class="btn" id="stepASubmitBtn">Continue to agreement</button>
-      </div>
-      <div class="error-box" id="stepAError"></div>
-    </form>
-  </div>
-
-  <!-- Step B: agreement + signature -->
-  <div id="stepBPanel" class="card hidden">
-    <h1>Sign your recruitment agreement</h1>
-    <p class="lede">Please review the agreement below, then sign to confirm you'd like GP Link to start sourcing candidates for you.</p>
-
-    <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260715" title="GP Link Recruitment Services Agreement"></iframe>
-    <div class="pdf-fallback">
-      Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260715" target="_blank" rel="noopener">Download the agreement (PDF)</a>
-    </div>
-
-    <h2>Your signature</h2>
-    <p style="margin-bottom:10px;">Draw your signature below, or type it instead.</p>
-    <div class="sig-wrap">
-      <canvas id="sigPad"></canvas>
-      <div class="sig-row">
-        <span class="muted" id="sigStatus">Not signed yet</span>
-        <button type="button" class="btn-clear" id="clearSigBtn">Clear</button>
+        <button type="button" class="btn" id="n1" disabled data-action="go-2">Continue →</button>
+        <button type="button" class="btn ghost hidden" id="b1" data-action="cancel-entry">Cancel</button>
       </div>
     </div>
 
-    <div class="type-sig-row">
-      <input type="text" id="typedSignatureInput" placeholder="Type your signature instead" maxlength="200">
-      <button type="button" class="btn" id="useTypedSigBtn">Use typed signature</button>
+    <!-- ============ STEP 2 — THE JOB ============ -->
+    <div class="card hidden" id="p2">
+      <h1>What you need</h1>
+      <p class="lede">The essentials for the job ad. No days-and-hours breakdown — just full-time, part-time, or flexible.</p>
+
+      <div class="row">
+        <div class="f">
+          <label for="gps_needed">How many GPs do you need? <span class="must">REQUIRED</span>
+            <span class="tip">?<span>Each GP you need becomes its own search. If you say 3, we source 3 — today, one intake creates only one vacancy.</span></span>
+          </label>
+          <select id="gps_needed">
+            <option value="" selected>Choose…</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5+">5+</option>
+          </select>
+        </div>
+        <div class="f">
+          <label for="employment_type">Full-time or part-time? <span class="must">REQUIRED</span>
+            <span class="tip">?<span>Goes straight onto the offer, and it's one of the first things a GP filters on.</span></span>
+          </label>
+          <select id="employment_type">
+            <option value="" selected>Choose…</option>
+            <option value="full_time">Full-time</option>
+            <option value="part_time">Part-time</option>
+            <option value="either">Either — we're flexible</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn" id="n2" disabled data-action="go-3">Continue →</button>
+        <button type="button" class="btn ghost" data-action="go-1">← Back</button>
+        <button type="button" class="btn ghost hidden" id="b2" data-action="cancel-entry">Cancel</button>
+      </div>
     </div>
 
-    <div class="field">
-      <label for="signedName">Printed name<span class="req-star">*</span></label>
-      <input type="text" id="signedName" maxlength="200" placeholder="Full name of signatory">
+    <!-- ============ STEP 3 — THE PITCH ============ -->
+    <div class="card hidden" id="p3">
+      <h1>Sell the role</h1>
+      <p class="lede">The more you tell us, the better we sell your practice to the right GP. Everything below is optional, but the more detail you give, the stronger your ad.</p>
+
+      <div class="f">
+        <label for="intro_text">Tell us about the area, and what a GP working here can expect <span class="opt">OPTIONAL</span>
+          <span class="tip">?<span>The heart of your job ad. Write it for a doctor who has never been to Australia. What's the town like — schools, beaches, housing? And day to day, what's the patient mix, the team, the pace?</span></span>
+        </label>
+        <div class="hint">The most-read part of your ad. <b>Cover both:</b> what the area is like to live in, and what the job is like to do.</div>
+        <textarea id="intro_text" style="min-height:150px" placeholder="e.g. Erina sits on the NSW Central Coast, an hour from Sydney — beaches, good schools, and housing far cheaper than the city.&#10;&#10;You'd join 8 GPs and 3 practice nurses. Mostly family medicine and chronic disease, 15-minute appointments, and a genuinely supportive team — our last two international GPs are still with us five years on."></textarea>
+      </div>
+      <div class="f">
+        <label for="role_summary">Role summary <span class="opt">OPTIONAL</span>
+          <span class="tip">?<span>The practical detail: patient load, appointment length, software.</span></span>
+        </label>
+        <div class="hint">The practical detail: patient load, appointment length, software.</div>
+        <textarea id="role_summary" placeholder="e.g. Around 25–30 patients a day with 15-minute appointments. Nurse support on every shift. Best Practice software. Full books from week one."></textarea>
+      </div>
+      <div class="note" style="margin-bottom:0">
+        <b>We write the job title for you.</b> Titles like "GP Job near Gosford · Mixed Billing · DPA" are generated from your answers, and they keep your practice name hidden until you accept a candidate.
+      </div>
+
+      <h2 class="sec">Money &amp; incentives</h2>
+      <div class="f">
+        <label for="incentives">Incentives <span class="opt">OPTIONAL</span>
+          <span class="tip">?<span>Everything you'll put on the table — income guarantees, bonuses, relocation help. Overseas doctors care enormously about these; it's often what decides it.</span></span>
+        </label>
+        <div class="hint">Be specific with numbers — <b>vague offers get ignored.</b> Include any minimum income guarantee or sign-on bonus here.</div>
+        <textarea id="incentives" style="min-height:110px" placeholder="e.g. $200 per hour minimum income guarantee for the first 3 months&#10;$10,000 sign-on bonus (2-year agreement)&#10;$10,000 relocation package and 4 weeks' accommodation on arrival&#10;$3,000 annual CPD allowance and 6 weeks' paid leave&#10;Airport pickup and help finding schools"></textarea>
+      </div>
+      <div class="row">
+        <div class="f">
+          <label for="earnings_text">Estimated earnings <span class="opt">OPTIONAL</span></label>
+          <div class="hint">A realistic yearly range.</div>
+          <input type="text" id="earnings_text" placeholder="e.g. $300,000–$400,000 per year">
+        </div>
+        <div class="f">
+          <label for="visa_sponsorship">Visa sponsorship <span class="opt">OPTIONAL</span>
+            <span class="tip">?<span>Leave blank if you're unsure — we read that as "let's talk", not as a no.</span></span>
+          </label>
+          <select id="visa_sponsorship">
+            <option value="">Not sure yet</option><option value="yes">Yes — we sponsor</option><option value="no">No</option>
+          </select>
+        </div>
+      </div>
+
+      <h2 class="sec">Your practice</h2>
+      <div class="f">
+        <label for="website">Practice website <span class="opt">OPTIONAL</span>
+          <span class="tip">?<span>We read your website with AI and blend it with what you wrote above, to produce a polished, professional profile. Your practice name and address are stripped out before any GP sees it.</span></span>
+        </label>
+        <div class="hint">Our AI combines <b>your website</b> with <b>what you wrote above</b> to write your profile. Leave it blank and we'll use only your own words.</div>
+        <input type="text" id="website" placeholder="https://www.yourpractice.com.au">
+      </div>
+      <div class="row">
+        <div class="f"><label for="gp_count">Number of GPs <span class="opt">OPTIONAL</span></label>
+          <input type="text" id="gp_count" placeholder="e.g. 8 GPs, 3 of them part-time"></div>
+        <div class="f"><label for="years_operating">Years operating <span class="opt">OPTIONAL</span></label>
+          <input type="text" id="years_operating" placeholder="e.g. 14 years — same owner since 2011"></div>
+      </div>
+      <div class="row">
+        <div class="f"><label for="ownership">Ownership <span class="opt">OPTIONAL</span></label>
+          <input type="text" id="ownership" placeholder="e.g. GP-owned, or part of a 6-clinic group"></div>
+        <div class="f"><label for="nursing_on_site">Nursing on site <span class="opt">OPTIONAL</span></label>
+          <select id="nursing_on_site"><option value="">Not sure</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+      </div>
+      <div class="f">
+        <label for="supervision_available">Supervision available <span class="opt">OPTIONAL</span>
+          <span class="tip">?<span>Whether a supervisor is on site for doctors who still need supervision. It's a make-or-break question for many international GPs, and it appears as its own row on your ad.</span></span>
+        </label>
+        <select id="supervision_available"><option value="">Not sure</option><option value="yes">Yes — supervision available</option><option value="no">No</option></select>
+      </div>
+      <div class="f">
+        <label for="intro_video_url">Intro video <span class="opt">OPTIONAL</span>
+          <span class="tip">?<span>A 60-second phone video walking through your practice massively outperforms text. Upload to YouTube (unlisted is fine) and paste the link.</span></span>
+        </label>
+        <input type="url" id="intro_video_url" placeholder="https://youtube.com/… — a 60-second walk-through">
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn" id="n3" data-action="save-practice">Save this practice →</button>
+        <button type="button" class="btn ghost" data-action="go-2">← Back</button>
+        <button type="button" class="btn ghost hidden" id="b3" data-action="cancel-entry">Cancel</button>
+      </div>
     </div>
 
-    <div class="field">
-      <label for="legalEntityName">Full legal registered entity name<span class="req-star">*</span></label>
-      <input type="text" id="legalEntityName" maxlength="200" placeholder="e.g. Sunshine Medical Group Pty Ltd">
+    <!-- ============ STEP 4 — YOUR PRACTICES ============ -->
+    <div class="card hidden" id="p4">
+      <h1>Your practices</h1>
+      <p class="lede">Each practice gets its own job ad, matched to its own GPs. Running a group? Add them all — you'll only sign once.</p>
+
+      <div class="f">
+        <label>Are you a single practice, or a group?</label>
+        <div class="seg" id="modeSeg">
+          <button type="button" class="sel" data-action="set-mode" data-value="solo">Single practice</button>
+          <button type="button" data-action="set-mode" data-value="group">Corporate group</button>
+        </div>
+      </div>
+
+      <div id="plist"></div>
+      <button type="button" class="btn ghost wide hidden" id="addBtn" data-action="add-another">＋ Add another practice</button>
+
+      <div class="actions">
+        <button type="button" class="btn" id="toSign" disabled data-action="continue-to-agreement">Continue to the agreement →</button>
+      </div>
+      <div class="error-box" id="step4Error"></div>
     </div>
 
-    <div class="field">
-      <label for="abnAcn">ABN or ACN<span class="req-star">*</span></label>
-      <input type="text" id="abnAcn" maxlength="20" inputmode="numeric" placeholder="11-digit ABN or 9-digit ACN">
+    <!-- ============ STEP 5 — SIGN ============ -->
+    <div class="card hidden" id="p5">
+      <h1>Sign your recruitment agreement</h1>
+      <p class="lede">This is a legal document. Type your own details — we've deliberately filled in nothing for you.</p>
+
+      <div class="doc">
+        <div class="h">📄 GP Link Recruitment Services Agreement (2026)</div>
+        <div style="font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin-top:10px">Schedule 1 — Covered practices</div>
+        <div id="schedule"></div>
+      </div>
+
+      <div class="f">
+        <label>The agreement you're signing</label>
+        <div class="hint">The full contract, embedded below — you can always read it before or after signing.</div>
+        <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" title="GP Link Recruitment Services Agreement"></iframe>
+        <div class="pdf-fallback">
+          Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" target="_blank" rel="noopener">Download the agreement (PDF)</a>
+        </div>
+      </div>
+
+      <div class="note"><b>Nothing is pre-filled on purpose.</b> The name, entity and ABN you type below are what get stamped onto the signed contract — so they must be yours, not ours.</div>
+
+      <div class="f">
+        <label for="signedName">Your full legal name <span class="must">REQUIRED</span></label>
+        <input type="text" class="sig-f" id="signedName" placeholder="As it appears on official documents" maxlength="200">
+      </div>
+      <div class="f">
+        <label for="signerJobTitle">Your position at the practice <span class="must">REQUIRED</span></label>
+        <input type="text" class="sig-f" id="signerJobTitle" placeholder="e.g. Director / Owner / Practice Manager" maxlength="120">
+      </div>
+      <div class="row">
+        <div class="f">
+          <label id="entLbl" for="legalEntityName">Legal entity name <span class="must">REQUIRED</span>
+            <span class="tip">?<span>The company registered against your ABN — not the trading name on your signage. e.g. "Coastal Health Pty Ltd".</span></span>
+          </label>
+          <input type="text" class="sig-f" id="legalEntityName" placeholder="e.g. Coastal Health Pty Ltd" maxlength="200">
+        </div>
+        <div class="f">
+          <label for="abnAcn">ABN or ACN <span class="must">REQUIRED</span>
+            <span class="tip">?<span>Either is fine. An <b>ABN</b> is 11 digits and appears on your invoices. An <b>ACN</b> is 9 digits and is on your company registration. We work out which one you've given us.</span></span>
+          </label>
+          <input type="text" class="sig-f" id="abnAcn" placeholder="ABN (11 digits) or ACN (9 digits)" maxlength="14" inputmode="numeric">
+          <div class="hint" id="abnMsg" style="display:none"></div>
+        </div>
+      </div>
+      <div class="f">
+        <label for="signedEmail">Your email <span class="must">REQUIRED</span></label>
+        <div class="hint">We already have your contact email on file — this confirms who's signing.</div>
+        <input type="email" class="sig-f" id="signedEmail" placeholder="you@yourpractice.com.au">
+      </div>
+
+      <div class="f">
+        <label>Your signature <span class="must">REQUIRED</span></label>
+        <div class="hint">Draw with your finger or mouse, or type it instead below.</div>
+        <div class="sig-wrap" id="sigWrap">
+          <canvas id="sigPad"></canvas>
+          <div class="sig-row">
+            <span class="muted" id="sigStatus">Not signed yet</span>
+            <button type="button" class="btn-clear" id="clearSigBtn">Clear</button>
+          </div>
+        </div>
+        <div class="type-sig-row">
+          <input type="text" id="typedSignatureInput" placeholder="Type your signature instead" maxlength="200">
+          <button type="button" class="btn" id="useTypedSigBtn">Use typed signature</button>
+        </div>
+      </div>
+
+      <p class="date-line">Date: <span id="todayDateLabel"></span></p>
+
+      <label class="check">
+        <input type="checkbox" id="authorisedCheckbox">
+        <span>I am <b>authorised to bind</b> the practice(s) listed above, and the details I've given are true.</span>
+      </label>
+
+      <div class="gate">
+        <div class="bar"><i id="bar"></i></div>
+        <div class="t" id="gt">0 of 8 completed</div>
+        <ul id="glist"></ul>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn" id="submit" disabled>Sign &amp; submit</button>
+        <button type="button" class="btn ghost" data-action="go-4">← Back</button>
+      </div>
+      <div class="error-box" id="step5Error"></div>
     </div>
-
-    <div class="field">
-      <label for="signerJobTitle">Your job title<span class="req-star">*</span></label>
-      <input type="text" id="signerJobTitle" maxlength="120" placeholder="e.g. Practice Manager, Director">
-    </div>
-
-    <p class="date-line">Date: <span id="todayDateLabel"></span></p>
-
-    <div class="checkbox-row">
-      <input type="checkbox" id="authorisedCheckbox">
-      <label for="authorisedCheckbox">I am authorised to sign on behalf of the practice</label>
-    </div>
-
-    <div class="actions">
-      <button type="button" class="btn" id="signBtn" disabled>Sign agreement</button>
-    </div>
-    <div class="error-box" id="stepBError"></div>
-
-    <div class="link-row" id="editAnswersRow"><a href="#" id="editAnswersLink">← Edit your answers</a></div>
   </div>
 
   <!-- Success -->
   <div id="successPanel" class="card state-panel hidden">
     <div class="icon">✅</div>
     <h1>Agreement signed</h1>
-    <p style="margin-bottom:0;">Agreement signed — your job listing is with our team for approval. Watch your inbox.</p>
+    <p style="margin-bottom:0">Agreement signed — your job listing is with our team for approval. Watch your inbox.</p>
   </div>
 </div>
 
@@ -395,24 +568,20 @@
 
   var params = new URLSearchParams(location.search);
   var token = (params.get('token') || '').trim();
+  var $ = function (id) { return document.getElementById(id); };
 
-  var loadingPanel = document.getElementById('loadingPanel');
-  var expiredPanel = document.getElementById('expiredPanel');
-  var somethingWrongPanel = document.getElementById('somethingWrongPanel');
-  var stepAPanel = document.getElementById('stepAPanel');
-  var stepBPanel = document.getElementById('stepBPanel');
-  var successPanel = document.getElementById('successPanel');
+  var loadingPanel = $('loadingPanel');
+  var expiredPanel = $('expiredPanel');
+  var somethingWrongPanel = $('somethingWrongPanel');
+  var formShell = $('formShell');
+  var successPanel = $('successPanel');
 
   function showOnly(panel) {
-    [loadingPanel, expiredPanel, somethingWrongPanel, stepAPanel, stepBPanel, successPanel].forEach(function (p) {
-      if (p === panel) p.classList.remove('hidden');
-      else p.classList.add('hidden');
+    [loadingPanel, expiredPanel, somethingWrongPanel, formShell, successPanel].forEach(function (p) {
+      if (p === panel) p.classList.remove('hidden'); else p.classList.add('hidden');
     });
   }
-
-  function showSuccess() {
-    showOnly(successPanel);
-  }
+  function showSuccess() { showOnly(successPanel); }
 
   // ---------------------------------------------------------------------
   // Load
@@ -421,8 +590,6 @@
 
   function loadPractice() {
     if (!token || token.length < 16) {
-      // Too short to even be a real token — this is a genuine "unknown link"
-      // case, not a transient failure, so the expired panel is correct here.
       showOnly(expiredPanel);
       return;
     }
@@ -430,327 +597,935 @@
     fetch('/api/practice-intake?token=' + encodeURIComponent(token))
       .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
       .then(function (res) {
-        // Only a real 404 (token genuinely not found) means "this link is
-        // dead" — a rate limit, server error, or malformed response is a
-        // transient problem, not proof the link is bad, so it must NOT show
-        // the same "expired" messaging (that would wrongly tell a real
-        // practice contact their link is gone when a retry might just work).
-        if (res.status === 404) {
-          showOnly(expiredPanel);
-          return;
-        }
-        if (res.status !== 200 || !res.data || !res.data.ok) {
-          showOnly(somethingWrongPanel);
-          return;
-        }
+        if (res.status === 404) { showOnly(expiredPanel); return; }
+        if (res.status !== 200 || !res.data || !res.data.ok) { showOnly(somethingWrongPanel); return; }
         currentPractice = res.data.practice;
-        if (currentPractice.agreement_status === 'signed') {
-          showSuccess();
-          return;
-        }
-        if (currentPractice.submitted) {
-          prefillForm(currentPractice.intake);
-          showStepB();
-        } else {
-          showOnly(stepAPanel);
+        if (currentPractice.agreement_status === 'signed') { showSuccess(); return; }
+        showOnly(formShell);
+        if (currentPractice.submitted && currentPractice.intake) {
+          resumeFromServer(currentPractice.intake);
+        } else if (!restoreDraft()) {
+          addAnother();
         }
       })
-      .catch(function () {
-        // Network failure or a response body that couldn't even be parsed as
-        // JSON — same "try again" treatment, never "link expired".
-        showOnly(somethingWrongPanel);
-      });
+      .catch(function () { showOnly(somethingWrongPanel); });
+  }
+  $('retryLoadBtn').addEventListener('click', loadPractice);
+
+  // ---------------------------------------------------------------------
+  // Google Maps browser key — fetched once, referrer-locked, safe to expose.
+  // Places is called directly from the browser; we never proxy it through
+  // our own server (a server-side key would need the referrer lock removed).
+  // ---------------------------------------------------------------------
+  var MAPS_KEY = '';
+  fetch('/api/public/maps-config').then(function (r) { return r.json(); }).then(function (d) {
+    MAPS_KEY = (d && d.apiKey) || '';
+  }).catch(function () { MAPS_KEY = ''; });
+
+  // ---------------------------------------------------------------------
+  // Nearest-city table — ported verbatim from lib/practice-intake-logic.js
+  // so the chip we show matches what the server will actually store.
+  // ---------------------------------------------------------------------
+  var AU_CITIES = [
+    ['Sydney', -33.868, 151.209], ['Melbourne', -37.814, 144.963], ['Brisbane', -27.470, 153.021],
+    ['Perth', -31.953, 115.857], ['Adelaide', -34.928, 138.600], ['Canberra', -35.281, 149.129],
+    ['Hobart', -42.883, 147.327], ['Darwin', -12.463, 130.846], ['Gold Coast', -28.017, 153.400],
+    ['Newcastle', -32.927, 151.777], ['Wollongong', -34.425, 150.893], ['Geelong', -38.150, 144.361],
+    ['Sunshine Coast', -26.650, 153.067], ['Townsville', -19.259, 146.817], ['Cairns', -16.920, 145.771],
+    ['Toowoomba', -27.560, 151.950], ['Ballarat', -37.562, 143.850], ['Bendigo', -36.758, 144.283],
+    ['Launceston', -41.439, 147.139], ['Mackay', -21.144, 149.186], ['Rockhampton', -23.378, 150.512],
+    ['Bunbury', -33.327, 115.641], ['Bundaberg', -24.866, 152.351], ['Wagga Wagga', -35.108, 147.369],
+    ['Hervey Bay', -25.289, 152.842], ['Mildura', -34.207, 142.137], ['Shepparton', -36.383, 145.400],
+    ['Port Macquarie', -31.431, 152.909], ['Gladstone', -23.843, 151.256], ['Tamworth', -31.092, 150.929],
+    ['Traralgon', -38.195, 146.541], ['Orange', -33.284, 149.101], ['Dubbo', -32.243, 148.604],
+    ['Geraldton', -28.774, 114.615], ['Nowra', -34.881, 150.602], ['Warrnambool', -38.381, 142.488],
+    ['Kalgoorlie', -30.749, 121.466], ['Albany', -35.023, 117.881], ['Mount Gambier', -37.829, 140.783],
+    ['Alice Springs', -23.698, 133.881], ['Central Coast', -33.425, 151.342], ['Albury', -36.081, 146.916]
+  ];
+  function kmBetween(lat1, lon1, lat2, lon2) {
+    var R = 6371;
+    var r = function (d) { return d * Math.PI / 180; };
+    var dLat = r(lat2 - lat1), dLon = r(lon2 - lon1);
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+  function nearestCity(lat, lon) {
+    if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) return null;
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < AU_CITIES.length; i++) {
+      var d = kmBetween(lat, lon, AU_CITIES[i][1], AU_CITIES[i][2]);
+      if (d < bestD) { bestD = d; best = AU_CITIES[i][0]; }
+    }
+    return { city: best, km: Math.round(bestD) };
+  }
+  function buildGeneralLocation(suburb, state, city) {
+    var head = [suburb, state].filter(Boolean).join(', ');
+    return city ? head + ' - near ' + city : head;
   }
 
-  document.getElementById('retryLoadBtn').addEventListener('click', function () {
-    loadPractice();
+  // ---------------------------------------------------------------------
+  // Percentage split — ported verbatim from lib/practice-intake-logic.js
+  // parseSplit(). Same rule the server enforces: any pair of numbers that
+  // sums to 100 wins (GP takes the larger); otherwise a single number is
+  // read as the GP's share; anything else is refused rather than guessed.
+  // ---------------------------------------------------------------------
+  function parseSplit(raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    if (!s) return null;
+    var matches = s.match(/\d+(?:\.\d+)?/g) || [];
+    var nums = matches.map(Number).filter(function (n) { return n > 0 && n < 100; });
+    if (!nums.length) return null;
+    var gp = null;
+    outer:
+    for (var i = 0; i < nums.length; i++) {
+      for (var j = i + 1; j < nums.length; j++) {
+        if (Math.abs(nums[i] + nums[j] - 100) < 0.01) { gp = Math.max(nums[i], nums[j]); break outer; }
+      }
+    }
+    if (gp === null) {
+      if (nums.length !== 1) return null;
+      gp = nums[0];
+    }
+    if (gp < 1 || gp > 99) return null;
+    var practice = Math.round((100 - gp) * 100) / 100;
+    return { gp: gp, practice: practice, canonical: gp + '/' + practice, display: 'GP ' + gp + '% / Practice ' + practice + '%' };
+  }
+
+  // ---------------------------------------------------------------------
+  // ABN / ACN — ported verbatim from lib/practice-intake-logic.js. Real
+  // checksums (ATO / ASIC), not just a digit count, so a typo is caught
+  // before it ever reaches the server.
+  // ---------------------------------------------------------------------
+  function idDigits(raw) { return String(raw == null ? '' : raw).replace(/\D/g, '').slice(0, 11); }
+  function abnOk(d) {
+    if (!/^\d{11}$/.test(d)) return false;
+    var W = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
+    var n = d.split('').map(Number);
+    n[0] -= 1;
+    var sum = 0; for (var i = 0; i < 11; i++) sum += n[i] * W[i];
+    return sum > 0 && sum % 89 === 0;
+  }
+  function acnOk(d) {
+    if (!/^\d{9}$/.test(d)) return false;
+    var W = [8, 7, 6, 5, 4, 3, 2, 1];
+    var n = d.split('').map(Number);
+    var sum = 0; for (var i = 0; i < 8; i++) sum += n[i] * W[i];
+    return (10 - (sum % 10)) % 10 === n[8];
+  }
+  function idKind(d) {
+    if (d.length === 11 && abnOk(d)) return 'ABN';
+    if (d.length === 9 && acnOk(d)) return 'ACN';
+    return null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Places (New) — direct browser calls, referrer-locked key. Never
+  // proxied through our server.
+  // ---------------------------------------------------------------------
+  function placesAutocomplete(input) {
+    if (!MAPS_KEY) return Promise.reject(new Error('no_key'));
+    return fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': MAPS_KEY },
+      body: JSON.stringify({ input: input, includedRegionCodes: ['au'] })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('autocomplete_failed');
+      return r.json();
+    }).then(function (data) {
+      return (data.suggestions || []).map(function (s) {
+        var pp = s.placePrediction || {};
+        var sf = pp.structuredFormat || {};
+        return {
+          placeId: pp.placeId,
+          text: (pp.text && pp.text.text) || '',
+          main: (sf.mainText && sf.mainText.text) || (pp.text && pp.text.text) || '',
+          secondary: (sf.secondaryText && sf.secondaryText.text) || ''
+        };
+      });
+    });
+  }
+  function placeDetails(placeId) {
+    return fetch('https://places.googleapis.com/v1/places/' + encodeURIComponent(placeId), {
+      headers: { 'X-Goog-Api-Key': MAPS_KEY, 'X-Goog-FieldMask': 'id,formattedAddress,addressComponents,location' }
+    }).then(function (r) {
+      if (!r.ok) throw new Error('details_failed');
+      return r.json();
+    }).then(function (p) {
+      var comps = p.addressComponents || [];
+      function pick(type, prefer) {
+        var c = null;
+        for (var i = 0; i < comps.length; i++) { if ((comps[i].types || []).indexOf(type) !== -1) { c = comps[i]; break; } }
+        if (!c) return '';
+        return (prefer === 'short' ? (c.shortText || c.longText) : (c.longText || c.shortText)) || '';
+      }
+      var street = [pick('street_number'), pick('route')].filter(Boolean).join(' ');
+      var suburb = pick('locality') || pick('sublocality') || pick('postal_town') || '';
+      var loc = p.location || {};
+      return {
+        street: street, suburb: suburb,
+        state: pick('administrative_area_level_1', 'short'),
+        postcode: pick('postal_code'),
+        latitude: typeof loc.latitude === 'number' ? loc.latitude : null,
+        longitude: typeof loc.longitude === 'number' ? loc.longitude : null,
+        googlePlaceId: p.id || '',
+        formatted: p.formattedAddress || ''
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Wizard state
+  // ---------------------------------------------------------------------
+  var cur = freshCur();
+  var saved = [];
+  var editIdx = null;
+  var mode = 'solo';
+  var step = 1;
+
+  function freshCur() {
+    return {
+      billing_style: '', percentage_split: '',
+      address: '', suburb: '', state: '', postcode: '', nearest_city: '', general_location: '',
+      latitude: null, longitude: null, google_place_id: '', manual: false,
+      dpa: null, dpaSuggested: null, dpaCatchment: null, mmm: null,
+      urgency: '', gps_needed: '', employment_type: '',
+      intro_text: '', role_summary: '', incentives: '', earnings_text: '', visa_sponsorship: '',
+      website: '', gp_count: '', years_operating: '', ownership: '', nursing_on_site: '',
+      supervision_available: '', intro_video_url: '',
+      hasOwn: false, ownEntity: '', ownAbn: ''
+    };
+  }
+
+  var selectFieldIds = ['billing_style', 'gps_needed', 'employment_type'];
+  var boolFieldIds = ['visa_sponsorship', 'nursing_on_site', 'supervision_available']; // 'yes'/'no'/'' selects
+  var textFieldIds = ['ownership', 'years_operating', 'gp_count', 'percentage_split', 'incentives',
+    'earnings_text', 'role_summary', 'intro_text', 'intro_video_url', 'website'];
+
+  function boolFromSelect(v) { if (v === 'yes') return true; if (v === 'no') return false; return ''; }
+  function boolToSelect(v) { return v === true ? 'yes' : (v === false ? 'no' : ''); }
+
+  // captureCur() pulls every plain form-control field into `cur` by element
+  // ID, same convention the original single-step page used to build its
+  // payload. The handful of fields that are DERIVED (suburb, nearest_city,
+  // general_location, address, lat/lon, dpa, urgency, mmm) are never asked
+  // as their own question, so they are set directly on `cur` elsewhere
+  // (applyPlace / applyManual / setDpa / setUrgency) instead of being read
+  // from an input here.
+  function captureCur() {
+    selectFieldIds.forEach(function (id) { var el = $(id); if (el) cur[id] = el.value; });
+    boolFieldIds.forEach(function (id) { var el = $(id); if (el) cur[id] = boolFromSelect(el.value); });
+    textFieldIds.forEach(function (id) { var el = $(id); if (el) cur[id] = (el.value || '').trim(); });
+  }
+  function paintCur() {
+    selectFieldIds.forEach(function (id) { var el = $(id); if (el) el.value = cur[id] || ''; });
+    boolFieldIds.forEach(function (id) { var el = $(id); if (el) el.value = boolToSelect(cur[id]); });
+    textFieldIds.forEach(function (id) { var el = $(id); if (el) el.value = cur[id] || ''; });
+    $('state').value = cur.state || '';
+  }
+
+  // ---------------------------------------------------------------------
+  // Address — autocomplete (in-browser Google Places) + a fully offline
+  // manual fallback so a missed lookup can never block a submit.
+  // ---------------------------------------------------------------------
+  var addr = $('addr'), acbox = $('acbox');
+  var hits = [], acTimer = null, acSeq = 0;
+
+  addr.addEventListener('input', function () {
+    var q = addr.value.trim();
+    resetLocation();
+    clearTimeout(acTimer);
+    if (q.length < 3) { acbox.classList.remove('open'); return; }
+    acbox.innerHTML = '<div class="foot" style="padding:13px"><span class="spin"></span>Searching…</div>';
+    acbox.classList.add('open');
+    acTimer = setTimeout(function () { runAutocomplete(q); }, 250);
   });
 
-  // ---------------------------------------------------------------------
-  // Step A: intake form
-  // ---------------------------------------------------------------------
-  var boolFieldIds = ['dpa', 'visa_sponsorship', 'nursing_on_site'];
-  var textFieldIds = [
-    'ownership', 'years_operating', 'gp_count', 'percentage_split', 'incentives',
-    'earnings_text', 'suburb', 'nearest_city', 'address', 'general_location',
-    'role_title', 'role_summary', 'intro_text', 'intro_video_url'
-  ];
-  var selectFieldIds = ['billing_style', 'mmm', 'state'];
-
-  function prefillForm(intake) {
-    if (!intake) return;
-    selectFieldIds.forEach(function (id) {
-      if (intake[id] !== undefined && intake[id] !== null) {
-        document.getElementById(id).value = intake[id];
+  function runAutocomplete(q) {
+    var my = ++acSeq;
+    placesAutocomplete(q).then(function (suggestions) {
+      if (my !== acSeq) return;
+      hits = suggestions;
+      if (!hits.length) {
+        acbox.innerHTML = '<div class="foot" style="padding:13px">No Australian address found. Try adding the suburb, or enter it manually.</div>';
+        return;
       }
+      var html = hits.map(function (h, i) {
+        return '<button type="button" data-action="pick-addr" data-idx="' + i + '"><span class="pin">📍</span><span>'
+          + '<span class="a1">' + escapeHtml(h.main) + '</span><br>'
+          + '<span class="a2">' + escapeHtml(h.secondary) + '</span></span></button>';
+      }).join('') + '<div class="foot">Google Places</div>';
+      acbox.innerHTML = html;
+    }).catch(function () {
+      if (my !== acSeq) return;
+      acbox.innerHTML = '<div class="foot" style="padding:13px">Address lookup is unavailable right now. <a href="#" data-action="manual-mode" style="color:var(--brand);font-weight:600">Enter it manually instead →</a></div>';
     });
-    boolFieldIds.forEach(function (id) {
-      var el = document.getElementById(id);
-      if (intake[id] === true) el.value = 'yes';
-      else if (intake[id] === false) el.value = 'no';
-    });
-    textFieldIds.forEach(function (id) {
-      if (intake[id] !== undefined && intake[id] !== null) {
-        document.getElementById(id).value = intake[id];
-      }
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
 
-  function boolFromSelect(value) {
-    if (value === 'yes') return true;
-    if (value === 'no') return false;
-    return '';
+  function pickAddr(i) {
+    var h = hits[i];
+    if (!h) return;
+    addr.value = h.text;
+    acbox.classList.remove('open');
+    $('derived').classList.add('on');
+    $('chips').innerHTML = '<span class="chip"><span class="spin"></span>Looking up the details…</span>';
+    placeDetails(h.placeId).then(function (d) { applyPlace(d, false); }).catch(function () {
+      $('chips').innerHTML = '<span class="chip">Lookup failed — try again, or enter it manually.</span>';
+    });
   }
 
-  var stepAError = document.getElementById('stepAError');
-  var stepASubmitBtn = document.getElementById('stepASubmitBtn');
-
-  function showStepAError(msg) {
-    stepAError.textContent = msg;
-    stepAError.classList.add('show');
+  function applyPlace(d, isManual) {
+    cur.suburb = d.suburb || '';
+    cur.state = d.state || '';
+    cur.postcode = d.postcode || '';
+    cur.address = d.formatted || [d.street, d.suburb, d.state, d.postcode].filter(Boolean).join(', ');
+    cur.latitude = d.latitude; cur.longitude = d.longitude; cur.google_place_id = d.googlePlaceId || '';
+    cur.manual = !!isManual;
+    var nc = nearestCity(d.latitude, d.longitude);
+    cur.nearest_city = nc ? nc.city : (d.suburb || '');
+    cur.nearestCityKm = nc ? nc.km : null;
+    cur.general_location = buildGeneralLocation(cur.suburb, cur.state, cur.nearest_city);
+    paintCur();
+    renderChips();
+    persistSoon();
+    checkDpa();
+    gate1();
   }
-  function clearStepAError() {
-    stepAError.textContent = '';
-    stepAError.classList.remove('show');
+
+  function renderChips() {
+    $('chips').innerHTML =
+      '<span class="chip"><b>Suburb</b>' + escapeHtml(cur.suburb || '—') + '</span>' +
+      '<span class="chip"><b>State</b>' + escapeHtml(cur.state || '—') + '</span>' +
+      '<span class="chip"><b>Postcode</b>' + escapeHtml(cur.postcode || '—') + '</span>' +
+      '<span class="chip"><b>Nearest city</b>' + escapeHtml(cur.nearest_city || '—') + (cur.nearestCityKm != null ? ' (' + cur.nearestCityKm + ' km)' : '') + '</span>';
+    $('derived').classList.add('on');
   }
 
-  document.getElementById('intakeForm').addEventListener('submit', function (ev) {
-    ev.preventDefault();
-    clearStepAError();
+  function manualMode() {
+    $('manual').classList.remove('hidden');
+    $('manualLink').classList.add('hidden');
+    addr.style.display = 'none';
+    $('addrHint').textContent = 'Type it yourself — we still work everything out from your suburb and state.';
+    resetLocation();
+    $('mStreet').focus();
+  }
+  function autoMode() {
+    $('manual').classList.add('hidden');
+    $('manualLink').classList.remove('hidden');
+    addr.style.display = '';
+    $('addrHint').textContent = 'Start typing your street number and street, then pick it from the list.';
+    resetLocation();
+  }
 
-    var form = ev.target;
-    if (!form.checkValidity()) {
-      form.reportValidity();
+  function applyManual() {
+    var street = $('mStreet').value.trim();
+    var suburb = $('mSuburb').value.trim();
+    var state = $('state').value;
+    var postcode = $('mPostcode').value.trim();
+    if (!street || !suburb || !state) { resetLocation(); return; }
+    applyPlace({
+      street: street, suburb: suburb, state: state, postcode: postcode,
+      latitude: null, longitude: null, googlePlaceId: '',
+      formatted: [street, suburb, state, postcode].filter(Boolean).join(', ')
+    }, true);
+  }
+  ['mStreet', 'mSuburb', 'mPostcode'].forEach(function (id) {
+    $(id).addEventListener('input', function () { applyManual(); persistSoon(); });
+  });
+  $('state').addEventListener('change', function () {
+    if ($('manual').classList.contains('hidden')) return; // auto mode manages state itself
+    applyManual();
+  });
+
+  function resetLocation() {
+    cur.suburb = ''; cur.state = ''; cur.postcode = ''; cur.address = ''; cur.nearest_city = ''; cur.general_location = '';
+    cur.latitude = null; cur.longitude = null; cur.google_place_id = ''; cur.manual = false;
+    cur.dpa = null; cur.dpaSuggested = null; cur.dpaCatchment = null; cur.mmm = null;
+    $('derived').classList.remove('on');
+    $('aiDpa').className = 'ai';
+    $('dpaHint').textContent = "We'll check this against your address once it's confirmed above.";
+    $('dpaYes').classList.remove('sel'); $('dpaNo').classList.remove('sel');
+    gate1();
+  }
+  function clearAddr() {
+    addr.value = ''; $('mStreet').value = ''; $('mSuburb').value = ''; $('mPostcode').value = ''; $('state').value = '';
+    resetLocation();
+    addr.focus();
+  }
+
+  // ---------------------------------------------------------------------
+  // DPA — checked against our own /api/dpa/check, always confirmed by the
+  // practice. On ANY failure we say so and require them to answer; we
+  // never pre-select an answer, because a wrong DPA silently hides the
+  // job from every overseas-trained doctor.
+  // ---------------------------------------------------------------------
+  function checkDpa() {
+    if (typeof cur.latitude !== 'number' || typeof cur.longitude !== 'number') {
+      dpaUnavailable("We can't automatically check a manually-typed address.");
       return;
     }
+    var ai = $('aiDpa'); ai.className = 'ai on';
+    $('aiT').textContent = 'Checking your address…';
+    $('aiP').innerHTML = '<span class="spin"></span>Looking up the Distribution Priority Area for this address…';
+    fetch('/api/dpa/check?lat=' + encodeURIComponent(cur.latitude) + '&lon=' + encodeURIComponent(cur.longitude))
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data || res.data.error || typeof res.data.dpa !== 'boolean') {
+          dpaUnavailable("The Department of Health's Health Workforce Locator didn't respond.");
+          return;
+        }
+        cur.dpaSuggested = res.data.dpa;
+        cur.dpaCatchment = res.data.dpaCatchment || null;
+        cur.mmm = res.data.mmm || null;
+        paintDpaSuggestion();
+        persistSoon();
+        gate1();
+      })
+      .catch(function () { dpaUnavailable("The Department of Health's Health Workforce Locator didn't respond."); });
+  }
+  function dpaUnavailable(reason) {
+    cur.dpaSuggested = null; cur.mmm = null;
+    var ai = $('aiDpa'); ai.className = 'ai on';
+    $('aiT').textContent = '⚠ We could not check this automatically';
+    $('aiP').innerHTML = reason + ' <b>Please tell us yourself whether your practice is in a DPA.</b>' +
+      '<span class="warn">You can check it at health.gov.au → Health Workforce Locator.</span>';
+    $('dpaHint').textContent = 'Automatic check unavailable — please answer.';
+    $('dpaYes').classList.remove('sel'); $('dpaNo').classList.remove('sel');
+    gate1();
+  }
+  function paintDpaSuggestion() {
+    var ai = $('aiDpa'); ai.className = 'ai on';
+    $('aiT').textContent = '🏛 Checked against the Department of Health';
+    $('aiP').innerHTML = 'Your address falls in the <b>' + escapeHtml(cur.dpaCatchment || 'matched') + '</b> catchment, which ' +
+      '<b>' + (cur.dpaSuggested ? 'IS' : 'is NOT') + '</b> a Distribution Priority Area for GPs' + (cur.mmm ? ' · <b>' + escapeHtml(cur.mmm) + '</b>' : '') + '.<br>' +
+      '<b>Please confirm — this decides which GPs can see your job.</b>' +
+      '<span class="warn">Source: Health Workforce Locator, Australian Department of Health.</span>';
+    $('dpaHint').textContent = "We've looked it up — but you must confirm it.";
+    $('dpaYes').classList.remove('sel'); $('dpaNo').classList.remove('sel');
+  }
+  function setDpa(v) {
+    if (!cur.address) return;
+    cur.dpa = v;
+    $('dpaYes').classList.toggle('sel', v === true);
+    $('dpaNo').classList.toggle('sel', v === false);
+    var ai = $('aiDpa'); ai.classList.add('done');
+    $('aiT').textContent = '✓ Confirmed by you';
+    var agree = cur.dpaSuggested === v;
+    $('aiP').innerHTML = agree
+      ? 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b>' + (cur.dpaSuggested !== null ? ". That matches the Department of Health's record." : '.')
+      : 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b> — which <b>differs</b> from the Department of Health\'s record. We\'ll use your answer and flag it for our team to verify.';
+    persistSoon();
+    gate1();
+  }
 
-    var payload = { token: token, website_hp: document.getElementById('website_hp').value };
-    selectFieldIds.forEach(function (id) { payload[id] = document.getElementById(id).value; });
-    boolFieldIds.forEach(function (id) { payload[id] = boolFromSelect(document.getElementById(id).value); });
-    textFieldIds.forEach(function (id) { payload[id] = document.getElementById(id).value; });
+  function setUrgency(v) {
+    cur.urgency = v;
+    var buttons = document.querySelectorAll('#urg button');
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('sel', buttons[i].getAttribute('data-value') === v);
+    persistSoon();
+    gate1();
+  }
 
-    stepASubmitBtn.disabled = true;
-    stepASubmitBtn.textContent = 'Saving…';
+  // ---------------------------------------------------------------------
+  // Split readout
+  // ---------------------------------------------------------------------
+  function renderSplit() {
+    var raw = $('percentage_split').value.trim();
+    var p = parseSplit(raw);
+    $('splitOut').classList.toggle('on', !!p);
+    $('splitErr').style.display = (raw && !p) ? 'block' : 'none';
+    if (p) { $('splitGp').textContent = p.gp + '%'; $('splitPr').textContent = p.practice + '%'; }
+    return p;
+  }
 
-    fetch('/api/practice-intake', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
+  // ---------------------------------------------------------------------
+  // Gates
+  // ---------------------------------------------------------------------
+  function gate1() {
+    var split = renderSplit();
+    var addrOk = !!cur.address && !!cur.suburb && !!cur.state;
+    var dpaOk = (cur.dpa === true || cur.dpa === false);
+    var ok = addrOk && dpaOk && !!cur.urgency && !!$('billing_style').value && !!split;
+    $('n1').disabled = !ok;
+  }
+  function gate2() { $('n2').disabled = !($('gps_needed').value && $('employment_type').value); }
+  $('billing_style').addEventListener('change', gate1);
+  $('percentage_split').addEventListener('input', function () { gate1(); persistSoon(); });
+  $('gps_needed').addEventListener('change', function () { gate2(); persistSoon(); });
+  $('employment_type').addEventListener('change', function () { gate2(); persistSoon(); });
+
+  // ---------------------------------------------------------------------
+  // Steps
+  // ---------------------------------------------------------------------
+  function go(n) {
+    step = n;
+    [1, 2, 3, 4, 5].forEach(function (i) { $('p' + i).classList.add('hidden'); });
+    $('p' + n).classList.remove('hidden');
+    [1, 2, 3, 4, 5].forEach(function (i) { $('st' + i).className = i === n ? 'on' : (i < n ? 'done' : ''); });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (n === 4) renderList();
+    if (n === 5) { renderSchedule(); mountCanvas(); gateSign(); }
+    persistSoon();
+  }
+
+  function showCancel(on) { $('b1').classList.toggle('hidden', !on); $('b2').classList.toggle('hidden', !on); $('b3').classList.toggle('hidden', !on); }
+  function cancelEntry() {
+    if (!saved.length) return; // nothing saved yet — nowhere to go back to
+    cur = freshCur(); editIdx = null;
+    go(4);
+  }
+
+  function savePrac() {
+    captureCur();
+    if (editIdx !== null) saved[editIdx] = cur; else saved.push(cur);
+    editIdx = null;
+    persistSoon();
+    go(4);
+  }
+
+  function setMode(m) {
+    mode = m;
+    var buttons = document.querySelectorAll('#modeSeg button');
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('sel', buttons[i].getAttribute('data-value') === m);
+    if (m === 'solo') {
+      saved = saved.slice(0, 1);
+      saved.forEach(function (p) { p.hasOwn = false; p.ownEntity = ''; p.ownAbn = ''; });
+    }
+    $('addBtn').classList.toggle('hidden', m !== 'group');
+    $('entLbl').innerHTML = (m === 'group' ? 'Group legal entity name' : 'Legal entity name') +
+      ' <span class="must">REQUIRED</span><span class="tip">?<span>The company registered against your ABN — not the trading name on your signage.</span></span>';
+    persistSoon();
+    renderList();
+  }
+
+  var URG_LABEL = { asap: '🔥 ASAP', '3_6m': '3–6 months', '12m': '12+ months' };
+  var EMP_LABEL = { full_time: 'Full-time', part_time: 'Part-time', either: 'FT or PT' };
+  function renderList() {
+    $('plist').innerHTML = saved.map(function (p, i) {
+      var own = mode === 'group' ? (
+        '<label class="toggle"><input type="checkbox" data-action="toggle-own" data-idx="' + i + '" ' + (p.hasOwn ? 'checked' : '') + '>' +
+        '<span>This clinic trades under a <b>different company</b></span></label>' +
+        '<div class="own ' + (p.hasOwn ? 'on' : '') + '">' +
+        '<input type="text" placeholder="e.g. ' + escapeHtml(p.suburb || 'This clinic') + ' GP Pty Ltd" value="' + escapeHtml(p.ownEntity || '') + '" data-action="own-entity" data-idx="' + i + '">' +
+        '<input type="text" placeholder="Its ABN or ACN" maxlength="14" value="' + escapeHtml(p.ownAbn || '') + '" data-action="own-abn" data-idx="' + i + '">' +
+        '</div>'
+      ) : '';
+      return '<div class="prac"><div class="top"><div class="ic">' + (i + 1) + '</div><div>' +
+        '<div class="n">' + escapeHtml(p.suburb || '—') + ', ' + escapeHtml(p.state || '—') + ' — near ' + escapeHtml(p.nearest_city || '—') + '</div>' +
+        '<div class="m2">' + escapeHtml(p.billing_style || '—') + ' billing · GP keeps ' + (parseSplit(p.percentage_split) ? parseSplit(p.percentage_split).gp + '%' : '—') +
+        ' · ' + (p.dpa === true ? 'DPA' : (p.dpa === false ? 'not DPA' : '—')) + ' · ' + escapeHtml(p.gps_needed || '—') + ' × ' + (EMP_LABEL[p.employment_type] || '—') +
+        ' · ' + (URG_LABEL[p.urgency] || '—') + '</div></div>' +
+        '<div class="acts"><button type="button" data-action="edit-prac" data-idx="' + i + '">Edit</button>' +
+        (saved.length > 1 ? '<button type="button" class="del" data-action="remove-prac" data-idx="' + i + '">Remove</button>' : '') +
+        '</div></div>' + own + '</div>';
+    }).join('') || '<div class="note">No practices added yet.</div>';
+    $('addBtn').classList.toggle('hidden', mode !== 'group');
+    $('toSign').disabled = saved.length === 0;
+  }
+
+  function editPrac(i) {
+    editIdx = i;
+    cur = saved[i];
+    addr.value = cur.address || '';
+    renderChips();
+    if (cur.dpaSuggested !== null && cur.dpaSuggested !== undefined) paintDpaSuggestion();
+    if (cur.dpa === true || cur.dpa === false) {
+      $('dpaYes').classList.toggle('sel', cur.dpa === true);
+      $('dpaNo').classList.toggle('sel', cur.dpa === false);
+    }
+    var buttons = document.querySelectorAll('#urg button');
+    for (var i2 = 0; i2 < buttons.length; i2++) buttons[i2].classList.toggle('sel', buttons[i2].getAttribute('data-value') === cur.urgency);
+    paintCur();
+    $('p1h').textContent = 'Edit this practice';
+    showCancel(true);
+    gate1(); gate2();
+    go(1);
+  }
+  function rmPrac(i) { saved.splice(i, 1); persistSoon(); renderList(); }
+  function toggleOwn(i, checked) {
+    saved[i].hasOwn = checked;
+    if (!checked) { saved[i].ownEntity = ''; saved[i].ownAbn = ''; }
+    persistSoon(); renderList();
+  }
+
+  function addAnother() {
+    cur = freshCur(); editIdx = null;
+    showCancel(saved.length > 0);
+    addr.value = ''; addr.style.display = '';
+    $('manual').classList.add('hidden'); $('manualLink').classList.remove('hidden');
+    $('addrHint').textContent = 'Start typing your street number and street, then pick it from the list.';
+    $('mStreet').value = ''; $('mSuburb').value = ''; $('mPostcode').value = ''; $('state').value = '';
+    $('billing_style').value = ''; $('percentage_split').value = '';
+    var buttons = document.querySelectorAll('#urg button');
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.remove('sel');
+    document.querySelectorAll('#p2 select, #p3 input, #p3 textarea, #p3 select').forEach(function (el) { el.value = ''; });
+    $('p1h').textContent = 'Tell us about this practice';
+    resetLocation();
+    gate2();
+    go(1);
+    persistSoon();
+  }
+
+  // ---------------------------------------------------------------------
+  // Submit steps 1-4 to the server, then move to sign.
+  // ---------------------------------------------------------------------
+  function buildClinicPayload(p) {
+    return {
+      billing_style: p.billing_style || '', dpa: boolToSelect(p.dpa), dpa_suggested: p.dpaSuggested,
+      mmm: p.mmm || '', percentage_split: p.percentage_split || '',
+      suburb: p.suburb || '', nearest_city: p.nearest_city || '', state: p.state || '',
+      address: p.address || '', general_location: p.general_location || '',
+      postcode: p.postcode || '', latitude: p.latitude, longitude: p.longitude, google_place_id: p.google_place_id || '',
+      urgency: p.urgency || '', employment_type: p.employment_type || '', gps_needed: p.gps_needed || '',
+      visa_sponsorship: boolToSelect(p.visa_sponsorship), ownership: p.ownership || '', years_operating: p.years_operating || '',
+      nursing_on_site: boolToSelect(p.nursing_on_site), gp_count: p.gp_count || '', incentives: p.incentives || '',
+      earnings_text: p.earnings_text || '', website: p.website || '', supervision_available: boolToSelect(p.supervision_available),
+      role_summary: p.role_summary || '', intro_text: p.intro_text || '', intro_video_url: p.intro_video_url || '',
+      entity_name: p.hasOwn ? (p.ownEntity || '') : undefined, abn: p.hasOwn ? (p.ownAbn || '') : undefined
+    };
+  }
+
+  var toSignBtn = $('toSign');
+  function continueToAgreement() {
+    clearStep4Error();
+    if (!saved.length) return;
+    toSignBtn.disabled = true;
+    toSignBtn.textContent = 'Saving…';
+    var body = { token: token, website_hp: '' };
+    if (saved.length > 1) {
+      body.practices = saved.map(buildClinicPayload);
+    } else {
+      Object.assign(body, buildClinicPayload(saved[0]));
+    }
+    fetch('/api/practice-intake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
       .then(function (res) {
-        stepASubmitBtn.disabled = false;
-        stepASubmitBtn.textContent = 'Continue to agreement';
+        toSignBtn.disabled = false;
+        toSignBtn.textContent = 'Continue to the agreement →';
         if (res.status === 200 && res.data && res.data.ok) {
-          currentPractice = currentPractice || {};
-          currentPractice.intake = payload;
-          document.getElementById('signedName').value = document.getElementById('signedName').value || '';
-          showStepB();
+          go(5);
         } else if (res.status === 404) {
           showOnly(expiredPanel);
         } else {
-          showStepAError((res.data && res.data.error) || 'Something went wrong saving your answers. Please check the form and try again.');
+          showStep4Error((res.data && res.data.error) || 'Something went wrong saving your answers. Please check the form and try again.');
         }
       })
       .catch(function () {
-        stepASubmitBtn.disabled = false;
-        stepASubmitBtn.textContent = 'Continue to agreement';
-        showStepAError('Network error — please check your connection and try again.');
+        toSignBtn.disabled = false;
+        toSignBtn.textContent = 'Continue to the agreement →';
+        showStep4Error('Network error — please check your connection and try again.');
       });
-  });
+  }
+  function showStep4Error(msg) { $('step4Error').textContent = msg; $('step4Error').classList.add('show'); }
+  function clearStep4Error() { $('step4Error').textContent = ''; $('step4Error').classList.remove('show'); }
 
   // ---------------------------------------------------------------------
-  // Step B: agreement + signature
+  // Schedule 1 summary
   // ---------------------------------------------------------------------
-  var canvas = document.getElementById('sigPad');
-  var ctx = canvas.getContext('2d');
-  var hasInk = false;
-  var drawing = false;
-  var lastX = 0, lastY = 0;
-  var canvasReady = false;
+  function renderSchedule() {
+    var ent = $('legalEntityName').value.trim() || '<i style="color:var(--ink-3)">your legal entity</i>';
+    var kind = idKind(idDigits($('abnAcn').value)) || 'ABN';
+    var abnVal = $('abnAcn').value.trim() || '—';
+    var rows = saved.map(function (p, i) {
+      var own = p.hasOwn && (p.ownEntity || '').trim();
+      return '<tr><td>' + (i + 1) + '</td><td><b>' + escapeHtml(p.suburb || '—') + '</b>, ' + escapeHtml(p.state || '—') + '</td>' +
+        '<td>' + (own ? escapeHtml(p.ownEntity) : ent) + '<div class="abn">' + (own ? 'ABN/ACN ' + escapeHtml(p.ownAbn || '—') : kind + ' ' + escapeHtml(abnVal)) + '</div></td></tr>';
+    }).join('');
+    $('schedule').innerHTML =
+      '<table><thead><tr><th style="width:22px">#</th><th>Practice</th><th>Contracting entity</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div style="margin-top:9px;font-size:12px;color:var(--ink-3)">One signature · ' + saved.length + ' practice' + (saved.length > 1 ? 's' : '') + '</div>';
+  }
+
+  // ---------------------------------------------------------------------
+  // Signature pad — draw or type. Sizing a canvas clears it, so we only
+  // size once per visit to this step (mountCanvas), matching the proven
+  // prototype's approach.
+  // ---------------------------------------------------------------------
+  var canvas = $('sigPad'), ctx = canvas.getContext('2d');
+  var canvasReady = false, drawing = false, hasInk = false;
 
   function setupCanvas() {
     var rect = canvas.getBoundingClientRect();
     var ratio = window.devicePixelRatio || 1;
-    var cssWidth = rect.width || 300;
-    var cssHeight = 140;
-    canvas.width = cssWidth * ratio;
-    canvas.height = cssHeight * ratio;
-    canvas.style.width = cssWidth + 'px';
-    canvas.style.height = cssHeight + 'px';
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(ratio, ratio);
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#1e293b';
+    var cssWidth = rect.width || 300, cssHeight = 140;
+    canvas.width = cssWidth * ratio; canvas.height = cssHeight * ratio;
+    canvas.style.width = cssWidth + 'px'; canvas.style.height = cssHeight + 'px';
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1e293b';
     canvasReady = true;
   }
-
-  function clearCanvas() {
-    var rect = canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width || canvas.width, 140);
-  }
-
-  function pointFromEvent(ev) {
-    var rect = canvas.getBoundingClientRect();
-    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
-  }
-
+  function mountCanvas() { if (!canvasReady) setupCanvas(); }
+  function clearCanvas() { var rect = canvas.getBoundingClientRect(); ctx.clearRect(0, 0, rect.width || canvas.width, 140); }
+  function pointFromEvent(ev) { var rect = canvas.getBoundingClientRect(); return { x: ev.clientX - rect.left, y: ev.clientY - rect.top }; }
   function updateSigStatus() {
-    var sigStatus = document.getElementById('sigStatus');
-    sigStatus.textContent = hasInk ? 'Signature captured' : 'Not signed yet';
-    updateSignEnabled();
+    $('sigStatus').textContent = hasInk ? 'Signature captured' : 'Not signed yet';
+    $('sigWrap').classList.toggle('filled', hasInk);
+    gateSign();
   }
-
   canvas.addEventListener('pointerdown', function (ev) {
-    drawing = true;
-    var pt = pointFromEvent(ev);
-    lastX = pt.x; lastY = pt.y;
-    ctx.beginPath();
-    ctx.moveTo(pt.x, pt.y);
+    drawing = true; var pt = pointFromEvent(ev);
+    ctx.beginPath(); ctx.moveTo(pt.x, pt.y);
     canvas.setPointerCapture && canvas.setPointerCapture(ev.pointerId);
   });
   canvas.addEventListener('pointermove', function (ev) {
-    if (!drawing) return;
-    var pt = pointFromEvent(ev);
-    ctx.lineTo(pt.x, pt.y);
-    ctx.stroke();
-    lastX = pt.x; lastY = pt.y;
+    if (!drawing) return; var pt = pointFromEvent(ev);
+    ctx.lineTo(pt.x, pt.y); ctx.stroke();
     if (!hasInk) { hasInk = true; updateSigStatus(); }
   });
-  function endStroke() { drawing = false; }
+  function endStroke() { drawing = false; persistSoon(); }
   canvas.addEventListener('pointerup', endStroke);
   canvas.addEventListener('pointercancel', endStroke);
   canvas.addEventListener('pointerleave', endStroke);
 
-  document.getElementById('clearSigBtn').addEventListener('click', function () {
-    clearCanvas();
-    hasInk = false;
-    document.getElementById('typedSignatureInput').value = '';
-    updateSigStatus();
+  $('clearSigBtn').addEventListener('click', function () {
+    clearCanvas(); hasInk = false; $('typedSignatureInput').value = ''; updateSigStatus(); persistSoon();
   });
-
-  document.getElementById('useTypedSigBtn').addEventListener('click', function () {
-    var text = document.getElementById('typedSignatureInput').value.trim();
+  $('useTypedSigBtn').addEventListener('click', function () {
+    var text = $('typedSignatureInput').value.trim();
     if (!text) return;
     clearCanvas();
-    ctx.font = "italic 42px Georgia, 'Times New Roman', serif";
-    ctx.fillStyle = '#1e293b';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 16, 78);
-    hasInk = true;
-    updateSigStatus();
+    ctx.font = "italic 40px Georgia, 'Times New Roman', serif";
+    ctx.fillStyle = '#1e293b'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, 14, 76);
+    hasInk = true; updateSigStatus(); persistSoon();
   });
 
-  var signedNameInput = document.getElementById('signedName');
-  var legalEntityInput = document.getElementById('legalEntityName');
-  var abnAcnInput = document.getElementById('abnAcn');
-  var signerJobTitleInput = document.getElementById('signerJobTitle');
-  var authorisedCheckbox = document.getElementById('authorisedCheckbox');
-  var signBtn = document.getElementById('signBtn');
+  // ---------------------------------------------------------------------
+  // ABN/ACN live formatting + checksum feedback
+  // ---------------------------------------------------------------------
+  $('abnAcn').addEventListener('input', function () {
+    var d = idDigits($('abnAcn').value);
+    var parts = d.length <= 9 ? [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9)] : [d.slice(0, 2), d.slice(2, 5), d.slice(5, 8), d.slice(8, 11)];
+    $('abnAcn').value = parts.filter(Boolean).join(' ');
+    var msg = $('abnMsg');
+    function set(color, html) { msg.style.display = 'block'; msg.style.color = color; msg.innerHTML = html; }
+    if (!d.length) msg.style.display = 'none';
+    else if (d.length < 9) set('var(--ink-3)', d.length + ' digits — an ACN has 9, an ABN has 11.');
+    else if (d.length === 9) acnOk(d) ? set('var(--good)', '✓ Valid <b>ACN</b> — or keep typing if you meant an ABN.') : set('var(--bad)', '9 digits, but not a valid ACN. Check it, or continue to 11 for an ABN.');
+    else if (d.length === 10) set('var(--ink-3)', '10 digits — an ABN has 11.');
+    else set(abnOk(d) ? 'var(--good)' : 'var(--bad)', abnOk(d) ? '✓ Valid <b>ABN</b>' : '11 digits, but not a valid ABN — please check it.');
+    gateSign(); persistSoon();
+  });
+  ['signedName', 'signerJobTitle', 'legalEntityName', 'signedEmail'].forEach(function (id) {
+    $(id).addEventListener('input', function () { gateSign(); persistSoon(); });
+  });
+  $('authorisedCheckbox').addEventListener('change', function () { gateSign(); persistSoon(); });
 
-  function abnAcnDigits() {
-    return abnAcnInput.value.replace(/[^0-9]/g, '');
+  // ---------------------------------------------------------------------
+  // The signing gate — 8 conditions, no exceptions. Signing is NOT gated
+  // on reading the agreement (owner decision, 2026-07-16): the PDF stays
+  // embedded and visible, but scrolling it is never required to unlock
+  // the signature fields.
+  // ---------------------------------------------------------------------
+  var GATE_LABELS = ['At least one practice added', 'Your full legal name', 'Your position', 'Legal entity name', 'ABN or ACN', 'Your email', 'Signature', 'Authorisation confirmed'];
+  function gateSign() {
+    var done = [
+      saved.length > 0,
+      !!$('signedName').value.trim(),
+      !!$('signerJobTitle').value.trim(),
+      !!$('legalEntityName').value.trim(),
+      !!idKind(idDigits($('abnAcn').value)),
+      /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($('signedEmail').value || ''),
+      hasInk,
+      $('authorisedCheckbox').checked
+    ];
+    var n = done.filter(Boolean).length;
+    $('bar').style.width = (n / 8 * 100) + '%';
+    var gt = $('gt');
+    gt.textContent = n === 8 ? 'All complete — you can sign' : (n + ' of 8 completed');
+    gt.className = n === 8 ? 't ok' : 't';
+    $('glist').innerHTML = n === 8 ? '' : GATE_LABELS.map(function (l, i) { return done[i] ? '' : '<li>' + l + '</li>'; }).join('');
+    $('submit').disabled = n !== 8;
+    renderSchedule();
   }
 
-  function updateSignEnabled() {
-    var nameFilled = signedNameInput.value.trim().length > 0;
-    var entityFilled = legalEntityInput.value.trim().length > 0;
-    var abnDigits = abnAcnDigits();
-    var abnValid = abnDigits.length === 11 || abnDigits.length === 9;
-    var titleFilled = signerJobTitleInput.value.trim().length > 0;
-    signBtn.disabled = !(hasInk && nameFilled && entityFilled && abnValid && titleFilled && authorisedCheckbox.checked);
-  }
-  signedNameInput.addEventListener('input', updateSignEnabled);
-  legalEntityInput.addEventListener('input', updateSignEnabled);
-  abnAcnInput.addEventListener('input', updateSignEnabled);
-  signerJobTitleInput.addEventListener('input', updateSignEnabled);
-  authorisedCheckbox.addEventListener('change', updateSignEnabled);
-
+  // ---------------------------------------------------------------------
+  // Sign submit
+  // ---------------------------------------------------------------------
   function todayLabel() {
-    try {
-      return new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' });
-    } catch (e) {
-      return new Date().toLocaleDateString('en-AU');
-    }
+    try { return new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' }); }
+    catch (e) { return new Date().toLocaleDateString('en-AU'); }
   }
-
-  function showStepB() {
-    document.getElementById('todayDateLabel').textContent = todayLabel();
-    showOnly(stepBPanel);
-    if (!canvasReady) setupCanvas();
-    updateSignEnabled();
-  }
-
-  document.getElementById('editAnswersLink').addEventListener('click', function (ev) {
-    ev.preventDefault();
-    showOnly(stepAPanel);
-  });
-
-  var stepBError = document.getElementById('stepBError');
-  function showStepBError(msg) {
-    stepBError.textContent = msg;
-    stepBError.classList.add('show');
-  }
-  function clearStepBError() {
-    stepBError.textContent = '';
-    stepBError.classList.remove('show');
-  }
+  var signBtn = $('submit');
+  function showStep5Error(msg) { $('step5Error').textContent = msg; $('step5Error').classList.add('show'); }
+  function clearStep5Error() { $('step5Error').textContent = ''; $('step5Error').classList.remove('show'); }
 
   signBtn.addEventListener('click', function () {
-    clearStepBError();
+    clearStep5Error();
     if (signBtn.disabled) return;
-
-    var signatureDataUrl = canvas.toDataURL('image/png');
     var payload = {
       token: token,
-      signature_data_url: signatureDataUrl,
-      signed_name: signedNameInput.value.trim(),
-      legal_entity_name: legalEntityInput.value.trim(),
-      abn_acn: abnAcnDigits(),
-      signer_job_title: signerJobTitleInput.value.trim(),
-      authorised: authorisedCheckbox.checked === true
+      signature_data_url: canvas.toDataURL('image/png'),
+      signed_name: $('signedName').value.trim(),
+      legal_entity_name: $('legalEntityName').value.trim(),
+      abn_acn: idDigits($('abnAcn').value),
+      signer_job_title: $('signerJobTitle').value.trim(),
+      email: $('signedEmail').value.trim(),
+      authorised: $('authorisedCheckbox').checked === true
     };
-
-    signBtn.disabled = true;
-    signBtn.textContent = 'Signing…';
-
-    fetch('/api/practice-intake/sign', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
+    signBtn.disabled = true; signBtn.textContent = 'Signing…';
+    fetch('/api/practice-intake/sign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json().then(function (data) { return { status: r.status, data: data }; }); })
       .then(function (res) {
-        if (res.status === 200 && res.data && res.data.ok) {
-          showSuccess();
-          return;
-        }
-        if (res.status === 409 && res.data && res.data.error === 'already_signed') {
-          showSuccess();
-          return;
-        }
-        signBtn.disabled = false;
-        signBtn.textContent = 'Sign agreement';
+        if (res.status === 200 && res.data && res.data.ok) { clearDraft(); showSuccess(); return; }
+        if (res.status === 409 && res.data && res.data.error === 'already_signed') { clearDraft(); showSuccess(); return; }
+        signBtn.disabled = false; signBtn.textContent = 'Sign & submit';
         if (res.status === 409 && res.data && res.data.error === 'intake_incomplete') {
-          showStepBError('Please finish the form first.');
-          showOnly(stepAPanel);
+          showStep5Error('Please finish the practice details first.');
+          go(4);
           return;
         }
-        if (res.status === 404) {
-          showOnly(expiredPanel);
-          return;
-        }
-        showStepBError((res.data && res.data.error) || 'Something went wrong while signing. Please try again.');
-        updateSignEnabled();
+        if (res.status === 404) { showOnly(expiredPanel); return; }
+        showStep5Error((res.data && res.data.error) || 'Something went wrong while signing. Please try again.');
       })
       .catch(function () {
-        signBtn.disabled = false;
-        signBtn.textContent = 'Sign agreement';
-        showStepBError('Network error — please check your connection and try again.');
+        signBtn.disabled = false; signBtn.textContent = 'Sign & submit';
+        showStep5Error('Network error — please check your connection and try again.');
       });
   });
+
+  // ---------------------------------------------------------------------
+  // Resume from the server (the intake step already succeeded once — go
+  // straight to signing with what the server has on file).
+  // ---------------------------------------------------------------------
+  function resumeFromServer(intake) {
+    Object.assign(cur, {
+      billing_style: intake.billing_style || '', percentage_split: intake.percentage_split || '',
+      address: intake.address || '', suburb: intake.suburb || '', state: intake.state || '', postcode: '',
+      nearest_city: intake.nearest_city || '', general_location: intake.general_location || '',
+      dpa: intake.dpa === true, urgency: intake.urgency || '', gps_needed: intake.gps_needed || '',
+      employment_type: intake.employment_type || ''
+    });
+    saved = [cur];
+    mode = 'solo';
+    $('todayDateLabel').textContent = todayLabel();
+    go(5);
+  }
+
+  // ---------------------------------------------------------------------
+  // Draft persistence — everything you've typed, the drawn signature, and
+  // which step you're on, so a reload never loses the practice's work.
+  // ---------------------------------------------------------------------
+  var STORE = 'gplink_intake_draft_v3';
+  var saveTimer = null;
+  function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 250); }
+  function persist() {
+    try {
+      var signFields = {};
+      ['signedName', 'signerJobTitle', 'legalEntityName', 'abnAcn', 'signedEmail'].forEach(function (id) { signFields[id] = $(id).value; });
+      localStorage.setItem(STORE, JSON.stringify({
+        saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
+        manual: !$('manual').classList.contains('hidden'),
+        manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value },
+        addr: addr.value,
+        signFields: signFields,
+        authorised: $('authorisedCheckbox').checked,
+        sig: hasInk ? canvas.toDataURL('image/png') : null
+      }));
+    } catch (e) { /* storage unavailable — never block the form for this */ }
+  }
+  function clearDraft() { try { localStorage.removeItem(STORE); } catch (e) {} }
+
+  function restoreDraft() {
+    var d;
+    try { d = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) { d = null; }
+    if (!d) return false;
+
+    saved = Array.isArray(d.saved) ? d.saved : [];
+    mode = d.mode || 'solo';
+    cur = d.cur && typeof d.cur === 'object' ? Object.assign(freshCur(), d.cur) : freshCur();
+    editIdx = (d.editIdx === 0 || d.editIdx) ? d.editIdx : null;
+
+    paintCur();
+    var modeButtons = document.querySelectorAll('#modeSeg button');
+    for (var i = 0; i < modeButtons.length; i++) modeButtons[i].classList.toggle('sel', modeButtons[i].getAttribute('data-value') === mode);
+    $('addBtn').classList.toggle('hidden', mode !== 'group');
+
+    if (d.manual) { $('manual').classList.remove('hidden'); $('manualLink').classList.add('hidden'); addr.style.display = 'none'; }
+    if (d.manualFields) { $('mStreet').value = d.manualFields.mStreet || ''; $('mSuburb').value = d.manualFields.mSuburb || ''; $('mPostcode').value = d.manualFields.mPostcode || ''; }
+    addr.value = d.addr || '';
+
+    if (cur.address) {
+      renderChips();
+      if (cur.dpaSuggested === true || cur.dpaSuggested === false) paintDpaSuggestion();
+      if (cur.dpa === true || cur.dpa === false) {
+        $('dpaYes').classList.toggle('sel', cur.dpa === true);
+        $('dpaNo').classList.toggle('sel', cur.dpa === false);
+      }
+    }
+    var urgButtons = document.querySelectorAll('#urg button');
+    for (var j = 0; j < urgButtons.length; j++) urgButtons[j].classList.toggle('sel', urgButtons[j].getAttribute('data-value') === cur.urgency);
+
+    if (d.signFields) { Object.keys(d.signFields).forEach(function (id) { var el = $(id); if (el) el.value = d.signFields[id] || ''; }); }
+    $('authorisedCheckbox').checked = !!d.authorised;
+    $('todayDateLabel').textContent = todayLabel();
+
+    showCancel(saved.length > 0);
+    renderList();
+    gate1(); gate2();
+    go(d.step || 1);
+
+    if (step === 5) {
+      mountCanvas();
+      if (d.sig) {
+        var img = new Image();
+        img.onload = function () { ctx.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1)); hasInk = true; updateSigStatus(); };
+        img.src = d.sig;
+      }
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // Delegated click handling (one listener, data-action driven — matches
+  // the rest of the app's event-delegation convention).
+  // ---------------------------------------------------------------------
+  document.addEventListener('click', function (ev) {
+    var el = ev.target.closest('[data-action]');
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    var idx = el.getAttribute('data-idx');
+    switch (action) {
+      case 'manual-mode': ev.preventDefault(); manualMode(); break;
+      case 'auto-mode': ev.preventDefault(); autoMode(); break;
+      case 'clear-addr': clearAddr(); break;
+      case 'pick-addr': pickAddr(Number(idx)); break;
+      case 'set-dpa': setDpa(el.getAttribute('data-value') === 'yes'); break;
+      case 'set-urgency': setUrgency(el.getAttribute('data-value')); break;
+      case 'go-1': go(1); break;
+      case 'go-2': captureCur(); go(2); break;
+      case 'go-3': captureCur(); go(3); break;
+      case 'go-4': go(4); break;
+      case 'save-practice': savePrac(); break;
+      case 'cancel-entry': cancelEntry(); break;
+      case 'set-mode': setMode(el.getAttribute('data-value')); break;
+      case 'add-another': addAnother(); break;
+      case 'edit-prac': editPrac(Number(idx)); break;
+      case 'remove-prac': rmPrac(Number(idx)); break;
+      case 'continue-to-agreement': continueToAgreement(); break;
+    }
+  });
+  document.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-action="toggle-own"]')) toggleOwn(Number(ev.target.getAttribute('data-idx')), ev.target.checked);
+  });
+  document.addEventListener('input', function (ev) {
+    if (ev.target.matches('[data-action="own-entity"]')) { saved[Number(ev.target.getAttribute('data-idx'))].ownEntity = ev.target.value; persistSoon(); }
+    if (ev.target.matches('[data-action="own-abn"]')) { saved[Number(ev.target.getAttribute('data-idx'))].ownAbn = ev.target.value; persistSoon(); }
+  });
+
+  // Persist on every keystroke/selection across the whole form, lightly debounced.
+  document.querySelectorAll('#p1 input, #p1 select, #p2 select, #p3 input, #p3 textarea, #p3 select, #p5 input').forEach(function (el) {
+    el.addEventListener('input', persistSoon);
+    el.addEventListener('change', persistSoon);
+  });
+
+  $('n1').addEventListener('click', function () { captureCur(); });
 
   loadPractice();
 })();
