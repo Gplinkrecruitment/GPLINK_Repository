@@ -429,9 +429,24 @@
     notFoundEl.hidden = false;
   }
 
+  // Task 4/5 (2026-07-18 combined review design): the CEO Jobs review screen
+  // opens this page as /jobs/view?id=<publicId>&preview=1 in a new tab so an
+  // admin can see a not-yet-approved job exactly as the public would. The
+  // server-rendered HTML (serveJobDetailPageWithSeo) already honors preview=1
+  // for its SEO injection, but the actual content is hydrated by THIS client
+  // fetch — without forwarding preview=1 here too, a pending job would render
+  // "not found" even though the admin-only session is valid. GET
+  // /api/public/jobs only ever honors preview=1 when the request ALSO
+  // carries a valid admin/ATS session cookie (getAtsSessionSoft); for anyone
+  // else the flag is inert.
+  function isPreviewModeFromUrl() {
+    return new URLSearchParams(window.location.search).get("preview") === "1";
+  }
+
   function fetchJobById(targetId) {
     var params = new URLSearchParams();
     params.set("id", targetId);
+    if (isPreviewModeFromUrl()) params.set("preview", "1");
     return fetch("/api/public/jobs?" + params.toString()).then(function (res) {
       if (!res.ok) throw new Error("bad status");
       return res.json();

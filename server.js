@@ -29850,6 +29850,13 @@ function atsJobEditorPayload(job) {
   // those pre-existing rows also prefill, not just rows created after this change.
   var intakeStash = (sp.intake && typeof sp.intake === 'object') ? sp.intake : {};
   var detailOrIntake = function (key) { return detailStr(key) || (intakeStash[key] == null ? '' : String(intakeStash[key])); };
+  // AI job write-up (2026-07-18 design doc, Task 3): source_payload.gpLink.aiWriteup
+  // is generated/stored by the ai-writeup endpoint. Surfaced here so the Task 4
+  // combined review screen can seed its editable "about" textarea + highlights
+  // list without a second round-trip. Admin-only payload — masking isn't
+  // required (the AI write-up is already identity-masked at generation time).
+  var gpLinkForEditor = (sp.gpLink && typeof sp.gpLink === 'object') ? sp.gpLink : {};
+  var aiWriteupForEditor = (gpLinkForEditor.aiWriteup && typeof gpLinkForEditor.aiWriteup === 'object') ? gpLinkForEditor.aiWriteup : {};
   return {
     title: j.title || '',
     billing_style: billingStyle,
@@ -29881,7 +29888,9 @@ function atsJobEditorPayload(job) {
     job_status: j.job_status || (j.is_active === false ? 'closed' : 'open'),
     employment_type: j.employment_type || '',
     practice_id: j.practice_id || '',
-    practice_name: j.practice_name || ''
+    practice_name: j.practice_name || '',
+    ai_about: aiWriteupForEditor.about || '',
+    ai_highlights: Array.isArray(aiWriteupForEditor.highlights) ? aiWriteupForEditor.highlights : []
   };
 }
 

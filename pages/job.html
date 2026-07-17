@@ -1453,6 +1453,17 @@
     return params.get("id") || "";
   }
 
+  // Task 4/5 (2026-07-18 combined review design): the CEO Jobs review screen
+  // opens this page as /pages/job.html?id=<publicId>&preview=1 in a new tab to
+  // show a not-yet-approved job exactly as a GP would see it. The server's
+  // GET /api/career/role only honors preview=1 when the request ALSO carries
+  // a valid admin/ATS session cookie (getAtsSessionSoft) — for anyone else
+  // this flag is inert and the request 401s/404s exactly as it does today.
+  function isPreviewModeFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("preview") === "1";
+  }
+
   // AI Matching (Task 7, 2026-07-11 matching-board): career.html links here
   // as job.html?id={roleId}&match={applicationId} — the deep-link that says
   // "this exact job opening is the GP's live match". Read once at load; the
@@ -2615,8 +2626,13 @@
   // options.bypassCache: skip (and refresh) the 10-minute localStorage cache —
   // used whenever an offer is detected so reveal fields are never stale.
   // loadRoleDetail._fromCache reports where the last resolved role came from.
+  // Admin preview (?preview=1) always bypasses the cache too, both directions
+  // — it must never read back a stale non-preview miss for a pending job, and
+  // must never poison the shared localStorage cache with a preview payload
+  // that a later real (non-admin) visit to the same roleId could read back.
   async function loadRoleDetail(roleId, timeoutMs, options) {
-    const bypassCache = !!(options && options.bypassCache);
+    const isPreview = isPreviewModeFromUrl();
+    const bypassCache = isPreview || !!(options && options.bypassCache);
     if (!bypassCache) {
       const cached = readCachedRoleDetail(roleId);
       if (cached) {
@@ -2628,7 +2644,7 @@
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch("/api/career/role?id=" + encodeURIComponent(roleId), {
+      const res = await fetch("/api/career/role?id=" + encodeURIComponent(roleId) + (isPreview ? "&preview=1" : ""), {
         credentials: "same-origin",
         signal: controller.signal
       });
@@ -2636,7 +2652,7 @@
       if (!res.ok || !data || data.ok !== true || !data.role) {
         return null;
       }
-      writeCachedRoleDetail(roleId, data.role);
+      if (!isPreview) writeCachedRoleDetail(roleId, data.role);
       return data.role;
     } catch (err) {
       return null;
