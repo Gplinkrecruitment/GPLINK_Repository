@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="/css/site.css?v=20260715b">
+<link rel="stylesheet" href="/css/site.css?v=20260717a">
 <style>
   /* ---------- hero (navy, image background) ---------- */
   .gpj-hero{position:relative;color:#fff;overflow:hidden;
@@ -71,24 +71,16 @@
   .gpj-rso-photo .ring{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
     width:120%;height:90%;border-radius:46% 46% 0 0;
     background:radial-gradient(60% 70% at 50% 80%,rgba(255,255,255,.28),transparent 72%);}
-  /* the stacked white drop-shadows draw a crisp ~2px white outline around the
-     silhouette; the last shadow is the soft ground shadow for depth */
+  /* the white outline is baked into the WebP itself (smoothed silhouette), so
+     CSS only adds the soft ground shadow for depth */
   .gpj-rso-photo img{position:relative;z-index:1;display:block;width:min(430px,100%);height:auto;
     margin-bottom:calc(-1 * clamp(44px,6vw,84px));
-    filter:
-      drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff)
-      drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff)
-      drop-shadow(1.5px 1.5px 0 #fff) drop-shadow(-1.5px 1.5px 0 #fff)
-      drop-shadow(1.5px -1.5px 0 #fff) drop-shadow(-1.5px -1.5px 0 #fff)
-      drop-shadow(0 22px 34px rgba(6,20,40,.45));}
+    filter:drop-shadow(0 22px 34px rgba(6,20,40,.45));}
   @media(max-width:880px){
     .gpj-rso-grid{grid-template-columns:1fr}
-    .gpj-rso-photo{order:-1;align-self:center;padding-bottom:6px;}
-    .gpj-rso-photo img{margin-bottom:0;width:min(300px,78%);}
-    /* fuller halo on mobile so she sits on a soft glow rather than floating on
-       flat blue */
-    .gpj-rso-photo .ring{width:150%;height:96%;
-      background:radial-gradient(56% 62% at 50% 74%,rgba(255,255,255,.30),transparent 70%);}
+    /* no cutout on narrow screens: at mobile widths she reads as a pasted-on
+       sticker rather than part of the band */
+    .gpj-rso-photo{display:none;}
   }
 
   /* ---------- how we help trio ---------- */
