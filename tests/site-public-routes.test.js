@@ -183,7 +183,7 @@ describe('marketing site homepage (Task 7)', () => {
 
   it('GET / links the shared site chrome css/js', async () => {
     const res = await get('/');
-    expect(res.raw).toContain('/css/site.css?v=20260715b');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
     expect(res.raw).toContain('/js/site.js?v=20260714a');
   });
 
@@ -223,7 +223,7 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
   it('GET /about has the numbers strip (data-count) and the shared site chrome', async () => {
     const res = await get('/about');
     expect(res.raw).toContain('data-count');
-    expect(res.raw).toContain('/css/site.css?v=20260715b');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
     expect(res.raw).toContain('/js/site.js?v=20260714a');
   });
 
@@ -308,7 +308,7 @@ describe('marketing site app page (Task 12)', () => {
 
   it('GET /the-app has the shared site chrome and SEO head tags', async () => {
     const res = await get('/the-app');
-    expect(res.raw).toContain('/css/site.css?v=20260715b');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
     expect(res.raw).toContain('/js/site.js?v=20260714a');
     expect(res.raw).toContain('<title>The GP Link App: Track Your Move to Australia | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/the-app">');
@@ -365,7 +365,7 @@ describe('marketing site "For GPs" page (Task 15)', () => {
 
   it('GET /gp-jobs has the shared site chrome and SEO head tags', async () => {
     const res = await get('/gp-jobs');
-    expect(res.raw).toContain('/css/site.css?v=20260715b');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
     expect(res.raw).toContain('/js/site.js?v=20260714a');
     expect(res.raw).toContain('<title>GP Jobs &amp; Careers in Australia for Overseas Doctors | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/gp-jobs">');
@@ -418,7 +418,7 @@ describe('marketing site "Exclusive placement" page (Task 19)', () => {
 
   it('GET /exclusive-placements has the shared site chrome and SEO head tags', async () => {
     const res = await get('/exclusive-placements');
-    expect(res.raw).toContain('/css/site.css?v=20260715b');
+    expect(res.raw).toContain('/css/site.css?v=20260717a');
     expect(res.raw).toContain('/js/site.js?v=20260714a');
     expect(res.raw).toContain('<title>Exclusive GP Placement Opportunities | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/exclusive-placements">');
