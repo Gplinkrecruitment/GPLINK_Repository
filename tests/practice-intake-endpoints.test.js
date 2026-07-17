@@ -251,7 +251,10 @@ describe('POST /api/practice-intake/sign', () => {
     await req('POST', '/api/practice-intake', { body: validIntakePayload(token) });
 
     const r = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Jane Smith', authorised: true }
+      body: {
+        token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Jane Smith', authorised: true,
+        legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+      }
     });
     expect(r.status).toBe(200);
     const body = parse(r.raw);
@@ -270,13 +273,19 @@ describe('POST /api/practice-intake/sign', () => {
     await req('POST', '/api/practice-intake', { body: validIntakePayload(token) });
 
     const first = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true }
+      body: {
+        token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true,
+        legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+      }
     });
     expect(first.status).toBe(200);
     createdPdfPracticeIds.push(practiceId);
 
     const second = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true }
+      body: {
+        token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true,
+        legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+      }
     });
     expect(second.status).toBe(409);
     expect(parse(second.raw).error).toBe('already_signed');
