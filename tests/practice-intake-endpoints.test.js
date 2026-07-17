@@ -50,7 +50,10 @@ function validIntakePayload(token) {
     suburb: 'Fitzroy',
     nearest_city: 'Melbourne',
     state: 'VIC',
-    address: '1 Smith St, Fitzroy VIC 3065'
+    address: '1 Smith St, Fitzroy VIC 3065',
+    urgency: 'asap',
+    employment_type: 'either',
+    gps_needed: '1'
   };
 }
 
@@ -73,6 +76,71 @@ async function createProspectivePractice(label) {
   const body = parse(r.raw);
   const row = findPracticeByEmail(email);
   return { practiceId: body && body.practice_id, token: row && row.intake_token, email };
+}
+
+// One clinic's full set of required intake answers, no `token` (a group
+// submission's `practices[]` items never carry their own token — the token
+// lives once at the top of the POST body). `overrides` merges on top, same
+// convention as validIntakePayload.
+function validClinicPayload(overrides) {
+  return Object.assign(
+    {
+      billing_style: 'mixed',
+      dpa: 'yes',
+      percentage_split: '70/30',
+      suburb: 'Fitzroy',
+      nearest_city: 'Melbourne',
+      state: 'VIC',
+      address: '1 Smith St, Fitzroy VIC 3065',
+      urgency: 'asap',
+      employment_type: 'either',
+      gps_needed: '1'
+    },
+    overrides || {}
+  );
+}
+
+// Submits a fresh intake (creating its own prospective practice + token
+// first) and reads the persisted result straight out of the local JSON DB —
+// same house style as findPracticeByEmail above — rather than trusting a
+// response shape the brief never specifies. Returns the raw saved practice
+// row(s) for the group this submission's token resolves to, plus the top
+// two DPA fields promoted for the single-clinic test cases.
+//
+// `overrides.practices`, when an array, is sent verbatim as body.practices
+// (a group submission). Otherwise `overrides` is merged over a single valid
+// clinic payload and sent at the top level (today's/legacy shape — no
+// `practices` key at all).
+let submitCounter = 0;
+async function submitIntake(overrides = {}) {
+  submitCounter += 1;
+  const { token } = await createProspectivePractice('grp' + submitCounter);
+  const body = { token };
+  if (overrides.entity_name !== undefined) body.entity_name = overrides.entity_name;
+  if (overrides.abn !== undefined) body.abn = overrides.abn;
+  if (Array.isArray(overrides.practices)) {
+    body.practices = overrides.practices;
+  } else {
+    Object.assign(body, validClinicPayload(overrides));
+  }
+
+  const r = await req('POST', '/api/practice-intake', { body });
+
+  const db = readDb();
+  const group = (db.practiceGroups || []).find((g) => g.intake_token === token);
+  const practices = group
+    ? (db.atsPractices || []).filter((p) => p.group_id === group.id)
+    : (db.atsPractices || []).filter((p) => p.intake_token === token);
+
+  return {
+    status: r.status,
+    body: parse(r.raw),
+    token,
+    group,
+    practices,
+    dpa: practices[0] ? practices[0].dpa : undefined,
+    dpa_mismatch: practices[0] ? practices[0].dpa_mismatch : undefined
+  };
 }
 
 beforeAll(async () => {
@@ -221,6 +289,121 @@ describe('GET/POST /api/practice-intake', () => {
   });
 });
 
+describe('POST /api/practice-intake — Task 7: derived columns + DPA mismatch + groups', () => {
+  it('persists urgency, postcode, employment_type, gps_needed and supervision_available to columns', async () => {
+    const saved = await submitIntake({
+      urgency: '3_6m',
+      employment_type: 'part_time',
+      gps_needed: '2',
+      supervision_available: true,
+      postcode: '3065'
+    });
+    const row = saved.practices[0];
+    expect(row.urgency).toBe('3_6m');
+    expect(row.employment_type).toBe('part_time');
+    expect(row.gps_needed).toBe('2');
+    expect(row.supervision_available).toBe(true);
+    expect(row.postcode).toBe('3065');
+  });
+
+  it('computes nearest_city and general_location server-side from lat/lon, never trusting the browser', async () => {
+    // The browser claims Melbourne/Fitzroy, but the coordinates it also sent
+    // are actually Bondi, Sydney -- the server must trust the coordinates,
+    // not the free-text fields, because this lands on a live job ad.
+    const saved = await submitIntake({
+      nearest_city: 'Melbourne',
+      suburb: 'Bondi',
+      latitude: -33.8908,
+      longitude: 151.2743,
+      google_place_id: 'ChIJexampleplace'
+    });
+    const row = saved.practices[0];
+    expect(row.latitude).toBeCloseTo(-33.8908, 3);
+    expect(row.longitude).toBeCloseTo(151.2743, 3);
+    expect(row.google_place_id).toBe('ChIJexampleplace');
+    expect(row.suburb).toBe('Bondi');
+    expect(row.nearest_city).toBe('Sydney');
+    // general_location has no `practices` column (Task 3's migration never
+    // added one) -- it lives in metadata.intake, from where it carries onto
+    // the job listing at sign time (buildIntakeJobDetails).
+    expect(row.metadata.intake.general_location).toContain('Sydney');
+  });
+
+  it('falls back to the client-submitted nearest_city when no coordinates are sent (legacy payload)', async () => {
+    const saved = await submitIntake({ nearest_city: 'Melbourne', suburb: 'Fitzroy' });
+    const row = saved.practices[0];
+    expect(row.latitude == null).toBe(true);
+    expect(row.longitude == null).toBe(true);
+    expect(row.nearest_city).toBe('Melbourne');
+  });
+
+  it('flags a mismatch when the practice contradicts the official DPA answer', async () => {
+    // The practice's answer always wins -- we flag it for a human, we never overrule them.
+    const saved = await submitIntake({ dpa: true, dpa_suggested: false });
+    expect(saved.dpa).toBe(true);
+    expect(saved.dpa_mismatch).toBe(true);
+  });
+
+  it('does not flag a mismatch when they agree', async () => {
+    const saved = await submitIntake({ dpa: true, dpa_suggested: true });
+    expect(saved.dpa_mismatch).toBe(false);
+  });
+
+  it('does not flag a mismatch when we had no suggestion to compare against', async () => {
+    const saved = await submitIntake({ dpa: true, dpa_suggested: null });
+    expect(saved.dpa_mismatch).toBe(false);
+  });
+
+  it('creates one practice row per clinic in the group', async () => {
+    const saved = await submitIntake({
+      practices: [
+        validClinicPayload({ suburb: 'Clinic A' }),
+        validClinicPayload({ suburb: 'Clinic B' }),
+        validClinicPayload({ suburb: 'Clinic C' })
+      ]
+    });
+    expect(saved.practices).toHaveLength(3);
+    expect(new Set(saved.practices.map((p) => p.group_id)).size).toBe(1); // one group
+  });
+
+  it('inherits the group entity and ABN when a clinic does not override', async () => {
+    const saved = await submitIntake({
+      entity_name: 'Head Co',
+      abn: '51824753556',
+      practices: [validClinicPayload({ suburb: 'Clinic A' })]
+    });
+    // Null on the practice means "inherit". Resolution happens on read, so a later
+    // change to the group entity does not leave stale copies on each clinic.
+    expect(saved.practices[0].entity_name).toBeNull();
+    expect(saved.practices[0].abn).toBeNull();
+    expect(saved.group.entity_name).toBe('Head Co');
+    expect(saved.group.abn).toBe('51824753556');
+  });
+
+  it('records the override when a clinic trades under a different company', async () => {
+    const saved = await submitIntake({
+      entity_name: 'Head Co',
+      abn: '51824753556',
+      practices: [validClinicPayload({ suburb: 'Clinic B', entity_name: 'Branch Pty Ltd', abn: '004085616' })]
+    });
+    expect(saved.practices[0].entity_name).toBe('Branch Pty Ltd');
+    expect(saved.practices[0].abn).toBe('004085616');
+  });
+
+  it('keeps a single-practice submission working exactly as before', async () => {
+    const saved = await submitIntake({ practices: [validClinicPayload({ suburb: 'Solo Clinic' })] });
+    expect(saved.practices).toHaveLength(1);
+    expect(saved.practices[0].group_id).toBeTruthy(); // a group of one
+  });
+
+  it('still accepts a legacy single-practice payload with no practices array', async () => {
+    // In-flight intake links predate this change and must not break.
+    const saved = await submitIntake({ address: '99 Legacy Rd, Fitzroy VIC 3065', billing_style: 'mixed', dpa: true });
+    expect(saved.practices).toHaveLength(1);
+    expect(saved.practices[0].group_id).toBeTruthy();
+  });
+});
+
 describe('POST /api/practice-intake/sign', () => {
   it('400s invalid_signature_payload for a non-PNG signature data URL', async () => {
     const { token } = await createProspectivePractice('badsig');
@@ -248,7 +431,10 @@ describe('POST /api/practice-intake/sign', () => {
     await req('POST', '/api/practice-intake', { body: validIntakePayload(token) });
 
     const r = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Jane Smith', authorised: true }
+      body: {
+        token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Jane Smith', authorised: true,
+        legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+      }
     });
     expect(r.status).toBe(200);
     const body = parse(r.raw);
@@ -267,13 +453,19 @@ describe('POST /api/practice-intake/sign', () => {
     await req('POST', '/api/practice-intake', { body: validIntakePayload(token) });
 
     const first = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true }
+      body: {
+        token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true,
+        legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+      }
     });
     expect(first.status).toBe(200);
     createdPdfPracticeIds.push(practiceId);
 
     const second = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true }
+      body: {
+        token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Test', authorised: true,
+        legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+      }
     });
     expect(second.status).toBe(409);
     expect(parse(second.raw).error).toBe('already_signed');
