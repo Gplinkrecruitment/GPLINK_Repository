@@ -1342,7 +1342,7 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20260712a" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20260717a" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260618a"></script>
@@ -1398,6 +1398,10 @@
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 2v4M16 2v4M2 10h20"/><circle cx="12" cy="15" r="2"/></svg>
         Meetings
       </button>
+      <button class="ats-master-tab" data-mtab="leads">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l7.89 5.26a2 2 0 0 0 2.22 0L21 8"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+        Leads
+      </button>
       <button class="ats-master-tab" data-mtab="technical">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
         Technical
@@ -1449,6 +1453,7 @@
     <div class="master-panel ats-scope" id="panel-practices" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-matching" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-meetings" style="display:none"></div>
+    <div class="master-panel ats-scope" id="panel-leads" style="display:none"></div>
 
     <!-- TECHNICAL (own master tab, far right) — rendered by loadTechnical() -->
     <div class="master-panel" id="panel-technical" style="display:none">
@@ -7306,12 +7311,13 @@
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices / Matching) -->
   <script src="/js/guide-panel.js?v=20260708b"></script>
-  <script src="/js/ceo-ats-shared.js?v=20260711b"></script>
+  <script src="/js/ceo-ats-shared.js?v=20260717a"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260707i"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260711a"></script>
   <script src="/js/ceo-ats-practices.js?v=20260707a"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260707a"></script>
   <script src="/js/ceo-ats-matching.js?v=20260712a"></script>
+  <script src="/js/ceo-ats-leads.js?v=20260717a"></script>
 </body>
 </html>
