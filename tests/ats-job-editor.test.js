@@ -286,6 +286,12 @@ describe('POST /api/ats/jobs — full manual creation via intake', () => {
     // editor payload comes back for immediate prefill
     expect(b.editor.suburb).toBe('Wilsonton');
     expect(b.editor.billing_style).toBe('mixed');
+    // Task 7 (Sub-task B): the practice's full-time/part-time answer must
+    // reach career_roles.employment_type — atsJobEditorPayload reads that
+    // COLUMN, not source_payload.intake, so createPendingJobFromIntake
+    // must actually write it there or this box stays permanently blank.
+    expect(row.employment_type).toBe('either');
+    expect(b.editor.employment_type).toBe('either');
   });
 
   it('approval stays blocked without a suburb header photo', async () => {

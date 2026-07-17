@@ -26482,7 +26482,7 @@ async function createPendingJobFromIntake(practice, intake) {
     earnings_text: intake.earnings_text || '',
     address: intake.address || '',
     summary: [intake.role_summary, intake.incentives ? 'Additional incentives: ' + intake.incentives : '', intake.percentage_split ? 'Percentage split: ' + intake.percentage_split : ''].filter(Boolean).join('\n\n'),
-    employment_type: '', practice_type: intake.ownership || '',
+    employment_type: intake.employment_type || '', practice_type: intake.ownership || '',
     mixed_billing: intake.billing_style === 'mixed', private_billing: intake.billing_style === 'private',
     visa_pathway_aligned: intake.visa_sponsorship === true,
     is_active: false, job_status: 'open', approval_status: 'pending',
