@@ -34090,6 +34090,43 @@ async function handleApi(req, res, pathname) {
 
     const createdJob = await createPendingJobFromIntake(practice, intake);
 
+    // A corporate group signs ONCE for every clinic on its Schedule 1. Promote
+    // each sibling clinic in the same group to active/signed against this same
+    // signed agreement and create each one's pending job from its OWN intake,
+    // then mark the group signed. Without this, sibling clinics sat in
+    // "Potential Clients" forever with no job while the entity had signed.
+    // Best-effort: the seed is already persisted, so a sibling failure is
+    // logged and skipped, never fatal to the sign that already succeeded.
+    if (practice.group_id) {
+      try {
+        const groupClinics = await listPracticesByGroupId(practice.group_id);
+        for (const sibling of groupClinics) {
+          if (!sibling || sibling.id === practice.id) continue;
+          const sibMeta = sibling.metadata || {};
+          const sibAlreadySigned = sibling.agreement_status === 'signed'
+            || (sibMeta.pipeline_agreement && sibMeta.pipeline_agreement.agreement_status === 'signed');
+          if (sibAlreadySigned) continue;
+          const sibIntake = sibMeta.intake || null;
+          const sibMetaWithSigning = Object.assign({}, sibMeta, {
+            agreement_signing: { legal_entity_name: legalEntityName, abn_acn: abnAcnLabel, signer_job_title: signerJobTitle }
+          });
+          const sibSaved = await atsUpdatePracticeRow(sibling.id, Object.assign({}, practicePatch, { metadata: sibMetaWithSigning }));
+          if (!sibSaved) {
+            console.error('[practice-intake/sign] failed to promote sibling clinic', sibling.id, '— run migration 20260716120000');
+            continue;
+          }
+          if (sibIntake) {
+            await createPendingJobFromIntake(sibSaved, sibIntake)
+              .catch((e) => console.error('[practice-intake/sign] sibling job create failed', sibling.id, e && e.message));
+          }
+        }
+        await updatePracticeGroupRow(practice.group_id, { agreement_status: 'signed' })
+          .catch((e) => console.error('[practice-intake/sign] group mark-signed failed', e && e.message));
+      } catch (e) {
+        console.error('[practice-intake/sign] group promotion error:', e && e.message);
+      }
+    }
+
     const stampedBase64 = stamped.toString('base64');
     await sendEmail({
       to: practice.contact_email,
