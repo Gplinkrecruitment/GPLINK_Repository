@@ -13255,12 +13255,13 @@ function inferStageFromDocKey(docKey) {
   // during onboarding is filed under 'onboarding' (set explicitly by that upload path);
   // every OTHER reviewable document belongs to the AHPRA document set (certified
   // qualification copies, the signed CV, IE/NZ confirmation letters, criminal history),
-  // so the default here is 'ahpra' — NOT 'career'. The only genuine career-lane document
-  // that reaches this fallback is the job-application cover letter, kept in 'career'.
+  // so the default here is 'ahpra' — NOT 'career'. The only genuine career-lane documents
+  // that reach this fallback are the CV and (optional) cover letter the GP uploads on the
+  // Career page (career_cv / career_cover_letter) — those stay in 'career'.
   const docToStage = {
     'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
     'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra',
-    'career_cover_letter': 'career'
+    'career_cv': 'career', 'career_cover_letter': 'career'
   };
   if (isQualificationDocKey(docKey)) return 'ahpra';
   return docToStage[docKey] || 'ahpra';

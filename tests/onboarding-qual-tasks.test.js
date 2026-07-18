@@ -98,7 +98,10 @@ describe('inferStageFromDocKey', () => {
     expect(inferStageFromDocKey('icgp_confirmation_letter')).toBe('ahpra');
   });
 
-  it('keeps the job-application cover letter in the career stage', () => {
+  it('keeps the Career-page CV and cover letter in the career stage', () => {
+    // The GP uploads a CV (and optional cover letter) on the Career page — those are
+    // career-lane documents, not the AHPRA signed-and-dated CV (cv_signed_dated).
+    expect(inferStageFromDocKey('career_cv')).toBe('career');
     expect(inferStageFromDocKey('career_cover_letter')).toBe('career');
   });
 });
