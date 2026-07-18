@@ -42,7 +42,7 @@
     "/js/qualification-scan.js?v=20260711b",
     "/js/qualification-camera.js?v=20260614a",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20260707b",
+    "/js/onboarding.js?v=20260719a",
     "/js/error-reporter.js?v=20260527a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",
