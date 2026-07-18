@@ -345,7 +345,15 @@
     var pt = (job.packageTerms && typeof job.packageTerms === 'object') ? job.packageTerms : {};
     if (pt.billingSplit) rows.push(['Billing split', pt.billingSplit]);
     if (pt.incomeGuarantee) rows.push(['Income guarantee', pt.incomeGuarantee]);
-    if (pt.agreementBonus) rows.push(['Sign-on bonus', pt.agreementBonus]);
+    // AI-sorted perks: the model splits the raw incentives blob into clean,
+    // separately-labelled rows. When present they REPLACE the single raw
+    // "Sign-on bonus" dump; fall back to that dump only if the AI produced none.
+    var aiPerks = Array.isArray(job.aiPerks) ? job.aiPerks.filter(function (p) { return p && p.label && p.value; }) : [];
+    if (aiPerks.length) {
+      aiPerks.forEach(function (p) { rows.push([p.label, p.value]); });
+    } else if (pt.agreementBonus) {
+      rows.push(['Sign-on bonus', pt.agreementBonus]);
+    }
     if (job.visa || pt.visaSponsorship) rows.push(['Visa sponsorship', 'Available']);
     if (pt.supervision) rows.push(['Supervision', 'Available']);
 
@@ -398,7 +406,11 @@
       earningsWrap.hidden = true;
     }
 
-    var summaryHtml = renderSummaryHtml(job.summary);
+    // AI write-up "about" (Task 3, 2026-07-18 design) wins over the existing
+    // publicIntro-derived summary when present — already masked server-side
+    // (buildCareerRoleGpLinkMetaFromRow + the sanitizePublicJob whitelist).
+    var aboutText = (job.aiAbout && String(job.aiAbout).trim()) ? job.aiAbout : job.summary;
+    var summaryHtml = renderSummaryHtml(aboutText);
     summaryEl.innerHTML = summaryHtml;
 
     renderPracticeProfile(job);
@@ -425,9 +437,24 @@
     notFoundEl.hidden = false;
   }
 
+  // Task 4/5 (2026-07-18 combined review design): the CEO Jobs review screen
+  // opens this page as /jobs/view?id=<publicId>&preview=1 in a new tab so an
+  // admin can see a not-yet-approved job exactly as the public would. The
+  // server-rendered HTML (serveJobDetailPageWithSeo) already honors preview=1
+  // for its SEO injection, but the actual content is hydrated by THIS client
+  // fetch — without forwarding preview=1 here too, a pending job would render
+  // "not found" even though the admin-only session is valid. GET
+  // /api/public/jobs only ever honors preview=1 when the request ALSO
+  // carries a valid admin/ATS session cookie (getAtsSessionSoft); for anyone
+  // else the flag is inert.
+  function isPreviewModeFromUrl() {
+    return new URLSearchParams(window.location.search).get("preview") === "1";
+  }
+
   function fetchJobById(targetId) {
     var params = new URLSearchParams();
     params.set("id", targetId);
+    if (isPreviewModeFromUrl()) params.set("preview", "1");
     return fetch("/api/public/jobs?" + params.toString()).then(function (res) {
       if (!res.ok) throw new Error("bad status");
       return res.json();

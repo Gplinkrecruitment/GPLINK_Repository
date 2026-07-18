@@ -130,6 +130,7 @@ const practicePipeline = require('./lib/practice-pipeline');
 const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation } = require('./lib/practice-intake-logic');
 const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
+const { buildWriteupPrompt, parseWriteupResponse, scrubWriteup } = require('./lib/job-writeup.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
@@ -11711,6 +11712,35 @@ function requireAtsSession(req, res) {
   return adminCtx;
 }
 
+// Soft (non-responding) equivalent of requireAtsSession — returns the admin
+// context or null WITHOUT ever writing a 401/403/404 response, unlike
+// resolveAdminRequestContext/requireAtsSession which send one on failure.
+// Used ONLY to decide whether an incoming request is ALSO carrying a valid
+// admin/ATS session before honoring an optional flag like the job-preview
+// `?preview=1` param (2026-07-18 admin-only job preview) — a request that
+// fails this check must fall through to normal, unprivileged behavior rather
+// than getting its own error response. Mirrors resolveAdminRequestContext +
+// requireAtsSession's exact validation (host scope -> session -> role-vs-host
+// match -> super_admin/consultant role) so the two checks can never drift.
+function getAtsSessionSoft(req) {
+  const hostScope = getAdminHostScope(req);
+  if (!hostScope) return null;
+  const session = getAdminSession(req);
+  if (!session) return null;
+  const role = getAdminRoleFromSession(session);
+  if (!doesAdminRoleMatchHost(role, hostScope)) return null;
+  const normalizedRole = normalizeAdminRole(role);
+  if (normalizedRole !== 'super_admin' && normalizedRole !== 'consultant') return null;
+  return {
+    session,
+    email: getSessionEmail(session),
+    role: normalizedRole,
+    roleLabel: getAdminRoleLabel(normalizedRole),
+    hostScope,
+    hostLabel: getAdminHostLabel(hostScope)
+  };
+}
+
 // Routes that are BOTH admin-ops tooling and ATS-functional (currently only
 // submit-to-practice) accept every requireAdminSession-passing role AND the
 // consultant role. resolveAdminRequestContext already enforces the host↔role
@@ -16730,6 +16760,20 @@ function getCareerRoleRawPayload(row) {
 
 function buildCareerRoleGpLinkMetaFromRow(row) {
   const record = getCareerRoleRawPayload(row);
+  // AI job write-up (2026-07-18 design doc, Task 3): source_payload.gpLink.aiWriteup
+  // is generated/stored by the ai-writeup endpoint (Task 2). Re-apply the
+  // identity-masking backstop (scrubWriteup -> maskIdentity) HERE, at read
+  // time, as defense-in-depth — even though the write-up was already scrubbed
+  // before being stored, this guarantees the public/in-app payloads can never
+  // leak a practice name/address even if a future write path forgets to scrub.
+  const sourcePayloadForWriteup = getCareerRoleSourcePayload(row);
+  const rawAiWriteup = (sourcePayloadForWriteup.gpLink && typeof sourcePayloadForWriteup.gpLink === 'object'
+    && sourcePayloadForWriteup.gpLink.aiWriteup && typeof sourcePayloadForWriteup.gpLink.aiWriteup === 'object')
+    ? sourcePayloadForWriteup.gpLink.aiWriteup
+    : null;
+  const scrubbedAiWriteup = rawAiWriteup
+    ? scrubWriteup(rawAiWriteup, { practiceName: row && row.practice_name, address: row && row.address })
+    : null;
   const websiteUrl = extractCareerWebsiteUrl(record);
   const suburb = deriveCareerSuburb(record, row && row.location_label, row && row.location_city);
   const billingLabel = normalizeCareerBillingLabel(row && row.billing_model);
@@ -16782,6 +16826,14 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
       earningsText: row && row.earnings_text
     }),
     publicBenefits: sourceBenefits.slice(0, 4),
+    // AI write-up (Task 3): masked-safe "about" + "highlights" derived from
+    // source_payload.gpLink.aiWriteup, empty when no write-up has been
+    // generated yet — callers fall back to publicIntro/publicBenefits.
+    aiAbout: scrubbedAiWriteup ? scrubbedAiWriteup.about : '',
+    aiHighlights: scrubbedAiWriteup ? scrubbedAiWriteup.highlights : [],
+    // Structured, AI-sorted commercial terms ([{label,value}]) — replaces the
+    // raw incentives blob on the listing when present. Masked at read time.
+    aiPerks: (scrubbedAiWriteup && Array.isArray(scrubbedAiWriteup.perks)) ? scrubbedAiWriteup.perks : [],
     publicSupport: redactCareerIdentifiers(row && row.support_summary ? String(row.support_summary) : buildCareerPublicSupport({
       supportText: row && row.support_summary,
       visaPathwayAligned: !!(row && row.visa_pathway_aligned),
@@ -16815,7 +16867,17 @@ function getCareerRoleGpLinkMeta(row) {
     ...derived,
     ...stored,
     sourceBenefits: Array.isArray(stored.sourceBenefits) && stored.sourceBenefits.length ? stored.sourceBenefits : derived.sourceBenefits,
-    publicBenefits: Array.isArray(stored.publicBenefits) && stored.publicBenefits.length ? stored.publicBenefits : derived.publicBenefits
+    publicBenefits: Array.isArray(stored.publicBenefits) && stored.publicBenefits.length ? stored.publicBenefits : derived.publicBenefits,
+    // aiAbout / aiHighlights are DERIVED from source_payload.gpLink.aiWriteup (the
+    // source of truth) and masked at read time — they are NOT stored overrides.
+    // updateCareerRoleRow persists the whole meta into gpLink, so a row saved in
+    // the editor BEFORE its write-up was generated carries a stale aiAbout:'' /
+    // aiHighlights:[] that would otherwise clobber the freshly-derived value via
+    // the ...stored spread (the exact bug that blanked the write-up on Erina's
+    // live listing). Always take these from `derived`.
+    aiAbout: derived.aiAbout,
+    aiHighlights: derived.aiHighlights,
+    aiPerks: derived.aiPerks
   };
 }
 
@@ -18641,6 +18703,23 @@ async function getCareerRoleRow(provider, providerRoleId) {
   return result.data[0];
 }
 
+// Admin-preview-only row lookup (2026-07-18 admin job-preview design):
+// resolves a career_role row by its public (provider:provider_role_id) id
+// regardless of is_active/approval_status — getCareerRoleRow above already
+// carries no active/approval filter against Supabase, so this only ADDS the
+// local-JSON dev/test fallback (mirrors the inline fallback GET
+// /api/career/role has always used for internal_ats rows in local-JSON mode,
+// where dbState.atsJobs is the only store). Callers MUST already have
+// verified an admin/ATS session (getAtsSessionSoft) before calling this —
+// it performs no auth/visibility gating of its own.
+async function getCareerRoleRowForPreview(provider, providerRoleId) {
+  let row = await getCareerRoleRow(provider, providerRoleId);
+  if (!row && provider === 'internal_ats' && !isSupabaseDbConfigured()) {
+    row = (dbState.atsJobs || []).find((job) => job && job.provider === 'internal_ats' && String(job.provider_role_id || '') === providerRoleId) || null;
+  }
+  return row;
+}
+
 async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
   if (!row || !row.provider || !row.provider_role_id) return row;
   const nextMeta = {
@@ -19005,6 +19084,12 @@ function mapCareerRoleRowToClient(row) {
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
     tags: tags.slice(0, 4),
     benefits: Array.isArray(gpLinkMeta.publicBenefits) ? gpLinkMeta.publicBenefits.slice(0, 4) : [],
+    // AI write-up (Task 3): already masked/scrubbed by buildCareerRoleGpLinkMetaFromRow.
+    // Empty string/array when no write-up has been generated — job.html falls
+    // back to `summary`/`benefits` in that case.
+    aiAbout: gpLinkMeta.aiAbout || '',
+    aiHighlights: Array.isArray(gpLinkMeta.aiHighlights) ? gpLinkMeta.aiHighlights : [],
+    aiPerks: Array.isArray(gpLinkMeta.aiPerks) ? gpLinkMeta.aiPerks : [],
     // Structured commercial terms (billing split, income guarantee, agreement
     // bonus, visa, supervision) so the job page's "The package" box can show the
     // owner's exact figures as distinct rows rather than only as marketing
@@ -19147,7 +19232,7 @@ const PUBLIC_JOB_FIELDS = [
   'billing_model', 'dpa', 'mmm', 'earnings_text', 'summary',
   'employment_type', 'tags', 'published_at',
   'display_label', 'header_image_url', 'suburb', 'nearest_city',
-  'visa', 'packageTerms'
+  'visa', 'packageTerms', 'aiAbout', 'aiHighlights', 'aiPerks'
 ];
 const PUBLIC_JOBS_DEFAULT_LIMIT = 24;
 const PUBLIC_JOBS_MAX_LIMIT = 100;
@@ -19192,6 +19277,13 @@ function mapCareerRoleRowToPublicJob(row) {
     summary: (row && row.provider === 'internal_ats' && row.summary && String(row.summary).trim())
       ? String(row.summary).trim()
       : (gpLinkMeta.publicIntro || ''),
+    // AI write-up (Task 3): masked by buildCareerRoleGpLinkMetaFromRow, then
+    // re-filtered through sanitizePublicJob's PUBLIC_JOB_FIELDS allow-list
+    // below (defense-in-depth) — never the raw stored aiWriteup object, and
+    // never the practice website URL (that stays generation-input only).
+    aiAbout: gpLinkMeta.aiAbout || '',
+    aiHighlights: Array.isArray(gpLinkMeta.aiHighlights) ? gpLinkMeta.aiHighlights : [],
+    aiPerks: Array.isArray(gpLinkMeta.aiPerks) ? gpLinkMeta.aiPerks : [],
     employment_type: row && row.employment_type ? String(row.employment_type) : '',
     tags: Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [],
     published_at: row && row.published_at ? row.published_at : null,
@@ -19419,7 +19511,18 @@ async function serveJobDetailPageWithSeo(req, res, requestUrl) {
   try {
     const id = String(requestUrl.searchParams.get('id') || '').trim();
     if (!id) return false;
-    const rows = await getPublicJobsRows();
+    // Admin-only preview (2026-07-18 design): ?preview=1 only ever swaps in
+    // the not-yet-live row when the request ALSO carries a valid admin/ATS
+    // session (getAtsSessionSoft — never writes its own response). Any
+    // other case (no session, no matching row) falls straight back to the
+    // normal active-only rows, same as today.
+    let rows = null;
+    if (requestUrl.searchParams.get('preview') === '1' && getAtsSessionSoft(req)) {
+      const parsedPreviewId = parseCareerRolePublicId(id);
+      const previewRow = parsedPreviewId ? await getCareerRoleRowForPreview(parsedPreviewId.provider, parsedPreviewId.providerRoleId) : null;
+      if (previewRow) rows = [previewRow];
+    }
+    if (!rows) rows = await getPublicJobsRows();
     const params = new URLSearchParams();
     params.set('id', id);
     const result = buildPublicJobsResponse(rows, params);
@@ -26700,6 +26803,107 @@ async function atsUpdateJobRow(id, patch) {
   Object.assign(j, patch); saveDbState(); return j;
 }
 
+// AI job write-up (2026-07-18 design doc): server-side fetch of the
+// practice's OWN website, used ONLY as an input fact for the AI write-up —
+// the URL and any scraped text are never rendered on any listing (see
+// lib/job-writeup.js's identity-masking backstop). Non-fatal by design: any
+// failure (bad/unsupported scheme, timeout, non-2xx, malformed markup)
+// returns '' so a broken practice website can never block generation.
+async function fetchWebsiteText(url) {
+  try {
+    var parsedUrl = new URL(String(url || '').trim());
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return '';
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 10000);
+    var res;
+    try {
+      res = await fetch(parsedUrl.href, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(to);
+    }
+    if (!res || !res.ok) return '';
+    var html = await res.text();
+    var text = String(html || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text.slice(0, 4000);
+  } catch (err) {
+    return '';
+  }
+}
+
+// AI job write-up: draft an identity-masked "about the practice & area"
+// write-up for a job from (1) the practice's own form answers, (2) its raw
+// intro text, (3) its website (AI input only), and (4) the model's general
+// knowledge of the area — then run the result through the safety backstop
+// (scrubWriteup) before returning it. Never throws: every failure mode
+// (no API key — the local-dev path, a network/API error, an unparseable
+// model reply) resolves to { ok:false, reason } so a signed-off review
+// screen can never be blocked by this call.
+async function generateJobWriteup(job) {
+  var jobRow = job || {};
+  var details = (jobRow.details && typeof jobRow.details === 'object') ? jobRow.details : {};
+  var sourcePayload = (jobRow.source_payload && typeof jobRow.source_payload === 'object') ? jobRow.source_payload : {};
+  var practiceIntro = (sourcePayload.practice_intro && typeof sourcePayload.practice_intro === 'object') ? sourcePayload.practice_intro : {};
+  var introText = practiceIntro.text || details.intro_text || jobRow.summary || '';
+  var suburb = jobRow.suburb || '';
+  var nearestCity = jobRow.nearest_city || '';
+  var state = jobRow.location_state || '';
+
+  var websiteText = details.website ? await fetchWebsiteText(details.website) : '';
+
+  // Graceful degradation (must, per design doc): no key = local dev — never
+  // a hard failure, the listing simply falls back to the raw intro_text.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return { ok: false, reason: 'ai_unavailable' };
+  }
+
+  var prompt = buildWriteupPrompt({ details: details, introText: introText, websiteText: websiteText, suburb: suburb, nearestCity: nearestCity, state: state });
+
+  var rawText = '';
+  try {
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 30000);
+    var res;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 900, temperature: 0, messages: [{ role: 'user', content: prompt }] })
+      });
+    } finally {
+      clearTimeout(to);
+    }
+    var data = await res.json();
+    if (typeof recordAnthropicSpend === 'function' && data && data.usage) {
+      recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0, data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    }
+    rawText = (data && data.content && data.content[0]) ? data.content[0].text : '';
+  } catch (err) {
+    console.error('[job-writeup] Anthropic call failed:', err && err.message);
+    return { ok: false, reason: 'ai_unavailable' };
+  }
+
+  var parsed = parseWriteupResponse(rawText);
+  if (!parsed) return { ok: false, reason: 'ai_parse_failed' };
+
+  var scrubbed = scrubWriteup(parsed, { practiceName: jobRow.practice_name, address: jobRow.address });
+  // Server-authoritative sources: 'website' can only be true if we actually
+  // fetched non-empty text (never trust the model's own claim here); 'form'
+  // is always present since form details are always part of the prompt.
+  var sources = Array.isArray(scrubbed.sources) ? scrubbed.sources.slice() : [];
+  sources = sources.filter(function (s) { return s !== 'website' || !!websiteText; });
+  if (websiteText && sources.indexOf('website') === -1) sources.push('website');
+  if (sources.indexOf('form') === -1) sources.push('form');
+  scrubbed.sources = sources;
+  scrubbed.generatedAt = new Date().toISOString();
+
+  return { ok: true, writeup: scrubbed };
+}
+
 // Build + insert the career_roles row auto-created when a practice signs the
 // agreement (Task 6 of the practice-client pipeline). Kept `is_active:false`
 // + `approval_status:'pending'` so it never surfaces publicly until an
@@ -29693,6 +29897,13 @@ function atsJobEditorPayload(job) {
   // those pre-existing rows also prefill, not just rows created after this change.
   var intakeStash = (sp.intake && typeof sp.intake === 'object') ? sp.intake : {};
   var detailOrIntake = function (key) { return detailStr(key) || (intakeStash[key] == null ? '' : String(intakeStash[key])); };
+  // AI job write-up (2026-07-18 design doc, Task 3): source_payload.gpLink.aiWriteup
+  // is generated/stored by the ai-writeup endpoint. Surfaced here so the Task 4
+  // combined review screen can seed its editable "about" textarea + highlights
+  // list without a second round-trip. Admin-only payload — masking isn't
+  // required (the AI write-up is already identity-masked at generation time).
+  var gpLinkForEditor = (sp.gpLink && typeof sp.gpLink === 'object') ? sp.gpLink : {};
+  var aiWriteupForEditor = (gpLinkForEditor.aiWriteup && typeof gpLinkForEditor.aiWriteup === 'object') ? gpLinkForEditor.aiWriteup : {};
   return {
     title: j.title || '',
     billing_style: billingStyle,
@@ -29724,7 +29935,9 @@ function atsJobEditorPayload(job) {
     job_status: j.job_status || (j.is_active === false ? 'closed' : 'open'),
     employment_type: j.employment_type || '',
     practice_id: j.practice_id || '',
-    practice_name: j.practice_name || ''
+    practice_name: j.practice_name || '',
+    ai_about: aiWriteupForEditor.about || '',
+    ai_highlights: Array.isArray(aiWriteupForEditor.highlights) ? aiWriteupForEditor.highlights : []
   };
 }
 
@@ -33260,6 +33473,24 @@ async function handleApi(req, res, pathname) {
   // ── Public marketing-site jobs + stats (no session) ──────────────────────
   if (pathname === '/api/public/jobs' && req.method === 'GET') {
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    // Admin-only preview (2026-07-18 design): ?preview=1&id=<publicId> only
+    // ever reveals a not-yet-live (pending/inactive) job when the request
+    // ALSO carries a valid admin/ATS session (getAtsSessionSoft — never
+    // writes its own response). Without that session, or without an id, this
+    // falls straight through to the normal active-only path below — a bare
+    // preview=1 can never surface a pending job publicly.
+    const previewJobId = String(requestUrl.searchParams.get('id') || '').trim();
+    const isAdminPreviewJobs = previewJobId && requestUrl.searchParams.get('preview') === '1' && !!getAtsSessionSoft(req);
+    if (isAdminPreviewJobs) {
+      const parsedPreviewId = parseCareerRolePublicId(previewJobId);
+      const previewRow = parsedPreviewId ? await getCareerRoleRowForPreview(parsedPreviewId.provider, parsedPreviewId.providerRoleId) : null;
+      if (previewRow) {
+        sendJson(res, 200, buildPublicJobsResponse([previewRow], requestUrl.searchParams));
+        return;
+      }
+      // No such row (bad id) — fall through to the normal path, which will
+      // likewise resolve to an empty jobs array (same as any unknown id).
+    }
     const rows = await getPublicJobsRows();
     sendJson(res, 200, buildPublicJobsResponse(rows, requestUrl.searchParams));
     return;
@@ -34729,14 +34960,23 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/career/role' && req.method === 'GET') {
-    const session = requireSession(req, res);
-    if (!session) return;
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    // Admin-only preview (2026-07-18 design): ?preview=1 only ever bypasses
+    // GP gating (session requirement below + the DPA qualification gate
+    // further down) when the request ALSO carries a valid admin/ATS session
+    // — getAtsSessionSoft never sends its own response, so an unauthenticated
+    // preview=1 request just falls through to the normal (gated) path and
+    // 404s/401s exactly as it does today. SECURITY: this is the ONLY switch
+    // that flips isAdminPreviewRole — the query param alone can never do it.
+    const isAdminPreviewRole = requestUrl.searchParams.get('preview') === '1' && !!getAtsSessionSoft(req);
+
+    const session = isAdminPreviewRole ? null : requireSession(req, res);
+    if (!isAdminPreviewRole && !session) return;
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Career role details require Supabase database configuration.' });
       return;
     }
 
-    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const parsedId = parseCareerRolePublicId(requestUrl.searchParams.get('id') || '');
     if (!parsedId) {
       sendJson(res, 400, { ok: false, message: 'Missing or invalid role id.' });
@@ -34765,9 +35005,13 @@ async function handleApi(req, res, pathname) {
     // Task 11 DPA gate — a GP who can't be shown this role on /api/career/roles
     // (blurred filler) must not be able to fetch its full detail either, e.g.
     // by loading pages/job.html directly with a guessed/shared/cached role id.
+    // Admin preview has no GP profile to gate (roleDetailUserId is always
+    // null there) and isn't a real applicant, so it skips this redaction —
+    // the whole point is to see the actual listing, not a "you don't
+    // qualify" stub.
     const roleDetailGpProfile = await _resolveGpJobsProfile(roleDetailUserId, roleDetailEmail);
     const roleDetailQualification = practicePipeline.gpQualifiesForRole({ dpa: finalRoleRow.dpa }, { australiaTrained: roleDetailGpProfile.australiaTrained });
-    if (!roleDetailQualification.qualifies) {
+    if (!isAdminPreviewRole && !roleDetailQualification.qualifies) {
       sendJson(res, 200, {
         ok: true,
         role: practicePipeline.buildRedactedRoleStub(Object.assign(roleClientPayload, roleDetailQualification))
@@ -34841,6 +35085,7 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    if (isAdminPreviewRole) roleClientPayload.preview = true;
     sendJson(res, 200, {
       ok: true,
       role: roleClientPayload
@@ -56934,6 +57179,26 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 200, { ok: true, job: atsJobCard(ajUpdated, {}, {}) });
+    return;
+  }
+
+  // AI job write-up (2026-07-18 design doc): admin-only, generates (or
+  // regenerates on demand from the CEO review screen) the identity-masked
+  // write-up for a job and persists it on source_payload.gpLink.aiWriteup.
+  // Always 200 on the generation-failed paths (ok:false + reason) — the
+  // caller falls back to the practice's raw intro_text, never a hard error.
+  if (pathname === '/api/ats/job/ai-writeup' && req.method === 'POST') {
+    var ctxAW = requireAtsSession(req, res); if (!ctxAW) return;
+    var awId = url.searchParams.get('id'); if (!awId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var awJob = await atsGetJobRow(awId); if (!awJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    var awResult = await generateJobWriteup(awJob);
+    if (!awResult.ok) { sendJson(res, 200, { ok: false, reason: awResult.reason }); return; }
+    var awSp = (awJob.source_payload && typeof awJob.source_payload === 'object') ? awJob.source_payload : {};
+    var awGpLink = (awSp.gpLink && typeof awSp.gpLink === 'object') ? awSp.gpLink : {};
+    var awNextSp = Object.assign({}, awSp, { gpLink: Object.assign({}, awGpLink, { aiWriteup: awResult.writeup }) });
+    var awUpdated = await atsUpdateJobRow(awId, { source_payload: awNextSp });
+    if (!awUpdated) { sendJson(res, 502, { ok: false, message: 'Could not save write-up.' }); return; }
+    sendJson(res, 200, { ok: true, writeup: awResult.writeup });
     return;
   }
 

@@ -354,6 +354,6 @@ describe('static UI pins', () => {
   it('ceo-dashboard.html bumps the changed script cache-busters', () => {
     const html = read('pages/ceo-dashboard.html');
     expect(html).toContain('ceo-ats-candidates.js?v=20260707i');
-    expect(html).toContain('ceo-ats-jobs.js?v=20260711a');
+    expect(html).toContain('ceo-ats-jobs.js?v=20260718a');
   });
 });

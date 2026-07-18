@@ -115,6 +115,7 @@
   var drawerCardId = null;        // open candidate drawer's application id
   var draggedId = null;           // card id mid-drag
   var settingsOriginal = null;    // job object as loaded into the settings modal
+  var settingsPublicId = '';      // job.public_id — feeds the pending-review preview links (Task 4)
   var approvalJobId = null;       // job id open in the Review & approve modal
   var approvalJob = null;         // that job's card data (mutated locally after upload/reuse)
   var approvalImages = [];        // last /api/ats/suburb-images response, for the reuse picker
@@ -188,10 +189,19 @@
         // A "View in app / on website" link is a normal <a> — let it navigate in
         // its new tab; do NOT also open the pipeline board for that job card.
         if (e.target.closest && e.target.closest('[data-ats-view]')) return;
+        // "Review & approve" always opens the combined review screen (Task 4) —
+        // never the standalone photo-only approval modal directly; the review
+        // screen itself surfaces the suburb photo + approve/reject hand-off.
         var approveBtn = e.target.closest ? e.target.closest('[data-ats-approve-job]') : null;
-        if (approveBtn) { openApprovalModal(approveBtn.getAttribute('data-ats-approve-job')); return; }
+        if (approveBtn) { openJobReview(approveBtn.getAttribute('data-ats-approve-job')); return; }
         var card = e.target.closest ? e.target.closest('.ats-job-card[data-job-id]') : null;
-        if (card) atsOpenJobBoard(card.getAttribute('data-job-id'));
+        if (!card) return;
+        var jobId = card.getAttribute('data-job-id');
+        // A pending job (auto-created on signing, no candidates yet) opens the
+        // combined review screen; any other job still opens the candidate
+        // pipeline board as before.
+        if (card.getAttribute('data-approval-status') === 'pending') { openJobReview(jobId); return; }
+        atsOpenJobBoard(jobId);
       });
     }
     fetchAndRenderJobList();
@@ -287,7 +297,7 @@
       ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-ats-approve-job="' + A.escAttr(j.id) + '">Review &amp; approve</button>'
       : '';
     var chip = dpaChip(j);
-    return '<div class="ats-job-card" data-job-id="' + A.escAttr(j.id) + '">' +
+    return '<div class="ats-job-card" data-job-id="' + A.escAttr(j.id) + '" data-approval-status="' + A.escAttr(j.approval_status || '') + '">' +
       '<div>' +
         '<h3>' + A.esc(j.masked_title || j.title || '—') + ' ' + statusPill(j.status) + ' ' + approvalPill(j) + (chip ? ' ' + chip : '') + '</h3>' +
         '<div class="ats-job-meta">' +
@@ -942,6 +952,11 @@
   /* ============================================================
    * JOB SETTINGS MODAL
    * ========================================================== */
+  // Opens the job settings modal. When the job is `approval_status:'pending'`
+  // (auto-created the moment a practice signs, no candidates yet), this
+  // doubles as the Task 4 combined review screen: the same editor gains an
+  // AI write-up block, "preview as a GP would see it" links and a hand-off
+  // into the existing suburb-photo + approve/reject modal.
   function openJobSettings() {
     if (!currentBoardJobId) return;
     A.api('/api/ats/job?id=' + encodeURIComponent(currentBoardJobId)).then(function (d) {
@@ -949,6 +964,7 @@
       // Baseline for the diff-only PATCH is the intake-parity editor payload
       // (billing_style/dpa/… vocabulary), NOT the display card.
       settingsOriginal = d.editor;
+      settingsPublicId = (d.job && d.job.public_id) || '';
       A.setOverlay(jobSettingsModalHtml(d.editor));
       var modal = el('atsJobSettingsModal');
       if (modal) modal.classList.add('open');
@@ -956,9 +972,20 @@
       on('atsJsCancel', 'click', closeJobSettings);
       on('atsJsSave', 'click', submitJobSettings);
       bindDpaSegment('atsJsDpaSeg', 'atsJsDpa');
+      if (d.editor.approval_status === 'pending') bindReviewExtras();
     });
   }
-  function closeJobSettings() { A.setOverlay(''); }
+
+  // A plain click on a pending job card, or its "Review & approve" button,
+  // both land here (Task 4 — combined review screen). Just sets the same
+  // module state atsOpenJobBoard would have, so openJobSettings() can be
+  // reused unmodified as the review hub.
+  function openJobReview(jobId) {
+    if (!jobId) return;
+    currentBoardJobId = jobId;
+    openJobSettings();
+  }
+  function closeJobSettings() { A.setOverlay(''); settingsPublicId = ''; }
 
   function jsError(msg) {
     var e = el('atsJsError');
@@ -967,10 +994,14 @@
 
   // Sectioned intake-parity editor. `e` is the /api/ats/job editor payload.
   function jobSettingsModalHtml(e) {
+    var pending = e.approval_status === 'pending';
     return '<div class="ats-modal-wrap" id="atsJobSettingsModal">' +
       '<div class="ats-modal">' +
-        '<div class="ats-modal-head"><h3>Job settings</h3><button class="ats-drawer-close" id="atsJsClose">×</button></div>' +
+        '<div class="ats-modal-head"><h3>' + (pending ? 'Review &amp; approve' : 'Job settings') + '</h3><button class="ats-drawer-close" id="atsJsClose">×</button></div>' +
         '<div class="ats-modal-body">' +
+          (pending
+            ? '<div style="background:rgba(224,168,60,0.12);border:1px solid rgba(224,168,60,0.35);color:#e0a83c;border-radius:8px;padding:8px 11px;font-size:12px;margin-bottom:4px">This job was auto-created when the practice signed. Review every field below, refine the AI write-up, then approve when a suburb photo is added.</div>'
+            : '') +
           '<div style="background:rgba(120,120,140,0.1);border-radius:8px;padding:9px 11px;margin-bottom:4px">' +
             '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ats-dim)">Doctor-facing title (masked)</div>' +
             '<div style="font-weight:600;font-size:13.5px" id="atsJsMaskedPreview">' + A.esc(e.masked_title || '—') + '</div>' +
@@ -1034,6 +1065,7 @@
             '<label>Intro video URL</label>' +
             '<input type="text" id="atsJsIntroVideo" value="' + A.escAttr(e.intro_video_url || '') + '" />'
           ) +
+          (pending ? reviewExtrasHtml(e) : '') +
         '</div>' +
         '<div class="ats-modal-foot">' +
           '<button class="ats-btn ats-btn-ghost" id="atsJsCancel">Cancel</button>' +
@@ -1043,10 +1075,133 @@
     '</div>';
   }
 
+  /* ============================================================
+   * REVIEW SCREEN EXTRAS (Task 4 — appended to the settings modal only when
+   * the job is `approval_status:'pending'`). Three pieces: the AI write-up
+   * (editable + regenerable, with a toggle to see the practice's own words),
+   * two "preview as a GP would see it" links, and a hand-off into the
+   * existing suburb-photo + approve/reject modal (reused, never duplicated).
+   * ========================================================== */
+  function reviewExtrasHtml(e) {
+    return aiWriteupSectionHtml(e) + previewLinksSectionHtml() + approvalHandoffSectionHtml(e);
+  }
+
+  function aiHighlightsListHtml(highlights) {
+    var list = Array.isArray(highlights) ? highlights : [];
+    if (!list.length) return '<div style="font-size:12px;color:var(--ats-dim)">No highlights yet — regenerate to draft some.</div>';
+    return '<ul style="margin:8px 0 0;padding-left:18px">' + list.map(function (h) {
+      return '<li style="font-size:12.5px;color:var(--ats-dim);margin-bottom:3px">' + A.esc(h) + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  // The "about" textarea is seeded from editor.ai_about; highlights render as
+  // a plain list (edited by regenerating, not by hand — they're short trust
+  // bullets, not prose). Regenerate re-POSTs the write-up endpoint and swaps
+  // both in place. The raw practice-submitted text stays one click away.
+  function aiWriteupSectionHtml(e) {
+    var rawText = e.intro_text || e.role_summary || '';
+    return formSection('Listing write-up ✦ AI-drafted',
+      '<div style="font-size:11.5px;color:var(--ats-dim);margin-bottom:8px">Written by AI from: <b>practice form</b> · <b>website</b> · <b>area</b></div>' +
+      '<label>About the practice &amp; area</label>' +
+      '<textarea id="atsJsAiAbout" rows="6" placeholder="Not generated yet — hit Regenerate.">' + A.esc(e.ai_about || '') + '</textarea>' +
+      '<label style="margin-top:10px">Why GPs choose it</label>' +
+      '<div id="atsJsAiHighlights">' + aiHighlightsListHtml(e.ai_highlights) + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="atsJsRegenBtn" data-ats-regenerate-writeup>✦ Regenerate</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" id="atsJsShowOriginal" data-ats-show-original>Show what the practice wrote</button>' +
+      '</div>' +
+      '<div id="atsJsAiStatus" style="font-size:11.5px;color:var(--ats-dim);margin-top:6px;min-height:14px"></div>' +
+      '<div id="atsJsAiOriginal" style="display:none;margin-top:4px;padding:9px 11px;border:1px dashed rgba(120,120,140,0.3);border-radius:8px;font-size:12px;color:var(--ats-dim)">' +
+        (rawText ? A.esc(rawText) : '<i>The practice did not submit an introduction.</i>') +
+      '</div>'
+    );
+  }
+
+  // Opens the app + website listing pages in the admin-only preview mode
+  // (Task 5's ?preview=1 — only ever bypasses is_active/approval gating for
+  // a request that also carries a valid admin/ATS session). settingsPublicId
+  // is the job's provider:provider_role_id id, captured when the modal loaded.
+  function previewLinksSectionHtml() {
+    if (!settingsPublicId) return '';
+    var enc = encodeURIComponent(settingsPublicId);
+    var appUrl = '/pages/job.html?id=' + enc + '&preview=1';
+    var siteUrl = '/jobs/view?id=' + enc + '&preview=1';
+    return formSection('Preview',
+      '<div style="font-size:11.5px;color:var(--ats-dim);margin-bottom:8px">See exactly how a GP would see this listing before it goes live — identity stays masked.</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + A.escAttr(appUrl) + '" target="_blank" rel="noopener" data-ats-preview-app>📱 Preview in app</a>' +
+        '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + A.escAttr(siteUrl) + '" target="_blank" rel="noopener" data-ats-preview-site>🌐 Preview on website</a>' +
+      '</div>'
+    );
+  }
+
+  // The suburb photo + approve/reject controls are NOT rebuilt here — this
+  // just hands off into the existing openApprovalModal(jobId), which already
+  // owns the upload/reuse-picker/approve/reject logic end to end.
+  function approvalHandoffSectionHtml(e) {
+    var photoLine = e.header_image_url
+      ? 'Suburb header photo added.'
+      : 'No suburb header photo yet — required before this can go live.';
+    return formSection('Suburb photo & approval',
+      '<div style="font-size:12.5px;color:var(--ats-dim);margin-bottom:10px">' + A.esc(photoLine) + '</div>' +
+      '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="atsJsOpenApproval" data-ats-open-approval>Review photo &amp; approve / reject</button>'
+    );
+  }
+
+  // Wires the review-only controls above. Only called when the modal
+  // actually rendered them (approval_status === 'pending').
+  function bindReviewExtras() {
+    var jobId = currentBoardJobId;
+    on('atsJsRegenBtn', 'click', function () { regenerateWriteup(jobId); });
+    on('atsJsShowOriginal', 'click', function () {
+      var box = el('atsJsAiOriginal');
+      if (box) box.style.display = (box.style.display === 'none') ? 'block' : 'none';
+    });
+    on('atsJsOpenApproval', 'click', function () { openApprovalModal(jobId); });
+  }
+
+  // POSTs /api/ats/job/ai-writeup and re-renders just the about textarea +
+  // highlights list in place (not the whole modal, so unsaved edits to other
+  // fields survive a regenerate). {ok:false, reason:'ai_unavailable'} is the
+  // expected local-dev shape (no ANTHROPIC_API_KEY) — shown as a small note,
+  // never a hard error.
+  function regenerateWriteup(jobId) {
+    var btn = el('atsJsRegenBtn');
+    var status = el('atsJsAiStatus');
+    if (btn) { btn.disabled = true; btn.textContent = 'Regenerating…'; }
+    if (status) status.textContent = '';
+    A.api('/api/ats/job/ai-writeup?id=' + encodeURIComponent(jobId), { method: 'POST' }).then(function (d) {
+      if (btn) { btn.disabled = false; btn.textContent = '✦ Regenerate'; }
+      if (!d || !d.ok) {
+        var msg = (d && d.reason === 'ai_unavailable')
+          ? "AI isn't configured in this environment"
+          : ((d && d.message) || 'Could not regenerate write-up');
+        if (status) status.textContent = msg;
+        return;
+      }
+      var w = d.writeup || {};
+      if (settingsOriginal) {
+        settingsOriginal.ai_about = w.about || '';
+        settingsOriginal.ai_highlights = Array.isArray(w.highlights) ? w.highlights : [];
+      }
+      var aboutEl = el('atsJsAiAbout');
+      if (aboutEl) aboutEl.value = w.about || '';
+      var hlEl = el('atsJsAiHighlights');
+      if (hlEl) hlEl.innerHTML = aiHighlightsListHtml(w.highlights);
+      if (status) status.textContent = 'Write-up regenerated.';
+    }).catch(function () {
+      if (btn) { btn.disabled = false; btn.textContent = '✦ Regenerate'; }
+      if (status) status.textContent = 'Could not regenerate write-up';
+    });
+  }
+
   function submitJobSettings() {
     if (!currentBoardJobId || !settingsOriginal) return;
     jsError('');
     var o = settingsOriginal;
+    // Captured before settingsOriginal is reassigned below — approval_status
+    // never changes via this form, so this reliably says "we're mid-review".
+    var wasPendingReview = o.approval_status === 'pending';
     var body = {};
 
     // Diff-only string/enum fields: [bodyKey, elId, baselineKey, trim].
@@ -1121,7 +1276,9 @@
       settingsOriginal = d.editor || settingsOriginal;
       closeJobSettings();
       A.toast((newMasked ? 'Saved · ' + newMasked : 'Job settings saved') + redirectedSuffix(d));
-      atsOpenJobBoard(currentBoardJobId); // re-open the board with fresh data
+      // A pending job (Task 4 combined review) has no candidates yet — saving
+      // refreshes the jobs list instead of opening the empty pipeline board.
+      if (wasPendingReview) { fetchAndRenderJobList(); } else { atsOpenJobBoard(currentBoardJobId); }
     }).catch(function () { reenableSave(); jsError('Could not save job settings'); });
   }
 

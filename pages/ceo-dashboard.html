@@ -6317,6 +6317,16 @@
     // openReviewDocModal + submitReviewDoc — previews the uploaded doc, then Approve or Reject
     // (reject requires a note; the GP is emailed). Reuses the unchanged GET
     // /api/admin/va/task/preview-document and POST /api/admin/va/task/review-flagged-doc.
+    // Look up a task in the loaded GP-detail cache by id. Defined at top-level script scope
+    // so BOTH the top-level review handlers (e.g. ceoReviewFlaggedDoc) and the delegated
+    // document click handler can call it. It used to be nested inside the click handler, so
+    // ceoReviewFlaggedDoc threw "ReferenceError: findCeoTask is not defined" and the
+    // "Review Document" button silently failed to open its modal.
+    function findCeoTask(id) {
+      var list = (gpDetailCache && gpDetailCache.tasks) || [];
+      for (var k = 0; k < list.length; k++) { if (list[k] && list[k].id === id) return list[k]; }
+      return null;
+    }
     var _ceoReviewDocObjUrl = null;
     function ceoReviewFlaggedDoc(taskId) {
       var t = findCeoTask(taskId) || {};
@@ -6774,11 +6784,8 @@
         var dds = document.querySelectorAll('.st-dropdown.open');
         for (var k = 0; k < dds.length; k++) dds[k].classList.remove('open');
       }
-      function findCeoTask(id) {
-        var list = (gpDetailCache && gpDetailCache.tasks) || [];
-        for (var k = 0; k < list.length; k++) { if (list[k] && list[k].id === id) return list[k]; }
-        return null;
-      }
+      // findCeoTask is now defined at top-level script scope (near ceoReviewFlaggedDoc) so it
+      // is shared with the top-level review handlers; it is still called here as before.
       // ✓ Mark Complete — email_triage routes to the resolve flow (Task 3d.5) when available,
       // mirroring admin's data-complete-task handler; otherwise mark the task completed.
       var completeBtn = e.target.closest('[data-complete-task]');
@@ -7314,7 +7321,7 @@
   <script src="/js/ceo-ats-shared.js?v=20260717a"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260707i"></script>
-  <script src="/js/ceo-ats-jobs.js?v=20260711a"></script>
+  <script src="/js/ceo-ats-jobs.js?v=20260718a"></script>
   <script src="/js/ceo-ats-practices.js?v=20260707a"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260717b"></script>
   <script src="/js/ceo-ats-matching.js?v=20260712a"></script>

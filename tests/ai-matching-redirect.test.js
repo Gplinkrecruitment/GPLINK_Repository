@@ -93,7 +93,7 @@ describe('AI Matching Task 6 — source wiring', () => {
   });
 
   it('pages/ceo-dashboard.html loads the bumped ceo-ats-jobs.js cache buster', () => {
-    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20260711a"></script>');
+    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20260718a"></script>');
   });
 
   // ── Review-fix wiring (the two REAL fill paths + hardening) ────────────────
