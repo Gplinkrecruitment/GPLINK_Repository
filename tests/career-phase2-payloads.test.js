@@ -236,6 +236,45 @@ describe('masked-title fallback — card roleType + public title never leak a re
     const card = tu.mapCareerRoleRowToClient(INTERNAL_ROW);
     expect(card.roleType).toBe('Senior GP — VR, Full Time');
   });
+
+  it('SECURITY: an internal-ATS row whose TITLE is the practice name never leaks it in roleType', () => {
+    // The reported prod leak: the legacy admin "add job" form stored the
+    // practice name as the title with no masked_title -> "Role type" showed it.
+    const row = { provider: 'internal_ats', provider_role_id: 'ats_leak', title: 'Connolly Drive Medical Centre', practice_name: 'Connolly Drive Medical Centre', masked_title: '', location_city: 'Perth', location_state: 'WA', suburb: 'Connolly', billing_model: 'mixed', dpa: true };
+    const card = tu.mapCareerRoleRowToClient(row);
+    expect(card.roleType).not.toContain('Connolly Drive');
+    expect(card.roleType).not.toContain('Medical Centre');
+    expect(String(card.roleType).trim()).toBeTruthy();
+  });
+
+  it('SECURITY: the practice name planted in EVERY free-text field is unfindable in every masked payload', () => {
+    const N = 'Connolly Drive Medical Centre';
+    const row = {
+      provider: 'internal_ats', provider_role_id: 'ats_leak2',
+      title: N, practice_name: N, masked_title: '', location_city: 'Perth', location_state: 'WA', suburb: 'Connolly',
+      billing_model: 'mixed', employment_type: 'Permanent', practice_type: 'Part of ' + N,
+      summary: 'Great role at ' + N + '. Led by Dr Jane Smith.',
+      support_summary: 'Ask for ' + N + ' reception.', address: '12 Connolly Drive, Connolly WA 6027', dpa: true
+    };
+    for (const [name, payload] of [
+      ['client', tu.mapCareerRoleRowToClient(row)],
+      ['detail', tu.mapCareerRoleDetailToClient(row)],
+      ['public', tu.mapCareerRoleRowToPublicJob(row)],
+    ]) {
+      const serialized = JSON.stringify(payload);
+      expect(serialized, name + ' leaks the practice name').not.toContain(N);
+      expect(serialized, name + ' leaks the street address').not.toContain('12 Connolly Drive');
+      expect(serialized, name + ' leaks a doctor name').not.toContain('Dr Jane Smith');
+    }
+  });
+
+  it('SECURITY: ownership free-text that looks like a clinic name is generalised', () => {
+    const card = tu.mapCareerRoleRowToClient({ provider: 'internal_ats', provider_role_id: 'x', title: 'GP', practice_name: 'Riverside Family Practice', masked_title: 'DPA - Perth - Mixed Billing', practice_type: 'The Heights Medical Centre', location_state: 'WA' });
+    expect(card.practiceType).toBe('Medical practice');
+    // ...but a plain ownership descriptor is kept
+    const card2 = tu.mapCareerRoleRowToClient({ provider: 'internal_ats', provider_role_id: 'y', title: 'GP', practice_name: 'Riverside Family Practice', masked_title: 'DPA - Perth - Mixed Billing', practice_type: 'GP-owned', location_state: 'WA' });
+    expect(card2.practiceType).toBe('GP-owned');
+  });
 });
 
 describe('careerRoleTitleLeaksPracticeName hardening — partial phrases, punctuation, missing practice', () => {
