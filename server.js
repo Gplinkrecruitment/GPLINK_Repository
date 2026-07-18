@@ -26767,6 +26767,20 @@ function atsPracticeContactFromJob(job) {
 // practices-table rows are backfilled (it is the same source as Medical Centres).
 async function atsListPracticesDerived() {
   var jobs = await atsListJobRows();
+  // atsListJobRows() returns is_active=true rows only, so a freshly-signed
+  // practice's intake job (is_active:false, approval_status:'pending') would
+  // never appear on its own practice card/detail — the exact page the "new
+  // signed practice" notify email deep-links to, which then showed "No jobs
+  // yet". Merge pending jobs in here (deduped by id), same as /api/ats/jobs.
+  var pendingJobs = [];
+  if (isSupabaseDbConfigured()) {
+    var pendingR = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&order=updated_at.desc&limit=1000');
+    if (pendingR.ok && Array.isArray(pendingR.data)) pendingJobs = pendingR.data;
+  } else {
+    pendingJobs = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
+  }
+  var seenJobIds = {}; jobs.forEach(function (j) { seenJobIds[String(j.id)] = true; });
+  pendingJobs.forEach(function (j) { if (!seenJobIds[String(j.id)]) { seenJobIds[String(j.id)] = true; jobs.push(j); } });
   var stored = await atsListPracticeRows();
   var byKey = {};
   jobs.forEach(function (j) {
@@ -59077,6 +59091,20 @@ Return ONLY valid JSON with no markdown formatting:
       if (ppCurForClear && ppCurForClear.parent_corporation_id) patchP.parent_corporation_id = null;
     }
     if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
+    // If the name is changing, remember the old name so we can cascade it onto
+    // this practice's job listings (career_roles.practice_name). The practices
+    // directory groups jobs by practice_name, so a rename would otherwise leave
+    // every job grouped under the OLD name as a duplicate "name:" card while the
+    // renamed row shows zero jobs — detaching its agreement/contract history.
+    var renameOldName = null;
+    if (typeof patchP.name === 'string' && patchP.name.trim()) {
+      if (parsedPP.name) {
+        renameOldName = parsedPP.name;
+      } else if (parsedPP.rowId) {
+        var preRenameRow = await atsGetPracticeRow(parsedPP.rowId);
+        renameOldName = preRenameRow ? String(preRenameRow.name || '') : null;
+      }
+    }
     var updatedP = null;
     if (parsedPP.name) {
       // Derived practice (exists only as a name on jobs): upsert a real practices row,
@@ -59094,6 +59122,30 @@ Return ONLY valid JSON with no markdown formatting:
       updatedP = await atsUpdatePracticeRow(parsedPP.rowId, patchP);
     }
     if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
+    // Cascade the rename onto matching job listings (active + pending) so they
+    // stay attached to this practice instead of forming a duplicate old-name
+    // card. Best-effort — a failure here never fails the save that succeeded.
+    if (renameOldName && String(renameOldName).trim().toLowerCase() !== String(patchP.name).trim().toLowerCase()) {
+      try {
+        var renameJobs = await atsListJobRows();
+        var renamePending = [];
+        if (isSupabaseDbConfigured()) {
+          var rpjr = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&limit=1000');
+          if (rpjr.ok && Array.isArray(rpjr.data)) renamePending = rpjr.data;
+        } else {
+          renamePending = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
+        }
+        var seenRename = {}; var jobsToRename = [];
+        renameJobs.concat(renamePending).forEach(function (j) { if (j && !seenRename[String(j.id)]) { seenRename[String(j.id)] = true; jobsToRename.push(j); } });
+        var oldNameKey = String(renameOldName).trim().toLowerCase();
+        for (var rIdx = 0; rIdx < jobsToRename.length; rIdx++) {
+          var rJob = jobsToRename[rIdx];
+          if (String(rJob.practice_name || '').trim().toLowerCase() === oldNameKey) {
+            await atsUpdateJobRow(rJob.id, { practice_name: patchP.name }).catch(function () {});
+          }
+        }
+      } catch (e) { console.error('[ats/practice PATCH] rename cascade failed:', e && e.message); }
+    }
     sendJson(res, 200, { ok: true, practice: updatedP });
     return;
   }

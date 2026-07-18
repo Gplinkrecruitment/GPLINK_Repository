@@ -192,6 +192,32 @@ describe('ATS practices', () => {
     const e = await req('PATCH', '/api/ats/practice?id=' + created.id, { host: SUPER_HOST, cookie: superCookie(), body: { phone: '08 1111 2222' } });
     expect(parse(e.raw).practice.contact_phone).toBe('08 1111 2222');
   });
+  it('renaming a practice carries its jobs with it — no orphaned old-name card', async () => {
+    // Regression: the directory groups jobs by practice_name. Renaming the row
+    // used to leave the jobs grouped under the OLD name as a duplicate card,
+    // while the renamed row showed zero jobs (agreement/contract detached).
+    const oldName = 'Rename Cascade ' + RUN_ID;
+    const newName = 'Renamed Cascade ' + RUN_ID;
+    const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name: oldName, city: 'Perth', state: 'WA' } });
+    const created = parse(c.raw).practice;
+    const j = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP — Rename Test ' + RUN_ID, practice_id: created.id, city: 'Perth', state: 'WA', type: 'Locum', billing: 'Mixed billing' } });
+    expect(parse(j.raw).job.practice_name).toBe(oldName);
+
+    // Before rename: one card under the old name with the job.
+    let list = parse((await req('GET', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie() })).raw).practices;
+    expect(list.find((p) => p.name === oldName).job_count).toBeGreaterThanOrEqual(1);
+
+    // Rename it.
+    const e = await req('PATCH', '/api/ats/practice?id=' + created.id, { host: SUPER_HOST, cookie: superCookie(), body: { name: newName } });
+    expect(parse(e.raw).practice.name).toBe(newName);
+
+    // After rename: the job moved to the new-name card, and the old name is gone.
+    list = parse((await req('GET', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie() })).raw).practices;
+    const renamed = list.find((p) => p.name === newName);
+    expect(renamed).toBeTruthy();
+    expect(renamed.job_count).toBeGreaterThanOrEqual(1);
+    expect(list.find((p) => p.name === oldName)).toBeFalsy();
+  });
 });
 
 describe('Candidates + intent', () => {
