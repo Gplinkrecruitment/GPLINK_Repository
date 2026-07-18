@@ -868,7 +868,7 @@
           // marriage), not a failure. Accept the document — verified_name_pending
           // counts as verified for progression and shows a "Verified" badge — and do
           // NOT burn a retry or demand a re-upload. The server records the name change
-          // so the AMC step asks for proof; an RSO still sees it for confirmation.
+          // so the AMC step asks for proof; the review team still sees it for confirmation.
           state.qualDocs[docKey].status = "verified_name_pending";
           var nameChangeIssues = (v.issues && v.issues.length > 0) ? v.issues : ["This looks like a name change — we'll ask you for proof at a later step."];
           state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(nameChangeIssues, { documentTitle: doc.label, mode: "qualification" }) };
