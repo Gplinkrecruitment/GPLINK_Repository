@@ -1609,9 +1609,10 @@
     function applyConsultantMode() {
       document.body.classList.add('gp-consultant');
       // Hide the executive-only master tabs + their panels (Overview/Registration,
-      // RSO oversight, Technical) — their data is never loaded for consultants and
-      // the server 403s every underlying endpoint.
-      ['registration', 'rso', 'technical'].forEach(function (mt) {
+      // RSO oversight, Technical, Leads) — their data is never loaded for consultants
+      // and the server 403s every underlying endpoint. /api/ceo/leads is super-admin
+      // only (requireCeoSession), so Leads dead-ends for consultants; hide it too.
+      ['registration', 'rso', 'technical', 'leads'].forEach(function (mt) {
         var tab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="' + mt + '"]');
         if (tab) tab.style.display = 'none';
         var panel = document.getElementById('panel-' + mt);
