@@ -69,33 +69,24 @@ describe('buildClassificationPrompt', () => {
 });
 
 describe('classifyQualificationOutcome', () => {
-  it('approves when name matches (exact) and type is correct', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'exact', verified: true });
+  // Contract: the outcome depends ONLY on the document's validity (`verified`). The name is
+  // handled separately — a name change is recorded automatically and never blocks or masks a
+  // real problem (e.g. a missing certified copy). Callers pass a `verified` that already
+  // reflects validity independent of the name.
+  it('approves a valid (verified) document', () => {
+    const r = classifyQualificationOutcome({ verified: true });
     expect(r).toEqual({ action: 'approve', status: 'approved', reasonKind: null });
   });
-  it('approves on fuzzy name match', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'fuzzy', verified: true });
-    expect(r.action).toBe('approve');
-  });
-  it('flags a name mismatch as a name change', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'mismatch', verified: true });
-    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'name_change' });
-  });
-  it('flags when verification failed (wrong type / illegible)', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'exact', verified: false });
+  it('flags an invalid (not verified) document as failed_verification', () => {
+    const r = classifyQualificationOutcome({ verified: false });
     expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'failed_verification' });
   });
-  it('prioritises name change over failed verification', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'mismatch', verified: false });
-    expect(r.reasonKind).toBe('name_change');
-  });
-  it('treats unknown nameMatch as failed_verification when not verified', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'unknown', verified: false });
-    expect(r.reasonKind).toBe('failed_verification');
-  });
-  it('flags failed_verification when name is unknown but doc verified true', () => {
-    const r = classifyQualificationOutcome({ nameMatch: 'unknown', verified: true });
-    expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'failed_verification' });
+  it('never returns a name_change outcome — a name change does not drive the document review', () => {
+    // A genuine document in a former name is still approved (name recorded elsewhere); a
+    // not-certified document in a former name is flagged for the CERTIFICATION issue, not
+    // the name. The classifier sees only `verified` and so cannot emit reasonKind name_change.
+    expect(classifyQualificationOutcome({ verified: true }).reasonKind).toBe(null);
+    expect(classifyQualificationOutcome({ verified: false }).reasonKind).toBe('failed_verification');
   });
 });
 

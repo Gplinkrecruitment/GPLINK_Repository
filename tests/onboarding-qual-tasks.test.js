@@ -90,8 +90,15 @@ describe('inferStageFromDocKey', () => {
     }
   });
 
-  it('falls back to career for unrelated documents', () => {
-    expect(inferStageFromDocKey('cv_signed_dated')).toBe('career');
+  it('routes the AHPRA document set (incl. the signed CV) to the ahpra stage by default', () => {
+    // The signed & dated CV is an AHPRA-required document (it sits with the certified
+    // copies on the GP's My Documents page), so it defaults to 'ahpra', not 'career'.
+    expect(inferStageFromDocKey('cv_signed_dated')).toBe('ahpra');
+    expect(inferStageFromDocKey('criminal_history')).toBe('ahpra');
+    expect(inferStageFromDocKey('icgp_confirmation_letter')).toBe('ahpra');
+  });
+
+  it('keeps the job-application cover letter in the career stage', () => {
     expect(inferStageFromDocKey('career_cover_letter')).toBe('career');
   });
 });
