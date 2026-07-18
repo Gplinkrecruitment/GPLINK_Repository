@@ -10366,6 +10366,16 @@ function isValidPhone(phone) {
 }
 
 function getClientIp(req) {
+  // On Vercel the true client IP is in x-vercel-forwarded-for — Vercel's edge
+  // overwrites any client-supplied copy, so it cannot be spoofed. Prefer it,
+  // then x-real-ip. Only fall back to the (client-controllable) leftmost
+  // x-forwarded-for token off-platform (local/dev/tests), where there is no
+  // trusted proxy in front. Trusting the leftmost XFF in prod let an attacker
+  // set a fresh IP per request and defeat EVERY per-IP rate limit.
+  const vercelIp = req.headers['x-vercel-forwarded-for'];
+  if (typeof vercelIp === 'string' && vercelIp.length > 0) return vercelIp.split(',')[0].trim();
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.length > 0) return realIp.split(',')[0].trim();
   const xff = req.headers['x-forwarded-for'];
   if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
   return req.socket.remoteAddress || 'unknown';
@@ -32872,8 +32882,15 @@ async function handleApi(req, res, pathname) {
       const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
       if (!loginResult.ok) {
         const rawMsg = loginResult.data && (loginResult.data.msg || loginResult.data.message || loginResult.data.error_description) || '';
-        // Detect unconfirmed email — resend confirmation via Resend
-        if (/email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg) || rawMsg === 'Invalid login credentials') {
+        // Detect unconfirmed email — resend confirmation via Resend. Gate this
+        // ONLY on Supabase's explicit "email not confirmed" error. The old code
+        // also fired on the generic 'Invalid login credentials' message, which
+        // Supabase returns for wrong-password AND non-existent accounts alike —
+        // so anyone could POST an arbitrary address with any password and make
+        // GP Link send a branded "confirm your account" email to it (spam /
+        // sender-reputation abuse + account-enumeration). Unconfirmed accounts
+        // still get the resend because Supabase returns "Email not confirmed".
+        if (/email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg)) {
           const sent = await sendEmailConfirmationViaResend(email).catch(() => false);
           if (sent) {
             sendJson(res, 401, { ok: false, message: 'Your email has not been verified yet. A new confirmation link has been sent to ' + email + '. Please check your inbox (and spam folder) and click the link to verify.' });
