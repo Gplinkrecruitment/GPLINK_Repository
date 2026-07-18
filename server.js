@@ -11300,6 +11300,27 @@ function createStaticCompressionStream(encoding) {
   return zlib.createGzip({ level: 6 });
 }
 
+// Only these top-level directories, and this small set of conventional root
+// files, are ever served as public static assets. Everything else in the
+// project root — server.js, lib/, scripts/, data/ (the JSON DB), package.json,
+// vercel.json, supabase/, docs/, config files — must NEVER be downloadable.
+// Without this allowlist, `GET /server.js` returned the entire backend source
+// (and Vercel bundles server.js + lib/** into the lambda, so the leak reached
+// production). See the launch-readiness audit finding on source exposure.
+const PUBLIC_STATIC_DIRS = new Set(['pages', 'js', 'css', 'media', 'documents', 'assets']);
+const PUBLIC_STATIC_ROOT_FILES = new Set([
+  'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt', 'sitemap.xml',
+  'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'
+]);
+
+function isPubliclyServablePath(filePath) {
+  const rel = path.relative(process.cwd(), filePath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  const segments = rel.split(path.sep);
+  if (segments.length === 1) return PUBLIC_STATIC_ROOT_FILES.has(segments[0]);
+  return PUBLIC_STATIC_DIRS.has(segments[0]);
+}
+
 function serveStatic(req, res, pathname) {
   const filePath = sanitizeFilePath(pathname);
   if (!filePath) {
@@ -11310,6 +11331,13 @@ function serveStatic(req, res, pathname) {
   if (!filePath.startsWith(process.cwd() + path.sep) && filePath !== process.cwd()) {
     res.writeHead(403);
     res.end('Forbidden');
+    return;
+  }
+  // Allowlist gate: reject anything outside the public static roots with a 404
+  // (a plain "not found", so we don't confirm which backend files exist).
+  if (!isPubliclyServablePath(filePath)) {
+    res.writeHead(404);
+    res.end('Not found');
     return;
   }
 
@@ -42145,20 +42173,13 @@ Return ONLY valid JSON with no markdown formatting:
     // Save ticket to user state
     if (isSupabaseDbConfigured()) {
       try {
-        const stateController = new AbortController();
-        const stateTimeout = setTimeout(() => stateController.abort(), 10000);
-        let stateRes;
-        try {
-          stateRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${encodeURIComponent(session.user_id || '')}`, {
-            signal: stateController.signal,
-            headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
-          });
-        } finally {
-          clearTimeout(stateTimeout);
-        }
-        const rows = await stateRes.json();
-        const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
-        const existingState = (row && row.state && typeof row.state === 'object') ? row.state : {};
+        // Resolve the user by their session email — the app session carries
+        // { userProfile, expiresAt, epoch } and has NO user_id field, so the
+        // old `user_id=eq.<session.user_id>` query matched nothing and the
+        // ticket was written against an undefined id (silently lost, and the
+        // read started from an empty state, discarding existing cases).
+        const remote = await getSupabaseUserStateByEmail(email);
+        const existingState = (remote && remote.state && typeof remote.state === 'object') ? remote.state : {};
         const parsedCases = parseJsonLike(existingState.gpLinkSupportCases);
         const cases = Array.isArray(parsedCases) ? parsedCases : [];
         cases.push(ticket);
@@ -42173,7 +42194,7 @@ Return ONLY valid JSON with no markdown formatting:
           gpLinkSupportCases: JSON.stringify(cases),
           updatedAt: now
         };
-        await upsertSupabaseUserState(session.user_id || row?.user_id, nextState, now);
+        await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
       } catch (e) { console.error('[SupportTicket] Supabase error:', e.message); }
     } else {
       const dbState = loadDbState();
