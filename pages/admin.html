@@ -1651,7 +1651,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     pbs:{gp:"Upload Medicare/PBS documents, provide practice details when requested.",va:"Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number."},
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
-  function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
+  // esc() also encodes " and ' so it is SAFE inside a double- or single-quoted
+  // HTML attribute (textContent→innerHTML alone leaves quotes unescaped, which
+  // let a crafted GP name like  x" onmouseover=...  break out of a data-*
+  // attribute and run script in the admin origin — a stored-XSS account
+  // takeover). Encoding quotes is harmless in text content (renders the same).
+  function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML.replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
   function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
   function _safeProtocolUrl(u,allowedProtocols,fallback){
     if(!u||typeof u!=="string")return esc(fallback||"");
@@ -7912,7 +7917,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     let selectedTKey=null;
     let expandedTKeys={};
     let _thState=null;
-    function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+    function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
     function attrEsc(s){return esc(s).replace(/"/g,"&quot;");}
     async function loadList(){
       const panel=document.getElementById(PANEL);if(!panel)return;

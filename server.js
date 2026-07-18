@@ -6213,6 +6213,8 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/application-detail.html',
   '/pages/job.html',
   '/pages/offer-review.html',
+  '/pages/secure-interview.html',
+  '/pages/confirm-call.html',
   '/pages/area-guide.html'
 ]);
 
@@ -42350,7 +42352,7 @@ Return ONLY valid JSON with no markdown formatting:
         const cases = Array.isArray(parsed) ? parsed : [];
         cases.unshift(ticket);
         const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
-        await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+        await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
       } catch (e) { console.error('[SupportTickets] Supabase write error:', e.message); }
     } else {
       const dbState = loadDbState();
@@ -42412,7 +42414,7 @@ Return ONLY valid JSON with no markdown formatting:
         updatedCase = addMessageToCase(cases);
         if (updatedCase) {
           const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
-          await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+          await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
         }
       } catch (e) { console.error('[SupportTickets] Message add error:', e.message); }
     } else {
@@ -42473,7 +42475,7 @@ Return ONLY valid JSON with no markdown formatting:
         updatedCase = updateCaseStatus(cases);
         if (updatedCase) {
           const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
-          await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+          await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
         }
       } catch (e) { console.error('[SupportTickets] Status update error:', e.message); }
     } else {
