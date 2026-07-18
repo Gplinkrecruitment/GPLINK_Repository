@@ -1836,7 +1836,15 @@
     // ones this role carries — jobs without them just keep the base cells).
     if (pt.billingSplit) cells.push({ label: "Billing split", value: String(pt.billingSplit) });
     if (pt.incomeGuarantee) cells.push({ label: "Income guarantee", value: String(pt.incomeGuarantee) });
-    if (pt.agreementBonus) cells.push({ label: "Sign-on bonus", value: String(pt.agreementBonus) });
+    // AI-sorted perks: the model splits the raw incentives blob into clean,
+    // separately-labelled cells. When present they REPLACE the single raw
+    // "Sign-on bonus" dump; fall back to that dump only if the AI produced none.
+    var aiPerks = Array.isArray(role.aiPerks) ? role.aiPerks.filter(function (p) { return p && p.label && p.value; }) : [];
+    if (aiPerks.length) {
+      aiPerks.forEach(function (p) { cells.push({ label: String(p.label), value: String(p.value) }); });
+    } else if (pt.agreementBonus) {
+      cells.push({ label: "Sign-on bonus", value: String(pt.agreementBonus) });
+    }
     if (pt.visaSponsorship) cells.push({ label: "Visa", value: "Sponsorship available" });
     if (pt.supervision) cells.push({ label: "Supervision", value: "Available" });
     cells.push({ label: "Role type", value: role.roleType || "Permanent" });

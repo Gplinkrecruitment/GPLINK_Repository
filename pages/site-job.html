@@ -345,7 +345,15 @@
     var pt = (job.packageTerms && typeof job.packageTerms === 'object') ? job.packageTerms : {};
     if (pt.billingSplit) rows.push(['Billing split', pt.billingSplit]);
     if (pt.incomeGuarantee) rows.push(['Income guarantee', pt.incomeGuarantee]);
-    if (pt.agreementBonus) rows.push(['Sign-on bonus', pt.agreementBonus]);
+    // AI-sorted perks: the model splits the raw incentives blob into clean,
+    // separately-labelled rows. When present they REPLACE the single raw
+    // "Sign-on bonus" dump; fall back to that dump only if the AI produced none.
+    var aiPerks = Array.isArray(job.aiPerks) ? job.aiPerks.filter(function (p) { return p && p.label && p.value; }) : [];
+    if (aiPerks.length) {
+      aiPerks.forEach(function (p) { rows.push([p.label, p.value]); });
+    } else if (pt.agreementBonus) {
+      rows.push(['Sign-on bonus', pt.agreementBonus]);
+    }
     if (job.visa || pt.visaSponsorship) rows.push(['Visa sponsorship', 'Available']);
     if (pt.supervision) rows.push(['Supervision', 'Available']);
 

@@ -153,6 +153,37 @@ describe('shaping — public website job payload (mapCareerRoleRowToPublicJob / 
     expect(pub.aiHighlights).toEqual([]);
   });
 
+  it('exposes AI-sorted perks ([{label,value}]) when present, masked', () => {
+    const row = baseRow({
+      id: 'role-perks',
+      provider_role_id: 'ats_perks',
+      source_payload: {
+        gpLink: {
+          aiWriteup: {
+            about: AI_ABOUT_RAW,
+            highlights: AI_HIGHLIGHTS_RAW,
+            perks: [
+              { label: 'Income guarantee', value: '$200/hr for 3 months' },
+              { label: 'Relocation to ' + PRACTICE_NAME, value: '$25,000' },
+            ],
+            sources: ['form'],
+            generatedAt: NOW
+          }
+        }
+      }
+    });
+    const pub = tu.mapCareerRoleRowToPublicJob(row);
+    expect(Array.isArray(pub.aiPerks)).toBe(true);
+    expect(pub.aiPerks.length).toBe(2);
+    expect(pub.aiPerks[0]).toEqual({ label: 'Income guarantee', value: '$200/hr for 3 months' });
+    // the practice name is stripped from a perk label too
+    expect(JSON.stringify(pub.aiPerks)).not.toContain('Riverside');
+  });
+
+  it('a row WITHOUT perks exposes an empty aiPerks array', () => {
+    expect(tu.mapCareerRoleRowToPublicJob(ROW_WITHOUT_WRITEUP).aiPerks).toEqual([]);
+  });
+
   it('REGRESSION: a STALE stored aiAbout:"" does not clobber the live write-up', () => {
     // The exact prod bug on Erina's listing: updateCareerRoleRow persists the
     // whole meta into source_payload.gpLink, so a job saved in the editor
@@ -234,5 +265,10 @@ describe('source — pages reference the AI write-up fields', () => {
 
   it('site-job.html references job.aiAbout (About section prefers the AI write-up)', () => {
     expect(siteJobHtml).toContain('aiAbout');
+  });
+
+  it('both pages render aiPerks (AI-sorted commercial terms replace the raw dump)', () => {
+    expect(jobHtml).toContain('aiPerks');
+    expect(siteJobHtml).toContain('aiPerks');
   });
 });

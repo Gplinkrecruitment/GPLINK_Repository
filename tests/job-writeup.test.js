@@ -21,7 +21,18 @@ describe('parseWriteupResponse', () => {
   });
   it('returns null on junk', () => { expect(parseWriteupResponse('no json here')).toBeNull(); expect(parseWriteupResponse('')).toBeNull(); });
   it('coerces a missing highlights/sources to arrays', () => {
-    expect(parseWriteupResponse('{"about":"x"}')).toMatchObject({ about: 'x', highlights: [], sources: [] });
+    expect(parseWriteupResponse('{"about":"x"}')).toMatchObject({ about: 'x', highlights: [], perks: [], sources: [] });
+  });
+  it('parses structured perks and drops malformed items', () => {
+    const raw = '{"about":"x","perks":[{"label":"Income guarantee","value":"$200/hr for 3 months"},{"label":"Relocation","value":"$25,000"},{"junk":true},{"label":"","value":"y"},{"label":"z","value":""}],"sources":["form"]}';
+    const p = parseWriteupResponse(raw);
+    expect(p.perks).toEqual([
+      { label: 'Income guarantee', value: '$200/hr for 3 months' },
+      { label: 'Relocation', value: '$25,000' },
+    ]);
+  });
+  it('defaults perks to [] when absent', () => {
+    expect(parseWriteupResponse('{"about":"x"}').perks).toEqual([]);
   });
 });
 
@@ -51,4 +62,10 @@ describe('scrubWriteup', () => {
     expect(w.highlights[1]).toBe('DPA location');
   });
   it('never throws on empty input', () => { expect(() => scrubWriteup({ about:'', highlights: [] }, {})).not.toThrow(); });
+  it('scrubs the practice name out of perk labels and values', () => {
+    const w = scrubWriteup({ about: 'x', highlights: [], perks: [{ label: 'Relocation to Erina Medical Centre', value: 'Erina Medical Centre pays $25,000' }] }, { practiceName: 'Erina Medical Centre' });
+    expect(w.perks[0].label).not.toMatch(/Erina Medical Centre/);
+    expect(w.perks[0].value).not.toMatch(/Erina Medical Centre/);
+    expect(w.perks[0].value).toMatch(/\$25,000/);
+  });
 });
