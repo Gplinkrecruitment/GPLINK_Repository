@@ -16569,6 +16569,34 @@ function filterZeroCompensation(value) {
   return str;
 }
 
+// SSRF guard: reject hostnames that point at loopback / private / link-local /
+// cloud-metadata targets. Practice-supplied website URLs are later fetched
+// server-side (AI write-up), so a URL like http://169.254.169.254/ or
+// http://localhost:9200/ must never be stored or fetched. (Does not defend
+// against DNS-rebinding — a public name that resolves to a private IP at fetch
+// time — which needs a resolving agent; tracked as a follow-up.)
+function isBlockedSsrfHostname(hostname) {
+  var h = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h === '0.0.0.0' || h.endsWith('.localhost') ||
+      h.endsWith('.local') || h.endsWith('.internal') || h === 'metadata.google.internal') return true;
+  // IPv6 loopback / link-local / unique-local (fc00::/7).
+  if (h === '::1' || h === '::' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d) — pull out the trailing dotted-quad.
+  var mapped = h.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  var ipv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h) ? h : (mapped ? mapped[1] : '');
+  if (ipv4) {
+    var o = ipv4.split('.').map(Number);
+    if (o.some(function (n) { return !(n >= 0 && n <= 255); })) return true;
+    if (o[0] === 0 || o[0] === 127 || o[0] === 10) return true;                 // this-net / loopback / private
+    if (o[0] === 169 && o[1] === 254) return true;                              // link-local (incl cloud metadata)
+    if (o[0] === 192 && o[1] === 168) return true;                              // private
+    if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true;                  // private
+    if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return true;                 // CGNAT
+  }
+  return false;
+}
+
 function sanitizeHttpUrl(value) {
   const raw = sanitizeZohoText(value);
   if (!raw) return '';
@@ -16576,6 +16604,7 @@ function sanitizeHttpUrl(value) {
   try {
     const parsed = new URL(prefixed);
     if (!/^https?:$/i.test(parsed.protocol)) return '';
+    if (isBlockedSsrfHostname(parsed.hostname)) return '';
     return parsed.toString();
   } catch (err) {
     return '';
@@ -26954,6 +26983,8 @@ async function fetchWebsiteText(url) {
   try {
     var parsedUrl = new URL(String(url || '').trim());
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return '';
+    // SSRF guard at the fetch site — never fetch loopback/private/metadata hosts.
+    if (isBlockedSsrfHostname(parsedUrl.hostname)) return '';
     var ctrl = new AbortController();
     var to = setTimeout(function () { ctrl.abort(); }, 10000);
     var res;
