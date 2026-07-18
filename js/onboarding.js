@@ -399,7 +399,7 @@
       const retryCount = docState.retryCount || 0;
 
       const slot = document.createElement("div");
-      slot.className = "qual-doc-slot" + (status === "verified" ? " verified" : status === "failed" ? " failed" : status === "scanning" ? " scanning" : (status === "approved" ? " verified" : status === "rejected" ? " failed" : ""));
+      slot.className = "qual-doc-slot" + (status === "verified" ? " verified" : status === "failed" ? " failed" : status === "scanning" ? " scanning" : (status === "approved" ? " verified" : status === "rejected" ? " failed" : status === "storage_failed" ? " failed" : ""));
       slot.id = "qualSlot_" + doc.key;
 
       // Badge
@@ -413,6 +413,7 @@
       else if (status === "approved") { badgeClass = "verified"; badgeText = "Approved"; }
       else if (status === "rejected") { badgeClass = "failed"; badgeText = "Needs re-upload"; }
       else if (status === "under_review") { badgeClass = "review"; badgeText = "Under Review"; }
+      else if (status === "storage_failed") { badgeClass = "failed"; badgeText = "Not saved"; }
 
       let infoHtml = "";
       if (status === "scanning") {
@@ -425,6 +426,9 @@
         infoHtml = '<div class="qual-doc-slot-info error">' + escHtml(docState.rejectionReason || "Our team needs a clearer copy of this document.") + '<br>Please upload a new copy below.</div>';
       } else if (status === "under_review") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Our team is reviewing this document — no action needed.</div>';
+      } else if (status === "storage_failed") {
+        infoHtml = '<div class="qual-doc-slot-info error">This document did not save, so we do not have a copy yet. Nothing has been lost and this does not count against you — please upload it again. If it keeps happening, try a photo taken with your phone camera.</div>';
+        infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "failed" && retryCount >= MAX_RETRIES) {
         infoHtml = '<div class="qual-doc-slot-info error">We\'ll have a team member verify this personally. No action needed from you.</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
@@ -775,6 +779,30 @@
     const doc = (COUNTRY_DOCS[state.country] || []).find((d) => d.key === docKey);
     if (!doc) { delete activeDocUploads[docKey]; return; }
 
+    // Prepare the file BEFORE touching the slot's state. Images are shrunk so a normal
+    // phone photo fits inside the platform's request-size cap; anything still too big
+    // is stopped right here instead of dying at the platform as a 502. A file we never
+    // send must not leave the slot stuck on "Scanning..." or burn a verification retry.
+    let prepared;
+    try {
+      prepared = await prepareQualUpload(fileOrBlob);
+    } catch (prepErr) {
+      delete activeDocUploads[docKey];
+      showError("qualDocsError", (prepErr && prepErr.message) || "We could not read that file. Please try a photo of the document instead.");
+      return;
+    }
+    if (!prepared || !prepared.base64) {
+      delete activeDocUploads[docKey];
+      showError("qualDocsError", "We could not read that file. Please try a photo of the document instead.");
+      return;
+    }
+    if (prepared.base64.length > MAX_UPLOAD_BASE64_LENGTH) {
+      delete activeDocUploads[docKey];
+      showError("qualDocsError", "This file is too big for us to accept. Please take a photo of the document with your phone camera instead, or save a smaller copy, then try again.");
+      return;
+    }
+    hideError("qualDocsError");
+
     // Initialize doc state
     if (!state.qualDocs) state.qualDocs = {};
     const prev = state.qualDocs[docKey] || {};
@@ -789,8 +817,8 @@
     renderQualDocSlots();
 
     try {
-      const base64 = await fileToBase64(fileOrBlob);
-      const mimeType = fileOrBlob.type || "application/octet-stream";
+      const base64 = prepared.base64;
+      const mimeType = prepared.mimeType || "application/octet-stream";
       const fileDataUrl = "data:" + mimeType + ";base64," + base64;
 
       const resp = await fetch("/api/ai/verify-qualification", {
@@ -828,7 +856,8 @@
           // marriage), not a failure. Accept the document — verified_name_pending
           // counts as verified for progression and shows a "Verified" badge — and do
           // NOT burn a retry or demand a re-upload. The server records the name change
-          // so the AMC step asks for proof; an RSO still sees it for confirmation.
+          // so the AMC step asks for proof; a Registration Support Officer still
+          // sees it for confirmation.
           state.qualDocs[docKey].status = "verified_name_pending";
           var nameChangeIssues = (v.issues && v.issues.length > 0) ? v.issues : ["This looks like a name change — we'll ask you for proof at a later step."];
           state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(nameChangeIssues, { documentTitle: doc.label, mode: "qualification" }) };
@@ -856,10 +885,12 @@
       // mismatch / failed scan still needs a Registration Support Officer to open and review the
       // real document — previously only verified docs were saved, which is why a
       // flagged qualification showed "No document is stored for this task".
+      var storedOk = false;
       try {
         const savedDoc = await saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl);
         if (savedDoc) {
           state.qualDocs[docKey].storedAt = savedDoc.updatedAt || new Date().toISOString();
+          storedOk = true;
         }
       } catch (persistErr) {
         console.error("[QualVerify] Persist failed:", persistErr);
@@ -871,6 +902,22 @@
       if (!unlimited && state.qualDocs[docKey].status === "failed" && state.qualDocs[docKey].retryCount >= MAX_RETRIES) {
         state.accountReviewFlag = true;
         state.qualDocs[docKey].status = "manual_review";
+      }
+
+      // A storage failure must NEVER leave a green "Verified" tick on the slot. The
+      // scan passing only means the picture was readable — if the file did not save,
+      // nothing was filed and the GP would move on believing their degree was safely
+      // with us. Flip the slot to storage_failed so they are told plainly and can
+      // re-upload. This runs last so it also overrides the manual_review conversion
+      // above: with no stored file there is nothing for anyone to review by hand.
+      // retryCount is deliberately left untouched — a storage problem is our fault,
+      // not one of the GP's five verification attempts — so a retry that scans and
+      // saves cleanly still lands on the correct status, and a GP already at the retry
+      // ceiling still converts to manual_review on their next successful save.
+      if (!storedOk) {
+        state.qualDocs[docKey].scanOutcome = state.qualDocs[docKey].status;
+        state.qualDocs[docKey].status = "storage_failed";
+        showError("qualDocsError", "Your document was checked, but it did not save. Nothing has been lost — please upload it again.");
       }
     } catch (err) {
       console.error("[QualVerify] Error:", err);
@@ -898,6 +945,69 @@
       reader.onerror = function () { reject(new Error("Failed to read file.")); };
       reader.readAsDataURL(fileOrBlob);
     });
+  }
+
+  // ── Upload size handling ───────────────────
+  // The hosting platform rejects request bodies over ~4.5 MB, and base64 inflates
+  // bytes by about a third, so an ordinary phone photo of a degree certificate can
+  // overflow the limit and fail before it ever reaches the server. Shrink images in
+  // the browser first (the same mitigation my-documents.html and the scan modal in
+  // js/qualification-scan.js already use — mirrored here because those helpers live
+  // behind window.gpDownscaleImageDataUrl in a script the wizard does not load), and
+  // hard-stop anything that is still too big rather than letting it die as a 502.
+  const MAX_UPLOAD_BASE64_LENGTH = 3600000; // ~3.4 MB of base64, safely under the cap
+
+  function isImageUpload(fileOrBlob) {
+    if (!fileOrBlob) return false;
+    var type = String(fileOrBlob.type || "").toLowerCase();
+    if (/^image\//.test(type)) return true;
+    return /\.(jpe?g|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(fileOrBlob.name || "");
+  }
+
+  // The vision model only needs about 1568px on the long edge, so shrinking to that
+  // loses no detail the scan uses while keeping the request small.
+  function downscaleImageToBase64(fileOrBlob, maxDim, quality) {
+    maxDim = maxDim || 1600;
+    quality = quality || 0.82;
+    return new Promise(function (resolve, reject) {
+      var url;
+      try { url = URL.createObjectURL(fileOrBlob); } catch (e) { reject(e); return; }
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth, h = img.naturalHeight;
+          if (!w || !h) { URL.revokeObjectURL(url); reject(new Error("no dimensions")); return; }
+          var scale = Math.min(1, maxDim / Math.max(w, h));
+          var canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          var dataUrl = canvas.toDataURL("image/jpeg", quality);
+          // If still too big for the body limit, recompress harder once.
+          if (dataUrl.length > MAX_UPLOAD_BASE64_LENGTH) dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+          URL.revokeObjectURL(url);
+          var b64 = dataUrl.split(",")[1] || "";
+          if (!b64) { reject(new Error("encode failed")); return; }
+          resolve({ base64: b64, mimeType: "image/jpeg" });
+        } catch (e) { try { URL.revokeObjectURL(url); } catch (e2) {} reject(e); }
+      };
+      img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} reject(new Error("image decode failed")); };
+      img.src = url;
+    });
+  }
+
+  // Returns { base64, mimeType } ready to send. Images are downscaled; anything we
+  // cannot decode (some HEIC files, for example) falls back to the raw bytes and is
+  // then size-checked by the caller before anything is sent.
+  function prepareQualUpload(fileOrBlob) {
+    var fallbackType = (fileOrBlob && fileOrBlob.type) || "application/octet-stream";
+    if (isImageUpload(fileOrBlob)) {
+      return downscaleImageToBase64(fileOrBlob).catch(function () {
+        return fileToBase64(fileOrBlob).then(function (b64) { return { base64: b64, mimeType: fallbackType }; });
+      });
+    }
+    return fileToBase64(fileOrBlob).then(function (b64) { return { base64: b64, mimeType: fallbackType }; });
   }
 
   function getOnboardingDocumentStorageKey(docKey) {
@@ -1003,6 +1113,12 @@
     return data.document;
   }
 
+  // This is an allow-list, so a document whose upload did not save ("storage_failed")
+  // can never count as complete — the GP is held on this step until we really have the
+  // file. Deliberately NOT gated on storedAt: "approved" and "under_review" are handed
+  // to us by the server for uploads made on another device (and older saved wizards
+  // predate storedAt entirely), so requiring it would lock those GPs out of a step
+  // they have already finished.
   function allDocsComplete() {
     const docs = COUNTRY_DOCS[state.country] || [];
     if (docs.length === 0) return false;
@@ -1362,6 +1478,7 @@
         else if (d.status === "manual_review") { value = "Under Review"; cls = "status-pending"; }
         else if (d.status === "under_review") { value = "Under Review"; cls = "status-pending"; }
         else if (d.status === "rejected") { value = "Needs re-upload"; cls = "status-missing"; }
+        else if (d.status === "storage_failed") { value = "Not saved — please upload again"; cls = "status-missing"; }
         else { value = "Not verified"; cls = "status-missing"; }
       }
       return { label: doc.label, value, cls };

@@ -575,6 +575,58 @@
       display: grid;
     }
 
+    /* ── "Check your email" panel (shown straight after signup) ── */
+    .check-inbox-container {
+      left: 0;
+      z-index: 210;
+      display: none;
+      text-align: center;
+      gap: 8px;
+    }
+
+    .check-inbox-container.active {
+      display: grid;
+    }
+
+    .check-inbox-mark {
+      font-size: 34px;
+      line-height: 1;
+      margin-top: 2px;
+    }
+
+    .check-inbox-lead {
+      margin: 0;
+      max-width: 34ch;
+      font-size: var(--gp-fs-sm);
+      color: var(--gp-muted);
+      line-height: 1.45;
+    }
+
+    .check-inbox-email {
+      margin: 0;
+      padding: 8px 14px;
+      border: 1px solid var(--gp-border);
+      border-radius: var(--gp-r-md, 10px);
+      background: var(--gp-surface-2, rgba(0, 0, 0, 0.03));
+      font-weight: 700;
+      font-size: var(--gp-fs-sm);
+      color: var(--gp-ink, inherit);
+      word-break: break-all;
+      max-width: 100%;
+    }
+
+    .check-inbox-hint {
+      margin: 0;
+      max-width: 34ch;
+      font-size: 11px;
+      color: var(--gp-muted);
+      line-height: 1.45;
+    }
+
+    .check-inbox-container .submit-btn {
+      margin-top: 6px;
+    }
+
     .pw-req-list {
       margin: 0;
       padding: 0;
@@ -620,6 +672,9 @@
       .reset-password-container.active ~ .sign-in-container,
       .reset-password-container.active ~ .sign-up-container { display: none !important; }
       .reset-password-container.active ~ .overlay-container { display: none !important; }
+      .check-inbox-container.active ~ .sign-in-container,
+      .check-inbox-container.active ~ .sign-up-container { display: none !important; }
+      .check-inbox-container.active ~ .overlay-container { display: none !important; }
 
       .overlay-container {
         position: relative;
@@ -691,6 +746,25 @@
         <button class="submit-btn" id="resetPasswordSubmitBtn" type="submit">UPDATE PASSWORD</button>
         <p class="status" id="resetPasswordStatus" role="status" aria-live="polite"></p>
       </form>
+    </div>
+
+    <!-- Post-signup "go and check your email" panel. Brand-new GPs land here the
+         moment their account is created — it replaces the sign-in/sign-up cards
+         so the instruction cannot be missed. -->
+    <div class="form-container check-inbox-container" id="checkInboxContainer" aria-label="Verify your email">
+      <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
+      <div class="check-inbox-mark" aria-hidden="true">&#9993;</div>
+      <h1 class="auth-title">Check your email</h1>
+      <p class="auth-sub">Your GP Link account is created. There's one last step.</p>
+
+      <p class="check-inbox-lead">We've sent a verification link to</p>
+      <p class="check-inbox-email" id="checkInboxEmail"></p>
+      <p class="check-inbox-lead">Open that email and tap <strong>Verify Email</strong>, then come back and sign in.</p>
+
+      <p class="check-inbox-hint">Can't see it? Please check your <strong>spam or junk folder</strong> &mdash; it can take a minute or two to arrive.</p>
+
+      <button class="submit-btn" id="checkInboxSignInBtn" type="button">I'VE VERIFIED &mdash; SIGN IN</button>
+      <p class="status" id="checkInboxStatus" role="status" aria-live="polite"></p>
     </div>
 
     <div class="form-container sign-up-container" aria-hidden="true">
@@ -1431,6 +1505,39 @@
       resetNewPasswordEl.focus();
     }
 
+    // ── "Check your email" panel ──
+    const checkInboxContainerEl = document.getElementById("checkInboxContainer");
+    const checkInboxEmailEl = document.getElementById("checkInboxEmail");
+    const checkInboxStatusEl = document.getElementById("checkInboxStatus");
+    const checkInboxSignInBtnEl = document.getElementById("checkInboxSignInBtn");
+
+    function showCheckInboxPanel(email) {
+      checkInboxEmailEl.textContent = email || "your email address";
+      checkInboxContainerEl.classList.add("active");
+      // Same approach as the reset panel: take over the whole card.
+      document.querySelector(".sign-in-container").style.display = "none";
+      document.querySelector(".sign-up-container").style.display = "none";
+      document.querySelector(".overlay-container").style.display = "none";
+      try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) { window.scrollTo(0, 0); }
+    }
+
+    function hideCheckInboxPanel() {
+      checkInboxContainerEl.classList.remove("active");
+      document.querySelector(".sign-in-container").style.display = "";
+      document.querySelector(".sign-up-container").style.display = "";
+      document.querySelector(".overlay-container").style.display = "";
+    }
+
+    if (checkInboxSignInBtnEl) {
+      checkInboxSignInBtnEl.addEventListener("click", function () {
+        const email = checkInboxEmailEl.textContent || "";
+        hideCheckInboxPanel();
+        setPanel("signin");
+        if (signInEmailEl && email.indexOf("@") > -1) signInEmailEl.value = email;
+        setStatus(signInStatusEl, "Verified your email? Sign in below.", "ok");
+      });
+    }
+
     function checkPasswordRequirements(value) {
       const reqs = {
         length: value.length >= 12,
@@ -1547,6 +1654,13 @@
           return;
         }
         if (!response.ok || !data.ok) {
+          // Signed up but never clicked the link — the server has just resent
+          // it, so show the full "check your email" panel rather than a line of
+          // red text they'll read as "wrong password".
+          if (data && data.reason === "email_unconfirmed") {
+            showCheckInboxPanel(data.email || payload.email);
+            return;
+          }
           setStatus(signInStatusEl, data.message || "Sign in failed.", "error");
           return;
         }
@@ -1594,9 +1708,10 @@
         }
 
         if (data.requiresConfirmation) {
-          setStatus(signInStatusEl, "Account created. Please confirm your email, then sign in.", "ok");
-          setPanel("signin");
+          // Account made, but they cannot sign in until they click the link.
+          // Full-panel takeover — a one-line status is far too easy to miss.
           signUpFormEl.reset();
+          showCheckInboxPanel(data.email || payload.email);
           return;
         }
 
@@ -1606,13 +1721,14 @@
           } else {
             primeAuthSession(data.sessionProfile, payload.email);
           }
+          // Signed straight in but still unverified — onboarding shows a
+          // persistent "verify your email" banner (see pages/onboarding.html).
           window.location.replace(data.redirectTo);
           return;
         }
 
-        setStatus(signInStatusEl, "Account created. Please sign in.", "ok");
-        setPanel("signin");
         signUpFormEl.reset();
+        showCheckInboxPanel(data.email || payload.email);
       } catch (err) {
         setStatus(signUpStatusEl, "Network error. Please try again.", "error");
       } finally {
@@ -1670,6 +1786,16 @@
       if (GP_SIGNIN_SIGNUP && gpPrefillEmail) {
         var gpSignupEmailEl = document.getElementById("signupEmail");
         if (gpSignupEmailEl && !gpSignupEmailEl.value) gpSignupEmailEl.value = gpPrefillEmail.slice(0, 120);
+      }
+    } catch (e) { /* no-op */ }
+    // Arriving back from the verification email (redirect_to is
+    // /pages/signin?confirmed=true). When Supabase also returns a session in the
+    // URL hash, finalizeSupabaseOAuthSessionIfPresent() below signs them in and
+    // this message is never seen; when it doesn't, tell them plainly it worked.
+    try {
+      var gpConfirmedFlag = new URLSearchParams(window.location.search).get("confirmed");
+      if (gpConfirmedFlag === "true" && !(window.location.hash || "").includes("access_token")) {
+        setStatus(signInStatusEl, "Email verified — thank you. Please sign in to continue.", "ok");
       }
     } catch (e) { /* no-op */ }
     pickCountryDialFromLocale();

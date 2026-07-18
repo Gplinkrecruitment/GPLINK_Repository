@@ -1054,6 +1054,54 @@
       100% { transform: translateX(-50%); }
     }
 
+    /* ── VERIFY-EMAIL BANNER ──────────────────────
+       A flex child of .onboarding-shell (not fixed) so it claims its own row
+       and the slides viewport simply gets shorter — it can never sit on top of
+       the wizard. Non-blocking: onboarding stays fully usable. */
+    .verify-banner {
+      display: none;
+      flex: 0 0 auto;
+      position: relative;
+      z-index: 2;
+      margin: 10px 16px 0;
+      padding: 12px 14px;
+      border: 1px solid rgba(214, 158, 46, 0.45);
+      border-radius: var(--gp-r-lg, 12px);
+      background: rgba(255, 196, 61, 0.13);
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+    .verify-banner.show { display: block; }
+    .verify-banner-title {
+      margin: 0 0 3px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .verify-banner-body { margin: 0; color: var(--light); }
+    .verify-banner-body strong { color: var(--text); word-break: break-all; }
+    .verify-banner-actions {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .verify-banner-resend {
+      appearance: none;
+      border: 1px solid var(--gp-border);
+      background: var(--gp-surface, #fff);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .verify-banner-resend:disabled { opacity: 0.55; cursor: default; }
+    .verify-banner-note { margin: 0; font-size: 12px; color: var(--light); }
+
     /* ── DESKTOP POLISH ───────────────────────── */
     @media (min-width: 520px) {
       .onboarding-shell {
@@ -1129,6 +1177,16 @@ if (window.parent && window.parent !== window) {
   </div>
 
   <div class="onboarding-shell" id="shell" data-step="0">
+    <!-- Shown only while the GP's email address is still unverified. -->
+    <div class="verify-banner" id="verifyEmailBanner" role="status" aria-live="polite">
+      <p class="verify-banner-title">&#9993; One quick thing &mdash; please verify your email</p>
+      <p class="verify-banner-body">We've sent a verification link to <strong id="verifyEmailAddress"></strong>. Please open it (check your spam or junk folder too). You can carry on setting up in the meantime.</p>
+      <div class="verify-banner-actions">
+        <button type="button" class="verify-banner-resend" id="verifyEmailResendBtn">Send it again</button>
+        <p class="verify-banner-note" id="verifyEmailNote"></p>
+      </div>
+    </div>
+
     <!-- blobs -->
     <div class="blob-canvas">
       <div class="blob blob-1"></div>
@@ -1393,6 +1451,52 @@ if (window.parent && window.parent !== window) {
   </div>
 
   <script src="../js/qualification-camera.js?v=20260614a"></script>
-  <script src="../js/onboarding.js?v=20260715a"></script>
+  <script src="../js/onboarding.js?v=20260719a"></script>
+  <script>
+  // ── Verify-email banner ──────────────────────────────────────────────
+  // Self-contained on purpose: it only reads /api/auth/email-verification and
+  // has no dependency on the wizard in onboarding.js. Onboarding is NOT blocked
+  // on verification (it never has been) — this only makes the outstanding step
+  // visible so a brand-new GP isn't left wondering why sign-in fails later.
+  (function () {
+    var bannerEl = document.getElementById("verifyEmailBanner");
+    var addressEl = document.getElementById("verifyEmailAddress");
+    var resendBtnEl = document.getElementById("verifyEmailResendBtn");
+    var noteEl = document.getElementById("verifyEmailNote");
+    if (!bannerEl || !addressEl || !resendBtnEl || !noteEl) return;
+
+    function setNote(text) { noteEl.textContent = text || ""; }
+
+    resendBtnEl.addEventListener("click", function () {
+      resendBtnEl.disabled = true;
+      setNote("Sending...");
+      fetch("/api/auth/resend-verification", { method: "POST", credentials: "same-origin" })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          if (data && data.verified) {
+            bannerEl.classList.remove("show");
+            return;
+          }
+          setNote((data && data.message) || "Sent — please check your inbox.");
+          // Long cool-down: repeated clicks just burn Resend quota.
+          setTimeout(function () { resendBtnEl.disabled = false; setNote(""); }, 60000);
+        })
+        .catch(function () {
+          setNote("Couldn't send just now. Please try again shortly.");
+          resendBtnEl.disabled = false;
+        });
+    });
+
+    fetch("/api/auth/email-verification", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        // Only ever nag on a definite "not verified" answer.
+        if (!data || !data.ok || data.verified !== false) return;
+        addressEl.textContent = data.email || "your email address";
+        bannerEl.classList.add("show");
+      })
+      .catch(function () { /* never block onboarding on this */ });
+  })();
+  </script>
 </body>
 </html>
