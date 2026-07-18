@@ -12819,15 +12819,47 @@ async function isAdminOrVAUser(userId) {
   return ids.has(userId);
 }
 
+// Launch handoff: for the first GP rollout the owner personally handles all
+// document-checking and support (to catch bugs), so a brand-new registration
+// case is assigned to the "GP Link Admin" mailbox (hello@) rather than left
+// unassigned (which would default GP-facing RSO / calls / doc-check routing to
+// Hazel). Overridable via env WITHOUT a deploy: set LAUNCH_DEFAULT_RSO_EMAIL to
+// hazel@mygplink.com.au to hand new GPs to Hazel, or to 'none' to restore the
+// pre-launch behaviour of leaving new cases unassigned. Pure so it's unit-tested.
+function pickDefaultCaseRsoUserId(rosterRows, rawEmail) {
+  var raw = String(rawEmail == null ? GP_OWNER_EMAIL : rawEmail).trim().toLowerCase();
+  if (!raw || raw === 'none' || raw === 'unassigned' || raw === 'off') return null;
+  var rows = Array.isArray(rosterRows) ? rosterRows : [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r && r.email && String(r.email).trim().toLowerCase() === raw) return r.user_id || null;
+  }
+  return null;
+}
+async function resolveDefaultCaseRsoUserId() {
+  try {
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var id = pickDefaultCaseRsoUserId(roster, process.env.LAUNCH_DEFAULT_RSO_EMAIL);
+    if (!id && String(process.env.LAUNCH_DEFAULT_RSO_EMAIL || '').trim() &&
+        !/^(none|unassigned|off)$/i.test(String(process.env.LAUNCH_DEFAULT_RSO_EMAIL).trim())) {
+      console.warn('[RegCase] LAUNCH_DEFAULT_RSO_EMAIL not found in rso_team — new case left unassigned');
+    }
+    return id;
+  } catch (e) { return null; }
+}
+
 async function _ensureRegCase(userId) {
   if (!isSupabaseDbConfigured()) return null;
   // Admin/VA accounts are staff, not GPs — never create or surface a GP registration case for them.
   if (await isAdminOrVAUser(userId)) return null;
   const q = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   if (q.ok && Array.isArray(q.data) && q.data.length > 0) return q.data[0];
+  const _defaultRso = await resolveDefaultCaseRsoUserId();
+  const _caseBody = { user_id: userId, stage: 'myintealth', status: 'active' };
+  if (_defaultRso) { _caseBody.assigned_va = _defaultRso; _caseBody.assigned_rso = _defaultRso; }
   const ins = await supabaseDbRequest('registration_cases', '', {
     method: 'POST', headers: { Prefer: 'return=representation' },
-    body: [{ user_id: userId, stage: 'myintealth', status: 'active' }]
+    body: [_caseBody]
   });
   const newCase = ins.ok && Array.isArray(ins.data) && ins.data.length > 0 ? ins.data[0] : null;
   // Eagerly create the GP's Google Drive folder at registration so it always exists from day one.
@@ -60385,6 +60417,7 @@ module.exports.__testUtils = {
   recordCronRun,
   resolveAdminRsoUserId,
   resolveAdminGpScope,
+  pickDefaultCaseRsoUserId,
   caseAssignedToRso,
   gpScopeAllowsCase,
   taskVisibleToRso,
