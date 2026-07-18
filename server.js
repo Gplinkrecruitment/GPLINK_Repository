@@ -16832,7 +16832,16 @@ function getCareerRoleGpLinkMeta(row) {
     ...derived,
     ...stored,
     sourceBenefits: Array.isArray(stored.sourceBenefits) && stored.sourceBenefits.length ? stored.sourceBenefits : derived.sourceBenefits,
-    publicBenefits: Array.isArray(stored.publicBenefits) && stored.publicBenefits.length ? stored.publicBenefits : derived.publicBenefits
+    publicBenefits: Array.isArray(stored.publicBenefits) && stored.publicBenefits.length ? stored.publicBenefits : derived.publicBenefits,
+    // aiAbout / aiHighlights are DERIVED from source_payload.gpLink.aiWriteup (the
+    // source of truth) and masked at read time — they are NOT stored overrides.
+    // updateCareerRoleRow persists the whole meta into gpLink, so a row saved in
+    // the editor BEFORE its write-up was generated carries a stale aiAbout:'' /
+    // aiHighlights:[] that would otherwise clobber the freshly-derived value via
+    // the ...stored spread (the exact bug that blanked the write-up on Erina's
+    // live listing). Always take these from `derived`.
+    aiAbout: derived.aiAbout,
+    aiHighlights: derived.aiHighlights
   };
 }
 

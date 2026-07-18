@@ -153,6 +153,33 @@ describe('shaping — public website job payload (mapCareerRoleRowToPublicJob / 
     expect(pub.aiHighlights).toEqual([]);
   });
 
+  it('REGRESSION: a STALE stored aiAbout:"" does not clobber the live write-up', () => {
+    // The exact prod bug on Erina's listing: updateCareerRoleRow persists the
+    // whole meta into source_payload.gpLink, so a job saved in the editor
+    // BEFORE its write-up existed carries aiAbout:'' / aiHighlights:[] there.
+    // getCareerRoleGpLinkMeta's ...stored spread would blank the freshly
+    // derived write-up unless aiAbout/aiHighlights are forced from `derived`.
+    const staleRow = baseRow({
+      id: 'role-writeup-stale',
+      provider_role_id: 'ats_writeup_stale',
+      source_payload: {
+        gpLink: {
+          aiAbout: '',            // stale, persisted before the write-up
+          aiHighlights: [],       // stale
+          aiWriteup: {
+            about: AI_ABOUT_RAW,  // the real, current write-up
+            highlights: AI_HIGHLIGHTS_RAW,
+            sources: ['form'],
+            generatedAt: NOW
+          }
+        }
+      }
+    });
+    const pub = tu.mapCareerRoleRowToPublicJob(staleRow);
+    expect(pub.aiAbout.length).toBeGreaterThan(0);
+    expect(pub.aiHighlights.length).toBe(3);
+  });
+
   it('DEFENSE-IN-DEPTH: a public aiAbout containing the practice name/address gets stripped through the full sanitize pipeline', () => {
     // buildPublicJobsResponse is the exact function GET /api/public/jobs
     // calls: mapCareerRoleRowToPublicJob -> sanitizePublicJob for every row.
