@@ -12849,15 +12849,47 @@ async function isAdminOrVAUser(userId) {
   return ids.has(userId);
 }
 
+// Launch handoff: for the first GP rollout the owner personally handles all
+// document-checking and support (to catch bugs), so a brand-new registration
+// case is assigned to the "GP Link Admin" mailbox (hello@) rather than left
+// unassigned (which would default GP-facing RSO / calls / doc-check routing to
+// Hazel). Overridable via env WITHOUT a deploy: set LAUNCH_DEFAULT_RSO_EMAIL to
+// hazel@mygplink.com.au to hand new GPs to Hazel, or to 'none' to restore the
+// pre-launch behaviour of leaving new cases unassigned. Pure so it's unit-tested.
+function pickDefaultCaseRsoUserId(rosterRows, rawEmail) {
+  var raw = String(rawEmail == null ? GP_OWNER_EMAIL : rawEmail).trim().toLowerCase();
+  if (!raw || raw === 'none' || raw === 'unassigned' || raw === 'off') return null;
+  var rows = Array.isArray(rosterRows) ? rosterRows : [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r && r.email && String(r.email).trim().toLowerCase() === raw) return r.user_id || null;
+  }
+  return null;
+}
+async function resolveDefaultCaseRsoUserId() {
+  try {
+    var roster = await loadRsoTeam({ includeInactive: true });
+    var id = pickDefaultCaseRsoUserId(roster, process.env.LAUNCH_DEFAULT_RSO_EMAIL);
+    if (!id && String(process.env.LAUNCH_DEFAULT_RSO_EMAIL || '').trim() &&
+        !/^(none|unassigned|off)$/i.test(String(process.env.LAUNCH_DEFAULT_RSO_EMAIL).trim())) {
+      console.warn('[RegCase] LAUNCH_DEFAULT_RSO_EMAIL not found in rso_team — new case left unassigned');
+    }
+    return id;
+  } catch (e) { return null; }
+}
+
 async function _ensureRegCase(userId) {
   if (!isSupabaseDbConfigured()) return null;
   // Admin/VA accounts are staff, not GPs — never create or surface a GP registration case for them.
   if (await isAdminOrVAUser(userId)) return null;
   const q = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   if (q.ok && Array.isArray(q.data) && q.data.length > 0) return q.data[0];
+  const _defaultRso = await resolveDefaultCaseRsoUserId();
+  const _caseBody = { user_id: userId, stage: 'myintealth', status: 'active' };
+  if (_defaultRso) { _caseBody.assigned_va = _defaultRso; _caseBody.assigned_rso = _defaultRso; }
   const ins = await supabaseDbRequest('registration_cases', '', {
     method: 'POST', headers: { Prefer: 'return=representation' },
-    body: [{ user_id: userId, stage: 'myintealth', status: 'active' }]
+    body: [_caseBody]
   });
   const newCase = ins.ok && Array.isArray(ins.data) && ins.data.length > 0 ? ins.data[0] : null;
   // Eagerly create the GP's Google Drive folder at registration so it always exists from day one.
@@ -13215,19 +13247,24 @@ async function supabaseAuthAdminDeleteUser(userId) {
 }
 
 function inferStageFromDocKey(docKey) {
-  // The review stage for a qualification certificate depends on WHERE it was
-  // uploaded (the onboarding wizard vs the later "prepare my documents" page),
-  // which the upload entry point passes explicitly as `reviewStage` into
-  // createDocReviewTask / createFlaggedDocTask. This key-only inference is just the
-  // fallback when no explicit stage is supplied: a qualification cert that reaches
-  // here defaults to the AHPRA review stage (NOT onboarding — only genuine
-  // onboarding uploads carry the "onboarding" stage, set explicitly).
+  // The review stage for a document depends on WHERE it was uploaded (the onboarding
+  // wizard vs the later "prepare my documents" page), which the upload entry point
+  // passes explicitly as `reviewStage` into createDocReviewTask / createFlaggedDocTask:
+  // genuine onboarding-wizard uploads pass 'onboarding'. This key-only inference is
+  // just the fallback when no explicit stage is supplied. RULE: a document uploaded
+  // during onboarding is filed under 'onboarding' (set explicitly by that upload path);
+  // every OTHER reviewable document belongs to the AHPRA document set (certified
+  // qualification copies, the signed CV, IE/NZ confirmation letters, criminal history),
+  // so the default here is 'ahpra' — NOT 'career'. The only genuine career-lane documents
+  // that reach this fallback are the CV and (optional) cover letter the GP uploads on the
+  // Career page (career_cv / career_cover_letter) — those stay in 'career'.
   const docToStage = {
     'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
-    'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra'
+    'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra',
+    'career_cv': 'career', 'career_cover_letter': 'career'
   };
   if (isQualificationDocKey(docKey)) return 'ahpra';
-  return docToStage[docKey] || 'career';
+  return docToStage[docKey] || 'ahpra';
 }
 
 async function _completeRegTask(taskId, caseId, actor) {
@@ -24500,21 +24537,44 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
 
       if (vres && vres.ok && vres.verification) {
         var v = vres.verification;
-        var outcome = classifyQualificationOutcome({ nameMatch: v.nameMatch, verified: v.verified });
+        // A name that differs from the account is a NAME CHANGE (a former/maiden name — a
+        // qualification cert can only ever carry the holder's name at the time it was issued),
+        // NOT a reason to reject. Record it automatically and non-blockingly so the AMC step
+        // asks the GP for proof of the name change later. The reviewer is never asked to
+        // "confirm a name change" here, and it must never mask a real problem below.
+        if (v.nameChange === true) {
+          await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+            method: 'PATCH',
+            body: { name_change_detected: true, name_change_note: 'Document name: ' + (v.nameFound || ''), updated_at: new Date().toISOString() }
+          }).catch(function () {});
+        }
+        // Decide approve-vs-flag on the DOCUMENT itself, never the name. The name-match policy
+        // flips verified=false on any mismatch, so reconstruct name-independent validity: a
+        // genuine document in a former name (nameChange) is valid iff it also meets the
+        // certification requirement; otherwise use the AI's verified verdict directly.
+        var certRequiredForDoc = isCertificationRequiredDocKey(documentKey) && !isOnboardingCollectedDoc(documentKey, reviewStage);
+        var certifiedOk = !certRequiredForDoc || v.certified === true;
+        var docVerified = v.nameChange === true ? certifiedOk : (v.verified === true);
+        var outcome = classifyQualificationOutcome({ verified: docVerified });
         if (outcome.action === 'flag') {
-          var reason = buildFlagReason(outcome.reasonKind, { nameFound: v.nameFound, profileName: profileName, expectedLabel: docTypeLabel, issues: v.issues });
+          // Surface the ACTIONABLE problem: the certification requirement when that is what
+          // failed, otherwise the AI's document-quality issues — with any name-change wording
+          // stripped, since a name change is recorded above and is never the blocker.
+          var reason;
+          if (certRequiredForDoc && v.certified !== true) {
+            reason = docTypeLabel + ' must be a certified true copy. Please upload a copy certified by an authorised person (e.g. a JP, solicitor or notary) that shows their certification statement, name, profession, signature or stamp, and the date.';
+          } else {
+            var cleanIssues = (Array.isArray(v.issues) ? v.issues : []).filter(function (i) {
+              return !/previous name|name change|different from your account name|name matching your profile/i.test(String(i || ''));
+            });
+            reason = buildFlagReason('failed_verification', { expectedLabel: docTypeLabel, issues: cleanIssues });
+          }
           await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
             method: 'PATCH',
-            body: { status: 'under_review', flag_reason: outcome.reasonKind, rejection_reason: reason, updated_at: new Date().toISOString() }
+            body: { status: 'under_review', flag_reason: 'failed_verification', rejection_reason: reason, updated_at: new Date().toISOString() }
           });
           await createFlaggedDocTask(userId, documentKey, docTypeLabel, reason, reviewStage);
-          if (outcome.reasonKind === 'name_change') {
-            // A name change is not a rejection — tell the GP their document was
-            // received and that we're confirming the name change, not that it failed.
-            await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' received — confirming your name change', detail: reason });
-          } else {
-            await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
-          }
+          await pushDocumentNotificationToUser(userId, { type: 'action', title: docTypeLabel + ' needs review', detail: reason });
           return; // handled — skip the generic type-only pipeline
         }
         // approve path: clear any stale flag.
@@ -60811,6 +60871,7 @@ module.exports.__testUtils = {
   recordCronRun,
   resolveAdminRsoUserId,
   resolveAdminGpScope,
+  pickDefaultCaseRsoUserId,
   caseAssignedToRso,
   gpScopeAllowsCase,
   taskVisibleToRso,
