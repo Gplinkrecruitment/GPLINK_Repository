@@ -192,6 +192,25 @@ describe('ATS practices', () => {
     const e = await req('PATCH', '/api/ats/practice?id=' + created.id, { host: SUPER_HOST, cookie: superCookie(), body: { phone: '08 1111 2222' } });
     expect(parse(e.raw).practice.contact_phone).toBe('08 1111 2222');
   });
+  it('a manually created practice defaults to stage prospective', async () => {
+    // Regression: POST /api/ats/practices stored no stage at all, and the list
+    // API normalizes a missing stage to 'active' — so an unsigned, never-
+    // intaked practice rendered as an active "Mainstream Practice" client.
+    const name = 'Fresh Prospect Clinic ' + RUN_ID;
+    const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name, city: 'Cairns', state: 'QLD' } });
+    expect(parse(c.raw).practice.stage).toBe('prospective');
+    const list = parse((await req('GET', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie() })).raw).practices;
+    expect(list.find((p) => p.name === name).stage).toBe('prospective');
+  });
+  it('an explicit valid stage on create is honored; an invalid one is rejected', async () => {
+    const name = 'Already Active Clinic ' + RUN_ID;
+    const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name, city: 'Mackay', state: 'QLD', stage: 'active' } });
+    expect(parse(c.raw).practice.stage).toBe('active');
+    const list = parse((await req('GET', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie() })).raw).practices;
+    expect(list.find((p) => p.name === name).stage).toBe('active');
+    const bad = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name: 'Bad Stage Clinic ' + RUN_ID, stage: 'banana' } });
+    expect(bad.status).toBe(400);
+  });
   it('renaming a practice carries its jobs with it — no orphaned old-name card', async () => {
     // Regression: the directory groups jobs by practice_name. Renaming the row
     // used to leave the jobs grouped under the OLD name as a duplicate card,

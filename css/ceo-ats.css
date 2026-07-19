@@ -28,8 +28,13 @@
 }
 
 /* ---------- Master tabs ---------- */
-.ats-master-tabs { display:flex; align-items:center; gap:4px; padding:0 24px; background:var(--ats-bg-elev); border-bottom:1px solid var(--ats-border); position:sticky; top:60px; z-index:96; }
-.ats-master-tab { position:relative; display:inline-flex; align-items:center; gap:9px; padding:13px 16px; background:none; border:none; color:var(--ats-dim); font:inherit; font-size:14px; font-weight:600; cursor:pointer; transition:color .15s; }
+/* overflow-x:auto — 9 tabs are wider than a phone screen; without it they
+   forced document-level horizontal scroll on every CEO tab at 375px. The bar
+   itself scrolls instead; at desktop widths nothing overflows so it is a
+   no-op. flex-shrink:0 + white-space:nowrap keep each tab at its intrinsic
+   width so labels never squash/wrap when space runs out. */
+.ats-master-tabs { display:flex; flex-wrap:nowrap; align-items:center; gap:4px; padding:0 24px; background:var(--ats-bg-elev); border-bottom:1px solid var(--ats-border); position:sticky; top:60px; z-index:96; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.ats-master-tab { position:relative; display:inline-flex; flex-shrink:0; white-space:nowrap; align-items:center; gap:9px; padding:13px 16px; background:none; border:none; color:var(--ats-dim); font:inherit; font-size:14px; font-weight:600; cursor:pointer; transition:color .15s; }
 .ats-master-tab .ats-mtab-ico { width:17px; height:17px; opacity:.7; }
 .ats-master-tab:hover { color:var(--ats-muted); }
 .ats-master-tab.active { color:var(--ats-text); }
@@ -40,6 +45,13 @@
 
 /* Keep the existing sub-nav from overlapping the new master bar */
 #panel-registration .ceo-topnav { top: 106px; }
+
+/* Same phone-width overflow fix for the Overview period filter (label + 5
+   buttons ≈ 400px): with the master bar contained, this row was the last
+   thing forcing document-level horizontal scroll at 375px. Scoped to
+   #panel-registration like the .ceo-topnav override above. */
+#panel-registration .time-filter-bar { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+#panel-registration .time-btn { flex-shrink:0; white-space:nowrap; }
 
 /* ---------- Panel wrapper ---------- */
 .master-panel.ats-scope { max-width:1500px; margin:0 auto; padding:22px 24px 60px; color:var(--ats-text); }

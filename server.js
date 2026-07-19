@@ -61482,11 +61482,21 @@ Return ONLY valid JSON with no markdown formatting:
       if (!pcParentCheck.ok) { sendJson(res, 400, { ok: false, message: pcParentCheck.message }); return; }
       pcParent = pcParentCheck.value;
     }
+    // A manually created practice has never been intaked or signed, so it
+    // starts as a prospect. Without an explicit stage the row used to store
+    // none at all, and the read-side normalization (missing stage -> 'active')
+    // then rendered it as an active "Mainstream Practice" client.
+    var pcStage = 'prospective';
+    if (bodyP.stage !== undefined && bodyP.stage !== null && bodyP.stage !== '') {
+      var validStagesPC = ['prospective', 'active', 'declined', 'archived'];
+      if (validStagesPC.indexOf(bodyP.stage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
+      pcStage = bodyP.stage;
+    }
     var pracRow = {
       name: String(bodyP.name).trim(), location_city: String(bodyP.city || ''), location_state: String(bodyP.state || ''),
       location_country: 'Australia', practice_type: String(bodyP.type || ''), contact_name: String(bodyP.contact || ''),
       contact_email: String(bodyP.email || ''), contact_phone: String(bodyP.phone || ''), ahpra_number: String(bodyP.ahpra || ''),
-      source: 'internal_ats', is_active: true, created_by: ctxPC.email || '', org_type: pcOrgType
+      source: 'internal_ats', stage: pcStage, is_active: true, created_by: ctxPC.email || '', org_type: pcOrgType
     };
     if (pcParent) pracRow.parent_corporation_id = pcParent;
     var createdP = await atsInsertPracticeRow(pracRow);
