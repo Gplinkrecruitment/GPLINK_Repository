@@ -9921,10 +9921,11 @@ async function setGpAccountStatus(email, userId, newStatus) {
     } catch (e) { console.error('[PEP] setGpAccountStatus error:', e.message); return false; }
   }
   if (lower === '__proto__' || lower === 'constructor' || lower === 'prototype') return false;
-  const dbState = loadDbState();
+  // Mutate the module-global dbState — a fresh loadDbState() copy here is never
+  // what saveDbState() serializes, so writes to it silently vanish (Task 15).
   if (!Object.prototype.hasOwnProperty.call(dbState.userState, lower)) dbState.userState[lower] = {};
   dbState.userState[lower].account_status = newStatus;
-  saveDbState(dbState);
+  saveDbState();
   return true;
 }
 
@@ -9970,7 +9971,7 @@ async function upsertPepWaitlistRow(userId, email, details) {
     const ins = await supabaseDbRequest('pep_waitlist', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [{ ...base, created_at: nowIso, notify_requested: false, released: false }] });
     return { ok: ins.ok, id: ins.ok && Array.isArray(ins.data) && ins.data[0] ? ins.data[0].id : null, released: false };
   }
-  const dbState = loadDbState();
+  // Mutate the module-global dbState (see setGpAccountStatus above).
   if (!dbState.pepWaitlist) dbState.pepWaitlist = {};
   const prev = dbState.pepWaitlist[lower] || {};
   dbState.pepWaitlist[lower] = {
@@ -9982,7 +9983,7 @@ async function upsertPepWaitlistRow(userId, email, details) {
     released_at: prev.released_at || null,
     created_at: prev.created_at || nowIso
   };
-  saveDbState(dbState);
+  saveDbState();
   return { ok: true, id: lower, released: !!prev.released };
 }
 
@@ -10011,13 +10012,13 @@ async function markPepNotifyRequested(email) {
     await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { notify_requested: true, notify_requested_at: nowIso, updated_at: nowIso } });
     return true;
   }
-  const dbState = loadDbState();
+  // Mutate the module-global dbState (see setGpAccountStatus above).
   const row = dbState.pepWaitlist && dbState.pepWaitlist[lower];
   if (!row || row.notify_requested) return false;
   row.notify_requested = true;
   row.notify_requested_at = nowIso;
   row.updated_at = nowIso;
-  saveDbState(dbState);
+  saveDbState();
   return true;
 }
 
@@ -10067,9 +10068,9 @@ async function sendPepLaunchBroadcast(row) {
   if (isSupabaseDbConfigured() && row && row.id) {
     await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { launch_notified_at: nowIso, updated_at: nowIso } });
   } else if (row && row.email) {
-    const dbState = loadDbState();
+    // Mutate the module-global dbState (see setGpAccountStatus above).
     const lower = String(row.email).toLowerCase();
-    if (dbState.pepWaitlist && dbState.pepWaitlist[lower]) { dbState.pepWaitlist[lower].launch_notified_at = nowIso; saveDbState(dbState); }
+    if (dbState.pepWaitlist && dbState.pepWaitlist[lower]) { dbState.pepWaitlist[lower].launch_notified_at = nowIso; saveDbState(); }
   }
 }
 
@@ -10094,12 +10095,12 @@ async function releasePepWaitlist(email) {
   if (isSupabaseDbConfigured()) {
     await supabaseDbRequest('pep_waitlist', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { released: true, released_at: nowIso, updated_at: nowIso } });
   } else {
-    const dbState = loadDbState();
+    // Mutate the module-global dbState (see setGpAccountStatus above).
     if (dbState.pepWaitlist && dbState.pepWaitlist[lower]) {
       dbState.pepWaitlist[lower].released = true;
       dbState.pepWaitlist[lower].released_at = nowIso;
       dbState.pepWaitlist[lower].updated_at = nowIso;
-      saveDbState(dbState);
+      saveDbState();
     }
   }
   return true;
@@ -44258,11 +44259,12 @@ Classify this document.`;
           console.error('[SetStatus] Supabase error:', e.message);
         }
       } else {
-        const dbState = loadDbState();
+        // Mutate the module-global dbState — a fresh loadDbState() copy is never
+        // what saveDbState() serializes, so writes to it silently vanish (Task 15).
         if (email === '__proto__' || email === 'constructor' || email === 'prototype') return;
         if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
         dbState.userState[email].account_status = newStatus;
-        saveDbState(dbState);
+        saveDbState();
       }
     }
 
@@ -44556,7 +44558,7 @@ Return ONLY valid JSON with no markdown formatting:
         await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
       } catch (e) { console.error('[SupportTicket] Supabase error:', e.message); }
     } else {
-      const dbState = loadDbState();
+      // Mutate the module-global dbState (see /api/account/set-status — Task 15).
       const userState = dbState.userState[email] || {};
       const parsedCases = parseJsonLike(userState.gpLinkSupportCases);
       const cases = Array.isArray(parsedCases) ? parsedCases : [];
@@ -44565,7 +44567,7 @@ Return ONLY valid JSON with no markdown formatting:
       // Do NOT restrict the account just for requesting qualification help (see note above).
       userState.updatedAt = now;
       dbState.userState[email] = userState;
-      saveDbState(dbState);
+      saveDbState();
     }
 
     invalidateAdminDashboardCache();
@@ -44644,7 +44646,7 @@ Return ONLY valid JSON with no markdown formatting:
         await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
       } catch (e) { console.error('[SupportTickets] Supabase write error:', e.message); }
     } else {
-      const dbState = loadDbState();
+      // Mutate the module-global dbState (see /api/account/set-status — Task 15).
       const userState = dbState.userState[email] || {};
       const parsed = parseJsonLike(userState.gpLinkSupportCases);
       const cases = Array.isArray(parsed) ? parsed : [];
@@ -44652,7 +44654,7 @@ Return ONLY valid JSON with no markdown formatting:
       userState.gpLinkSupportCases = JSON.stringify(cases);
       userState.updatedAt = now;
       dbState.userState[email] = userState;
-      saveDbState(dbState);
+      saveDbState();
     }
 
     invalidateAdminDashboardCache();
@@ -44707,7 +44709,7 @@ Return ONLY valid JSON with no markdown formatting:
         }
       } catch (e) { console.error('[SupportTickets] Message add error:', e.message); }
     } else {
-      const dbState = loadDbState();
+      // Mutate the module-global dbState (see /api/account/set-status — Task 15).
       const userState = dbState.userState[email] || {};
       const parsed = parseJsonLike(userState.gpLinkSupportCases);
       const cases = Array.isArray(parsed) ? parsed : [];
@@ -44716,7 +44718,7 @@ Return ONLY valid JSON with no markdown formatting:
         userState.gpLinkSupportCases = JSON.stringify(cases);
         userState.updatedAt = now;
         dbState.userState[email] = userState;
-        saveDbState(dbState);
+        saveDbState();
       }
     }
 
@@ -44768,7 +44770,7 @@ Return ONLY valid JSON with no markdown formatting:
         }
       } catch (e) { console.error('[SupportTickets] Status update error:', e.message); }
     } else {
-      const dbState = loadDbState();
+      // Mutate the module-global dbState (see /api/account/set-status — Task 15).
       const userState = dbState.userState[email] || {};
       const parsed = parseJsonLike(userState.gpLinkSupportCases);
       const cases = Array.isArray(parsed) ? parsed : [];
@@ -44777,7 +44779,7 @@ Return ONLY valid JSON with no markdown formatting:
         userState.gpLinkSupportCases = JSON.stringify(cases);
         userState.updatedAt = now;
         dbState.userState[email] = userState;
-        saveDbState(dbState);
+        saveDbState();
       }
     }
 
@@ -45000,12 +45002,12 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { console.error('[UpdateName] Supabase error:', e.message); }
     }
 
-    // Update in local DB
-    const dbState = loadDbState();
+    // Update in local DB — mutate the module-global dbState (a fresh
+    // loadDbState() copy is never what saveDbState() serializes; Task 15).
     if (dbState.userProfiles[email]) {
       dbState.userProfiles[email].first_name = firstName;
       dbState.userProfiles[email].last_name = lastName;
-      saveDbState(dbState);
+      saveDbState();
     }
 
     console.log(`[UpdateName] Account ${email} name updated to: ${firstName} ${lastName} (auto-matched from documents)`);
