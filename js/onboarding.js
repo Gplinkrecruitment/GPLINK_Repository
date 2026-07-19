@@ -637,39 +637,55 @@
     if (!specName || !medName) return;
 
     var profileName = getProfileName();
-    var docsMatchLevel = getNameMatchLevel(specName, medName);
-    var accountMatchLevel = getNameMatchLevel(medName, profileName);
-    var docsMatchEachOther = docsMatchLevel === "exact" || docsMatchLevel === "fuzzy";
+    var isMatch = function (level) { return level === "exact" || level === "fuzzy"; };
+    var docsMatchEachOther = isMatch(getNameMatchLevel(specName, medName));
+    var specMatchesAccount = isMatch(getNameMatchLevel(specName, profileName));
+    var medMatchesAccount = isMatch(getNameMatchLevel(medName, profileName));
 
-    if (docsMatchEachOther && accountMatchLevel === "exact") {
-      specDoc.status = "verified";
-      medDoc.status = "verified";
-      return;
-    }
+    // The GP's CURRENT legal name is the name on their MOST RECENT qualification. The specialist
+    // qualification (MRCGP / CCT / equivalent) is always obtained AFTER the primary medical
+    // degree, so its name is the most recent by default; we defer to the scanned document dates
+    // only when both are clearly readable and (unusually) put the medical degree later.
+    var currentLegalName = pickCurrentLegalName(specDoc, medDoc, specName, medName);
 
-    if (docsMatchEachOther && accountMatchLevel === "fuzzy") {
-      specDoc.status = "verified";
-      medDoc.status = "verified";
-      autoUpdateAccountName(medName).then(function (updated) {
+    // Update the account to the current legal name (no-op if it already matches). This corrects a
+    // GP whose account was created in a former/older name so it reflects their legal name.
+    var applyAccountName = function () {
+      if (getNameMatchLevel(currentLegalName, profileName) === "exact") return; // already correct
+      autoUpdateAccountName(currentLegalName).then(function (updated) {
         if (!updated) {
-          var msg = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
+          var m = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
           specDoc.scanResult = specDoc.scanResult || {};
           medDoc.scanResult = medDoc.scanResult || {};
-          specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
-          medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
-          saveState();
-          renderQualDocSlots();
+          specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, m);
+          medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, m);
         }
+        saveState();
+        renderQualDocSlots();
       });
+    };
+
+    // CASE 1 — at least one qualification matches the account name. This is the normal case,
+    // INCLUDING a genuine name change: the two certificates may carry DIFFERENT names (the older
+    // one in a former/maiden name) and that is fine. Accept both — the certificate carrying the
+    // current legal name is "verified", the other is a recorded NAME CHANGE (never rejected,
+    // never manual review). The per-document scan already flagged the name change to the server
+    // and the AMC step asks the GP for proof. Then set the account to the current legal name.
+    if (specMatchesAccount || medMatchesAccount) {
+      var specIsCurrent = isMatch(getNameMatchLevel(specName, currentLegalName));
+      var medIsCurrent = isMatch(getNameMatchLevel(medName, currentLegalName));
+      specDoc.status = specIsCurrent ? "verified" : "verified_name_pending";
+      medDoc.status = medIsCurrent ? "verified" : "verified_name_pending";
+      if (!specIsCurrent || !medIsCurrent) state.accountReviewFlag = true;
+      applyAccountName();
       return;
     }
 
-    // Both certificates agree on the SAME name, but it differs from the account name:
-    // a consistent NAME CHANGE (e.g. the maiden name appears on every qualification).
-    // This is strong name-change evidence, not a problem — accept both as name-pending.
-    // The server already recorded the name change from the per-document scan and the
-    // AMC step will ask for proof; do NOT force manual review or tell the GP to change
-    // their account name.
+    // CASE 2 — NEITHER certificate matches the account name, but the two AGREE with each other:
+    // a consistent name change. Accept both as name-change pending and flag for review, but do
+    // NOT auto-change the account: with no qualification matching the account we cannot be sure
+    // whether the account is a former name (older than the certs) or a NEWER name the GP adopted
+    // after their most recent qualification — so a human confirms rather than overwriting it.
     if (docsMatchEachOther) {
       specDoc.status = "verified_name_pending";
       medDoc.status = "verified_name_pending";
@@ -677,7 +693,8 @@
       return;
     }
 
-    // The documents disagree with each other — that genuinely needs a human.
+    // CASE 3 — neither certificate matches the account AND the two disagree with each other:
+    // genuinely ambiguous, so a human needs to check.
     specDoc.status = "manual_review";
     medDoc.status = "manual_review";
     specDoc.scanResult = specDoc.scanResult || {};
@@ -687,6 +704,29 @@
     specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
     medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
     state.accountReviewFlag = true;
+  }
+
+  // The GP's current legal name = the name on their MOST RECENT qualification. The specialist
+  // qualification is obtained after the primary medical degree, so it is the most recent by
+  // default; only defer to the scanned dates when both are clearly readable and put the medical
+  // degree later.
+  function pickCurrentLegalName(specDoc, medDoc, specName, medName) {
+    var specDate = parseQualDate(specDoc && specDoc.scanResult && specDoc.scanResult.dateFound);
+    var medDate = parseQualDate(medDoc && medDoc.scanResult && medDoc.scanResult.dateFound);
+    if (specDate != null && medDate != null && medDate > specDate) return medName;
+    return specName;
+  }
+
+  // Lenient date parse for a certificate's scanned date. Returns a timestamp or null (handles
+  // full dates like "03 DEC 2008" and bare years like "2021"; never throws on OCR noise).
+  function parseQualDate(s) {
+    if (!s) return null;
+    var str = String(s).trim();
+    var t = Date.parse(str);
+    if (!isNaN(t)) return t;
+    var y = str.match(/\b(19|20)\d{2}\b/);
+    if (y) { var yt = Date.parse(y[0] + "-01-01"); return isNaN(yt) ? null : yt; }
+    return null;
   }
 
   // ── Support popup ──────────────────────────

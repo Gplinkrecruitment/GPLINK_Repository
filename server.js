@@ -130,7 +130,7 @@ const practicePipeline = require('./lib/practice-pipeline');
 const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation } = require('./lib/practice-intake-logic');
 const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
-const { buildWriteupPrompt, parseWriteupResponse, scrubWriteup } = require('./lib/job-writeup.js');
+const { buildWriteupPrompt, parseWriteupResponse, scrubWriteup, maskIdentity } = require('./lib/job-writeup.js');
 const { stampAgreementExecutionPage } = require('./lib/practice-agreement-pdf');
 const { LIFECYCLE_FOLDER_NAMES, stageForCase, isAcceptedStatus } = require('./lib/drive-lifecycle.js');
 const {
@@ -16788,7 +16788,8 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     row && row.location_city,
     row && row.location_state,
     suburb,
-    websiteUrl
+    websiteUrl,
+    row && row.address
   ];
   const sourceBenefits = extractCareerBenefits(record, {
     billingLabel,
@@ -18980,12 +18981,18 @@ function careerRoleTitleLeaksPracticeName(row) {
 function resolveCareerRoleDisplayTitle(row, { internalTitleFirst } = {}) {
   const masked = (row && row.masked_title && String(row.masked_title).trim()) ? String(row.masked_title).trim() : '';
   const rawTitle = (row && row.title && String(row.title).trim()) ? String(row.title).trim() : '';
+  // A raw title is only safe to show a doctor if it does not leak the practice
+  // identity. This now applies to internal-ATS rows TOO: the legacy admin
+  // "add job" quick form stores a free-typed title that can literally BE the
+  // practice name (e.g. "Connolly Drive Medical Centre"), and it never set a
+  // masked_title — so internalTitleFirst was surfacing the name in "Role type".
+  const rawTitleSafe = (rawTitle && !careerRoleTitleLeaksPracticeName(row)) ? rawTitle : '';
   if (row && row.provider === 'internal_ats') {
-    if (internalTitleFirst) return rawTitle || masked || 'General Practitioner';
-    return masked || rawTitle || careerRoleMaskedTitleFallback(row);
+    if (internalTitleFirst) return rawTitleSafe || masked || careerRoleMaskedTitleFallback(row);
+    return masked || rawTitleSafe || careerRoleMaskedTitleFallback(row);
   }
   if (masked) return masked;
-  if (rawTitle && !careerRoleTitleLeaksPracticeName(row)) return rawTitle;
+  if (rawTitleSafe) return rawTitleSafe;
   return careerRoleMaskedTitleFallback(row);
 }
 
@@ -19024,6 +19031,50 @@ function resolveCareerRoleIntroVideoUrl(row, practiceRow) {
   return null;
 }
 
+// Defense-in-depth identity mask for the ALWAYS-masked in-app role payload.
+// The reveal path (/api/career/role, /api/career/my-offer, applications) adds
+// the real practice name/address as SEPARATE keys AFTER this map runs, so
+// scrubbing the base can never hide a legitimate reveal. This guarantees the
+// practice name / street address cannot be recovered by inspecting the API
+// response for a not-yet-accepted role — even if one field's own masking is
+// missed. Runs maskIdentity over every string value, including arrays and the
+// nested packageTerms / {label,value} card objects.
+function scrubClientRolePayload(payload, row) {
+  const opts = { practiceName: row && row.practice_name, address: row && row.address };
+  if (!opts.practiceName && !opts.address) return payload;
+  const s = (v) => (typeof v === 'string' ? maskIdentity(v, opts) : v);
+  const scrubPair = (p) => (p && typeof p === 'object') ? { ...p, label: s(p.label), value: s(p.value) } : p;
+  for (const key of Object.keys(payload)) {
+    const v = payload[key];
+    if (typeof v === 'string') {
+      payload[key] = s(v);
+    } else if (Array.isArray(v)) {
+      payload[key] = v.map((item) =>
+        typeof item === 'string' ? s(item)
+          : (item && typeof item === 'object' && ('label' in item || 'value' in item)) ? scrubPair(item)
+            : item);
+    } else if (v && typeof v === 'object') {
+      const nested = {};
+      for (const k of Object.keys(v)) nested[k] = (typeof v[k] === 'string') ? s(v[k]) : v[k];
+      payload[key] = nested;
+    }
+  }
+  return payload;
+}
+
+// The "Practice profile" value is free-typed ownership text (intake.ownership,
+// e.g. "GP-owned"). Never surface it if it looks like a practice/clinic NAME —
+// that can leak the identity, including a corporate parent's name that the
+// row's own practice_name scrub would not catch.
+function safePracticeTypeLabel(row) {
+  const raw = row && row.practice_type ? String(row.practice_type).trim() : '';
+  if (!raw) return 'Medical practice';
+  const looksLikeClinicWord = /\b(medical\s+cent(re|er)|clinic|surgery|practice|group|health(care)?|family\s+med)/i.test(raw);
+  const hasProperNounRun = /[A-Z][a-z]+\s+[A-Z][a-z]+/.test(raw);
+  if (looksLikeClinicWord && hasProperNounRun) return 'Medical practice';
+  return raw;
+}
+
 function mapCareerRoleRowToClient(row) {
   const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const location = buildLocationLabel([
@@ -19052,7 +19103,7 @@ function mapCareerRoleRowToClient(row) {
     row && row.earnings_text && /\$|k/i.test(row.earnings_text) ? 'High Earning' : ''
   ].map((value) => String(value || '').trim()).filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
 
-  return {
+  const clientRolePayload = {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
     sourceId: row && row.provider_role_id ? String(row.provider_role_id) : '',
     // NOTE: `match` used to be a hardcoded 'Live opening' display string here
@@ -19102,7 +19153,7 @@ function mapCareerRoleRowToClient(row) {
     packageTerms: (gpLinkMeta.packageTerms && typeof gpLinkMeta.packageTerms === 'object') ? gpLinkMeta.packageTerms : null,
     filterTokens,
     support: gpLinkMeta.publicSupport || (row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.'),
-    practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
+    practiceType: safePracticeTypeLabel(row),
     // Doctor-facing "Role" title. Internal-ATS rows keep their admin-written
     // job title; Zoho / legacy rows go through the masked fallback because their
     // raw `title` can literally BE the real practice name. Never a raw Zoho
@@ -19124,6 +19175,9 @@ function mapCareerRoleRowToClient(row) {
     qualifyHint: (row && row.visa_pathway_aligned) ? 'Visa pathway' : (row && row.dpa) ? 'DPA eligible' : '',
     aiStatus: gpLinkMeta.aiStatus || 'fallback'
   };
+  // Final identity-mask safety net — see scrubClientRolePayload. This base is
+  // ALWAYS the masked view; the reveal endpoints add the real name afterwards.
+  return scrubClientRolePayload(clientRolePayload, row);
 }
 
 function mapCareerRoleDetailToClient(row) {
@@ -19251,7 +19305,7 @@ function mapCareerRoleRowToPublicJob(row) {
     !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
     !row || row.location_label ? '' : row.location_country
   ]);
-  return {
+  const publicJobPayload = {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
     // masked_title (set by the practice-client pipeline, task 6) always wins.
     // Internal-ATS rows may then use their admin-written title. For Zoho/legacy
@@ -19298,6 +19352,11 @@ function mapCareerRoleRowToPublicJob(row) {
     visa: !!(row && row.visa_pathway_aligned),
     packageTerms: (gpLinkMeta.packageTerms && typeof gpLinkMeta.packageTerms === 'object') ? gpLinkMeta.packageTerms : null
   };
+  // Same identity-mask safety net as the in-app payload: sanitizePublicJob only
+  // filters by KEY, so a practice name free-typed into `summary` or into
+  // packageTerms.agreementBonus (the raw incentives) would otherwise survive on
+  // the unauthenticated public site. Scrub every string value first.
+  return scrubClientRolePayload(publicJobPayload, row);
 }
 
 // Defensive whitelist — applied right before the HTTP response so a future edit to
@@ -37084,8 +37143,10 @@ async function handleApi(req, res, pathname) {
       const maskedName = (role && role.masked_title) || 'Confidential practice';
       // Job title: prefer the masked title until revealed — pipeline jobs'
       // raw title is practice-typed free text that may embed the real name.
+      // Pre-reveal MUST leak-check the raw title (a bare `masked_title || title`
+      // fell straight to the practice name whenever masked_title was empty).
       const roleTitle = role
-        ? String((revealed ? (role.title || role.masked_title) : (role.masked_title || role.title)) || '')
+        ? String((revealed ? (role.title || role.masked_title) : resolveCareerRoleDisplayTitle(role, { internalTitleFirst: false })) || '')
         : '';
       return {
         revealed: revealed,
@@ -57041,6 +57102,14 @@ Return ONLY valid JSON with no markdown formatting:
     var jobRow = {
       provider: 'internal_ats', provider_role_id: 'ats_' + atsLocalId(''),
       title: String(bodyJ.title).trim(), practice_name: practiceName,
+      // Always stamp a masked_title so a free-typed title that is (or contains)
+      // the practice name never becomes the doctor-facing "Role" — matches
+      // createPendingJobFromIntake. resolveCareerRoleDisplayTitle also leak-checks
+      // the raw title as a second guard.
+      masked_title: practicePipeline.buildMaskedTitle({
+        suburb: '', nearestCity: String(bodyJ.city || ''), billingStyle: String(bodyJ.billing || ''),
+        dpa: false, visaSponsorship: false, earningsText: '', state: String(bodyJ.state || '')
+      }),
       location_city: String(bodyJ.city || ''), location_state: String(bodyJ.state || ''), location_country: 'Australia',
       employment_type: String(bodyJ.type || ''), billing_model: String(bodyJ.billing || ''), summary: String(bodyJ.summary || ''),
       is_active: true, job_status: 'open', ats_created: true, posted_by: ctxJC.email || '',

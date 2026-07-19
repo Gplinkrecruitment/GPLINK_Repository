@@ -115,12 +115,15 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
     expect(html).toContain('exact address shared on acceptance');
   });
 
-  it('identity vault is a placeholder graphic, never real text under a blur', () => {
-    expect(html).toContain('at-vname');
-    expect(html).toContain('NAME ON ACCEPTANCE');
-    // The blurred bar is an empty, aria-hidden div — no role fields inside.
-    expect(html).toMatch(/<div class="at-vname" aria-hidden="true"><\/div>/);
-    expect(html).toContain('revealed the moment you');
+  it('name-on-acceptance dropdown masks the practice identity — never real text under the mask (2026-07 redesign)', () => {
+    // Redesign (2026-07) restyled the identity vault into the mockup's dark
+    // <details> dropdown (buildPracticeIdentityHtml) — same reveal gate,
+    // new markup. The masked bar stays a static CSS placeholder: no role
+    // field is ever interpolated into it pre-reveal.
+    expect(html).toContain('at-noa-mask');
+    expect(html).toContain('REVEALED ON ACCEPTANCE');
+    expect(html).toMatch(/<div class="at-noa-line"><span class="at-noa-mask"><\/span><\/div>/);
+    expect(html).toContain('stay private until you');
   });
 
   it('keeps the app-shell embedding contract', () => {
