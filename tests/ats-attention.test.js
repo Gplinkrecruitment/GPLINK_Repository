@@ -332,6 +332,59 @@ describe('POST /api/career/apply — ops signal (GAP A3)', () => {
   });
 });
 
+// Regression: the "New applications" tile counts applications per-application,
+// but clicking it used to filter the candidate list by the collapsed
+// furthest-stage bucket. A GP who already advanced on ONE role (e.g. interview)
+// was bucketed 'interview' and hidden when you filtered by 'applied' — even
+// though a brand-new application to a DIFFERENT practice is what the tile
+// counted. This is the exact "Helen Wazalski applied but I can't see her" bug.
+describe('GET /api/ceo/candidates — New applications reconciliation (fresh_applied)', () => {
+  const HELEN = { userId: 'u-helen-wazalski', email: 'helen.w@gplink-test.local' };
+  const SEVEN_DAYS_AGO = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+
+  beforeAll(() => {
+    db.user_profiles.push({ user_id: HELEN.userId, email: HELEN.email, first_name: 'Helen', last_name: 'Wazalski', registration_country: 'australia', onboarding_completed_at: NOW });
+    db.registration_cases.push({ id: 'case-helen', user_id: HELEN.userId, status: 'active' });
+    db.gp_applications.push(
+      // Advanced application on one role (applied a while ago, now at interview):
+      { id: 'app-helen-iv', user_id: HELEN.userId, career_role_id: 'role-apply', provider_role_id: 'ats_apply1', status: 'interview', ats_stage: 'interview', applied_at: '2026-07-08T00:00:00.000Z' },
+      // Brand-new application to a DIFFERENT practice (fresh, within 7 days):
+      { id: 'app-helen-new', user_id: HELEN.userId, career_role_id: 'role-other', provider_role_id: 'ats_other1', status: 'applied', ats_stage: 'applied', applied_at: SEVEN_DAYS_AGO }
+    );
+  });
+
+  it('buckets her by her FURTHEST stage (interview), and flags has_fresh_applied', async () => {
+    const r = await atsGet('/api/ceo/candidates?ats_bucket=interview');
+    expect(r.status).toBe(200);
+    const helen = (r.body.candidates || []).find((c) => c.user_id === HELEN.userId);
+    expect(helen).toBeTruthy();
+    expect(helen.pipeline_bucket).toBe('interview');
+    expect(helen.has_fresh_applied).toBe(true);
+  });
+
+  it('does NOT surface her under the furthest-stage "applied" bucket (this is why she was invisible)', async () => {
+    const r = await atsGet('/api/ceo/candidates?ats_bucket=applied');
+    const helen = (r.body.candidates || []).find((c) => c.user_id === HELEN.userId);
+    expect(helen).toBeFalsy();
+  });
+
+  it('DOES surface her under fresh_applied=1 — matching the "New applications" tile', async () => {
+    const r = await atsGet('/api/ceo/candidates?fresh_applied=1');
+    expect(r.status).toBe(200);
+    const helen = (r.body.candidates || []).find((c) => c.user_id === HELEN.userId);
+    expect(helen).toBeTruthy();
+    expect(helen.name).toContain('Helen');
+  });
+
+  it('the fresh_applied list matches the attention tile definition (both count her fresh apply)', async () => {
+    const attn = await atsGet('/api/ats/attention');
+    const fresh = await atsGet('/api/ceo/candidates?fresh_applied=1');
+    // The tile counts >=1 new application, and the reconciled list surfaces the GP behind it.
+    expect(attn.body.new_applications).toBeGreaterThanOrEqual(1);
+    expect((fresh.body.candidates || []).some((c) => c.user_id === HELEN.userId)).toBe(true);
+  });
+});
+
 describe('static UI pins', () => {
   const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
@@ -345,6 +398,15 @@ describe('static UI pins', () => {
     expect(js).toContain('data-offer-declined');
   });
 
+  it('candidates JS wires the New-applications tile to the fresh_applied filter', () => {
+    const js = read('js/ceo-ats-candidates.js');
+    expect(js).toContain('fresh_applied');
+    expect(js).toContain('&fresh_applied=1');
+    // The "New applications" (applied) tile must NOT reuse the furthest-stage bucket filter.
+    expect(js).toContain("bucket === 'applied'");
+    expect(js).toContain('Showing: <b>New applications</b>');
+  });
+
   it('jobs JS renders the kanban declined marker', () => {
     const js = read('js/ceo-ats-jobs.js');
     expect(js).toContain('ats-card-declined');
@@ -353,7 +415,7 @@ describe('static UI pins', () => {
 
   it('ceo-dashboard.html bumps the changed script cache-busters', () => {
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('ceo-ats-candidates.js?v=20260707i');
+    expect(html).toContain('ceo-ats-candidates.js?v=20260719a');
     expect(html).toContain('ceo-ats-jobs.js?v=20260718a');
   });
 });

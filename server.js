@@ -60229,6 +60229,13 @@ Return ONLY valid JSON with no markdown formatting:
     var clBand = (url.searchParams.get('band') || '').toLowerCase();
     var clAccount = (url.searchParams.get('account_status') || '').toLowerCase();
     var clBucket = (url.searchParams.get('ats_bucket') || '').toLowerCase();
+    // "New applications" tile filter: surface GPs with a fresh 'applied' app
+    // (per-application, last 7 days) even when their FURTHEST stage has moved
+    // past 'applied' on another role and the pipeline bucket would hide them.
+    // Uses the SAME definition as /api/ats/attention's new_applications count so
+    // the tile and this list always agree.
+    var clFreshApplied = (url.searchParams.get('fresh_applied') || '') === '1';
+    var clFreshSinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     var clSort = (url.searchParams.get('sort') || 'intent').toLowerCase();
     var rows = [];
     if (!isSupabaseDbConfigured()) {
@@ -60236,6 +60243,7 @@ Return ONLY valid JSON with no markdown formatting:
         var facts = atsLocalCandidateFacts(row);
         var listRow = atsCandidateListRow(facts, atsComputeIntent(facts));
         listRow.pipeline_bucket = atsPracticeUtil.bucketForApps(row.apps || []);
+        listRow.has_fresh_applied = atsPracticeUtil.hasFreshApply(row.apps || [], clFreshSinceIso);
         // Having applications implies a real candidate — never waitlist someone with apps.
         listRow.onboarding_completed = !!(listRow.onboarding_completed || (row.apps || []).length > 0);
         return listRow;
@@ -60269,12 +60277,14 @@ Return ONLY valid JSON with no markdown formatting:
         };
       });
       // Pipeline bucket per candidate (furthest active app stage; none -> unassociated).
-      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
+      // applied_at is fetched too so has_fresh_applied can match the attention tile.
+      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at&limit=5000');
       var apps2 = (appsRes2.ok && Array.isArray(appsRes2.data)) ? appsRes2.data : [];
       var byUser2 = {};
       apps2.forEach(function (a) { (byUser2[a.user_id] = byUser2[a.user_id] || []).push(a); });
       rows.forEach(function (r) {
         r.pipeline_bucket = byUser2[r.user_id] ? atsPracticeUtil.bucketForApps(byUser2[r.user_id]) : 'unassociated';
+        r.has_fresh_applied = byUser2[r.user_id] ? atsPracticeUtil.hasFreshApply(byUser2[r.user_id], clFreshSinceIso) : false;
         // Having applications implies a real candidate — never waitlist someone with apps.
         r.onboarding_completed = !!(r.onboarding_completed || byUser2[r.user_id]);
       });
@@ -60329,6 +60339,7 @@ Return ONLY valid JSON with no markdown formatting:
       return !!r.onboarding_completed;
     });
     // filters
+    if (clFreshApplied) rows = rows.filter(function (r) { return !!r.has_fresh_applied; });
     if (clBucket) rows = rows.filter(function (r) { return String(r.pipeline_bucket || 'unassociated') === clBucket; });
     if (clQ) rows = rows.filter(function (r) { return (r.name || '').toLowerCase().indexOf(clQ) !== -1 || (r.email || '').toLowerCase().indexOf(clQ) !== -1; });
     if (clStage) rows = rows.filter(function (r) { return String(r.reg_stage || '').toLowerCase() === clStage; });

@@ -163,6 +163,42 @@ describe('pipeline buckets', () => {
   });
 });
 
+describe('hasFreshApply', () => {
+  const NOW = '2026-07-19T13:00:00.000Z';
+  const SINCE = '2026-07-12T13:00:00.000Z'; // 7 days before NOW
+
+  it('is true when an app is applied within the window', () => {
+    expect(M.hasFreshApply([{ ats_stage: 'applied', applied_at: NOW }], SINCE)).toBe(true);
+  });
+
+  it('treats an empty/missing stage as applied (mirrors the insert default)', () => {
+    expect(M.hasFreshApply([{ applied_at: NOW }], SINCE)).toBe(true);
+    expect(M.hasFreshApply([{ ats_stage: '', applied_at: NOW }], SINCE)).toBe(true);
+  });
+
+  it('is false for an applied app older than the window', () => {
+    expect(M.hasFreshApply([{ ats_stage: 'applied', applied_at: '2026-07-01T00:00:00.000Z' }], SINCE)).toBe(false);
+  });
+
+  it('is false when the only app has advanced past applied', () => {
+    expect(M.hasFreshApply([{ ats_stage: 'interview', applied_at: NOW }], SINCE)).toBe(false);
+  });
+
+  it('is TRUE for a GP whose furthest app is advanced but who ALSO has a fresh applied app (the Helen Wazalski case)', () => {
+    const apps = [
+      { ats_stage: 'interview', applied_at: '2026-07-08T00:00:00.000Z' }, // advanced, on another role
+      { ats_stage: 'applied', applied_at: NOW } // brand-new application to a different practice
+    ];
+    expect(M.bucketForApps(apps)).toBe('interview'); // furthest-stage bucket HIDES the fresh apply
+    expect(M.hasFreshApply(apps, SINCE)).toBe(true); // ...but the fresh-apply filter still surfaces her
+  });
+
+  it('handles empty / missing input', () => {
+    expect(M.hasFreshApply([], SINCE)).toBe(false);
+    expect(M.hasFreshApply(undefined, SINCE)).toBe(false);
+  });
+});
+
 describe('ats-practices API surface', () => {
   it('exports every function the backfill + pipeline call', () => {
     ['normalizePracticeName', 'dedupePracticeNames', 'deriveAtsStage', 'bestAtsStage'].forEach((name) => {
