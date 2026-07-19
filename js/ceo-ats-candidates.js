@@ -17,7 +17,7 @@
   function panel() { return document.getElementById(PANEL_ID); }
 
   // ---- list filter / sort / search state (kept in module scope) ----
-  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '' };
+  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '', fresh_applied: false };
   var searchTimer = null;
   var currentCandidate = null;
   var pipelineSummary = null; // last fetched /api/ceo/pipeline-summary payload
@@ -225,8 +225,9 @@
     if (widget) widget.addEventListener('click', function (e) {
       if (!e.target.closest) return;
       if (e.target.closest('.ats-pw-clear')) {
-        if (!state.ats_bucket) return;
+        if (!state.ats_bucket && !state.fresh_applied) return;
         state.ats_bucket = '';
+        state.fresh_applied = false;
         renderPipelineWidget();
         fetchAndRenderRows();
         return;
@@ -235,6 +236,7 @@
       if (!seg) return;
       var bucket = seg.getAttribute('data-bucket') || '';
       state.ats_bucket = (state.ats_bucket === bucket) ? '' : bucket;
+      state.fresh_applied = false;
       renderPipelineWidget();
       fetchAndRenderRows();
     });
@@ -246,7 +248,16 @@
       if (!cell || cell.disabled) return;
       var bucket = cell.getAttribute('data-attention') || '';
       if (!bucket) return;
-      state.ats_bucket = bucket;
+      if (bucket === 'applied') {
+        // "New applications" counts fresh applications per-application; a GP who
+        // already advanced on another role is hidden by the furthest-stage
+        // bucket filter, so use the fresh-apply filter that matches the count.
+        state.fresh_applied = true;
+        state.ats_bucket = '';
+      } else {
+        state.fresh_applied = false;
+        state.ats_bucket = bucket;
+      }
       renderPipelineWidget();
       fetchAndRenderRows();
       var pw = el.querySelector('#ats-pipeline-widget');
@@ -269,7 +280,8 @@
       '&band=' + encodeURIComponent(state.band || '') +
       '&account_status=' + encodeURIComponent(state.account_status || '') +
       '&sort=' + encodeURIComponent(state.sort || 'intent') +
-      '&ats_bucket=' + encodeURIComponent(state.ats_bucket || '');
+      '&ats_bucket=' + encodeURIComponent(state.ats_bucket || '') +
+      (state.fresh_applied ? '&fresh_applied=1' : '');
     ATS.api('/api/ceo/candidates' + qs).then(function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away (e.g. opened a candidate)
@@ -340,7 +352,10 @@
       '</button>';
     }).join('');
     var showing = '';
-    if (active) {
+    if (state.fresh_applied) {
+      showing = '<span class="ats-pw-showing">Showing: <b>New applications</b>' +
+        ' · <button type="button" class="ats-pw-clear">Clear</button></span>';
+    } else if (active) {
       var lbl = active;
       for (var i = 0; i < buckets.length; i++) { if (buckets[i].key === active) { lbl = buckets[i].label || active; break; } }
       showing = '<span class="ats-pw-showing">Showing: <b>' + ATS.esc(lbl) + '</b>' +
