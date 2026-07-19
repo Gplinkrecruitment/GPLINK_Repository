@@ -258,3 +258,86 @@ describe('CEO Overview placement tiles count ats_stage + scheduled_calls (F1)', 
     expect(r.body.ats_funnel.applied).toBe(2);
   });
 });
+
+// ── Task 6 (F3/F4/F5/F10): consistency batch ────────────────────────────────
+// Extra rows are seeded in THIS describe's beforeAll (the emulator reads the
+// live `db` object) so the Task 5 assertions above ran on the original seed.
+describe('CEO consistency batch (F3 withdrawn, F4 created_at, F5 staleness, F10 drilldown windows)', () => {
+  beforeAll(() => {
+    // F3: a WITHDRAWN case whose GP finished onboarding — must not appear in
+    // candidates or pipeline-summary.
+    db.registration_cases.push({ id: 'c-wd', user_id: 'u-wd', stage: 'career', status: 'withdrawn', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(20) });
+    db.user_profiles.push({ user_id: 'u-wd', email: 'withdrawn@test.local', first_name: 'With', last_name: 'Drawn', phone: '', account_status: 'active', onboarding_completed_at: ago(10) });
+    // F4: a fresh application whose applied_at is NULL — only created_at says
+    // it is fresh, so the candidates select must include created_at.
+    db.registration_cases.push({ id: 'c-fresh', user_id: 'u-fresh', stage: 'career', status: 'active', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(15) });
+    db.user_profiles.push({ user_id: 'u-fresh', email: 'fresh@test.local', first_name: 'Fresh', last_name: 'Apply', phone: '', account_status: 'active', onboarding_completed_at: ago(10) });
+    db.gp_applications.push({ id: 'appFresh', user_id: 'u-fresh', career_role_id: 'r1', status: 'applied', ats_stage: 'applied', applied_at: null, created_at: ago(1), updated_at: ago(1) });
+    // F5: one RSO owning a fresh case AND a >6-month-stale case. Without
+    // nowMs the staleness cut is NaN-disabled and both count.
+    db.rso_team.push({ user_id: 'rso1', name: 'Test RSO', email: 'rso@test.local', phone: '', active: true, on_leave: false, calendly_event_url: '' });
+    db.registration_cases.push({ id: 'c-rso-fresh', user_id: 'u-rso-fresh', stage: 'amc', status: 'active', assigned_rso: 'rso1', assigned_va: null, last_gp_activity_at: ago(2), updated_at: ago(2), created_at: ago(40) });
+    db.registration_cases.push({ id: 'c-rso-stale', user_id: 'u-rso-stale', stage: 'amc', status: 'active', assigned_rso: 'rso1', assigned_va: null, last_gp_activity_at: ago(200), updated_at: ago(200), created_at: ago(300) });
+    db.user_profiles.push({ user_id: 'u-rso-fresh', email: 'rsofresh@test.local', first_name: 'Rso', last_name: 'Fresh', phone: '', account_status: 'active' });
+    db.user_profiles.push({ user_id: 'u-rso-stale', email: 'rsostale@test.local', first_name: 'Rso', last_name: 'Stale', phone: '', account_status: 'active' });
+    // F10: the stale case's GP also has a secured app so the placed drilldown
+    // at period=all must list them (the tile already counts them at 'all').
+    db.gp_applications.push({ id: 'appStaleSecured', user_id: 'u-rso-stale', career_role_id: 'r1', status: 'placement_secured', applied_at: ago(200), created_at: ago(200), updated_at: ago(150) });
+  });
+
+  it('F3: /api/ceo/candidates excludes withdrawn cases', async () => {
+    const r = await ceoGet('/api/ceo/candidates');
+    expect(r.status).toBe(200);
+    const users = (r.body.candidates || []).map((c) => c.user_id);
+    expect(users).not.toContain('u-wd');
+    expect(users).toContain('u-fresh'); // active case still listed
+  });
+
+  it('F3: /api/ceo/pipeline-summary excludes withdrawn cases from the total', async () => {
+    const r = await ceoGet('/api/ceo/pipeline-summary');
+    expect(r.status).toBe(200);
+    // 7 non-withdrawn cases: c1..c4, c-fresh, c-rso-fresh, c-rso-stale (c-wd out)
+    expect(r.body.total).toBe(7);
+  });
+
+  it('F4: fresh_applied surfaces an app whose freshness lives only in created_at', async () => {
+    const r = await ceoGet('/api/ceo/candidates?fresh_applied=1');
+    expect(r.status).toBe(200);
+    const users = (r.body.candidates || []).map((c) => c.user_id);
+    expect(users).toContain('u-fresh');
+  });
+
+  it('F5: /api/ceo/rsos applies the 6-month staleness cut (stale case not counted)', async () => {
+    const r = await ceoGet('/api/ceo/rsos');
+    expect(r.status).toBe(200);
+    const row = (r.body.rsos || []).find((x) => x.rso_id === 'rso1');
+    expect(row).toBeTruthy();
+    expect(row.case_count).toBe(1); // c-rso-fresh only; c-rso-stale is >6mo stale
+  });
+
+  it('F5: /api/ceo/rso/:id/summary applies the same staleness cut', async () => {
+    const r = await ceoGet('/api/ceo/rso/rso1/summary');
+    expect(r.status).toBe(200);
+    const ids = (r.body.gps || []).map((g) => g.case_id);
+    expect(ids).toContain('c-rso-fresh');
+    expect(ids).not.toContain('c-rso-stale');
+    expect(r.body.task_counts.case_count).toBe(1);
+  });
+
+  it('F10: activity drilldown honors period=all (stale case listed, like the tile)', async () => {
+    const all = await ceoGet('/api/ceo/drilldown/activity?bucket=cold&period=all');
+    expect(all.status).toBe(200);
+    expect((all.body.items || []).map((i) => i.case_id)).toContain('c-rso-stale');
+    // default (current) period still applies the staleness cut
+    const cur = await ceoGet('/api/ceo/drilldown/activity?bucket=cold');
+    expect((cur.body.items || []).map((i) => i.case_id)).not.toContain('c-rso-stale');
+  });
+
+  it('F10: placed drilldown honors period=all (stale secured GP listed, like the tile)', async () => {
+    const all = await ceoGet('/api/ceo/drilldown/placed?period=all');
+    expect(all.status).toBe(200);
+    expect((all.body.items || []).map((i) => i.user_id)).toContain('u-rso-stale');
+    const cur = await ceoGet('/api/ceo/drilldown/placed');
+    expect((cur.body.items || []).map((i) => i.user_id)).not.toContain('u-rso-stale');
+  });
+});

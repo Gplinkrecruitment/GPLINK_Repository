@@ -57476,7 +57476,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     var allCases = (rsoCasesRes.ok && Array.isArray(rsoCasesRes.data)) ? rsoCasesRes.data : [];
     var rsoTasks = (rsoTasksRes.ok && Array.isArray(rsoTasksRes.data)) ? rsoTasksRes.data : [];
-    var activeCases = ceoMetrics.filterActiveCases(allCases, { allTime: false });
+    // F5 (audit 2026-07-20): without nowMs, caseAgeMs is NaN and the 6-month
+    // staleness cut was silently disabled.
+    var activeCases = ceoMetrics.filterActiveCases(allCases, { allTime: false, nowMs: nowMs });
 
     // loadRsoTeam rows are shaped { user_id, name, email, phone, active }.
     // computeRsoWorkload seeds buckets from { rso_id, rso_name }.
@@ -57539,7 +57541,8 @@ Return ONLY valid JSON with no markdown formatting:
 
     var sumAllCases = (sumCasesRes.ok && Array.isArray(sumCasesRes.data)) ? sumCasesRes.data : [];
     var sumTasks = (sumTasksRes.ok && Array.isArray(sumTasksRes.data)) ? sumTasksRes.data : [];
-    var sumActive = ceoMetrics.filterActiveCases(sumAllCases, { allTime: false });
+    // F5 (audit 2026-07-20): pass nowMs so the 6-month staleness cut works.
+    var sumActive = ceoMetrics.filterActiveCases(sumAllCases, { allTime: false, nowMs: nowMs });
 
     // RSO meta (null for the unassigned bucket; 404 if a real id isn't on the roster)
     var rsoMeta = null;
@@ -58318,7 +58321,9 @@ Return ONLY valid JSON with no markdown formatting:
       // GP activity is a staleness measure over the FULL active population (#12), period-independent.
       // Use allTime active set (drops withdrawn + >6mo) but NOT the period window.
       var aCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=neq.complete&status=neq.withdrawn&order=last_gp_activity_at.asc.nullsfirst');
-      var aActiveAll = ceoMetrics.filterActiveCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : [], { allTime: false, nowMs: dNow });
+      // F10 (audit 2026-07-20): honor period=all like the tile does — the
+      // dashboard computes gp_activity over filterActiveCases(allTime: period==='all').
+      var aActiveAll = ceoMetrics.filterActiveCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : [], { allTime: dPeriod === 'all', nowMs: dNow });
       var aBucketIds = new Set(ceoMetrics.gpActivityCaseIds(aActiveAll, aBucket, dNow));
       var aItems = aActiveAll.filter(function(c) { return aBucketIds.has(c.id); }).map(function(c) {
         return {
@@ -58408,8 +58413,10 @@ Return ONLY valid JSON with no markdown formatting:
       // Placed KPI drilldown: unique ACTIVE users with a secured app, period-INDEPENDENT.
       // One row per user — reconciles with computeKpis.placed (#2/#8).
       var pdCasesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
-      // computeKpis.placed scopes secured users to the active population, NOT the period window.
-      var pdActiveCases = ceoMetrics.filterActiveCases((pdCasesRes.ok && Array.isArray(pdCasesRes.data)) ? pdCasesRes.data : [], { allTime: false, nowMs: dNow });
+      // computeKpis.placed scopes secured users to the active population, NOT the
+      // period window — but the active population itself honors period=all
+      // (F10, audit 2026-07-20), same as the dashboard's filterActiveCases call.
+      var pdActiveCases = ceoMetrics.filterActiveCases((pdCasesRes.ok && Array.isArray(pdCasesRes.data)) ? pdCasesRes.data : [], { allTime: dPeriod === 'all', nowMs: dNow });
       var pdActiveUserIds = ceoMetrics.activeUserIdSet(pdActiveCases);
       var pdAppsRes = await supabaseDbRequest('gp_applications', 'select=*');
       var pdAllApps = (pdAppsRes.ok && Array.isArray(pdAppsRes.data)) ? pdAppsRes.data : [];
@@ -61639,7 +61646,11 @@ Return ONLY valid JSON with no markdown formatting:
     var clSort = (url.searchParams.get('sort') || 'intent').toLowerCase();
     var rows = [];
     if (!isSupabaseDbConfigured()) {
-      rows = (dbState.atsCandidates || []).map(function (row) {
+      rows = (dbState.atsCandidates || []).filter(function (row) {
+        // F3 (audit 2026-07-20): withdrawn cases are not candidates — same
+        // exclusion as the Overview's filterActiveCases.
+        return String(row && row.status || '') !== 'withdrawn';
+      }).map(function (row) {
         var facts = atsLocalCandidateFacts(row);
         var listRow = atsCandidateListRow(facts, atsComputeIntent(facts));
         listRow.pipeline_bucket = atsPracticeUtil.bucketForApps(row.apps || []);
@@ -61649,8 +61660,10 @@ Return ONLY valid JSON with no markdown formatting:
         return listRow;
       });
     } else {
+      // F3 (audit 2026-07-20): exclude withdrawn cases — the Overview already
+      // does (filterActiveCases), so the candidates list must agree.
       var casesRes = await supabaseDbRequest('registration_cases',
-        'select=id,user_id,stage,status,blocker_status,blocker_set_at,assigned_rso,assigned_va,intent_score,intent_band,intent_signals&order=intent_score.desc.nullslast&limit=1000');
+        'select=id,user_id,stage,status,blocker_status,blocker_set_at,assigned_rso,assigned_va,intent_score,intent_band,intent_signals&status=neq.withdrawn&order=intent_score.desc.nullslast&limit=1000');
       var cases = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
       var uids = cases.map(function (c) { return c.user_id; }).filter(Boolean);
       var profMap = {};
@@ -61677,8 +61690,11 @@ Return ONLY valid JSON with no markdown formatting:
         };
       });
       // Pipeline bucket per candidate (furthest active app stage; none -> unassociated).
-      // applied_at is fetched too so has_fresh_applied can match the attention tile.
-      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at&limit=5000');
+      // applied_at AND created_at are fetched so has_fresh_applied can match the
+      // attention tile (F4: hasFreshApply falls back to created_at when
+      // applied_at is null — without created_at in the select that fallback
+      // was dead and tile-counted apps vanished from the fresh_applied list).
+      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at,created_at&limit=5000');
       var apps2 = (appsRes2.ok && Array.isArray(appsRes2.data)) ? appsRes2.data : [];
       var byUser2 = {};
       apps2.forEach(function (a) { (byUser2[a.user_id] = byUser2[a.user_id] || []).push(a); });
@@ -61759,7 +61775,10 @@ Return ONLY valid JSON with no markdown formatting:
     var psAts = null; // live hiring funnel: gp_applications rows counted by ats_stage
     var psWaitlistOnboarding = 0; // unassociated + not-yet-onboarded — see /api/ceo/onboarding-incomplete
     if (!isSupabaseDbConfigured()) {
-      var psCands = dbState.atsCandidates || [];
+      // F3 (audit 2026-07-20): withdrawn cases excluded, matching /api/ceo/candidates.
+      var psCands = (dbState.atsCandidates || []).filter(function (c) {
+        return String(c && c.status || '') !== 'withdrawn';
+      });
       psCands.forEach(function (c) {
         var apps = c.apps || [];
         var b = atsPracticeUtil.bucketForApps(apps);
@@ -61773,7 +61792,8 @@ Return ONLY valid JSON with no markdown formatting:
       psTotal = psCands.length;
       psAts = atsPracticeUtil.countAtsStages(dbState.atsApplications || []);
     } else {
-      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,intent_signals&limit=2000');
+      // F3 (audit 2026-07-20): withdrawn cases excluded, matching /api/ceo/candidates.
+      var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,intent_signals&status=neq.withdrawn&limit=2000');
       var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
       var psAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
       var psApps = (psAppsRes.ok && Array.isArray(psAppsRes.data)) ? psAppsRes.data : [];

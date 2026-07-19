@@ -54,6 +54,15 @@ describe('deriveAtsStage truth table', () => {
   it("status contract_signed => 'hired'", () => {
     expect(M.deriveAtsStage({ status: 'contract_signed' }, false)).toBe('hired');
   });
+  // F13 (audit 2026-07-20): 'secured'/'placed' are in SECURED_STATUS_KEYS
+  // (lib/ceo-metrics.js) — deriveAtsStage must agree or the kanban parks a
+  // secured GP in 'applied'.
+  it("status secured => 'hired' (F13)", () => {
+    expect(M.deriveAtsStage({ status: 'secured' }, false)).toBe('hired');
+  });
+  it("status placed => 'hired' (F13)", () => {
+    expect(M.deriveAtsStage({ status: 'placed' }, false)).toBe('hired');
+  });
   it("status rejected => 'not_proceeding'", () => {
     expect(M.deriveAtsStage({ status: 'rejected' }, false)).toBe('not_proceeding');
   });
