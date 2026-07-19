@@ -8099,12 +8099,12 @@ async function buildErrorDigestData() {
 
   // Errors still open or under investigation that were seen in the last 24h.
   var edErrRes = await supabaseDbRequest('client_errors',
-    'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,source' +
+    'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,first_seen_at,last_seen_at,source' +
     '&status=in.(open,investigating)&last_seen_at=gte.' + encodeURIComponent(edDayAgo) + '&order=last_seen_at.desc&limit=500');
   if (!edErrRes.ok) {
     // source column migration (20260706093000) not applied yet — legacy shape.
     edErrRes = await supabaseDbRequest('client_errors',
-      'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at' +
+      'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,first_seen_at,last_seen_at' +
       '&status=in.(open,investigating)&last_seen_at=gte.' + encodeURIComponent(edDayAgo) + '&order=last_seen_at.desc&limit=500');
   }
   var edRawRows = (edErrRes.ok && Array.isArray(edErrRes.data)) ? edErrRes.data : [];
@@ -57721,7 +57721,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!ceoCtx) return;
     var ceStatus = url.searchParams.get('status') || 'open';
     var ceSource = url.searchParams.get('source') || 'all'; // all | client | server
-    var ceSafeSelect = 'id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at';
+    var ceSafeSelect = 'id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,first_seen_at,last_seen_at,resolved_by,resolved_at';
     var ceFilters = (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus));
     // source='client' also matches pre-migration NULL rows (default 'client').
     if (ceSource === 'server') ceFilters += '&source=eq.server';
@@ -57734,7 +57734,24 @@ Return ONLY valid JSON with no markdown formatting:
       ceRes = await supabaseDbRequest('client_errors',
         'select=' + ceSafeSelect + (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus)) + '&order=last_seen_at.desc&limit=200');
     }
+    // If BOTH attempts failed, the list is unknown — NOT empty. Returning [] here
+    // rendered "Nothing here — no problems to look at" on top of a counter saying
+    // 50 open, which is exactly how a bad column name (created_at, which this
+    // table does not have) hid every error for a full day. Surface the failure
+    // instead of quietly reporting good news.
+    var ceFetchFailed = !ceRes.ok;
     var ceRaw = (ceRes.ok && Array.isArray(ceRes.data)) ? ceRes.data : [];
+    if (ceFetchFailed) {
+      console.error('[technical/client-errors] both queries failed:', ceRes.status, String(ceRes.data && (ceRes.data.message || ceRes.data.code) || '').slice(0, 200));
+      sendJson(res, 200, {
+        ok: true,
+        errors: [],
+        fetch_failed: true,
+        fetch_error: String((ceRes.data && (ceRes.data.message || ceRes.data.code)) || 'Could not read the error list.').slice(0, 300),
+        summary: null
+      });
+      return;
+    }
     // Collapse to one row per bug, rank by impact, classify noise, attach the
     // plain-English summary and scrub any address that leaked into free text.
     var errors = buildClientErrorGroups(ceRaw);
@@ -57856,7 +57873,7 @@ Return ONLY valid JSON with no markdown formatting:
     // rows (e.g. the source-column migration fallback wrote a second row), so
     // triage applies to every id in the group. Falls back to the single id in
     // the URL when no group is supplied.
-    var ceSelect = 'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at';
+    var ceSelect = 'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,first_seen_at,last_seen_at,resolved_by,resolved_at';
     var ceGroupIds = (body && Array.isArray(body.ids)) ? body.ids.map(function (v) { return String(v); }).filter(Boolean) : [];
     if (ceGroupIds.indexOf(errorId) === -1) ceGroupIds.push(errorId);
     var ceFilter = ceGroupIds.length > 1
@@ -61240,6 +61257,12 @@ async function handleRequest(req, res) {
   const adminSession = getAdminSession(req);
   const isPublic =
     pathname === '/pages/signin.html' ||
+    // The friendly "we couldn't load this page" screen MUST be reachable without
+    // a session. A GP can hit an error before signing in, or because their
+    // session itself failed to load — bouncing them to a login form at that
+    // moment is worse than the error it is trying to explain. It shows no data,
+    // only static reassurance and what to try.
+    pathname === '/pages/error.html' ||
     pathname === '/pages/admin-signin.html' ||
     pathname === '/pages/practice-intake.html' ||
     // Task 8: public decision landing page reached from the submit-to-practice

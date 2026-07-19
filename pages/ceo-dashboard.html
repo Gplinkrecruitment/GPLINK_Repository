@@ -3987,6 +3987,18 @@
           c.innerHTML = errViewHead('Errors') + '<div class="drilldown-empty">Could not load errors: ' + esc((d && d.message) || 'Unknown error') + '</div>';
           return;
         }
+        // The server could not read the list. This is NOT "no errors" — saying
+        // so on top of a counter reading 50 open is how a bad column name hid
+        // every error. Say plainly that the list failed to load.
+        if (d.fetch_failed) {
+          c.innerHTML = errViewHead('Errors doctors are hitting')
+            + '<div class="ceo-err-note" style="border-left:3px solid var(--red);padding-left:12px">'
+            + '<b>The error list could not be loaded.</b><br>'
+            + 'This does <b>not</b> mean there are no errors &mdash; the counter is read a different way and is still accurate. '
+            + 'Something is wrong with the query itself, so nothing can be shown until it is fixed.<br>'
+            + '<span class="mono" style="opacity:.75">' + esc(d.fetch_error || 'unknown') + '</span></div>';
+          return;
+        }
         errView.groups = Array.isArray(d.errors) ? d.errors : [];
         errView.summary = d.summary || {};
         renderClientErrorsView();

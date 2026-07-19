@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>We couldn't load this page · GP Link</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: var(--gp-canvas);
+      color: var(--gp-text);
+      font-family: var(--gp-font-body);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px 40px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap { width: 100%; max-width: 520px; }
+
+    .brand {
+      display: flex; align-items: center; justify-content: center;
+      gap: 9px; margin-bottom: 22px;
+    }
+    .brand-mark {
+      width: 32px; height: 32px; border-radius: 9px;
+      background: var(--gp-grad-brand);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 700; font-size: 13px; letter-spacing: .2px;
+    }
+    .brand-name { font-weight: 700; font-size: 16px; color: var(--gp-ink); letter-spacing: -.01em; }
+
+    .card {
+      background: var(--gp-surface);
+      border: 1px solid var(--gp-border);
+      border-radius: 18px;
+      box-shadow: var(--gp-shadow-md);
+      padding: 38px 34px 32px;
+      text-align: center;
+    }
+
+    .glyph {
+      width: 62px; height: 62px; margin: 0 auto 20px;
+      border-radius: 50%;
+      background: var(--gp-blue-soft);
+      border: 1px solid var(--gp-blue-border);
+      display: grid; place-items: center;
+    }
+    .glyph svg { width: 28px; height: 28px; stroke: var(--gp-blue); fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+    h1 {
+      font-family: var(--gp-font-display);
+      font-weight: 600;
+      font-size: 25px;
+      line-height: 1.25;
+      color: var(--gp-ink);
+      margin: 0 0 10px;
+      letter-spacing: -.015em;
+    }
+
+    .lede { font-size: 15px; line-height: 1.6; color: var(--gp-muted); margin: 0 0 8px; }
+
+    .notified {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: var(--gp-green-soft);
+      border: 1px solid var(--gp-green-border);
+      color: var(--gp-green-ink);
+      font-size: 13px; font-weight: 500;
+      padding: 7px 13px; border-radius: 999px;
+      margin: 14px 0 26px;
+    }
+    .notified svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+    .steps { text-align: left; border-top: 1px solid var(--gp-border); padding-top: 22px; }
+    .steps-title {
+      font-size: 11px; font-weight: 700; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--gp-faint); margin-bottom: 15px;
+    }
+    .step { display: flex; gap: 13px; align-items: flex-start; margin-bottom: 14px; }
+    .step:last-child { margin-bottom: 0; }
+    .step-num {
+      flex: 0 0 23px; height: 23px; border-radius: 50%;
+      background: var(--gp-blue-soft); color: var(--gp-blue-ink);
+      font-size: 12px; font-weight: 700;
+      display: grid; place-items: center; margin-top: 1px;
+    }
+    .step-body { font-size: 14.5px; line-height: 1.55; color: var(--gp-text); }
+    .step-body b { color: var(--gp-ink); font-weight: 700; }
+    .step-hint { display: block; font-size: 13px; color: var(--gp-muted); margin-top: 2px; }
+
+    .actions { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
+    .btn {
+      appearance: none; border: 0; cursor: pointer;
+      font-family: inherit; font-size: 15px; font-weight: 700;
+      padding: 14px 20px; border-radius: 12px;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+      text-decoration: none; display: block; text-align: center;
+    }
+    .btn-primary { background: var(--gp-grad-brand); color: #fff; box-shadow: var(--gp-shadow-sm); }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: var(--gp-shadow-md); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-ghost { background: transparent; color: var(--gp-blue); border: 1px solid var(--gp-border-strong); }
+    .btn-ghost:hover { background: var(--gp-blue-soft); border-color: var(--gp-blue-border); }
+
+    .support {
+      margin-top: 22px; padding-top: 18px;
+      border-top: 1px solid var(--gp-border);
+      font-size: 13.5px; color: var(--gp-muted); line-height: 1.6;
+    }
+    .support a { color: var(--gp-blue); text-decoration: none; font-weight: 500; }
+    .support a:hover { text-decoration: underline; }
+
+    .ref {
+      margin-top: 16px; font-size: 11.5px; color: var(--gp-faint);
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 420px) {
+      .card { padding: 30px 22px 26px; border-radius: 16px; }
+      h1 { font-size: 22px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .btn { transition: none; }
+      .btn-primary:hover { transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <div class="brand-mark">GP</div>
+      <div class="brand-name">GP Link</div>
+    </div>
+
+    <main class="card" role="main">
+      <div class="glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 8v5" /><circle cx="12" cy="16.5" r=".6" fill="currentColor" stroke="none" /><path d="M10.3 3.9 2.5 17.4A2 2 0 0 0 4.2 20.4h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
+      </div>
+
+      <h1>We couldn&rsquo;t load this page</h1>
+      <p class="lede">
+        Something went wrong at our end while this page was loading. It&rsquo;s not
+        anything you&rsquo;ve done, and nothing you&rsquo;ve already saved has been lost.
+      </p>
+
+      <div class="notified">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+        Our team has been notified automatically
+      </div>
+
+      <div class="steps">
+        <div class="steps-title">What to try</div>
+
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <b>Refresh the page.</b>
+            <span class="step-hint">Most of the time this is all it takes.</span>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <b>Check your internet connection.</b>
+            <span class="step-hint">If you&rsquo;re on mobile data or public Wi&#8209;Fi, switch to a stronger connection and try again.</span>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <b>Still not working? Try again in 24 hours.</b>
+            <span class="step-hint">Our team will already be looking into it. You won&rsquo;t lose your place &mdash; everything will be exactly where you left it.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="refreshBtn">Refresh the page</button>
+        <a class="btn btn-ghost" href="/pages/index">Back to my dashboard</a>
+      </div>
+
+      <div class="support">
+        Need a hand sooner? Email us at
+        <a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a>
+        and we&rsquo;ll help you personally.
+      </div>
+
+      <div class="ref" id="refLine"></div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      document.getElementById('refreshBtn').addEventListener('click', function () {
+        // Reload the page the GP was actually trying to reach, not this one.
+        var from = new URLSearchParams(window.location.search).get('from');
+        if (from && from.charAt(0) === '/' && from.charAt(1) !== '/') window.location.href = from;
+        else window.location.reload();
+      });
+
+      // A short reference the GP can quote to support. Time-based only — it is
+      // shown to the user, so it must never contain anything identifying.
+      try {
+        var ref = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+        document.getElementById('refLine').textContent = 'Reference ' + ref;
+      } catch (e) {}
+    }());
+  </script>
+</body>
+</html>
