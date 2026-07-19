@@ -246,6 +246,17 @@
               <input type="text" id="mPostcode" inputmode="numeric" maxlength="4" placeholder="e.g. 2250">
             </div>
           </div>
+          <!-- #state is shared by both paths: visible here in manual mode; in
+               lookup mode this whole box is hidden and the value is filled
+               programmatically from the lookup result (paintCur). -->
+          <div class="f" style="margin:12px 0 0">
+            <label style="font-size:13px" for="state">State</label>
+            <select id="state"><option value="">Select…</option>
+              <option value="NSW">NSW</option><option value="QLD">QLD</option><option value="VIC">VIC</option>
+              <option value="SA">SA</option><option value="WA">WA</option><option value="TAS">TAS</option>
+              <option value="NT">NT</option><option value="ACT">ACT</option>
+            </select>
+          </div>
           <button type="button" class="edit-link" data-action="auto-mode">Use the address lookup instead →</button>
         </div>
 
@@ -255,12 +266,6 @@
           <button type="button" class="edit-link" data-action="clear-addr">Not right? Change the address</button>
         </div>
 
-        <!-- state is a shared control for both the auto and manual paths -->
-        <select id="state" class="hidden"><option value="">Select…</option>
-          <option value="NSW">NSW</option><option value="QLD">QLD</option><option value="VIC">VIC</option>
-          <option value="SA">SA</option><option value="WA">WA</option><option value="TAS">TAS</option>
-          <option value="NT">NT</option><option value="ACT">ACT</option>
-        </select>
       </div>
 
       <div class="f">
@@ -1452,7 +1457,7 @@
         token: token,
         saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
         manual: !$('manual').classList.contains('hidden'),
-        manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value },
+        manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value, mState: $('state').value },
         addr: addr.value,
         signFields: signFields,
         authorised: $('authorisedCheckbox').checked,
@@ -1488,7 +1493,7 @@
     $('addBtn').classList.toggle('hidden', mode !== 'group');
 
     if (d.manual) { $('manual').classList.remove('hidden'); $('manualLink').classList.add('hidden'); addr.style.display = 'none'; }
-    if (d.manualFields) { $('mStreet').value = d.manualFields.mStreet || ''; $('mSuburb').value = d.manualFields.mSuburb || ''; $('mPostcode').value = d.manualFields.mPostcode || ''; }
+    if (d.manualFields) { $('mStreet').value = d.manualFields.mStreet || ''; $('mSuburb').value = d.manualFields.mSuburb || ''; $('mPostcode').value = d.manualFields.mPostcode || ''; $('state').value = d.manualFields.mState || $('state').value; }
     addr.value = d.addr || '';
 
     if (cur.address) {
