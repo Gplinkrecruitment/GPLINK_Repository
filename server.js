@@ -2,6 +2,7 @@
 const http = require('http');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
@@ -205,7 +206,15 @@ const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-m
 const CAREER_AI_PROFILE_VERSION = 2;
 // DoubleTick WhatsApp integration
 const DOUBLETICK_API_KEY = String(process.env.DOUBLETICK_API_KEY || '').trim();
-const DOUBLETICK_BASE_URL = String(process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io').trim() || 'https://public.doubletick.io';
+// Normalised to the API ROOT — no trailing slash, and no trailing "/whatsapp". Every call site appends its
+// own COMPLETE path (e.g. + '/whatsapp/message/text'), so this must never already contain that segment.
+// Why the normalising matters: .env.example documents DOUBLETICK_BASE_URL=https://public.doubletick.io, but
+// five call sites used to read process.env directly with a DIFFERENT fallback that already ended in
+// "/whatsapp", then appended only '/message/text'. Setting the variable to the documented value therefore
+// produced https://public.doubletick.io/message/text — a non-existent path — and those WhatsApp sends failed
+// silently (nothing checks the return value). It was set on Vercel, so those sends were dead. Accepting BOTH
+// forms here means the variable can be set, unset, or set with /whatsapp and every call site still works.
+const DOUBLETICK_BASE_URL = (String(process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io').trim() || 'https://public.doubletick.io').replace(/\/+$/, '').replace(/\/whatsapp$/i, '');
 const DOUBLETICK_WEBHOOK_SECRET = String(process.env.DOUBLETICK_WEBHOOK_SECRET || '').trim();
 const DOUBLETICK_WEBHOOK_RATE_MAX = 60; // max 60 deliveries per minute per source IP
 const DOUBLETICK_WEBHOOK_RATE_WINDOW_MS = 60 * 1000;
@@ -7190,7 +7199,15 @@ let adminDashboardCache = {
   data: null,
   inFlight: null
 };
-const AGENT_OUTPUT_ROOT = path.join(process.cwd(), 'agents-output');
+// The hybrid-agent orchestrator writes run artifacts under this root. On Vercel
+// the deployment bundle (/var/task) is READ-ONLY, so mkdir'ing ./agents-output
+// threw `ENOENT: ... mkdir '/var/task/agents-output'` on every
+// GET /api/admin/agent-control/status call — 124 occurrences recorded in
+// client_errors as if it were a product bug. /tmp is the only writable path on
+// serverless, so point the scratch space there. Local dev is unchanged.
+const AGENT_OUTPUT_ROOT = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'gplink-agents-output')
+  : path.join(process.cwd(), 'agents-output');
 const HYBRID_AGENT_RUNTIME_KV_KEY = 'hybrid_agent_bridge_store_v1';
 const HYBRID_AGENT_BRIDGE_STALE_MS = Number(process.env.HYBRID_AGENT_BRIDGE_STALE_MS || 45 * 1000);
 let hybridAgentControlState = {
@@ -7263,16 +7280,277 @@ function _persistAiSpend() {
 
 const GENERIC_SERVER_ERROR_MESSAGE = 'Something went wrong. Our team has been notified.';
 
+// ── Error noise classification (launch triage) ───────────────────────────────
+// The Technical tab was drowning in things that are not product bugs, so the
+// real bugs were invisible. This is an EXPLICIT, commented rule list: anything
+// NOT matched here is treated as a genuine bug and shown. We never silently
+// swallow the unrecognised.
+//
+// action:
+//   'drop'  — never write a row at all. Reserved for pure tooling/debug output,
+//             especially where the text carries personal data.
+//   'noise' — still recorded (so it stays auditable and reversible) but flagged
+//             "not a product bug": ranked below real bugs in the UI and
+//             excluded from the owner's daily digest.
+//
+// IMPORTANT: classification only. Nothing here deletes existing rows — historic
+// rows are classified at READ time by these same rules, so the 124 recorded
+// ENOENT occurrences stop being presented as a problem without being destroyed.
+const CLIENT_ERROR_NOISE_RULES = [
+  {
+    id: 'agents-output-enoent',
+    action: 'drop',
+    // The hybrid agent orchestrator mkdir'd ./agents-output; on Vercel the
+    // bundle root is read-only so every /api/admin/agent-control/status call
+    // threw ENOENT. The CAUSE is fixed above (AGENT_OUTPUT_ROOT now resolves to
+    // a writable tmp dir on serverless, and ensureAgentOutputRoot swallows
+    // failure). This rule catches rows written by deploys predating that fix.
+    reason: 'Developer tooling could not write to a temporary folder on the server. Nothing to do with the app doctors use.',
+    test: function (m) { return /ENOENT[\s\S]*agents-output/i.test(m); }
+  },
+  {
+    id: 'scroll-diag-debug',
+    action: 'drop',
+    // Temporary scroll-debugging instrumentation that shipped to production and
+    // reported itself through window.onerror. The scaffolding is already gone
+    // from this codebase (tests/career-placement-by-association.test.js asserts
+    // its absence), but its messages embedded GP EMAIL ADDRESSES in free text,
+    // so it is dropped on sight and never written again.
+    reason: 'Leftover debug logging, not an error — and it contained personal email addresses, so it is discarded on arrival.',
+    test: function (m) { return /\bSCROLL[-_](DIAG|TEST)\b/i.test(m); }
+  },
+  {
+    id: 'bfcache-history-api',
+    action: 'noise',
+    // Fired when the browser restores a page from its back/forward cache and a
+    // script calls history.pushState on the now-inactive document. Benign.
+    reason: 'Harmless side-effect of the browser’s back/forward button. Nothing is broken for the doctor.',
+    test: function (m) {
+      return /History API from a document that isn.?t fully active/i.test(m)
+        || /Attempt to use history\.\w+\(\) on a document that is not fully active/i.test(m);
+    }
+  },
+  {
+    id: 'resizeobserver-loop',
+    action: 'noise',
+    // Chrome reports this whenever a layout observer needs a second pass. It is
+    // a browser diagnostic, not an application failure.
+    reason: 'A cosmetic layout-measurement notice from the browser. Nothing is broken for the doctor.',
+    test: function (m) { return /ResizeObserver loop/i.test(m); }
+  },
+  {
+    id: 'user-aborted',
+    action: 'noise',
+    // The doctor navigated away / closed the tab mid-request. Deliberately
+    // NARROW: generic "Failed to fetch" is NOT matched, because that can mean
+    // the app really is unreachable and the owner must hear about it.
+    reason: 'The doctor moved away from the page before it finished loading.',
+    test: function (m) {
+      return /^(AbortError.*|The operation was aborted\.?|The user aborted a request\.?|signal is aborted without reason)$/i.test(String(m).trim());
+    }
+  },
+  {
+    id: 'browser-extension',
+    action: 'noise',
+    // The fault originates in an extension installed on the doctor's own
+    // machine, not in any file GP Link ships.
+    reason: 'Caused by a browser add-on on the doctor’s own computer, not by GP Link.',
+    test: function (m, u, s) { return /(chrome|moz|safari-web)-extension:\/\//i.test(String(m) + ' ' + String(s || '')); }
+  }
+];
+
+// Returns { id, action, reason } for a matched rule, or null when the error
+// looks like a genuine product bug.
+function classifyClientErrorNoise(message, pageUrl, stack) {
+  var noiseMsg = String(message || '');
+  var noiseUrl = String(pageUrl || '');
+  var noiseStack = String(stack || '');
+  for (var ni = 0; ni < CLIENT_ERROR_NOISE_RULES.length; ni++) {
+    var rule = CLIENT_ERROR_NOISE_RULES[ni];
+    var hit = false;
+    try { hit = !!rule.test(noiseMsg, noiseUrl, noiseStack); } catch (ruleErr) { hit = false; }
+    if (hit) return { id: rule.id, action: rule.action, reason: rule.reason };
+  }
+  return null;
+}
+
+// Email addresses must never sit in free-text error fields. The dedicated
+// user_email column is the ONE place a GP's address legitimately lives; anything
+// that leaks into a message/stack/context string is scrubbed both on write and
+// on read (so historic rows are neutralised without being deleted).
+function redactEmailsInText(value) {
+  if (value == null) return value;
+  return String(value).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email removed]');
+}
+
+// ── Plain-English error summaries ───────────────────────────────────────────
+// The owner is not an engineer. Every error surfaced in the Technical tab and
+// in the daily digest carries a one-line summary written in ordinary words.
+const ERROR_PAGE_LABELS = {
+  'index': 'Home', 'app-shell': 'main app', 'account': 'Account',
+  'career': 'My Practice', 'myinthealth': 'MyIntealth', 'ahpra': 'AHPRA',
+  'amc': 'AMC', 'visa': 'Visa', 'pbs': 'PBS & Medicare',
+  'onboarding': 'Onboarding', 'signin': 'Sign-in', 'admin-signin': 'Admin sign-in',
+  'ceo-dashboard': 'CEO dashboard', 'admin': 'Admin dashboard',
+  'confirm-call': 'Confirm call', 'practice-intake': 'Practice intake',
+  'pep-pathway': 'PEP pathway', 'housing': 'Housing', 'documents': 'Documents',
+  'support': 'Support', 'start': 'Get started',
+  // Synthetic routes used by recordServerError, not real pages.
+  'email-send': 'the email sender'
+};
+
+function friendlyPageName(pageUrl) {
+  var rawUrl = String(pageUrl || '').trim();
+  if (!rawUrl) return 'the app';
+  // Server-recorded rows carry a route or a process hook, not a page URL.
+  if (/^process:/i.test(rawUrl)) return 'a background job';
+  var pathOnly = rawUrl.replace(/^https?:\/\/[^/]+/i, '').split('?')[0].split('#')[0];
+  if (pathOnly.indexOf('/api/') === 0) return pathOnly;
+  var slug = String(pathOnly.replace(/\/+$/, '').split('/').pop() || '').replace(/\.html?$/i, '').toLowerCase();
+  if (!slug) return 'Home';
+  return ERROR_PAGE_LABELS[slug] || (slug.charAt(0).toUpperCase() + slug.slice(1)).replace(/[-_]/g, ' ');
+}
+
+// Ordered most-specific-first: the first match wins.
+const ERROR_MEANING_RULES = [
+  // Email failures first — they are the most consequential and the most
+  // specific, so they must not be swallowed by the generic 4xx/5xx rules.
+  { test: /Email send failed[\s\S]*\b429\b|Email send failed[\s\S]*rate_limit/i,
+    say: 'could not send an email because our email provider refused it for sending too fast — the person it was meant for never got it' },
+  { test: /^Email send failed/i,
+    say: 'could not send an email, so the person it was meant for never received it' },
+  { test: /Failed to fetch|NetworkError|Load failed|ERR_(NETWORK|INTERNET_DISCONNECTED|CONNECTION)/i,
+    say: 'could not reach the GP Link server, so the request never got through' },
+  { test: /\b(401|Unauthorized|403|Forbidden)\b/i,
+    say: 'was refused access — the doctor’s sign-in had probably expired' },
+  { test: /\b404\b|Not Found/i,
+    say: 'tried to open something that isn’t there — a broken link or a missing file' },
+  { test: /\b5\d\d\b|Internal Server Error/i,
+    say: 'asked the server for something and the server itself failed' },
+  { test: /Unexpected token|JSON\.parse|is not valid JSON|Unexpected end of (JSON|input)/i,
+    say: 'got back a reply it couldn’t read, so it gave up part-way' },
+  { test: /is not a function|is not defined|Cannot read (properties|property)|undefined is not an object|null is not an object|Cannot access/i,
+    say: 'hit a coding fault while building the screen, so part of the page never finished loading' },
+  { test: /timed? ?out|ETIMEDOUT|deadline/i,
+    say: 'waited too long for a reply and gave up' },
+  { test: /Quota ?Exceeded|exceeded the quota|storage is full/i,
+    say: 'ran out of room saving information in the doctor’s browser' },
+  { test: /SecurityError|permission denied|Blocked by|CORS/i,
+    say: 'was blocked by the browser’s security rules' },
+  { test: /ENOENT|EACCES|EROFS|no such file/i,
+    say: 'tried to read or write a file the server doesn’t have access to' }
+];
+
+// row = a grouped row from buildClientErrorGroups (or any raw client_errors row).
+function plainEnglishErrorSummary(row) {
+  var peMsg = String((row && row.error_message) || '');
+  var pePage = friendlyPageName(row && row.page_url);
+  var peMeaning = 'stopped with an unexpected fault';
+  for (var pmi = 0; pmi < ERROR_MEANING_RULES.length; pmi++) {
+    if (ERROR_MEANING_RULES[pmi].test.test(peMsg)) { peMeaning = ERROR_MEANING_RULES[pmi].say; break; }
+  }
+  var peIsBackend = String((row && row.source) || '') === 'server'
+    || /^\/api\//.test(String((row && row.page_url) || ''))
+    || /^process:/i.test(String((row && row.page_url) || ''));
+  var peLead = peIsBackend
+    ? 'A behind-the-scenes part of GP Link (' + pePage + ')'
+    : 'Something on the ' + pePage + ' page';
+
+  var peCount = Math.max(1, Number(row && row.occurrence_count) || 1);
+  var peUsers = Math.max(0, Number(row && row.affected_users) || 0);
+  var peTail = peCount === 1 ? ' Seen once' : ' Seen ' + peCount + ' times';
+  // "at least" is deliberate — see the honesty note in buildClientErrorGroups.
+  if (peUsers === 1) peTail += ', affecting at least 1 person';
+  else if (peUsers > 1) peTail += ', affecting at least ' + peUsers + ' people';
+  return peLead + ' ' + peMeaning + '.' + peTail + '.';
+}
+
+// ── Grouping + ranking ──────────────────────────────────────────────────────
+// One BUG should be one row, not fifty. Rows are collapsed on error_hash (the
+// signature both writers already dedupe on), ranked by impact, classified for
+// noise and given their plain-English line. Shared by the Technical tab
+// endpoint and the daily owner digest so both tell exactly the same story.
+function buildClientErrorGroups(rows) {
+  var ceByHash = {};
+  var ceOrder = [];
+  (Array.isArray(rows) ? rows : []).forEach(function (r) {
+    if (!r) return;
+    var ceKey = r.error_hash || ('id:' + r.id);
+    if (!ceByHash[ceKey]) {
+      ceByHash[ceKey] = {
+        error_hash: r.error_hash || null,
+        ids: [],
+        error_message: redactEmailsInText(r.error_message) || '',
+        error_stack: redactEmailsInText(r.error_stack) || '',
+        page_url: r.page_url || '',
+        user_context: redactEmailsInText(r.user_context) || '',
+        browser_info: r.browser_info || r.user_agent || '',
+        source: r.source || 'client',
+        status: r.status || 'open',
+        occurrence_count: 0,
+        first_seen_at: r.first_seen_at || r.created_at || null,
+        last_seen_at: r.last_seen_at || r.created_at || null,
+        resolved_by: r.resolved_by || null,
+        resolved_at: r.resolved_at || null,
+        _emails: {}
+      };
+      ceOrder.push(ceKey);
+    }
+    var g = ceByHash[ceKey];
+    if (r.id) g.ids.push(r.id);
+    g.occurrence_count += Math.max(1, Number(r.occurrence_count) || 1);
+    var ceFirst = r.first_seen_at || r.created_at;
+    var ceLast = r.last_seen_at || r.created_at;
+    if (ceFirst && (!g.first_seen_at || ceFirst < g.first_seen_at)) g.first_seen_at = ceFirst;
+    if (ceLast && (!g.last_seen_at || ceLast > g.last_seen_at)) g.last_seen_at = ceLast;
+    if (r.user_email) g._emails[String(r.user_email).toLowerCase()] = true;
+    if (!g.error_stack && r.error_stack) g.error_stack = redactEmailsInText(r.error_stack);
+  });
+
+  return ceOrder.map(function (k) {
+    var g = ceByHash[k];
+    // HONEST LIMITATION: client_errors keeps ONE user_email per signature (the
+    // first reporter), so this is a FLOOR, never an exact headcount. Every
+    // surface that renders it says "at least".
+    g.affected_users = Object.keys(g._emails).length;
+    delete g._emails;
+    // The triage call patches every row in the group (see the PUT handler).
+    g.id = g.ids.length ? g.ids[0] : null;
+    var ceNoise = classifyClientErrorNoise(g.error_message, g.page_url, g.error_stack);
+    g.noise = !!ceNoise;
+    g.noise_rule = ceNoise ? ceNoise.id : null;
+    g.noise_reason = ceNoise ? ceNoise.reason : null;
+    g.impact_score = g.occurrence_count * Math.max(1, g.affected_users);
+    g.plain_summary = plainEnglishErrorSummary(g);
+    return g;
+  }).sort(function (a, b) {
+    // Real product bugs always outrank classified noise; then worst impact
+    // first; then most recent.
+    if (a.noise !== b.noise) return a.noise ? 1 : -1;
+    if (b.impact_score !== a.impact_score) return b.impact_score - a.impact_score;
+    return String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || ''));
+  });
+}
+
 async function recordServerError(err, context) {
   try {
     const ctx = context || {};
-    const message = String((err && err.message) || err || 'Unknown server error').slice(0, 500);
-    const stack = String((err && err.stack) || '').slice(0, 4000);
+    // Scrub before hashing so a message that happens to carry an address groups
+    // consistently with its redacted twin instead of splitting into new rows.
+    const message = redactEmailsInText(String((err && err.message) || err || 'Unknown server error')).slice(0, 500);
+    const stack = redactEmailsInText(String((err && err.stack) || '')).slice(0, 4000);
     const route = String(ctx.route || '').slice(0, 500);
     const ctxParts = [];
     if (ctx.method) ctxParts.push(String(ctx.method));
     if (ctx.label) ctxParts.push(String(ctx.label));
-    const contextText = ctxParts.length ? ctxParts.join(' · ').slice(0, 1000) : null;
+    const contextText = ctxParts.length ? redactEmailsInText(ctxParts.join(' · ')).slice(0, 1000) : null;
+
+    // Noise gate: known non-bugs are never written. See CLIENT_ERROR_NOISE_RULES.
+    const noiseVerdict = classifyClientErrorNoise(message, route, stack);
+    if (noiseVerdict && noiseVerdict.action === 'drop') {
+      console.warn('[recordServerError] dropped as known noise (' + noiseVerdict.id + '):', message.slice(0, 160));
+      return;
+    }
     // Signature = message + route (mirrors /api/errors/report's message+url hash),
     // prefixed 'server|' so a same-message client error never collides.
     const errHash = crypto.createHash('sha256').update('server|' + message + '|' + route).digest('hex');
@@ -7293,6 +7571,10 @@ async function recordServerError(err, context) {
         error_stack: stack || null,
         page_url: route || null,
         user_context: contextText,
+        // Optional: the person this failure is ABOUT (e.g. the recipient of an
+        // email that never sent). The dedicated column is the one place an
+        // address may live — free text is always scrubbed.
+        user_email: ctx.userEmail ? String(ctx.userEmail).slice(0, 200) : null,
         error_hash: errHash,
         occurrence_count: 1,
         status: 'open',
@@ -7385,7 +7667,10 @@ const CRON_SCHEDULES = {
   'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 },
   // Sunday 21:00 UTC = Monday ~7am AEST — the digest lands at the start of the
   // owner's week. Weekly cadence (10080 min).
-  'owner-digest': { schedule: '0 21 * * 0', cadenceMinutes: 10080 }
+  'owner-digest': { schedule: '0 21 * * 0', cadenceMinutes: 10080 },
+  // Daily 21:40 UTC ≈ 7:40am AEST — the health digest lands before the owner
+  // starts the day, and after the 20:00–21:00 UTC nightly sweeps have reported.
+  'error-digest': { schedule: '40 21 * * *', cadenceMinutes: 1440 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -7408,6 +7693,49 @@ async function recordCronRun(name, status, detail, ms) {
   } catch (cronErr) {
     console.error('[recordCronRun] heartbeat write failed (ignored):', cronErr && cronErr.message);
   }
+}
+
+// ── Cron health (S4) — shared by GET /api/admin/cron-health and the daily
+// error digest, so the dashboard and the email can never disagree about which
+// scheduled job has stopped running.
+// Returns [{ name, schedule, cadence_minutes, last_run_at, last_status,
+//            last_detail, last_ms, overdue }].
+async function computeCronHealth() {
+  var chNames = Object.keys(CRON_SCHEDULES);
+  var chRuns = {};
+  chNames.forEach(function (n) { if (_localCronRuns[n]) chRuns[n] = _localCronRuns[n]; });
+  if (isSupabaseDbConfigured()) {
+    var chKeys = chNames.map(function (n) { return '"cron_last_run_' + n + '"'; }).join(',');
+    var chKvRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + chKeys + ')');
+    if (chKvRes.ok && Array.isArray(chKvRes.data)) {
+      chKvRes.data.forEach(function (row) {
+        var chName = String(row.key || '').replace(/^cron_last_run_/, '');
+        try {
+          var chVal = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+          if (chVal && chVal.at) chRuns[chName] = chVal;
+        } catch (chParseErr) { /* malformed heartbeat — treat as never run */ }
+      });
+    }
+  }
+  var chNowMs = Date.now();
+  return chNames.map(function (n) {
+    var chSpec = CRON_SCHEDULES[n];
+    var chLast = chRuns[n] || null;
+    var chLastAtMs = chLast && chLast.at ? Date.parse(chLast.at) : NaN;
+    // Overdue = never ran, or last run older than ~2× its cadence (+5 min grace).
+    var chOverdue = !Number.isFinite(chLastAtMs) ||
+      (chNowMs - chLastAtMs) > (chSpec.cadenceMinutes * 2 * 60000 + 5 * 60000);
+    return {
+      name: n,
+      schedule: chSpec.schedule,
+      cadence_minutes: chSpec.cadenceMinutes,
+      last_run_at: chLast && chLast.at ? chLast.at : null,
+      last_status: chLast && chLast.status ? chLast.status : null,
+      last_detail: chLast && chLast.detail ? chLast.detail : null,
+      last_ms: chLast && Number.isFinite(chLast.ms) ? chLast.ms : null,
+      overdue: chOverdue
+    };
+  });
 }
 
 // ── Weekly trend series (shared: GET /api/ceo/trends + the owner digest) ────
@@ -7683,6 +8011,254 @@ async function sendOwnerDigestEmail(opts) {
     return { ok: true, sent: true, skipped: false, week_start: weekKey, forced: odForce };
   }
   return { ok: false, sent: false, skipped: false, week_start: weekKey, message: (odSendRes && odSendRes.error) || 'Email send failed.' };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DAILY HEALTH DIGEST (launch triage — BUILD 3)
+// ═════════════════════════════════════════════════════════════════════════════
+// Until now NOTHING notified anyone when the app broke, yet the toast a doctor
+// sees says "we've been notified". This makes that sentence true: once a day,
+// IF there is something worth saying, the owner gets a plain-English email.
+//
+// Deliberately quiet. It sends ONLY when there are new distinct errors in the
+// last 24h or an overdue scheduled job — otherwise silence, so the day it does
+// arrive it still gets read. Stalled-onboarding is reported as context when a
+// digest is already going out; it never triggers one on its own (it is a
+// standing number and would make the email daily-and-ignorable).
+var _errorDigestLastSentLocal = null; // in-memory fallback when Supabase is off
+
+async function getErrorDigestLastSent() {
+  if (isSupabaseDbConfigured()) {
+    try {
+      var edRes = await supabaseDbRequest('runtime_kv', 'key=eq.error_digest_last_sent&select=value');
+      if (edRes.ok && Array.isArray(edRes.data) && edRes.data[0] && edRes.data[0].value) return edRes.data[0].value;
+      if (edRes.ok) return null; // no row yet — an empty result is authoritative
+    } catch (e) { /* fall through to local */ }
+  }
+  return _errorDigestLastSentLocal;
+}
+
+async function setErrorDigestLastSent(entry) {
+  _errorDigestLastSentLocal = entry;
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: [{ key: 'error_digest_last_sent', value: entry }]
+    });
+  } catch (e) {
+    console.error('[error-digest] dedupe marker write failed (ignored):', e && e.message);
+  }
+}
+
+// Gathers everything the digest reports, using the SAME builders the Technical
+// tab uses (buildClientErrorGroups, computeCronHealth) so the email and the
+// dashboard can never tell different stories.
+async function buildErrorDigestData() {
+  var edNowMs = Date.now();
+  var edDayAgo = new Date(edNowMs - 86400000).toISOString();
+
+  // Errors still open or under investigation that were seen in the last 24h.
+  var edErrRes = await supabaseDbRequest('client_errors',
+    'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,source' +
+    '&status=in.(open,investigating)&last_seen_at=gte.' + encodeURIComponent(edDayAgo) + '&order=last_seen_at.desc&limit=500');
+  if (!edErrRes.ok) {
+    // source column migration (20260706093000) not applied yet — legacy shape.
+    edErrRes = await supabaseDbRequest('client_errors',
+      'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at' +
+      '&status=in.(open,investigating)&last_seen_at=gte.' + encodeURIComponent(edDayAgo) + '&order=last_seen_at.desc&limit=500');
+  }
+  var edRawRows = (edErrRes.ok && Array.isArray(edErrRes.data)) ? edErrRes.data : [];
+  var edGroups = buildClientErrorGroups(edRawRows);
+
+  // Emails that never went out. recordEmailFailure files these under the
+  // 'email-send' route with the recipient in the user_email COLUMN, so they are
+  // countable (and attributable) without a second table. Read from the RAW rows
+  // — the grouped view scrubs addresses out of free text, but the owner needs to
+  // know exactly who was not contacted, and this digest goes only to them.
+  var edEmailFailRows = edRawRows.filter(function (r) { return r && String(r.page_url || '') === 'email-send'; });
+  var edEmailFailCount = edEmailFailRows.reduce(function (n, r) { return n + Math.max(1, Number(r.occurrence_count) || 1); }, 0);
+  var edEmailFailSeen = {};
+  var edEmailFailRecipients = [];
+  edEmailFailRows.forEach(function (r) {
+    var addr = r.user_email ? String(r.user_email).toLowerCase() : '';
+    if (!addr || edEmailFailSeen[addr]) return;
+    edEmailFailSeen[addr] = true;
+    edEmailFailRecipients.push(addr);
+  });
+  // Classified noise is excluded outright — the whole point of the digest is
+  // that the owner only reads about things that are actually wrong.
+  var edReal = edGroups.filter(function (g) { return !g.noise; });
+  var edNoiseSuppressed = edGroups.length - edReal.length;
+  // "New" = first seen inside the window (not merely seen again).
+  var edNew = edReal.filter(function (g) { return g.first_seen_at && g.first_seen_at >= edDayAgo; });
+
+  var edCrons = await computeCronHealth();
+  var edOverdue = edCrons.filter(function (c) { return c.overdue; });
+
+  // Stalled mid-onboarding — reuses the onboarding-nudge enumerator, so it is
+  // exactly the population the chase emails already act on. Best-effort: a
+  // failure here must not stop the digest going out.
+  var edStalled = [];
+  try {
+    var edGps = await enumerateIncompleteOnboardingGps();
+    edStalled = (edGps || []).filter(function (g) {
+      return g && !g.completed && (edNowMs - (g.lastActiveMs || edNowMs)) > 3 * 86400000;
+    });
+  } catch (edStallErr) {
+    console.error('[error-digest] stalled-onboarding lookup failed (ignored):', edStallErr && edStallErr.message);
+  }
+
+  return {
+    dayKey: new Date(edNowMs).toISOString().slice(0, 10),
+    newErrors: edNew,
+    worstErrors: edReal.slice(0, 8), // already ranked worst-first by impact
+    realErrorCount: edReal.length,
+    noiseSuppressed: edNoiseSuppressed,
+    overdueCrons: edOverdue,
+    totalCrons: edCrons.length,
+    stalledGps: edStalled,
+    emailFailureCount: edEmailFailCount,
+    emailFailureRecipients: edEmailFailRecipients
+  };
+}
+
+// { force } — force=true is the Technical tab's "Email me this now" button: it
+// always sends and does NOT consume the day's dedupe slot, so the scheduled
+// digest still arrives after a test send.
+async function sendErrorDigestEmail(opts) {
+  var edForce = !!(opts && opts.force);
+  var edEsc = function (v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  };
+
+  var ed = await buildErrorDigestData();
+
+  // Trigger gate — silence unless something genuinely changed.
+  // Email failures always qualify: an email that never sent is invisible by
+  // definition, and is precisely the silent failure this digest exists for.
+  var edWorthSending = ed.newErrors.length > 0 || ed.overdueCrons.length > 0 || ed.emailFailureCount > 0;
+  if (!edForce && !edWorthSending) {
+    return { ok: true, sent: false, skipped: true, reason: 'nothing_to_report', day: ed.dayKey };
+  }
+  if (!edForce) {
+    var edLast = await getErrorDigestLastSent();
+    if (edLast && edLast.day === ed.dayKey) {
+      return { ok: true, sent: false, skipped: true, reason: 'already_sent_today', day: ed.dayKey };
+    }
+  }
+
+  var edCell = 'padding:8px 10px;font-size:14px;color:#334155;border-bottom:1px solid #e2e8f0';
+
+  // ── Headline ──
+  var edHeadBits = [];
+  if (ed.newErrors.length) edHeadBits.push('<strong>' + ed.newErrors.length + '</strong> new problem' + (ed.newErrors.length === 1 ? '' : 's'));
+  if (ed.overdueCrons.length) edHeadBits.push('<strong>' + ed.overdueCrons.length + '</strong> scheduled job' + (ed.overdueCrons.length === 1 ? '' : 's') + ' not running');
+  if (ed.emailFailureCount) edHeadBits.push('<strong>' + ed.emailFailureCount + '</strong> email' + (ed.emailFailureCount === 1 ? '' : 's') + ' that never sent');
+  var edBodyHtml = '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 20px">'
+    + (edHeadBits.length
+        ? 'In the last 24 hours GP Link recorded '
+            + (edHeadBits.length > 1
+                ? edHeadBits.slice(0, -1).join(', ') + ' and ' + edHeadBits[edHeadBits.length - 1]
+                : edHeadBits[0]) + '.'
+        : 'Nothing new broke in the last 24 hours — this copy was sent on request.')
+    + '</p>';
+
+  // ── Worst offenders, in plain English ──
+  if (ed.worstErrors.length) {
+    edBodyHtml += '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">What is going wrong</p>'
+      + '<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 20px">';
+    for (var edi = 0; edi < ed.worstErrors.length; edi++) {
+      var edE = ed.worstErrors[edi];
+      var edIsNew = edE.first_seen_at && edE.first_seen_at >= new Date(Date.now() - 86400000).toISOString();
+      edBodyHtml += '<tr><td style="' + edCell + '">'
+        + (edIsNew ? '<span style="display:inline-block;background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 6px;border-radius:4px;margin-right:6px">New</span>' : '')
+        + '<span style="color:#0f172a;font-weight:600">' + edEsc(edE.plain_summary) + '</span>'
+        + '<div style="font-size:12px;color:#64748b;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word">'
+        + edEsc(String(edE.error_message || '').slice(0, 180)) + '</div>'
+        + '</td></tr>';
+    }
+    edBodyHtml += '</table>';
+  }
+
+  // ── Emails that never sent (the silent-failure class) ──
+  if (ed.emailFailureCount) {
+    edBodyHtml += '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Emails that never went out</p>'
+      + '<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 8px">'
+      + '<strong>' + ed.emailFailureCount + '</strong> email' + (ed.emailFailureCount === 1 ? '' : 's')
+      + ' failed to send in the last 24 hours, even after automatic retries. '
+      + 'Those people were never contacted — anything you expected them to receive did not arrive.</p>';
+    if (ed.emailFailureRecipients.length) {
+      edBodyHtml += '<p style="font-size:13px;color:#64748b;line-height:1.7;margin:0 0 20px">Who: '
+        + ed.emailFailureRecipients.slice(0, 15).map(edEsc).join(', ')
+        + (ed.emailFailureRecipients.length > 15 ? ' and ' + (ed.emailFailureRecipients.length - 15) + ' more' : '')
+        + '</p>';
+    } else {
+      edBodyHtml += '<p style="font-size:13px;color:#64748b;margin:0 0 20px">Recipients were not recorded for these — see the Technical tab.</p>';
+    }
+  }
+
+  // ── Overdue crons ──
+  if (ed.overdueCrons.length) {
+    edBodyHtml += '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Scheduled jobs that have stopped running</p>'
+      + '<p style="font-size:13px;color:#64748b;line-height:1.5;margin:0 0 8px">These run GP Link on a timer (chase emails, reminders, backups). If one stops, the work it does silently stops too.</p>'
+      + '<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 20px">';
+    for (var edc = 0; edc < ed.overdueCrons.length; edc++) {
+      var edC = ed.overdueCrons[edc];
+      edBodyHtml += '<tr><td style="' + edCell + '"><strong>' + edEsc(edC.name.replace(/-/g, ' ')) + '</strong></td>'
+        + '<td style="' + edCell + ';text-align:right;color:#b91c1c">'
+        + (edC.last_run_at ? 'last ran ' + edEsc(new Date(edC.last_run_at).toUTCString()) : 'has never run')
+        + '</td></tr>';
+    }
+    edBodyHtml += '</table>';
+  }
+
+  // ── Stalled onboarding (context only) ──
+  if (ed.stalledGps.length) {
+    edBodyHtml += '<p style="font-size:13px;font-weight:700;color:#0f172a;margin:0 0 6px">Doctors stuck part-way through sign-up</p>'
+      + '<p style="font-size:14px;color:#334155;line-height:1.7;margin:0 0 20px">'
+      + '<strong>' + ed.stalledGps.length + '</strong> doctor' + (ed.stalledGps.length === 1 ? ' has' : 's have')
+      + ' started onboarding but not finished it, with no activity for 3+ days. '
+      + 'The automatic chase emails are already running for them — this is here so you can see the number.</p>';
+  }
+
+  // ── Footer note on suppressed noise (transparency, not silence) ──
+  if (ed.noiseSuppressed > 0) {
+    edBodyHtml += '<p style="font-size:12px;color:#94a3b8;line-height:1.6;margin:0 0 8px">'
+      + ed.noiseSuppressed + ' further entr' + (ed.noiseSuppressed === 1 ? 'y was' : 'ies were')
+      + ' left out because they are known non-faults (developer tooling, browser quirks). They are still listed in the Technical tab under “Not a real fault”.</p>';
+  }
+
+  var edSubject = ed.newErrors.length
+    ? 'GP Link health — ' + ed.newErrors.length + ' new problem' + (ed.newErrors.length === 1 ? '' : 's') + ' (' + ed.dayKey + ')'
+    : (ed.overdueCrons.length
+        ? 'GP Link health — ' + ed.overdueCrons.length + ' scheduled job' + (ed.overdueCrons.length === 1 ? '' : 's') + ' not running (' + ed.dayKey + ')'
+        : (ed.emailFailureCount
+            ? 'GP Link health — ' + ed.emailFailureCount + ' email' + (ed.emailFailureCount === 1 ? '' : 's') + ' never sent (' + ed.dayKey + ')'
+            : 'GP Link health — on-demand copy (' + ed.dayKey + ')'));
+
+  var edSendRes = await sendEmail({
+    to: GP_OWNER_EMAIL,
+    subject: edSubject,
+    html: buildCareerEmailHtml({
+      title: 'GP Link health check',
+      bodyHtml: edBodyHtml,
+      ctaText: 'Open the Technical tab',
+      ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
+      footer: 'Sent once a day, and only when there is something to report. Full detail — including the technical stack traces and the resolve/ignore buttons — lives in the CEO dashboard’s Technical tab.'
+    }),
+    category: 'transactional'
+  });
+
+  if (edSendRes && edSendRes.ok) {
+    if (!edForce) await setErrorDigestLastSent({ day: ed.dayKey, sent_at: new Date().toISOString() });
+    return {
+      ok: true, sent: true, skipped: false, day: ed.dayKey, forced: edForce,
+      new_errors: ed.newErrors.length, overdue_crons: ed.overdueCrons.length, stalled_gps: ed.stalledGps.length
+    };
+  }
+  return { ok: false, sent: false, skipped: false, day: ed.dayKey, message: (edSendRes && edSendRes.error) || 'Email send failed.' };
 }
 
 // ── Migration ledger (C4) ────────────────────────────────────────────────────
@@ -11751,8 +12327,18 @@ function requireAdminOrAtsSession(req, res) {
   return resolveAdminRequestContext(req, res);
 }
 
+// Must NEVER throw. If the filesystem is read-only the agent tooling simply has
+// no scratch space — that is a tooling limitation, not a product error, and it
+// must not bubble up into the request handler (which would record it in
+// client_errors and drown the owner's Technical tab).
 function ensureAgentOutputRoot() {
-  ensureDirSync(AGENT_OUTPUT_ROOT);
+  try {
+    ensureDirSync(AGENT_OUTPUT_ROOT);
+    return true;
+  } catch (agentDirErr) {
+    console.warn('[agents] output root unavailable (ignored):', agentDirErr && agentDirErr.message);
+    return false;
+  }
 }
 
 function readJsonFileSafe(filePath) {
@@ -14582,7 +15168,7 @@ async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, booking
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
   const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
   try {
-    const resp = await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ to: toPhone, body: messageText }),
@@ -18158,7 +18744,7 @@ async function captureCalendlyDirectBookerLead(d) {
 async function sendWhatsappText(toPhone, body) {
   if (!process.env.DOUBLETICK_API_KEY || !toPhone || !body) return { ok: false, error: 'not configured' };
   try {
-    const resp = await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ to: toPhone, body: body }),
@@ -25632,14 +26218,130 @@ async function suppressEmail(email, reason, source) {
 // Technical tab. Never throws.
 async function recordEmailFailure(to, subject, errorText) {
   try {
-    const toLabel = Array.isArray(to) ? to.join(', ') : String(to || '');
+    const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean).map(String);
     const err = new Error('Email send failed: ' + String(errorText || 'unknown error').slice(0, 300));
     await recordServerError(err, {
       route: 'email-send',
       method: 'EMAIL',
-      label: 'to=' + toLabel.slice(0, 200) + ' · subject=' + String(subject || '').slice(0, 200)
+      // The recipient goes in the dedicated user_email COLUMN, not into the
+      // free-text label — free text is email-scrubbed on write and on read
+      // (redactEmailsInText), which would otherwise destroy exactly the fact
+      // the owner needs: WHO was not contacted.
+      userEmail: recipients[0] || null,
+      label: 'subject=' + String(subject || '').slice(0, 200)
+        + (recipients.length > 1 ? ' · +' + (recipients.length - 1) + ' more recipient(s)' : '')
     });
   } catch (_) { /* visibility must never break the send path */ }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// RESEND RATE LIMITING + RETRY
+// ═════════════════════════════════════════════════════════════════════════════
+// Production evidence (client_errors, 2026-07-09 and 2026-07-10):
+//   "Resend API error: 429 {"statusCode":429,"name":"rate_limit_exceeded",
+//    "message":"Too many requests. You can only make 2 requests per second..."}"
+// sendEmail had NO retry, so a 429 meant the email was simply never sent and
+// nobody was told. With a bulk invite of hundreds of doctors that would have
+// silently skipped an unknown fraction of them.
+//
+// Two independent protections:
+//   1. PACING — an in-process gate that spaces EVERY outbound Resend call, so a
+//      tight send loop physically cannot exceed the provider's limit.
+//   2. RETRY — if a 429 arrives anyway (serverless runs many instances, and the
+//      limit is per account, not per process), back off and try again rather
+//      than dropping the message.
+//
+// RAISE THIS if the Resend plan changes — it is the only place the figure lives.
+const RESEND_MAX_REQUESTS_PER_SECOND = 2;
+const RESEND_MIN_SEND_INTERVAL_MS = Math.ceil(1000 / RESEND_MAX_REQUESTS_PER_SECOND); // 500ms sustained
+// WHICH SENDS ARE PACED — and why it is not "all of them".
+// Pacing blocks the caller. Most handlers fire ops/confirmation emails
+// fire-and-forget; on serverless, work still pending when the response
+// completes can be frozen or killed, so putting a rate gate in front of those
+// risks losing the email outright — a worse failure than the 429 being fixed.
+// So the gate is applied to BULK-SHAPED sends only:
+//   • category:'marketing'  — invites, nudges, campaigns: the loops that blast
+//   • { paced: true }       — any caller that knows it is in a send loop
+// Transactional mail (OTPs, ops alerts, single confirmations) is NOT paced.
+// EVERY send, paced or not, still gets the 429/5xx retry below, which is what
+// actually recovers a rate-limited message.
+//
+// Burst allowance (token-bucket capacity): an idle process may send this many
+// back-to-back before the gate engages; a sustained loop is then pinned to
+// RESEND_MAX_REQUESTS_PER_SECOND.
+const RESEND_MAX_SEND_ATTEMPTS = 3;   // initial try + 2 retries
+const RESEND_MAX_BACKOFF_MS = 4000;
+// Total wall-clock a single message may spend retrying. vercel.json sets
+// maxDuration: 60 — this keeps the worst case comfortably inside it.
+const RESEND_RETRY_BUDGET_MS = 20000;
+
+const RESEND_BURST_CAPACITY = 2;
+
+// Token bucket, drained one token per Resend call and refilled at exactly
+// RESEND_MAX_REQUESTS_PER_SECOND. Callers are serialised through a shared
+// promise chain so concurrent senders take turns rather than all reading a
+// stale token count. In-process only: it cannot coordinate across serverless
+// instances, which is exactly why the retry below still exists.
+let _resendTokens = RESEND_BURST_CAPACITY;
+let _resendLastRefillMs = Date.now();
+let _resendPaceChain = Promise.resolve();
+
+function _resendRefillTokens() {
+  const now = Date.now();
+  const elapsedMs = now - _resendLastRefillMs;
+  if (elapsedMs > 0) {
+    _resendTokens = Math.min(RESEND_BURST_CAPACITY, _resendTokens + elapsedMs / RESEND_MIN_SEND_INTERVAL_MS);
+    _resendLastRefillMs = now;
+  }
+}
+
+function resendPaceSlot() {
+  const turn = _resendPaceChain.then(async () => {
+    _resendRefillTokens();
+    if (_resendTokens < 1) {
+      const waitMs = Math.ceil((1 - _resendTokens) * RESEND_MIN_SEND_INTERVAL_MS);
+      await new Promise((r) => setTimeout(r, waitMs));
+      _resendRefillTokens();
+    }
+    _resendTokens = Math.max(0, _resendTokens - 1);
+  });
+  // A rejected link must not poison the chain for every later send.
+  _resendPaceChain = turn.catch(() => {});
+  return turn;
+}
+
+// 429 = rate limited; 5xx = transient provider fault. Every other 4xx (invalid
+// address, bad payload, bad key) fails identically on a retry — retrying just
+// burns the budget and delays the failure report the owner needs.
+function isRetryableResendStatus(status) {
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
+// Honour the provider's own rate-limit headers when present ("See rate limit
+// response headers" is in the 429 body), else exponential backoff with jitter
+// so parallel instances do not all retry on the same tick.
+function resendRetryDelayMs(res, attempt) {
+  let headerMs = null;
+  try {
+    if (res && res.headers && typeof res.headers.get === 'function') {
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter) {
+        const secs = Number(retryAfter);
+        if (Number.isFinite(secs)) headerMs = secs * 1000;              // delta-seconds form
+        else {
+          const when = Date.parse(retryAfter);                          // HTTP-date form
+          if (Number.isFinite(when)) headerMs = when - Date.now();
+        }
+      }
+      if (headerMs == null) {
+        const reset = res.headers.get('ratelimit-reset') || res.headers.get('x-ratelimit-reset');
+        if (reset) { const s = Number(reset); if (Number.isFinite(s)) headerMs = s * 1000; }
+      }
+    }
+  } catch (_) { headerMs = null; }
+  const backoffMs = RESEND_MIN_SEND_INTERVAL_MS * Math.pow(2, attempt); // 500ms, 1s, 2s…
+  const chosen = (headerMs != null && headerMs > 0) ? headerMs : backoffMs;
+  return Math.min(RESEND_MAX_BACKOFF_MS, Math.max(0, chosen)) + Math.floor(Math.random() * 120);
 }
 
 // from: optional { email, name } to send on behalf of a specific person (e.g. the assigned RSO).
@@ -25650,10 +26352,13 @@ async function recordEmailFailure(to, subject, errorText) {
 // category (optional): 'transactional' (default) | 'marketing'. Only
 // 'marketing' respects the email_suppression list — bounced/complained
 // recipients are silently skipped (result: { ok:false, suppressed:true }).
-async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers, category }) {
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers, category, paced }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   let recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
   const isMarketing = String(category || 'transactional') === 'marketing';
+  // Marketing == the bulk-shaped traffic (invites, nudges, campaigns); callers
+  // in an explicit send loop can opt in with { paced: true }.
+  const isPacedSend = isMarketing || paced === true;
   if (isMarketing) {
     const kept = [];
     for (const rcpt of recipients) {
@@ -25704,44 +26409,81 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
     if (cleanAttachments.length === 0) cleanAttachments = null;
   }
   for (const plan of sendPlans) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const emailPayload = {
-        from: fromName + ' <' + fromEmail + '>',
-        to: plan.to,
-        subject: subject,
-        html: html || '',
-        text: text || ''
-      };
-      if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
-      if (cleanAttachments) emailPayload.attachments = cleanAttachments;
-      // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
-      // per-task sequences without a queue table or cron on serverless.
-      if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
-      // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
-      if (plan.headers && typeof plan.headers === 'object') emailPayload.headers = plan.headers;
-      const res = await fetch(RESEND_API_URL, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(emailPayload)
-      });
-      const resBody = await res.text().catch(() => '');
-      if (!res.ok) {
-        console.error('[sendEmail] Resend API error:', res.status, resBody.slice(0, 300));
-        await recordEmailFailure(plan.to, subject, 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200));
-        return { ok: false, error: 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200) };
+    const emailPayload = {
+      from: fromName + ' <' + fromEmail + '>',
+      to: plan.to,
+      subject: subject,
+      html: html || '',
+      text: text || ''
+    };
+    if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+    if (cleanAttachments) emailPayload.attachments = cleanAttachments;
+    // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
+    // per-task sequences without a queue table or cron on serverless.
+    if (scheduledAt) emailPayload.scheduled_at = scheduledAt;
+    // Optional per-message email headers (e.g. List-Unsubscribe for nudge emails).
+    if (plan.headers && typeof plan.headers === 'object') emailPayload.headers = plan.headers;
+
+    const retryDeadlineMs = Date.now() + RESEND_RETRY_BUDGET_MS;
+    let lastFailure = null;
+    let delivered = false;
+
+    for (let attempt = 0; attempt < RESEND_MAX_SEND_ATTEMPTS && !delivered; attempt++) {
+      // Bulk-shaped sends take a turn at the pacing gate — first try AND
+      // retries — so a send loop can never itself cause the next 429. See the
+      // "WHICH SENDS ARE PACED" note above for why this is not unconditional.
+      if (isPacedSend) await resendPaceSlot();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const res = await fetch(RESEND_API_URL, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(emailPayload)
+        });
+        const resBody = await res.text().catch(() => '');
+        if (res.ok) {
+          console.log('[sendEmail] Resend accepted:', plan.to, '| response:', resBody.slice(0, 200)
+            + (attempt > 0 ? ' | after ' + attempt + ' retry(ies)' : ''));
+          delivered = true;
+          break;
+        }
+        lastFailure = 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200);
+        if (!isRetryableResendStatus(res.status)) {
+          console.error('[sendEmail] Resend API error (not retryable):', res.status, resBody.slice(0, 300));
+          break;
+        }
+        const waitMs = resendRetryDelayMs(res, attempt);
+        if (attempt + 1 >= RESEND_MAX_SEND_ATTEMPTS || Date.now() + waitMs > retryDeadlineMs) {
+          console.error('[sendEmail] Resend ' + res.status + ' — retries exhausted:', resBody.slice(0, 200));
+          break;
+        }
+        console.warn('[sendEmail] Resend ' + res.status + ' — retrying in ' + waitMs + 'ms (attempt '
+          + (attempt + 1) + '/' + RESEND_MAX_SEND_ATTEMPTS + ')');
+        await new Promise((r) => setTimeout(r, waitMs));
+      } catch (err) {
+        // Abort (10s timeout) or network fault — transient, worth another go
+        // while the budget allows.
+        lastFailure = String((err && err.message) || err);
+        const waitMs = resendRetryDelayMs(null, attempt);
+        if (attempt + 1 >= RESEND_MAX_SEND_ATTEMPTS || Date.now() + waitMs > retryDeadlineMs) break;
+        console.warn('[sendEmail] Resend network error — retrying in ' + waitMs + 'ms:', lastFailure);
+        await new Promise((r) => setTimeout(r, waitMs));
+      } finally {
+        clearTimeout(timeout);
       }
-      console.log('[sendEmail] Resend accepted:', plan.to, '| response:', resBody.slice(0, 200));
-    } catch (err) {
-      await recordEmailFailure(plan.to, subject, String(err && err.message || err));
-      return { ok: false, error: String(err && err.message || err) };
-    } finally {
-      clearTimeout(timeout);
+    }
+
+    if (!delivered) {
+      // Permanently failed: recorded into client_errors (route 'email-send')
+      // with the recipient in user_email, so the daily digest can tell the
+      // owner exactly who was never contacted.
+      await recordEmailFailure(plan.to, subject, lastFailure || 'unknown error');
+      return { ok: false, error: lastFailure || 'unknown error' };
     }
   }
   return { ok: true };
@@ -31272,6 +32014,26 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Daily health digest (launch triage BUILD 3) ──
+  // GET (Vercel cron invokes with GET), cron-secret-gated; the /api dispatcher
+  // records the heartbeat because 'error-digest' is in CRON_SCHEDULES.
+  if (req.method === 'GET' && pathname === '/api/cron/error-digest') {
+    var edCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var edCronAuth = req.headers['authorization'] || '';
+    if (!edCronSecret || edCronAuth !== 'Bearer ' + edCronSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var edCronResult = await sendErrorDigestEmail({ force: false });
+    try {
+      res.gpCronDetail = edCronResult.skipped
+        ? ('skipped — ' + (edCronResult.reason || 'nothing to report'))
+        : (edCronResult.sent
+            ? ('sent — ' + edCronResult.new_errors + ' new error(s), ' + edCronResult.overdue_crons + ' overdue cron(s)')
+            : ('send failed: ' + (edCronResult.message || 'unknown')));
+    } catch (e) {}
+    sendJson(res, edCronResult.ok ? 200 : 500, edCronResult);
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/cron/onboarding-nudge') {
     var onbSecret = String(process.env.CRON_SECRET || '').trim();
     var onbAuth = req.headers['authorization'] || '';
@@ -32442,7 +33204,7 @@ async function handleApi(req, res, pathname) {
         if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
           const waText = 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' ' + call.zoom_join_url : '');
           try {
-            await fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+            await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
               body: JSON.stringify({ to: rsoPhone, body: waText }),
@@ -34838,7 +35600,7 @@ async function handleApi(req, res, pathname) {
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           const dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
-            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+            fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
               method: 'POST',
               headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
               body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
@@ -55235,7 +55997,22 @@ Return ONLY valid JSON with no markdown formatting:
     var errBody;
     try { errBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
 
-    var errHash = crypto.createHash('sha256').update((errBody.message || '') + '|' + (errBody.url || '')).digest('hex');
+    // Scrub any email address out of the free-text fields BEFORE hashing, so
+    // the signature (and therefore the grouping) is stable and no personal data
+    // is ever persisted outside the dedicated user_email column.
+    var errMessage = redactEmailsInText(String(errBody.message || '')).slice(0, 500);
+    var errStack = redactEmailsInText(String(errBody.stack || '')).slice(0, 4000);
+    var errContext = errBody.context ? redactEmailsInText(String(errBody.context)).slice(0, 1000) : null;
+
+    // Noise gate: known non-bugs (developer tooling, leftover debug logging) are
+    // acknowledged to the browser but never recorded. See CLIENT_ERROR_NOISE_RULES.
+    var errNoise = classifyClientErrorNoise(errMessage, errBody.url, errStack);
+    if (errNoise && errNoise.action === 'drop') {
+      sendJson(res, 200, { ok: true, ignored: errNoise.id });
+      return;
+    }
+
+    var errHash = crypto.createHash('sha256').update(errMessage + '|' + (errBody.url || '')).digest('hex');
 
     if (isSupabaseDbConfigured()) {
       var existingRes = await supabaseDbRequest('client_errors', 'select=id,occurrence_count,user_context&error_hash=eq.' + encodeURIComponent(errHash) + '&limit=1');
@@ -55245,20 +56022,20 @@ Return ONLY valid JSON with no markdown formatting:
           occurrence_count: (existingRow.occurrence_count || 1) + 1,
           last_seen_at: new Date().toISOString()
         };
-        if (errBody.context && (!existingRow.user_context || existingRow.user_context.indexOf(String(errBody.context)) === -1)) {
-          patchPayload.user_context = (existingRow.user_context ? existingRow.user_context + '\n' : '') + String(errBody.context).slice(0, 1000);
+        if (errContext && (!existingRow.user_context || existingRow.user_context.indexOf(errContext) === -1)) {
+          patchPayload.user_context = (existingRow.user_context ? existingRow.user_context + '\n' : '') + errContext;
         }
         await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(existingRow.id), { method: 'PATCH', body: patchPayload });
       } else {
         var insertRow = {
-          error_message: String(errBody.message || '').slice(0, 500),
-          error_stack: String(errBody.stack || '').slice(0, 4000),
+          error_message: errMessage,
+          error_stack: errStack,
           page_url: String(errBody.url || '').slice(0, 500),
           user_email: errBody.email ? String(errBody.email).slice(0, 200) : null,
           user_agent: String(errBody.userAgent || '').slice(0, 500),
           browser_info: String(errBody.userAgent || '').slice(0, 500),
           error_hash: errHash,
-          user_context: errBody.context ? String(errBody.context).slice(0, 1000) : null,
+          user_context: errContext,
           occurrence_count: 1
         };
         await supabaseDbRequest('client_errors', '', { method: 'POST', body: [insertRow] });
@@ -55724,6 +56501,19 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const digestSendResult = await sendOwnerDigestEmail({ force: true });
     sendJson(res, digestSendResult.ok ? 200 : 500, digestSendResult);
+    return;
+  }
+
+  // POST /api/ceo/error-digest/send — "Email me this now" from the Technical
+  // tab's error view. Forces a send even when there is nothing new (so the
+  // owner can confirm the alerting actually works) and does NOT consume the
+  // day's dedupe slot, so the real digest still arrives.
+  if (pathname === '/api/ceo/error-digest/send' && req.method === 'POST') {
+    const ceoCtxErrDigest = requireCeoSession(req, res);
+    if (!ceoCtxErrDigest) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const errDigestSendResult = await sendErrorDigestEmail({ force: true });
+    sendJson(res, errDigestSendResult.ok ? 200 : 500, errDigestSendResult);
     return;
   }
 
@@ -56739,7 +57529,10 @@ Return ONLY valid JSON with no markdown formatting:
       ceRes = await supabaseDbRequest('client_errors',
         'select=' + ceSafeSelect + (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus)) + '&order=last_seen_at.desc&limit=200');
     }
-    var errors = (ceRes.ok && Array.isArray(ceRes.data)) ? ceRes.data : [];
+    var ceRaw = (ceRes.ok && Array.isArray(ceRes.data)) ? ceRes.data : [];
+    // Collapse to one row per bug, rank by impact, classify noise, attach the
+    // plain-English summary and scrub any address that leaked into free text.
+    var errors = buildClientErrorGroups(ceRaw);
     var ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at,source&limit=500');
     if (!ceSummaryRes.ok) ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at&limit=500');
     var ceAll = (ceSummaryRes.ok && Array.isArray(ceSummaryRes.data)) ? ceSummaryRes.data : [];
@@ -56754,6 +57547,12 @@ Return ONLY valid JSON with no markdown formatting:
       if (ceAll[cei].status === 'investigating') ceSummary.investigating++;
       if (ceAll[cei].last_seen_at && ceAll[cei].last_seen_at >= dayAgo) ceSummary.total_occurrences_24h += (ceAll[cei].occurrence_count || 1);
     }
+    // Noise split for the rows actually listed. The lightweight summary query
+    // above selects no message text, so it cannot be classified — these two
+    // counts describe the returned list only, and the UI labels them that way.
+    ceSummary.listed_total = errors.length;
+    ceSummary.listed_noise = errors.filter(function (e) { return e.noise; }).length;
+    ceSummary.listed_real = ceSummary.listed_total - ceSummary.listed_noise;
     sendJson(res, 200, { ok: true, errors: errors, summary: ceSummary });
     return;
   }
@@ -56763,41 +57562,7 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/admin/cron-health' && req.method === 'GET') {
     var chCtx = requireCeoSession(req, res);
     if (!chCtx) return;
-    var chNames = Object.keys(CRON_SCHEDULES);
-    var chRuns = {};
-    chNames.forEach(function (n) { if (_localCronRuns[n]) chRuns[n] = _localCronRuns[n]; });
-    if (isSupabaseDbConfigured()) {
-      var chKeys = chNames.map(function (n) { return '"cron_last_run_' + n + '"'; }).join(',');
-      var chKvRes = await supabaseDbRequest('runtime_kv', 'select=key,value&key=in.(' + chKeys + ')');
-      if (chKvRes.ok && Array.isArray(chKvRes.data)) {
-        chKvRes.data.forEach(function (row) {
-          var chName = String(row.key || '').replace(/^cron_last_run_/, '');
-          try {
-            var chVal = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
-            if (chVal && chVal.at) chRuns[chName] = chVal;
-          } catch (chParseErr) { /* malformed heartbeat — treat as never run */ }
-        });
-      }
-    }
-    var chNowMs = Date.now();
-    var chCrons = chNames.map(function (n) {
-      var chSpec = CRON_SCHEDULES[n];
-      var chLast = chRuns[n] || null;
-      var chLastAtMs = chLast && chLast.at ? Date.parse(chLast.at) : NaN;
-      // Overdue = never ran, or last run older than ~2× its cadence (+5 min grace).
-      var chOverdue = !Number.isFinite(chLastAtMs) ||
-        (chNowMs - chLastAtMs) > (chSpec.cadenceMinutes * 2 * 60000 + 5 * 60000);
-      return {
-        name: n,
-        schedule: chSpec.schedule,
-        cadence_minutes: chSpec.cadenceMinutes,
-        last_run_at: chLast && chLast.at ? chLast.at : null,
-        last_status: chLast && chLast.status ? chLast.status : null,
-        last_detail: chLast && chLast.detail ? chLast.detail : null,
-        last_ms: chLast && Number.isFinite(chLast.ms) ? chLast.ms : null,
-        overdue: chOverdue
-      };
-    });
+    var chCrons = await computeCronHealth();
     sendJson(res, 200, { ok: true, generated_at: new Date().toISOString(), crons: chCrons });
     return;
   }
@@ -56876,12 +57641,25 @@ Return ONLY valid JSON with no markdown formatting:
     var errorId = decodeURIComponent(ceUpdateMatch[1]);
     var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
     var newStatus = body && body.status;
-    if (!newStatus || ['investigating', 'resolved', 'ignored'].indexOf(newStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be investigating, resolved, or ignored.' }); return; }
+    // 'open' = REOPEN (the Technical tab's third triage action); it clears the
+    // resolution stamp so a wrongly-closed bug goes back on the list clean.
+    if (!newStatus || ['open', 'investigating', 'resolved', 'ignored'].indexOf(newStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be open, investigating, resolved, or ignored.' }); return; }
     var patch = { status: newStatus };
     if (newStatus === 'resolved' || newStatus === 'ignored') { patch.resolved_by = ceoCtx.email; patch.resolved_at = new Date().toISOString(); }
-    var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId) + '&select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    else { patch.resolved_by = null; patch.resolved_at = null; }
+    // The UI shows ONE row per error_hash but a signature can span several DB
+    // rows (e.g. the source-column migration fallback wrote a second row), so
+    // triage applies to every id in the group. Falls back to the single id in
+    // the URL when no group is supplied.
+    var ceSelect = 'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,occurrence_count,status,created_at,first_seen_at,last_seen_at,resolved_by,resolved_at';
+    var ceGroupIds = (body && Array.isArray(body.ids)) ? body.ids.map(function (v) { return String(v); }).filter(Boolean) : [];
+    if (ceGroupIds.indexOf(errorId) === -1) ceGroupIds.push(errorId);
+    var ceFilter = ceGroupIds.length > 1
+      ? 'id=in.(' + ceGroupIds.map(function (v) { return encodeURIComponent('"' + v.replace(/"/g, '') + '"'); }).join(',') + ')&' + ceSelect
+      : 'id=eq.' + encodeURIComponent(errorId) + '&' + ceSelect;
+    var r = await supabaseDbRequest('client_errors', ceFilter, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
-    sendJson(res, 200, { ok: true, error: r.data && r.data[0] ? r.data[0] : null });
+    sendJson(res, 200, { ok: true, updated: (r.data && r.data.length) || 0, error: r.data && r.data[0] ? r.data[0] : null });
     return;
   }
 
@@ -60761,7 +61539,7 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           var dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
-            fetch((process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io/whatsapp') + '/message/text', {
+            fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
               body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
@@ -60938,6 +61716,20 @@ module.exports.__testUtils = {
   createSignedPurposeToken,
   recordServerError,
   recordCronRun,
+  classifyClientErrorNoise,
+  redactEmailsInText,
+  plainEnglishErrorSummary,
+  friendlyPageName,
+  buildClientErrorGroups,
+  computeCronHealth,
+  buildErrorDigestData,
+  sendErrorDigestEmail,
+  resendPaceSlot,
+  isRetryableResendStatus,
+  resendRetryDelayMs,
+  RESEND_MAX_REQUESTS_PER_SECOND,
+  RESEND_MIN_SEND_INTERVAL_MS,
+  RESEND_MAX_SEND_ATTEMPTS,
   resolveAdminRsoUserId,
   resolveAdminGpScope,
   pickDefaultCaseRsoUserId,

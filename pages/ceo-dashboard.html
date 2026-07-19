@@ -990,6 +990,49 @@
     .ceo-tech-strip-val { font-family: var(--mono); font-weight: 700; color: var(--text); }
     .ceo-tech-strip-sub { color: var(--text-dim); }
     .ceo-tech-strip-na { color: var(--text-dim); font-style: italic; }
+    /* Clickable health strips — they now open a full detail view. */
+    .ceo-tech-strip.clickable { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .ceo-tech-strip.clickable:hover { border-color: var(--panel-border-hover); background: rgba(255,255,255,0.03); }
+    .ceo-tech-strip.clickable:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .ceo-tech-strip-go { color: var(--text-dim); margin-left: 6px; font-size: 11px; }
+
+    /* ═══ ERROR DETAIL VIEW (Technical → Client errors / Open bugs) ═══ */
+    .ceo-err-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+    .ceo-err-filter { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+      background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--panel-border); }
+    .ceo-err-filter:hover { color: var(--text); border-color: var(--panel-border-hover); }
+    .ceo-err-filter.active { background: var(--blue-dim, rgba(59,130,246,0.15)); color: var(--blue); border-color: var(--blue); }
+    .ceo-err-row { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius-lg);
+      padding: 14px 16px; margin-bottom: 10px; transition: border-color 0.15s; }
+    .ceo-err-row:hover { border-color: var(--panel-border-hover); }
+    .ceo-err-row.is-noise { opacity: 0.62; }
+    .ceo-err-plain { font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.5; }
+    .ceo-err-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+    .ceo-err-chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+      padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--text-muted); white-space: nowrap; }
+    .ceo-err-chip.hot { background: var(--red-dim); color: var(--red); }
+    .ceo-err-chip.warm { background: var(--amber-dim); color: var(--amber); }
+    .ceo-err-chip.calm { background: var(--green-dim); color: var(--green); }
+    .ceo-err-tech { font-size: 11px; color: var(--text-dim); font-family: var(--mono); margin-top: 8px; word-break: break-word; line-height: 1.5; }
+    .ceo-err-noise-note { font-size: 12px; color: var(--amber); margin-top: 8px; line-height: 1.5; }
+    .ceo-err-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+    .ceo-err-btn { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      background: rgba(255,255,255,0.05); color: var(--text-muted); border: 1px solid var(--panel-border); }
+    .ceo-err-btn:hover { color: var(--text); border-color: var(--panel-border-hover); }
+    .ceo-err-btn[disabled] { opacity: 0.5; cursor: default; }
+    .ceo-err-btn.primary { color: var(--blue); border-color: var(--blue); }
+    .ceo-err-stack { margin-top: 10px; }
+    .ceo-err-stack > summary { font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none; list-style: none; }
+    .ceo-err-stack > summary::-webkit-details-marker { display: none; }
+    .ceo-err-stack > summary::before { content: '▸ '; color: var(--text-dim); }
+    .ceo-err-stack[open] > summary::before { content: '▾ '; }
+    .ceo-err-stack > summary:hover { color: var(--text); }
+    .ceo-err-stack pre { margin: 8px 0 0; padding: 10px 12px; background: rgba(0,0,0,0.28); border: 1px solid var(--panel-border);
+      border-radius: 8px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); line-height: 1.55;
+      white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+    .ceo-err-section-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); margin: 22px 0 10px; }
+    .ceo-err-note { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; }
 
     /* ═══ PER-RSO OPS BOARD (under RSO Oversight) ═══ */
     .ceo-ops-section { margin-top: 22px; }
@@ -3651,9 +3694,14 @@
         html += '</div>';
       }
       // Health stat strips (system bugs + client errors) are appended below the grid.
+      // Both strips are buttons: they open a full, triageable detail view.
       html += '<div class="ceo-tech-health" id="techHealthStrips">'
-        + '<div class="ceo-tech-strip" id="techBugsStrip"><span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">—</span></div>'
-        + '<div class="ceo-tech-strip" id="techErrStrip"><span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">—</span></div>'
+        + '<div class="ceo-tech-strip clickable" id="techBugsStrip" role="button" tabindex="0" title="Open the bug list"'
+        + ' onclick="openSystemBugsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openSystemBugsView();}">'
+        + '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">—</span></div>'
+        + '<div class="ceo-tech-strip clickable" id="techErrStrip" role="button" tabindex="0" title="Open the error list"'
+        + ' onclick="openClientErrorsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openClientErrorsView();}">'
+        + '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '</div>';
       // Phase 6 E1 (audit B4): candidate leads + Zoho archive browser card.
       html += '<div class="ceo-tech-cards" style="margin-top:14px"><div class="ceo-tech-card" id="leadsArchiveCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading leads &amp; archive…</div></div></div>';
@@ -3872,7 +3920,8 @@
           if (!d || !d.ok || !d.summary) { bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-na">unavailable</span>'; return; }
           var s = d.summary;
           bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">' + (s.open || 0)
-            + '</span> <span class="ceo-tech-strip-sub">(critical ' + (s.critical || 0) + ' / high ' + (s.high || 0) + ')</span>';
+            + '</span> <span class="ceo-tech-strip-sub">(critical ' + (s.critical || 0) + ' / high ' + (s.high || 0) + ')</span>'
+            + '<span class="ceo-tech-strip-go">View &rarr;</span>';
         }).catch(function() { if (bugStrip) bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
       }
       if (errStrip) {
@@ -3881,9 +3930,277 @@
           if (!d || !d.ok || !d.summary) { errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; return; }
           var s = d.summary;
           errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">open ' + (s.open || 0)
-            + '</span> <span class="ceo-tech-strip-sub">/ 24h occurrences ' + (s.total_occurrences_24h || 0) + '</span>';
+            + '</span> <span class="ceo-tech-strip-sub">/ 24h occurrences ' + (s.total_occurrences_24h || 0) + '</span>'
+            + '<span class="ceo-tech-strip-go">View &rarr;</span>';
         }).catch(function() { if (errStrip) errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
       }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       ERROR DETAIL VIEW (Technical tab)
+       The two health strips used to be dead numbers. They now open this view,
+       which lists every error the server already returns (up to 200 rows,
+       collapsed to one row per bug by error_hash on the server), worst first,
+       each with a plain-English summary and resolve / ignore / reopen buttons
+       wired to the existing PUT /api/ceo/technical/client-errors/:id.
+       ═══════════════════════════════════════════════════════════════════════ */
+    var errView = { status: 'open', showNoise: false, groups: [], summary: null };
+
+    function errTimeAgo(iso) {
+      if (!iso) return 'unknown';
+      var ms = Date.now() - new Date(iso).getTime();
+      if (!isFinite(ms)) return 'unknown';
+      if (ms < 0) ms = 0;
+      var mins = Math.floor(ms / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + ' min ago';
+      var hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+      var days = Math.floor(hrs / 24);
+      if (days < 31) return days + (days === 1 ? ' day ago' : ' days ago');
+      return new Date(iso).toLocaleDateString();
+    }
+
+    // Long UA strings mean nothing to a non-technical reader — name the browser.
+    function errBrowserName(ua) {
+      var u = String(ua || '');
+      if (!u) return '';
+      if (/Edg\//.test(u)) return 'Edge';
+      if (/OPR\//.test(u)) return 'Opera';
+      if (/Chrome\//.test(u) && !/Chromium/.test(u)) return /Mobile/.test(u) ? 'Chrome (mobile)' : 'Chrome';
+      if (/Firefox\//.test(u)) return 'Firefox';
+      if (/Safari\//.test(u)) return /iPhone|iPad/.test(u) ? 'Safari (iPhone/iPad)' : 'Safari';
+      if (/node|axios|curl/i.test(u)) return 'Server';
+      return 'Other browser';
+    }
+
+    function openClientErrorsView(status) {
+      if (status) errView.status = status;
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading errors…</div></div>';
+      apiFetch('/api/ceo/technical/client-errors?status=' + encodeURIComponent(errView.status)).then(function (d) {
+        c = document.getElementById('techContent');
+        if (!c) return;
+        if (!d || !d.ok) {
+          c.innerHTML = errViewHead('Errors') + '<div class="drilldown-empty">Could not load errors: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        errView.groups = Array.isArray(d.errors) ? d.errors : [];
+        errView.summary = d.summary || {};
+        renderClientErrorsView();
+      }).catch(function (e) {
+        var cc = document.getElementById('techContent');
+        if (cc) cc.innerHTML = errViewHead('Errors') + '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    function errViewHead(title) {
+      return '<div class="rso-detail-head"><span class="rso-detail-back" onclick="loadTechnical()">&#x2190; Technical</span>'
+        + '<h2 style="font-size:16px;font-weight:700">' + esc(title) + '</h2></div>';
+    }
+
+    function renderClientErrorsView() {
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      var real = errView.groups.filter(function (g) { return !g.noise; });
+      var noise = errView.groups.filter(function (g) { return g.noise; });
+      var s = errView.summary || {};
+
+      var html = errViewHead('Errors doctors are hitting');
+      html += '<div class="ceo-err-note">'
+        + 'One line per problem — the same fault reported fifty times is a single row here. Sorted worst-first '
+        + '(how often it happens &times; how many people it touches). '
+        + '“Affects at least N” is a floor, not an exact count: we only store the first person to report each fault.'
+        + '</div>';
+
+      html += '<div class="ceo-err-toolbar">';
+      ['open', 'investigating', 'resolved', 'ignored', 'all'].forEach(function (st) {
+        html += '<span class="ceo-err-filter' + (errView.status === st ? ' active' : '') + '" onclick="openClientErrorsView(\'' + st + '\')">'
+          + esc(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>';
+      });
+      html += '<span style="flex:1"></span>';
+      html += '<span class="ceo-err-btn" onclick="sendErrorDigestNow(this)">Email me this now</span>';
+      html += '</div>';
+
+      html += '<div class="ceo-err-note" style="margin-bottom:16px">Showing <b>' + real.length + '</b> real problem'
+        + (real.length === 1 ? '' : 's')
+        + (noise.length ? ' and hiding <b>' + noise.length + '</b> known non-fault' + (noise.length === 1 ? '' : 's') : '')
+        + ' &middot; ' + Number(s.total_occurrences_24h || 0) + ' occurrence(s) recorded across the whole table in the last 24h.</div>';
+
+      if (!real.length) {
+        html += '<div class="drilldown-empty">Nothing here — no ' + esc(errView.status === 'all' ? '' : errView.status) + ' problems to look at.</div>';
+      } else {
+        html += real.map(function (g) { return renderErrRow(g, errView.groups.indexOf(g)); }).join('');
+      }
+
+      if (noise.length) {
+        html += '<div class="ceo-err-section-head">Not a real fault (' + noise.length + ') '
+          + '<span class="ceo-err-filter" style="margin-left:8px" onclick="toggleErrNoise()">'
+          + (errView.showNoise ? 'Hide' : 'Show') + '</span></div>';
+        html += '<div class="ceo-err-note">Known non-bugs: developer tooling, browser quirks and leftover debug output. '
+          + 'They are kept for the record but never counted as problems and never emailed to you.</div>';
+        if (errView.showNoise) {
+          html += noise.map(function (g) { return renderErrRow(g, errView.groups.indexOf(g)); }).join('');
+        }
+      }
+      c.innerHTML = html;
+    }
+
+    function toggleErrNoise() { errView.showNoise = !errView.showNoise; renderClientErrorsView(); }
+
+    function renderErrRow(g, idx) {
+      var occ = Number(g.occurrence_count) || 1;
+      var users = Number(g.affected_users) || 0;
+      // Chip colour follows impact so the eye lands on the worst row first.
+      var heat = g.noise ? '' : (occ >= 25 || users >= 5 ? ' hot' : (occ >= 5 || users >= 2 ? ' warm' : ' calm'));
+      var browser = errBrowserName(g.browser_info);
+
+      var h = '<div class="ceo-err-row' + (g.noise ? ' is-noise' : '') + '" id="errRow' + idx + '">';
+      h += '<div class="ceo-err-plain">' + esc(g.plain_summary || g.error_message || 'Unknown error') + '</div>';
+
+      h += '<div class="ceo-err-meta">';
+      h += '<span class="ceo-err-chip' + heat + '">' + occ + '&times; seen</span>';
+      h += '<span class="ceo-err-chip' + heat + '">' + (users > 0 ? 'at least ' + users + ' affected' : 'nobody identified') + '</span>';
+      h += '<span class="ceo-err-chip">' + esc(String(g.source || 'client') === 'server' ? 'Server-side' : 'In the browser') + '</span>';
+      h += '<span class="ceo-err-chip">first ' + esc(errTimeAgo(g.first_seen_at)) + '</span>';
+      h += '<span class="ceo-err-chip">last ' + esc(errTimeAgo(g.last_seen_at)) + '</span>';
+      if (browser) h += '<span class="ceo-err-chip">' + esc(browser) + '</span>';
+      h += '<span class="ceo-err-chip">' + esc(g.status || 'open') + '</span>';
+      h += '</div>';
+
+      if (g.noise && g.noise_reason) {
+        h += '<div class="ceo-err-noise-note">Why this is not a bug: ' + esc(g.noise_reason) + '</div>';
+      }
+
+      h += '<div class="ceo-err-tech"><b>Where:</b> ' + esc(g.page_url || 'unknown') + '</div>';
+      h += '<div class="ceo-err-tech"><b>Technical message:</b> ' + esc(g.error_message || '—') + '</div>';
+      if (g.user_context) h += '<div class="ceo-err-tech"><b>Context:</b> ' + esc(g.user_context) + '</div>';
+
+      // Stack trace is noise for a non-technical reader — collapsed by default.
+      if (g.error_stack) {
+        h += '<details class="ceo-err-stack"><summary>Show the technical stack trace (for a developer)</summary>'
+          + '<pre>' + esc(g.error_stack) + '</pre></details>';
+      }
+
+      h += '<div class="ceo-err-actions">';
+      if (g.status !== 'investigating') h += '<span class="ceo-err-btn" onclick="triageErr(' + idx + ',\'investigating\',this)">Looking into it</span>';
+      if (g.status !== 'resolved') h += '<span class="ceo-err-btn primary" onclick="triageErr(' + idx + ',\'resolved\',this)">Mark fixed</span>';
+      if (g.status !== 'ignored') h += '<span class="ceo-err-btn" onclick="triageErr(' + idx + ',\'ignored\',this)">Ignore</span>';
+      if (g.status !== 'open') h += '<span class="ceo-err-btn" onclick="triageErr(' + idx + ',\'open\',this)">Reopen</span>';
+      h += '<span class="ceo-err-tech" id="errMsg' + idx + '" style="margin-top:0"></span>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    // Uses the EXISTING triage endpoint. A grouped row can cover several DB rows
+    // (same signature written twice), so every id in the group is sent.
+    function triageErr(idx, status, btn) {
+      var g = errView.groups[idx];
+      if (!g || !g.id) return;
+      var msgEl = document.getElementById('errMsg' + idx);
+      if (btn) { btn.setAttribute('disabled', 'disabled'); btn.textContent = 'Saving…'; }
+      apiFetch('/api/ceo/technical/client-errors/' + encodeURIComponent(g.id), {
+        method: 'PUT',
+        body: { status: status, ids: g.ids || [g.id] }
+      }).then(function (d) {
+        if (!d || !d.ok) {
+          if (msgEl) msgEl.innerHTML = '<span style="color:var(--red)">Could not save: ' + esc((d && d.message) || 'unknown error') + '</span>';
+          if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Retry'; }
+          return;
+        }
+        g.status = status;
+        // 'open'/'all' lists should drop a row that no longer matches the filter.
+        if (errView.status !== 'all' && errView.status !== status) {
+          errView.groups = errView.groups.filter(function (x) { return x !== g; });
+        }
+        renderClientErrorsView();
+      }).catch(function (e) {
+        if (msgEl) msgEl.innerHTML = '<span style="color:var(--red)">Error: ' + esc(e.message) + '</span>';
+        if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Retry'; }
+      });
+    }
+
+    function sendErrorDigestNow(btn) {
+      if (btn) { btn.setAttribute('disabled', 'disabled'); btn.textContent = 'Sending…'; }
+      apiFetch('/api/ceo/error-digest/send', { method: 'POST', body: {} }).then(function (d) {
+        if (!btn) return;
+        btn.removeAttribute('disabled');
+        btn.textContent = (d && d.ok && d.sent) ? 'Sent — check your inbox'
+          : 'Failed: ' + esc((d && d.message) || 'unknown');
+      }).catch(function (e) {
+        if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Failed: ' + e.message; }
+      });
+    }
+
+    /* ── Open bugs detail view ──
+       Backed by the system_bugs table via GET /api/ceo/technical/system-bugs,
+       with triage through the existing PUT .../system-bugs/:id.
+       HONEST NOTE (shown in the UI too): nothing in this codebase WRITES to
+       system_bugs automatically — the only writer is POST /api/ceo/technical/
+       scan-results, which no cron or script currently calls. So this list is
+       only ever populated by a manual scan upload, which is why it reads 0. */
+    function openSystemBugsView(status) {
+      var sbStatus = status || 'open';
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading bugs…</div></div>';
+      apiFetch('/api/ceo/technical/system-bugs?status=' + encodeURIComponent(sbStatus)).then(function (d) {
+        c = document.getElementById('techContent');
+        if (!c) return;
+        var html = errViewHead('Code-scan bugs');
+        if (!d || !d.ok) {
+          c.innerHTML = html + '<div class="drilldown-empty">Could not load bugs: ' + esc((d && d.message) || 'Unknown error') + '</div>';
+          return;
+        }
+        var bugs = Array.isArray(d.bugs) ? d.bugs : [];
+        html += '<div class="ceo-err-note">These come from an automated code scan writing into the <code>system_bugs</code> table. '
+          + '<b>Nothing currently runs that scan</b> — the upload endpoint exists but no scheduled job calls it, so this list stays empty '
+          + 'unless a scan is uploaded by hand. The live problems doctors actually hit are under “Client errors”.</div>';
+        html += '<div class="ceo-err-toolbar">';
+        ['open', 'acknowledged', 'fixed', 'dismissed', 'all'].forEach(function (st) {
+          html += '<span class="ceo-err-filter' + (sbStatus === st ? ' active' : '') + '" onclick="openSystemBugsView(\'' + st + '\')">'
+            + esc(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>';
+        });
+        html += '</div>';
+        if (!bugs.length) {
+          html += '<div class="drilldown-empty">No ' + esc(sbStatus === 'all' ? '' : sbStatus) + ' bugs recorded.</div>';
+        } else {
+          html += bugs.map(function (b) {
+            var sev = String(b.severity || 'medium');
+            var heat = (sev === 'critical' || sev === 'high') ? ' hot' : (sev === 'medium' ? ' warm' : ' calm');
+            var s = '<div class="ceo-err-row">';
+            s += '<div class="ceo-err-plain">' + esc(b.title || 'Untitled finding') + '</div>';
+            s += '<div class="ceo-err-meta"><span class="ceo-err-chip' + heat + '">' + esc(sev) + '</span>'
+              + '<span class="ceo-err-chip">' + esc(b.category || 'general') + '</span>'
+              + '<span class="ceo-err-chip">' + esc(b.status || 'open') + '</span>'
+              + '<span class="ceo-err-chip">found ' + esc(errTimeAgo(b.created_at)) + '</span></div>';
+            if (b.description) s += '<div class="ceo-err-tech">' + esc(b.description) + '</div>';
+            if (b.file_path) s += '<div class="ceo-err-tech"><b>Where in the code:</b> ' + esc(b.file_path) + (b.line_number ? ':' + esc(b.line_number) : '') + '</div>';
+            if (b.suggestion) s += '<div class="ceo-err-tech"><b>Suggested fix:</b> ' + esc(b.suggestion) + '</div>';
+            s += '<div class="ceo-err-actions">'
+              + '<span class="ceo-err-btn" onclick="triageBug(\'' + esc(b.id) + '\',\'acknowledged\',this)">Acknowledge</span>'
+              + '<span class="ceo-err-btn primary" onclick="triageBug(\'' + esc(b.id) + '\',\'fixed\',this)">Mark fixed</span>'
+              + '<span class="ceo-err-btn" onclick="triageBug(\'' + esc(b.id) + '\',\'dismissed\',this)">Dismiss</span>'
+              + '</div></div>';
+            return s;
+          }).join('');
+        }
+        c.innerHTML = html;
+      }).catch(function (e) {
+        var cc = document.getElementById('techContent');
+        if (cc) cc.innerHTML = errViewHead('Code-scan bugs') + '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>';
+      });
+    }
+
+    function triageBug(bugId, status, btn) {
+      if (btn) { btn.setAttribute('disabled', 'disabled'); btn.textContent = 'Saving…'; }
+      apiFetch('/api/ceo/technical/system-bugs/' + encodeURIComponent(bugId), { method: 'PUT', body: { status: status } })
+        .then(function (d) {
+          if (!d || !d.ok) { if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Retry'; } return; }
+          openSystemBugsView();
+        }).catch(function () { if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Retry'; } });
     }
 
     function openRsoDetail(rsoId) {

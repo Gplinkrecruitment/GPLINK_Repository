@@ -768,12 +768,14 @@
         } catch (e) { return ""; }
       }
 
-      // Inline interview scheduler state. MUST be initialized here (top of the
-      // IIFE) — the cached-preview renderApplication() below runs before the
-      // scheduler function block further down, and it reads ivSched.wired. A
-      // `var` object literal placed after that call would still be `undefined`
-      // at render time (only the function *declarations* hoist), which threw
-      // "Cannot read properties of undefined (reading 'wired')".
+      // Inline interview scheduler state. Only function *declarations* hoist —
+      // a `var` object literal is still `undefined` until its assignment line
+      // runs. renderApplication() therefore must not be called before every
+      // piece of module state below has been assigned; the cached-preview
+      // render is deliberately placed AFTER all of them (see "CACHED PREVIEW
+      // RENDER" further down). Calling it earlier previously threw
+      // "Cannot read properties of undefined (reading 'wired')" and
+      // "Cannot read properties of undefined (reading 'review')".
       var ivSched = { appId: null, loaded: false, loading: false, slots: [], selectedStart: null, wired: false };
 
       // Load from sessionStorage cache first, then fetch from API
@@ -782,10 +784,6 @@
         var cached = sessionStorage.getItem("gp_application_preview");
         if (cached) appData = JSON.parse(cached);
       } catch (e) { /* ignore */ }
-
-      if (appData) {
-        renderApplication(appData);
-      }
 
       // Fetch fresh data from API. Merge OVER the cached preview: the API is
       // the source of truth for status/role/interview, while the preview keeps
@@ -854,6 +852,16 @@
       // they always act on the freshest data.
       var latestApp = null;
       var latestInterview = null;
+
+      // ── CACHED PREVIEW RENDER ────────────────────────────────────────────
+      // Paint instantly from the sessionStorage preview so the GP isn't left
+      // on a spinner while the API call above is in flight. This MUST stay
+      // below every module-level `var` that renderApplication (and the helpers
+      // it calls) reads — STATUS_LABELS, ivSched, latestApp, latestInterview.
+      // Running it any earlier reads those as `undefined` and throws.
+      if (appData) {
+        renderApplication(appData);
+      }
 
       function renderApplication(app) {
         latestApp = app;

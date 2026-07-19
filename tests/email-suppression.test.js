@@ -31,7 +31,11 @@ const SUPPRESSED = 'bounced@gplink-test.local';
 const WEBHOOK_SECRET = 'whsec_' + Buffer.from('resend-signing-key-' + RUN_ID).toString('base64');
 
 const resendCalls = [];
-let resendFailNext = false; // next Resend API call answers 500
+// While true, EVERY Resend call answers 500. It used to be a one-shot ("fail
+// the NEXT call"), but sendEmail now retries transient 5xx/429 responses, so a
+// single 500 is recovered rather than reported. To still exercise the
+// send-failure path the stub has to fail persistently until retries run out.
+let resendFailAll = false;
 
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
@@ -199,8 +203,7 @@ beforeAll(async () => {
     if (u.startsWith('https://api.resend.com/')) {
       let parsed = null; try { parsed = JSON.parse((opts && opts.body) || 'null'); } catch {}
       resendCalls.push({ url: u, body: parsed });
-      if (resendFailNext) {
-        resendFailNext = false;
+      if (resendFailAll) {
         return Promise.resolve(new Response(JSON.stringify({ message: 'boom' }), { status: 500 }));
       }
       return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
@@ -322,12 +325,24 @@ describe('POST /api/webhooks/resend', () => {
 
 describe('send-failure visibility', () => {
   it('records a Resend API failure in client_errors (route email-send)', async () => {
-    resendFailNext = true;
-    const r = await testUtils.sendEmail({ to: 'victim@gplink-test.local', subject: 'Fails', html: 'x' });
+    resendFailAll = true;
+    const before = resendCalls.length;
+    let r;
+    try {
+      r = await testUtils.sendEmail({ to: 'victim@gplink-test.local', subject: 'Fails', html: 'x' });
+    } finally {
+      resendFailAll = false;
+    }
     expect(r.ok).toBe(false);
+    // A transient 5xx is retried before being called a failure — the send is
+    // only reported once the attempt budget is exhausted.
+    expect(resendCalls.length - before).toBe(testUtils.RESEND_MAX_SEND_ATTEMPTS);
     const row = db.client_errors.find((e) => String(e.page_url) === 'email-send');
     expect(row).toBeTruthy();
     expect(String(row.error_message)).toMatch(/Email send failed/);
     expect(row.source).toBe('server');
+    // The recipient is recorded in the dedicated column, so the daily digest can
+    // tell the owner exactly who was never contacted.
+    expect(String(row.user_email)).toBe('victim@gplink-test.local');
   });
 });
