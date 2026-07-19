@@ -2522,6 +2522,27 @@
         if (counts[key]) delete counts[key];
       }
 
+      // Invariant: a failed re-scan must never remove the previously stored file.
+      // The replacement upload is only saved to the server on scan SUCCESS, so when a
+      // replace-scan fails the stored server copy is the only file the GP has — each
+      // scan entry point snapshots the slot so the failure paths can put it back
+      // instead of deleting it.
+      var priorStoredDocs = {};
+      function snapshotPriorStoredDoc(key, state) {
+        var current = state.docs && state.docs[key];
+        // A scan already in flight left transient state in the slot — keep the
+        // snapshot taken when that scan started.
+        if (current && current.status === "scanning") return;
+        var hasStoredFile = !!(current && current.uploaded && (current.fileName || current.downloadUrl || current.storagePath || current.url));
+        priorStoredDocs[key] = hasStoredFile ? current : null;
+      }
+      function restorePriorStoredDoc(key, state) {
+        var prior = priorStoredDocs[key];
+        if (!prior) return false;
+        state.docs[key] = prior;
+        return true;
+      }
+
       function handleCertFailure(key, state, country, title, msg, storedFile, scanMeta) {
         // The SERVER count is authoritative (it survives device switches and a
         // cleared cache); the localStorage counter stays as an offline fallback.
@@ -2561,8 +2582,10 @@
         var extra = showSupport
           ? '<br><span style="color:var(--gp-muted);font-size:12px;">If you still need help after 3 failed attempts, contact support.</span>'
           : '<br><span style="color:var(--gp-muted);font-size:12px;">You have ' + (CERT_SUPPORT_THRESHOLD - fails) + ' attempt' + ((CERT_SUPPORT_THRESHOLD - fails) === 1 ? '' : 's') + ' remaining before support is recommended.</span>';
-        delete state.docs[key];
-        deletePreparedDocumentFile(country, key);
+        if (!restorePriorStoredDoc(key, state)) {
+          delete state.docs[key];
+          deletePreparedDocumentFile(country, key);
+        }
         persistDocsState(state, true);
         renderAll(country, state);
         showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { docKey: key, documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
@@ -2572,7 +2595,9 @@
       // user's fault, so it must NOT burn one of their attempts or push them toward
       // "support recommended". Show a clear, reassuring message and leave the counter alone.
       function showScanTechnicalError(key, state, country, title, rawMsg) {
-        deletePreparedDocumentFile(country, key);
+        if (!restorePriorStoredDoc(key, state)) {
+          deletePreparedDocumentFile(country, key);
+        }
         persistDocsState(state, true);
         renderAll(country, state);
         showCertResultPopup(false, "Couldn't Complete Scan", getFriendlyScanMessageHtml(rawMsg || "Could not verify this document. Please try again.", { docKey: key, documentTitle: title, mode: "certification" }));
@@ -2758,8 +2783,10 @@
           showCertResultPopup(true, "Submitted for review", "We've submitted <strong>" + docTitle + "</strong> for manual review. Our team will check it within 24 hours.");
           return;
         }
-        delete state.docs[key];
-        deletePreparedDocumentFile(country, key);
+        if (!restorePriorStoredDoc(key, state)) {
+          delete state.docs[key];
+          deletePreparedDocumentFile(country, key);
+        }
         persistDocsState(state, true);
         renderAll(country, state);
         showCertResultPopup(
@@ -2770,6 +2797,7 @@
       }
 
       function runPreparedDocumentClassificationCheck(file, key, docTitle, state, country) {
+        snapshotPriorStoredDoc(key, state);
         readFileAsDataUrl(file).then(function(fileDataUrl) {
           var storedFile = {
             fileName: file.name,
@@ -2846,6 +2874,7 @@
 
       function runCertificationCheck(file, key, docTitle, state, country) {
         var isImage = /^image\//i.test(file.type);
+        snapshotPriorStoredDoc(key, state);
         readFileAsDataUrl(file).then(function(fileDataUrl) {
           var storedFile = {
             fileName: file.name,
@@ -3136,6 +3165,7 @@
           var scanDoc = cfg.prepared.find(function(d) { return d.key === scanKey; });
           if (scanDoc && window.gpOpenCertScan) {
             window.gpOpenCertScan(scanKey, scanDoc.title, function(result) {
+              snapshotPriorStoredDoc(scanKey, state);
               var storedFile = {
                 fileName: result.fileName,
                 mimeType: typeof result.mimeType === "string" ? result.mimeType : (result.certified ? "image/jpeg" : "application/pdf"),
