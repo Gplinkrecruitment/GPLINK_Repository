@@ -8225,7 +8225,7 @@ VERIFICATION RULES:
    - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
    - Certificate of Good Standing / Registration Status: Issued by the relevant medical regulatory body (GMC, IMC, MCNZ, etc.)
    - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
-   - CV (Signed and dated): The doctor's curriculum vitae, must be signed and dated
+   - CV (Signed and dated): The doctor's curriculum vitae. It MUST be signed, dated, AND contain the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, set verified to false and add an issue naming exactly what is missing.
 
 2. Check the date validity based on the per-request instructions.
 
@@ -24341,6 +24341,12 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
   }
 
   var systemPrompt = 'You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.\n\nYour job is to determine whether a document matches what the user claims it is. Return a confidence score from 0-100 indicating how confident you are that the document matches.\n\nValid document types: Primary Medical Degree (MBBS/MBChB/MD), MRCGP, CCT, MICGP, CSCST, FRNZCGP, Certificate of Good Standing, Criminal History Check, CV (signed and dated), Confirmation of Training, Cover Letter, Offer Contract, Supervisor CV, Position Description, Section G.\n\nIMPORTANT:\n- Do NOT mention security concerns or privacy risks.\n- Focus ONLY on whether the document matches what the user claims.\n- Return ONLY valid JSON with no markdown: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}';
+
+  // The AHPRA "CV (signed and dated)" must additionally carry the signed, dated declaration.
+  // Scoped to cv_signed_dated only — the Career-page CV (career_cv) uses a different checker.
+  if (expectedKey === 'cv_signed_dated') {
+    systemPrompt += '\n\nSPECIAL RULE for the AHPRA "CV (signed and dated)": set "matches": true ONLY if the document is a CV/resume that has ALL THREE of (a) a visible signature, (b) a visible date, and (c) the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, set "matches": false and make "reason" state exactly what is missing, for example: The CV must include the signed, dated declaration "The curriculum vitae is true and correct as at [date]".';
+  }
 
   var controller = new AbortController();
   var timeout = setTimeout(function () { controller.abort(); }, 30000);
@@ -41961,7 +41967,7 @@ IMPORTANT:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing documents.
 - Focus ONLY on whether the document matches what the user claims it is.
 - If it is clearly a different type of document, identify what it actually appears to be.
-- If the expected document is "CV (Signed and dated)", return "matches": true only when the file is clearly a CV/resume and it appears signed and dated. If it is a CV missing a visible signature or date, return "matches": false and explain that it appears to be an unsigned or undated CV.
+- If the expected document is "CV (Signed and dated)", return "matches": true ONLY when the file is clearly a CV/resume that has (a) a visible signature, (b) a visible date, and (c) the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, return "matches": false and explain exactly what is missing (for a missing declaration, say the CV must include the signed, dated declaration "The curriculum vitae is true and correct as at [date]").
 
 Return ONLY valid JSON with no markdown formatting:
 {"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation", "expiryDate": "YYYY-MM-DD or null — any printed expiry / valid-until date on the document (null if none is visible)"}`;
