@@ -448,6 +448,50 @@ describe('POST /api/practice-intake/sign', () => {
     expect(row.agreement_status).toBe('signed');
   });
 
+  it('group sign: promotes EVERY clinic in the group and gives each its own pending job', async () => {
+    // Regression: a corporate group signs once for all its clinics. Before the
+    // fix, only the token's seed clinic went active/signed with a job while the
+    // siblings stayed stuck in "Potential Clients" (prospective/unsigned) with
+    // no job, and the group itself was never marked signed.
+    const saved = await submitIntake({
+      entity_name: 'Group Health Co',
+      abn: '51824753556',
+      practices: [
+        validClinicPayload({ suburb: 'Clinic North' }),
+        validClinicPayload({ suburb: 'Clinic South' }),
+        validClinicPayload({ suburb: 'Clinic East' })
+      ]
+    });
+    expect(saved.practices).toHaveLength(3);
+    saved.practices.forEach((p) => createdPdfPracticeIds.push(p.id));
+
+    const sign = await req('POST', '/api/practice-intake/sign', {
+      body: {
+        token: saved.token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Group Signer', authorised: true,
+        legal_entity_name: 'Group Health Co', abn_acn: '51824753556', signer_job_title: 'Director'
+      }
+    });
+    expect(sign.status).toBe(200);
+
+    const db = readDb();
+    const groupRows = (db.atsPractices || []).filter((p) => p.group_id === saved.group.id);
+    expect(groupRows).toHaveLength(3);
+    // Every clinic is active + signed — no sibling left behind.
+    groupRows.forEach((p) => {
+      expect(p.stage).toBe('active');
+      expect(p.agreement_status).toBe('signed');
+    });
+    // Every clinic has its own pending job listing.
+    groupRows.forEach((p) => {
+      const job = (db.atsJobs || []).find((j) => String(j.practice_id) === String(p.id));
+      expect(job, 'clinic ' + p.id + ' should have a job').toBeTruthy();
+      expect(job.approval_status).toBe('pending');
+    });
+    // The group entity itself is recorded as signed.
+    const grp = (db.practiceGroups || []).find((g) => g.id === saved.group.id);
+    expect(grp.agreement_status).toBe('signed');
+  });
+
   it('409s already_signed on a re-sign attempt', async () => {
     const { token, practiceId } = await createProspectivePractice('resign');
     await req('POST', '/api/practice-intake', { body: validIntakePayload(token) });

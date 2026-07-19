@@ -173,7 +173,7 @@ describe('signed-agreement email links the status page', () => {
 
     const before = resendCalls.length;
     const sign = await req('POST', '/api/practice-intake/sign', {
-      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Status Tester', authorised: true }
+      body: { token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Status Tester', authorised: true, legal_entity_name: 'Status Tester Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager' }
     });
     expect(sign.status).toBe(200);
 

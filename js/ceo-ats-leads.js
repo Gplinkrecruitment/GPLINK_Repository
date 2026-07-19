@@ -15,7 +15,8 @@
   function panel() { return document.getElementById(PANEL_ID); }
 
   // Module state (persisted across re-renders).
-  var state = { filter: 'all', q: '' };
+  var state = { filter: 'all', q: '', loaded: [], total: 0 };
+  var PAGE_SIZE = 100;
 
   // Filter chips. `v` must match the server's ?filter= values.
   var FILTERS = [
@@ -146,26 +147,51 @@
   /* =====================================================================
    *  DATA FETCH + RENDER
    * ===================================================================== */
-  function fetchAndRender() {
+  // `append` true = "Show more" (fetch the next page and keep what's loaded);
+  // falsy = a fresh load (filter/search change) that resets the pager. The
+  // server paginates (limit/offset, total returned), so without this the tab
+  // silently showed only the newest 100 leads once a filter matched more —
+  // older leads were unreachable from any UI (a real risk after the GP blast).
+  function fetchAndRender(append) {
     var listEl = document.getElementById('lead-list');
-    if (listEl) listEl.innerHTML = ATS.loadingHtml('Loading leads…');
+    if (!append && listEl) listEl.innerHTML = ATS.loadingHtml('Loading leads…');
+    var offset = append ? state.loaded.length : 0;
     var qs = '?filter=' + encodeURIComponent(state.filter) +
-      (state.q ? '&q=' + encodeURIComponent(state.q) : '');
+      (state.q ? '&q=' + encodeURIComponent(state.q) : '') +
+      '&limit=' + PAGE_SIZE + '&offset=' + offset;
     ATS.api('/api/ceo/leads' + qs).then(function (d) {
       var el = document.getElementById('lead-list');
       if (!el) return;
+      // Only overwrite the chip counts on a good response — an error must not
+      // wipe the totals the chips already show.
       var chips = document.getElementById('lead-filters');
-      if (chips) chips.innerHTML = chipsHtml(d && d.counts);
-      if (!d || !d.ok) { el.innerHTML = ATS.emptyHtml('Could not load leads.'); return; }
-      var leads = d.leads || [];
-      if (!leads.length) {
-        el.innerHTML = ATS.emptyHtml(state.q
-          ? 'No leads match “' + state.q + '”.'
-          : 'No leads here yet.');
-        return;
-      }
-      el.innerHTML = '<div class="lead-group">' + leads.map(rowHtml).join('') + '</div>';
+      if (chips && d && d.ok) chips.innerHTML = chipsHtml(d.counts);
+      if (!d || !d.ok) { if (!append) el.innerHTML = ATS.emptyHtml('Could not load leads.'); return; }
+      var batch = d.leads || [];
+      if (!append) state.loaded = [];
+      state.loaded = state.loaded.concat(batch);
+      state.total = (typeof d.total === 'number') ? d.total : state.loaded.length;
+      renderLeads(el);
     });
+  }
+
+  function renderLeads(el) {
+    if (!state.loaded.length) {
+      el.innerHTML = ATS.emptyHtml(state.q
+        ? 'No leads match “' + state.q + '”.'
+        : 'No leads here yet.');
+      return;
+    }
+    var remaining = Math.max(0, state.total - state.loaded.length);
+    var footer = '<div class="lead-more-bar" style="text-align:center;padding:14px 0;color:var(--ink-3,#667);font-size:13px">' +
+      'Showing ' + state.loaded.length + ' of ' + state.total +
+      (remaining > 0
+        ? ' · <button type="button" id="lead-show-more" class="ats-btn" style="cursor:pointer">Show ' + Math.min(PAGE_SIZE, remaining) + ' more</button>'
+        : '') +
+      '</div>';
+    el.innerHTML = '<div class="lead-group">' + state.loaded.map(rowHtml).join('') + '</div>' + footer;
+    var more = document.getElementById('lead-show-more');
+    if (more) more.addEventListener('click', function () { fetchAndRender(true); });
   }
 
   /* =====================================================================

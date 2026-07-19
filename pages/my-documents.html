@@ -1789,6 +1789,97 @@
       return /\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(name);
     }
 
+    // ── Multi-page CV: combine up to 10 image pages into ONE PDF ─────────────────
+    // The AHPRA "CV (Signed and dated)" is often several pages captured as separate
+    // photos/screenshots. The pipeline keeps ONE file per document, so combine the
+    // selected images into a single multi-page PDF — which the storage, preview and AI
+    // scan all already handle — so no page is lost. (A single PDF is left as-is.)
+    function _cvImageFileToJpegDataUrl(file, maxDim) {
+      return readFileAsDataUrl(file).then(function (dataUrl) {
+        return new Promise(function (resolve, reject) {
+          var img = new Image();
+          img.onload = function () {
+            var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+            if (!w || !h) { reject(new Error("bad_image")); return; }
+            var scale = Math.min(1, (maxDim || 1600) / Math.max(w, h));
+            var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+            var canvas = document.createElement("canvas");
+            canvas.width = cw; canvas.height = ch;
+            var ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cw, ch);
+            ctx.drawImage(img, 0, 0, cw, ch);
+            try { resolve(canvas.toDataURL("image/jpeg", 0.85)); } catch (e) { reject(e); }
+          };
+          img.onerror = function () { reject(new Error("image_load_failed")); };
+          img.src = dataUrl;
+        });
+      });
+    }
+    function _cvB64ToBytes(b64) {
+      var bin = atob(b64), a = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+      return a;
+    }
+    function _cvBytesToB64(bytes) {
+      var bin = "", CH = 0x8000;
+      for (var i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+      return btoa(bin);
+    }
+    function _cvJpegSize(bytes) {
+      var i = 2;
+      while (i < bytes.length) {
+        if (bytes[i] !== 0xFF) { i++; continue; }
+        var marker = bytes[i + 1];
+        if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+          return { h: (bytes[i + 5] << 8) | bytes[i + 6], w: (bytes[i + 7] << 8) | bytes[i + 8], comps: bytes[i + 9] };
+        }
+        i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
+      }
+      return null;
+    }
+    function _cvJpegDataUrlsToPdfBytes(dataUrls) {
+      var enc = new TextEncoder(), chunks = [], len = 0, offsets = [];
+      var push = function (x) { var b = (typeof x === "string") ? enc.encode(x) : x; chunks.push(b); len += b.length; };
+      var startObj = function (n) { offsets[n] = len; };
+      push("%PDF-1.4\n%\xFF\xFF\xFF\xFF\n");
+      var n = dataUrls.length, kids = [];
+      for (var i = 0; i < n; i++) kids.push((3 + i * 3) + " 0 R");
+      startObj(1); push("1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n");
+      startObj(2); push("2 0 obj\n<</Type/Pages/Kids[" + kids.join(" ") + "]/Count " + n + ">>\nendobj\n");
+      for (var j = 0; j < n; j++) {
+        var jpg = _cvB64ToBytes(String(dataUrls[j]).replace(/^data:[^,]*,/, ""));
+        var sz = _cvJpegSize(jpg) || { w: 1000, h: 1400, comps: 3 };
+        var csp = (sz.comps === 1) ? "/DeviceGray" : (sz.comps === 4) ? "/DeviceCMYK" : "/DeviceRGB";
+        var pageN = 3 + j * 3, contN = 4 + j * 3, imgN = 5 + j * 3;
+        var content = "q " + sz.w + " 0 0 " + sz.h + " 0 0 cm /Im0 Do Q";
+        startObj(pageN); push(pageN + " 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 " + sz.w + " " + sz.h + "]/Resources<</XObject<</Im0 " + imgN + " 0 R>>>>/Contents " + contN + " 0 R>>\nendobj\n");
+        startObj(contN); push(contN + " 0 obj\n<</Length " + content.length + ">>\nstream\n" + content + "\nendstream\nendobj\n");
+        startObj(imgN); push(imgN + " 0 obj\n<</Type/XObject/Subtype/Image/Width " + sz.w + "/Height " + sz.h + "/ColorSpace " + csp + "/BitsPerComponent 8/Filter/DCTDecode/Length " + jpg.length + ">>\nstream\n");
+        push(jpg); push("\nendstream\nendobj\n");
+      }
+      var nObj = 2 + n * 3, xrefStart = len;
+      var xref = "xref\n0 " + (nObj + 1) + "\n0000000000 65535 f \n";
+      for (var k = 1; k <= nObj; k++) { var o = String(offsets[k]); while (o.length < 10) o = "0" + o; xref += o + " 00000 n \n"; }
+      push(xref);
+      push("trailer\n<</Size " + (nObj + 1) + "/Root 1 0 R>>\nstartxref\n" + xrefStart + "\n%%EOF");
+      var total = new Uint8Array(len), off = 0;
+      for (var m = 0; m < chunks.length; m++) { total.set(chunks[m], off); off += chunks[m].length; }
+      return total;
+    }
+    function combineImagesToCvPdfFile(files, fileName) {
+      var list = Array.prototype.slice.call(files);
+      return list.reduce(function (chain, f) {
+        return chain.then(function (acc) {
+          return _cvImageFileToJpegDataUrl(f, 1600).then(function (u) { acc.push(u); return acc; });
+        });
+      }, Promise.resolve([])).then(function (jpegUrls) {
+        return new File([_cvJpegDataUrlsToPdfBytes(jpegUrls)], fileName || "cv.pdf", { type: "application/pdf" });
+      });
+    }
+    function isCvImageFile(f) {
+      return !!f && (/^image\//i.test(f.type || "") || /\.(jpe?g|png|webp|heic|heif|gif|bmp|tif|tiff|avif)$/i.test(f.name || ""));
+    }
+
     function normalizeStoredDoc(doc) {
       var next = doc && typeof doc === "object" ? { ...doc } : {};
       if (typeof next.uploaded !== "boolean") next.uploaded = false;
@@ -2167,7 +2258,7 @@
         } else if (itemState.status === "rejected") {
           // Rejected by review: offer a Re-upload button, and keep the rejected file
           // available (crossed out) so the GP can still download it if they want.
-          var reuploadBtn = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Re-upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
+          var reuploadBtn = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Re-upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '"' + (doc.key === "cv_signed_dated" ? " multiple" : "") + ' /></label>';
           var rejectedFileHtml = "";
           if (itemState.fileName) {
             var rejAttrs = itemState.downloadUrl ? 'href="' + itemState.downloadUrl + '" download="' + escapeHtml(itemState.fileName) + '"' : 'href="#" onclick="return false;" aria-disabled="true"';
@@ -2175,13 +2266,13 @@
           }
           uploadHtml = reuploadBtn + rejectedFileHtml;
         } else if (itemState.uploaded) {
-          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
+          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '"' + (doc.key === "cv_signed_dated" ? " multiple" : "") + ' /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
         } else if (needsCert) {
           uploadHtml =
             '<button class="upload-btn cert-scan-btn mobile-only" type="button" data-cert-scan="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5"></path><path d="M16 8l-4 4-4-4"></path></svg>Scan Document</button>' +
-            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
+            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '"' + (doc.key === "cv_signed_dated" ? " multiple" : "") + ' /></label>';
         } else {
-          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
+          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '"' + (doc.key === "cv_signed_dated" ? " multiple" : "") + ' /></label>';
         }
         var rejectionHtml = "";
         if (itemState.status === "rejected") {
@@ -2834,31 +2925,47 @@
         if (!(input instanceof HTMLInputElement)) return;
         if (!input.matches("input[type='file'][data-prepared-doc]")) return;
         var key = input.getAttribute("data-prepared-doc");
-        var file = input.files && input.files[0];
-        if (!key || !file) return;
+        var files = input.files ? Array.prototype.slice.call(input.files) : [];
+        if (!key || !files.length) return;
         input.value = "";
 
-        /* Block video/audio files */
-        var blockedTypes = /^(video|audio)\//i;
-        var blockedExts = /\.(mov|mp4|mp3|avi|wmv|mkv|flv|wav|aac|ogg|m4a|m4v|webm)$/i;
-        if (blockedTypes.test(file.type) || blockedExts.test(file.name)) {
-          input.value = "";
-          showCertResultPopup(false, "File Not Accepted", "Video and audio files are not accepted. Please upload a document or image file.");
+        var proceed = function(file) {
+          /* Block video/audio files */
+          var blockedTypes = /^(video|audio)\//i;
+          var blockedExts = /\.(mov|mp4|mp3|avi|wmv|mkv|flv|wav|aac|ogg|m4a|m4v|webm)$/i;
+          if (blockedTypes.test(file.type) || blockedExts.test(file.name)) {
+            showCertResultPopup(false, "File Not Accepted", "Video and audio files are not accepted. Please upload a document or image file.");
+            return;
+          }
+          if (!isAiScannableFile(file)) {
+            showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file for the scan.");
+            return;
+          }
+          var docDef = cfg.prepared.find(function(d) { return d.key === key; });
+          var needsCert = docDef && docDef.help && docDef.help.certNote;
+          if (needsCert) {
+            runCertificationCheck(file, key, docDef.title, state, country);
+          } else {
+            runPreparedDocumentClassificationCheck(file, key, docDef.title, state, country);
+          }
+        };
+
+        // The signed & dated CV may be several pages captured as separate images —
+        // combine up to 10 image pages into ONE multi-page PDF so no page is lost. A
+        // single file (or a PDF) is handled as before.
+        if (key === "cv_signed_dated" && files.length > 1 && files.every(isCvImageFile)) {
+          if (files.length > 10) {
+            showCertResultPopup(false, "Too many pages", "Please upload up to 10 pages for your CV.");
+            return;
+          }
+          combineImagesToCvPdfFile(files, "CV.pdf").then(function(pdfFile) {
+            proceed(pdfFile);
+          }).catch(function() {
+            showCertResultPopup(false, "Upload Failed", "We could not combine those pages. Please try uploading a single PDF, or one clear photo per attempt.");
+          });
           return;
         }
-        if (!isAiScannableFile(file)) {
-          showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file for the scan.");
-          return;
-        }
-
-        var docDef = cfg.prepared.find(function(d) { return d.key === key; });
-        var needsCert = docDef && docDef.help && docDef.help.certNote;
-
-        if (needsCert) {
-          runCertificationCheck(file, key, docDef.title, state, country);
-        } else {
-          runPreparedDocumentClassificationCheck(file, key, docDef.title, state, country);
-        }
+        proceed(files[0]);
       });
 
       // ── Fit2Work ICHC upload + AI verify ──

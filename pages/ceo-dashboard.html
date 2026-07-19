@@ -1656,9 +1656,10 @@
     function applyConsultantMode() {
       document.body.classList.add('gp-consultant');
       // Hide the executive-only master tabs + their panels (Overview/Registration,
-      // RSO oversight, Technical) — their data is never loaded for consultants and
-      // the server 403s every underlying endpoint.
-      ['registration', 'rso', 'technical'].forEach(function (mt) {
+      // RSO oversight, Technical, Leads) — their data is never loaded for consultants
+      // and the server 403s every underlying endpoint. /api/ceo/leads is super-admin
+      // only (requireCeoSession), so Leads dead-ends for consultants; hide it too.
+      ['registration', 'rso', 'technical', 'leads'].forEach(function (mt) {
         var tab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="' + mt + '"]');
         if (tab) tab.style.display = 'none';
         var panel = document.getElementById('panel-' + mt);
@@ -7643,9 +7644,9 @@
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260707i"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260718a"></script>
-  <script src="/js/ceo-ats-practices.js?v=20260707a"></script>
+  <script src="/js/ceo-ats-practices.js?v=20260719a"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260717b"></script>
-  <script src="/js/ceo-ats-matching.js?v=20260712a"></script>
-  <script src="/js/ceo-ats-leads.js?v=20260717a"></script>
+  <script src="/js/ceo-ats-matching.js?v=20260719a"></script>
+  <script src="/js/ceo-ats-leads.js?v=20260719a"></script>
 </body>
 </html>

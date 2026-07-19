@@ -969,8 +969,15 @@
       ? ('/api/ats/matching/jobs?user_id=' + encodeURIComponent(id))
       : ('/api/ats/matching/candidates?job_id=' + encodeURIComponent(id));
     if (force) path += '&force=1';
-    A.api(path).then(function () {
+    A.api(path).then(function (d) {
       delete state.runningIds[id];
+      // Surface a failed ranking instead of silently clearing the spinner and
+      // re-rendering the board unchanged (matches shortlist/extend handlers).
+      if (!d || !d.ok) {
+        A.toast((d && d.message) || 'Could not run the AI ranking. Please try again.');
+        renderBoard();
+        return;
+      }
       fetchBoard();
     });
   }

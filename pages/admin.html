@@ -1655,7 +1655,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     pbs:{gp:"Upload Medicare/PBS documents, provide practice details when requested.",va:"Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number."},
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
-  function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
+  // esc() also encodes " and ' so it is SAFE inside a double- or single-quoted
+  // HTML attribute (textContent→innerHTML alone leaves quotes unescaped, which
+  // let a crafted GP name like  x" onmouseover=...  break out of a data-*
+  // attribute and run script in the admin origin — a stored-XSS account
+  // takeover). Encoding quotes is harmless in text content (renders the same).
+  function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML.replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
   function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
   function _safeProtocolUrl(u,allowedProtocols,fallback){
     if(!u||typeof u!=="string")return esc(fallback||"");
@@ -4130,27 +4135,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderAiScan(s,scannedAt,cached){
     var ok=!!s.verified;
     var nameMatch=s.nameMatch;
-    // A name mismatch on an otherwise-genuine document is a name change to confirm —
-    // not a failed scan. Frame the header accordingly instead of the generic warning.
-    var isNameChange=nameMatch==='mismatch';
+    // A name that differs from the account is a NAME CHANGE, which the system now detects and
+    // records automatically (name_change_detected -> the AMC evidence step). The reviewer is NOT
+    // asked to confirm it here, so the scan shows the name plainly with no name-change banner and
+    // the review focuses on the real, actionable checks (certification, legibility, etc.).
     var rows=[];
-    var headColor=ok?'#15803d':(isNameChange?'#a16207':'#b45309');
+    var headColor=ok?'#15803d':'#b45309';
     var headIcon=ok?'✓':'⚠';
-    var headText=ok?('Looks genuine — reads as '+esc(s.documentType||'the expected document')):(isNameChange?('Name change to confirm — reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving');
+    var headText=ok?('Looks genuine — reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving';
     rows.push('<div style="font-weight:700;color:'+headColor+';margin-bottom:6px;">'+headIcon+' '+headText+'</div>');
     var line=function(lbl,val,color){return '<div style="margin:2px 0;"><span style="color:#6b7280;">'+lbl+':</span> <span style="color:'+(color||'#111827')+';font-weight:600;">'+esc(val)+'</span></div>';};
     if(s.documentType)rows.push(line('Identified as',s.documentType));
     if(s.nameFound){
-      var nm=(nameMatch==='exact'||nameMatch==='fuzzy')?{t:s.nameFound+' — matches the account',c:'#15803d'}:(nameMatch==='mismatch')?{t:s.nameFound+' — does NOT match the account name',c:'#dc2626'}:{t:s.nameFound,c:'#111827'};
+      var nm=(nameMatch==='exact'||nameMatch==='fuzzy')?{t:s.nameFound+' — matches the account',c:'#15803d'}:{t:s.nameFound,c:'#111827'};
       rows.push(line('Name on document',nm.t,nm.c));
     }else{ rows.push(line('Name on document','not detected','#b45309')); }
-    // A genuine name mismatch (not just a low-confidence read) is likely a name change —
-    // call it out prominently so the RSO doesn't approve without noticing. Matches the
-    // approval side (server sets user_profiles.name_change_detected on nameMatch==='mismatch').
-    if(nameMatch==='mismatch'){
-      var mismatchMsg='Name on document ('+(s.nameFound||'unknown')+') differs from account ('+(s.profileName||'the account')+') — likely a name change. Approving records this as a name change.';
-      rows.push('<div style="margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #ef4444;border-radius:8px;font-weight:700;color:#b91c1c;">⚠ '+esc(mismatchMsg)+'</div>');
-    }
     if(s.dateFound)rows.push(line('Date on document',s.dateFound));
     if(s.issuingBody)rows.push(line('Issuing body',s.issuingBody));
     if(s.legible===false)rows.push(line('Legibility','hard to read','#dc2626'));
@@ -4158,9 +4157,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(s.certified===true){ rows.push(line('Certified copy','✓ Yes'+(s.certificationNote?' — '+s.certificationNote:''),'#15803d')); }
       else { rows.push(line('Certified copy','✗ Not a certified copy — AHPRA needs a certified true copy','#dc2626')); }
     }
-    if(Array.isArray(s.issues)&&s.issues.length){
+    // The name change is handled automatically, so strip any name-change wording from the issues
+    // the reviewer sees — only real, actionable checks remain.
+    var visibleIssues=(Array.isArray(s.issues)?s.issues:[]).filter(function(i){return !/previous name|name change|different from your account|does not match your account name|name matching your profile|differs from the account name/i.test(String(i||''));});
+    if(visibleIssues.length){
       rows.push('<div style="margin-top:6px;color:#b45309;font-weight:700;">Issues to check:</div>');
-      rows.push('<ul style="margin:4px 0 0 16px;padding:0;color:#b45309;">'+s.issues.map(function(i){return '<li>'+esc(i)+'</li>';}).join('')+'</ul>');
+      rows.push('<ul style="margin:4px 0 0 16px;padding:0;color:#b45309;">'+visibleIssues.map(function(i){return '<li>'+esc(i)+'</li>';}).join('')+'</ul>');
     }
     if(scannedAt){ rows.push('<div style="margin-top:6px;font-size:11px;color:#9ca3af;">'+(cached?'Cached scan':'Scanned just now')+' • '+esc(new Date(scannedAt).toLocaleString())+'</div>'); }
     return rows.join('');
@@ -7916,7 +7918,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     let selectedTKey=null;
     let expandedTKeys={};
     let _thState=null;
-    function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+    function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
     function attrEsc(s){return esc(s).replace(/"/g,"&quot;");}
     async function loadList(){
       const panel=document.getElementById(PANEL);if(!panel)return;

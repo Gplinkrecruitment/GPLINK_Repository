@@ -6222,6 +6222,8 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/application-detail.html',
   '/pages/job.html',
   '/pages/offer-review.html',
+  '/pages/secure-interview.html',
+  '/pages/confirm-call.html',
   '/pages/area-guide.html'
 ]);
 
@@ -8799,7 +8801,7 @@ VERIFICATION RULES:
    - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
    - Certificate of Good Standing / Registration Status: Issued by the relevant medical regulatory body (GMC, IMC, MCNZ, etc.)
    - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
-   - CV (Signed and dated): The doctor's curriculum vitae, must be signed and dated
+   - CV (Signed and dated): The doctor's curriculum vitae. It MUST be signed, dated, AND contain the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, set verified to false and add an issue naming exactly what is missing.
 
 2. Check the date validity based on the per-request instructions.
 
@@ -10942,6 +10944,16 @@ function isValidPhone(phone) {
 }
 
 function getClientIp(req) {
+  // On Vercel the true client IP is in x-vercel-forwarded-for — Vercel's edge
+  // overwrites any client-supplied copy, so it cannot be spoofed. Prefer it,
+  // then x-real-ip. Only fall back to the (client-controllable) leftmost
+  // x-forwarded-for token off-platform (local/dev/tests), where there is no
+  // trusted proxy in front. Trusting the leftmost XFF in prod let an attacker
+  // set a fresh IP per request and defeat EVERY per-IP rate limit.
+  const vercelIp = req.headers['x-vercel-forwarded-for'];
+  if (typeof vercelIp === 'string' && vercelIp.length > 0) return vercelIp.split(',')[0].trim();
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.length > 0) return realIp.split(',')[0].trim();
   const xff = req.headers['x-forwarded-for'];
   if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
   return req.socket.remoteAddress || 'unknown';
@@ -11876,6 +11888,27 @@ function createStaticCompressionStream(encoding) {
   return zlib.createGzip({ level: 6 });
 }
 
+// Only these top-level directories, and this small set of conventional root
+// files, are ever served as public static assets. Everything else in the
+// project root — server.js, lib/, scripts/, data/ (the JSON DB), package.json,
+// vercel.json, supabase/, docs/, config files — must NEVER be downloadable.
+// Without this allowlist, `GET /server.js` returned the entire backend source
+// (and Vercel bundles server.js + lib/** into the lambda, so the leak reached
+// production). See the launch-readiness audit finding on source exposure.
+const PUBLIC_STATIC_DIRS = new Set(['pages', 'js', 'css', 'media', 'documents', 'assets']);
+const PUBLIC_STATIC_ROOT_FILES = new Set([
+  'sw.js', 'manifest.webmanifest', 'favicon.ico', 'robots.txt', 'sitemap.xml',
+  'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'
+]);
+
+function isPubliclyServablePath(filePath) {
+  const rel = path.relative(process.cwd(), filePath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  const segments = rel.split(path.sep);
+  if (segments.length === 1) return PUBLIC_STATIC_ROOT_FILES.has(segments[0]);
+  return PUBLIC_STATIC_DIRS.has(segments[0]);
+}
+
 function serveStatic(req, res, pathname) {
   const filePath = sanitizeFilePath(pathname);
   if (!filePath) {
@@ -11886,6 +11919,13 @@ function serveStatic(req, res, pathname) {
   if (!filePath.startsWith(process.cwd() + path.sep) && filePath !== process.cwd()) {
     res.writeHead(403);
     res.end('Forbidden');
+    return;
+  }
+  // Allowlist gate: reject anything outside the public static roots with a 404
+  // (a plain "not found", so we don't confirm which backend files exist).
+  if (!isPubliclyServablePath(filePath)) {
+    res.writeHead(404);
+    res.end('Not found');
     return;
   }
 
@@ -17115,6 +17155,34 @@ function filterZeroCompensation(value) {
   return str;
 }
 
+// SSRF guard: reject hostnames that point at loopback / private / link-local /
+// cloud-metadata targets. Practice-supplied website URLs are later fetched
+// server-side (AI write-up), so a URL like http://169.254.169.254/ or
+// http://localhost:9200/ must never be stored or fetched. (Does not defend
+// against DNS-rebinding — a public name that resolves to a private IP at fetch
+// time — which needs a resolving agent; tracked as a follow-up.)
+function isBlockedSsrfHostname(hostname) {
+  var h = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h === '0.0.0.0' || h.endsWith('.localhost') ||
+      h.endsWith('.local') || h.endsWith('.internal') || h === 'metadata.google.internal') return true;
+  // IPv6 loopback / link-local / unique-local (fc00::/7).
+  if (h === '::1' || h === '::' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d) — pull out the trailing dotted-quad.
+  var mapped = h.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  var ipv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h) ? h : (mapped ? mapped[1] : '');
+  if (ipv4) {
+    var o = ipv4.split('.').map(Number);
+    if (o.some(function (n) { return !(n >= 0 && n <= 255); })) return true;
+    if (o[0] === 0 || o[0] === 127 || o[0] === 10) return true;                 // this-net / loopback / private
+    if (o[0] === 169 && o[1] === 254) return true;                              // link-local (incl cloud metadata)
+    if (o[0] === 192 && o[1] === 168) return true;                              // private
+    if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true;                  // private
+    if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return true;                 // CGNAT
+  }
+  return false;
+}
+
 function sanitizeHttpUrl(value) {
   const raw = sanitizeZohoText(value);
   if (!raw) return '';
@@ -17122,6 +17190,7 @@ function sanitizeHttpUrl(value) {
   try {
     const parsed = new URL(prefixed);
     if (!/^https?:$/i.test(parsed.protocol)) return '';
+    if (isBlockedSsrfHostname(parsed.hostname)) return '';
     return parsed.toString();
   } catch (err) {
     return '';
@@ -24859,6 +24928,12 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
 
   var systemPrompt = 'You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.\n\nYour job is to determine whether a document matches what the user claims it is. Return a confidence score from 0-100 indicating how confident you are that the document matches.\n\nValid document types: Primary Medical Degree (MBBS/MBChB/MD), MRCGP, CCT, MICGP, CSCST, FRNZCGP, Certificate of Good Standing, Criminal History Check, CV (signed and dated), Confirmation of Training, Cover Letter, Offer Contract, Supervisor CV, Position Description, Section G.\n\nIMPORTANT:\n- Do NOT mention security concerns or privacy risks.\n- Focus ONLY on whether the document matches what the user claims.\n- Return ONLY valid JSON with no markdown: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}';
 
+  // The AHPRA "CV (signed and dated)" must additionally carry the signed, dated declaration.
+  // Scoped to cv_signed_dated only — the Career-page CV (career_cv) uses a different checker.
+  if (expectedKey === 'cv_signed_dated') {
+    systemPrompt += '\n\nSPECIAL RULE for the AHPRA "CV (signed and dated)": set "matches": true ONLY if the document is a CV/resume that has ALL THREE of (a) a visible signature, (b) a visible date, and (c) the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, set "matches": false and make "reason" state exactly what is missing, for example: The CV must include the signed, dated declaration "The curriculum vitae is true and correct as at [date]".';
+  }
+
   var controller = new AbortController();
   var timeout = setTimeout(function () { controller.abort(); }, 30000);
   try {
@@ -27522,6 +27597,20 @@ function atsPracticeContactFromJob(job) {
 // practices-table rows are backfilled (it is the same source as Medical Centres).
 async function atsListPracticesDerived() {
   var jobs = await atsListJobRows();
+  // atsListJobRows() returns is_active=true rows only, so a freshly-signed
+  // practice's intake job (is_active:false, approval_status:'pending') would
+  // never appear on its own practice card/detail — the exact page the "new
+  // signed practice" notify email deep-links to, which then showed "No jobs
+  // yet". Merge pending jobs in here (deduped by id), same as /api/ats/jobs.
+  var pendingJobs = [];
+  if (isSupabaseDbConfigured()) {
+    var pendingR = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&order=updated_at.desc&limit=1000');
+    if (pendingR.ok && Array.isArray(pendingR.data)) pendingJobs = pendingR.data;
+  } else {
+    pendingJobs = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
+  }
+  var seenJobIds = {}; jobs.forEach(function (j) { seenJobIds[String(j.id)] = true; });
+  pendingJobs.forEach(function (j) { if (!seenJobIds[String(j.id)]) { seenJobIds[String(j.id)] = true; jobs.push(j); } });
   var stored = await atsListPracticeRows();
   var byKey = {};
   jobs.forEach(function (j) {
@@ -27693,6 +27782,8 @@ async function fetchWebsiteText(url) {
   try {
     var parsedUrl = new URL(String(url || '').trim());
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') return '';
+    // SSRF guard at the fetch site — never fetch loopback/private/metadata hosts.
+    if (isBlockedSsrfHostname(parsedUrl.hostname)) return '';
     var ctrl = new AbortController();
     var to = setTimeout(function () { ctrl.abort(); }, 10000);
     var res;
@@ -34967,6 +35058,43 @@ async function handleApi(req, res, pathname) {
     }
 
     const createdJob = await createPendingJobFromIntake(practice, intake);
+
+    // A corporate group signs ONCE for every clinic on its Schedule 1. Promote
+    // each sibling clinic in the same group to active/signed against this same
+    // signed agreement and create each one's pending job from its OWN intake,
+    // then mark the group signed. Without this, sibling clinics sat in
+    // "Potential Clients" forever with no job while the entity had signed.
+    // Best-effort: the seed is already persisted, so a sibling failure is
+    // logged and skipped, never fatal to the sign that already succeeded.
+    if (practice.group_id) {
+      try {
+        const groupClinics = await listPracticesByGroupId(practice.group_id);
+        for (const sibling of groupClinics) {
+          if (!sibling || sibling.id === practice.id) continue;
+          const sibMeta = sibling.metadata || {};
+          const sibAlreadySigned = sibling.agreement_status === 'signed'
+            || (sibMeta.pipeline_agreement && sibMeta.pipeline_agreement.agreement_status === 'signed');
+          if (sibAlreadySigned) continue;
+          const sibIntake = sibMeta.intake || null;
+          const sibMetaWithSigning = Object.assign({}, sibMeta, {
+            agreement_signing: { legal_entity_name: legalEntityName, abn_acn: abnAcnLabel, signer_job_title: signerJobTitle }
+          });
+          const sibSaved = await atsUpdatePracticeRow(sibling.id, Object.assign({}, practicePatch, { metadata: sibMetaWithSigning }));
+          if (!sibSaved) {
+            console.error('[practice-intake/sign] failed to promote sibling clinic', sibling.id, '— run migration 20260716120000');
+            continue;
+          }
+          if (sibIntake) {
+            await createPendingJobFromIntake(sibSaved, sibIntake)
+              .catch((e) => console.error('[practice-intake/sign] sibling job create failed', sibling.id, e && e.message));
+          }
+        }
+        await updatePracticeGroupRow(practice.group_id, { agreement_status: 'signed' })
+          .catch((e) => console.error('[practice-intake/sign] group mark-signed failed', e && e.message));
+      } catch (e) {
+        console.error('[practice-intake/sign] group promotion error:', e && e.message);
+      }
+    }
 
     const stampedBase64 = stamped.toString('base64');
     await sendEmail({
@@ -42601,7 +42729,7 @@ IMPORTANT:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing documents.
 - Focus ONLY on whether the document matches what the user claims it is.
 - If it is clearly a different type of document, identify what it actually appears to be.
-- If the expected document is "CV (Signed and dated)", return "matches": true only when the file is clearly a CV/resume and it appears signed and dated. If it is a CV missing a visible signature or date, return "matches": false and explain that it appears to be an unsigned or undated CV.
+- If the expected document is "CV (Signed and dated)", return "matches": true ONLY when the file is clearly a CV/resume that has (a) a visible signature, (b) a visible date, and (c) the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, return "matches": false and explain exactly what is missing (for a missing declaration, say the CV must include the signed, dated declaration "The curriculum vitae is true and correct as at [date]").
 
 Return ONLY valid JSON with no markdown formatting:
 {"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation", "expiryDate": "YYYY-MM-DD or null — any printed expiry / valid-until date on the document (null if none is visible)"}`;
@@ -43068,20 +43196,13 @@ Return ONLY valid JSON with no markdown formatting:
     // Save ticket to user state
     if (isSupabaseDbConfigured()) {
       try {
-        const stateController = new AbortController();
-        const stateTimeout = setTimeout(() => stateController.abort(), 10000);
-        let stateRes;
-        try {
-          stateRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${encodeURIComponent(session.user_id || '')}`, {
-            signal: stateController.signal,
-            headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
-          });
-        } finally {
-          clearTimeout(stateTimeout);
-        }
-        const rows = await stateRes.json();
-        const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
-        const existingState = (row && row.state && typeof row.state === 'object') ? row.state : {};
+        // Resolve the user by their session email — the app session carries
+        // { userProfile, expiresAt, epoch } and has NO user_id field, so the
+        // old `user_id=eq.<session.user_id>` query matched nothing and the
+        // ticket was written against an undefined id (silently lost, and the
+        // read started from an empty state, discarding existing cases).
+        const remote = await getSupabaseUserStateByEmail(email);
+        const existingState = (remote && remote.state && typeof remote.state === 'object') ? remote.state : {};
         const parsedCases = parseJsonLike(existingState.gpLinkSupportCases);
         const cases = Array.isArray(parsedCases) ? parsedCases : [];
         cases.push(ticket);
@@ -43096,7 +43217,7 @@ Return ONLY valid JSON with no markdown formatting:
           gpLinkSupportCases: JSON.stringify(cases),
           updatedAt: now
         };
-        await upsertSupabaseUserState(session.user_id || row?.user_id, nextState, now);
+        await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
       } catch (e) { console.error('[SupportTicket] Supabase error:', e.message); }
     } else {
       const dbState = loadDbState();
@@ -43184,7 +43305,7 @@ Return ONLY valid JSON with no markdown formatting:
         const cases = Array.isArray(parsed) ? parsed : [];
         cases.unshift(ticket);
         const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
-        await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+        await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
       } catch (e) { console.error('[SupportTickets] Supabase write error:', e.message); }
     } else {
       const dbState = loadDbState();
@@ -43246,7 +43367,7 @@ Return ONLY valid JSON with no markdown formatting:
         updatedCase = addMessageToCase(cases);
         if (updatedCase) {
           const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
-          await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+          await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
         }
       } catch (e) { console.error('[SupportTickets] Message add error:', e.message); }
     } else {
@@ -43307,7 +43428,7 @@ Return ONLY valid JSON with no markdown formatting:
         updatedCase = updateCaseStatus(cases);
         if (updatedCase) {
           const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
-          await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+          await upsertSupabaseUserState(remote ? remote.userId : null, nextState, now);
         }
       } catch (e) { console.error('[SupportTickets] Status update error:', e.message); }
     } else {
@@ -59941,6 +60062,20 @@ Return ONLY valid JSON with no markdown formatting:
       if (ppCurForClear && ppCurForClear.parent_corporation_id) patchP.parent_corporation_id = null;
     }
     if (!Object.keys(patchP).length) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
+    // If the name is changing, remember the old name so we can cascade it onto
+    // this practice's job listings (career_roles.practice_name). The practices
+    // directory groups jobs by practice_name, so a rename would otherwise leave
+    // every job grouped under the OLD name as a duplicate "name:" card while the
+    // renamed row shows zero jobs — detaching its agreement/contract history.
+    var renameOldName = null;
+    if (typeof patchP.name === 'string' && patchP.name.trim()) {
+      if (parsedPP.name) {
+        renameOldName = parsedPP.name;
+      } else if (parsedPP.rowId) {
+        var preRenameRow = await atsGetPracticeRow(parsedPP.rowId);
+        renameOldName = preRenameRow ? String(preRenameRow.name || '') : null;
+      }
+    }
     var updatedP = null;
     if (parsedPP.name) {
       // Derived practice (exists only as a name on jobs): upsert a real practices row,
@@ -59958,6 +60093,30 @@ Return ONLY valid JSON with no markdown formatting:
       updatedP = await atsUpdatePracticeRow(parsedPP.rowId, patchP);
     }
     if (!updatedP) { sendJson(res, 404, { ok: false, message: 'Could not save (the practices table may not be set up yet).' }); return; }
+    // Cascade the rename onto matching job listings (active + pending) so they
+    // stay attached to this practice instead of forming a duplicate old-name
+    // card. Best-effort — a failure here never fails the save that succeeded.
+    if (renameOldName && String(renameOldName).trim().toLowerCase() !== String(patchP.name).trim().toLowerCase()) {
+      try {
+        var renameJobs = await atsListJobRows();
+        var renamePending = [];
+        if (isSupabaseDbConfigured()) {
+          var rpjr = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&limit=1000');
+          if (rpjr.ok && Array.isArray(rpjr.data)) renamePending = rpjr.data;
+        } else {
+          renamePending = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
+        }
+        var seenRename = {}; var jobsToRename = [];
+        renameJobs.concat(renamePending).forEach(function (j) { if (j && !seenRename[String(j.id)]) { seenRename[String(j.id)] = true; jobsToRename.push(j); } });
+        var oldNameKey = String(renameOldName).trim().toLowerCase();
+        for (var rIdx = 0; rIdx < jobsToRename.length; rIdx++) {
+          var rJob = jobsToRename[rIdx];
+          if (String(rJob.practice_name || '').trim().toLowerCase() === oldNameKey) {
+            await atsUpdateJobRow(rJob.id, { practice_name: patchP.name }).catch(function () {});
+          }
+        }
+      } catch (e) { console.error('[ats/practice PATCH] rename cascade failed:', e && e.message); }
+    }
     sendJson(res, 200, { ok: true, practice: updatedP });
     return;
   }

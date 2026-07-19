@@ -540,10 +540,17 @@
   // ==================== MODALS (add / edit) ====================
   var AU_STATES = ['QLD', 'NSW', 'VIC', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
   function stateSelect(id, selected) {
-    var sel = selected || 'QLD';
-    return '<select id="' + id + '">' + AU_STATES.map(function (s) {
-      return '<option' + (s === sel ? ' selected' : '') + '>' + s + '</option>';
-    }).join('') + '</select>';
+    // Default to a blank "— Select —" (NOT QLD) so a practice with no state on
+    // file shows blank. Defaulting to QLD made the save-diff treat it as a user
+    // edit and silently stamped QLD onto any stateless practice (e.g. an FB
+    // lead) whenever the CEO edited any other field — silent geo corruption on
+    // a masked jobs board where state matters.
+    var sel = selected || '';
+    return '<select id="' + id + '">' +
+      '<option value=""' + (sel === '' ? ' selected' : '') + '>— Select —</option>' +
+      AU_STATES.map(function (s) {
+        return '<option' + (s === sel ? ' selected' : '') + '>' + s + '</option>';
+      }).join('') + '</select>';
   }
 
   function ivAttr(x) { return x ? ' value="' + ATS.escAttr(x) + '"' : ''; }
