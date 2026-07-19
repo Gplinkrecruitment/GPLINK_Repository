@@ -4,12 +4,14 @@ import crypto from 'crypto';
 import fs from 'fs';
 
 // Friendly 404 (2026-07-20 full-app user-POV audit, Task 13): a typo'd URL
-// used to answer with a raw plain-text "Not found". Browser navigations
-// (Accept includes text/html) now get the small branded pages/not-found.html
-// (still status 404); non-HTML callers keep the terse plain-text body, and
-// /api/* 404s stay JSON. The page itself must be publicly servable so a
-// signed-out visitor is not bounced to signin. Mirrors the http-harness idiom
-// used by tests/site-public-routes.test.js (auth ENABLED).
+// used to answer with a raw plain-text "Not found". Browser page navigations
+// now get the branded pages/error.html served in place via respondNotFound
+// (still status 404); asset-extension paths (.js/.css/...) and non-HTML
+// callers keep the terse plain-text body so a <script src> can never receive
+// HTML, and /api/* 404s stay JSON. pages/not-found.html remains a publicly
+// servable standalone page so a signed-out visitor is not bounced to signin.
+// Mirrors the http-harness idiom used by tests/site-public-routes.test.js
+// (auth ENABLED).
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 let server;
@@ -77,9 +79,8 @@ describe('friendly 404 — browser navigations get the branded page', () => {
     const res = await get('/totally-bogus-url', { accept: BROWSER_ACCEPT });
     expect(res.status).toBe(404);
     expect(res.headers['content-type']).toMatch(/text\/html/);
-    expect(res.raw).toContain("This page doesn't exist");
-    expect(res.raw).toContain('href="/pages/index"');
-    expect(res.raw).toContain('href="/pages/signin"');
+    expect(res.raw).toContain('We couldn');
+    expect(res.raw).toContain('GP Link');
   });
 
   it('signed-in GET of a bogus /pages/ URL → 404 branded HTML (static stat-miss path)', async () => {
@@ -89,13 +90,13 @@ describe('friendly 404 — browser navigations get the branded page', () => {
     });
     expect(res.status).toBe(404);
     expect(res.headers['content-type']).toMatch(/text\/html/);
-    expect(res.raw).toContain("This page doesn't exist");
+    expect(res.raw).toContain('We couldn');
   });
 
-  it('blocked backend paths (allowlist gate) also get the branded page for browsers', async () => {
+  it('blocked backend paths (allowlist gate) stay terse plain text — assets never get HTML', async () => {
     const res = await get('/server.js', { accept: BROWSER_ACCEPT });
     expect(res.status).toBe(404);
-    expect(res.raw).toContain("This page doesn't exist");
+    expect(res.raw).toBe('Not found');
     // Never leak source even a little.
     expect(res.raw).not.toContain('handleApi');
   });
