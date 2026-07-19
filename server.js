@@ -24915,7 +24915,7 @@ async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
   } else {
     return { ok: true, isCv: false, reason: 'Unsupported file type — please upload a PDF or Word document.' };
   }
-  blocks.push({ type: 'text', text: 'Is the document above a genuine curriculum vitae / resume for a medical professional? A CV lists a person\'s career history, education and skills. Contracts, certificates, letters, forms and IDs are NOT CVs. Respond with ONLY valid JSON: {"isCv": true|false, "reason": "<short plain-English reason a non-technical person understands>"}' });
+  blocks.push({ type: 'text', text: 'Is the document above a genuine curriculum vitae / resume for a medical professional? A CV lists a person\'s career history, education and skills. Contracts, certificates, letters, forms and IDs are NOT CVs. Also read the full personal name of the person the CV belongs to (usually printed at the very top). Respond with ONLY valid JSON: {"isCv": true|false, "nameFound": "<the CV owner\'s full name exactly as written, or null if it is not clearly stated>", "reason": "<short plain-English reason a non-technical person understands>"}' });
 
   try {
     var resp = await fetch(ANTHROPIC_MESSAGES_URL, {
@@ -24927,7 +24927,8 @@ async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
     if (json && json.usage) recordAnthropicSpend(json.usage.input_tokens, json.usage.output_tokens, json.usage.cache_read_input_tokens, json.usage.cache_creation_input_tokens);
     var textOut = (json && json.content && json.content[0] && json.content[0].text) || '';
     var parsed = JSON.parse(textOut.replace(/^```(?:json)?/m, '').replace(/```$/m, '').trim());
-    return { ok: true, isCv: parsed.isCv === true, reason: String(parsed.reason || '') };
+    var cvNameOut = (parsed.nameFound != null && String(parsed.nameFound).trim() && String(parsed.nameFound).trim().toLowerCase() !== 'null') ? String(parsed.nameFound).trim() : '';
+    return { ok: true, isCv: parsed.isCv === true, nameFound: cvNameOut, reason: String(parsed.reason || '') };
   } catch (err) {
     console.error('[career-cv-scan] AI scan failed:', err && err.message);
     return { ok: false, reason: 'ai_error' };
@@ -37884,6 +37885,30 @@ async function handleApi(req, res, pathname) {
       console.warn('[career-cv-scan] scan unavailable, accepting unscanned:', cvScan.reason);
     }
 
+    // IDENTITY GUARD: the career CV must belong to THIS account holder. A different doctor's
+    // genuine CV would otherwise pass the "is this a CV?" check and could be sent to a practice
+    // as this GP — a PII leak (this is exactly how Sana Ahsan's CV was stored as Helen Wazalski's).
+    // Compare the name the AI read on the CV to the account name (allowing a recorded name change).
+    // Only block on a CONFIDENT mismatch; never block when the name could not be read.
+    if (cvScan.ok && cvScan.isCv !== false && cvScan.nameFound) {
+      const cvProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,name_change_detected,name_change_note&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      const cvProf = (cvProfRes.ok && Array.isArray(cvProfRes.data) && cvProfRes.data[0]) ? cvProfRes.data[0] : null;
+      const cvAccountName = cvProf ? [cvProf.first_name, cvProf.last_name].filter(Boolean).join(' ').trim() : '';
+      const cvKnownNames = [];
+      if (cvProf && cvProf.name_change_detected && cvProf.name_change_note) {
+        const cvFormer = String(cvProf.name_change_note).replace(/^\s*Document name:\s*/i, '').trim();
+        if (cvFormer) cvKnownNames.push(cvFormer);
+      }
+      if (hasUsableFullName(cvAccountName)) {
+        const cvNameCheck = crossCheckDocumentName(cvScan.nameFound, cvAccountName, cvKnownNames);
+        if (cvNameCheck.match === 'mismatch') {
+          console.warn('[career-cv-scan] IDENTITY MISMATCH — rejected: CV name "' + cvScan.nameFound + '" vs account "' + cvAccountName + '" (user ' + userId + ')');
+          sendJson(res, 422, { ok: false, verified: false, reason: 'The name on this CV (“' + cvScan.nameFound + '”) does not match your account name (“' + cvAccountName + '”). Please upload YOUR OWN signed CV. If you have recently changed your name, please contact support so we can update your details.' });
+          return;
+        }
+      }
+    }
+
     const cvSaved = await saveCareerProfileDocument(userId, 'career_cv', {
       fileName: cvFileName,
       fileBase64: cvFileBase64,
@@ -40536,6 +40561,29 @@ async function handleApi(req, res, pathname) {
         }
       }
     } catch (cvErr) { inAppCvRow = null; inAppCvBuffer = null; inAppCvAttachment = null; }
+
+    // ATTACH-TIME IDENTITY SAFETY NET (defence-in-depth behind the upload-time guard): never email
+    // a practice a CV whose name doesn't belong to THIS candidate. This is exactly what happened
+    // once — Sana Ahsan's CV was stored as Helen Wazalski's career_cv and emailed to a practice as
+    // Helen's. Best-effort: on a CONFIDENT name mismatch we drop the attachment (the email still
+    // sends, saying the CV will follow); if the check is unavailable we still attach (the
+    // upload-time guard is the primary protection and we never block a submission on an AI outage).
+    if (inAppCvBuffer && inAppCvAttachment) {
+      try {
+        const attScan = await verifyCareerCvWithAI(inAppCvBuffer, (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf', (inAppCvRow && inAppCvRow.file_name) || 'cv.pdf');
+        if (attScan && attScan.ok && attScan.nameFound && hasUsableFullName(inAppGpName)) {
+          const attKnown = [];
+          if (inAppProfile && inAppProfile.name_change_detected && inAppProfile.name_change_note) {
+            const attFormer = String(inAppProfile.name_change_note).replace(/^\s*Document name:\s*/i, '').trim();
+            if (attFormer) attKnown.push(attFormer);
+          }
+          if (crossCheckDocumentName(attScan.nameFound, inAppGpName, attKnown).match === 'mismatch') {
+            console.error('[submit-to-practice] BLOCKED wrong-owner CV attachment — CV name "' + attScan.nameFound + '" vs candidate "' + inAppGpName + '" (user ' + appRow.user_id + '). Sending the introduction WITHOUT the CV.');
+            inAppCvAttachment = null; inAppCvBuffer = null; inAppCvRow = null;
+          }
+        }
+      } catch (attErr) { /* best-effort — attach anyway; the upload-time guard is primary */ }
+    }
 
     // Optional cover letter (career_cover_letter) — same AI-free profile-doc
     // pipeline as the CV. Never sourced from registration-file documents.
