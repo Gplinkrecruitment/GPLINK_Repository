@@ -15,6 +15,28 @@ describe('interview-meetings model', () => {
     expect(m.practiceTzForLocation('Perth WA')).toBe('Australia/Perth');
   });
 
+  it('prefers the stored AU state code over practice-name sniffing (Task 8)', () => {
+    // Complete state/territory → canonical IANA zone map.
+    expect(m.practiceTzForLocation('', 'NSW')).toBe('Australia/Sydney');
+    expect(m.practiceTzForLocation('', 'VIC')).toBe('Australia/Melbourne');
+    expect(m.practiceTzForLocation('', 'QLD')).toBe('Australia/Brisbane');
+    expect(m.practiceTzForLocation('', 'SA')).toBe('Australia/Adelaide');
+    expect(m.practiceTzForLocation('', 'WA')).toBe('Australia/Perth');
+    expect(m.practiceTzForLocation('', 'TAS')).toBe('Australia/Hobart');
+    expect(m.practiceTzForLocation('', 'NT')).toBe('Australia/Darwin');
+    expect(m.practiceTzForLocation('', 'ACT')).toBe('Australia/Sydney');
+    expect(m.practiceTzForLocation('', 'wa ')).toBe('Australia/Perth'); // case/space tolerant
+    // A neutral practice name with a stored state must NOT fall back to Sydney.
+    expect(m.practiceTzForLocation('Sunrise Family Medical', 'WA')).toBe('Australia/Perth');
+    // The explicit stored state beats a misleading practice name.
+    expect(m.practiceTzForLocation('Brisbane Road Clinic', 'WA')).toBe('Australia/Perth');
+    // Unknown state code falls back to name sniffing, then Sydney.
+    expect(m.practiceTzForLocation('Perth WA', '')).toBe('Australia/Perth');
+    expect(m.practiceTzForLocation('Nowhere Clinic', 'ZZ')).toBe('Australia/Sydney');
+    // City is folded into the sniff text when no usable state is stored.
+    expect(m.practiceTzForLocation('Neutral Clinic', '', 'Perth')).toBe('Australia/Perth');
+  });
+
   it('builds an interview row tagged interview/ceo/requested', () => {
     const row = m.buildInterviewRow({
       caseId: 'c1', userId: 'u1', applicationId: 'a1', careerRoleId: 7,

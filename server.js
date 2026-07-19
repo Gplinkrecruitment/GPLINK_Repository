@@ -31189,10 +31189,14 @@ async function atsGetApplicationContext(appId) {
         if (us && us.gp_selected_country) gpCountry = String(us.gp_selected_country).trim();
       }
     }
-    var practiceEmail = '';
+    var practiceEmail = '', practiceRowState = '', practiceRowCity = '';
     if (job && job.practice_id) {
-      var pr = await supabaseDbRequest('practices', 'select=contact_email&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
-      if (pr.ok && pr.data && pr.data[0]) practiceEmail = String(pr.data[0].contact_email || '').trim();
+      var pr = await supabaseDbRequest('practices', 'select=contact_email,location_state,location_city&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
+      if (pr.ok && pr.data && pr.data[0]) {
+        practiceEmail = String(pr.data[0].contact_email || '').trim();
+        practiceRowState = String(pr.data[0].location_state || '').trim();
+        practiceRowCity = String(pr.data[0].location_city || '').trim();
+      }
     }
     return {
       app: app,
@@ -31200,6 +31204,10 @@ async function atsGetApplicationContext(appId) {
       caseId: caseId,
       careerRoleId: app.career_role_id || null,
       practiceName: (job && job.practice_name) || app.practice_name || '',
+      // Stored location (role row first, practice row fallback) — drives the
+      // interview timezone (practiceTzForLocation), never the practice NAME.
+      practiceState: String((job && job.location_state) || '').trim() || practiceRowState,
+      practiceCity: String((job && job.location_city) || '').trim() || practiceRowCity,
       gpName: gpName || app.candidate_name || app.name || 'Dr',
       gpEmail: gpEmail || (app && app.email) || '',
       gpCountry: gpCountry || '',
@@ -31230,6 +31238,8 @@ async function atsGetApplicationContext(appId) {
     caseId: candidate ? (candidate.id || null) : null,
     careerRoleId: app.career_role_id || app.job_id || null,
     practiceName: (job && job.practice_name) || app.practice_name || '',
+    practiceState: String((job && job.location_state) || (practice && practice.location_state) || '').trim(),
+    practiceCity: String((job && job.location_city) || (practice && practice.location_city) || '').trim(),
     gpName: (candidate && candidate.name) || app.name || 'Dr',
     gpEmail: (candidate && candidate.email) || app.email || '',
     gpCountry: (candidate && candidate.country) || app.country || '',
@@ -32969,7 +32979,7 @@ async function handleApi(req, res, pathname) {
               var irScPrEmail = (irScCtx && irScCtx.practiceEmail) || '';
               if (irScPrEmail && isEmailConfigured()) {
                 var irScGpName = (irScCtx && irScCtx.gpName) || 'your GP Link candidate';
-                var irScPrTz = interviewMeetings.practiceTzForLocation(irScPractice || (irScCtx && irScCtx.practiceName) || '');
+                var irScPrTz = interviewMeetings.practiceTzForLocation(irScPractice || (irScCtx && irScCtx.practiceName) || '', irScCtx && irScCtx.practiceState, irScCtx && irScCtx.practiceCity);
                 var irScPrWhen;
                 try {
                   irScPrWhen = new Intl.DateTimeFormat('en-AU', {
@@ -33008,7 +33018,7 @@ async function handleApi(req, res, pathname) {
                 var irScRsoCtx = await atsGetApplicationContext(String(irSc.application_id || ''));
                 irScRsoGpName = (irScRsoCtx && irScRsoCtx.gpName) || 'the candidate';
               } catch (gnErr) { irScRsoGpName = 'the candidate'; }
-              var irScRsoTz = interviewMeetings.practiceTzForLocation(irScPractice || '');
+              var irScRsoTz = interviewMeetings.practiceTzForLocation(irScPractice || '', irScRsoCtx && irScRsoCtx.practiceState, irScRsoCtx && irScRsoCtx.practiceCity);
               var irScRsoWhen;
               try {
                 irScRsoWhen = new Intl.DateTimeFormat('en-AU', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: irScRsoTz }).format(new Date(irSc.scheduled_at));
@@ -63007,7 +63017,7 @@ function buildInterviewPracticeConfig(interviewRow, practiceTz) {
 // can never shadow its own slot).
 async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
   var host = interviewMeetings.DEFAULT_HOST_CONFIG;
-  var practice = buildInterviewPracticeConfig(row, interviewMeetings.practiceTzForLocation(appCtx.practiceName || ''));
+  var practice = buildInterviewPracticeConfig(row, interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
   var gp = {
     tz: interviewMeetings.gpTzForCountry(appCtx.gpCountry),
     weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
@@ -63187,7 +63197,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(slotStartUtc));
         } catch (e) { return new Date(slotStartUtc).toUTCString(); }
       };
-      var practiceWhen = _fmtInterviewWhen(interviewMeetings.practiceTzForLocation(appCtx.practiceName || ''));
+      var practiceWhen = _fmtInterviewWhen(interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
       var gpWhen = _fmtInterviewWhen(interviewMeetings.gpTzForCountry(appCtx.gpCountry));
       var timeLabel = practiceWhen; // used by the internal ops notify below
       // Resolved join link (real Zoom → INTERVIEW_MEETING_URL standing room → '').

@@ -43,7 +43,10 @@ const db = {
     { id: 'case-int-1', user_id: GP.userId, status: 'active', assigned_rso: null, assigned_va: null }
   ],
   practices: [
-    { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
+    { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW },
+    // Task 8: WA practice whose NAME contains no city/state keyword — the stored
+    // location_state must drive the timezone (Perth), not name sniffing (Sydney).
+    { id: 'p-int-wa', name: 'Sunrise Family Medical', source: 'internal_ats', contact_name: 'Wes Manager', contact_email: 'reception@sunrise-wa-test.local', location_city: 'Karratha', location_state: 'WA', is_active: true, created_at: NOW }
   ],
   career_roles: [
     {
@@ -58,6 +61,13 @@ const db = {
       id: 'role-int-2', provider: 'internal_ats', provider_role_id: 'ats_int_r2', title: 'General Practitioner — VR (unrevealed role)',
       practice_name: 'Riverside Medical Centre', practice_id: 'p-int-1', location_city: 'Brisbane', location_state: 'QLD',
       is_active: true, job_status: 'open', updated_at: NOW
+    },
+    // Task 8: Karratha WA — neither the practice name nor the city matches the
+    // legacy name-sniffing keywords, so only location_state can yield Perth time.
+    {
+      id: 'role-int-wa', provider: 'internal_ats', provider_role_id: 'ats_int_rwa', title: 'General Practitioner — VR',
+      practice_name: 'Sunrise Family Medical', practice_id: 'p-int-wa', location_city: 'Karratha', location_state: 'WA',
+      is_active: true, job_status: 'open', updated_at: NOW
     }
   ],
   gp_applications: [
@@ -66,7 +76,9 @@ const db = {
     // Not revealed (different role, no offer) — used for the 403 not_available test.
     { id: 'app-int-2', user_id: GP.userId, career_role_id: 'role-int-2', provider_role_id: 'ats_int_r2', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     // Belongs to GP2 — used for the wrong-owner 404 test.
-    { id: 'app-int-3', user_id: GP2.userId, career_role_id: 'role-int-1', provider_role_id: 'ats_int_r3', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' }
+    { id: 'app-int-3', user_id: GP2.userId, career_role_id: 'role-int-1', provider_role_id: 'ats_int_r3', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' },
+    // Task 8: revealed offer at the WA practice — timezone-derivation tests.
+    { id: 'app-int-wa', user_id: GP.userId, career_role_id: 'role-int-wa', provider_role_id: 'ats_int_rwa', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' }
   ],
   ats_offers: [],
   ats_stage_events: [],
@@ -397,5 +409,39 @@ describe('POST /api/career/interview/book', () => {
     const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-2', slot_start_utc: NOW }, GP);
     expect(r.status).toBe(403);
     expect(r.body.error).toBe('not_available');
+  });
+});
+
+// Task 8 (2026-07-20 audit): the practice timezone must come from the stored
+// location_state, not from sniffing the practice NAME. 'Sunrise Family Medical'
+// in Karratha WA has no city/state keyword in its name, so the legacy sniffing
+// guessed Australia/Sydney — availability windows 2-3h off and email prose
+// disagreeing with the UTC-correct .ics.
+describe('practice timezone from stored location_state (Task 8)', () => {
+  it('computes interview slots with the WA practice in Australia/Perth', async () => {
+    const r = await gpGet('/api/career/interview/slots?applicationId=app-int-wa', GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.slots.length).toBeGreaterThan(0);
+    expect(r.body.slots[0].local.practice.tz).toBe('Australia/Perth');
+  });
+
+  it('labels the practice confirmation email in Perth time (AWST), matching the .ics', async () => {
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-wa', GP);
+    expect(slotsRes.body.slots.length).toBeGreaterThan(0);
+    const slot = slotsRes.body.slots[0];
+
+    const beforeEmails = resendCalls.length;
+    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-wa', slot_start_utc: slot.startUtc }, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const sends = resendCalls.slice(beforeEmails);
+    const toOf = (c) => (Array.isArray(c.body.to) ? c.body.to : [c.body.to]).join(',');
+    const practiceSend = sends.find((c) => toOf(c).includes('reception@sunrise-wa-test.local'));
+    expect(practiceSend).toBeTruthy();
+    // Perth is AWST year-round; the pre-fix Sydney guess rendered AEST/AEDT.
+    expect(practiceSend.body.text).toContain('AWST');
+    expect(practiceSend.body.text).not.toMatch(/AE[SD]T/);
   });
 });
