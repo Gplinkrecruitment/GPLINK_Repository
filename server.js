@@ -11777,7 +11777,10 @@ async function handleFacebookLeadWebhook(req, res) {
  * Sends the themed "your GP is waiting" intake email to a practice contact,
  * ensuring the row has an intake_token (generating + persisting one if it
  * doesn't) and recording metadata.intake_email_last_sent_at on success.
- * Best-effort: caller should treat this as fire-and-forget.
+ * Best-effort for the caller ({ok:false} never throws), but fail-CLOSED on
+ * token persistence: an unpersisted token can never match
+ * findPracticeByIntakeToken, so emailing it would hand the practice a link
+ * that always shows "This link has expired".
  */
 async function sendPracticeIntakeEmail(practice) {
   if (!practice) return { ok: false };
@@ -11787,12 +11790,12 @@ async function sendPracticeIntakeEmail(practice) {
     var patchedMeta = Object.assign({}, practice.metadata || {}, { intake_token: token });
     var patched = await atsUpdatePracticeRow(practice.id, { metadata: patchedMeta }).catch(function () { return null; });
     if (!patched) {
-      // Metadata column may also be missing — proceed with the in-memory
-      // token so the email still goes out; persistence is best-effort.
-      practice = Object.assign({}, practice, { metadata: patchedMeta });
-    } else {
-      practice = patched;
+      // Abort — see the fail-closed note above. (Previously this proceeded
+      // with the in-memory token and the recipient got a dead link.)
+      console.error('[practice-intake] intake token persist failed for practice', practice.id, '— intake email NOT sent');
+      return { ok: false, error: 'intake_token_not_persisted' };
     }
+    practice = patched;
   }
 
   var intakeUrl = APP_BASE_URL + '/pages/practice-intake?token=' + encodeURIComponent(token);
@@ -21935,12 +21938,14 @@ const EXPORT_ENTITIES = {
   }
 };
 
-// Optional admin notification — env-gated, best-effort. The enquiry API must
-// never fail (or slow down materially) because of an email problem, so every
-// failure mode here is caught and logged, never thrown.
+// Admin notification — best-effort. The enquiry API must never fail (or slow
+// down materially) because of an email problem, so every failure mode here is
+// caught and logged, never thrown. When SITE_ENQUIRY_NOTIFY_EMAIL is unset we
+// fall back to the owner mailbox (GP_OWNER_EMAIL) rather than silently
+// dropping the notification: enquiries are stored but no dashboard lists
+// practice-kind enquiries, so an un-notified enquiry reaches no human at all.
 async function maybeNotifySiteEnquiry(row) {
-  const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim();
-  if (!notifyTo) return;
+  const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim() || GP_OWNER_EMAIL;
   try {
     const escapeHtml = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const safeKind = escapeHtml(row.kind);
@@ -36222,6 +36227,14 @@ async function handleApi(req, res, pathname) {
     }
     const abnAcnLabel = (abnAcnDigits.length === 11 ? 'ABN ' : 'ACN ') + abnAcnDigits;
 
+    // The sign form requires the signer's own email (body.email) — it was
+    // historically discarded, so a signer who isn't the practice contact
+    // never received the countersigned copy / status link. Normalize +
+    // validate it server-side; it becomes a second recipient of the
+    // confirmation email below when it differs from contact_email.
+    const signerEmail = String((body && body.email) || '').trim().toLowerCase();
+    const signerEmailValid = signerEmail && isValidEmail(signerEmail);
+
     if (!_agreementPdfBytes) {
       try {
         _agreementPdfBytes = fs.readFileSync(path.join(process.cwd(), 'assets/legal/gp-link-practice-agreement-2026.pdf'));
@@ -36359,8 +36372,14 @@ async function handleApi(req, res, pathname) {
     }
 
     const stampedBase64 = stamped.toString('base64');
+    // Confirmation goes to the practice contact AND, when different, the
+    // person who actually signed (sendEmail accepts an array `to`).
+    const confirmationRecipients = [practice.contact_email];
+    if (signerEmailValid && signerEmail !== String(practice.contact_email || '').trim().toLowerCase()) {
+      confirmationRecipients.push(signerEmail);
+    }
     await sendEmail({
-      to: practice.contact_email,
+      to: confirmationRecipients,
       from: { email: GP_OWNER_EMAIL, name: 'GP Link' },
       subject: 'Your signed GP Link agreement — welcome aboard',
       html: buildCareerEmailHtml({
@@ -36730,7 +36749,10 @@ async function handleApi(req, res, pathname) {
       return {
         id: String(j.id),
         role_label: resolveCareerRoleDisplayTitle(j, { internalTitleFirst: false }),
-        status: j.is_active === true ? 'live' : 'pending',
+        // Acceptance flips job_status to 'filled' WITHOUT touching is_active
+        // (see the ats accept path), so 'filled' must win over live/pending —
+        // otherwise a placed practice reads "Live · N candidates" forever.
+        status: j.job_status === 'filled' ? 'filled' : (j.is_active === true ? 'live' : 'pending'),
         candidates_submitted: jSubmitted.length,
         interviews: jInterviews
       };
@@ -63636,6 +63658,7 @@ module.exports.__testUtils = {
   taskVisibleToRso,
   scopeDashboardToUserIds,
   sendEmail,
+  sendPracticeIntakeEmail,
   buildMatchEmailHtml,
   sendMatchEmail,
   buildRedirectEmailHtml,

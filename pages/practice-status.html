@@ -64,6 +64,9 @@
   }
   .badge-live{background:#e7f7f0;color:var(--green);border:1px solid #b8e8d4;}
   .badge-pending{background:#fef6e7;color:var(--amber);border:1px solid #f5dfae;}
+  /* A filled position is a SUCCESS state (the search worked) — styled like
+     the signed chip, distinct from Live green and Pending amber. */
+  .badge-filled{background:#eef4ff;color:var(--blue-dark);border:1px solid #c9dcfb;}
   .job-meta{margin:10px 0 0;font-size:13.5px;color:var(--mut);}
   .job-meta strong{color:var(--ink);font-weight:700;}
   .interview-list{list-style:none;margin:8px 0 0;padding:0;}
@@ -170,8 +173,11 @@
     var chip = document.getElementById('statusChip');
     var chipText = document.getElementById('statusChipText');
     var anyLive = (jobs || []).some(function (j) { return j && j.status === 'live'; });
+    var anyFilled = (jobs || []).some(function (j) { return j && j.status === 'filled'; });
     var cls, label;
     if (anyLive) { cls = 'chip-live'; label = 'Listing live'; }
+    // All activity resolved into a placement — read as success, not limbo.
+    else if (anyFilled) { cls = 'chip-live'; label = 'Position filled'; }
     else if (practice && practice.agreement_status === 'signed') { cls = 'chip-signed'; label = 'Agreement signed'; }
     else { cls = 'chip-review'; label = 'Under review'; }
     chip.classList.remove('chip-live', 'chip-signed', 'chip-review', 'hidden');
@@ -199,9 +205,17 @@
     head.appendChild(title);
 
     var badge = document.createElement('span');
-    var live = job.status === 'live';
-    badge.className = 'badge ' + (live ? 'badge-live' : 'badge-pending');
-    badge.textContent = live ? 'Live' : 'Pending approval';
+    // 'filled' (position placed — a success state) wins over live/pending.
+    if (job.status === 'filled') {
+      badge.className = 'badge badge-filled';
+      badge.textContent = 'Position filled';
+    } else if (job.status === 'live') {
+      badge.className = 'badge badge-live';
+      badge.textContent = 'Live';
+    } else {
+      badge.className = 'badge badge-pending';
+      badge.textContent = 'Pending approval';
+    }
     head.appendChild(badge);
     card.appendChild(head);
 

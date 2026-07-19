@@ -560,6 +560,8 @@
     <div class="icon">✅</div>
     <h1>Agreement signed</h1>
     <p style="margin-bottom:0">Agreement signed — your job listing is with our team for approval. Watch your inbox.</p>
+    <!-- href is filled in by showSuccess() from the page's intake token -->
+    <p style="margin:18px 0 0"><a id="trackListingLink" class="btn hidden" style="text-decoration:none" href="#">Track your listing →</a></p>
   </div>
 </div>
 
@@ -582,7 +584,19 @@
       if (p === panel) p.classList.remove('hidden'); else p.classList.add('hidden');
     });
   }
-  function showSuccess() { showOnly(successPanel); }
+  function showSuccess() {
+    // Both success paths land here — a fresh sign AND reopening an
+    // already-signed link. Without this link the reopened card was a
+    // dead-end (the status-page URL existed only in the confirmation
+    // email). Token goes into the query string URL-encoded; assigning
+    // via the href property (never innerHTML) keeps it injection-safe.
+    var trackLink = $('trackListingLink');
+    if (trackLink && token) {
+      trackLink.href = '/pages/practice-status?token=' + encodeURIComponent(token);
+      trackLink.classList.remove('hidden');
+    }
+    showOnly(successPanel);
+  }
 
   // ---------------------------------------------------------------------
   // Load
@@ -1413,7 +1427,21 @@
   // Draft persistence — everything you've typed, the drawn signature, and
   // which step you're on, so a reload never loses the practice's work.
   // ---------------------------------------------------------------------
-  var STORE = 'gplink_intake_draft_v3';
+  // The draft store is keyed by intake token so two different practices'
+  // intake links opened in the same browser can never read each other's
+  // draft (the old fixed key cross-contaminated them).
+  //
+  // Legacy migration rule (safest simple rule, documented): pre-scoping
+  // drafts never recorded which token they belonged to, so ownership of a
+  // legacy draft is unknowable. We therefore adopt a legacy draft AT MOST
+  // ONCE — only when it carries no token marker — and delete the legacy key
+  // in the same breath, so the worst case is a single adoption by the first
+  // intake link opened after this deploy (overwhelmingly the same practice
+  // that wrote it, since drafts are short-lived and per-browser). Every
+  // draft written from now on records its token, and restoreDraft ignores
+  // any draft whose recorded token doesn't match this page's token.
+  var LEGACY_STORE = 'gplink_intake_draft_v3';
+  var STORE = LEGACY_STORE + ':' + token;
   var saveTimer = null;
   function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 250); }
   function persist() {
@@ -1421,6 +1449,7 @@
       var signFields = {};
       ['signedName', 'signerJobTitle', 'legalEntityName', 'abnAcn', 'signedEmail'].forEach(function (id) { signFields[id] = $(id).value; });
       localStorage.setItem(STORE, JSON.stringify({
+        token: token,
         saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
         manual: !$('manual').classList.contains('hidden'),
         manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value },
@@ -1436,7 +1465,17 @@
   function restoreDraft() {
     var d;
     try { d = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) { d = null; }
+    if (!d) {
+      // One-time legacy-key migration — see the rule documented at STORE.
+      var legacy = null;
+      try { legacy = JSON.parse(localStorage.getItem(LEGACY_STORE) || 'null'); } catch (e) { legacy = null; }
+      try { localStorage.removeItem(LEGACY_STORE); } catch (e) {}
+      if (legacy && !legacy.token) d = legacy;
+    }
     if (!d) return false;
+    // A draft that recorded a different token belongs to another practice —
+    // never restore it here.
+    if (d.token && d.token !== token) return false;
 
     saved = Array.isArray(d.saved) ? d.saved : [];
     mode = d.mode || 'solo';

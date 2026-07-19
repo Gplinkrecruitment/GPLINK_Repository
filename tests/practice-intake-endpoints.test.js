@@ -2,9 +2,10 @@
 // required by design — these are the endpoints a real practice contact or
 // the Facebook Lead Ads webhook hits directly). Boots the real server in
 // LOCAL-JSON mode (SUPABASE_URL=''), same pattern as tests/ats-endpoints.test.js
-// — a hermetic temp DB file per run, no network calls (RESEND_API_KEY unset
-// so sendEmail short-circuits before ever reaching the network).
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+// — a hermetic temp DB file per run. Outbound email goes to a local Resend
+// capture server (RESEND_API_URL) so recipients/subjects can be asserted
+// directly — no real network calls.
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -19,13 +20,35 @@ const FB_SECRET = 'fb-secret-' + RUN_ID;
 const FB_VERIFY_TOKEN = 'fb-verify-' + RUN_ID;
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-let server, port;
+let server, port, testUtils;
 const createdPdfPracticeIds = [];
 
-function req(method, p, { body } = {}) {
+// Local Resend capture server (same pattern as tests/practice-decision.test.js).
+// RESEND_API_URL is read once at module import, so it must point here BEFORE
+// server.js loads.
+let resendServer, resendPort;
+const resendCaptured = [];
+function startResendCaptureServer() {
+  return new Promise((resolve) => {
+    resendServer = http.createServer((rq, rs) => {
+      let body = '';
+      rq.on('data', (c) => (body += c));
+      rq.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(body || 'null'); } catch { parsed = null; }
+        resendCaptured.push(parsed);
+        rs.writeHead(200, { 'Content-Type': 'application/json' });
+        rs.end(JSON.stringify({ id: 'email-' + resendCaptured.length }));
+      });
+    });
+    resendServer.listen(0, '127.0.0.1', () => { resendPort = resendServer.address().port; resolve(); });
+  });
+}
+
+function req(method, p, { body, headers: extraHeaders } = {}) {
   return new Promise((resolve, reject) => {
     const data = body !== undefined ? JSON.stringify(body) : null;
-    const headers = {};
+    const headers = Object.assign({}, extraHeaders || {});
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
       const c = []; res.on('data', (x) => c.push(x));
@@ -144,6 +167,8 @@ async function submitIntake(overrides = {}) {
 }
 
 beforeAll(async () => {
+  await startResendCaptureServer();
+
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
   process.env.AUTH_SECRET = 'practice-intake-test-secret-' + RUN_ID;
@@ -152,23 +177,30 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = DB_FILE;
-  process.env.RESEND_API_KEY = '';
+  process.env.RESEND_API_KEY = 'test-resend-key-' + RUN_ID;
+  process.env.RESEND_API_URL = 'http://127.0.0.1:' + resendPort + '/emails';
   delete process.env.FB_LEAD_WEBHOOK_SECRET;
   delete process.env.FB_LEAD_VERIFY_TOKEN;
 
-  const { createServer } = await import('../server.js');
-  server = createServer();
+  const mod = await import('../server.js');
+  testUtils = mod.__testUtils;
+  server = mod.createServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', () => { port = server.address().port; resolve(); }));
 });
 
 afterAll(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
+  if (resendServer) await new Promise((resolve) => resendServer.close(resolve));
   try { fs.unlinkSync(DB_FILE); } catch {}
   // The sign endpoint's local-mode fallback writes a real PDF to disk —
   // clean up anything this run created.
   createdPdfPracticeIds.forEach((id) => {
     try { fs.unlinkSync(path.join(ROOT, 'data', 'practice-agreements', id + '.pdf')); } catch {}
   });
+});
+
+beforeEach(() => {
+  resendCaptured.length = 0;
 });
 
 describe('GET/POST /api/webhooks/facebook-lead', () => {
@@ -513,5 +545,101 @@ describe('POST /api/practice-intake/sign', () => {
     });
     expect(second.status).toBe(409);
     expect(parse(second.raw).error).toBe('already_signed');
+  });
+});
+
+// Audit fix (practice journey, item 2): the sign step forces the signer to
+// enter their email (body.email) but the handler used to discard it — the
+// countersigned-PDF/status-link confirmation went only to contact_email.
+describe('POST /api/practice-intake/sign — signer email gets the confirmation too', () => {
+  const CONFIRMATION_SUBJECT = /signed GP Link agreement/i;
+  // The intake+sign routes share a 30/hr per-IP rate limit that the earlier
+  // tests in this file mostly consume — give this describe its own budget the
+  // way getClientIp keys it (first X-Forwarded-For entry).
+  const XFF = { 'x-forwarded-for': '203.0.113.71' };
+  function signBody(token, extra) {
+    return Object.assign({
+      token, signature_data_url: TINY_PNG_DATA_URL, signed_name: 'Dr Signer', authorised: true,
+      legal_entity_name: 'Test Medical Pty Ltd', abn_acn: '51824753556', signer_job_title: 'Practice Manager'
+    }, extra || {});
+  }
+
+  it('sends the confirmation to BOTH contact_email and a differing signer email (normalized)', async () => {
+    const { token, practiceId, email } = await createProspectivePractice('signermail');
+    await req('POST', '/api/practice-intake', { body: validIntakePayload(token), headers: XFF });
+    resendCaptured.length = 0;
+
+    const signerEmail = `signer-own-${RUN_ID}@example.com`;
+    // Messy casing + whitespace must be normalized server-side.
+    const r = await req('POST', '/api/practice-intake/sign', {
+      body: signBody(token, { email: '  Signer-Own-' + RUN_ID + '@Example.COM  ' }),
+      headers: XFF
+    });
+    expect(r.status).toBe(200);
+    createdPdfPracticeIds.push(practiceId);
+
+    const confirmation = resendCaptured.find((e) => e && CONFIRMATION_SUBJECT.test(e.subject || ''));
+    expect(confirmation).toBeTruthy();
+    expect(confirmation.to).toContain(email);
+    expect(confirmation.to).toContain(signerEmail);
+  });
+
+  it('ignores an invalid signer email (confirmation still goes to contact_email only)', async () => {
+    const { token, practiceId, email } = await createProspectivePractice('signerbad');
+    await req('POST', '/api/practice-intake', { body: validIntakePayload(token), headers: XFF });
+    resendCaptured.length = 0;
+
+    const r = await req('POST', '/api/practice-intake/sign', {
+      body: signBody(token, { email: 'not-an-email' }),
+      headers: XFF
+    });
+    expect(r.status).toBe(200);
+    createdPdfPracticeIds.push(practiceId);
+
+    const confirmation = resendCaptured.find((e) => e && CONFIRMATION_SUBJECT.test(e.subject || ''));
+    expect(confirmation).toBeTruthy();
+    expect(confirmation.to).toEqual([email]);
+  });
+
+  it('does not duplicate the recipient when the signer email equals contact_email', async () => {
+    const { token, practiceId, email } = await createProspectivePractice('signerdup');
+    await req('POST', '/api/practice-intake', { body: validIntakePayload(token), headers: XFF });
+    resendCaptured.length = 0;
+
+    const r = await req('POST', '/api/practice-intake/sign', {
+      body: signBody(token, { email: email.toUpperCase() }),
+      headers: XFF
+    });
+    expect(r.status).toBe(200);
+    createdPdfPracticeIds.push(practiceId);
+
+    const confirmation = resendCaptured.find((e) => e && CONFIRMATION_SUBJECT.test(e.subject || ''));
+    expect(confirmation).toBeTruthy();
+    expect(confirmation.to).toEqual([email]);
+  });
+});
+
+// Audit fix (practice journey, item 3): when the intake-token persist PATCH
+// fails, sendPracticeIntakeEmail used to email the in-memory token anyway —
+// the recipient got a link that can never match ("This link has expired").
+// A failed persist must now abort the send. Unit-called via __testUtils with
+// a practice id that doesn't exist in the local DB, which is exactly the
+// "persist returned null" failure mode.
+describe('sendPracticeIntakeEmail — failed token persist aborts the send', () => {
+  it('returns ok:false and emails nothing when the generated token cannot be persisted', async () => {
+    resendCaptured.length = 0;
+    const ghostEmail = `ghost-${RUN_ID}@example.com`;
+    const ghost = {
+      id: 'prac_ghost_' + RUN_ID,
+      name: 'Ghost Practice',
+      contact_name: 'Dr Ghost',
+      contact_email: ghostEmail,
+      metadata: {}
+    };
+    const result = await testUtils.sendPracticeIntakeEmail(ghost);
+    expect(result && result.ok).toBe(false);
+
+    const sent = resendCaptured.find((e) => e && Array.isArray(e.to) && e.to.includes(ghostEmail));
+    expect(sent).toBeFalsy();
   });
 });

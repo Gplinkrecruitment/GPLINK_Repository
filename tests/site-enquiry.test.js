@@ -23,6 +23,29 @@ let server;
 let addrPort;
 let testUtils;
 
+// Local Resend capture server (same pattern as tests/practice-decision.test.js)
+// so the enquiry notification email can be asserted directly: RESEND_API_URL
+// is read once at module import, so it must point here BEFORE server.js loads.
+let resendServer;
+let resendPort;
+const resendCaptured = [];
+function startResendCaptureServer() {
+  return new Promise((resolve) => {
+    resendServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(body || 'null'); } catch { parsed = null; }
+        resendCaptured.push(parsed);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 'email-' + resendCaptured.length }));
+      });
+    });
+    resendServer.listen(0, '127.0.0.1', () => { resendPort = resendServer.address().port; resolve(); });
+  });
+}
+
 function post(path, body, extraHeaders) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body || {});
@@ -84,6 +107,8 @@ function validPracticePayload(overrides) {
 }
 
 beforeAll(async () => {
+  await startResendCaptureServer();
+
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
   process.env.AUTH_DISABLED = 'false';
@@ -94,6 +119,8 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = DB_FILE;
+  process.env.RESEND_API_KEY = 'test-resend-key-' + RUN_ID;
+  process.env.RESEND_API_URL = 'http://127.0.0.1:' + resendPort + '/emails';
   delete process.env.SITE_ENQUIRY_NOTIFY_EMAIL;
 
   const mod = await import('../server.js');
@@ -104,12 +131,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
+  if (resendServer) await new Promise((resolve) => resendServer.close(resolve));
   try { fs.unlinkSync(DB_FILE); } catch { /* ignore */ }
 });
 
 beforeEach(() => {
   testUtils.__resetSiteEnquiryRateLimitForTest();
   testUtils.__resetSiteEnquiriesForTest();
+  resendCaptured.length = 0;
 });
 
 describe('POST /api/public/enquiry — valid submissions', () => {
@@ -195,6 +224,40 @@ describe('POST /api/public/enquiry — validation failures (400)', () => {
     const res = await post('/api/public/enquiry', validPracticePayload({ email: 'exact4000@example.com', message: 'a'.repeat(4000) }));
     expect(res.status).toBe(200);
     expect(res.json.ok).toBe(true);
+  });
+});
+
+// Audit fix (practice journey, item 1): enquiries must always reach a human.
+// With SITE_ENQUIRY_NOTIFY_EMAIL unset the notification used to be a NO-OP —
+// the enquiry was stored but no dashboard lists practice-kind enquiries, so
+// nobody ever saw it. The notification now falls back to the owner mailbox.
+describe('POST /api/public/enquiry — notification fallback', () => {
+  it('emails hello@mygplink.com.au when SITE_ENQUIRY_NOTIFY_EMAIL is unset', async () => {
+    delete process.env.SITE_ENQUIRY_NOTIFY_EMAIL;
+    const res = await post('/api/public/enquiry', validPracticePayload());
+    expect(res.status).toBe(200);
+    expect(res.json.ok).toBe(true);
+
+    const notify = resendCaptured.find((e) => e && /enquiry/i.test(e.subject || ''));
+    expect(notify).toBeTruthy();
+    expect(notify.to).toContain('hello@mygplink.com.au');
+    expect(notify.subject).toContain('practice');
+    expect(notify.subject).toContain('Dr Jane Smith');
+  });
+
+  it('a configured SITE_ENQUIRY_NOTIFY_EMAIL still wins over the fallback', async () => {
+    process.env.SITE_ENQUIRY_NOTIFY_EMAIL = 'custom-notify@example.com';
+    try {
+      const res = await post('/api/public/enquiry', validPracticePayload());
+      expect(res.status).toBe(200);
+
+      const notify = resendCaptured.find((e) => e && /enquiry/i.test(e.subject || ''));
+      expect(notify).toBeTruthy();
+      expect(notify.to).toContain('custom-notify@example.com');
+      expect(notify.to).not.toContain('hello@mygplink.com.au');
+    } finally {
+      delete process.env.SITE_ENQUIRY_NOTIFY_EMAIL;
+    }
   });
 });
 

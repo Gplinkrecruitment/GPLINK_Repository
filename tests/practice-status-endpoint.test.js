@@ -35,6 +35,10 @@ const db = {
   career_roles: [
     { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', masked_title: 'DPA - Fitzroy - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Melbourne', location_state: 'VIC', is_active: true, job_status: 'open', approval_status: 'approved', updated_at: NOW },
     { id: 'role-2', provider: 'internal_ats', provider_role_id: 'ats_r2', title: 'GP — After Hours', masked_title: 'Non-DPA - Cairns - Private Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Cairns', location_state: 'QLD', is_active: false, job_status: 'open', approval_status: 'pending', updated_at: NOW },
+    // Audit fix (practice journey, item 7): acceptance flips job_status to
+    // 'filled' WITHOUT touching is_active — the status API must report
+    // 'filled' (not a forever-"Live") for this row.
+    { id: 'role-3', provider: 'internal_ats', provider_role_id: 'ats_r3', title: 'GP — Chronic Care', masked_title: 'DPA - Greenslopes - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'filled', approval_status: 'approved', updated_at: NOW },
     { id: 'role-x', provider: 'internal_ats', provider_role_id: 'ats_rx', title: 'Riverside GP', masked_title: 'DPA - Riverside - Mixed Billing', practice_name: 'Riverside Medical', practice_id: 'p2', location_city: 'Cairns', location_state: 'QLD', is_active: true, job_status: 'open', approval_status: 'approved', updated_at: NOW }
   ],
   user_profiles: [
@@ -209,17 +213,22 @@ describe('GET /api/practice/status', () => {
     });
 
     expect(Array.isArray(r.body.jobs)).toBe(true);
-    expect(r.body.jobs.length).toBe(2); // ONLY this practice's jobs
+    expect(r.body.jobs.length).toBe(3); // ONLY this practice's jobs
     const live = r.body.jobs.find((j) => j.id === 'role-1');
     const pending = r.body.jobs.find((j) => j.id === 'role-2');
+    const filled = r.body.jobs.find((j) => j.id === 'role-3');
     expect(live).toBeTruthy();
     expect(pending).toBeTruthy();
+    expect(filled).toBeTruthy();
 
-    // Masked labels + live/pending status.
+    // Masked labels + live/pending/filled status.
     expect(live.role_label).toBe('DPA - Fitzroy - Mixed Billing');
     expect(live.status).toBe('live');
     expect(pending.role_label).toBe('Non-DPA - Cairns - Private Billing');
     expect(pending.status).toBe('pending');
+    // job_status='filled' wins over is_active=true — a placed practice must
+    // never read "Live" forever (audit item 7).
+    expect(filled.status).toBe('filled');
 
     // Counts: submitted candidates only (pending_va_submission excluded).
     expect(live.candidates_submitted).toBe(2);
