@@ -29544,7 +29544,16 @@ function buildRedirectEmailHtml(row, job, practice, alternatives, opts) {
   var jobRow = job || {};
   var practiceRow = practice || {};
   var alts = Array.isArray(alternatives) ? alternatives : [];
-  var practiceName = _matchEmailEsc(practiceRow.name || jobRow.masked_title || jobRow.practice_name || 'the practice');
+  // Reveal gate (2026-07-20 audit, Task 3): the fan-out reaches never-revealed
+  // self-applies (origin 'gp_applied'), so the REAL practice name may only be
+  // rendered when the recipient's application passed the same centralized rule
+  // every other career surface uses (canRevealPracticeIdentityCore — the
+  // caller passes it in as o.revealed). Default (undefined) is masked:
+  // fail closed. Masked label = the same _redirectAltPracticeName convention
+  // the alternative cards below already use.
+  var practiceName = _matchEmailEsc(o.revealed === true
+    ? (practiceRow.name || jobRow.masked_title || jobRow.practice_name || 'the practice')
+    : _redirectAltPracticeName(jobRow));
   var jobTitle = _matchEmailEsc(jobRow.title || 'General Practitioner');
   var billingModel = String(jobRow.billing_model || '').trim();
   var roleLine = jobTitle + (billingModel ? ' — ' + _matchEmailEsc(billingModel) : '');
@@ -29668,14 +29677,24 @@ async function sendRedirectEmail(applicationRow, job, alternatives) {
     var rso = await resolveAssignedRsoForCareerEmail(applicationRow.user_id);
     var fromOpts = buildRsoEmailFromOpts(rso);
     var rsoFirstName = String((rso && rso.name) || 'Hazel').trim().split(/\s+/)[0] || 'Hazel';
-    var practiceName = String((practice && practice.name) || jobRow.masked_title || jobRow.practice_name || 'the practice').trim();
+    // Reveal gate (2026-07-20 audit, Task 3): only name the real practice when
+    // THIS application passed the same centralized reveal rule every other
+    // career surface uses (admin_applied origin / revealed=true — every
+    // ai_matched shortlist row carries it — / accepted offer). An application
+    // still in a live fan-out stage cannot have an accepted offer (acceptance
+    // moves it to hired), so offer:null is exact here and fail-closed anyway.
+    // Unrevealed rows get the same masked label the alternative cards use.
+    var redirectRevealed = practicePipeline.canRevealPracticeIdentityCore({ application: applicationRow, offer: null });
+    var practiceName = redirectRevealed
+      ? String((practice && practice.name) || jobRow.masked_title || jobRow.practice_name || 'the practice').trim()
+      : String(_redirectAltPracticeName(jobRow) || 'the practice').trim();
     var city = String(jobRow.location_city || '').trim();
     var alts = Array.isArray(alternatives) ? alternatives : [];
     var doorsPhrase = alts.length === 1 ? 'the door' : (alts.length + ' doors');
     var subject = alts.length > 0
       ? 'An update on ' + practiceName + ' — and ' + doorsPhrase + " we've already opened"
       : 'An update on ' + practiceName + (city ? ' — ' + city : '');
-    var html = buildRedirectEmailHtml(applicationRow, jobRow, practice, alts, { gpLastName: gp.lastName, rsoFirstName: rsoFirstName });
+    var html = buildRedirectEmailHtml(applicationRow, jobRow, practice, alts, { gpLastName: gp.lastName, rsoFirstName: rsoFirstName, revealed: redirectRevealed });
     return await sendEmail({ to: gp.email, subject: subject, html: html, from: fromOpts.from, replyTo: fromOpts.replyTo });
   } catch (e) {
     console.error('[redirect-email] send failed:', e && e.message);
@@ -38480,8 +38499,19 @@ async function handleApi(req, res, pathname) {
       const job = mmJobById[r.career_role_id] || {};
       const alt = (r.redirect_alternatives && typeof r.redirect_alternatives === 'object' && Array.isArray(r.redirect_alternatives.alternatives))
         ? r.redirect_alternatives.alternatives : [];
+      // Reveal gate (2026-07-20 audit, Task 3): position_filled rows include
+      // never-revealed self-applies (origin 'gp_applied') swept up by the
+      // fan-out — their card must carry the same masked label the redirect
+      // email/alternative cards use, never the real practice name. Same
+      // centralized rule as /api/career/role (canRevealPracticeIdentityCore);
+      // offer:null is exact for a not_proceeding row (an accepted offer would
+      // have made them the hire, not a redirect) and fail-closed regardless.
+      const mmFilledRevealed = practicePipeline.canRevealPracticeIdentityCore({ application: r, offer: null });
+      const mmFilledPracticeName = mmFilledRevealed
+        ? (job.practice_name || r.practice_name || '')
+        : _redirectAltPracticeName(job);
       return {
-        applicationId: r.id, practiceName: job.practice_name || r.practice_name || '', jobTitle: job.title || r.job_title || '',
+        applicationId: r.id, practiceName: mmFilledPracticeName, jobTitle: job.title || r.job_title || '',
         locationCity: job.location_city || '', locationState: job.location_state || '', alternatives: alt
       };
     });

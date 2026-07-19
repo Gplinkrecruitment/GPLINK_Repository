@@ -437,13 +437,18 @@ describe('redirectOthersForJob — candidate-set selection + skip rules (phase 1
     PHASE1_GPS.forEach((uid, i) => {
       db.user_profiles.push({ user_id: uid, email: uid + '@gplink-test.local', first_name: 'Test', last_name: 'Doctor' + i, registration_country: 'united kingdom' });
     });
+    // revealed:true on the five live rows mirrors production AI-match rows
+    // (the shortlist insert/reopen sets revealed:true) — this phase asserts
+    // the STAGE mechanics with the real-name subject intact. Unrevealed
+    // (gp_applied) masking has its own dedicated describe at the end of
+    // this file.
     db.gp_applications.push(
       { id: 'app-hired-1', user_id: 'gp-hired-1', career_role_id: 'job-fill-1', ats_stage: 'hired', matched_at: null },
-      { id: 'app-short-1', user_id: 'gp-short-1', career_role_id: 'job-fill-1', ats_stage: 'shortlisted', matched_at: null },
-      { id: 'app-applied-1', user_id: 'gp-applied-1', career_role_id: 'job-fill-1', ats_stage: 'applied', matched_at: null },
-      { id: 'app-submitted-1', user_id: 'gp-submitted-1', career_role_id: 'job-fill-1', ats_stage: 'submitted', matched_at: null },
-      { id: 'app-reviewing-1', user_id: 'gp-reviewing-1', career_role_id: 'job-fill-1', ats_stage: 'reviewing', matched_at: null },
-      { id: 'app-interview-1', user_id: 'gp-interview-1', career_role_id: 'job-fill-1', ats_stage: 'interview', matched_at: null },
+      { id: 'app-short-1', user_id: 'gp-short-1', career_role_id: 'job-fill-1', ats_stage: 'shortlisted', revealed: true, matched_at: null },
+      { id: 'app-applied-1', user_id: 'gp-applied-1', career_role_id: 'job-fill-1', ats_stage: 'applied', revealed: true, matched_at: null },
+      { id: 'app-submitted-1', user_id: 'gp-submitted-1', career_role_id: 'job-fill-1', ats_stage: 'submitted', revealed: true, matched_at: null },
+      { id: 'app-reviewing-1', user_id: 'gp-reviewing-1', career_role_id: 'job-fill-1', ats_stage: 'reviewing', revealed: true, matched_at: null },
+      { id: 'app-interview-1', user_id: 'gp-interview-1', career_role_id: 'job-fill-1', ats_stage: 'interview', revealed: true, matched_at: null },
       { id: 'app-offer-1', user_id: 'gp-offer-1', career_role_id: 'job-fill-1', ats_stage: 'offer', matched_at: null },
       { id: 'app-notproceeding-1', user_id: 'gp-notproceeding-1', career_role_id: 'job-fill-1', ats_stage: 'not_proceeding', match_outcome: 'declined', matched_at: null }
     );
@@ -560,7 +565,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
     // covered by its own dedicated tests further down this file.
     db.user_profiles.push({ user_id: 'gp-rank-1', email: 'gp-rank-1@gplink-test.local', first_name: 'Rank', last_name: 'Doctor', registration_country: 'australia' });
     db.gp_applications.push(
-      { id: 'app-rank-1', user_id: 'gp-rank-1', career_role_id: 'job-fill-2', ats_stage: 'shortlisted', matched_at: null },
+      { id: 'app-rank-1', user_id: 'gp-rank-1', career_role_id: 'job-fill-2', ats_stage: 'shortlisted', revealed: true, matched_at: null },
       { id: 'app-rank-1-other', user_id: 'gp-rank-1', career_role_id: 'role-alt-exclude', ats_stage: 'applied', matched_at: null }
     );
 
@@ -633,7 +638,7 @@ describe('redirectOthersForJob — zero-alternatives fallback (phase 3)', () => 
     });
     db.user_profiles.push({ user_id: 'gp-zero-1', email: 'gp-zero-1@gplink-test.local', first_name: 'Zero', last_name: 'Doctor', registration_country: 'new zealand' });
     db.gp_applications.push(
-      { id: 'app-zero-1', user_id: 'gp-zero-1', career_role_id: 'job-fill-3', ats_stage: 'shortlisted', matched_at: null },
+      { id: 'app-zero-1', user_id: 'gp-zero-1', career_role_id: 'job-fill-3', ats_stage: 'shortlisted', revealed: true, matched_at: null },
       { id: 'app-zero-block-0', user_id: 'gp-zero-1', career_role_id: 'job-zero-alt-1', ats_stage: 'applied', matched_at: null }
     );
 
@@ -1257,5 +1262,91 @@ describe('redirectOthersForJob — DPA gate on the alternatives pool (review fix
     const roleIds = row.redirect_alternatives.alternatives.map((a) => a.roleId);
     expect(roleIds).toContain('role-dpa-c-open');
     expect(roleIds).not.toContain('role-dpa-c-restricted');
+  });
+});
+
+// ── Task 3 (2026-07-20 full-app audit): position-filled identity masking ────
+// The fan-out targets live stages that include never-revealed self-applies
+// (origin 'gp_applied', revealed=false). Neither the redirect email nor the
+// GET /api/career/matches position-filled card may name the real practice
+// for those rows — they must show the same masked label every other
+// pre-reveal career surface uses (_redirectAltPracticeName: masked_title →
+// derived headline → generic). An application that HAS passed the central
+// reveal gate (practicePipeline.canRevealPracticeIdentityCore: admin_applied
+// origin, revealed=true — e.g. every ai_matched shortlist row — or an
+// accepted offer) still sees the real name.
+describe('position-filled masking — unrevealed self-applies never see the real practice name', () => {
+  const REAL_NAME = 'Coral Coast Family Practice';
+  const MASKED = 'DPA - Bundaberg - Mixed Billing';
+
+  async function seedAndFanOut() {
+    resetDb();
+    db.practices.push({ id: 'prac-mask-1', name: REAL_NAME, website: '', intro_video_url: '' });
+    db.career_roles.push({
+      id: 'job-mask-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: MASKED,
+      practice_name: REAL_NAME, practice_id: 'prac-mask-1',
+      location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      job_status: 'open', is_active: true
+    });
+    db.career_roles.push({
+      id: 'job-mask-alt-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Hervey Bay - Mixed Billing',
+      practice_name: 'Bayside Family Medical', practice_id: null,
+      location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
+      dpa: true, job_status: 'open', is_active: true
+    });
+    ['gp-mask-unrev-1', 'gp-mask-rev-1'].forEach((uid, i) => {
+      db.user_profiles.push({ user_id: uid, email: uid + '@gplink-test.local', first_name: 'Mask', last_name: 'Doctor' + i, registration_country: 'united kingdom' });
+      db.user_state.push({ user_id: uid, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) });
+    });
+    db.gp_applications.push(
+      // The exact leak case: a self-apply the practice never approved.
+      { id: 'app-mask-unrev-1', user_id: 'gp-mask-unrev-1', career_role_id: 'job-mask-1', ats_stage: 'applied', origin: 'gp_applied', revealed: false, practice_name: REAL_NAME, matched_at: null },
+      // Same job, but this application already earned its reveal.
+      { id: 'app-mask-rev-1', user_id: 'gp-mask-rev-1', career_role_id: 'job-mask-1', ats_stage: 'interview', origin: 'gp_applied', revealed: true, practice_name: REAL_NAME, matched_at: null }
+    );
+
+    const serverModule = await import('../server.js');
+    const { redirectOthersForJob } = serverModule.__testUtils;
+    resendCalls.length = 0;
+    const result = await redirectOthersForJob('job-mask-1', null);
+    expect(result.redirected).toBe(2);
+    expect(result.errors).toEqual([]);
+  }
+
+  it('redirect email: unrevealed applicant gets the masked label; revealed applicant still gets the real name', async () => {
+    await seedAndFanOut();
+
+    const unrevEmail = resendCalls.find((c) => (c.body.to || []).includes('gp-mask-unrev-1@gplink-test.local'));
+    expect(unrevEmail).toBeTruthy();
+    expect(unrevEmail.body.subject).not.toContain(REAL_NAME);
+    expect(unrevEmail.body.html).not.toContain(REAL_NAME);
+    expect(unrevEmail.body.subject).toContain(MASKED);
+    expect(unrevEmail.body.html).toContain(MASKED);
+
+    const revEmail = resendCalls.find((c) => (c.body.to || []).includes('gp-mask-rev-1@gplink-test.local'));
+    expect(revEmail).toBeTruthy();
+    expect(revEmail.body.subject).toContain(REAL_NAME);
+    expect(revEmail.body.html).toContain(REAL_NAME);
+  });
+
+  it('GET /api/career/matches: unrevealed position-filled card is masked (same payload shape); revealed still real', async () => {
+    await seedAndFanOut();
+
+    const unrevRes = await httpReq('GET', '/api/career/matches', { cookie: userCookie('gp-mask-unrev-1@gplink-test.local', 'gp-mask-unrev-1') });
+    expect(unrevRes.status).toBe(200);
+    const unrevFilled = (unrevRes.body.positionFilled || []).find((f) => f.applicationId === 'app-mask-unrev-1');
+    expect(unrevFilled).toBeTruthy();
+    expect(unrevFilled.practiceName).toBe(MASKED);
+    // Same payload shape as before the fix — same keys, only the value masked.
+    expect(Object.keys(unrevFilled).sort()).toEqual(['alternatives', 'applicationId', 'jobTitle', 'locationCity', 'locationState', 'practiceName']);
+    // The real practice name appears NOWHERE in this GP's matches payload —
+    // not in the card, not in the alternatives, not in any other field.
+    expect(JSON.stringify(unrevRes.body)).not.toContain(REAL_NAME);
+
+    const revRes = await httpReq('GET', '/api/career/matches', { cookie: userCookie('gp-mask-rev-1@gplink-test.local', 'gp-mask-rev-1') });
+    expect(revRes.status).toBe(200);
+    const revFilled = (revRes.body.positionFilled || []).find((f) => f.applicationId === 'app-mask-rev-1');
+    expect(revFilled).toBeTruthy();
+    expect(revFilled.practiceName).toBe(REAL_NAME);
   });
 });

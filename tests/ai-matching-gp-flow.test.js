@@ -204,9 +204,12 @@ const db = {
       match_seen_at: null, match_outcome: null
     },
     // FILLED_GP: position_filled, with an un-dismissed redirect_alternatives payload.
+    // revealed:true mirrors production ai_matched rows (the shortlist insert
+    // sets it) — the position-filled card only names the real practice for
+    // applications that passed the reveal gate (Task 3, 2026-07-20 audit).
     {
       id: 'app-filled-1', user_id: FILLED_GP.userId, career_role_id: 'job-2',
-      provider_role_id: 'ats_job2', ats_stage: 'not_proceeding', origin: 'ai_matched',
+      provider_role_id: 'ats_job2', ats_stage: 'not_proceeding', origin: 'ai_matched', revealed: true,
       status: 'applied', job_title: 'General Practitioner — Bulk Billing', practice_name: 'Riverbend Medical Centre',
       match_score: 60, match_reasons: { reasons: ['Regional QLD fit'], _history: [] },
       matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 8 * 86400000), match_expires_at: iso(NOW - 3 * 86400000),
