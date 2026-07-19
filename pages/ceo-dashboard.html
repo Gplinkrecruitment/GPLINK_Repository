@@ -841,6 +841,10 @@
       width: 90%;
       max-width: 440px;
       box-shadow: var(--shadow-lg);
+      /* Cap the height and scroll inside so a tall modal (e.g. the document-review pop-up with
+         a preview + note + action buttons) never pushes its buttons off-screen unreachably. */
+      max-height: 90vh;
+      overflow-y: auto;
     }
     .modal-title {
       font-size: 15px;
