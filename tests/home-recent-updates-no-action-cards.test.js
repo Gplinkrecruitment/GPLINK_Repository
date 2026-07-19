@@ -59,7 +59,7 @@ function renderFeedWith({ updates = [], supportCases = [] }) {
 
   const factory = new Function(
     'document', 'window', 'parseStorage', 'getPreparedDocReviewUpdates',
-    'formatUpdateTimestamp', 'updateActionCount', 'liveAppCards', 'liveAppsLoaded',
+    'formatUpdateTimestamp', 'updateActionCount', 'liveAppCards', 'liveAppsLoaded', 'escFeed',
     `${fnSource}\nreturn renderUpdatesFeed;`
   );
 
@@ -71,7 +71,10 @@ function renderFeedWith({ updates = [], supportCases = [] }) {
     () => 'just now',                                       // formatUpdateTimestamp
     () => {},                                               // updateActionCount (no-op in the page too)
     [],                                                     // liveAppCards
-    true                                                    // liveAppsLoaded
+    true,                                                   // liveAppsLoaded
+    // Same escaper the real page defines top-level (2026-07-20 audit fix) —
+    // renderUpdatesFeed() now depends on it for every server-sourced string.
+    (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
   )();
 
   return dom.rows.map((row) => row.innerHTML).join('\n');
