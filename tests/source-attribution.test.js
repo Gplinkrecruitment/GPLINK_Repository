@@ -323,7 +323,7 @@ describe('onboarding wizard changes (static)', () => {
     expect(wizardJs).toContain('leadSource: ""');
     expect(wizardJs).toContain('leadSourceDetail: ""');
     expect(wizardJs).toContain('state.leadSource = leadSourceEl.value');
-    expect(pageHtml).toMatch(/onboarding\.js\?v=202607(0[7-9]|1[0-9])[a-z]/);
+    expect(pageHtml).toMatch(/onboarding\.js\?v=202607(0[7-9]|[12][0-9])[a-z]/);
   });
 
   it('the CEO dashboard has the "How GPs Found Us" card wired in', () => {
