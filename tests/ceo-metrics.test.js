@@ -352,6 +352,65 @@ describe('computePlacements + placementAppIds (tile == drilldown)', () => {
   });
 });
 
+describe('placement buckets count ats_stage writes (F1 audit 2026-07-20)', () => {
+  // Modern ATS flows write gp_applications.ats_stage ('offer'/'interview'/'hired')
+  // WITHOUT ever touching the legacy status column. The tiles must bucket on the
+  // UNION of legacy status and ats_stage or ATS-sent offers show a 0 Offers tile.
+  const activeUsers = new Set(['u1']);
+  const noInterviews = new Set();
+  const apps = [
+    // ATS offer sent: stage moved to 'offer', status still 'applied'
+    { id: 'f1', user_id: 'u1', status: 'applied', ats_stage: 'offer', applied_at: ago(2), updated_at: ago(1) },
+    // ATS interview stage, status untouched
+    { id: 'f2', user_id: 'u1', status: 'applied', ats_stage: 'interview', applied_at: ago(3), updated_at: ago(1) },
+    // Board-drag hire: only ats_stage='hired'
+    { id: 'f3', user_id: 'u1', status: 'applied', ats_stage: 'hired', applied_at: ago(4), updated_at: ago(1) },
+    // Precedence: hired stage + legacy offer status → secured only, never offers_made
+    { id: 'f4', user_id: 'u1', status: 'offer', ats_stage: 'hired', applied_at: ago(5), updated_at: ago(1) },
+    // Legacy rows must keep counting
+    { id: 'f5', user_id: 'u1', status: 'offer', applied_at: ago(6), updated_at: ago(1) },
+    // Plain applied stays applied
+    { id: 'f6', user_id: 'u1', status: 'applied', ats_stage: 'applied', applied_at: ago(1), updated_at: ago(1) }
+  ];
+  function ids(bucket) { return M.placementAppIds(apps, bucket, activeUsers, noInterviews, 'all', NOW); }
+
+  it("ats_stage='offer' counts in offers_made and leaves applied", () => {
+    expect(ids('offers_made')).toContain('f1');
+    expect(ids('applied')).not.toContain('f1');
+  });
+  it("ats_stage='interview' counts in interviewing and leaves applied", () => {
+    expect(ids('interviewing')).toContain('f2');
+    expect(ids('applied')).not.toContain('f2');
+  });
+  it("ats_stage='hired' counts in secured and leaves applied", () => {
+    expect(ids('secured')).toContain('f3');
+    expect(ids('applied')).not.toContain('f3');
+  });
+  it('secured wins over offer (no double count, existing precedence)', () => {
+    expect(ids('secured')).toContain('f4');
+    expect(ids('offers_made')).not.toContain('f4');
+  });
+  it('legacy status rows still count; plain applied still applied', () => {
+    expect(ids('offers_made')).toContain('f5');
+    expect(ids('applied')).toEqual(['f6']);
+  });
+  it('scheduled_calls-backed membership via interviewAppIds still unions in', () => {
+    const viaCalls = M.placementAppIds(
+      [{ id: 'f7', user_id: 'u1', status: 'applied', applied_at: ago(1), updated_at: ago(1) }],
+      'interviewing', activeUsers, new Set(['f7']), 'all', NOW);
+    expect(viaCalls).toEqual(['f7']);
+  });
+  it('computePlacements tile counts match placementAppIds with ats_stage rows', () => {
+    const p = M.computePlacements(apps, [], activeUsers, noInterviews, 'all', NOW);
+    expect(p.offers_made).toBe(ids('offers_made').length);
+    expect(p.interviewing).toBe(ids('interviewing').length);
+    expect(p.secured).toBe(ids('secured').length);
+    expect(p.offers_made).toBe(2); // f1 + f5
+    expect(p.interviewing).toBe(1); // f2
+    expect(p.secured).toBe(2); // f3 + f4
+  });
+});
+
 describe('computeGpActivity + gpActivityCaseIds (#12/#36/#37)', () => {
   const fx = makeFixture();
   // full active population (NOT period filtered) excluding complete: c1,c2,c3,c4,c5,c6,c11

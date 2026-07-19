@@ -57932,14 +57932,18 @@ Return ONLY valid JSON with no markdown formatting:
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
 
-    var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes] = await Promise.all([
+    var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes, interviewCallsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
       supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=created_at.desc&limit=1000'),
       supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=500'),
       supabaseDbRequest('gp_applications', 'select=*'),
       supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled'),
       supabaseDbRequest('career_roles', 'select=id,practice_name,is_active'),
-      supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone')
+      supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone'),
+      // Modern GP-facing interview bookings live in scheduled_calls, NOT
+      // career_interviews (F1) — same booked/completed union the interview-cap
+      // counter (countMonthlyCareerInterviews) already uses.
+      supabaseDbRequest('scheduled_calls', 'select=application_id&meeting_kind=eq.interview&status=in.(booked,completed)&limit=5000')
     ]);
 
     var allCasesRaw = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
@@ -58143,7 +58147,12 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // Placements — buckets via shared status sets; ids match tiles in drilldown (#8,#9,#10,#11,#60,#61)
+    // Interview membership = career_interviews UNION booked/completed
+    // scheduled_calls interview rows (F1 — the modern booking flow only
+    // writes scheduled_calls + ats_stage, never career_interviews).
     var interviewAppIds = new Set(interviews.map(function(i) { return i.application_id; }));
+    var interviewCallRows = (interviewCallsRes.ok && Array.isArray(interviewCallsRes.data)) ? interviewCallsRes.data : [];
+    interviewCallRows.forEach(function(r) { if (r && r.application_id != null) interviewAppIds.add(r.application_id); });
     var placements = ceoMetrics.computePlacements(apps, roles, activeCaseUserIds, interviewAppIds, period, ceoNowMs);
     placements.active_roles = roles.filter(function(r) { return r.is_active; }).length;
 
@@ -58373,8 +58382,11 @@ Return ONLY valid JSON with no markdown formatting:
       var plAllInterviews = (plInterviewsRes.ok && Array.isArray(plInterviewsRes.data)) ? plInterviewsRes.data : [];
       var plInterviewByAppId = {};
       for (var pli = 0; pli < plAllInterviews.length; pli++) { plInterviewByAppId[plAllInterviews[pli].application_id] = plAllInterviews[pli]; }
-      // Same interview-membership set the dashboard tile uses (#11)
+      // Same interview-membership set the dashboard tile uses (#11), incl. the
+      // booked/completed scheduled_calls union (F1) so tile == drilldown.
       var plInterviewAppIds = new Set(plAllInterviews.map(function(i) { return i.application_id; }));
+      var plCallsRes = await supabaseDbRequest('scheduled_calls', 'select=application_id&meeting_kind=eq.interview&status=in.(booked,completed)&limit=5000');
+      (((plCallsRes.ok && plCallsRes.data) || [])).forEach(function(r) { if (r && r.application_id != null) plInterviewAppIds.add(r.application_id); });
       // Exact ids the tile counted (#10/#11 — interviewing UNION career_interviews handled in lib)
       var plWantedIds = new Set(ceoMetrics.placementAppIds(plAllApps, plBucket, plActiveUserIds, plInterviewAppIds, dPeriod, dNow));
       var plItems = plAllApps.filter(function(a) { return plWantedIds.has(a.id); }).map(function(a) {
