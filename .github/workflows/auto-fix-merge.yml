@@ -1,0 +1,185 @@
+# Auto-merge gate for the AI bug-fix pipeline.
+#
+# The executor (server.js -> dispatchApprovedFixProposal) opens a pull request
+# on an `autofix/*` branch. This workflow decides whether that PR may merge on
+# its own. It merges ONLY when every one of these holds:
+#
+#   1. the "CI Tests" workflow concluded `success` for exactly this commit;
+#   2. the branch is `autofix/*`;
+#   3. the PR is labelled `safe-auto` (the executor applies that label only when
+#      risk_class === 'safe_auto' — a `needs_review` proposal is labelled
+#      `needs-review` instead and can therefore NEVER reach the merge call);
+#   4. the PR comes from a branch in THIS repository, not a fork;
+#   5. the PR was opened by the expected account;
+#   6. the PR's head SHA is the SHA that CI actually tested;
+#   7. the PR targets the repository's default branch.
+#
+# Anything else: no merge, a plain-English comment, and the PR stays open.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ WHY `workflow_run` NEEDS CARE
+#
+# `workflow_run` fires in the context of the BASE repository, with access to
+# secrets and (here) write permissions — unlike `pull_request`, which is
+# sandboxed for forks. That makes the classic attack: open a PR from a fork,
+# have the triggering workflow succeed, and get this privileged workflow to act
+# on attacker-controlled input.
+#
+# The defences used here, in order of importance:
+#
+#   * NOTHING FROM THE PR IS EVER CHECKED OUT OR EXECUTED. There is no
+#     actions/checkout, no npm install, no script from the branch. This
+#     workflow only makes API calls, so there is no code-execution path at all.
+#     Every other check below is defence in depth on top of this one.
+#   * The head repository must equal this repository, so a fork PR is refused
+#     outright.
+#   * The PR author must be on the allowlist, so a branch pushed by some other
+#     contributor with write access cannot ride the pipeline.
+#   * The head SHA must equal the SHA that CI tested, so nobody can push extra
+#     commits after a green run and have the untested code merged.
+#   * The PR number is resolved from the API by branch name, never taken from
+#     an artifact or any other attacker-writable channel.
+#   * `permissions:` is the minimum: contents (to merge) and pull-requests (to
+#     comment/label). No packages, no actions, no id-token, no deployments.
+
+name: Auto-fix merge
+
+on:
+  workflow_run:
+    workflows: ["CI Tests"]
+    types: [completed]
+
+# Minimum needed to merge a PR and leave a comment. Everything else: none.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Cheap pre-filter. The real checks are in the script; this just avoids
+    # spinning a runner for every unrelated CI run in the repo.
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'autofix/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+
+    steps:
+      - name: Decide and merge
+        uses: actions/github-script@v7
+        env:
+          # The account the auto-fix executor's GITHUB_TOKEN belongs to. Set the
+          # repository variable AUTOFIX_PR_AUTHOR to override. If a PR on an
+          # autofix/* branch was opened by anyone else, it is NOT auto-merged.
+          EXPECTED_AUTHOR: ${{ vars.AUTOFIX_PR_AUTHOR || 'Gplinkrecruitment' }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const branch = run.head_branch;
+            const headSha = run.head_sha;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            core.info(`CI Tests concluded "${run.conclusion}" for ${branch} @ ${headSha}`);
+
+            // ── Resolve the PR from the API, by branch name. Never from an
+            // artifact or any other channel the branch could have written to.
+            const { data: prs } = await github.rest.pulls.list({
+              owner, repo, state: 'open', head: `${owner}:${branch}`
+            });
+            if (!prs.length) {
+              core.info('No open pull request for this branch. Nothing to do.');
+              return;
+            }
+            if (prs.length > 1) {
+              core.setFailed('More than one open pull request for this branch — refusing to guess which one was meant.');
+              return;
+            }
+            const pr = prs[0];
+
+            const refuse = async (reason) => {
+              core.warning(`Not auto-merging #${pr.number}: ${reason}`);
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: pr.number,
+                body: `🔒 **Not merged automatically.**\n\n${reason}\n\nThis pull request stays open for a person to look at. Nothing has been merged.`
+              });
+            };
+
+            // ── 4. Same repository, not a fork.
+            if (!pr.head.repo || pr.head.repo.full_name !== `${owner}/${repo}`) {
+              await refuse('The branch is on a different copy of the repository (a fork), which is never merged automatically.');
+              return;
+            }
+
+            // ── 1. Did the tests pass? Reported plainly, whatever the label —
+            //       a red build is always worth saying out loud.
+            if (run.conclusion !== 'success') {
+              await refuse(`The automatic tests did not pass (they finished as **${run.conclusion}**), so nothing has been merged. Open the "CI Tests" run for the details.`);
+              return;
+            }
+
+            // ── 6. CI tested EXACTLY the commit we would merge.
+            //
+            // Deliberately NOT a comparison against workflow_run.head_sha: for
+            // a pull_request-triggered run that field is not reliably the head
+            // commit of the branch, so trusting it would either wave through
+            // the wrong commit or never match at all. Instead we ask the API
+            // directly whether a successful "CI Tests" run exists FOR pr.head.sha.
+            // That is what closes the "push more commits after a green run"
+            // hole, whatever the payload happens to contain.
+            const { data: shaRuns } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner, repo, head_sha: pr.head.sha, per_page: 100
+            });
+            const greenForHead = (shaRuns.workflow_runs || []).some((r) =>
+              r.name === 'CI Tests' && r.status === 'completed' && r.conclusion === 'success');
+            if (!greenForHead) {
+              await refuse(`The tests have not passed for the current version of this branch (\`${pr.head.sha.slice(0, 7)}\`). New commits may have been pushed after the last successful run.`);
+              return;
+            }
+
+            // ── 7. Targets the default branch.
+            const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
+            if (pr.base.ref !== repoInfo.default_branch) {
+              await refuse(`This pull request targets \`${pr.base.ref}\`, not \`${repoInfo.default_branch}\`.`);
+              return;
+            }
+
+            // ── 5. Opened by the expected account.
+            const expected = (process.env.EXPECTED_AUTHOR || '').toLowerCase();
+            const author = ((pr.user && pr.user.login) || '').toLowerCase();
+            if (!expected || author !== expected) {
+              await refuse(`This pull request was opened by \`${pr.user && pr.user.login}\`, not the automatic fix system, so it is not eligible for automatic merging.`);
+              return;
+            }
+
+            // ── 3. The safe-auto label. THE gate between "small and boring"
+            //       and "a person must read this". Read fresh from the API.
+            const labels = (pr.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+            if (labels.indexOf('safe-auto') === -1) {
+              core.info(`#${pr.number} is not labelled safe-auto (labels: ${labels.join(', ') || 'none'}). Leaving it open for review.`);
+              // Deliberately no comment: a needs-review PR sitting open is the
+              // designed outcome, not a problem to report on every CI run.
+              return;
+            }
+
+            // ── Merge. Squash, so main gets one tidy commit per fix.
+            try {
+              await github.rest.pulls.merge({
+                owner, repo, pull_number: pr.number,
+                merge_method: 'squash',
+                sha: pr.head.sha,   // refuses if the branch moved since we looked
+                commit_title: `${pr.title} (#${pr.number})`,
+                commit_message: 'Merged automatically: small, self-contained fix with all tests passing.'
+              });
+            } catch (err) {
+              await refuse(`GitHub would not merge this automatically (${err.message}). It may need a rebase, or a branch rule may be blocking it.`);
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: pr.number,
+              body: '✅ **Merged automatically.**\n\nThis was a small, self-contained fix and the full test suite passed, so it has been merged and will deploy with the next release.'
+            });
+            core.info(`Merged #${pr.number}.`);

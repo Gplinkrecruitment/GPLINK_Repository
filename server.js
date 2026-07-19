@@ -128,6 +128,10 @@ var interviewMeetings = require('./lib/interview-meetings');
 var interviewScheduler = require('./lib/interview-scheduler');
 var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
+// AI bug-fix approval pipeline (risk classifier + approval tokens + prompts).
+const errorFix = require('./lib/error-fix-proposals.js');
+// Approved proposal -> validated edit -> branch -> pull request (pure logic).
+const errorFixExec = require('./lib/error-fix-executor.js');
 const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation } = require('./lib/practice-intake-logic');
 const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
@@ -7708,7 +7712,16 @@ const CRON_SCHEDULES = {
   'owner-digest': { schedule: '0 21 * * 0', cadenceMinutes: 10080 },
   // Daily 21:40 UTC ≈ 7:40am AEST — the health digest lands before the owner
   // starts the day, and after the 20:00–21:00 UTC nightly sweeps have reported.
-  'error-digest': { schedule: '40 21 * * *', cadenceMinutes: 1440 }
+  'error-digest': { schedule: '40 21 * * *', cadenceMinutes: 1440 },
+  // Daily 21:10 UTC ≈ 7:10am AEST — the AI bug-fix analysis + approval email
+  // lands 30 minutes BEFORE the health digest, so the owner reads "here is what
+  // I can fix for you" first and "here is everything that is broken" second.
+  'error-fix-analysis': { schedule: '10 21 * * *', cadenceMinutes: 1440 },
+  // Hourly. Approval happens whenever the owner opens the email — possibly at
+  // 2am from a phone — so the executor cannot be daily or a fix could sit
+  // approved-but-unmade for 23 hours. Offset to :25 to stay clear of the
+  // on-the-hour crons.
+  'error-fix-execute': { schedule: '25 * * * *', cadenceMinutes: 60 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -8297,6 +8310,922 @@ async function sendErrorDigestEmail(opts) {
     };
   }
   return { ok: false, sent: false, skipped: false, day: ed.dayKey, message: (edSendRes && edSendRes.error) || 'Email send failed.' };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI BUG-FIX APPROVAL PIPELINE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Plain English: once a day GP Link looks at the faults real doctors hit, asks
+// Claude what is broken and how to fix it, and emails the owner a short list in
+// ordinary words with an Approve button next to each one. Approving marks it
+// approved — a separate piece then makes the actual code change.
+//
+// What lives where:
+//   lib/error-fix-proposals.js  — risk classifier, prompts, approval tokens
+//   this section                — cron, Anthropic call, storage, email
+//   /api/ceo/error-fix-proposals* + /approve-fix — endpoints (in handleApi)
+//
+// Model: Opus 4.8. NOTE: Opus 4.7/4.8 reject `temperature` with a 400, so no
+// sampling parameters are sent (same rule as extractAhpraActionItems).
+const ERROR_FIX_MODEL = String(process.env.ERROR_FIX_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+
+// COST CONTROL. Each analysis is one Opus 4.8 call carrying up to ~20k
+// characters of source code, so the run is deliberately capped:
+//   * at most ERROR_FIX_MAX_PER_RUN (3) errors analysed per daily run;
+//   * a 25s timeout per call;
+//   * a wall-clock budget (35s) checked BEFORE each call, because vercel.json
+//     caps the function at 60s and the email still has to go out afterwards.
+// Anything not reached today is picked up tomorrow — the run is idempotent, so
+// nothing is lost and nothing is duplicated.
+const ERROR_FIX_MAX_PER_RUN = Math.max(1, Number(process.env.ERROR_FIX_MAX_PER_RUN || 3));
+const ERROR_FIX_CALL_TIMEOUT_MS = 25000;
+const ERROR_FIX_RUN_BUDGET_MS = 35000;
+// Only errors seen in the last N days are worth proposing a fix for.
+const ERROR_FIX_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+const ERROR_FIX_PROPOSAL_COLUMNS = 'id,error_hash,error_message,page_url,error_source,occurrence_count,affected_users,'
+  + 'first_seen_at,last_seen_at,plain_explanation,technical_diagnosis,proposed_fix,suspect_files,ai_model,model_risk,'
+  + 'risk_class,risk_reason,risk_downgraded,status,approved_by,approved_at,rejected_by,rejected_at,rejection_reason,'
+  + 'decision_source,branch_name,pr_url,execution_started_at,execution_finished_at,execution_error,'
+  + 'approval_token_expires_at,approval_token_used_at,emailed_at,created_at,updated_at';
+
+// Body reader that accepts BOTH application/json and a plain HTML form POST.
+// The confirm page submits via fetch(JSON) normally, but must still work if the
+// owner's mail client opens it with JavaScript disabled — in which case the
+// browser sends application/x-www-form-urlencoded.
+function readTokenActionBody(req) {
+  return new Promise(function (resolve, reject) {
+    var chunks = [];
+    var total = 0;
+    req.on('data', function (chunk) {
+      total += chunk.length;
+      if (total > 64 * 1024) { reject(new Error('Payload too large')); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', function () {
+      var raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (!raw) return resolve({});
+      if (raw.charAt(0) === '{') {
+        try { return resolve(JSON.parse(raw)); } catch (e) { return resolve({}); }
+      }
+      var params = new URLSearchParams(raw);
+      resolve({ token: params.get('token') || '', all: params.get('all') || '' });
+    });
+    req.on('error', reject);
+  });
+}
+
+// ── Storage ─────────────────────────────────────────────────────────────────
+// Supabase in production; dbState.errorFixProposals locally so the whole flow
+// (and its tests) works without a database. Mirrors recordServerError's shape.
+
+function _efLocalRows() {
+  if (!Array.isArray(dbState.errorFixProposals)) dbState.errorFixProposals = [];
+  return dbState.errorFixProposals;
+}
+
+// Rows WITHOUT approval_token_hash — safe to hand to the dashboard.
+async function listErrorFixProposals(opts) {
+  const o = opts || {};
+  const statuses = Array.isArray(o.statuses) && o.statuses.length ? o.statuses : null;
+  const limit = Math.min(200, Math.max(1, Number(o.limit) || 100));
+  if (isSupabaseDbConfigured()) {
+    let q = 'select=' + ERROR_FIX_PROPOSAL_COLUMNS;
+    if (statuses) q += '&status=in.(' + statuses.map(encodeURIComponent).join(',') + ')';
+    q += '&order=created_at.desc&limit=' + limit;
+    const r = await supabaseDbRequest('error_fix_proposals', q);
+    if (!r.ok) return { ok: false, tableMissing: r.status === 404, rows: [] };
+    return { ok: true, tableMissing: false, rows: Array.isArray(r.data) ? r.data : [] };
+  }
+  let rows = _efLocalRows().slice();
+  if (statuses) rows = rows.filter((r) => statuses.indexOf(r.status) !== -1);
+  rows.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return {
+    ok: true,
+    tableMissing: false,
+    rows: rows.slice(0, limit).map((r) => {
+      const copy = Object.assign({}, r);
+      delete copy.approval_token_hash;
+      return copy;
+    })
+  };
+}
+
+async function getErrorFixProposalById(id) {
+  const pid = String(id || '').trim();
+  if (!pid) return null;
+  if (isSupabaseDbConfigured()) {
+    // approval_token_hash IS selected here — the token flow needs to compare it.
+    const r = await supabaseDbRequest('error_fix_proposals',
+      'select=' + ERROR_FIX_PROPOSAL_COLUMNS + ',approval_token_hash&id=eq.' + encodeURIComponent(pid) + '&limit=1');
+    if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+    return r.data[0];
+  }
+  return _efLocalRows().find((r) => String(r.id) === pid) || null;
+}
+
+async function updateErrorFixProposal(id, patch) {
+  const pid = String(id || '').trim();
+  if (!pid) return false;
+  const body = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('error_fix_proposals', 'id=eq.' + encodeURIComponent(pid), { method: 'PATCH', body });
+    return !!r.ok;
+  }
+  const row = _efLocalRows().find((r) => String(r.id) === pid);
+  if (!row) return false;
+  Object.assign(row, body);
+  saveDbState();
+  return true;
+}
+
+// Insert. Returns { ok, row, duplicate }. `duplicate` means the partial unique
+// index (one open proposal per error_hash) rejected it — which is exactly the
+// idempotency guarantee working, not a failure.
+async function insertErrorFixProposal(row) {
+  const nowIso = new Date().toISOString();
+  const payload = Object.assign({ created_at: nowIso, updated_at: nowIso }, row);
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('error_fix_proposals', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [payload]
+    });
+    if (r.ok && Array.isArray(r.data) && r.data.length) return { ok: true, row: r.data[0], duplicate: false };
+    // 23505 = unique violation on error_fix_proposals_one_open_per_hash.
+    const dup = r.status === 409 || /23505|duplicate key/i.test(JSON.stringify(r.data || ''));
+    return { ok: false, row: null, duplicate: dup, status: r.status };
+  }
+  const rows = _efLocalRows();
+  if (rows.some((x) => x.error_hash === payload.error_hash && errorFix.OPEN_PROPOSAL_STATUSES.indexOf(x.status) !== -1)) {
+    return { ok: false, row: null, duplicate: true };
+  }
+  payload.id = payload.id || crypto.randomUUID();
+  rows.push(payload);
+  saveDbState();
+  return { ok: true, row: payload, duplicate: false };
+}
+
+// ── The analysis call ───────────────────────────────────────────────────────
+//
+// PRIVACY: nothing personal reaches Anthropic. buildClientErrorGroups already
+// drops user_email (it only ever emits an affected_users COUNT) and runs
+// redactEmailsInText over message/stack/context; on top of that every field
+// goes through errorFix.scrubForModel on the way into the prompt. The source
+// excerpts are our own repository files.
+async function analyseErrorForFix(group) {
+  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, reason: 'no_api_key' };
+  const excerpts = errorFix.collectSourceContext(process.cwd(), group);
+  const prompt = errorFix.buildAnalysisPrompt(group, excerpts);
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ERROR_FIX_CALL_TIMEOUT_MS);
+  try {
+    const resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      signal: ctl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      // No `temperature` / `top_p` — Opus 4.7/4.8 reject sampling params (400).
+      body: JSON.stringify({
+        model: ERROR_FIX_MODEL,
+        max_tokens: 1500,
+        system: prompt.system,
+        messages: [{ role: 'user', content: prompt.user }]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error('[error-fix] Anthropic error', resp.status, errText.slice(0, 300));
+      return { ok: false, reason: 'api_error', status: resp.status };
+    }
+    const data = await resp.json();
+    if (typeof recordAnthropicSpend === 'function' && data.usage) {
+      recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0,
+        data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    }
+    const text = (data.content || []).filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
+    const parsed = errorFix.parseAnalysisResponse(text);
+    if (!parsed) return { ok: false, reason: 'unparseable' };
+
+    // GUARDRAIL: the model's `risk` is only an input. classifyProposalRisk can
+    // downgrade safe_auto -> needs_review and never the other way.
+    const verdict = errorFix.classifyProposalRisk({
+      modelRisk: parsed.model_risk,
+      plainExplanation: parsed.plain_explanation,
+      technicalDiagnosis: parsed.technical_diagnosis,
+      proposedFix: parsed.proposed_fix,
+      suspectFiles: excerpts.map((e) => e.file),
+      errorMessage: group.error_message,
+      pageUrl: group.page_url
+    });
+
+    return {
+      ok: true,
+      analysis: parsed,
+      risk: verdict,
+      excerpts: excerpts.map((e) => ({ file: e.file, startLine: e.startLine, endLine: e.endLine }))
+    };
+  } catch (err) {
+    console.error('[error-fix] analysis failed:', err && err.message);
+    return { ok: false, reason: err && err.name === 'AbortError' ? 'timeout' : 'exception' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── The daily run ───────────────────────────────────────────────────────────
+async function runErrorFixAnalysis(opts) {
+  const o = opts || {};
+  const startedMs = Date.now();
+  const cap = Math.max(1, Number(o.limit) || ERROR_FIX_MAX_PER_RUN);
+  const result = { ok: true, analysed: 0, created: 0, skipped: 0, duplicates: 0, failures: [], created_ids: [] };
+
+  if (!isSupabaseDbConfigured() && !o.groups) return { ok: false, message: 'Requires Supabase.' };
+  if (!(await checkAnthropicBudget())) return { ok: false, message: 'Anthropic daily budget exhausted.' };
+
+  // Same read + grouping the Technical tab and the health digest use, so all
+  // three tell exactly the same story. NOTE: client_errors has NO created_at —
+  // last_seen_at is the recency column.
+  let groups = o.groups;
+  if (!groups) {
+    const since = new Date(startedMs - ERROR_FIX_LOOKBACK_MS).toISOString();
+    const r = await supabaseDbRequest('client_errors',
+      'select=id,error_message,error_stack,page_url,user_email,user_agent,browser_info,error_hash,user_context,'
+      + 'occurrence_count,status,first_seen_at,last_seen_at,source'
+      + '&status=in.(open,investigating)&last_seen_at=gte.' + encodeURIComponent(since)
+      + '&order=last_seen_at.desc&limit=500');
+    if (!r.ok) return { ok: false, message: 'Could not read client_errors.' };
+    groups = buildClientErrorGroups(Array.isArray(r.data) ? r.data : []);
+  }
+
+  // Never propose a fix for classified noise (browser quirks, extensions,
+  // developer tooling) — those are not product bugs.
+  let candidates = groups.filter((g) => g && !g.noise && g.error_hash);
+
+  // Skip anything that already has an open proposal. The partial unique index
+  // is the real guarantee; this pre-filter just avoids burning AI calls on rows
+  // that would be rejected anyway.
+  const openList = await listErrorFixProposals({ statuses: errorFix.OPEN_PROPOSAL_STATUSES, limit: 200 });
+  if (!openList.ok && openList.tableMissing) {
+    return { ok: false, message: 'error_fix_proposals table not found — migration 20260720120000 has not been applied.' };
+  }
+  const openHashes = Object.create(null);
+  openList.rows.forEach((r) => { if (r && r.error_hash) openHashes[r.error_hash] = true; });
+  candidates = candidates.filter((g) => !openHashes[g.error_hash]);
+
+  result.skipped = groups.length - candidates.length;
+  candidates = candidates.slice(0, cap);
+
+  for (let i = 0; i < candidates.length; i++) {
+    // Wall-clock guard — leave room for the email inside the 60s function limit.
+    if (Date.now() - startedMs > ERROR_FIX_RUN_BUDGET_MS) {
+      result.timeboxed = true;
+      break;
+    }
+    const g = candidates[i];
+    const a = await analyseErrorForFix(g);
+    result.analysed++;
+    if (!a.ok) { result.failures.push({ error_hash: g.error_hash, reason: a.reason }); continue; }
+
+    const ins = await insertErrorFixProposal({
+      error_hash: g.error_hash,
+      error_message: String(g.error_message || '').slice(0, 2000),
+      page_url: String(g.page_url || '').slice(0, 500),
+      error_source: g.source || 'client',
+      occurrence_count: Number(g.occurrence_count) || 0,
+      affected_users: Number(g.affected_users) || 0,
+      first_seen_at: g.first_seen_at || null,
+      last_seen_at: g.last_seen_at || null,
+      plain_explanation: a.analysis.plain_explanation,
+      technical_diagnosis: a.analysis.technical_diagnosis,
+      proposed_fix: a.analysis.proposed_fix,
+      suspect_files: a.excerpts,
+      ai_model: ERROR_FIX_MODEL,
+      model_risk: a.analysis.model_risk,
+      risk_class: a.risk.risk_class,
+      risk_reason: a.risk.risk_reason,
+      risk_downgraded: !!a.risk.downgraded,
+      status: 'proposed'
+    });
+    if (ins.duplicate) { result.duplicates++; continue; }
+    if (!ins.ok) { result.failures.push({ error_hash: g.error_hash, reason: 'insert_failed' }); continue; }
+    result.created++;
+    result.created_ids.push(ins.row.id);
+  }
+  result.ms = Date.now() - startedMs;
+  return result;
+}
+
+// ── The email ───────────────────────────────────────────────────────────────
+//
+// Sent only when there are proposals the owner has not yet seen (emailed_at is
+// null). Two actions per bug, as designed: Approve (one click) and Investigate
+// further (deep link into the dashboard). Plus one Approve all.
+//
+// ⚠️ EMAIL-SCANNER SAFETY. Corporate mail scanners, link previewers and
+// Gmail's image proxy routinely FETCH every URL in an email before a human
+// sees it. A GET link that silently approves a code change would therefore be
+// pulled by a robot. So:
+//   * the emailed link is a GET to /approve-fix?token=… which ONLY RENDERS a
+//     confirmation page. It changes nothing, touches no row, and is safe to
+//     fetch any number of times;
+//   * that page contains a form which POSTs to /api/error-fix/approve. Nothing
+//     is approved until that POST arrives. Scanners do not POST forms;
+//   * the page also sets no-store and X-Robots-Tag: noindex.
+// Belt and braces on top: the token is 256-bit random, stored only as a
+// SHA-256 hash, expires in 7 days, and is single-use (see evaluateApprovalToken).
+async function sendErrorFixProposalEmail(opts) {
+  const o = opts || {};
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const listed = await listErrorFixProposals({ statuses: ['proposed'], limit: 50 });
+  if (!listed.ok) return { ok: false, sent: false, message: 'Could not read proposals.' };
+  let pending = listed.rows.filter((r) => !r.emailed_at);
+  if (o.force && !pending.length) pending = listed.rows.slice(0, 10);
+  if (!pending.length) return { ok: true, sent: false, skipped: true, reason: 'no_new_proposals' };
+
+  // Mint one single-use token per proposal, store only its hash.
+  const ids = [];
+  const blocks = [];
+  for (let i = 0; i < pending.length; i++) {
+    const p = pending[i];
+    // Mint + store the token now (the HTML needs it), but do NOT stamp
+    // emailed_at yet — that happens only after the send succeeds, so a failed
+    // send is retried tomorrow instead of silently swallowing the proposal.
+    // The retry mints a fresh token, which overwrites (and so kills) this one.
+    const tok = errorFix.makeApprovalToken();
+    const stored = await updateErrorFixProposal(p.id, {
+      approval_token_hash: tok.hash,
+      approval_token_expires_at: tok.expiresAt,
+      approval_token_used_at: null
+    });
+    if (!stored) continue;
+    ids.push(p.id);
+
+    const approveUrl = APP_BASE_URL + '/approve-fix?token=' + encodeURIComponent(tok.token);
+    const investigateUrl = APP_BASE_URL + '/pages/ceo-dashboard?tab=technical&proposal=' + encodeURIComponent(p.id);
+    const isSafe = p.risk_class === 'safe_auto';
+
+    blocks.push(
+      '<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 18px;border:1px solid #e2e8f0;border-radius:12px">'
+      + '<tr><td style="padding:16px 18px">'
+      + '<p style="margin:0 0 10px;font-size:16px;line-height:1.55;color:#0f172a;font-weight:600">' + esc(p.plain_explanation) + '</p>'
+      + '<p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.6">'
+      + 'Seen ' + (Number(p.occurrence_count) || 1) + ' time' + ((Number(p.occurrence_count) || 1) === 1 ? '' : 's')
+      + (Number(p.affected_users) > 0 ? ', affecting at least ' + p.affected_users + ' ' + (Number(p.affected_users) === 1 ? 'person' : 'people') : '')
+      + '.</p>'
+      + '<p style="margin:0 0 14px;font-size:13px;line-height:1.6;color:' + (isSafe ? '#166534' : '#92400e') + ';background:' + (isSafe ? '#f0fdf4' : '#fffbeb') + ';border-radius:8px;padding:9px 11px">'
+      + '<strong>' + (isSafe ? 'Small and safe to fix automatically.' : 'Worth a closer look first.') + '</strong> ' + esc(p.risk_reason)
+      + '</p>'
+      + '<a href="' + approveUrl + '" style="display:inline-block;padding:11px 22px;background:#2563eb;color:#fff;font-weight:700;font-size:14px;text-decoration:none;border-radius:10px;margin-right:8px">Approve</a>'
+      + '<a href="' + investigateUrl + '" style="display:inline-block;padding:11px 22px;background:#fff;color:#2563eb;font-weight:600;font-size:14px;text-decoration:none;border-radius:10px;border:2px solid #2563eb">Investigate further</a>'
+      + '</td></tr></table>'
+    );
+  }
+  if (!ids.length) return { ok: false, sent: false, message: 'Could not attach approval tokens.' };
+
+  // Approve-all is a signed, expiring purpose token listing exactly these ids —
+  // it is not a wildcard and cannot reach any other proposal. It lands on the
+  // SAME confirm-then-POST page, so a scanner cannot trigger it either.
+  const allToken = createSignedPurposeToken('error_fix_approve_all', { ids }, 7 * 24 * 60 * 60 * 1000);
+  const allUrl = APP_BASE_URL + '/approve-fix?all=' + encodeURIComponent(allToken);
+
+  let bodyHtml = '<p style="font-size:15px;color:#334155;line-height:1.65;margin:0 0 6px">'
+    + 'GP Link found <strong>' + ids.length + '</strong> thing' + (ids.length === 1 ? '' : 's')
+    + ' going wrong for people using the app, and has worked out how to fix '
+    + (ids.length === 1 ? 'it' : 'them') + '.</p>'
+    + '<p style="font-size:14px;color:#64748b;line-height:1.65;margin:0 0 20px">'
+    + 'Press <strong>Approve</strong> and the fix gets made. Press <strong>Investigate further</strong> to see the technical detail first. '
+    + 'Nothing changes until you press something — and Approve always asks you to confirm on the next screen.</p>'
+    + blocks.join('');
+
+  if (ids.length > 1) {
+    bodyHtml += '<p style="text-align:center;margin:22px 0 0">'
+      + '<a href="' + allUrl + '" style="display:inline-block;padding:12px 26px;background:#0f172a;color:#fff;font-weight:700;font-size:14px;text-decoration:none;border-radius:10px">Approve all ' + ids.length + '</a></p>';
+  }
+
+  const sendRes = await sendEmail({
+    to: GP_OWNER_EMAIL,
+    subject: 'GP Link — ' + ids.length + ' fix' + (ids.length === 1 ? '' : 'es') + ' ready for your approval',
+    html: buildCareerEmailHtml({
+      title: ids.length === 1 ? 'A fix is ready for your approval' : ids.length + ' fixes are ready for your approval',
+      bodyHtml: bodyHtml,
+      footer: 'Sent once a day, and only when there is something new. These links are personal to you, expire in 7 days, and each one works only once.'
+    }),
+    category: 'transactional'
+  });
+  if (sendRes && sendRes.ok) {
+    // Only NOW are these considered "seen by the owner".
+    const stampedAt = new Date().toISOString();
+    for (let s = 0; s < ids.length; s++) await updateErrorFixProposal(ids[s], { emailed_at: stampedAt });
+    return { ok: true, sent: true, skipped: false, proposals: ids.length, ids };
+  }
+  return { ok: false, sent: false, message: (sendRes && sendRes.error) || 'Email send failed.' };
+}
+
+// ── Approval ────────────────────────────────────────────────────────────────
+//
+// ▓▓▓ SEAM FOR THE FIX-EXECUTOR AGENT ▓▓▓
+// Approval does exactly ONE thing: it sets status='approved' and stamps who and
+// when. It does NOT touch GitHub, does not create a branch, does not patch any
+// file — that is a separate agent's job.
+//
+// The executor should:
+//   1. poll `GET /api/ceo/error-fix-proposals?status=approved` (or read the
+//      table directly) for rows with status='approved';
+//   2. call dispatchApprovedFixProposal below — currently a logging no-op — or
+//      replace its body with the real GitHub/patch work;
+//   3. move the row through 'in_progress' -> 'shipped' | 'failed' with
+//      updateErrorFixProposal(id, { status, branch_name, pr_url,
+//      execution_started_at, execution_finished_at, execution_error }).
+//      Those columns already exist in migration 20260720120000, so no further
+//      migration is needed.
+// risk_class is the gate: 'safe_auto' may be applied unattended, 'needs_review'
+// must not be — the approval says "yes, work on this", not "yes, ship it blind".
+// ── The executor ────────────────────────────────────────────────────────────
+//
+// Turns an approved proposal into a pull request. The order of operations is
+// chosen so that the cheapest and most dangerous checks happen FIRST:
+//
+//   1. claim the row      — atomically, so two crons cannot both work on it
+//   2. check config       — no token / no repo fails before any AI spend
+//   3. read from GITHUB   — not from local disk. The commit must be computed
+//                           against the code that is actually on the branch we
+//                           are branching from, or we would silently revert
+//                           whatever landed since.
+//   4. ask the model      — Opus 4.8, no temperature/top_p (4.7/4.8 reject them)
+//   5. apply IN MEMORY    — exact-match only, refuse on missing/ambiguous
+//   6. validate           — every changed file must still parse
+//   7. guardrails         — size, file count, sensitive areas
+//   8. only now: push     — new branch, never main, never force
+//
+// Nothing reaches GitHub until 5, 6 and 7 have all passed. A failure at any
+// step marks the row `failed` with a sentence the owner can read, and the cron
+// carries on to the next proposal.
+
+const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_REPO_SLUG = String(process.env.GITHUB_REPO || 'Gplinkrecruitment/GPLINK_Repository').trim();
+const ERROR_FIX_EXEC_CALL_TIMEOUT_MS = 35000;
+// ONE proposal per invocation. The AI call carries whole files, so two would
+// risk the 60s function cap; approvals queue and drain over the following runs.
+const ERROR_FIX_EXEC_MAX_PER_RUN = Math.max(1, Number(process.env.ERROR_FIX_EXEC_MAX_PER_RUN || 1));
+// An `in_progress` row older than this was orphaned by a crash or a timeout.
+const ERROR_FIX_EXEC_STALE_MS = 15 * 60 * 1000;
+
+function githubToken() {
+  return String(process.env.GITHUB_TOKEN || '').trim();
+}
+
+// Thin GitHub REST wrapper. Never logs or returns the token.
+async function githubApiRequest(pathname, opts) {
+  const o = opts || {};
+  const token = githubToken();
+  if (!token) return { ok: false, status: 0, data: null, reason: 'no_github_token' };
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), Number(o.timeoutMs) || 15000);
+  try {
+    const resp = await fetch(GITHUB_API_BASE + pathname, {
+      method: o.method || 'GET',
+      signal: ctl.signal,
+      headers: Object.assign({
+        Authorization: 'Bearer ' + token,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'gplink-autofix'
+      }, o.body ? { 'Content-Type': 'application/json' } : {}),
+      body: o.body ? JSON.stringify(o.body) : undefined
+    });
+    let data = null;
+    const text = await resp.text().catch(() => '');
+    if (text) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+    return { ok: resp.ok, status: resp.status, data: data, headers: resp.headers };
+  } catch (err) {
+    return { ok: false, status: 0, data: null, reason: err && err.name === 'AbortError' ? 'timeout' : 'network_error' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Reads one file from a branch. Returns { ok, content, sha }.
+async function githubReadFile(repo, filePath, ref) {
+  const r = await githubApiRequest('/repos/' + repo + '/contents/' + filePath.split('/').map(encodeURIComponent).join('/')
+    + '?ref=' + encodeURIComponent(ref));
+  if (!r.ok || !r.data) return { ok: false, status: r.status };
+  // Files over 1MB come back with encoding 'none' and no content — we cannot
+  // verify an anchor against a file we cannot read, so that is a refusal.
+  if (r.data.encoding !== 'base64' || typeof r.data.content !== 'string' || !r.data.content) {
+    return { ok: false, status: r.status, tooLarge: true };
+  }
+  return { ok: true, content: Buffer.from(r.data.content, 'base64').toString('utf8'), sha: r.data.sha };
+}
+
+// ── Claiming ────────────────────────────────────────────────────────────────
+//
+// THE DOUBLE-DISPATCH GUARD. Two crons can overlap (a retry, a manual run, a
+// slow previous invocation), and both would happily read the same
+// status='approved' row. The claim is therefore a CONDITIONAL update —
+// "set in_progress WHERE id = X AND status = 'approved'" — and the database
+// decides the winner. The loser gets zero rows back and stops. There is no
+// read-then-write window for the two to race inside.
+async function claimFixProposalForExecution(id) {
+  const pid = String(id || '').trim();
+  if (!pid) return null;
+  const nowIso = new Date().toISOString();
+  const patch = {
+    status: 'in_progress',
+    execution_started_at: nowIso,
+    execution_finished_at: null,
+    execution_error: null,
+    updated_at: nowIso
+  };
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('error_fix_proposals',
+      'id=eq.' + encodeURIComponent(pid) + '&status=eq.approved',
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+    return r.data[0];
+  }
+  // Local JSON mode is single-threaded, so a check-then-set is equivalent here.
+  const row = _efLocalRows().find((x) => String(x.id) === pid);
+  if (!row || row.status !== 'approved') return null;
+  Object.assign(row, patch);
+  saveDbState();
+  return row;
+}
+
+// Rows stranded in `in_progress` by a crash or a function timeout. Moved to
+// `failed` rather than back to `approved`: `failed` is a CLOSED status, so the
+// partial unique index frees up and the daily analysis can propose the same
+// error again tomorrow. Retrying in place could loop forever on a fix that
+// always times out.
+async function reclaimStaleFixProposals(maxAgeMs) {
+  const cutoff = new Date(Date.now() - (Number(maxAgeMs) || ERROR_FIX_EXEC_STALE_MS)).toISOString();
+  const patch = {
+    status: 'failed',
+    execution_finished_at: new Date().toISOString(),
+    execution_error: 'This fix was interrupted part-way through and did not finish. Nothing was changed. It will be offered again if the error happens again.',
+    updated_at: new Date().toISOString()
+  };
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('error_fix_proposals',
+      'status=eq.in_progress&execution_started_at=lt.' + encodeURIComponent(cutoff),
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    return { ok: !!r.ok, reclaimed: (r.ok && Array.isArray(r.data)) ? r.data.length : 0 };
+  }
+  let n = 0;
+  _efLocalRows().forEach((row) => {
+    if (row && row.status === 'in_progress' && String(row.execution_started_at || '') < cutoff) {
+      Object.assign(row, patch);
+      n++;
+    }
+  });
+  if (n) saveDbState();
+  return { ok: true, reclaimed: n };
+}
+
+// ── The patch call ──────────────────────────────────────────────────────────
+// Same shape as analyseErrorForFix: Opus 4.8, no sampling params, spend recorded.
+async function requestFixPatch(proposal, files) {
+  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, reason: 'no_api_key' };
+  const prompt = errorFixExec.buildPatchPrompt(proposal, files);
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ERROR_FIX_EXEC_CALL_TIMEOUT_MS);
+  try {
+    const resp = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: 'POST',
+      signal: ctl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      // No `temperature` / `top_p` — Opus 4.7/4.8 reject sampling params (400).
+      body: JSON.stringify({
+        model: ERROR_FIX_MODEL,
+        max_tokens: 4000,
+        system: prompt.system,
+        messages: [{ role: 'user', content: prompt.user }]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error('[error-fix] patch Anthropic error', resp.status, errText.slice(0, 300));
+      return { ok: false, reason: 'api_error', status: resp.status };
+    }
+    const data = await resp.json();
+    if (typeof recordAnthropicSpend === 'function' && data.usage) {
+      recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0,
+        data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    }
+    const text = (data.content || []).filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
+    return errorFixExec.parsePatchResponse(text);
+  } catch (err) {
+    console.error('[error-fix] patch call failed:', err && err.message);
+    return { ok: false, reason: err && err.name === 'AbortError' ? 'timeout' : 'api_error' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Which files may this proposal touch? Taken from suspect_files — the exact
+// excerpts the diagnosis was based on. The model cannot widen this set.
+function suspectFilePaths(proposal) {
+  const raw = (proposal && proposal.suspect_files) || [];
+  let list = raw;
+  if (typeof raw === 'string') { try { list = JSON.parse(raw); } catch (e) { list = []; } }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  list.forEach((entry) => {
+    const f = entry && typeof entry === 'object' ? entry.file : entry;
+    const clean = String(f || '').trim();
+    if (clean && errorFixExec.isEditablePath(clean) && out.indexOf(clean) === -1) out.push(clean);
+  });
+  return out.slice(0, errorFixExec.MAX_EDIT_FILES);
+}
+
+// ▓▓▓ THE EXECUTOR ▓▓▓
+// Approved proposal → validated edit → branch → pull request.
+// Never throws: every path returns a result object, because this runs inside a
+// cron that must not die on one bad proposal.
+async function dispatchApprovedFixProposal(proposal, opts) {
+  const o = opts || {};
+  const p = proposal || {};
+  if (!p.id) return { ok: false, dispatched: false, reason: 'no_proposal' };
+
+  // The approval endpoint passes queueOnly. Approving is a click on the
+  // owner's phone: it must return instantly and must NEVER depend on GitHub or
+  // Anthropic being reachable. The row is left `approved` and the executor cron
+  // picks it up within the hour.
+  if (o.queueOnly) {
+    console.log('[error-fix] proposal approved, queued for executor:', p.id, 'risk=' + p.risk_class);
+    return { ok: true, dispatched: false, reason: 'queued' };
+  }
+
+  // 1. Claim. Atomic; the loser of a race stops here.
+  const claimed = await claimFixProposalForExecution(p.id);
+  if (!claimed) return { ok: true, dispatched: false, reason: 'already_claimed' };
+  const row = Object.assign({}, p, claimed);
+
+  const finishFailed = async (reason, detail) => {
+    const message = errorFixExec.explainFailure(reason, detail).slice(0, 1000);
+    await updateErrorFixProposal(p.id, {
+      status: 'failed',
+      execution_finished_at: new Date().toISOString(),
+      execution_error: message
+    });
+    console.warn('[error-fix] proposal failed:', p.id, reason, detail || '');
+    return { ok: false, dispatched: false, reason: reason, detail: detail || null, message: message };
+  };
+
+  try {
+    // 2. Config, before any spend.
+    if (!githubToken()) return await finishFailed('no_github_token');
+    if (!GITHUB_REPO_SLUG || GITHUB_REPO_SLUG.indexOf('/') === -1) return await finishFailed('no_github_repo');
+    if (!process.env.ANTHROPIC_API_KEY) return await finishFailed('no_api_key');
+
+    const allowed = suspectFilePaths(row);
+    if (!allowed.length) return await finishFailed('no_suspect_files');
+
+    // 3. Base branch + current file contents, read from GitHub.
+    const repoInfo = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG);
+    if (!repoInfo.ok) {
+      return await finishFailed('github_error', 'Could not open the repository (status ' + repoInfo.status + ').');
+    }
+    const baseBranch = String(process.env.GITHUB_BASE_BRANCH || (repoInfo.data && repoInfo.data.default_branch) || 'main');
+
+    const files = [];
+    const baseShas = {};
+    for (let i = 0; i < allowed.length; i++) {
+      const got = await githubReadFile(GITHUB_REPO_SLUG, allowed[i], baseBranch);
+      if (!got.ok) {
+        return await finishFailed('fetch_failed', got.tooLarge
+          ? ('The file ' + allowed[i] + ' is too big to check safely.')
+          : ('Could not read ' + allowed[i] + ' from GitHub.'));
+      }
+      files.push({ file: allowed[i], content: got.content });
+      baseShas[allowed[i]] = got.sha;
+    }
+
+    // 4. Ask for the change.
+    const patch = o.patchOverride || await requestFixPatch(row, files);
+    if (!patch.ok) return await finishFailed(patch.reason || 'api_error', patch.summary || null);
+
+    // 5. Apply in memory — exact match, or refuse.
+    const fileMap = {};
+    files.forEach((f) => { fileMap[f.file] = f.content; });
+    const applied = errorFixExec.applyEdits(fileMap, patch.edits, allowed);
+    if (!applied.ok) return await finishFailed(applied.reason, applied.detail);
+
+    // 6. Does it still parse? Checked BEFORE the guardrails so a broken file is
+    //    never reported as merely "too big".
+    const syntax = errorFixExec.validateAll(applied.files);
+    if (!syntax.ok) return await finishFailed(syntax.reason, syntax.detail);
+
+    // 7. Size, file count, sensitive areas — on the real edits.
+    const guard = errorFixExec.checkGuardrails({ edits: patch.edits, changedFiles: applied.changedFiles });
+    if (!guard.ok) return await finishFailed(guard.reason, guard.detail);
+
+    // 8. Everything has passed. Only now does anything leave this machine.
+    const branch = errorFixExec.branchNameFor(row);
+
+    const baseRef = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/git/ref/heads/' + encodeURIComponent(baseBranch));
+    if (!baseRef.ok || !baseRef.data || !baseRef.data.object || !baseRef.data.object.sha) {
+      return await finishFailed('github_error', 'Could not find the ' + baseBranch + ' branch.');
+    }
+
+    const madeRef = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/git/refs', {
+      method: 'POST',
+      body: { ref: 'refs/heads/' + branch, sha: baseRef.data.object.sha }
+    });
+    // 422 = the ref already exists. We do NOT reuse or reset it — a branch we
+    // did not just create might have anything on it, and force-pushing is never
+    // an option here.
+    if (!madeRef.ok) {
+      return await finishFailed(madeRef.status === 422 ? 'branch_exists' : 'github_error',
+        madeRef.status === 422 ? ('Branch ' + branch + ' already exists.') : ('Could not create the branch (status ' + madeRef.status + ').'));
+    }
+
+    const commitMessage = errorFixExec.buildCommitMessage(row, patch.summary);
+    for (let i = 0; i < applied.changedFiles.length; i++) {
+      const f = applied.changedFiles[i];
+      const put = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/contents/' + f.split('/').map(encodeURIComponent).join('/'), {
+        method: 'PUT',
+        body: {
+          message: commitMessage,
+          content: Buffer.from(applied.files[f], 'utf8').toString('base64'),
+          sha: baseShas[f],          // optimistic lock: a changed file rejects
+          branch: branch
+        }
+      });
+      if (!put.ok) {
+        // Partially written branch is left in place, unmerged and unlabelled,
+        // for a person to look at. Deleting it would destroy the evidence.
+        await updateErrorFixProposal(p.id, { branch_name: branch });
+        return await finishFailed('github_error', 'Could not save ' + f + ' (status ' + put.status + '). The branch was left for review and nothing was merged.');
+      }
+    }
+
+    const pr = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/pulls', {
+      method: 'POST',
+      body: {
+        title: errorFixExec.buildPrTitle(row),
+        head: branch,
+        base: baseBranch,
+        body: errorFixExec.buildPrBody(row, { summary: patch.summary, changedFiles: applied.changedFiles, size: guard.size }),
+        maintainer_can_modify: true
+      }
+    });
+    if (!pr.ok || !pr.data || !pr.data.number) {
+      await updateErrorFixProposal(p.id, { branch_name: branch });
+      return await finishFailed('github_error', 'The change was saved to branch ' + branch + ' but the pull request could not be opened (status ' + pr.status + ').');
+    }
+
+    // The label is what the auto-merge workflow keys on. safe_auto gets
+    // `safe-auto`; everything else gets `needs-review` and can never merge on
+    // its own. A label failure is logged but does not fail the run — the only
+    // consequence is that the PR waits for a human, which is the safe direction.
+    const labels = errorFixExec.labelsForProposal(row);
+    const labelRes = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/issues/' + pr.data.number + '/labels', {
+      method: 'POST',
+      body: { labels: labels }
+    });
+    if (!labelRes.ok) console.warn('[error-fix] could not label PR', pr.data.number, 'status', labelRes.status);
+
+    // `shipped` here means "the change left this machine as an open pull
+    // request". Whether it MERGES is decided by CI plus the auto-merge
+    // workflow, which this server deliberately has no say in.
+    await updateErrorFixProposal(p.id, {
+      status: 'shipped',
+      branch_name: branch,
+      pr_url: String(pr.data.html_url || '').slice(0, 500),
+      execution_finished_at: new Date().toISOString(),
+      execution_error: null
+    });
+
+    console.log('[error-fix] PR opened for proposal', p.id, pr.data.html_url);
+    return {
+      ok: true,
+      dispatched: true,
+      branch: branch,
+      pr_url: pr.data.html_url,
+      pr_number: pr.data.number,
+      labels: labels,
+      labelled: !!labelRes.ok,
+      files: applied.changedFiles,
+      size: guard.size
+    };
+  } catch (err) {
+    // Belt and braces: an unexpected throw must still close the row out, or it
+    // would sit in `in_progress` until the stale sweep found it.
+    return await finishFailed('github_error', String((err && err.message) || 'Unexpected error.').slice(0, 300));
+  }
+}
+
+// ── The executor cron pass ──────────────────────────────────────────────────
+// Reclaims anything orphaned, then drains approved proposals oldest-first.
+async function runErrorFixExecutor(opts) {
+  const o = opts || {};
+  const cap = Math.max(1, Number(o.limit) || ERROR_FIX_EXEC_MAX_PER_RUN);
+  const result = { ok: true, reclaimed: 0, dispatched: 0, failed: 0, skipped: 0, results: [] };
+
+  const stale = await reclaimStaleFixProposals(o.staleMs);
+  result.reclaimed = stale.reclaimed || 0;
+
+  const listed = await listErrorFixProposals({ statuses: ['approved'], limit: 50 });
+  if (!listed.ok) {
+    return { ok: false, message: listed.tableMissing
+      ? 'error_fix_proposals table not found — migration 20260720120000 has not been applied.'
+      : 'Could not read proposals.' };
+  }
+  // Oldest approval first, so nothing waits behind a newer one forever.
+  const queue = listed.rows.slice().sort((a, b) =>
+    String(a.approved_at || a.created_at || '').localeCompare(String(b.approved_at || b.created_at || '')));
+
+  for (let i = 0; i < queue.length && result.dispatched + result.failed < cap; i++) {
+    const r = await dispatchApprovedFixProposal(queue[i], {});
+    if (r.dispatched) result.dispatched++;
+    else if (r.reason === 'already_claimed' || r.reason === 'queued') result.skipped++;
+    else result.failed++;
+    result.results.push({ id: queue[i].id, ok: !!r.dispatched, reason: r.reason || null, pr_url: r.pr_url || null });
+  }
+  result.pending = Math.max(0, queue.length - (result.dispatched + result.failed + result.skipped));
+  return result;
+}
+
+// Idempotent. Approving an already-approved proposal succeeds and changes
+// nothing. Returns { ok, changed, status, proposal }.
+async function approveErrorFixProposal(id, who, source) {
+  const p = await getErrorFixProposalById(id);
+  if (!p) return { ok: false, reason: 'not_found' };
+  if (p.status !== 'proposed') return { ok: true, changed: false, already: true, status: p.status, proposal: p };
+  const nowIso = new Date().toISOString();
+  const done = await updateErrorFixProposal(p.id, {
+    status: 'approved',
+    approved_by: String(who || 'unknown').slice(0, 200),
+    approved_at: nowIso,
+    decision_source: source === 'email' ? 'email' : 'dashboard'
+  });
+  if (!done) return { ok: false, reason: 'update_failed' };
+  const updated = Object.assign({}, p, { status: 'approved', approved_by: who, approved_at: nowIso });
+  // queueOnly: approval is a button press on the owner's phone. It must return
+  // straight away and must never fail because GitHub or Anthropic is having a
+  // bad day. The row is left `approved` and the hourly executor cron does the
+  // real work — see dispatchApprovedFixProposal.
+  try { await dispatchApprovedFixProposal(updated, { queueOnly: true }); } catch (e) {
+    console.error('[error-fix] dispatch seam threw (approval stands):', e && e.message);
+  }
+  return { ok: true, changed: true, already: false, status: 'approved', proposal: updated };
+}
+
+async function rejectErrorFixProposal(id, who, reason) {
+  const p = await getErrorFixProposalById(id);
+  if (!p) return { ok: false, reason: 'not_found' };
+  if (p.status !== 'proposed') return { ok: true, changed: false, already: true, status: p.status };
+  const done = await updateErrorFixProposal(p.id, {
+    status: 'rejected',
+    rejected_by: String(who || 'unknown').slice(0, 200),
+    rejected_at: new Date().toISOString(),
+    rejection_reason: String(reason || '').slice(0, 1000),
+    decision_source: 'dashboard'
+  });
+  if (!done) return { ok: false, reason: 'update_failed' };
+  return { ok: true, changed: true, already: false, status: 'rejected' };
+}
+
+// Token → proposal. Reads by token HASH (the plaintext never touches the DB).
+async function findProposalByApprovalToken(token) {
+  const hash = errorFix.hashApprovalToken(token);
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('error_fix_proposals',
+      'select=' + ERROR_FIX_PROPOSAL_COLUMNS + ',approval_token_hash&approval_token_hash=eq.' + encodeURIComponent(hash) + '&limit=1');
+    if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+    return r.data[0];
+  }
+  return _efLocalRows().find((r) => r && r.approval_token_hash === hash) || null;
+}
+
+// Consumes a single-use approval token. Idempotent: a replayed token reports
+// already-done and changes nothing.
+async function approveErrorFixByToken(token) {
+  const p = await findProposalByApprovalToken(token);
+  if (!p) return { ok: false, reason: 'invalid' };
+  const verdict = errorFix.evaluateApprovalToken(p, token);
+  if (!verdict.ok) return { ok: false, reason: verdict.reason };
+  if (verdict.action === 'none') {
+    return { ok: true, changed: false, already: true, status: verdict.status || p.status, proposal: p };
+  }
+  // Stamp the token used FIRST. If the approval write then fails we have burned
+  // a token rather than left one live — the safer way round.
+  await updateErrorFixProposal(p.id, { approval_token_used_at: new Date().toISOString() });
+  return await approveErrorFixProposal(p.id, GP_OWNER_EMAIL, 'email');
 }
 
 // ── Migration ledger (C4) ────────────────────────────────────────────────────
@@ -11945,6 +12874,82 @@ function isPubliclyServablePath(filePath) {
   return PUBLIC_STATIC_DIRS.has(segments[0]);
 }
 
+// ── Friendly error page for GPs (launch triage BUILD 1) ──────────────────────
+//
+// pages/error.html exists and is public, but nothing routed to it: a doctor who
+// hit a bad link or a server fault got a bare "Not found" / raw JSON. These
+// helpers serve that page for PAGE navigations only.
+//
+// The three hard rules:
+//   1. /api/* is NEVER touched. API 404s are the normal "no such record" answer
+//      in hundreds of places and MUST stay JSON, or every caller breaks.
+//   2. Asset requests (scripts, stylesheets, images, fonts) never get HTML —
+//      a <script src> that receives an HTML page is a worse failure than a 404.
+//   3. The HTTP status is preserved exactly. 404 stays 404, 500 stays 500.
+//      Returning 200 with an apology page is what breaks uptime monitoring.
+
+// Is this request a top-level page navigation that a human is looking at?
+function isHtmlPageNavigation(req, pathname) {
+  const p = String(pathname || '');
+  if (p.startsWith('/api/')) return false;                       // rule 1
+  const method = String((req && req.method) || 'GET').toUpperCase();
+  if (method !== 'GET') return false;                            // a POST gets no apology page
+  const ext = path.extname(p).toLowerCase();
+  if (ext && ext !== '.html') return false;                      // rule 2: .js/.css/.png/... are assets
+  // Sec-Fetch-Dest is the authoritative signal where the browser sends it:
+  // 'document' (address bar / link) or 'iframe' (the app shell loads pages in
+  // an iframe). 'script', 'style', 'image', 'font', 'empty' (fetch/XHR) are not
+  // navigations and must not receive HTML.
+  const dest = String((req && req.headers && req.headers['sec-fetch-dest']) || '').toLowerCase();
+  if (dest) return dest === 'document' || dest === 'iframe' || dest === 'frame';
+  // Older clients: fall back to Accept. A navigation asks for text/html; fetch()
+  // defaults to */* and XHR to */*, so this stays narrow.
+  const accept = String((req && req.headers && req.headers['accept']) || '');
+  return /\btext\/html\b/i.test(accept);
+}
+
+// Serves pages/error.html at the ORIGINAL url with the ORIGINAL status.
+//
+// The page's Refresh button reads ?from= and retries the attempted path. We are
+// answering in place (not redirecting — a 302 would throw the status code
+// away), so the query string is not ours to set; a tiny injected script stamps
+// it in with history.replaceState. That both gives the page its ?from= and
+// stops Refresh from reloading the URL we just rewrote.
+function serveGpErrorPage(req, res, statusCode, attemptedPath) {
+  if (res.headersSent) return true;
+  let html;
+  try {
+    html = fs.readFileSync(path.join(process.cwd(), 'pages', 'error.html'), 'utf8');
+  } catch (err) {
+    return false; // page missing from the bundle — caller falls back to plain text
+  }
+  let from = String(attemptedPath || '/');
+  // Only ever an internal path. Never a protocol-relative or absolute URL, so
+  // this can't be turned into an open redirect from the Refresh button.
+  if (from.charAt(0) !== '/' || from.charAt(1) === '/' || from.charAt(1) === '\\') from = '/';
+  const inject = '<script>(function(){try{if(window.history&&history.replaceState){'
+    + 'history.replaceState(null,"",location.pathname+"?from="+' + JSON.stringify(encodeURIComponent(from))
+    + ');}}catch(e){}})();</script>';
+  // Injected into <head> so it runs before the page's own script reads ?from=.
+  html = html.includes('</head>') ? html.replace('</head>', inject + '</head>') : inject + html;
+  res.writeHead(statusCode, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(html),
+    'Cache-Control': 'no-store',
+    'X-Robots-Tag': 'noindex, nofollow'
+  });
+  res.end(html);
+  return true;
+}
+
+// 404 for a not-found path: friendly page for navigations, plain text for
+// everything else (assets, HEAD probes, non-GET).
+function respondNotFound(req, res, pathname) {
+  if (isHtmlPageNavigation(req, pathname) && serveGpErrorPage(req, res, 404, (req && req.url) || pathname)) return;
+  res.writeHead(404);
+  res.end('Not found');
+}
+
 function serveStatic(req, res, pathname) {
   const filePath = sanitizeFilePath(pathname);
   if (!filePath) {
@@ -11960,15 +12965,13 @@ function serveStatic(req, res, pathname) {
   // Allowlist gate: reject anything outside the public static roots with a 404
   // (a plain "not found", so we don't confirm which backend files exist).
   if (!isPubliclyServablePath(filePath)) {
-    res.writeHead(404);
-    res.end('Not found');
+    respondNotFound(req, res, pathname);
     return;
   }
 
   fs.stat(filePath, (err, stat) => {
     if (err || !stat.isFile()) {
-      res.writeHead(404);
-      res.end('Not found');
+      respondNotFound(req, res, pathname);
       return;
     }
 
@@ -32159,6 +33162,176 @@ async function handleApi(req, res, pathname) {
             : ('send failed: ' + (edCronResult.message || 'unknown')));
     } catch (e) {}
     sendJson(res, edCronResult.ok ? 200 : 500, edCronResult);
+    return;
+  }
+
+  // ── Daily AI bug-fix analysis + approval email (BUILD 3 + 4) ──────────────
+  // Runs 30 minutes before the health digest so the owner gets "here is what is
+  // broken" and "here is what I can fix" as two clearly separate emails.
+  // Heartbeat-tracked: 'error-fix-analysis' is in CRON_SCHEDULES.
+  if (req.method === 'GET' && pathname === '/api/cron/error-fix-analysis') {
+    var efaSecret = String(process.env.CRON_SECRET || '').trim();
+    var efaAuth = req.headers['authorization'] || '';
+    if (!efaSecret || efaAuth !== 'Bearer ' + efaSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var efaRun = await runErrorFixAnalysis({});
+    // The email still goes out even if the analysis pass failed part-way —
+    // proposals created on an earlier run must not be stranded unsent.
+    var efaMail = { ok: true, sent: false, skipped: true, reason: 'analysis_failed' };
+    try { efaMail = await sendErrorFixProposalEmail({ force: false }); }
+    catch (efaMailErr) { efaMail = { ok: false, sent: false, message: String(efaMailErr && efaMailErr.message) }; }
+    try {
+      res.gpCronDetail = (efaRun.ok
+        ? (efaRun.created + ' proposal(s) created from ' + efaRun.analysed + ' analysed'
+            + (efaRun.timeboxed ? ' (time-boxed)' : ''))
+        : ('analysis failed: ' + (efaRun.message || 'unknown')))
+        + '; email ' + (efaMail.sent ? 'sent' : ('not sent — ' + (efaMail.reason || efaMail.message || 'n/a')));
+    } catch (e) {}
+    sendJson(res, efaRun.ok ? 200 : 500, { ok: efaRun.ok, analysis: efaRun, email: efaMail });
+    return;
+  }
+
+  // ── Hourly AI bug-fix executor ────────────────────────────────────────────
+  // Picks up rows the owner has APPROVED and turns them into pull requests.
+  // Hourly rather than daily because approval can happen at any hour.
+  // Heartbeat-tracked: 'error-fix-execute' is in CRON_SCHEDULES.
+  if (req.method === 'GET' && pathname === '/api/cron/error-fix-execute') {
+    var efxSecret = String(process.env.CRON_SECRET || '').trim();
+    var efxAuth = req.headers['authorization'] || '';
+    if (!efxSecret || efxAuth !== 'Bearer ' + efxSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var efxRun;
+    try { efxRun = await runErrorFixExecutor({}); }
+    catch (efxErr) { efxRun = { ok: false, message: String(efxErr && efxErr.message) }; }
+    try {
+      res.gpCronDetail = efxRun.ok
+        ? (efxRun.dispatched + ' pull request(s) opened, ' + efxRun.failed + ' failed, '
+            + efxRun.reclaimed + ' stale reclaimed, ' + (efxRun.pending || 0) + ' still waiting')
+        : ('executor failed: ' + (efxRun.message || 'unknown'));
+    } catch (e) {}
+    sendJson(res, efxRun.ok ? 200 : 500, efxRun);
+    return;
+  }
+
+  // ── One-click approval from the email (BUILD 5) ───────────────────────────
+  // POST ONLY, and deliberately so: the emailed link is a GET that merely
+  // renders a confirm page (/approve-fix), and this POST is what the button on
+  // that page submits. Mail scanners and link previewers issue GETs, never form
+  // POSTs, so no robot can approve a code change. Token-authed, no session —
+  // the owner may well be signed out on their phone.
+  if (req.method === 'POST' && pathname === '/api/error-fix/approve') {
+    // Accepts JSON (the confirm page's fetch) OR a plain form-urlencoded POST,
+    // so the confirm page still works with JavaScript switched off.
+    var efApBody = await readTokenActionBody(req).catch(function () { return null; });
+    var efApToken = String((efApBody && efApBody.token) || '').trim();
+    var efApAll = String((efApBody && efApBody.all) || '').trim();
+
+    if (efApAll) {
+      var efApAllData = parseSignedPurposeToken(efApAll, 'error_fix_approve_all');
+      if (!efApAllData || !Array.isArray(efApAllData.ids) || !efApAllData.ids.length) {
+        sendJson(res, 400, { ok: false, error: 'invalid_token', message: 'This link is no longer valid. Open the dashboard to approve.' });
+        return;
+      }
+      var efApAllRes = { approved: 0, already: 0, failed: 0 };
+      for (var efi = 0; efi < efApAllData.ids.length && efi < 50; efi++) {
+        var efOne = await approveErrorFixProposal(efApAllData.ids[efi], GP_OWNER_EMAIL, 'email');
+        if (!efOne.ok) efApAllRes.failed++;
+        else if (efOne.changed) efApAllRes.approved++;
+        else efApAllRes.already++;
+      }
+      sendJson(res, 200, Object.assign({ ok: true }, efApAllRes));
+      return;
+    }
+
+    if (!efApToken) { sendJson(res, 400, { ok: false, error: 'missing_token' }); return; }
+    var efApOne = await approveErrorFixByToken(efApToken);
+    if (!efApOne.ok) {
+      sendJson(res, efApOne.reason === 'invalid' ? 404 : 400, {
+        ok: false,
+        error: efApOne.reason,
+        message: efApOne.reason === 'expired'
+          ? 'This approval link has expired. Open the dashboard to approve it there.'
+          : 'This approval link is no longer valid.'
+      });
+      return;
+    }
+    sendJson(res, 200, { ok: true, approved: efApOne.changed, already: !!efApOne.already, status: efApOne.status });
+    return;
+  }
+
+  // ── Dashboard-side proposal endpoints (BUILD 5) ───────────────────────────
+  // Super-admin only, exactly like the rest of the Technical tab.
+  if (pathname === '/api/ceo/error-fix-proposals' && req.method === 'GET') {
+    var efListCtx = requireCeoSession(req, res);
+    if (!efListCtx) return;
+    var efStatusParam = String(url.searchParams.get('status') || '').trim();
+    var efStatuses = efStatusParam
+      ? efStatusParam.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return errorFix.PROPOSAL_STATUSES.indexOf(s) !== -1; })
+      : null;
+    var efListed = await listErrorFixProposals({ statuses: efStatuses, limit: Number(url.searchParams.get('limit')) || 100 });
+    if (!efListed.ok) {
+      sendJson(res, efListed.tableMissing ? 503 : 500, {
+        ok: false,
+        table_missing: !!efListed.tableMissing,
+        message: efListed.tableMissing
+          ? 'The proposals table does not exist yet — migration 20260720120000_error_fix_proposals.sql has not been applied.'
+          : 'Could not read proposals.'
+      });
+      return;
+    }
+    // approval_token_hash is never selected into this list — the dashboard has
+    // no business holding a value that can approve anything.
+    sendJson(res, 200, {
+      ok: true,
+      proposals: efListed.rows,
+      risk_classes: errorFix.RISK_CLASSES,
+      statuses: errorFix.PROPOSAL_STATUSES
+    });
+    return;
+  }
+
+  if (pathname === '/api/ceo/error-fix-proposals/approve' && req.method === 'POST') {
+    var efAppCtx = requireCeoSession(req, res);
+    if (!efAppCtx) return;
+    var efAppBody = await readJsonBody(req).catch(function () { return null; });
+    var efAppIds = [];
+    if (efAppBody && Array.isArray(efAppBody.ids)) efAppIds = efAppBody.ids.map(String).filter(Boolean);
+    else if (efAppBody && efAppBody.id) efAppIds = [String(efAppBody.id)];
+    else if (efAppBody && efAppBody.all === true) {
+      var efAppOpen = await listErrorFixProposals({ statuses: ['proposed'], limit: 100 });
+      efAppIds = efAppOpen.rows.map(function (r) { return String(r.id); });
+    }
+    if (!efAppIds.length) { sendJson(res, 400, { ok: false, message: 'Nothing to approve.' }); return; }
+    var efAppOut = { approved: 0, already: 0, failed: 0 };
+    for (var efa = 0; efa < efAppIds.length && efa < 100; efa++) {
+      var efR = await approveErrorFixProposal(efAppIds[efa], efAppCtx.email || 'ceo', 'dashboard');
+      if (!efR.ok) efAppOut.failed++;
+      else if (efR.changed) efAppOut.approved++;
+      else efAppOut.already++;
+    }
+    sendJson(res, 200, Object.assign({ ok: true }, efAppOut));
+    return;
+  }
+
+  if (pathname === '/api/ceo/error-fix-proposals/reject' && req.method === 'POST') {
+    var efRejCtx = requireCeoSession(req, res);
+    if (!efRejCtx) return;
+    var efRejBody = await readJsonBody(req).catch(function () { return null; });
+    var efRejId = String((efRejBody && efRejBody.id) || '').trim();
+    if (!efRejId) { sendJson(res, 400, { ok: false, message: 'id is required.' }); return; }
+    var efRejRes = await rejectErrorFixProposal(efRejId, efRejCtx.email || 'ceo', (efRejBody && efRejBody.reason) || '');
+    sendJson(res, efRejRes.ok ? 200 : 404, efRejRes);
+    return;
+  }
+
+  // Technical tab "run it now" button — analyse + email on demand.
+  if (pathname === '/api/ceo/error-fix-proposals/run' && req.method === 'POST') {
+    var efRunCtx = requireCeoSession(req, res);
+    if (!efRunCtx) return;
+    var efRunRes = await runErrorFixAnalysis({});
+    var efRunMail = { ok: true, sent: false, skipped: true };
+    try { efRunMail = await sendErrorFixProposalEmail({ force: false }); } catch (e) { efRunMail = { ok: false, message: String(e && e.message) }; }
+    sendJson(res, efRunRes.ok ? 200 : 500, { ok: efRunRes.ok, analysis: efRunRes, email: efRunMail });
     return;
   }
 
@@ -57715,6 +58888,85 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── GitHub credential check ───────────────────────────────────────────────
+  //
+  // Lets the owner confirm the auto-fix pipeline's GitHub credential actually
+  // works, WITHOUT anyone ever seeing it. Every call below is READ-ONLY: it
+  // opens no branch, writes no file and creates no pull request.
+  //
+  // ⚠️ The token, and every part of it, is never included in the response.
+  // Not the value, not a prefix, not a suffix, not a hash — only the boolean
+  // `token_present` and what the token can DO. Anything that echoed bytes of a
+  // credential back over HTTP would defeat the point of the endpoint.
+  if (pathname === '/api/ceo/technical/github-check' && req.method === 'GET') {
+    var ghCtx = requireCeoSession(req, res);
+    if (!ghCtx) return;
+
+    var ghOut = {
+      ok: true,
+      token_present: !!githubToken(),
+      repo_configured: GITHUB_REPO_SLUG,
+      connected: false,
+      repo: null,
+      permissions: {},
+      missing: [],
+      message: ''
+    };
+
+    if (!ghOut.token_present) {
+      ghOut.message = 'No GitHub token is set, so automatic fixes cannot be saved. Add GITHUB_TOKEN in Vercel and check again.';
+      sendJson(res, 200, ghOut);
+      return;
+    }
+
+    // 1. Can it see the repository at all? This also carries the caller's
+    //    permission set and the default branch we would branch from.
+    var ghRepo = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG);
+    if (!ghRepo.ok) {
+      ghOut.message = ghRepo.status === 401
+        ? 'The GitHub token was rejected — it is wrong, revoked or expired.'
+        : (ghRepo.status === 404
+          ? 'The token works but cannot see ' + GITHUB_REPO_SLUG + '. Check the token is scoped to this repository.'
+          : 'GitHub could not be reached (status ' + ghRepo.status + ').');
+      ghOut.status = ghRepo.status;
+      sendJson(res, 200, ghOut);
+      return;
+    }
+
+    ghOut.connected = true;
+    ghOut.repo = {
+      full_name: (ghRepo.data && ghRepo.data.full_name) || null,
+      private: !!(ghRepo.data && ghRepo.data.private),
+      default_branch: (ghRepo.data && ghRepo.data.default_branch) || null
+    };
+
+    // 2. Permissions. `permissions` on the repo payload is what THIS token can
+    //    do; `push` is what creating a branch and committing needs.
+    var ghPerms = (ghRepo.data && ghRepo.data.permissions) || {};
+    ghOut.permissions.contents_read = true;                 // proven by the call above
+    ghOut.permissions.contents_write = !!ghPerms.push;
+
+    // 3. Pull requests + workflows, both read-only probes.
+    var ghPulls = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/pulls?state=open&per_page=1');
+    ghOut.permissions.pull_requests_read = !!ghPulls.ok;
+    var ghWorkflows = await githubApiRequest('/repos/' + GITHUB_REPO_SLUG + '/actions/workflows?per_page=1');
+    ghOut.permissions.workflows_read = !!ghWorkflows.ok;
+
+    ['contents_read', 'contents_write', 'pull_requests_read', 'workflows_read'].forEach(function (k) {
+      if (!ghOut.permissions[k]) ghOut.missing.push(k);
+    });
+
+    ghOut.ready = ghOut.permissions.contents_write && ghOut.permissions.pull_requests_read;
+    ghOut.message = ghOut.ready
+      ? ('Connected to ' + ghOut.repo.full_name + '. The token can create branches and open pull requests.')
+      : ('Connected to ' + ghOut.repo.full_name + ', but the token is missing: ' + ghOut.missing.join(', ') + '.');
+    // Honest about the limit of a read-only check.
+    ghOut.note = 'This check only reads. Writing is inferred from the permissions GitHub reports; the first real fix is what proves it end to end.';
+
+    sendJson(res, 200, ghOut);
+    return;
+  }
+
   if (pathname === '/api/ceo/technical/client-errors' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var ceoCtx = requireCeoSession(req, res);
@@ -61240,16 +62492,106 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // ── Approve-a-fix confirm page (BUILD 4/5) ────────────────────────────────
+  // This GET is the URL that appears in the owner's email. It is READ-ONLY: it
+  // renders a page and changes NOTHING. That is the whole point — mail
+  // scanners, link previewers and antivirus proxies fetch every URL in an
+  // email, so a GET that approved a code change would be pulled by a robot
+  // before the owner ever saw it. The actual approval happens only when the
+  // button below is pressed, which POSTs to /api/error-fix/approve.
+  //
+  // Placed here, ahead of the auth gates, so it works while signed out (the
+  // owner reads this on a phone). Authority comes from the token, not a session.
+  if (pathname === '/approve-fix') {
+    if (req.method !== 'GET') { res.writeHead(405); res.end('Method not allowed'); return; }
+    var afToken = String(url.searchParams.get('token') || '').trim();
+    var afAll = String(url.searchParams.get('all') || '').trim();
+    var afEsc = function (v) {
+      return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    };
+    var afHeadline = 'Approve this fix?';
+    var afDetail = '';
+    var afValid = false;
+
+    if (afAll) {
+      var afAllData = parseSignedPurposeToken(afAll, 'error_fix_approve_all');
+      if (afAllData && Array.isArray(afAllData.ids) && afAllData.ids.length) {
+        afValid = true;
+        afHeadline = 'Approve all ' + afAllData.ids.length + ' fixes?';
+        afDetail = 'Every fix listed in your email will be approved and worked on.';
+      }
+    } else if (afToken) {
+      // Look-up only. No write of any kind happens on this GET.
+      var afProposal = await findProposalByApprovalToken(afToken).catch(function () { return null; });
+      if (afProposal) {
+        var afVerdict = errorFix.evaluateApprovalToken(afProposal, afToken);
+        if (afVerdict.ok && afVerdict.action === 'approve') {
+          afValid = true;
+          afDetail = afProposal.plain_explanation || '';
+        } else if (afVerdict.ok) {
+          afHeadline = 'Already done';
+          afDetail = 'This one has already been ' + (afVerdict.status === 'rejected' ? 'turned down' : 'approved') + '. Nothing further to do.';
+        } else if (afVerdict.reason === 'expired') {
+          afHeadline = 'This link has expired';
+          afDetail = 'Approval links last 7 days. Open the dashboard to approve it there.';
+        }
+      }
+    }
+
+    var afBody = afValid
+      ? '<p class="d">' + afEsc(afDetail) + '</p>'
+        + '<form method="POST" action="/api/error-fix/approve" id="f">'
+        + '<input type="hidden" name="' + (afAll ? 'all' : 'token') + '" value="' + afEsc(afAll || afToken) + '">'
+        + '<button type="submit" class="b">Yes, approve</button></form>'
+        + '<p class="n">Nothing has changed yet. The fix is only approved once you press the button.</p>'
+        + '<script>document.getElementById("f").addEventListener("submit",function(e){e.preventDefault();'
+        + 'var btn=document.querySelector(".b");btn.disabled=true;btn.textContent="Approving…";'
+        + 'fetch("/api/error-fix/approve",{method:"POST",headers:{"Content-Type":"application/json"},'
+        + 'body:JSON.stringify(' + JSON.stringify(afAll ? { all: afAll } : { token: afToken }) + ')})'
+        + '.then(function(r){return r.json();}).then(function(j){'
+        + 'document.getElementById("m").innerHTML=j.ok?"<h1>Approved</h1><p class=\\"d\\">Thank you — this is now queued to be fixed. You can close this page.</p>"'
+        + ':"<h1>Could not approve</h1><p class=\\"d\\">"+(j.message||"Please open the dashboard and approve it there.")+"</p>";})'
+        + '.catch(function(){btn.disabled=false;btn.textContent="Yes, approve";});});</script>'
+      : '<p class="d">' + afEsc(afDetail || 'This approval link is not valid. Open the dashboard to approve it there.') + '</p>'
+        + '<p><a class="l" href="' + APP_BASE_URL + '/pages/ceo-dashboard">Open the dashboard</a></p>';
+
+    var afHtml = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<meta name="robots" content="noindex, nofollow"><title>Approve a fix · GP Link</title><style>'
+      + 'body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;'
+      + 'background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#0f172a}'
+      + '.c{max-width:460px;width:100%;background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,.08);text-align:center}'
+      + '.g{font-size:20px;font-weight:800;margin-bottom:18px}h1{font-size:20px;margin:0 0 12px}'
+      + '.d{font-size:15px;line-height:1.6;color:#334155;margin:0 0 22px}'
+      + '.b{display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;'
+      + 'border:0;border-radius:12px;cursor:pointer}.b:disabled{opacity:.6;cursor:default}'
+      + '.n{font-size:12px;color:#94a3b8;margin:16px 0 0}.l{color:#2563eb;font-size:14px}'
+      + '</style></head><body><div class="c" id="m"><div class="g">GP Link</div>'
+      + '<h1>' + afEsc(afHeadline) + '</h1>' + afBody + '</div></body></html>';
+
+    res.writeHead(afValid ? 200 : 410, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': Buffer.byteLength(afHtml),
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow'
+    });
+    res.end(afHtml);
+    return;
+  }
+
+  // Answered through respondNotFound so this is byte-for-byte identical to any
+  // other unknown path. If the admin pages gave a plain "Not found" while
+  // unknown paths gave the friendly page, the difference alone would confirm
+  // these pages exist on some other host.
   if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html' || pathname === '/pages/admin-pbs.html') && !isAllowedAdminHost(req)) {
-    res.writeHead(404);
-    res.end('Not found');
+    respondNotFound(req, res, pathname);
     return;
   }
 
   // CEO dashboard is delivered ONLY on the super-admin host scope (#69).
   if (pathname === '/pages/ceo-dashboard.html' && getAdminHostScope(req) !== 'super_admin') {
-    res.writeHead(404);
-    res.end('Not found');
+    respondNotFound(req, res, pathname);
     return;
   }
 
@@ -61403,6 +62745,11 @@ function createServer() {
       // stack) into client_errors with source='server' — never in the body.
       try { await recordServerError(err, { route: req.url, method: req.method }); } catch {}
       if (!res.headersSent) {
+        // BUILD 1: a doctor who navigated to a page that blew up sees the
+        // friendly screen, still with a 500 status so monitoring is honest.
+        // Everything else (API calls, assets, non-GET) keeps the JSON body.
+        var failPath = String(req.url || '').split('?')[0];
+        if (isHtmlPageNavigation(req, failPath) && serveGpErrorPage(req, res, 500, req.url)) return;
         sendJson(res, 500, { ok: false, error: 'server_error', message: GENERIC_SERVER_ERROR_MESSAGE });
       }
     }
@@ -61442,6 +62789,11 @@ if (process.env.VERCEL) {
       // stack) into client_errors with source='server' — never in the body.
       try { await recordServerError(err, { route: req.url, method: req.method }); } catch {}
       if (!res.headersSent) {
+        // BUILD 1: a doctor who navigated to a page that blew up sees the
+        // friendly screen, still with a 500 status so monitoring is honest.
+        // Everything else (API calls, assets, non-GET) keeps the JSON body.
+        var failPath = String(req.url || '').split('?')[0];
+        if (isHtmlPageNavigation(req, failPath) && serveGpErrorPage(req, res, 500, req.url)) return;
         sendJson(res, 500, { ok: false, error: 'server_error', message: GENERIC_SERVER_ERROR_MESSAGE });
       }
     }
@@ -62073,6 +63425,30 @@ module.exports.__testUtils = {
   computeCronHealth,
   buildErrorDigestData,
   sendErrorDigestEmail,
+  // AI bug-fix approval pipeline
+  isHtmlPageNavigation,
+  serveGpErrorPage,
+  runErrorFixAnalysis,
+  analyseErrorForFix,
+  sendErrorFixProposalEmail,
+  approveErrorFixProposal,
+  rejectErrorFixProposal,
+  approveErrorFixByToken,
+  findProposalByApprovalToken,
+  listErrorFixProposals,
+  getErrorFixProposalById,
+  updateErrorFixProposal,
+  insertErrorFixProposal,
+  dispatchApprovedFixProposal,
+  runErrorFixExecutor,
+  claimFixProposalForExecution,
+  reclaimStaleFixProposals,
+  suspectFilePaths,
+  githubApiRequest,
+  githubReadFile,
+  GITHUB_REPO_SLUG,
+  ERROR_FIX_MODEL,
+  ERROR_FIX_MAX_PER_RUN,
   resendPaceSlot,
   isRetryableResendStatus,
   resendRetryDelayMs,

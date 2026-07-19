@@ -1034,6 +1034,39 @@
       color: var(--text-muted); margin: 22px 0 10px; }
     .ceo-err-note { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; }
 
+    /* ═══ FIXES TO APPROVE (Technical → AI fix proposals) ═══
+       Deliberately reuses the error view's row / chip / button / details styles.
+       Only what the approval flow genuinely needs is new: the row checkbox, the
+       big "Approve all" button and the two risk colours. */
+    .ceo-fix-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+    .ceo-fix-approve-all { font-size: 14px; font-weight: 700; padding: 11px 20px; border-radius: 10px; cursor: pointer;
+      background: var(--blue); color: #fff; border: 1px solid var(--blue); line-height: 1.2; }
+    .ceo-fix-approve-all:hover { filter: brightness(1.08); }
+    .ceo-fix-approve-all[disabled] { opacity: 0.45; cursor: default; filter: none; }
+    .ceo-fix-row { position: relative; }
+    .ceo-fix-head { display: flex; align-items: flex-start; gap: 12px; }
+    .ceo-fix-check { width: 18px; height: 18px; flex: 0 0 auto; margin: 2px 0 0; cursor: pointer; accent-color: var(--blue); }
+    .ceo-fix-plain { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.5; flex: 1 1 220px; min-width: 0; }
+    .ceo-err-chip.risk-safe { background: var(--green-dim); color: var(--green); }
+    .ceo-err-chip.risk-review { background: var(--amber-dim); color: var(--amber); }
+    .ceo-fix-state { font-size: 12px; font-weight: 600; margin-top: 10px; line-height: 1.5; color: var(--text-muted); }
+    .ceo-fix-state.good { color: var(--green); }
+    .ceo-fix-state.working { color: var(--blue); }
+    .ceo-fix-state.bad { color: var(--red); }
+    .ceo-fix-state a { color: var(--blue); text-decoration: underline; }
+    .ceo-fix-banner { font-size: 13px; line-height: 1.6; padding: 11px 14px; border-radius: var(--radius-md, 8px);
+      margin-bottom: 14px; border: 1px solid var(--panel-border); background: var(--panel); color: var(--text); }
+    .ceo-fix-banner.good { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+    .ceo-fix-banner.bad { border-color: var(--red); background: var(--red-dim); color: var(--red); }
+    /* The proposal named by the email's "Investigate further" link. */
+    .ceo-fix-row.is-target { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+    .ceo-fix-target-note { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+      color: var(--blue); margin-bottom: 8px; }
+    @media (max-width: 640px) {
+      .ceo-fix-approve-all { width: 100%; text-align: center; }
+      .ceo-fix-top > .ceo-err-btn { flex: 1 1 auto; text-align: center; }
+    }
+
     /* ═══ PER-RSO OPS BOARD (under RSO Oversight) ═══ */
     .ceo-ops-section { margin-top: 22px; }
     .ceo-ops-section-head { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
@@ -3703,6 +3736,9 @@
         + '<div class="ceo-tech-strip clickable" id="techErrStrip" role="button" tabindex="0" title="Open the error list"'
         + ' onclick="openClientErrorsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openClientErrorsView();}">'
         + '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">—</span></div>'
+        + '<div class="ceo-tech-strip clickable" id="techFixStrip" role="button" tabindex="0" title="Open the fixes waiting for your approval"'
+        + ' onclick="openFixProposalsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openFixProposalsView();}">'
+        + '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '</div>';
       // Phase 6 E1 (audit B4): candidate leads + Zoho archive browser card.
       html += '<div class="ceo-tech-cards" style="margin-top:14px"><div class="ceo-tech-card" id="leadsArchiveCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading leads &amp; archive…</div></div></div>';
@@ -3935,6 +3971,23 @@
             + '<span class="ceo-tech-strip-go">View &rarr;</span>';
         }).catch(function() { if (errStrip) errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
       }
+      // Fixes waiting for approval. "unavailable" is deliberately NOT "0" — if the
+      // proposals API cannot be read we must not imply there is nothing to approve.
+      var fixStrip = document.getElementById('techFixStrip');
+      if (fixStrip) {
+        apiFetch('/api/ceo/error-fix-proposals?status=proposed').then(function(d) {
+          if (!fixStrip) return;
+          if (!d || !d.ok || !Array.isArray(d.proposals)) {
+            fixStrip.innerHTML = '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-na">unavailable</span>';
+            return;
+          }
+          var waiting = d.proposals.filter(function (p) { return String(p.status || 'proposed') === 'proposed'; });
+          var review = waiting.filter(function (p) { return fixRiskOf(p) !== 'safe_auto'; }).length;
+          fixStrip.innerHTML = '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-val">' + waiting.length
+            + '</span>' + (review ? ' <span class="ceo-tech-strip-sub">(' + review + (review === 1 ? ' needs' : ' need') + ' a closer look)</span>' : '')
+            + '<span class="ceo-tech-strip-go">View &rarr;</span>';
+        }).catch(function() { if (fixStrip) fixStrip.innerHTML = '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
+      }
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
@@ -4146,6 +4199,467 @@
         if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Failed: ' + e.message; }
       });
     }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       FIXES TO APPROVE (Technical tab → AI fix proposals)
+       Every 24h the app reads the open client errors, asks the AI what is wrong
+       and how it would fix each one, and emails the owner a short summary with
+       "Approve" and "Investigate further". "Investigate further" deep-links to
+       THIS view (/pages/ceo-dashboard?tab=fixes), which shows the fuller write-up
+       per bug with a per-bug tick box and one big "Approve all" button.
+       Approving is what starts the automatic fix, so it always asks first.
+
+       API (server.js + lib/error-fix-proposals.js, verified against that code):
+         GET  /api/ceo/error-fix-proposals[?status=a,b]  -> { ok, proposals:[…] }
+              failure -> 500/503 { ok:false, table_missing, message }
+         POST /api/ceo/error-fix-proposals/approve { ids:[…] }
+              -> { ok, approved, already, failed }   (counts, not rows)
+         POST /api/ceo/error-fix-proposals/reject  { id, reason }
+              -> ONE id per call, so a bulk reject is sent one at a time.
+         POST /api/ceo/error-fix-proposals/run     -> analyse + email on demand.
+       Row columns (per migration 20260720120000): id, error_hash, error_message,
+       page_url, error_source, occurrence_count, affected_users, first_seen_at,
+       last_seen_at, plain_explanation, technical_diagnosis, proposed_fix,
+       suspect_files, ai_model, model_risk, risk_class(safe_auto|needs_review),
+       risk_reason, risk_downgraded, status, approved_by/at, rejected_by/at,
+       rejection_reason, branch_name, pr_url, execution_error, created_at.
+       NOTE the names: risk_class (not "risk"), error_source (not "source"),
+       pr_url/branch_name (not "branch_url"). There is no error_stack column.
+
+       HONESTY RULE (same lesson as the errors view): a failed read must never be
+       drawn as "nothing to approve". Every failure path below says so out loud.
+       ═══════════════════════════════════════════════════════════════════════ */
+    var fixView = { status: 'proposed', proposals: [], selected: {}, banner: null, busy: false, highlightId: null };
+    var FIX_API = '/api/ceo/error-fix-proposals';
+
+    var FIX_STATUS_TEXT = {
+      proposed: { label: 'Waiting for your decision', cls: '' },
+      approved: { label: 'Approved — fix in progress', cls: 'working' },
+      in_progress: { label: 'Fix in progress', cls: 'working' },
+      shipped: { label: 'Fixed and shipped', cls: 'good' },
+      rejected: { label: 'You said no to this one', cls: '' },
+      failed: { label: 'The automatic fix failed — a person needs to look', cls: 'bad' }
+    };
+    function fixStatusText(s) { return FIX_STATUS_TEXT[String(s || 'proposed')] || { label: String(s || 'unknown'), cls: '' }; }
+    // Only a proposal still sitting at "proposed" can be approved or rejected.
+    function fixIsPending(p) { return String((p && p.status) || 'proposed') === 'proposed'; }
+    // The server column is risk_class; `risk` is tolerated in case the shape moves.
+    function fixRiskOf(p) { return String((p && (p.risk_class || p.risk)) || 'needs_review'); }
+    // Never show the raw enum to the owner.
+    function fixRiskChip(risk) {
+      return String(risk || '') === 'safe_auto'
+        ? '<span class="ceo-err-chip risk-safe">Safe to fix automatically</span>'
+        : '<span class="ceo-err-chip risk-review">Needs a closer look</span>';
+    }
+    // pr_url comes from the server but is rendered into an href — only ever allow
+    // plain http(s) so a javascript: value can never become a live link.
+    function fixSafeUrl(u) {
+      var s = String(u == null ? '' : u).trim();
+      return /^https?:\/\//i.test(s) ? s : '';
+    }
+
+    function openFixProposalsView(status, highlightId) {
+      if (status) fixView.status = status;
+      if (highlightId !== undefined) fixView.highlightId = highlightId == null ? null : String(highlightId);
+      fixView.banner = null;
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading the fixes waiting for you…</div></div>';
+      // The server takes a comma-separated status list; 'all' means "send none".
+      var qs = fixView.status && fixView.status !== 'all' ? '?status=' + encodeURIComponent(fixView.status) : '';
+      apiFetch(FIX_API + qs).then(function (d) {
+        c = document.getElementById('techContent');
+        if (!c) return;
+        if (!d || !d.ok) {
+          c.innerHTML = fixLoadFailedHtml((d && d.message) || 'The server did not say why.', d && d.table_missing);
+          return;
+        }
+        // Same guard as the errors view: the server read failed, so we know
+        // nothing — say that instead of drawing a reassuring empty list.
+        if (d.fetch_failed || !Array.isArray(d.proposals)) {
+          c.innerHTML = fixLoadFailedHtml(d.fetch_error || d.message || 'The list came back in a form we do not understand.');
+          return;
+        }
+        fixView.proposals = d.proposals;
+        fixView.selected = {};
+        renderFixProposalsView();
+        fixScrollToHighlight();
+      }).catch(function (e) {
+        var cc = document.getElementById('techContent');
+        if (cc) cc.innerHTML = fixLoadFailedHtml(e && e.message ? e.message : 'unknown error');
+      });
+    }
+
+    // The ONLY place a load failure is rendered. Deliberately loud, and explicit
+    // that this is not the same as "there is nothing to approve".
+    function fixLoadFailedHtml(detail, tableMissing) {
+      return errViewHead('Fixes to approve')
+        + '<div class="ceo-err-note" style="border-left:3px solid var(--red);padding-left:12px">'
+        + '<b>The list of fixes could not be loaded.</b><br>'
+        + 'This does <b>not</b> mean there is nothing waiting for you — it means we could not read the list at all, '
+        + 'so nothing can be shown or approved until that is fixed.'
+        + (tableMissing
+          ? ' The database table this feature needs has not been created yet, so the feature is not switched on.'
+          : ' If this feature has only just been switched on, the approvals service may not be live yet.')
+        + '<br><span class="mono" style="opacity:.75">' + esc(detail) + '</span></div>'
+        + '<div class="ceo-err-toolbar"><span class="ceo-err-btn" onclick="openFixProposalsView()">Try again</span>'
+        + '<span class="ceo-err-btn" onclick="loadTechnical()">Back to Technical</span></div>';
+    }
+
+    // Deep link from the email names one proposal — bring it into view and mark it.
+    function fixScrollToHighlight() {
+      if (!fixView.highlightId) return;
+      var i = -1;
+      (fixView.proposals || []).forEach(function (p, n) { if (p && String(p.id) === fixView.highlightId) i = n; });
+      if (i < 0) return;
+      var el = document.getElementById('fixRow' + i);
+      if (!el) return;
+      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+    }
+
+    function renderFixProposalsView() {
+      var c = document.getElementById('techContent');
+      if (!c) return;
+      var list = fixView.proposals || [];
+      var pending = list.filter(fixIsPending);
+      var selected = fixSelectedIds();
+
+      var html = errViewHead('Fixes to approve');
+      html += '<div class="ceo-err-note">'
+        + 'Each card below is one problem the app found by itself, explained in plain words, with the fix it wants to make. '
+        + 'Tick the ones you are happy with, or use <b>Approve all</b>. '
+        + 'Approving is what actually starts the fix — nothing is changed until you do.'
+        + '</div>';
+
+      if (fixView.banner) {
+        html += '<div class="ceo-fix-banner ' + esc(fixView.banner.kind || '') + '">' + esc(fixView.banner.text) + '</div>';
+      }
+
+      html += '<div class="ceo-err-toolbar">';
+      ['proposed', 'approved', 'in_progress', 'shipped', 'rejected', 'failed', 'all'].forEach(function (st) {
+        var labels = { proposed: 'Waiting', approved: 'Approved', in_progress: 'In progress', shipped: 'Shipped', rejected: 'Turned down', failed: 'Failed', all: 'All' };
+        html += '<span class="ceo-err-filter' + (fixView.status === st ? ' active' : '') + '" onclick="openFixProposalsView(\'' + st + '\')">'
+          + esc(labels[st]) + '</span>';
+      });
+      html += '<span style="flex:1"></span>';
+      html += '<span class="ceo-err-btn" onclick="fixRunAnalysis(this)">Look for new problems now</span>';
+      html += '<span class="ceo-err-btn" onclick="openClientErrorsView()">See the raw errors</span>';
+      html += '</div>';
+
+      if (pending.length) {
+        var canAct = !fixView.busy && selected.length > 0;
+        html += '<div class="ceo-fix-top">'
+          + '<button type="button" class="ceo-fix-approve-all" id="fixApproveAllBtn"' + (fixView.busy ? ' disabled' : '')
+          + ' onclick="fixApprove(\'all\')">' + (fixView.busy ? 'Working…' : 'Approve all (' + pending.length + ')') + '</button>'
+          + '<span class="ceo-err-btn" id="fixApproveSelBtn"' + (canAct ? ' onclick="fixApprove(\'selected\')"' : ' disabled')
+          + '>Approve selected (' + selected.length + ')</span>'
+          + '<span class="ceo-err-btn" id="fixRejectSelBtn"' + (canAct ? ' onclick="fixReject(\'selected\')"' : ' disabled')
+          + '>Turn down selected (' + selected.length + ')</span>'
+          + '<span class="ceo-err-btn" id="fixTickAllBtn" onclick="fixSelectAll(' + (selected.length === pending.length ? 'false' : 'true') + ')">'
+          + (selected.length === pending.length ? 'Clear ticks' : 'Tick all') + '</span>'
+          + '</div>';
+      }
+
+      if (!list.length) {
+        // Reached ONLY on a successful read that returned zero rows — the failure
+        // paths above return before this point.
+        html += '<div class="drilldown-empty">'
+          + (fixView.status === 'proposed'
+            ? 'Nothing is waiting for your approval right now. That is good news — the list loaded fine, it is simply empty.'
+            : 'The list loaded fine — there is nothing in this category.')
+          + '</div>';
+      } else {
+        html += list.map(function (p, i) { return renderFixRow(p, i); }).join('');
+      }
+      c.innerHTML = html;
+    }
+
+    function fixSelectedIds() {
+      var out = [];
+      (fixView.proposals || []).forEach(function (p) {
+        if (p && p.id != null && fixView.selected[String(p.id)] && fixIsPending(p)) out.push(String(p.id));
+      });
+      return out;
+    }
+
+    function renderFixRow(p, idx) {
+      var pending = fixIsPending(p);
+      var occ = Number(p.occurrence_count) || 0;
+      var users = Number(p.affected_users) || 0;
+      var heat = (occ >= 25 || users >= 5) ? ' hot' : (occ >= 5 || users >= 2 ? ' warm' : ' calm');
+      var st = fixStatusText(p.status);
+      var checked = p.id != null && fixView.selected[String(p.id)] ? ' checked' : '';
+      var isTarget = fixView.highlightId && String(p.id) === fixView.highlightId;
+
+      var h = '<div class="ceo-err-row ceo-fix-row' + (isTarget ? ' is-target' : '') + '" id="fixRow' + idx + '">';
+      if (isTarget) h += '<div class="ceo-fix-target-note">This is the one from your email.</div>';
+
+      // 1. The plain explanation is the headline — the owner is not an engineer.
+      h += '<div class="ceo-fix-head">';
+      if (pending) {
+        h += '<input type="checkbox" class="ceo-fix-check" id="fixChk' + idx + '"' + checked
+          + ' onclick="fixToggle(' + idx + ',this.checked)" aria-label="Select this fix">';
+      }
+      h += '<div class="ceo-fix-plain">' + esc(p.plain_explanation || p.plain_summary || p.error_message || 'No explanation was written for this one.') + '</div>';
+      h += '</div>';
+
+      // 2. Who it hits and how often.
+      h += '<div class="ceo-err-meta">';
+      h += fixRiskChip(fixRiskOf(p));
+      h += '<span class="ceo-err-chip' + heat + '">' + (occ ? occ + '&times; seen' : 'count unknown') + '</span>';
+      h += '<span class="ceo-err-chip' + heat + '">' + (users > 0 ? 'at least ' + users + ' affected' : 'nobody identified') + '</span>';
+      if (p.last_seen_at) h += '<span class="ceo-err-chip">last ' + esc(errTimeAgo(p.last_seen_at)) + '</span>';
+      if (p.first_seen_at) h += '<span class="ceo-err-chip">first ' + esc(errTimeAgo(p.first_seen_at)) + '</span>';
+      if (p.page_url) h += '<span class="ceo-err-chip">' + esc(p.page_url) + '</span>';
+      if (p.error_source) h += '<span class="ceo-err-chip">' + esc(String(p.error_source) === 'server' ? 'Server-side' : 'In the browser') + '</span>';
+      h += '<span class="ceo-err-chip">suggested ' + esc(errTimeAgo(p.created_at)) + '</span>';
+      h += '</div>';
+
+      // Why the app decided this is not automatically safe — the guardrail can
+      // only ever downgrade the model's own claim, and the owner should see that.
+      if (fixRiskOf(p) !== 'safe_auto' && p.risk_reason) {
+        h += '<div class="ceo-err-noise-note">Why it needs a closer look: ' + esc(p.risk_reason)
+          + (p.risk_downgraded ? ' (the AI called this safe; the app overruled it)' : '') + '</div>';
+      }
+
+      // 3. Where it stands right now, so a tap is never left in limbo.
+      h += '<div class="ceo-fix-state ' + st.cls + '" id="fixState' + idx + '">' + esc(st.label);
+      if (p.approved_by && String(p.status || '') !== 'proposed') h += ' &middot; approved by ' + esc(p.approved_by);
+      if (p.rejected_by && String(p.status || '') === 'rejected') h += ' &middot; turned down by ' + esc(p.rejected_by);
+      if (p.branch_name) h += ' &middot; branch <span class="mono">' + esc(p.branch_name) + '</span>';
+      var url = fixSafeUrl(p.pr_url || p.branch_url);
+      if (url) h += ' &middot; <a href="' + escAttr(url) + '" target="_blank" rel="noopener noreferrer">See the code change</a>';
+      if (p.execution_error) h += '<br><span style="color:var(--red)">The fix run reported: ' + esc(p.execution_error) + '</span>';
+      h += '</div>';
+
+      // 4. Detail, collapsed by default — same idiom as the errors view.
+      if (p.technical_diagnosis) {
+        h += '<details class="ceo-err-stack"><summary>What the AI thinks is wrong (technical)</summary>'
+          + '<pre>' + esc(p.technical_diagnosis) + '</pre></details>';
+      }
+      if (p.proposed_fix) {
+        h += '<details class="ceo-err-stack"><summary>The fix it wants to make</summary>'
+          + '<pre>' + esc(p.proposed_fix) + '</pre></details>';
+      }
+      if (p.error_message || p.error_stack) {
+        h += '<details class="ceo-err-stack"><summary>The original error (for a developer)</summary>'
+          + '<pre>' + esc(p.error_message || '') + (p.error_stack ? '\n\n' + esc(p.error_stack) : '') + '</pre></details>';
+      }
+      // suspect_files is JSONB — render defensively, it is model-influenced.
+      if (p.suspect_files && p.suspect_files.length) {
+        h += '<details class="ceo-err-stack"><summary>The files it looked at</summary><pre>';
+        (Array.isArray(p.suspect_files) ? p.suspect_files : []).forEach(function (f) {
+          if (f && typeof f === 'object') h += esc(String(f.file || '') + (f.startLine ? ':' + f.startLine + '-' + (f.endLine || f.startLine) : '')) + '\n';
+          else h += esc(String(f)) + '\n';
+        });
+        h += '</pre>' + (p.ai_model ? '<div class="ceo-err-tech">Written by ' + esc(p.ai_model) + '</div>' : '') + '</details>';
+      }
+
+      h += '<div class="ceo-err-actions">';
+      if (pending) {
+        h += '<span class="ceo-err-btn primary" onclick="fixApprove(' + idx + ')">Approve this one</span>';
+        h += '<span class="ceo-err-btn" onclick="fixReject(' + idx + ')">Not this one</span>';
+      }
+      h += '<span class="ceo-err-tech" id="fixMsg' + idx + '" style="margin-top:0"></span>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    function fixToggle(idx, on) {
+      var p = (fixView.proposals || [])[idx];
+      if (!p || p.id == null) return;
+      if (on) fixView.selected[String(p.id)] = true; else delete fixView.selected[String(p.id)];
+      fixSyncToolbar();
+    }
+
+    function fixSelectAll(on) {
+      fixView.selected = {};
+      (fixView.proposals || []).forEach(function (p, i) {
+        if (!fixIsPending(p) || p.id == null) return;
+        if (on) fixView.selected[String(p.id)] = true;
+        var box = document.getElementById('fixChk' + i);
+        if (box) box.checked = !!on;
+      });
+      fixSyncToolbar();
+    }
+
+    // Patch the toolbar in place rather than re-rendering the whole list — a full
+    // re-render would slam every open <details> shut under the owner's cursor.
+    function fixSyncToolbar() {
+      var pending = (fixView.proposals || []).filter(fixIsPending);
+      var selected = fixSelectedIds();
+      var canAct = !fixView.busy && selected.length > 0;
+      var ap = document.getElementById('fixApproveSelBtn');
+      var rj = document.getElementById('fixRejectSelBtn');
+      var tick = document.getElementById('fixTickAllBtn');
+      if (ap) {
+        ap.textContent = 'Approve selected (' + selected.length + ')';
+        if (canAct) { ap.removeAttribute('disabled'); ap.setAttribute('onclick', "fixApprove('selected')"); }
+        else { ap.setAttribute('disabled', 'disabled'); ap.removeAttribute('onclick'); }
+      }
+      if (rj) {
+        rj.textContent = 'Turn down selected (' + selected.length + ')';
+        if (canAct) { rj.removeAttribute('disabled'); rj.setAttribute('onclick', "fixReject('selected')"); }
+        else { rj.setAttribute('disabled', 'disabled'); rj.removeAttribute('onclick'); }
+      }
+      if (tick) {
+        var allOn = pending.length > 0 && selected.length === pending.length;
+        tick.textContent = allOn ? 'Clear ticks' : 'Tick all';
+        tick.setAttribute('onclick', 'fixSelectAll(' + (allOn ? 'false' : 'true') + ')');
+      }
+    }
+
+    // Resolve what the owner is acting on: a row index, 'selected', or 'all'.
+    function fixTargets(scope) {
+      var list = (fixView.proposals || []).filter(fixIsPending);
+      if (scope === 'all') return list;
+      if (scope === 'selected') {
+        var ids = {};
+        fixSelectedIds().forEach(function (id) { ids[id] = true; });
+        return list.filter(function (p) { return ids[String(p.id)]; });
+      }
+      var one = (fixView.proposals || [])[scope];
+      return (one && fixIsPending(one) && one.id != null) ? [one] : [];
+    }
+
+    // Approving starts REAL code changes to a live app, so it always confirms
+    // first and always says how many, and how many are not automatically safe.
+    function fixApprove(scope) {
+      if (fixView.busy) return;
+      var targets = fixTargets(scope);
+      if (!targets.length) { fixView.banner = { kind: 'bad', text: 'Nothing was selected, so nothing was approved.' }; renderFixProposalsView(); return; }
+      var risky = targets.filter(function (p) { return fixRiskOf(p) !== 'safe_auto'; });
+      var msg = 'Approve ' + targets.length + ' fix' + (targets.length === 1 ? '' : 'es') + '?\n\n'
+        + 'This starts real code changes to the live app.\n\n';
+      if (risky.length) {
+        msg += risky.length + ' of them ' + (risky.length === 1 ? 'is' : 'are') + ' marked "needs a closer look" — '
+          + 'the AI is not confident ' + (risky.length === 1 ? 'it' : 'they') + ' can be fixed safely on ' + (risky.length === 1 ? 'its' : 'their') + ' own.\n\n';
+      } else {
+        msg += 'All of them are marked safe to fix automatically.\n\n';
+      }
+      msg += targets.slice(0, 5).map(function (p) { return '• ' + String(p.plain_explanation || p.error_message || 'Unnamed problem').slice(0, 110); }).join('\n');
+      if (targets.length > 5) msg += '\n• …and ' + (targets.length - 5) + ' more';
+      if (!window.confirm(msg)) return;
+      fixSubmit('approve', targets, 'approved');
+    }
+
+    function fixReject(scope) {
+      if (fixView.busy) return;
+      var targets = fixTargets(scope);
+      if (!targets.length) { fixView.banner = { kind: 'bad', text: 'Nothing was selected, so nothing was turned down.' }; renderFixProposalsView(); return; }
+      if (!window.confirm('Turn down ' + targets.length + ' fix' + (targets.length === 1 ? '' : 'es') + '?\n\n'
+        + 'No code will be changed. The underlying error stays on the errors list.')) return;
+      fixSubmit('reject', targets, 'rejected');
+    }
+
+    function fixSubmit(action, targets, newStatus) {
+      var ids = targets.map(function (p) { return String(p.id); });
+      var n = ids.length;
+      fixView.busy = true;
+      fixView.banner = { kind: '', text: (action === 'approve' ? 'Approving ' : 'Turning down ') + n + ' fix' + (n === 1 ? '' : 'es') + '… please wait.' };
+      renderFixProposalsView();
+
+      // approve takes the whole batch; reject takes ONE id per call, so a bulk
+      // turn-down is sent one at a time and the results are added up.
+      var work = action === 'approve'
+        ? apiFetch(FIX_API + '/approve', { method: 'POST', body: { ids: ids } }).then(function (d) {
+            if (!d || !d.ok) return { ok: false, message: (d && d.message) || 'unknown error' };
+            return { ok: true, done: Number(d.approved || 0) + Number(d.already || 0), failed: Number(d.failed || 0), okIds: ids };
+          })
+        : Promise.all(ids.map(function (id) {
+            return apiFetch(FIX_API + '/reject', { method: 'POST', body: { id: id } })
+              .then(function (d) { return { id: id, ok: !!(d && d.ok) }; })
+              .catch(function () { return { id: id, ok: false }; });
+          })).then(function (rs) {
+            var good = rs.filter(function (r) { return r.ok; });
+            return { ok: good.length > 0, done: good.length, failed: rs.length - good.length, okIds: good.map(function (r) { return r.id; }),
+                     message: good.length ? '' : 'the server turned down every request' };
+          });
+
+      work.then(function (r) {
+        fixView.busy = false;
+        if (!r.ok) {
+          fixView.banner = { kind: 'bad', text: 'Nothing was changed — the server rejected it: ' + (r.message || 'unknown error') };
+          renderFixProposalsView();
+          return;
+        }
+        // Reflect the new state inline so the owner can see the tap registered.
+        var done = {};
+        (r.okIds || []).forEach(function (id) { done[String(id)] = true; });
+        (fixView.proposals || []).forEach(function (p) {
+          if (p && p.id != null && done[String(p.id)]) p.status = newStatus;
+        });
+        fixView.selected = {};
+        var verb = action === 'approve' ? 'approved' : 'turned down';
+        var txt = r.done + ' fix' + (r.done === 1 ? '' : 'es') + ' ' + verb + '.';
+        txt += action === 'approve'
+          ? ' The fix' + (r.done === 1 ? '' : 'es') + ' will start automatically — this list shows the progress.'
+          : ' Nothing was changed in the app.';
+        // Never round a partial failure up into a clean success.
+        if (r.failed) txt = r.done + ' of ' + n + ' ' + verb + ' — ' + r.failed + ' could not be saved. Re-open this page to see what actually stuck.';
+        fixView.banner = { kind: r.failed ? 'bad' : 'good', text: txt };
+        renderFixProposalsView();
+      }).catch(function (e) {
+        fixView.busy = false;
+        fixView.banner = { kind: 'bad', text: 'We could not tell the server. Nothing has been confirmed as changed — check again before re-trying. (' + (e && e.message ? e.message : 'unknown error') + ')' };
+        renderFixProposalsView();
+      });
+    }
+
+    // On-demand version of the 24h job: analyse the open errors again and re-send
+    // the summary email. Mirrors the errors view's "Email me this now" button.
+    function fixRunAnalysis(btn) {
+      if (!window.confirm('Look for new problems now?\n\nThis re-reads the open errors, asks the AI about them and emails you the summary. It does NOT change any code.')) return;
+      if (btn) { btn.setAttribute('disabled', 'disabled'); btn.textContent = 'Looking…'; }
+      apiFetch(FIX_API + '/run', { method: 'POST', body: {} }).then(function (d) {
+        if (!d || !d.ok) {
+          fixView.banner = { kind: 'bad', text: 'The check could not be run: ' + ((d && d.message) || (d && d.analysis && d.analysis.message) || 'unknown error') };
+          renderFixProposalsView();
+          return;
+        }
+        openFixProposalsView(fixView.status);
+      }).catch(function (e) {
+        fixView.banner = { kind: 'bad', text: 'The check could not be run: ' + (e && e.message ? e.message : 'unknown error') };
+        renderFixProposalsView();
+      });
+    }
+
+    /* Deep-link into this view. The daily bug email's "Investigate further"
+       button sends /pages/ceo-dashboard?tab=technical&proposal=<id> (see
+       sendErrorFixProposalEmail in server.js) — that is the contract that must
+       work. ?tab=fixes and #fixes are accepted too as plain entry points.
+
+       With a named proposal we load status=all, not just 'proposed': the owner may
+       have already approved it from the email, and landing on "nothing here" after
+       clicking a link about a specific bug would be misleading.
+
+       The ATS master-tab switcher may still be initialising, and loadTechnical()'s
+       own fetch would clobber us, so the Technical panel is opened WITHOUT its
+       loader (setActiveTab skipLoad=true) and this view is rendered instead. */
+    function openFixesDeepLink(proposalId, tries) {
+      var n = typeof tries === 'number' ? tries : 60;
+      if (window.ATS && typeof window.ATS.setActiveTab === 'function') {
+        try { window.ATS.setActiveTab('technical', true); } catch (e) {}
+        if (proposalId) openFixProposalsView('all', proposalId);
+        else openFixProposalsView('proposed', null);
+        return;
+      }
+      if (n > 0) setTimeout(function () { openFixesDeepLink(proposalId, n - 1); }, 50);
+    }
+    try {
+      var _fixQs = new URLSearchParams(location.search);
+      var _fixTabParam = _fixQs.get('tab');
+      var _fixProposal = _fixQs.get('proposal');
+      var _fixHash = ('' + (location.hash || '')).replace(/^#/, '');
+      if (_fixProposal) openFixesDeepLink(_fixProposal);
+      else if (_fixTabParam === 'fixes' || _fixTabParam === 'fix-proposals' || _fixHash === 'fixes') openFixesDeepLink(null);
+      // The shared switcher ignores #fixes (it is not one of its master panels),
+      // so handle later hash changes to it ourselves.
+      window.addEventListener('hashchange', function () {
+        if (('' + (location.hash || '')).replace(/^#/, '') === 'fixes') openFixesDeepLink(null);
+      });
+    } catch (e) {}
 
     /* ── Open bugs detail view ──
        Backed by the system_bugs table via GET /api/ceo/technical/system-bugs,
