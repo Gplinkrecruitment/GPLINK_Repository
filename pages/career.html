@@ -374,6 +374,11 @@
     .main {
       padding: 14px 0 0;
       display: grid;
+      /* minmax(0, 1fr) — not the implicit auto track — so wide children (e.g.
+         the filters row's selects) cannot force the column past the viewport
+         on small screens; the implicit track's auto minimum laid this page out
+         at 425px inside a 375px viewport and clipped ~50px of content. */
+      grid-template-columns: minmax(0, 1fr);
       gap: 12px;
     }
 
@@ -687,6 +692,9 @@
 
     .view-panel.is-active {
       display: grid;
+      /* Shrinkable single column: see .main — stops job-card min-content
+         from widening the panel past a small viewport. */
+      grid-template-columns: minmax(0, 1fr);
     }
 
     html[data-career-initial-view="secured"] [data-view-panel="browse"],
@@ -7122,11 +7130,12 @@
     .at-mast::before {
       content: "";
       position: absolute;
-      right: -150px;
-      top: -130px;
-      width: 420px;
-      height: 420px;
-      background: radial-gradient(circle, rgba(78, 183, 245, .2), transparent 66%);
+      /* Same sky glow as the old 420x420 box at top:-130/right:-150 (circle
+         centred 60px in from the right, 80px down, farthest-corner radius
+         ~297px) — but painted inside the mast so the pseudo no longer hangs
+         150px past the right edge and inflates scrollWidth on phones. */
+      inset: 0;
+      background: radial-gradient(circle 297px at calc(100% - 60px) 80px, rgba(78, 183, 245, .2), transparent 66%);
     }
     .at-mast-inner { position: relative; z-index: 2; max-width: 720px; margin: 0 auto; }
     .at-eyeb {
@@ -7234,13 +7243,15 @@
     .at-tabs button.on .at-badge { background: var(--at-sky); color: var(--at-navy0); }
     .at-filters {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      /* minmax(0, …) lets the selects shrink below their longest option text;
+         bare 1fr tracks min at auto and blow the row out to ~413px on phones. */
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 8px;
       margin-top: 12px;
     }
     .at-filters .at-sel:first-child { grid-column: 1 / -1; }
     @media (min-width: 560px) {
-      .at-filters { grid-template-columns: 1.3fr 1fr 1fr; }
+      .at-filters { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); }
       .at-filters .at-sel:first-child { grid-column: auto; }
     }
     .at-sel { position: relative; }
@@ -7284,7 +7295,7 @@
     }
 
     /* ── Role list + Atlas rows ── */
-    .at-list { display: grid; gap: 11px; max-width: 720px; margin: 0 auto; width: 100%; }
+    .at-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 11px; max-width: 720px; margin: 0 auto; width: 100%; }
     .view-panel[data-view-panel="browse"],
     .view-panel[data-view-panel="saved"],
     .view-panel[data-view-panel="applications"] { max-width: 720px; margin: 0 auto; width: 100%; }
