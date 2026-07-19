@@ -60502,6 +60502,78 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // The "New applications" ACTION QUEUE behind the attention tile. One row per
+  // FRESH pending application (same set the tile counts: ats_stage 'applied'
+  // within 7 days), enriched with GP name + practice + submit eligibility so the
+  // CEO/consultant can submit-to-practice or withdraw inline. Bounded, on-demand.
+  if (pathname === '/api/ats/new-applications' && req.method === 'GET') {
+    var ctxNA = requireAtsSession(req, res); if (!ctxNA) return;
+    var naSinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    var naAllApps = await atsListApplicationRows({});
+    var naFresh = (naAllApps || []).filter(function (a) {
+      var stage = (a && a.ats_stage) || 'applied';           // null/'' → 'applied' (insert default) — mirrors the tile
+      if (stage !== 'applied') return false;
+      var when = (a && (a.applied_at || a.created_at)) || '';
+      return when && String(when) >= naSinceIso;
+    });
+    naFresh.sort(function (a, b) { return String((b && b.applied_at) || '').localeCompare(String((a && a.applied_at) || '')); });
+
+    var naUserIds = [], naRoleIds = [];
+    naFresh.forEach(function (a) {
+      if (a.user_id && naUserIds.indexOf(a.user_id) === -1) naUserIds.push(a.user_id);
+      if (a.career_role_id != null && naRoleIds.indexOf(a.career_role_id) === -1) naRoleIds.push(a.career_role_id);
+    });
+
+    var naProfMap = {}, naRoleMap = {}, naCaseMap = {}, naCvSet = {};
+    if (isSupabaseDbConfigured()) {
+      if (naUserIds.length) {
+        var naInUsers = naUserIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var naProfRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + encodeURIComponent(naInUsers) + ')&limit=500');
+        ((naProfRes.ok && naProfRes.data) || []).forEach(function (p) { naProfMap[p.user_id] = p; });
+        var naCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&user_id=in.(' + encodeURIComponent(naInUsers) + ')&limit=500');
+        ((naCaseRes.ok && naCaseRes.data) || []).forEach(function (c) { if (!naCaseMap[c.user_id]) naCaseMap[c.user_id] = c.id; });
+        var naCvRes = await supabaseDbRequest('user_documents', 'select=user_id&document_key=eq.career_cv&user_id=in.(' + encodeURIComponent(naInUsers) + ')&limit=500');
+        ((naCvRes.ok && naCvRes.data) || []).forEach(function (d) { naCvSet[d.user_id] = true; });
+      }
+      if (naRoleIds.length) {
+        var naInRoles = naRoleIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var naRoleRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,location_city,location_state&id=in.(' + encodeURIComponent(naInRoles) + ')&limit=500');
+        ((naRoleRes.ok && naRoleRes.data) || []).forEach(function (r) { naRoleMap[String(r.id)] = r; });
+      }
+    } else {
+      (dbState.atsCandidates || []).forEach(function (c) {
+        if (c && c.user_id) {
+          naProfMap[c.user_id] = { first_name: c.first_name, last_name: c.last_name, email: c.email };
+          if (c.case_id) naCaseMap[c.user_id] = c.case_id;
+        }
+      });
+      (dbState.atsJobs || []).forEach(function (r) { if (r && r.id != null) naRoleMap[String(r.id)] = r; });
+    }
+
+    var naOut = naFresh.map(function (a) {
+      var prof = naProfMap[a.user_id] || {};
+      var role = naRoleMap[String(a.career_role_id)] || {};
+      var subStatus = normalizeCareerPracticeSubmissionStatus(a.practice_submission_status);
+      var gpName = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || 'Candidate';
+      return {
+        id: a.id,
+        user_id: a.user_id,
+        case_id: naCaseMap[a.user_id] || null,
+        gp_name: gpName,
+        role_title: role.title || 'General Practitioner',
+        practice_name: role.practice_name || '',
+        role_location: (role.location_city || '') + (role.location_state ? ', ' + role.location_state : ''),
+        applied_at: a.applied_at || null,
+        ats_stage: a.ats_stage || 'applied',
+        practice_submission_status: subStatus,
+        can_submit_to_practice: subStatus === 'pending_va_submission' && !a.zoho_submission_id,
+        has_cv: !!naCvSet[a.user_id]
+      };
+    });
+    sendJson(res, 200, { ok: true, applications: naOut, total: naOut.length });
+    return;
+  }
+
   if (pathname === '/api/ceo/candidate' && req.method === 'GET') {
     var ctxCP = requireAtsSession(req, res); if (!ctxCP) return;
     var cpCaseId = url.searchParams.get('case_id');

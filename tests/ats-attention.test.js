@@ -385,6 +385,67 @@ describe('GET /api/ceo/candidates — New applications reconciliation (fresh_app
   });
 });
 
+// The "New applications" action queue: one row per fresh pending application,
+// enriched with GP name + practice + submit eligibility, so the CEO can submit
+// or withdraw without opening each candidate.
+describe('GET /api/ats/new-applications — action queue', () => {
+  const NADIA = { userId: 'u-nadia-newapp', email: 'nadia@gplink-test.local' };
+  const OLD = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  beforeAll(() => {
+    db.user_profiles.push({ user_id: NADIA.userId, email: NADIA.email, first_name: 'Nadia', last_name: 'Newapp', registration_country: 'australia', onboarding_completed_at: NOW });
+    db.registration_cases.push({ id: 'case-nadia', user_id: NADIA.userId, status: 'active' });
+    db.user_documents.push({ id: 'doc-cv-nadia', user_id: NADIA.userId, document_key: 'career_cv', status: 'uploaded' });
+    db.career_roles.push({ id: 'role-nadia', provider: 'internal_ats', provider_role_id: 'ats_nadia1', title: 'GP - Mixed billing', practice_name: 'Coastline Medical', practice_id: 'p-nadia', location_city: 'Torquay', location_state: 'VIC', is_active: true, job_status: 'open', dpa: true, updated_at: NOW });
+    db.gp_applications.push(
+      // Fresh + pending → belongs in the queue, submit-eligible
+      { id: 'app-nadia-fresh', user_id: NADIA.userId, career_role_id: 'role-nadia', provider_role_id: 'ats_nadia1', status: 'applied', ats_stage: 'applied', applied_at: NOW },
+      // Older than 7 days → excluded
+      { id: 'app-nadia-old', user_id: NADIA.userId, career_role_id: 'role-nadia', provider_role_id: 'ats_nadia1', status: 'applied', ats_stage: 'applied', applied_at: OLD },
+      // Already submitted (stage past applied) → excluded
+      { id: 'app-nadia-submitted', user_id: NADIA.userId, career_role_id: 'role-nadia', provider_role_id: 'ats_nadia1', status: 'review', ats_stage: 'submitted', applied_at: NOW, practice_submission_status: 'submitted_to_practice' }
+    );
+  });
+
+  it('returns the fresh pending application enriched for the queue', async () => {
+    const r = await atsGet('/api/ats/new-applications');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const row = (r.body.applications || []).find((a) => a.id === 'app-nadia-fresh');
+    expect(row).toBeTruthy();
+    expect(row.gp_name).toBe('Nadia Newapp');
+    expect(row.practice_name).toBe('Coastline Medical');
+    expect(row.role_title).toBe('GP - Mixed billing');
+    expect(row.can_submit_to_practice).toBe(true);
+    expect(row.has_cv).toBe(true);
+    expect(row.case_id).toBe('case-nadia'); // row-click can open the candidate drawer
+  });
+
+  it('excludes applications older than 7 days and ones already submitted', async () => {
+    const r = await atsGet('/api/ats/new-applications');
+    const ids = (r.body.applications || []).map((a) => a.id);
+    expect(ids).not.toContain('app-nadia-old');
+    expect(ids).not.toContain('app-nadia-submitted');
+  });
+
+  it('its length reconciles with the attention tile count', async () => {
+    const attn = await atsGet('/api/ats/attention');
+    const queue = await atsGet('/api/ats/new-applications');
+    expect((queue.body.applications || []).length).toBe(attn.body.new_applications);
+  });
+
+  it('is readable by a consultant session', async () => {
+    const r = await atsGet('/api/ats/new-applications', consultantCookie());
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+  });
+
+  it('rejects an unauthenticated caller', async () => {
+    const r = await httpReq('GET', '/api/ats/new-applications', { host: SUPER_HOST });
+    expect([401, 403]).toContain(r.status);
+  });
+});
+
 describe('static UI pins', () => {
   const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
@@ -407,6 +468,18 @@ describe('static UI pins', () => {
     expect(js).toContain('Showing: <b>New applications</b>');
   });
 
+  it('candidates JS renders the New-applications action queue with inline Submit/Withdraw', () => {
+    const js = read('js/ceo-ats-candidates.js');
+    expect(js).toContain('/api/ats/new-applications');
+    expect(js).toContain('function fetchAndRenderNewApplications');
+    expect(js).toContain('function renderList');            // dispatcher: queue vs candidate list
+    expect(js).toContain('ats-newapp-submit');
+    expect(js).toContain('ats-newapp-withdraw');
+    // Inline actions reuse the existing endpoints, not a parallel copy.
+    expect(js).toContain('/api/admin/career/application/submit-to-practice');
+    expect(js).toContain('openWithdrawReasonPrompt');
+  });
+
   it('jobs JS renders the kanban declined marker', () => {
     const js = read('js/ceo-ats-jobs.js');
     expect(js).toContain('ats-card-declined');
@@ -415,7 +488,7 @@ describe('static UI pins', () => {
 
   it('ceo-dashboard.html bumps the changed script cache-busters', () => {
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('ceo-ats-candidates.js?v=20260719a');
+    expect(html).toContain('ceo-ats-candidates.js?v=20260719b');
     expect(html).toContain('ceo-ats-jobs.js?v=20260718a');
   });
 });

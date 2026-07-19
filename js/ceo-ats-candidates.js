@@ -162,7 +162,7 @@
     if (!el) return;
     el.innerHTML = listScaffold();
     wireListEvents(el);
-    fetchAndRenderRows();
+    renderList();
     fetchPipelineSummary();
     fetchAttention();
   };
@@ -202,23 +202,23 @@
     if (search) search.addEventListener('input', function () {
       var v = this.value;
       if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(function () { state.q = v; fetchAndRenderRows(); }, 250);
+      searchTimer = setTimeout(function () { state.q = v; renderList(); }, 250);
     });
     var sortBtn = el.querySelector('#ats-cand-sort');
     if (sortBtn) sortBtn.addEventListener('click', function () {
       state.sort = state.sort === 'intent' ? 'name' : 'intent';
       this.textContent = 'Sort: ' + (state.sort === 'intent' ? 'Intent' : 'Name') + ' ▾';
-      fetchAndRenderRows();
+      renderList();
     });
     var stageSel = el.querySelector('#ats-cand-stage');
     if (stageSel) {
       stageSel.value = state.stage;
-      stageSel.addEventListener('change', function () { state.stage = this.value; fetchAndRenderRows(); });
+      stageSel.addEventListener('change', function () { state.stage = this.value; renderList(); });
     }
     var bandSel = el.querySelector('#ats-cand-band');
     if (bandSel) {
       bandSel.value = state.band;
-      bandSel.addEventListener('change', function () { state.band = this.value; fetchAndRenderRows(); });
+      bandSel.addEventListener('change', function () { state.band = this.value; renderList(); });
     }
     // delegated: pipeline-funnel segments toggle the bucket filter; "Clear" resets it.
     var widget = el.querySelector('#ats-pipeline-widget');
@@ -229,7 +229,7 @@
         state.ats_bucket = '';
         state.fresh_applied = false;
         renderPipelineWidget();
-        fetchAndRenderRows();
+        renderList();
         return;
       }
       var seg = e.target.closest('.ats-pw-seg');
@@ -238,7 +238,7 @@
       state.ats_bucket = (state.ats_bucket === bucket) ? '' : bucket;
       state.fresh_applied = false;
       renderPipelineWidget();
-      fetchAndRenderRows();
+      renderList();
     });
     // delegated: an attention-strip count jumps the list to that ats bucket,
     // reusing the same ats_bucket filter the pipeline funnel drives.
@@ -259,13 +259,21 @@
         state.ats_bucket = bucket;
       }
       renderPipelineWidget();
-      fetchAndRenderRows();
+      renderList();
       var pw = el.querySelector('#ats-pipeline-widget');
       if (pw && pw.scrollIntoView) pw.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     var table = el.querySelector('#ats-cand-table');
     if (table) table.addEventListener('click', function (e) {
-      var row = e.target.closest ? e.target.closest('.ats-cand-row') : null;
+      if (!e.target.closest) return;
+      // New-applications queue: inline Submit / Withdraw, then row-click opens the candidate.
+      var submitBtn = e.target.closest('.ats-newapp-submit');
+      if (submitBtn) { e.stopPropagation(); submitNewApplication(submitBtn.getAttribute('data-app-id'), submitBtn); return; }
+      var withdrawBtn = e.target.closest('.ats-newapp-withdraw');
+      if (withdrawBtn) { e.stopPropagation(); withdrawNewApplication(withdrawBtn.getAttribute('data-app-id'), withdrawBtn); return; }
+      var naRow = e.target.closest('.ats-newapp-row');
+      if (naRow) { var cid = naRow.getAttribute('data-case-id'); if (cid) window.atsOpenCandidate(cid); return; }
+      var row = e.target.closest('.ats-cand-row');
       if (!row) return;
       var id = row.getAttribute('data-case-id');
       if (id) window.atsOpenCandidate(id);
@@ -293,6 +301,100 @@
       if (!list.length) { t.innerHTML = ATS.emptyHtml('No candidates match your filters.'); return; }
       t.innerHTML = list.map(rowHtml).join('');
     });
+  }
+
+  // Dispatcher: the "New applications" tile shows the ACTION QUEUE (one row per
+  // fresh application, with inline Submit/Withdraw); every other filter shows
+  // the normal per-GP candidate list.
+  function renderList() {
+    if (state.fresh_applied) fetchAndRenderNewApplications();
+    else fetchAndRenderRows();
+  }
+
+  /* ---- "New applications" action queue (behind the tile) ---- */
+  function newAppTimeAgo(iso) {
+    if (!iso) return '';
+    var then = new Date(iso).getTime();
+    if (!then) return '';
+    var mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+    if (mins < 60) return mins <= 1 ? 'just now' : mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    return days + 'd ago';
+  }
+
+  function newAppRowHtml(a) {
+    var practice = a.practice_name || a.role_title || 'the practice';
+    var meta = [];
+    if (a.applied_at) meta.push('applied ' + newAppTimeAgo(a.applied_at));
+    meta.push(a.has_cv ? 'CV ✓' : 'no CV yet');
+    if (a.role_location) meta.push(ATS.esc(a.role_location));
+    var appId = ATS.escAttr(String(a.id));
+    var submitCtrl = a.can_submit_to_practice
+      ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-newapp-submit" data-app-id="' + appId + '">Submit to practice</button>'
+      : '<span class="ats-newapp-status" style="font-size:11.5px;color:var(--ats-dim)">' + ATS.esc(SUBMISSION_STATUS_LABELS[a.practice_submission_status] || 'Already actioned') + '</span>';
+    return '<div class="ats-newapp-row" data-case-id="' + ATS.escAttr(String(a.case_id || '')) + '" data-app-id="' + appId + '"' +
+        ' style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(255,255,255,0.09);border-radius:10px;margin-bottom:8px;cursor:pointer">' +
+      '<div class="ats-newapp-main" style="min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span class="ats-newapp-gp" style="font-weight:600;color:var(--ats-text)">' + ATS.esc(a.gp_name) + '</span>' +
+          '<span class="ats-newapp-arrow" style="color:var(--ats-dim)">→</span>' +
+          '<span class="ats-newapp-practice" style="color:var(--ats-text)">' + ATS.esc(practice) + '</span>' +
+        '</div>' +
+        '<div class="ats-newapp-meta" style="font-size:11px;color:var(--ats-dim);margin-top:2px">' + meta.join(' · ') + '</div>' +
+      '</div>' +
+      '<div class="ats-newapp-actions" style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
+        submitCtrl +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-newapp-withdraw" data-app-id="' + appId + '">Withdraw</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function fetchAndRenderNewApplications() {
+    var t0 = document.getElementById('ats-cand-table');
+    if (t0) t0.innerHTML = ATS.loadingHtml('Loading new applications…');
+    ATS.api('/api/ats/new-applications').then(function (d) {
+      var t = document.getElementById('ats-cand-table');
+      if (!t) return; // navigated away
+      if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load new applications.'); return; }
+      var list = d.applications || [];
+      if (!list.length) { t.innerHTML = ATS.emptyHtml('No new applications in the last 7 days.'); return; }
+      t.innerHTML = list.map(newAppRowHtml).join('');
+    });
+  }
+
+  // After a queue action, refresh the tile count, the funnel, and the queue
+  // itself so the actioned row drops out and the numbers stay in sync.
+  function afterQueueAction() {
+    if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+    fetchAttention();
+    fetchAndRenderNewApplications();
+  }
+
+  function submitNewApplication(appId, btn) {
+    if (!appId) return;
+    if (!window.confirm('Submit this candidate to the practice? They’ll be introduced by email with the candidate’s CV.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+    ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) { ATS.toast('Submitted — the practice has been introduced to this candidate.'); afterQueueAction(); }
+      else { ATS.toast((res && (res.error || res.message)) || 'Could not submit to the practice.'); if (btn) { btn.disabled = false; btn.textContent = 'Submit to practice'; } }
+    });
+  }
+
+  function withdrawNewApplication(appId, btn) {
+    if (!appId) return;
+    // Reuse the same optional-reason prompt as the kanban/drawer withdraw — it
+    // doubles as a confirmation so the queue button can't withdraw by accident.
+    openWithdrawReasonPrompt(function (reason) {
+      if (btn) { btn.disabled = true; btn.textContent = 'Withdrawing…'; }
+      var body = { stage: 'not_proceeding' };
+      if (reason) body.reason = reason;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
+        if (res && res.ok) { ATS.toast('Application withdrawn.'); afterQueueAction(); }
+        else { ATS.toast((res && (res.error || res.message)) || 'Could not withdraw the application.'); if (btn) { btn.disabled = false; btn.textContent = 'Withdraw'; } }
+      });
+    }, function () { /* cancelled — leave the row as-is */ });
   }
 
   /* ---- "Needs attention" strip (above the pipeline funnel) ---- */
