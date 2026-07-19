@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260719c";
+  var VERSION = "20260719d";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
