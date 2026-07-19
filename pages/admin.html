@@ -4074,6 +4074,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── Flagged-document review modal (in-dashboard popup: view + approve/reject) ──
   var _reviewDocObjUrl = null;
   var _reviewDocTaskId = null;
+  var _reviewDocSuggested = '';   // AI-scan-derived suggested "note to GP" (for the reject-confirm check)
+  var _reviewDocInitialNote = ''; // note box value at open, to detect whether the RSO edited it
+  var _reviewDocGpName = '';      // GP name parsed from the task title, for the suggested greeting
   async function openReviewDocModal(taskId){
     var _pools=[].concat(S.tasks||[],S.opsTasksAll||[],S.opsTasks||[]);
     var task=_pools.find(function(t){return t&&t.id===taskId;})||{};
@@ -4082,9 +4085,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
     var _reviewReasonText=task.description||task.ai_match_reasoning||'';
     document.getElementById('reviewDocReason').textContent=_reviewReasonText;
-    // Pre-fill the note with the full AI explanation so the admin can send it to the GP
-    // as-is (or edit it) — no manual copy-paste that risks cropping the text.
+    // Pre-fill the note with the reason for now; once the AI scan (kicked off below) returns,
+    // runReviewDocAiScan replaces this with a GP-ready suggested message built from what the
+    // scan actually found — UNLESS the RSO has started typing their own (tracked via
+    // _reviewDocInitialNote). The GP name is parsed from the task title for the greeting.
     document.getElementById('reviewDocNote').value=_reviewReasonText;
+    _reviewDocInitialNote=_reviewReasonText;
+    _reviewDocSuggested='';
+    var _gpm=(task.title||'').match(/\bfor\s+(.+?)\s*$/i);
+    _reviewDocGpName=_gpm?_gpm[1].trim():'';
     var err=document.getElementById('reviewDocError'); err.style.display='none'; err.textContent='';
     var img=document.getElementById('reviewDocImg'), frame=document.getElementById('reviewDocFrame');
     var loading=document.getElementById('reviewDocLoading'), missing=document.getElementById('reviewDocMissing');
@@ -4128,9 +4137,36 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var j=await r.json().catch(function(){return{};});
       if(scanTaskId!==_reviewDocTaskId)return; // modal changed while scanning
       if(!r.ok||!j.ok||!j.scan){ body.innerHTML='<span style="color:#b45309;">AI scan unavailable: '+esc((j&&j.message)||'could not scan this document')+'</span>'; }
-      else { body.innerHTML=renderAiScan(j.scan,j.scanned_at,j.cached); }
+      else {
+        body.innerHTML=renderAiScan(j.scan,j.scanned_at,j.cached);
+        // Suggest a GP-ready "note to GP" built from what the scan actually found. Only replace
+        // the box if the RSO hasn't started editing it (still the initial reason, or empty).
+        var _sug=buildReviewSuggestedMessage(j.scan,_reviewDocGpName);
+        if(_sug){
+          _reviewDocSuggested=_sug;
+          var _noteEl=document.getElementById('reviewDocNote');
+          if(_noteEl && (_noteEl.value.trim()===String(_reviewDocInitialNote).trim() || _noteEl.value.trim()==='')) _noteEl.value=_sug;
+        }
+      }
     }catch(e){ if(scanTaskId===_reviewDocTaskId)body.innerHTML='<span style="color:#b45309;">AI scan failed: '+esc(e.message)+'</span>'; }
     if(btn)btn.disabled=false;
+  }
+  // Build a GP-ready "note to GP" from what the AI scan actually found — a suggested message
+  // the RSO can send as-is or edit. Returns '' when there is nothing actionable to raise (so a
+  // clean/approvable document leaves the note untouched). Name-change wording is excluded (that
+  // is handled automatically and is never a reason to email the GP).
+  function buildReviewSuggestedMessage(s,gpName){
+    if(!s||typeof s!=='object')return '';
+    var issues=(Array.isArray(s.issues)?s.issues:[]).filter(function(i){return String(i||'').trim()&&!/previous name|name change|different from your account|does not match your account name|name matching your profile|differs from the account name/i.test(String(i||''));});
+    if(s.requiresCertification&&s.certified!==true&&!issues.some(function(i){return /certified/i.test(i);})){
+      issues.push('This document must be a certified true copy — please upload a copy certified by an authorised person (e.g. a JP, solicitor or notary) showing their certification statement, name, profession, signature or stamp, and the date.');
+    }
+    if(!issues.length)return '';
+    var greet=gpName?('Hi '+gpName+','):'Hi Doctor,';
+    var out=[greet,'','Thank you for uploading your '+(s.documentType||'document')+'. Before we can accept it, please address the following and re-upload:',''];
+    issues.forEach(function(i){out.push('- '+String(i).trim());});
+    out.push('','If you have any questions, just reply to this email. Thank you.');
+    return out.join('\n');
   }
   function renderAiScan(s,scannedAt,cached){
     var ok=!!s.verified;
@@ -4181,6 +4217,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var err=document.getElementById('reviewDocError');
     if(decision==='reject'&&!note){err.textContent='A reason is required to reject — the GP will see it.';err.style.display='block';return;}
     err.style.display='none';
+    // When the RSO rejects while STILL using the AI-suggested message (unedited), make them
+    // pause and confirm — the AI can be wrong, and the GP receives exactly this text.
+    if(decision==='reject'&&_reviewDocSuggested&&note===String(_reviewDocSuggested).trim()){
+      if(!confirm('You’re about to email the GP this AI-suggested message and reject the document.\n\nThe AI can make mistakes — please double-check the message reads correctly and that its findings are actually right. The GP receives EXACTLY what is in the box.\n\nSend this message and reject?'))return;
+    }
     var approveBtn=document.getElementById('reviewDocApproveBtn'),rejectBtn=document.getElementById('reviewDocRejectBtn');
     approveBtn.disabled=true;rejectBtn.disabled=true;
     try{
