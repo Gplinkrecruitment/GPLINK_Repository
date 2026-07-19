@@ -62,6 +62,11 @@ beforeAll(async () => {
     atsJobs: [
       { id: 'job1', title: 'GP — DPA role', practice_name: 'Riverside Family Practice', location_city: 'Dubbo', location_state: 'NSW', provider: 'internal_ats', is_active: true }
     ],
+    // F14 (audit 2026-07-20): a practice signed via the degraded metadata stash
+    // (no agreement_status column value) — the export must still say 'signed'.
+    atsPractices: [
+      { id: 'pmeta1', name: 'Metadata Signed Practice', location_city: 'Orange', location_state: 'NSW', practice_type: 'mixed', contact_name: 'Meta Manager', contact_email: 'meta@practice.local', contact_phone: '', stage: 'active', agreement_status: '', source: 'internal_ats', created_at: now, metadata: { pipeline_agreement: { agreement_status: 'signed', agreement_signed_at: now } } }
+    ],
     atsPlacements: [
       { id: 'pl1', application_id: 'app1', user_id: 'gp2', gp_name: 'Isla Fraser', practice_name: 'Riverside Family Practice', job_title: 'GP — DPA role', location: 'Dubbo, NSW', placed_at: now, start_date: '2026-09-01' }
     ],
@@ -127,6 +132,15 @@ describe('CSV per entity', () => {
     const lines = r.raw.split('\r\n');
     expect(lines[0]).toBe('Name,City,State,Type,Org type,Contact,Contact email,Contact phone,Stage,Agreement status,Jobs');
     expect(r.raw).toContain('Riverside Family Practice,Dubbo,NSW');
+  });
+
+  it('practices: metadata.pipeline_agreement-signed practice exports as signed (F14)', async () => {
+    const r = await req('GET', '/api/admin/export?entity=practices&format=csv', { cookie: superCookie() });
+    expect(r.status).toBe(200);
+    const metaLine = r.raw.split('\r\n').find((l) => l.includes('Metadata Signed Practice'));
+    expect(metaLine).toBeTruthy();
+    expect(metaLine).toContain('signed');
+    expect(metaLine).not.toContain('unsigned');
   });
 
   it('placements: includes the seeded placement row', async () => {

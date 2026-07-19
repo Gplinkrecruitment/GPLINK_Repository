@@ -341,3 +341,65 @@ describe('CEO consistency batch (F3 withdrawn, F4 created_at, F5 staleness, F10 
     expect((cur.body.items || []).map((i) => i.user_id)).not.toContain('u-rso-stale');
   });
 });
+
+// ── Task 7 (F2/F9/F12): archived GPs, withdraw ghosts, placements fallback ──
+describe('archived exclusion + withdraw cancels scheduled_calls + placements fallback (F2/F9/F12)', () => {
+  beforeAll(() => {
+    // F2: an ARCHIVED (soft-deleted) GP — archiveUserAccount only stamps
+    // user_profiles.account_status; the case row stays 'active'.
+    db.registration_cases.push({ id: 'c-arch', user_id: 'u-arch', stage: 'career', status: 'active', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(20) });
+    db.user_profiles.push({ user_id: 'u-arch', email: 'archived@test.local', first_name: 'Arch', last_name: 'Ived', phone: '', account_status: 'archived', onboarding_completed_at: ago(5) });
+    // F9: a GP withdrawing an application whose live interview sits in
+    // scheduled_calls (the modern booking store), not career_interviews.
+    db.gp_applications.push({ id: 'appWd9', user_id: 'u-gp9', career_role_id: 'r1', status: 'applied', ats_stage: 'interview', applied_at: ago(2), created_at: ago(2), updated_at: ago(1) });
+    db.scheduled_calls.push({ id: 'sc-wd9', user_id: 'u-gp9', application_id: 'appWd9', meeting_kind: 'interview', status: 'booked', scheduled_at: ago(-3), zoom_join_url: '', created_at: ago(2), updated_at: ago(1) });
+    // F12: a legacy 'hired'-status app (no placements-table row) — the Secured
+    // tile counts it, so the placements fallback list must show it too.
+    db.gp_applications.push({ id: 'appLegacyHired', user_id: 'u-rso-fresh', career_role_id: 'r1', status: 'hired', ats_stage: null, applied_at: ago(30), created_at: ago(30), updated_at: ago(5) });
+  });
+
+  it('F2: dashboard KPIs exclude the archived GP\'s case', async () => {
+    const r = await ceoGet('/api/ceo/dashboard');
+    expect(r.status).toBe(200);
+    // active current cases: c1..c4 + c-fresh + c-rso-fresh = 6
+    // (c-rso-stale >6mo stale, c-wd withdrawn, c-arch ARCHIVED)
+    expect(r.body.kpi.total_gps).toBe(6);
+  });
+
+  it('F2: /api/ceo/candidates excludes the archived GP', async () => {
+    const r = await ceoGet('/api/ceo/candidates');
+    expect(r.status).toBe(200);
+    const users = (r.body.candidates || []).map((c) => c.user_id);
+    expect(users).not.toContain('u-arch');
+  });
+
+  it('F2: /api/ceo/pipeline-summary excludes the archived GP', async () => {
+    const r = await ceoGet('/api/ceo/pipeline-summary');
+    expect(r.status).toBe(200);
+    // still the 7 non-withdrawn cases from the Task 6 block — c-arch must not add an 8th
+    expect(r.body.total).toBe(7);
+  });
+
+  it('F9: GP withdraw cancels the scheduled_calls interview row (no Meetings ghost)', async () => {
+    const r = await req('POST', '/api/career/application/withdraw', {
+      cookie: gpCookie('gp9@test.local', 'u-gp9'),
+      body: { applicationId: 'appWd9' }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const app = db.gp_applications.find((x) => x.id === 'appWd9');
+    expect(app.status).toBe('withdrawn');
+    const sc = db.scheduled_calls.find((x) => x.id === 'sc-wd9');
+    expect(sc.status).toBe('cancelled');
+  });
+
+  it('F12: placements derive-fallback lists every tile-secured app (hired status + ats_stage)', async () => {
+    const r = await ceoGet('/api/ats/placements?limit=50');
+    expect(r.status).toBe(200);
+    const ids = (r.body.placements || []).map((p) => p.application_id);
+    expect(ids).toContain('appLegacyHired');  // legacy status 'hired'
+    expect(ids).toContain('appHired');        // ats_stage='hired', status untouched
+    expect(ids).toContain('appStaleSecured'); // status 'placement_secured' (old behavior kept)
+    expect(ids).not.toContain('appOffer');    // offers are not placements
+  });
+});

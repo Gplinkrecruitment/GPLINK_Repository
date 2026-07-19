@@ -377,3 +377,55 @@ describe('CEO dashboard conversion-funnel card (static)', () => {
     for (const lib of forbidden) expect(html.toLowerCase()).not.toContain(lib);
   });
 });
+
+// ── F14 (audit 2026-07-20): agreement dual-source read ──────────────────────
+// The sign endpoint stashes the signature under metadata.pipeline_agreement
+// when migration 20260705100000 isn't applied (server.js /api/practice-intake/
+// sign). Every other reader dual-reads; the funnel must too.
+describe('conversion funnel treats metadata.pipeline_agreement as signed (F14)', () => {
+  it('unit: computeConversionFunnel counts a metadata-signed practice', () => {
+    const f = M.computeConversionFunnel({
+      practices: [
+        { id: 'pm1', source: 'manual', agreement_status: null, created_at: ago(30),
+          metadata: { pipeline_agreement: { agreement_status: 'signed', agreement_signed_at: ago(20) } } },
+        { id: 'pm2', source: 'manual', agreement_status: 'unsigned', created_at: ago(10) }
+      ]
+    }, 'all', NOW);
+    const p = stepMap(f.practice_funnel);
+    expect(p.practices_signed.count).toBe(1);
+  });
+
+  it('unit: metadata signed_at drives the period bucket', () => {
+    const f = M.computeConversionFunnel({
+      practices: [
+        { id: 'pm3', source: 'manual', agreement_status: null, created_at: ago(200),
+          metadata: { pipeline_agreement: { agreement_status: 'signed', agreement_signed_at: ago(3) } } }
+      ]
+    }, '7d', NOW);
+    expect(stepMap(f.practice_funnel).practices_signed.count).toBe(1);
+  });
+
+  it('endpoint: a metadata-signed practice raises practices_signed', async () => {
+    // Seed AFTER the earlier endpoint assertions ran (tests in this file are
+    // sequential) so their exact counts stay untouched.
+    db.practices.push({
+      id: 'p3', source: 'manual', agreement_status: null, created_at: ago(15),
+      metadata: { pipeline_agreement: { agreement_status: 'signed', agreement_signed_at: ago(5) } }
+    });
+    const r = await req('GET', '/api/ceo/conversion-funnel?period=all', { host: SUPER_HOST, cookie: superCookie() });
+    expect(r.status).toBe(200);
+    const p = stepMap(r.body.practice_funnel);
+    expect(p.practices_signed.count).toBe(2); // p2 (column) + p3 (metadata stash)
+  });
+
+  it('static: the handler fetches metadata so the dual-read has data in prod', () => {
+    // The emulator ignores select= projection here, so pin the real query: the
+    // practices fetch in the conversion-funnel handler must request metadata.
+    const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+    const start = src.indexOf("pathname === '/api/ceo/conversion-funnel'");
+    expect(start).toBeGreaterThan(-1);
+    const block = src.slice(start, src.indexOf("pathname === '/api/ceo/source-attribution'", start));
+    const practicesFetch = (block.match(/supabaseDbRequest\('practices',\s*'([^']+)'/) || [])[1] || '';
+    expect(practicesFetch).toContain('metadata');
+  });
+});

@@ -21776,19 +21776,29 @@ async function exportRowsForGps(cap) {
 
 async function exportRowsForPractices(cap) {
   const derived = await atsListPracticesDerived();
-  return derived.slice(0, cap).map((p) => ({
-    name: p.name || '',
-    city: p.location_city || '',
-    state: p.location_state || '',
-    type: p.practice_type || '',
-    org_type: p.org_type || 'practice',
-    contact_name: p.contact_name || '',
-    contact_email: p.contact_email || '',
-    contact_phone: p.contact_phone || '',
-    stage: p.stage || 'active',
-    agreement_status: p.agreement_status || 'unsigned',
-    job_count: (p.jobs || []).length
-  }));
+  return derived.slice(0, cap).map((p) => {
+    // F14 (audit 2026-07-20): dual-read the degraded metadata stash the sign
+    // endpoint writes when the agreement_* columns are missing — a metadata-
+    // signed practice must export as 'signed', not 'unsigned'. (The derived
+    // row defaults a missing column to 'unsigned', so metadata-signed wins
+    // over that default; an explicit non-unsigned column value still wins.)
+    const metaAgr = (p.metadata && p.metadata.pipeline_agreement) || null;
+    let agreementStatus = p.agreement_status || 'unsigned';
+    if (agreementStatus === 'unsigned' && metaAgr && metaAgr.agreement_status === 'signed') agreementStatus = 'signed';
+    return {
+      name: p.name || '',
+      city: p.location_city || '',
+      state: p.location_state || '',
+      type: p.practice_type || '',
+      org_type: p.org_type || 'practice',
+      contact_name: p.contact_name || '',
+      contact_email: p.contact_email || '',
+      contact_phone: p.contact_phone || '',
+      stage: p.stage || 'active',
+      agreement_status: agreementStatus,
+      job_count: (p.jobs || []).length
+    };
+  });
 }
 
 async function exportRowsForPlacements(cap) {
@@ -31042,15 +31052,22 @@ async function atsEnrichPlacements(placements) {
 }
 
 // A8b fallback: when the placements table is empty/un-applied, derive the list
-// from gp_applications rows at status 'placement_secured', enriching the role
-// title/practice from career_roles (prod-only; gp_career_state is the durable
-// record the accept path always writes).
+// from secured gp_applications rows, enriching the role title/practice from
+// career_roles (prod-only; gp_career_state is the durable record the accept
+// path always writes). F12 (audit 2026-07-20): "secured" here is the SAME
+// predicate the CEO Secured tile uses (ceoMetrics.isSecuredApp: legacy secured
+// status set ∪ ats_stage='hired') — the old status=eq.placement_secured filter
+// missed board-drag hires (ats_stage only) and legacy 'hired'/'placed' rows,
+// so the tile counted apps the list below never showed. Fetched bounded and
+// filtered in JS so mixed-case legacy statuses match too.
 async function atsDerivePlacementsFromCareerState(limit) {
   if (!isSupabaseDbConfigured()) return [];
   var lim = Math.max(1, Math.min(Number(limit) || 50, 200));
   var appRes = await supabaseDbRequest('gp_applications',
-    'select=id,user_id,career_role_id,updated_at,applied_at&status=eq.placement_secured&order=updated_at.desc&limit=' + lim);
-  var apps = (appRes.ok && Array.isArray(appRes.data)) ? appRes.data : [];
+    'select=id,user_id,career_role_id,status,ats_stage,updated_at,applied_at&order=updated_at.desc&limit=2000');
+  var apps = ((appRes.ok && Array.isArray(appRes.data)) ? appRes.data : [])
+    .filter(function (a) { return ceoMetrics.isSecuredApp(a); })
+    .slice(0, lim);
   if (!apps.length) return [];
   var roleIds = Array.from(new Set(apps.map(function (a) { return a.career_role_id; }).filter(Boolean).map(String)));
   var roleMap = {};
@@ -40158,6 +40175,26 @@ async function handleApi(req, res, pathname) {
           });
           if (iv.zoom_meeting_id && isZoomConfigured()) {
             deleteZoomMeeting(iv.zoom_meeting_id).catch(() => {});
+          }
+        }
+      }
+    } catch {}
+
+    // F9 (audit 2026-07-20): the modern booking flow stores the live interview
+    // in scheduled_calls (meeting_kind='interview', status invited/booked —
+    // see interviewMeetings.buildInterviewRow + /api/ats/interview/book), NOT
+    // career_interviews. Cancel those too, or the Meetings tab and the GP file
+    // keep showing a ghost upcoming interview for a withdrawn application.
+    try {
+      const wdCalls = await supabaseDbRequest('scheduled_calls', `select=id,zoom_meeting_id&application_id=eq.${encodeURIComponent(applicationId)}&meeting_kind=eq.interview&status=in.(booked,invited)`);
+      if (wdCalls.ok && Array.isArray(wdCalls.data)) {
+        for (const call of wdCalls.data) {
+          await supabaseDbRequest('scheduled_calls', `id=eq.${encodeURIComponent(call.id)}`, {
+            method: 'PATCH',
+            body: { status: 'cancelled', updated_at: new Date().toISOString() }
+          });
+          if (call.zoom_meeting_id && !/^zoom_local_/.test(String(call.zoom_meeting_id)) && isZoomConfigured()) {
+            deleteZoomMeeting(call.zoom_meeting_id).catch(() => {});
           }
         }
       }
@@ -57942,7 +57979,7 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('gp_applications', 'select=*'),
       supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled'),
       supabaseDbRequest('career_roles', 'select=id,practice_name,is_active'),
-      supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone'),
+      supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone,account_status'),
       // Modern GP-facing interview bookings live in scheduled_calls, NOT
       // career_interviews (F1) — same booked/completed union the interview-cap
       // counter (countMonthlyCareerInterviews) already uses.
@@ -57956,6 +57993,18 @@ Return ONLY valid JSON with no markdown formatting:
     var interviews = (interviewsRes.ok && Array.isArray(interviewsRes.data)) ? interviewsRes.data : [];
     var roles = (rolesRes.ok && Array.isArray(rolesRes.data)) ? rolesRes.data : [];
     var profiles = (profilesRes.ok && Array.isArray(profilesRes.data)) ? profilesRes.data : [];
+
+    // F2 (audit 2026-07-20): archiveUserAccount only stamps
+    // user_profiles.account_status='archived' — the registration case stays
+    // 'active', so archived (soft-deleted) GPs inflated every count. Drop
+    // their cases up-front (one batched profiles fetch, no N+1).
+    var dashArchivedUserIds = new Set();
+    for (var dai = 0; dai < profiles.length; dai++) {
+      if (profiles[dai].account_status === 'archived' && profiles[dai].user_id) dashArchivedUserIds.add(profiles[dai].user_id);
+    }
+    if (dashArchivedUserIds.size) {
+      allCasesRaw = allCasesRaw.filter(function(c) { return !dashArchivedUserIds.has(c.user_id); });
+    }
 
     var profileByUserId = {};
     for (var pi = 0; pi < profiles.length; pi++) { if (profiles[pi].user_id) profileByUserId[profiles[pi].user_id] = profiles[pi]; }
@@ -58540,7 +58589,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     var [cfEnqRes, cfPracRes, cfRolesRes, cfAppsRes, cfIvRes, cfCasesRes, cfPlaceRes, cfProfRes] = await Promise.all([
       supabaseDbRequest('site_enquiries', 'select=id,kind,created_at&order=created_at.desc&limit=5000'),
-      supabaseDbRequest('practices', 'select=id,source,agreement_status,agreement_signed_at,created_at&order=created_at.desc&limit=5000'),
+      // metadata fetched too (F14): a signature can live under
+      // metadata.pipeline_agreement when the agreement_* columns are missing.
+      supabaseDbRequest('practices', 'select=id,source,agreement_status,agreement_signed_at,created_at,metadata&order=created_at.desc&limit=5000'),
       supabaseDbRequest('career_roles', 'select=id,is_active,approval_status,published_at,created_at&is_active=eq.true&limit=5000'),
       supabaseDbRequest('gp_applications', 'select=id,user_id,status,applied_at,updated_at&order=applied_at.desc&limit=10000'),
       supabaseDbRequest('career_interviews', 'select=id,status,created_at&status=neq.cancelled&order=created_at.desc&limit=5000'),
@@ -61649,7 +61700,10 @@ Return ONLY valid JSON with no markdown formatting:
       rows = (dbState.atsCandidates || []).filter(function (row) {
         // F3 (audit 2026-07-20): withdrawn cases are not candidates — same
         // exclusion as the Overview's filterActiveCases.
-        return String(row && row.status || '') !== 'withdrawn';
+        if (String(row && row.status || '') === 'withdrawn') return false;
+        // F2 (audit 2026-07-20): archived (soft-deleted) accounts excluded.
+        if (String(row && row.account_status || '') === 'archived') return false;
+        return true;
       }).map(function (row) {
         var facts = atsLocalCandidateFacts(row);
         var listRow = atsCandidateListRow(facts, atsComputeIntent(facts));
@@ -61670,10 +61724,16 @@ Return ONLY valid JSON with no markdown formatting:
       for (var ci = 0; ci < uids.length; ci += 200) {
         var chunk = uids.slice(ci, ci + 200);
         var listStr = chunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
-        var pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,registration_country,onboarding_completed_at&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
+        var pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,registration_country,onboarding_completed_at,account_status&user_id=in.(' + encodeURIComponent(listStr) + ')&limit=2000');
         ((pRes.ok && pRes.data) || []).forEach(function (p) { profMap[p.user_id] = p; });
       }
-      rows = cases.map(function (c) {
+      // F2 (audit 2026-07-20): archived (soft-deleted) accounts are excluded —
+      // archiveUserAccount only stamps user_profiles.account_status, the case
+      // row stays 'active'. Batched via the SAME chunked profiles fetch above.
+      rows = cases.filter(function (c) {
+        var profF2 = profMap[c.user_id];
+        return !(profF2 && profF2.account_status === 'archived');
+      }).map(function (c) {
         var prof = profMap[c.user_id] || {};
         var facts = (c.intent_signals && c.intent_signals.facts) || {};
         return {
@@ -61775,9 +61835,12 @@ Return ONLY valid JSON with no markdown formatting:
     var psAts = null; // live hiring funnel: gp_applications rows counted by ats_stage
     var psWaitlistOnboarding = 0; // unassociated + not-yet-onboarded — see /api/ceo/onboarding-incomplete
     if (!isSupabaseDbConfigured()) {
-      // F3 (audit 2026-07-20): withdrawn cases excluded, matching /api/ceo/candidates.
+      // F3/F2 (audit 2026-07-20): withdrawn cases + archived accounts excluded,
+      // matching /api/ceo/candidates.
       var psCands = (dbState.atsCandidates || []).filter(function (c) {
-        return String(c && c.status || '') !== 'withdrawn';
+        if (String(c && c.status || '') === 'withdrawn') return false;
+        if (String(c && c.account_status || '') === 'archived') return false;
+        return true;
       });
       psCands.forEach(function (c) {
         var apps = c.apps || [];
@@ -61805,9 +61868,15 @@ Return ONLY valid JSON with no markdown formatting:
       for (var psI = 0; psI < psUids.length; psI += 200) {
         var psChunk = psUids.slice(psI, psI + 200);
         var psListStr = psChunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
-        var psProfRes = await supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at&user_id=in.(' + encodeURIComponent(psListStr) + ')&limit=2000');
+        var psProfRes = await supabaseDbRequest('user_profiles', 'select=user_id,onboarding_completed_at,account_status&user_id=in.(' + encodeURIComponent(psListStr) + ')&limit=2000');
         ((psProfRes.ok && psProfRes.data) || []).forEach(function (p) { psProfMap[p.user_id] = p; });
       }
+      // F2 (audit 2026-07-20): archived (soft-deleted) accounts excluded from
+      // the buckets AND the total, matching /api/ceo/candidates.
+      psCases = psCases.filter(function (c) {
+        var psProfF2 = psProfMap[c.user_id];
+        return !(psProfF2 && psProfF2.account_status === 'archived');
+      });
       psCases.forEach(function (c) {
         var b = psByUser[c.user_id] ? atsPracticeUtil.bucketForApps(psByUser[c.user_id]) : 'unassociated';
         if (b === 'unassociated') {
