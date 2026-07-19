@@ -43309,11 +43309,13 @@ async function handleApi(req, res, pathname) {
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
       }
     } else {
-      const dbState = loadDbState();
+      // Mutate the module-global dbState (like PUT /api/state does) — a fresh
+      // loadDbState() copy here is never what saveDbState() serializes, so
+      // writes to it silently vanish.
       if (email === '__proto__' || email === 'constructor' || email === 'prototype') { sendJson(res, 400, { ok: false }); return; }
       if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
       dbState.userState[email].gp_onboarding = body;
-      saveDbState(dbState);
+      saveDbState();
     }
     sendJson(res, 200, { ok: true });
     return;
@@ -43407,7 +43409,7 @@ async function handleApi(req, res, pathname) {
         }
       }
     } else {
-      const dbState = loadDbState();
+      // Mutate the module-global dbState (see /api/onboarding/save above).
       if (email === '__proto__' || email === 'constructor' || email === 'prototype') { sendJson(res, 400, { ok: false }); return; }
       if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
       dbState.userState[email].gp_onboarding = body;
@@ -43428,7 +43430,7 @@ async function handleApi(req, res, pathname) {
         if (obLeadDetailLocal) dbState.userProfiles[email].lead_source_detail = obLeadDetailLocal;
       }
       dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
-      saveDbState(dbState);
+      saveDbState();
     }
     // Zoho Recruit decommissioned — no external candidate creation or
     // offer-contract signature check runs at onboarding.
@@ -57927,18 +57929,21 @@ Return ONLY valid JSON with no markdown formatting:
     }
     function ceoGpEmail(userId) { var p = profileByUserId[userId]; return p ? (p.email || '') : ''; }
 
-    var now = Date.now();
+    // NOTE: named ceoNowMs (NOT `now`) — a `var now` here is function-scoped and
+    // would hoist across ALL of handleApi, shadowing the module-global now()
+    // helper and crashing local-mode auth routes with "now is not a function".
+    var ceoNowMs = Date.now();
     var DAY_MS = 86400000;
     var SIX_MONTHS_MS = ceoMetrics.SIX_MONTHS_MS;
-    var weekAgo = new Date(now - 7 * DAY_MS).toISOString();
-    var todayStr = new Date(now).toISOString().slice(0, 10);
+    var weekAgo = new Date(ceoNowMs - 7 * DAY_MS).toISOString();
+    var todayStr = new Date(ceoNowMs).toISOString().slice(0, 10);
 
     // Time filter: current (default), 7d, 14d, 30d, all
     var period = url.searchParams.get('period') || 'current';
 
     // Active-case set is the single source of truth: excludes withdrawn + >6mo stale,
     // BUT 'all' skips the 6-month cut so "All Time" is honest (#52).
-    var cases = ceoMetrics.filterActiveCases(allCasesRaw, { allTime: period === 'all', nowMs: now });
+    var cases = ceoMetrics.filterActiveCases(allCasesRaw, { allTime: period === 'all', nowMs: ceoNowMs });
 
     // Build case ID / user ID sets for scoping tasks/apps/tickets to active cases (#6/#40)
     var activeCaseIds = new Set();
@@ -57951,7 +57956,7 @@ Return ONLY valid JSON with no markdown formatting:
     // KPIs — computed entirely by lib so card == drilldown (#1,#8,#15,#42)
     var kpi = ceoMetrics.computeKpis({
       cases: cases, allCases: allCasesRaw, tasks: filteredTasks, apps: apps,
-      careerRoles: roles, period: period, nowMs: now, todayStr: todayStr,
+      careerRoles: roles, period: period, nowMs: ceoNowMs, todayStr: todayStr,
       activeUserIds: activeCaseUserIds
     });
     var blockedCases = cases.filter(function(c) { return c.status === 'blocked' || c.blocker_status; });
@@ -58013,7 +58018,7 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // Blockers — days_blocked from blocker_set_at, single field name (#5/#57)
-    var blockers = ceoMetrics.computeBlockers(cases, now).map(function(b) {
+    var blockers = ceoMetrics.computeBlockers(cases, ceoNowMs).map(function(b) {
       return {
         case_id: b.case_id, user_id: b.user_id, gp_name: ceoGpName(b.user_id), gp_email: ceoGpEmail(b.user_id),
         stage: b.stage, days_blocked: b.days_blocked,
@@ -58023,7 +58028,7 @@ Return ONLY valid JSON with no markdown formatting:
     });
 
     // Task Health — overdue uses isOverdue to match KPI; avg over labelled window (#30,#31)
-    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,created_at,completed_at&status=eq.completed&completed_at=gte.' + encodeURIComponent(new Date(now - ceoMetrics.SIX_MONTHS_MS).toISOString()) + '&order=completed_at.desc&limit=2000');
+    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,created_at,completed_at&status=eq.completed&completed_at=gte.' + encodeURIComponent(new Date(ceoNowMs - ceoMetrics.SIX_MONTHS_MS).toISOString()) + '&order=completed_at.desc&limit=2000');
     var completedTasks = (completedRes.ok && Array.isArray(completedRes.data)) ? completedRes.data : [];
     var taskHealth = ceoMetrics.computeTaskHealth(filteredTasks, completedTasks, todayStr);
 
@@ -58109,14 +58114,14 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Placements — buckets via shared status sets; ids match tiles in drilldown (#8,#9,#10,#11,#60,#61)
     var interviewAppIds = new Set(interviews.map(function(i) { return i.application_id; }));
-    var placements = ceoMetrics.computePlacements(apps, roles, activeCaseUserIds, interviewAppIds, period, now);
+    var placements = ceoMetrics.computePlacements(apps, roles, activeCaseUserIds, interviewAppIds, period, ceoNowMs);
     placements.active_roles = roles.filter(function(r) { return r.is_active; }).length;
 
     // GP Activity — computed over full active population, INDEPENDENT of period (#12,#36,#37).
     // EXCLUDE completed cases so the card population matches the activity drilldown,
     // which queries stage=neq.complete (#9).
     var activityCases = cases.filter(function(c) { return c.stage !== 'complete'; });
-    var gpActivityRaw = ceoMetrics.computeGpActivity(activityCases, now);
+    var gpActivityRaw = ceoMetrics.computeGpActivity(activityCases, ceoNowMs);
     var gpActivity = {
       active_7d: gpActivityRaw.active_7d,
       inactive_7_14d: gpActivityRaw.inactive_7_14d,
@@ -58134,7 +58139,7 @@ Return ONLY valid JSON with no markdown formatting:
     var ticketStats = ceoMetrics.computeTicketMetrics(tickets, activeCaseUserIds, weekAgo);
 
     // Completions — total all-time, milestones globally sorted + humanized (#14,#15,#41,#62)
-    var completions = ceoMetrics.computeCompletions(completedCases, stageEvents, now);
+    var completions = ceoMetrics.computeCompletions(completedCases, stageEvents, ceoNowMs);
     completions.recent_milestones = completions.recent_milestones.map(function(m) {
       var mc = null;
       for (var mci = 0; mci < allCasesRaw.length; mci++) { if (allCasesRaw[mci].id === m.case_id) { mc = allCasesRaw[mci]; break; } }
