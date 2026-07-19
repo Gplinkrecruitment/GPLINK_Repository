@@ -11207,9 +11207,12 @@
           || ((placementRole && placementRole.practiceName && !isConfidentialText(placementRole.practiceName)) ? placementRole.practiceName : "")
           || FB.practiceName,
         roleTitle: placementPayload.roleTitle || (placementRole && placementRole.roleType) || FB.roleTitle,
-        location: placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || FB.location,
+        // Same honesty rule as the contact/contract guards below: a REAL server
+        // placement with no stored location/start date must render as "to be
+        // confirmed" — never borrow the demo dataset's city or start date.
+        location: placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || (hasServerPlacement ? "" : FB.location),
         statusLabel: placementPayload.statusLabel || FB.statusLabel,
-        startDateIso: placementPayload.startDateIso || FB.startDateIso,
+        startDateIso: placementPayload.startDateIso || (hasServerPlacement ? "" : FB.startDateIso),
         countdownCopy: placementPayload.countdownCopy || FB.countdownCopy,
         quickStats: normalizeSecuredQuickStats(
           Array.isArray(placementPayload.quickStats) && placementPayload.quickStats.length
@@ -12178,8 +12181,17 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ applicationId, action: "decline", reason: reason || "" })
         });
-        if (res.status === 410) showMatchExpiredNotice();
-        else showToast("Got it — we've let your team know.");
+        const data = await res.json().catch(() => null);
+        if (res.status === 410) {
+          showMatchExpiredNotice();
+        } else if (!res.ok || !data || !data.ok) {
+          // Mirror submitMatchAccept: never claim "we've let your team know"
+          // when the server rejected or failed to record the decline.
+          showToast((data && data.message) || "Could not record your response — please try again.");
+          return;
+        } else {
+          showToast("Got it — we've let your team know.");
+        }
         await loadTeamMatches();
         renderPage();
       } catch (e) {

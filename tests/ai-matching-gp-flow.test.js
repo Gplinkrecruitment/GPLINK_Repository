@@ -84,15 +84,20 @@ const GATED_GP = { userId: 'gp-gated-1', email: 'gated@gplink-test.local' };
 const SEEN_GP = { userId: 'gp-seen-1', email: 'seen@gplink-test.local' };
 const FILLED_GP = { userId: 'gp-filled-1', email: 'filled@gplink-test.local' };
 const IV_GP = { userId: 'gp-interview-1', email: 'interview@gplink-test.local' };
+const DECLINE_FAIL_GP = { userId: 'gp-decline-fail-1', email: 'decline-fail@gplink-test.local' };
+// ALERTS_GP deliberately has NO user_state row (see db.user_state below) —
+// exercises the alerts upsert path for a brand-new user (2026-07-20 audit).
+const ALERTS_GP = { userId: 'gp-alerts-1', email: 'alerts@gplink-test.local' };
 
-const ALL_GPS = [ACCEPT_GP, DECLINE_GP, EXPIRED_GP, SWEPT_GP, VIEW_GP, OTHER_GP, GATED_GP, SEEN_GP, FILLED_GP, IV_GP];
+const ALL_GPS = [ACCEPT_GP, DECLINE_GP, EXPIRED_GP, SWEPT_GP, VIEW_GP, OTHER_GP, GATED_GP, SEEN_GP, FILLED_GP, IV_GP, DECLINE_FAIL_GP];
 
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
-  user_profiles: ALL_GPS.map((g, i) => ({
+  user_profiles: ALL_GPS.concat([ALERTS_GP]).map((g, i) => ({
     user_id: g.userId, email: g.email, first_name: 'Test', last_name: `Doctor${i}`,
     registration_country: 'united kingdom'
   })),
+  // NOTE: ALERTS_GP intentionally excluded — no user_state row exists for it.
   user_state: ALL_GPS.map((g) => ({
     user_id: g.userId,
     state: g.userId === GATED_GP.userId
@@ -167,6 +172,15 @@ const db = {
       matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 10 * 86400000), match_expires_at: iso(NOW - 5 * 86400000),
       match_seen_at: iso(NOW - 6 * 86400000), match_outcome: 'expired'
     },
+    // DECLINE_FAIL_GP: live match used ONLY by the decline-PATCH-failure test.
+    {
+      id: 'app-decline-fail-1', user_id: DECLINE_FAIL_GP.userId, career_role_id: 'job-1',
+      provider_role_id: 'ats_job1', ats_stage: 'shortlisted', origin: 'ai_matched',
+      status: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      match_score: 68, match_reasons: { reasons: ['Coastal QLD fit'], _history: [] },
+      matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 86400000), match_expires_at: iso(NOW + 3 * 86400000),
+      match_seen_at: null, match_outcome: null
+    },
     // VIEW_GP: live match with full job/practice fields, for the matches-shape test.
     {
       id: 'app-view-1', user_id: VIEW_GP.userId, career_role_id: 'job-1',
@@ -219,6 +233,10 @@ const db = {
   ]
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+// Tables whose next PATCHes should 500 — lets tests prove the server never
+// reports success for a write the database rejected (2026-07-20 audit).
+const patchFailTables = new Set();
 
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
 function buildMatcher(searchParams) {
@@ -307,6 +325,11 @@ function startSupabaseEmulator() {
         return;
       }
       if (req.method === 'PATCH') {
+        if (patchFailTables.has(decodeURIComponent(m[1]))) {
+          await readBody(req);
+          send(500, { message: 'simulated PATCH failure' });
+          return;
+        }
         const patch = await readBody(req);
         const matched = rows.filter(matches);
         matched.forEach((row) => Object.assign(row, patch || {}));
@@ -630,6 +653,63 @@ describe('POST /api/career/match/respond — decline', () => {
     expect(subjects.some((s) => s.startsWith('Match declined:'))).toBe(true);
     const declineEmail = resendCalls.find((c) => c.body.subject.startsWith('Match declined:'));
     expect(declineEmail.body.text).toContain('Too far from family in Sydney.');
+  });
+
+  // 2026-07-20 audit: the handler used to fire-and-forget the PATCH and answer
+  // {ok:true} regardless — the GP saw "we've let your team know" while the row
+  // stayed shortlisted. A failed write must surface as a non-OK response.
+  it('returns 500 (not ok:true) when the decline PATCH fails, and the row stays shortlisted', async () => {
+    patchFailTables.add('gp_applications');
+    try {
+      const res = await httpReq('POST', '/api/career/match/respond', {
+        cookie: userCookie(DECLINE_FAIL_GP.email, DECLINE_FAIL_GP.userId),
+        body: { applicationId: 'app-decline-fail-1', action: 'decline', reason: 'Testing failure path.' }
+      });
+      expect(res.status).toBe(500);
+      expect(res.body.ok).toBe(false);
+
+      // Row untouched — the decline was never recorded.
+      const row = tableOf('gp_applications').find((a) => a.id === 'app-decline-fail-1');
+      expect(row.ats_stage).toBe('shortlisted');
+      expect(row.match_outcome).toBeNull();
+
+      // No "Match declined" ops email for a decline that never landed.
+      const subjects = resendCalls.map((c) => c.body && c.body.subject);
+      expect(subjects.some((s) => typeof s === 'string' && s.startsWith('Match declined:'))).toBe(false);
+    } finally {
+      patchFailTables.clear();
+    }
+  });
+});
+
+// ── POST/GET /api/career/alerts ─────────────────────────────────────────────
+// 2026-07-20 audit: POST blind-PATCHed user_state — for a user with NO
+// user_state row yet, the PATCH matched 0 rows, the server still said
+// {ok:true}, and the GET read back enabled:false. Must upsert.
+describe('POST + GET /api/career/alerts — first save for a user with no user_state row', () => {
+  it('POST creates the row (upsert) and GET reads the preference back as enabled', async () => {
+    const cookie = userCookie(ALERTS_GP.email, ALERTS_GP.userId);
+
+    // Precondition: genuinely no user_state row for this user.
+    expect(tableOf('user_state').some((r) => r.user_id === ALERTS_GP.userId)).toBe(false);
+
+    const post = await httpReq('POST', '/api/career/alerts', {
+      cookie, body: { enabled: true, filters: { location: 'QLD', billing: 'Mixed billing', tokens: ['coastal'] } }
+    });
+    expect(post.status).toBe(200);
+    expect(post.body.ok).toBe(true);
+    expect(post.body.alerts && post.body.alerts.enabled).toBe(true);
+
+    // The write really landed as a row.
+    const row = tableOf('user_state').find((r) => r.user_id === ALERTS_GP.userId);
+    expect(row).toBeTruthy();
+    expect(row.state && row.state.gp_career_alerts && row.state.gp_career_alerts.enabled).toBe(true);
+
+    const get = await httpReq('GET', '/api/career/alerts', { cookie });
+    expect(get.status).toBe(200);
+    expect(get.body.ok).toBe(true);
+    expect(get.body.alerts.enabled).toBe(true);
+    expect(get.body.alerts.filters.location).toBe('QLD');
   });
 });
 

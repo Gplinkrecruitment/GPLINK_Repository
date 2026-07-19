@@ -1257,6 +1257,14 @@
       };
     }
 
+    // Local HTML escaper for the updates feed (matches esc() in the
+    // outstanding-actions block, which is scoped inside its own IIFE).
+    function escFeed(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+      });
+    }
+
     function formatUpdateTimestamp(tsValue) {
       if (!tsValue) return "";
       const d = new Date(tsValue);
@@ -1430,9 +1438,9 @@
           row.innerHTML = `
             <div class="update-icon case">${iconSvgs.case}</div>
             <div class="update-content">
-              <p class="update-title">${title}</p>
-              ${detail ? `<p class="update-detail">${detail}</p>` : ""}
-              <div class="update-ts">${tsText}</div>
+              <p class="update-title">${escFeed(title)}</p>
+              ${detail ? `<p class="update-detail">${escFeed(detail)}</p>` : ""}
+              <div class="update-ts">${escFeed(tsText)}</div>
             </div>
             <span class="update-badge case">${typeLabel.case}</span>
           `;
@@ -1452,13 +1460,13 @@
         row.href = href;
         row.className = "update-item";
         row.innerHTML = `
-          <div class="update-icon ${type}">${iconSvgs[type] || iconSvgs.info}</div>
+          <div class="update-icon ${escFeed(type)}">${iconSvgs[type] || iconSvgs.info}</div>
           <div class="update-content">
-            <p class="update-title">${title}</p>
-            ${detail ? `<p class="update-detail">${detail}</p>` : ""}
-            <div class="update-ts">${tsText}</div>
+            <p class="update-title">${escFeed(title)}</p>
+            ${detail ? `<p class="update-detail">${escFeed(detail)}</p>` : ""}
+            <div class="update-ts">${escFeed(tsText)}</div>
           </div>
-          <span class="update-badge ${type}">${typeLabel[type] || "Info"}</span>
+          <span class="update-badge ${escFeed(type)}">${typeLabel[type] || "Info"}</span>
         `;
         listEl.appendChild(row);
       });

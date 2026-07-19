@@ -38862,7 +38862,13 @@ async function handleApi(req, res, pathname) {
     if (mrAction === 'decline') {
       const mrDeclineReason = typeof (mrBody && mrBody.reason) === 'string' ? mrBody.reason.trim().slice(0, 2000) : null;
       const mrDeclinePatch = { ats_stage: 'not_proceeding', match_outcome: 'declined', decline_reason: mrDeclineReason || null, ats_stage_updated_at: mrNowIso, updated_at: mrNowIso };
-      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mrAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: mrDeclinePatch });
+      const mrDeclineRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(mrAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: mrDeclinePatch });
+      if (!mrDeclineRes || !mrDeclineRes.ok) {
+        // Never report {ok:true} for a decline that was not recorded — the
+        // client toast would falsely tell the GP "we've let your team know".
+        sendJson(res, 500, { ok: false, message: 'Could not record your response — please try again.' });
+        return;
+      }
       await atsRecordStageEvent(mrAppId, 'shortlisted', 'not_proceeding', mrEmail);
       invalidateAdminDashboardCache();
       sendJson(res, 200, { ok: true, action: 'decline' });
@@ -40304,10 +40310,14 @@ async function handleApi(req, res, pathname) {
         ? stateResult.data[0].state
         : {};
       currentState.gp_career_alerts = { enabled, filters, updatedAt: new Date().toISOString() };
-      await supabaseDbRequest('user_state', `user_id=eq.${encodeURIComponent(userId)}`, {
-        method: 'PATCH',
-        body: { state: currentState }
-      });
+      // Upsert, not blind PATCH: a user with no user_state row yet would PATCH
+      // zero rows (silently dropping the preference) while still returning
+      // {ok:true} — the GET would then read back enabled:false.
+      const saved = await upsertSupabaseUserState(userId, currentState, new Date().toISOString());
+      if (!saved) {
+        sendJson(res, 500, { ok: false, message: 'Failed to update alert preferences.' });
+        return;
+      }
       sendJson(res, 200, { ok: true, alerts: currentState.gp_career_alerts });
     } catch {
       sendJson(res, 500, { ok: false, message: 'Failed to update alert preferences.' });
