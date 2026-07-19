@@ -25147,6 +25147,57 @@ async function supabaseAuthAdminRequest(pathname, options = {}) {
   }
 }
 
+// Authoritative answer to "does an account exist for this address, and has the
+// address been verified?" — Supabase returns the SAME opaque string
+// ('Invalid login credentials') for a wrong password AND for an account that
+// has never confirmed its email, so the sign-in handler cannot tell the two
+// apart from the error message alone. This asks the admin API instead.
+//
+// Returns { known, exists, confirmed }. `known: false` means the lookup itself
+// could not be completed (Supabase unreachable / not configured) — callers MUST
+// fall back to a generic message rather than assert anything, because guessing
+// here is exactly the bug this function exists to fix.
+//
+// Lookup order is deliberate:
+//   1. user_profiles → user_id, then GET admin/users/<id>. Exact, no pagination.
+//   2. GoTrue's admin/users?email= list as a backstop (its filtering behaviour
+//      varies by version, so only a positive client-side match is trusted —
+//      same posture as isChangeEmailAddressTaken / isEmailChangeTokenStale).
+async function lookupAuthAccountState(email) {
+  const key = String(email || '').trim().toLowerCase();
+  const unknown = { known: false, exists: false, confirmed: false };
+  if (!key || !isSupabaseDbConfigured()) return unknown;
+
+  const isConfirmed = (u) => !!(u && (u.email_confirmed_at || u.confirmed_at));
+
+  try {
+    const uid = await getSupabaseUserIdByEmail(key);
+    if (uid) {
+      const one = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(uid));
+      if (one.ok && one.data && one.data.id) {
+        // Only trust it if the auth record still carries this address (an
+        // in-flight email change could leave user_profiles briefly stale).
+        if (String(one.data.email || '').trim().toLowerCase() === key) {
+          return { known: true, exists: true, confirmed: isConfirmed(one.data) };
+        }
+      } else if (one.status === 404) {
+        return { known: true, exists: false, confirmed: false };
+      }
+    }
+  } catch (err) { /* fall through to the list lookup */ }
+
+  try {
+    const list = await supabaseAuthAdminRequest('admin/users?email=' + encodeURIComponent(key));
+    if (!list.ok) return unknown;
+    const users = list.data && Array.isArray(list.data.users) ? list.data.users : [];
+    const match = users.find((u) => String((u && u.email) || '').trim().toLowerCase() === key);
+    if (match) return { known: true, exists: true, confirmed: isConfirmed(match) };
+    return { known: true, exists: false, confirmed: false };
+  } catch (err) {
+    return unknown;
+  }
+}
+
 function getSessionProfileFromUser(email) {
   const key = String(email || '').trim().toLowerCase();
   const user = dbState.users[key] || {};
@@ -32867,7 +32918,10 @@ async function handleApi(req, res, pathname) {
     }
 
     // Send only our branded GP Link confirmation email
-    await sendEmailConfirmationViaResend(email).catch(err => console.error('[Email] Confirmation failed:', err.message));
+    const confirmationSent = await sendEmailConfirmationViaResend(email).catch(err => {
+      console.error('[Email] Confirmation failed:', err.message);
+      return false;
+    });
 
     // Try auto-login — will fail if email confirmation is required (expected)
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
@@ -32875,6 +32929,8 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, {
         ok: true,
         requiresConfirmation: true,
+        email,
+        confirmationSent: !!confirmationSent,
         message: 'Account created! A verification email has been sent to ' + email + '. Please check your inbox and click the link to activate your account.'
       });
       return;
@@ -32888,7 +32944,19 @@ async function handleApi(req, res, pathname) {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
     });
-    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/onboarding', bootstrap });
+    // Auto-login succeeded, so this Supabase project does NOT block sign-in on
+    // confirmation — the GP is in, but their address is still unverified
+    // (created with email_confirm: false). Tell the client so onboarding can
+    // show the "check your inbox" banner.
+    sendJson(res, 200, {
+      ok: true,
+      message: 'Account created.',
+      redirectTo: '/pages/onboarding',
+      email,
+      emailVerified: !!(loginUser && (loginUser.email_confirmed_at || loginUser.confirmed_at)),
+      confirmationSent: !!confirmationSent,
+      bootstrap
+    });
     return;
   }
 
@@ -32929,20 +32997,55 @@ async function handleApi(req, res, pathname) {
       const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
       if (!loginResult.ok) {
         const rawMsg = loginResult.data && (loginResult.data.msg || loginResult.data.message || loginResult.data.error_description) || '';
-        // Detect unconfirmed email — resend confirmation via Resend. Gate this
-        // ONLY on Supabase's explicit "email not confirmed" error. The old code
-        // also fired on the generic 'Invalid login credentials' message, which
-        // Supabase returns for wrong-password AND non-existent accounts alike —
-        // so anyone could POST an arbitrary address with any password and make
-        // GP Link send a branded "confirm your account" email to it (spam /
-        // sender-reputation abuse + account-enumeration). Unconfirmed accounts
-        // still get the resend because Supabase returns "Email not confirmed".
-        if (/email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg)) {
-          const sent = await sendEmailConfirmationViaResend(email).catch(() => false);
-          if (sent) {
-            sendJson(res, 401, { ok: false, message: 'Your email has not been verified yet. A new confirmation link has been sent to ' + email + '. Please check your inbox (and spam folder) and click the link to verify.' });
+        const rawCode = loginResult.data && (loginResult.data.error_code || loginResult.data.code) || '';
+        // Supabase says 'Invalid login credentials' for a wrong password AND for
+        // an unconfirmed account. Never guess from the string: an explicit
+        // "not confirmed" message is trustworthy, anything else gets checked
+        // against the admin API before we tell the GP anything.
+        const saysUnconfirmed = /email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg)
+          || /email_not_confirmed/i.test(String(rawCode));
+        const isCredentialFailure = loginResult.status === 400 || loginResult.status === 401;
+
+        if (saysUnconfirmed || isCredentialFailure) {
+          // Only pay for the extra round-trip when the string is ambiguous.
+          const account = saysUnconfirmed
+            ? { known: true, exists: true, confirmed: false }
+            : await lookupAuthAccountState(email).catch(() => ({ known: false, exists: false, confirmed: false }));
+
+          if (account.known && account.exists && !account.confirmed) {
+            const sent = await sendEmailConfirmationViaResend(email).catch(() => false);
+            sendJson(res, 401, {
+              ok: false,
+              reason: 'email_unconfirmed',
+              email,
+              message: sent
+                ? 'Your email address has not been verified yet. We have just sent a fresh verification link to ' + email + '. Please open it (check your spam or junk folder too), then come back and sign in.'
+                : 'Your email address has not been verified yet. Please open the verification link we emailed to ' + email + ' (check your spam or junk folder too), then come back and sign in.'
+            });
             return;
           }
+
+          if (account.known) {
+            // Either the password is wrong on a verified account, or there is no
+            // account at all. Deliberately ONE message for both: telling them
+            // apart here would make address enumeration easier than it is today.
+            // No confirmation email is sent on this path.
+            sendJson(res, 401, {
+              ok: false,
+              reason: 'invalid_credentials',
+              message: 'That email and password don\'t match. Please check your password and try again — or use "Forgot password?" below to set a new one.'
+            });
+            return;
+          }
+
+          // Lookup failed (Supabase unreachable). Say something honest and
+          // generic rather than a confident guess that may be wrong.
+          sendJson(res, 401, {
+            ok: false,
+            reason: 'invalid_credentials',
+            message: 'We couldn\'t sign you in with those details. Please check your password, or use "Forgot password?" below. If you have just created your account, open the verification link we emailed you first.'
+          });
+          return;
         }
         const msg = rawMsg || 'Invalid email or password.';
         sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
@@ -33612,6 +33715,57 @@ async function handleApi(req, res, pathname) {
       ok: true,
       authenticated: true,
       profile: session.userProfile
+    });
+    return;
+  }
+
+  // Has the signed-in GP verified their email address yet? Session-gated (so it
+  // cannot be used to probe whether an address is registered) and deliberately
+  // kept OUT of /api/auth/session, which gp-cache.js caches — a stale "not
+  // verified" would keep nagging someone who has already clicked the link.
+  if (pathname === '/api/auth/email-verification' && req.method === 'GET') {
+    const evSession = getSession(req);
+    if (!evSession) {
+      sendJson(res, 401, { ok: false, authenticated: false });
+      return;
+    }
+    const evEmail = String((evSession.userProfile && evSession.userProfile.email) || '').trim().toLowerCase();
+    const evState = await lookupAuthAccountState(evEmail).catch(() => ({ known: false, exists: false, confirmed: false }));
+    sendJson(res, 200, {
+      ok: true,
+      email: evEmail,
+      // Unknown (or no Supabase) → report verified so we never nag a GP based
+      // on a lookup we could not actually complete.
+      verified: evState.known && evState.exists ? evState.confirmed : true,
+      known: !!evState.known
+    }, { 'Cache-Control': 'no-store' });
+    return;
+  }
+
+  // Re-send the branded verification email to the signed-in GP's own address.
+  if (pathname === '/api/auth/resend-verification' && req.method === 'POST') {
+    const rvSession = getSession(req);
+    if (!rvSession) {
+      sendJson(res, 401, { ok: false, authenticated: false });
+      return;
+    }
+    const rvEmail = String((rvSession.userProfile && rvSession.userProfile.email) || '').trim().toLowerCase();
+    if (!isValidEmail(rvEmail)) {
+      sendJson(res, 400, { ok: false, message: 'We could not work out which address to send to.' });
+      return;
+    }
+    const rvState = await lookupAuthAccountState(rvEmail).catch(() => ({ known: false, exists: false, confirmed: false }));
+    if (rvState.known && rvState.exists && rvState.confirmed) {
+      sendJson(res, 200, { ok: true, verified: true, message: 'Your email address is already verified.' });
+      return;
+    }
+    const rvSent = await sendEmailConfirmationViaResend(rvEmail).catch(() => false);
+    sendJson(res, rvSent ? 200 : 502, {
+      ok: !!rvSent,
+      verified: false,
+      message: rvSent
+        ? 'Verification email sent to ' + rvEmail + '. Please check your inbox, and your spam or junk folder.'
+        : 'We could not send the email just now. Please try again in a moment.'
     });
     return;
   }

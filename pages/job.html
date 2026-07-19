@@ -629,6 +629,76 @@
     .at-support p { font-size: 13px; margin: 0; }
     .at-support b { color: var(--gp-ink, #0f172a); }
 
+    /* ════════════════════════════════════════════════════════════════════
+       REDESIGN (2026-07) — job.html restyle to match the owner-approved
+       mockup. Ported class names ARE the mockup's (.noa/.headline/.panel/
+       .prow), prefixed at- to sit alongside the existing Atlas at-* system
+       and its tokens/fonts (var(--gp-*), DM Sans + Source Serif 4).
+       ════════════════════════════════════════════════════════════════════ */
+
+    /* ── Name-on-acceptance dropdown (mockup: .noa) — sits directly under
+       the hero, both masked (pre-reveal) and unlocked (post-reveal). Kept
+       as a rounded card (not edge-to-edge) so it respects .at-dcontent's
+       existing gutters instead of fighting them with negative margins. ── */
+    .at-noa {
+      margin-top: 16px;
+      background: var(--at-navy0);
+      color: #dfe8f5;
+      border-radius: var(--gp-r-lg, 18px);
+      box-shadow: var(--gp-shadow-sm);
+      overflow: hidden;
+    }
+    .at-noa summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+    .at-noa summary::-webkit-details-marker { display: none; }
+    .at-noa-lock { width: 34px; height: 34px; border-radius: 10px; background: #16324e; color: #8fb2d8; display: grid; place-items: center; flex: none; }
+    .at-noa-lock--on { background: rgba(34, 197, 94, .2); color: #86efac; }
+    .at-noa-lines { min-width: 0; flex: 1; }
+    .at-noa-tag { font-size: 9.5px; letter-spacing: .09em; font-weight: 800; color: #7d97b5; text-transform: uppercase; }
+    .at-noa-line { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+    .at-noa-mask { height: 12px; width: 55%; max-width: 170px; border-radius: 3px; background: repeating-linear-gradient(90deg, #26384c 0 7px, #1b2836 7px 13px); }
+    .at-noa-name { margin-top: 3px; font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-weight: 700; font-size: 15.5px; color: #fff; }
+    .at-noa-chev { margin-left: auto; color: #7d97b5; flex: none; transition: transform .2s var(--at-ease); }
+    .at-noa[open] .at-noa-chev { transform: rotate(180deg); }
+    .at-noa-body { padding: 0 16px 15px 62px; font-size: 12.5px; color: #9db2c9; line-height: 1.55; display: flex; align-items: flex-start; gap: 6px; }
+    .at-noa-body b { color: #cfe0f5; font-weight: 700; }
+    .at-noa-body svg { flex: none; margin-top: 3px; color: #6fd394; }
+    .at-noa--revealed { background: linear-gradient(120deg, #0c2e66 0%, #0d5ee0 55%, #2b8ef0 100%); }
+    .at-noa--revealed .at-noa-tag { color: #d6e7ff; }
+
+    /* ── "The package" headline figures + grouped rows (mockup: .headline /
+       .panel / .prow). Distinct classnames from the pre-existing
+       .at-earnrow/.at-cell grid — that pair still renders offer-mode's
+       terms (buildOfferTermsHtml) and is left untouched. ── */
+    .at-headline { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--gp-border, #e3e9f4); border-radius: var(--gp-r-lg, 18px); overflow: hidden; box-shadow: var(--gp-shadow-sm); }
+    .at-headline-cell { background: var(--gp-surface, #fff); padding: 14px 15px; min-width: 0; }
+    .at-headline-k { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--gp-faint, #94a3b8); font-weight: 700; }
+    .at-headline-v { margin-top: 4px; font-family: var(--gp-font-display, "Source Serif 4", Georgia, serif); font-size: 20px; font-weight: 800; color: var(--gp-ink, #0f172a); letter-spacing: -.01em; overflow-wrap: break-word; }
+    .at-headline-v small { font-family: var(--gp-font-body, "DM Sans", sans-serif); font-size: 12px; font-weight: 600; color: var(--gp-muted, #64748b); }
+
+    .at-panel { background: var(--gp-surface, #fff); border-radius: var(--gp-r-lg, 18px); box-shadow: var(--gp-shadow-sm); margin-top: 10px; overflow: hidden; }
+    .at-prow { display: flex; align-items: flex-start; gap: 12px; padding: 12px 15px; border-bottom: 1px solid var(--gp-border, #e3e9f4); }
+    .at-prow:last-child { border-bottom: 0; }
+    .at-prow-ic { width: 30px; height: 30px; border-radius: 8px; background: var(--gp-blue-soft, #eff4ff); color: var(--gp-blue, #2563eb); display: grid; place-items: center; flex: none; margin-top: 1px; }
+    .at-prow-k { font-size: 11px; letter-spacing: .03em; text-transform: uppercase; color: var(--gp-faint, #94a3b8); font-weight: 700; }
+    .at-prow-v { margin-top: 1px; font-size: 14.5px; font-weight: 650; color: var(--gp-ink, #0f172a); }
+
+    /* ── Map pin label (mockup: .pinlabel) — dark tag fixed just below the
+       existing .at-pin overlay, never the exact address pre-reveal. ── */
+    .at-map-pinlabel {
+      position: absolute;
+      left: 50%;
+      top: calc(50% + 20px);
+      transform: translateX(-50%);
+      background: #0f1b2d;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 7px;
+      white-space: nowrap;
+      z-index: 3;
+    }
+
     /* ── Sticky apply bar ── */
     .at-applybar {
       position: fixed;
@@ -1575,6 +1645,18 @@
     return raw ? raw.toUpperCase().slice(0, 3) : "AU";
   }
 
+  // Redesign (2026-07): suburb + state (+ postcode, only when the location
+  // text we already have literally contains a 4-digit AU postcode — never
+  // fabricated) for the map's fixed pin label, e.g. "Erina, NSW 2250".
+  function getRoleMapPinLabel(role) {
+    const suburb = getRoleSuburbLabel(role);
+    const stateCode = getRoleStateCode(role);
+    const postMatch = String((role && (role.locationLine || role.location)) || "").match(/\b(\d{4})\b/);
+    const parts = [suburb];
+    if (stateCode && stateCode !== "AU") parts.push(stateCode + (postMatch ? " " + postMatch[1] : ""));
+    return parts.filter(Boolean).join(", ");
+  }
+
   // Applicant count is ALWAYS the server's deterministic presentation band
   // (15-23) — never a real applicant count and never Math.random. Fallback
   // recomputes the identical band (same djb2 as server careerApplicantBand
@@ -1593,6 +1675,22 @@
   const AT_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>';
   const AT_LOCK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
   const AT_PIN_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>';
+
+  /* ── Redesign (2026-07): blue line-icon set for the name-on-acceptance
+     dropdown, "The package" perk rows and "The practice" facts panel — all
+     ported verbatim from the owner-approved mockup (stroke=currentColor,
+     no emojis). ── */
+  const AT_NOA_LOCK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+  const AT_NOA_CHEV_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  const AT_ICON_SHIELD_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>';
+  const AT_ICON_BOX_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>';
+  const AT_ICON_HOUSE_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M10 20v-6h4v6"/></svg>';
+  const AT_ICON_BILLING_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6"/></svg>';
+  const AT_ICON_GIFT_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="13" rx="1"/><path d="M12 8v13M3 12h18"/><path d="M7.5 8a2.5 2.5 0 1 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 1 1 0 5"/></svg>';
+  const AT_ICON_DPA_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>';
+  const AT_ICON_SUPERVISION_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v6a4 4 0 0 0 8 0V3"/><path d="M6 3H4.5M14 3h1.5"/><path d="M10 13v2a5 5 0 0 0 10 0v-1"/><circle cx="20" cy="11" r="2"/></svg>';
+  const AT_ICON_VISA_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>';
+  const AT_ICON_TEAM_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 20v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
 
   // Photo-less scenery: refined map motif — ported from career.html so the
   // two pages share one visual system.
@@ -1751,9 +1849,15 @@
     const caption = revealed
       ? "Exact location" + (role.realPracticeName ? " · " + role.realPracticeName : "")
       : suburb + " area — exact address shared on acceptance";
+    // Redesign (2026-07): dark pin-label tag anchored just below the fixed
+    // pin (mockup's .pinlabel), e.g. "Erina, NSW 2250" — never the exact
+    // address pre-reveal, only the same suburb/state already used for the
+    // caption below.
+    const pinLabel = getRoleMapPinLabel(role);
+    const pinLabelHtml = pinLabel ? '<span class="at-map-pinlabel">' + escapeHtml(pinLabel) + '</span>' : "";
     const overlay = revealed
-      ? '<span class="at-map-overlay"><span class="at-pin"><span class="at-ring at-ring--exact"><span class="at-dotpin at-dotpin--exact"></span></span></span></span>'
-      : '<span class="at-map-overlay at-map-overlay--fuzzy"><span class="at-pin"><span class="at-ring"><span class="at-dotpin"></span></span></span></span>';
+      ? '<span class="at-map-overlay"><span class="at-pin"><span class="at-ring at-ring--exact"><span class="at-dotpin at-dotpin--exact"></span></span></span>' + pinLabelHtml + '</span>'
+      : '<span class="at-map-overlay at-map-overlay--fuzzy"><span class="at-pin"><span class="at-ring"><span class="at-dotpin"></span></span></span>' + pinLabelHtml + '</span>';
     // AI Matching (Task 7): revealed-only "Open in Maps ↗" link, same pattern
     // career.html's match card uses (a real maps.google.com link, opened in
     // a new tab — distinct from the embed iframe's src above).
@@ -1795,66 +1899,165 @@
       '</div>';
   }
 
-  /* ── The practice: identity vault (pre-reveal) or unlocked card ── */
+  /* ── Redesign (2026-07): name-on-acceptance — a dark <details> dropdown
+     directly under the hero (mockup's .noa). Pre-reveal: masked bar the GP
+     can expand to read why it's hidden. Post-reveal: the SAME reveal gate
+     (role.revealed && role.realPracticeName) that has always driven this
+     component — restyled, never re-decided — shown open/unlocked with the
+     real name + address. This function is shared with offer-mode
+     (renderOfferBody), so both surfaces pick up the new look together. ── */
   function buildPracticeIdentityHtml(role) {
     const revealed = !!(role && role.revealed && role.realPracticeName);
     if (revealed) {
-      const initials = (String(role.realPracticeName).match(/\b\w/g) || ["G", "P"]).slice(0, 2).join("").toUpperCase();
-      return '<div class="at-sech">The practice</div>' +
-        '<div class="at-unlocked at-rv at-rv3">' +
-          '<span class="at-ua">' + escapeHtml(initials) + '</span>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div class="at-uname">' + escapeHtml(role.realPracticeName) + '</div>' +
-            (role.practiceAddress ? '<div class="at-uaddr">' + escapeHtml(role.practiceAddress) + '</div>' : "") +
-          '</div>' +
-          '<span class="at-ubadge">&#10003; UNLOCKED</span>' +
-        '</div>';
+      return '<details class="at-noa at-noa--revealed at-rv" open>' +
+        '<summary>' +
+          '<span class="at-noa-lock at-noa-lock--on">' + AT_CHECK_SVG + '</span>' +
+          '<span class="at-noa-lines">' +
+            '<div class="at-noa-tag">PRACTICE NAME &middot; UNLOCKED</div>' +
+            '<div class="at-noa-name">' + escapeHtml(role.realPracticeName) + '</div>' +
+          '</span>' +
+        '</summary>' +
+        (role.practiceAddress
+          ? '<div class="at-noa-body">' + AT_PIN_SVG + ' <b>' + escapeHtml(role.practiceAddress) + '</b></div>'
+          : "") +
+      '</details>';
     }
-    // Pre-reveal: placeholder graphic only (never real text under a blur).
-    return '<div class="at-sech">The practice</div>' +
-      '<div class="at-vault at-rv at-rv3" data-vault role="button" tabindex="0" aria-label="Practice identity is protected until acceptance">' +
-        '<span class="at-vshine"></span>' +
-        '<div class="at-vault-in">' +
-          '<span class="at-vlock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div class="at-vtag">NAME ON ACCEPTANCE</div>' +
-            '<div class="at-vname" aria-hidden="true"></div>' +
-            '<p class="at-vcap"><b>Identity protected while you decide.</b> Name, address &amp; team are revealed the moment you’re <b>accepted</b> — keeping matching fair for you and the practice.</p>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
+    // Pre-reveal: masked bar only (never real text under a blur) — expands
+    // to an explainer, exactly like the mockup's disclosure interaction.
+    return '<details class="at-noa at-rv">' +
+      '<summary>' +
+        '<span class="at-noa-lock">' + AT_NOA_LOCK_SVG + '</span>' +
+        '<span class="at-noa-lines">' +
+          '<div class="at-noa-tag">PRACTICE NAME &middot; REVEALED ON ACCEPTANCE</div>' +
+          '<div class="at-noa-line"><span class="at-noa-mask"></span></div>' +
+        '</span>' +
+        '<span class="at-noa-chev">' + AT_NOA_CHEV_SVG + '</span>' +
+      '</summary>' +
+      '<div class="at-noa-body">The practice’s <b>name, address and team</b> stay private until you’re accepted. This keeps matching fair — practices are judged on the role, and you’re judged on your profile. Your Registration Support Officer reviews your application before the practice sees it.</div>' +
+    '</details>';
   }
 
   /* ── Detail body ── */
+  // Shortens the full "GP 70% / Practice 30%" packageTerms.billingSplit
+  // string down to just the GP-side figure for the headline tile, e.g. "70%".
+  function shortBillingSplitPct(raw) {
+    const s = String(raw || "").trim();
+    const m = s.match(/GP\s*(\d+(?:\.\d+)?)\s*%/i);
+    return m ? m[1] + "%" : "";
+  }
+
+  // Picks a blue line icon per perk row by matching common keywords in the
+  // AI-sorted (or fallback) label — never invented data, just an icon choice.
+  function pickPerkIcon(label) {
+    const l = String(label || "").toLowerCase();
+    if (/guarantee|income|salary|hourly|rate/.test(l)) return AT_ICON_SHIELD_SVG;
+    if (/reloc/.test(l)) return AT_ICON_BOX_SVG;
+    if (/accommod|housing|stay/.test(l)) return AT_ICON_HOUSE_SVG;
+    if (/billing/.test(l)) return AT_ICON_BILLING_SVG;
+    return AT_ICON_GIFT_SVG;
+  }
+
+  // Redesign (2026-07): "The package" — a two-figure headline (Earnings +
+  // Billing split) above a grouped, blue-icon rows panel. DPA/visa/
+  // supervision move out to the new "The practice" facts panel (see
+  // buildPracticeFactsHtml) so they're not duplicated here.
   function buildPackageCellsHtml(role) {
     const pt = (role.packageTerms && typeof role.packageTerms === "object") ? role.packageTerms : {};
-    const cells = [
-      { label: "Earnings", value: role.earnings || "Package on request" },
-      { label: "Billing", value: role.billing || "Billing on request" }
-    ];
-    // Owner-specified commercial terms shown as distinct package rows (only the
-    // ones this role carries — jobs without them just keep the base cells).
-    if (pt.billingSplit) cells.push({ label: "Billing split", value: String(pt.billingSplit) });
-    if (pt.incomeGuarantee) cells.push({ label: "Income guarantee", value: String(pt.incomeGuarantee) });
+    const splitPct = shortBillingSplitPct(pt.billingSplit);
+    // Headline's 2nd figure is the billing SPLIT percentage when the practice
+    // gave us one; otherwise it falls back to the general billing style
+    // (Mixed/Private/Bulk) so the tile is never left blank.
+    const headlineCells = splitPct
+      ? [
+          { k: "Earnings", v: role.earnings || "Package on request", note: "" },
+          { k: "Billing split", v: splitPct, note: "to GP" }
+        ]
+      : [
+          { k: "Earnings", v: role.earnings || "Package on request", note: "" },
+          { k: "Billing", v: role.billing || "Billing on request", note: "" }
+        ];
+
     // AI-sorted perks: the model splits the raw incentives blob into clean,
-    // separately-labelled cells. When present they REPLACE the single raw
+    // separately-labelled rows. When present they REPLACE the raw
     // "Sign-on bonus" dump; fall back to that dump only if the AI produced none.
-    var aiPerks = Array.isArray(role.aiPerks) ? role.aiPerks.filter(function (p) { return p && p.label && p.value; }) : [];
+    const aiPerks = Array.isArray(role.aiPerks) ? role.aiPerks.filter((p) => p && p.label && p.value) : [];
+    const perkRows = [];
     if (aiPerks.length) {
-      aiPerks.forEach(function (p) { cells.push({ label: String(p.label), value: String(p.value) }); });
-    } else if (pt.agreementBonus) {
-      cells.push({ label: "Sign-on bonus", value: String(pt.agreementBonus) });
+      aiPerks.forEach((p) => perkRows.push({ icon: pickPerkIcon(p.label), k: String(p.label), v: String(p.value) }));
+    } else {
+      if (pt.incomeGuarantee) perkRows.push({ icon: AT_ICON_SHIELD_SVG, k: "Income guarantee", v: String(pt.incomeGuarantee) });
+      if (pt.agreementBonus) perkRows.push({ icon: AT_ICON_GIFT_SVG, k: "Sign-on bonus", v: String(pt.agreementBonus) });
     }
-    if (pt.visaSponsorship) cells.push({ label: "Visa", value: "Sponsorship available" });
-    if (pt.supervision) cells.push({ label: "Supervision", value: "Available" });
-    cells.push({ label: "Role type", value: role.roleType || "Permanent" });
-    cells.push({ label: "Location", value: role.locationLine || role.location || "Australia" });
+    // Only add a distinct Billing row when the headline is occupied by the
+    // split percentage — otherwise the headline is already showing role.billing.
+    if (splitPct) perkRows.push({ icon: AT_ICON_BILLING_SVG, k: "Billing", v: role.billing || "Billing on request" });
+
     return '<div class="at-sech">The package</div>' +
-      '<div class="at-earnrow at-rv at-rv2">' +
-      cells.map((cell) =>
-        '<div class="at-cell"><span>' + escapeHtml(cell.label) + '</span><b>' + escapeHtml(cell.value) + '</b></div>'
-      ).join("") +
+      '<div class="at-headline at-rv at-rv2">' +
+        headlineCells.map((c) =>
+          '<div class="at-headline-cell"><div class="at-headline-k">' + escapeHtml(c.k) + '</div>' +
+          '<div class="at-headline-v">' + escapeHtml(c.v) + (c.note ? '<small> ' + escapeHtml(c.note) + '</small>' : "") + '</div></div>'
+        ).join("") +
+      '</div>' +
+      (perkRows.length
+        ? '<div class="at-panel at-rv at-rv2">' +
+            perkRows.map((r) =>
+              '<div class="at-prow"><span class="at-prow-ic">' + r.icon + '</span><div><div class="at-prow-k">' + escapeHtml(r.k) + '</div><div class="at-prow-v">' + escapeHtml(r.v) + '</div></div></div>'
+            ).join("") +
+          '</div>'
+        : "");
+  }
+
+  // Redesign (2026-07): "The practice" facts panel — DPA / Supervision /
+  // Visa / Team, blue-icon rows. Only rows whose data actually exists are
+  // rendered; nothing here is invented. role.dpa is always a boolean on the
+  // client payload (never undefined) so that row always shows.
+  function buildPracticeFactsHtml(role) {
+    const pt = (role && role.packageTerms && typeof role.packageTerms === "object") ? role.packageTerms : {};
+    const rows = [];
+    if (typeof role.dpa === "boolean") {
+      rows.push({
+        icon: AT_ICON_DPA_SVG,
+        k: "Distribution Priority Area",
+        v: role.dpa ? "Yes — open to overseas-trained GPs" : "No"
+      });
+    }
+    if (pt.supervision) {
+      rows.push({ icon: AT_ICON_SUPERVISION_SVG, k: "Supervision", v: String(pt.supervision) });
+    }
+    if ((role && role.visa) || pt.visaSponsorship) {
+      rows.push({ icon: AT_ICON_VISA_SVG, k: "Visa", v: "Sponsorship available" });
+    }
+    const teamLine = buildRoleTeamLine(role);
+    if (teamLine) {
+      rows.push({ icon: AT_ICON_TEAM_SVG, k: "Team", v: teamLine });
+    }
+    if (!rows.length) return "";
+    return '<div class="at-sech">The practice</div>' +
+      '<div class="at-panel at-rv at-rv3">' +
+        rows.map((r) =>
+          '<div class="at-prow"><span class="at-prow-ic">' + r.icon + '</span><div><div class="at-prow-k">' + escapeHtml(r.k) + '</div><div class="at-prow-v">' + escapeHtml(r.v) + '</div></div></div>'
+        ).join("") +
       '</div>';
+  }
+
+  // Only surfaces a "Team" line when the current role payload actually
+  // carries team-size/tenure/nursing data — none of these fields exist on
+  // job.html's client payload today, so this returns "" for every current
+  // role. Checked defensively (not invented) so the row appears the moment
+  // the payload gains them, without a code change here.
+  function buildRoleTeamLine(role) {
+    const team = (role && role.team && typeof role.team === "object") ? role.team : null;
+    const gpCount = (team && team.gpCount) || (role && role.gpCount) || (role && role.teamGpCount);
+    const years = (team && team.yearsOperating) || (role && role.yearsOperating);
+    const nursing = (team && typeof team.nursingOnSite === "boolean")
+      ? team.nursingOnSite
+      : (role && typeof role.nursingOnSite === "boolean" ? role.nursingOnSite : null);
+    const parts = [];
+    if (gpCount) parts.push(Number(gpCount) + (Number(gpCount) === 1 ? " GP" : " GPs"));
+    if (nursing === true) parts.push("nursing & allied health on site");
+    if (years) parts.push("established " + years + (/year/i.test(String(years)) ? "" : " years"));
+    return parts.join(" · ");
   }
 
   function buildBenefitsHtml(role) {
@@ -2469,14 +2672,19 @@
         ? role.aiAbout
         : (role.summary || "A well-established practice partnered with GP Link. Structured onboarding, a supportive team and a stable patient base.")
     );
+    // Redesign (2026-07) order: name-on-acceptance dropdown FIRST (directly
+    // under the hero) -> urgency (unchanged) -> The package -> About (now
+    // ABOVE the practice facts) -> benefits -> The practice facts panel ->
+    // video -> map -> match -> support.
     dbodyEl.innerHTML =
       (isApplied(role.id) ? buildReceivedHtml() : "") +
+      buildPracticeIdentityHtml(role) +
       buildUrgencyHtml(role) +
       buildPackageCellsHtml(role) +
-      '<div class="at-sech">About the role</div>' +
+      '<div class="at-sech">About the practice &amp; area</div>' +
       '<div class="at-intro at-rv at-rv3">' + escapeHtml(summary) + ' <em>The full profile unlocks as your application progresses.</em></div>' +
       buildBenefitsHtml(role) +
-      buildPracticeIdentityHtml(role) +
+      buildPracticeFactsHtml(role) +
       buildIntroVideoHtml(role) +
       buildMapHtml(role) +
       buildMatchBannerHtml(role) +

@@ -74,11 +74,20 @@
 
   .job-profile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
   .job-profile h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
-  .job-profile-rows{display:grid;gap:10px;margin-bottom:16px;}
-  .job-profile-row{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--mut);}
-  .job-profile-row b{color:var(--ink-2);font-weight:650;}
-  .job-profile-map{border-radius:12px;overflow:hidden;border:1px solid var(--line);}
+  .job-profile-rows{display:block;margin-bottom:16px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .job-profile-row{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);}
+  .job-profile-row:last-child{border-bottom:0;}
+  .job-profile-row .rico{width:30px;height:30px;border-radius:8px;background:#eef3ff;color:#2f6bff;display:grid;place-items:center;flex:none;margin-top:1px;}
+  .job-profile-row .rico svg{display:block;}
+  .job-profile-row .rtext{display:flex;flex-direction:column;gap:1px;}
+  .job-profile-row .rk{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut);font-weight:700;}
+  .job-profile-row .rv{font-size:14.5px;font-weight:650;color:var(--ink-2);}
+  .job-profile-map{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
   .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
+  .job-profile-map .map-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);z-index:1;pointer-events:none;}
+  .job-profile-map .map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);z-index:2;pointer-events:none;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
+  .job-profile-map .map-label{position:absolute;left:50%;top:calc(50% + 13px);transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;z-index:2;pointer-events:none;}
+  .job-profile-mapnote{font-size:11px;color:var(--mut);margin:8px 0 0;}
 
   .job-handles{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
   .job-handles h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
@@ -172,7 +181,11 @@
             <div class="job-profile-rows" id="jobProfileRows"></div>
             <div class="job-profile-map" id="jobProfileMap" hidden>
               <iframe id="jobProfileMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Suburb map"></iframe>
+              <span class="map-ring"></span>
+              <span class="map-pin"><svg width="28" height="37" viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2f6bff"/><circle cx="15" cy="15" r="6" fill="white"/></svg></span>
+              <span class="map-label" id="jobProfileMapLabel"></span>
             </div>
+            <p class="job-profile-mapnote">Pinned to the suburb — the exact address is shared once there's mutual interest.</p>
           </div>
 
           <div class="job-handles">
@@ -363,12 +376,19 @@
     }
 
     profileRowsEl.innerHTML = rows.map(function (row) {
-      return '<div class="job-profile-row"><span>' + escapeHtml(row[0]) + '</span><b>' + escapeHtml(row[1]) + '</b></div>';
+      return '<div class="job-profile-row"><span class="rico">' + profileRowIcon(row[0]) + '</span>' +
+        '<span class="rtext"><span class="rk">' + escapeHtml(row[0]) + '</span>' +
+        '<span class="rv">' + escapeHtml(row[1]) + '</span></span></div>';
     }).join('');
 
     if (job.suburb) {
+      // Suburb-level embed centred on the suburb; the pin/ring/label overlay
+      // sits at map centre, so it always marks the suburb and stays put as the
+      // visitor pans the iframe (never the exact address — public site).
       var mapQuery = job.suburb + (job.location_state ? ' ' + job.location_state : '');
-      profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=12&output=embed';
+      profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=13&output=embed';
+      var mapLabelEl = document.getElementById('jobProfileMapLabel');
+      if (mapLabelEl) mapLabelEl.textContent = job.suburb + (job.location_state ? ', ' + job.location_state : '');
       profileMapWrap.hidden = false;
     } else {
       profileMapWrap.hidden = true;
@@ -376,6 +396,21 @@
     }
 
     profileWrap.hidden = false;
+  }
+
+  // Blue app icons for the practice-profile rows, keyed by label. Falls back to
+  // a small dot. Matches the in-app job page's icon set.
+  function profileRowIcon(label) {
+    var l = String(label || '').toLowerCase();
+    var A = 'width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+    if (l.indexOf('dpa') !== -1 || l.indexOf('monash') !== -1) return '<svg ' + A + '><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>';
+    if (l.indexOf('billing') !== -1) return '<svg ' + A + '><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6"/></svg>';
+    if (l.indexOf('income') !== -1 || l.indexOf('guarantee') !== -1) return '<svg ' + A + '><path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>';
+    if (l.indexOf('reloc') !== -1 || l.indexOf('sign-on') !== -1 || l.indexOf('bonus') !== -1) return '<svg ' + A + '><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>';
+    if (l.indexOf('accom') !== -1) return '<svg ' + A + '><path d="M3 10l9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M10 20v-6h4v6"/></svg>';
+    if (l.indexOf('visa') !== -1) return '<svg ' + A + '><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>';
+    if (l.indexOf('supervis') !== -1) return '<svg ' + A + '><path d="M6 3v6a4 4 0 0 0 8 0V3"/><path d="M6 3H4.5M14 3h1.5"/><path d="M10 13v2a5 5 0 0 0 10 0v-1"/><circle cx="20" cy="11" r="2"/></svg>';
+    return '<svg ' + A + '><circle cx="12" cy="12" r="4"/></svg>';
   }
 
   function renderJob(job, allJobs) {
