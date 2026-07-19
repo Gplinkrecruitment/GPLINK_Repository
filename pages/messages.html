@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Support - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
-  <script src="/js/nav-shell-bridge.js?v=20260608a"></script>
+  <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
   <script src="/js/gp-coach.js?v=20260711a" defer></script>
@@ -199,8 +199,6 @@
     .faq-icon svg { width: 18px; height: 18px; stroke: var(--gp-blue); fill: none; stroke-width: 2; }
     .faq-info { flex: 1; min-width: 0; }
     .faq-title { font-size: 14px; font-weight: 600; color: var(--gp-ink); margin: 0; }
-    .faq-views { font-size: 12px; color: var(--gp-muted); font-weight: 500; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
-    .faq-views svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2; }
     .faq-chevron { width: 20px; height: 20px; color: var(--gp-faint); transition: transform .2s; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 2; }
     .faq-item.expanded .faq-chevron { transform: rotate(180deg); }
     .faq-body { display: none; padding: 0 16px 16px; font-size: 13px; color: var(--gp-text); line-height: 1.6; font-weight: 500; }
@@ -240,8 +238,6 @@
       letter-spacing: -0.01em; line-height: 1.3; margin: 0;
     }
     .article-card-desc { font-size: 12px; color: var(--gp-muted); font-weight: 500; line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .article-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--gp-faint); font-weight: 600; }
-    .article-card-meta svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; }
 
     .article-detail { display: none; }
     .article-detail.open { display: block; }
@@ -790,11 +786,11 @@
     const DOC_KEY = "gp_documents_prep";
 
     const FAQ_ITEMS = [
-      { id:"faq1", title:"Getting started guide", views:234, content:"Welcome to GP Link! Start by completing your registration in the onboarding wizard. You'll need to verify your qualifications, set up your MyIntealth account, and upload your documents. Each step is guided \u2013 follow the prompts and you'll be set up in no time." },
-      { id:"faq2", title:"Troubleshooting payment issue", views:534, content:"Common causes of payment issues include:\n\n\u2022 Expired credit card\n\u2022 Insufficient funds\n\u2022 Bank security blocks on international transactions\n\u2022 Incorrect billing details\n\nIf you continue to experience issues, contact your bank first, then reach out to our support team with your transaction reference number." },
-      { id:"faq3", title:"How to upload documents", views:412, content:"Navigate to My Documents from the main menu. Click on the document you need to upload, then either take a photo using your camera or select a file from your device. Supported formats: PDF, JPG, PNG, WEBP. Maximum file size is 10MB. Ensure documents are clear and all text is legible." },
-      { id:"faq4", title:"Understanding your registration steps", views:328, content:"Your registration follows four main stages: 1) MyIntealth/EPIC account setup, 2) AMC Portfolio submission, 3) Document collection and verification, 4) AHPRA registration. Each stage has sub-steps that you can track from your dashboard. Green means complete, blue means in progress, and grey means pending." },
-      { id:"faq5", title:"Contacting your GP Link advisor", views:189, content:"Your GP Link advisor is assigned once you complete the onboarding process. You can reach them through the Support section by creating a ticket, or check your Messages for any updates they've sent. For urgent matters, mark your ticket as urgent and our team will prioritise your request." }
+      { id:"faq1", title:"Getting started guide", content:"Welcome to GP Link! Start by completing your registration in the onboarding wizard. You'll need to verify your qualifications, set up your MyIntealth account, and upload your documents. Each step is guided \u2013 follow the prompts and you'll be set up in no time." },
+      { id:"faq2", title:"Troubleshooting payment issue", content:"Common causes of payment issues include:\n\n\u2022 Expired credit card\n\u2022 Insufficient funds\n\u2022 Bank security blocks on international transactions\n\u2022 Incorrect billing details\n\nIf you continue to experience issues, contact your bank first, then reach out to our support team with your transaction reference number." },
+      { id:"faq3", title:"How to upload documents", content:"Navigate to My Documents from the main menu. Click on the document you need to upload, then either take a photo using your camera or select a file from your device. Supported formats: PDF, JPG, PNG, WEBP. Maximum file size is 10MB. Ensure documents are clear and all text is legible." },
+      { id:"faq4", title:"Understanding your registration steps", content:"Your registration follows four main stages: 1) MyIntealth/EPIC account setup, 2) AMC Portfolio submission, 3) Document collection and verification, 4) AHPRA registration. Each stage has sub-steps that you can track from your dashboard. Green means complete, blue means in progress, and grey means pending." },
+      { id:"faq5", title:"Contacting your GP Link advisor", content:"Your GP Link advisor is assigned once you complete the onboarding process. You can reach them through the Support section by creating a ticket, or check your Messages for any updates they've sent. For urgent matters, mark your ticket as urgent and our team will prioritise your request." }
     ];
 
     const HELP_ARTICLES = [
@@ -806,7 +802,6 @@
         tagColor: "#6d28d9",
         bg: "linear-gradient(135deg, #4c1d95, #8b5cf6)",
         icon: "globe",
-        views: 1842,
         desc: "Stronger earning potential, better lifestyle and a clearer pathway into Australian general practice.",
         content: "More UK GPs are looking at Australia because the opportunity is no longer just theoretical. For eligible doctors, the move has become more realistic, more attractive and more achievable than it has been in years.\n\nMany GPs in the UK are highly experienced, clinically capable and deeply committed to patient care, yet they often feel limited by the structure around them. Heavy workload, increasing demand, administrative pressure and limited flexibility can make general practice feel more draining than rewarding. Australia gives many doctors the chance to practise medicine in an environment where their experience is valued and where the lifestyle outside work can be significantly better.\n\nAustralian general practice offers strong demand for quality GPs across cities, coastal towns, suburban growth areas and regional communities. Practices are actively looking for doctors who can build relationships with patients, provide continuity of care and support local communities. For UK-trained GPs, this creates a strong opening.\n\nOne of the biggest attractions is that Australian general practice can offer greater control. In many clinics, doctors work as independent contractors and earn a percentage of billings. This means income can be linked more directly to the work you do, the patient base you build and the practice you join. For motivated GPs, that can be a major shift from fixed or capped earning structures.\n\nThe lifestyle is also a major factor. Australia offers warmer weather, outdoor living, beaches, space, good schools and family-friendly communities. For doctors moving with children, the appeal is not just professional. It is about giving the whole family a different quality of life.\n\nThe Expedited Specialist Pathway has added momentum to this trend. For eligible GPs with recognised specialist qualifications, there is now a more direct registration route into Australian specialist practice. That has made the move feel less distant and more practical.\n\nGP Link helps make that move easier. We connect overseas-trained GPs with Australian practices that are actively recruiting and serious about supporting the transition."
       },
@@ -818,7 +813,6 @@
         tagColor: "#1d4ed8",
         bg: "linear-gradient(135deg, #1e40af, #3b82f6)",
         icon: "sun",
-        views: 1534,
         desc: "Lifestyle, income potential, flexibility and long-term opportunity for overseas GPs.",
         content: "Moving to Australia as a GP is not simply about accepting a position in a different country. It is about choosing a different professional environment, a different lifestyle and a different long-term future.\n\nFor many overseas-trained GPs, Australia offers the combination they have been looking for: strong clinical demand, attractive income potential, professional flexibility and a lifestyle that supports life outside the clinic.\n\nAustralian general practice is built around community need. Across the country, practices are looking for experienced doctors who can support growing patient bases. Some clinics have full books. Others have long waiting times. Many communities simply need more GPs. This creates a strong opportunity for doctors who are ready to relocate and commit.\n\nThe opportunity is not only financial, but the financial side can be compelling. In many Australian practices, GPs are paid based on billings rather than a fixed salary. That means your earning potential can reflect your patient load, working hours, billing model and the strength of the clinic you join.\n\nAustralia also gives GPs choice. You may want to work near the beach, in a major city, in a family-focused suburb or in a regional community where demand is high. The right choice depends on your goals, but the range of options is one of Australia\u2019s biggest strengths.\n\nThe Expedited Specialist Pathway has made this opportunity more accessible for eligible GPs. Doctors with recognised qualifications may now have a clearer route to specialist registration, making Australia a more practical option than before.\n\nAustralia offers more than a role. For the right doctor, it offers a genuine upgrade."
       },
@@ -830,7 +824,6 @@
         tagColor: "#1d4ed8",
         bg: "linear-gradient(135deg, #1e3a5f, #0ea5e9)",
         icon: "clipboard",
-        views: 2247,
         desc: "A clearer registration route has made Australia a more realistic option for eligible overseas GPs.",
         content: "For many overseas-trained GPs, Australia has always been attractive. The lifestyle, income potential and demand for doctors were already strong. What has changed is that the pathway is now clearer for eligible doctors.\n\nThe Expedited Specialist Pathway has created a more direct route for certain internationally trained specialists, including eligible GPs with recognised qualifications. This matters because uncertainty is one of the biggest reasons doctors delay the move. When the process feels unclear, it is easy to put the idea aside. When the pathway becomes more structured, Australia becomes a serious and realistic option.\n\nFor eligible GPs from countries such as the United Kingdom, Ireland and New Zealand, this pathway can make the move more achievable. It gives suitable doctors a clearer way to progress towards specialist registration in Australia and begin planning their move with greater confidence.\n\nThe impact is significant. Australian practices are actively looking for experienced GPs, and many are ready to speak with doctors who are serious about relocating. The combination of strong demand and a clearer registration pathway creates a window of opportunity.\n\nThe pathway still requires the right process, but it should not be viewed as a reason to hesitate. It should be viewed as a reason to start. With the right guidance, the steps can be managed in a structured and practical way.\n\nGP Link helps doctors move from interest to action. We help identify suitable practices, explain the process in clear terms and connect GPs with employers that understand overseas recruitment."
       },
@@ -842,7 +835,6 @@
         tagColor: "#1d4ed8",
         bg: "linear-gradient(135deg, #0f172a, #334155)",
         icon: "stethoscope",
-        views: 1678,
         desc: "UK-trained GPs are highly valued for their training, experience and ability to support high-demand communities.",
         content: "Australian medical practices are actively looking for experienced, reliable and patient-focused GPs. UK-trained doctors are often seen as a strong fit for exactly that reason.\n\nGeneral practice in Australia is built on continuity of care, communication, clinical judgement and the ability to manage a wide range of presentations. UK GPs usually bring strong experience in all of these areas. Many have worked in demanding environments, managed complex patients, handled high consultation volumes and developed strong communication skills across diverse patient groups.\n\nThat experience is valuable in Australia.\n\nMany Australian practices are under pressure from patient demand. Clinics in growth suburbs, coastal communities and regional centres often need more doctors to meet local demand. In some practices, patients are waiting days or weeks for appointments.\n\nPractices want doctors who can settle, build trust and stay long enough to become part of the community. They are not simply looking for short-term coverage. They want clinicians who can contribute to the long-term strength of the practice.\n\nUK-trained GPs are attractive because their clinical background is usually familiar, their communication style often transfers well and their training is respected. For eligible doctors, the Expedited Specialist Pathway has made the process even more appealing.\n\nGP Link helps connect UK-trained GPs with Australian practices that are actively recruiting. If you are a UK GP considering Australia, the demand is not theoretical. Practices are looking for doctors like you."
       },
@@ -854,7 +846,6 @@
         tagColor: "#be185d",
         bg: "linear-gradient(135deg, #9d174d, #ec4899)",
         icon: "sun",
-        views: 1963,
         desc: "Australia offers GPs a lifestyle built around flexibility, outdoor living, family time and career opportunity.",
         content: "One of the biggest reasons GPs consider Australia is lifestyle. The weather is warmer, the days feel more open, and life outside work can be easier to enjoy.\n\nFor many doctors, this matters. A career in medicine can be demanding anywhere in the world, but the environment around that career makes a major difference. Australia gives many GPs the chance to combine meaningful clinical work with a lifestyle that feels healthier, more flexible and more sustainable.\n\nImagine finishing work and still having time for the beach, a walk, sport, family dinner outdoors or a weekend away. For doctors moving with children, the appeal can be even stronger. Australia offers space, schools, parks, coastal towns, major cities and family-focused communities.\n\nBut the lifestyle is only part of the story. Australia is attractive because it also offers professional opportunity. Doctors are not moving only for sunshine. They are moving because practices need GPs, patient demand is strong and the right role can offer excellent earning potential.\n\nThis combination is what makes Australia different. You do not have to choose between lifestyle and career. In the right practice, you can have both.\n\nMany GPs also appreciate the flexibility of Australian general practice. Depending on the clinic, you may have more control over your sessions, working pattern, billing style and clinical focus.\n\nGP Link helps doctors compare these options properly. We do not just look at the job title. We look at the practice, location, demand, earning potential and lifestyle fit."
       },
@@ -866,7 +857,6 @@
         tagColor: "#a16207",
         bg: "linear-gradient(135deg, #92400e, #f59e0b)",
         icon: "dollar",
-        views: 2804,
         desc: "Australian general practice can offer strong earning potential, especially in high-demand clinics.",
         content: "Earning potential is one of the strongest reasons GPs consider Australia.\n\nAustralian general practice often works differently from the UK. Instead of a traditional fixed salary model, many GPs work as independent contractors and receive a percentage of their billings. This creates a more direct relationship between the work you do and the income you can generate.\n\nFor experienced GPs, this can be highly attractive.\n\nIn a busy clinic with strong patient demand, good systems and a supportive team, doctors can build substantial income. Your earnings may be influenced by patient numbers, consultation style, billing model, hours worked and the percentage of billings agreed with the practice.\n\nSome clinics operate as mixed billing practices, where some patients are bulk billed and others pay a private fee. Others operate with a stronger private billing structure. These models can create different earning outcomes, and choosing the right practice is essential.\n\nThe highest advertised percentage is not always the best opportunity. A clinic offering a strong percentage but limited patient demand may not produce the best result. A clinic with slightly different terms but full books, strong patient loyalty and excellent support may be far more valuable.\n\nGP Link helps overseas GPs understand the real opportunity behind each role. We look at the practice, patient demand, billing model, service fee and location so you can make a confident decision."
       },
@@ -878,7 +868,6 @@
         tagColor: "#c2410c",
         bg: "linear-gradient(135deg, #9a3412, #fb923c)",
         icon: "calendar",
-        views: 1456,
         desc: "Strong demand, clearer registration and attractive lifestyle make now a compelling time to move.",
         content: "Timing can make a major difference when moving countries.\n\nFor eligible GPs, now is a strong time to consider Australia because three important factors are aligning: strong demand from practices, attractive lifestyle and income opportunities, and a clearer registration route through the Expedited Specialist Pathway.\n\nAustralian practices need doctors. Many clinics are actively looking for GPs who can join their teams, support patient demand and build long-term relationships in the community. This demand exists across different types of locations, from major cities and outer suburbs to coastal towns and regional centres.\n\nAt the same time, many overseas GPs are reconsidering what they want from their career. Doctors who have spent years under pressure are looking for more flexibility, better income potential and a lifestyle that supports their family and wellbeing.\n\nAustralia answers that need better than many other destinations.\n\nStarting early is important. The best roles do not always stay open indefinitely. Practices with strong patient demand, good locations and supportive teams will attract interest. Doctors who engage early are better positioned to access better options, compare practices and make a decision without rushing.\n\nGP Link helps doctors act at the right time. We connect GPs with practices that are actively recruiting now and help them understand what the move could look like."
       },
@@ -890,7 +879,6 @@
         tagColor: "#15803d",
         bg: "linear-gradient(135deg, #166534, #22c55e)",
         icon: "stethoscope",
-        views: 1891,
         desc: "Greater flexibility, autonomy and earning potential for NHS GPs considering Australia.",
         content: "Many NHS GPs are exploring Australia because they want a different way to practise medicine.\n\nThe clinical work is still general practice. You will still care for patients, manage chronic disease, deal with uncertainty, build relationships and support communities. But the structure around the work can feel very different.\n\nAustralian general practice can offer more flexibility, more autonomy and a stronger link between work and reward. Many clinics operate with a billing model where GPs receive a percentage of what they bill. For doctors who are used to a more fixed system, this can feel like a major change.\n\nIt also gives doctors more control. Depending on the practice, you may have more say over your hours, appointment structure, clinical interests and working pattern. Some GPs choose to work intensively and maximise income. Others use the flexibility to create a better family balance.\n\nFor NHS doctors who feel stretched, Australia can offer a new environment without walking away from general practice itself. You can continue doing the medicine you are trained for, but in a system that may offer more commercial opportunity and lifestyle flexibility.\n\nAustralian practices often have strong support structures, including reception teams, nurses, treatment rooms, pathology services and allied health connections.\n\nMoving from the NHS to Australia is not about starting again. It is about taking your experience into a market where it is needed and valued."
       },
@@ -902,7 +890,6 @@
         tagColor: "#be185d",
         bg: "linear-gradient(135deg, #581c87, #a855f7)",
         icon: "users",
-        views: 1567,
         desc: "Lifestyle, schooling options and long-term opportunity for GPs relocating with family.",
         content: "For many GPs, moving to Australia is not an individual decision. It is a family decision.\n\nYou may be thinking about your spouse, children, schools, lifestyle, housing, long-term residency and whether the move will genuinely improve life for everyone involved.\n\nAustralia is attractive because it can offer both professional opportunity and family lifestyle. Many doctors move not only because they want a better role, but because they want their family to have more space, warmer weather, outdoor living and a different pace of life.\n\nFor children, Australia can offer access to schools, sport, beaches, parks and family-focused communities. For spouses or partners, the move can open new lifestyle and work opportunities depending on visa arrangements and personal circumstances.\n\nThe location you choose matters. Some families prefer major cities with more infrastructure and schooling options. Others are drawn to coastal towns, quieter suburbs or regional centres where the community feel is stronger and demand for GPs may be high.\n\nThe right practice should support not only your clinical work, but your transition into Australia. A good move should make sense professionally, financially and personally.\n\nGP Link helps doctors look at the full picture. We consider the practice, earning potential, location, family needs and long-term goals. For many GP families, the move is not just about working in Australia. It is about building a better future there."
       },
@@ -914,7 +901,6 @@
         tagColor: "#1d4ed8",
         bg: "linear-gradient(135deg, #0f172a, #334155)",
         icon: "shield",
-        views: 1345,
         desc: "The right practice can make a major difference to your income, support and long-term success.",
         content: "Choosing the right practice is one of the most important decisions you will make when moving to Australia as a GP.\n\nThe practice you join will affect your income, workload, supervision, patient base, support, contract terms, visa process, lifestyle and long-term satisfaction. This is why the decision should not be based on a single number or a location name alone.\n\nA strong Australian GP opportunity usually has several things working together: genuine patient demand, a supportive team, clear onboarding, fair commercial terms, good systems and a location that suits your life outside work.\n\nSome practices are very experienced in supporting overseas-trained doctors. They understand registration, supervision, onboarding, Medicare, provider numbers and the practical concerns doctors have when relocating. Others may be interested in recruiting but less prepared for what the process involves.\n\nThat difference matters.\n\nA well-prepared practice can help you settle faster, start work with more confidence and build your patient base more effectively. A poorly matched practice can create stress, uncertainty and delays.\n\nIncome is also closely linked to practice choice. A clinic with strong patient demand and good support can be far more valuable than a role that looks attractive on paper but does not have the patient flow to match.\n\nGP Link helps overseas-trained GPs compare opportunities properly. The right practice can set up your Australian career from day one."
       },
@@ -926,7 +912,6 @@
         tagColor: "#6d28d9",
         bg: "linear-gradient(135deg, #4c1d95, #8b5cf6)",
         icon: "map",
-        views: 1723,
         desc: "Cities, coastal towns and regional centres each offer different lifestyle and career benefits.",
         content: "One of the biggest advantages of moving to Australia as a GP is the range of locations available.\n\nYou may be drawn to a major city, a coastal lifestyle, a family-friendly suburb or a regional community with strong patient demand. Australia offers all of these options, and each can be attractive for different reasons.\n\nCity and metropolitan roles can offer convenience, schools, infrastructure, transport links and access to larger communities. For doctors who want to be close to major hospitals, universities, airports and established suburbs, this can be appealing.\n\nCoastal locations are often attractive for lifestyle reasons. Many GPs are drawn to the idea of living near the beach, spending more time outdoors and creating a better balance for their family. Coastal practices can also have strong local demand, especially in growing communities.\n\nRegional areas can offer some of the strongest opportunities. Many regional communities genuinely need more doctors, and GPs who are willing to consider these areas may find excellent patient demand, strong community connection and meaningful career satisfaction.\n\nIt is also important to understand that the most familiar location is not always the best opportunity. Many overseas GPs initially think only about Sydney, Melbourne, Brisbane or Perth. While these cities can offer good roles, some of the best GP opportunities may be in outer suburbs, coastal growth areas or regional centres.\n\nGP Link helps doctors explore the full range of options. Australia gives you choice. The right choice can shape your income, lifestyle and long-term success."
       },
@@ -938,7 +923,6 @@
         tagColor: "#a16207",
         bg: "linear-gradient(135deg, #78350f, #d97706)",
         icon: "dollar",
-        views: 2156,
         desc: "Australian GP income models give doctors more control over earnings through billings and practice choice.",
         content: "One of the most attractive parts of Australian general practice is the income model.\n\nIn many clinics, GPs work as independent contractors and receive a percentage of their billings. This means your earnings can be linked to the work you do, the patients you see and the practice environment you choose.\n\nFor many overseas-trained GPs, this is a major shift. Instead of feeling that your income is disconnected from your workload, Australian general practice can create a clearer relationship between effort, demand and reward.\n\nIf you join a busy clinic with strong patient demand, good support and an appropriate billing model, your earning potential can be significant. Doctors who build a loyal patient base, work efficiently and understand the Australian billing environment can do very well.\n\nThere are different billing models across Australia. Some practices are bulk billing, some are mixed billing and some are private billing. Each model has different implications for patient flow, consultation fees and income potential.\n\nMixed and private billing practices can be attractive for doctors who want stronger earning potential, but the real value depends on patient demand and clinic structure.\n\nMany practices may also offer an initial guarantee while a GP settles in. This can provide stability during the early stage while you build confidence in the Australian system and establish your patient base.\n\nFor doctors who want stronger earning potential and more control, Australian general practice can be a very attractive move."
       },
@@ -950,7 +934,6 @@
         tagColor: "#15803d",
         bg: "linear-gradient(135deg, #064e3b, #10b981)",
         icon: "users",
-        views: 1489,
         desc: "Strong demand across Australia creates meaningful opportunities for overseas-trained doctors.",
         content: "Australia needs experienced GPs.\n\nAcross the country, patients need access to general practice. Communities need continuity of care. Medical centres need doctors who can manage chronic disease, provide preventive care, support families and build trusted relationships over time.\n\nThis demand creates a strong opportunity for overseas-trained doctors.\n\nFor GPs from the UK, Ireland and New Zealand, Australia can be a natural fit. Your clinical training, communication skills and general practice experience are highly relevant. Many practices are actively looking for doctors who can transition into Australian general practice and contribute long term.\n\nThe need is not limited to one type of location. Demand exists in major cities, outer suburbs, regional towns and coastal communities. Some clinics need doctors because their patient base is growing. Others need replacement GPs because a long-standing doctor is retiring or relocating. In many cases, the demand is immediate.\n\nFor the right GP, this can mean stepping into a role where patients are already waiting, the practice is motivated and the opportunity to build quickly is strong.\n\nThe Expedited Specialist Pathway has made the opportunity more accessible for eligible doctors. With a clearer route into specialist registration, many experienced GPs can now look at Australia with more confidence.\n\nGP Link helps connect doctors with practices where the demand is real. If you are an experienced GP considering a move, Australia is actively looking for doctors with your skills."
       },
@@ -962,7 +945,6 @@
         tagColor: "#be185d",
         bg: "linear-gradient(135deg, #9d174d, #ec4899)",
         icon: "sun",
-        views: 1278,
         desc: "Strong career opportunity, flexible work options and a better lifestyle for overseas GPs.",
         content: "Life as a GP in Australia can be very different from what many overseas doctors are used to.\n\nThe clinical work remains familiar. You are still caring for patients, managing chronic disease, dealing with acute presentations, providing preventive care and building long-term relationships. But the environment around the work can feel more flexible, more commercially rewarding and more lifestyle-friendly.\n\nIn many Australian practices, GPs have the opportunity to choose their working sessions, develop areas of interest and build a patient base in a community that needs them. Depending on the practice, you may work alongside nurses, allied health, pathology, treatment room support and experienced administrative teams.\n\nYour week may feel more within your control. Some doctors choose to work full-time and maximise income. Others design a working pattern that leaves more room for family, travel, sport or outdoor living.\n\nThe lifestyle outside work is a major part of the appeal. Australia offers beaches, national parks, outdoor dining, warm weather, sport, space and family-friendly communities. For many doctors, the change is not just professional \u2014 it is personal.\n\nIncome can also be attractive. Because many GPs earn a percentage of billings, the right practice can offer strong financial upside.\n\nGP Link helps doctors understand what life in Australia could look like in practical terms. We help you compare practices, locations and opportunities so you can make a decision that supports both your career and your lifestyle."
       },
@@ -974,7 +956,6 @@
         tagColor: "#1d4ed8",
         bg: "linear-gradient(135deg, #1e40af, #3b82f6)",
         icon: "clipboard",
-        views: 934,
         desc: "GP Link connects overseas-trained GPs with Australian practices and guides them through the process.",
         content: "If you are a GP considering Australia, the best first step is to speak with someone who understands the process and the opportunities available.\n\nAustralia offers strong demand for experienced GPs, attractive earning potential, better lifestyle options and a clearer pathway for eligible doctors through the Expedited Specialist Pathway. But the quality of your move depends heavily on the practice you choose and the guidance you receive early.\n\nGP Link helps overseas-trained GPs connect with Australian medical practices that are actively looking for doctors.\n\nWe understand that moving countries is a major decision. You are not just choosing a job. You are choosing a practice, a community, a lifestyle, a visa pathway, a financial future and often a new life for your family.\n\nOur role is to make that decision clearer.\n\nWe help you understand which practices are recruiting, which locations may suit your goals, what the income model looks like and how the opportunity fits your situation. We also help practices understand your background so the process can move forward properly.\n\nThe right role can make a major difference. It can help you settle faster, earn sooner and build confidence in Australian general practice. It can also give your family a stronger foundation as you make the move.\n\nAustralia is ready for experienced GPs. Practices need doctors, communities need care and eligible overseas-trained GPs have a real opportunity to build something better.\n\nYour Australian GP journey can begin with one conversation."
       }
@@ -1260,7 +1241,6 @@
         <div class="article-detail-body">
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
             <span class="article-card-tag" style="--tag-bg:${article.tagBg};--tag-color:${article.tagColor};">${escapeHtml(article.tag)}</span>
-            <span style="font-size:12px;color:var(--gp-faint);font-weight:600;">${article.views} views</span>
           </div>
           ${paragraphs}
         </div>
@@ -1280,7 +1260,6 @@
             <div class="faq-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
             <div class="faq-info">
               <p class="faq-title">${escapeHtml(a.title)}</p>
-              <p class="faq-views"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${a.views} views</p>
             </div>
             <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
@@ -1310,10 +1289,6 @@
             <span class="article-card-tag" style="--tag-bg:${a.tagBg};--tag-color:${a.tagColor};">${escapeHtml(a.tag)}</span>
             <p class="article-card-title">${escapeHtml(a.title)}</p>
             <p class="article-card-desc">${escapeHtml(a.desc)}</p>
-            <div class="article-card-meta">
-              <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <span>${a.views} views</span>
-            </div>
           </div>
         </div>
       `).join("");

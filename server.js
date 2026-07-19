@@ -12972,7 +12972,8 @@ function serveStatic(req, res, pathname) {
     return;
   }
   // Allowlist gate: reject anything outside the public static roots with a 404
-  // (a plain "not found", so we don't confirm which backend files exist).
+  // (the same 404 a missing file gets, so we don't confirm which backend
+  // files exist).
   if (!isPubliclyServablePath(filePath)) {
     respondNotFound(req, res, pathname);
     return;
@@ -62816,6 +62817,9 @@ async function handleRequest(req, res) {
     pathname === '/pages/privacy.html' ||
     pathname === '/pages/terms.html' ||
     pathname === '/pages/blog.html' ||
+    // Friendly 404 page (2026-07-20 audit): must load for anonymous visitors
+    // too — a signed-out typo'd URL should not bounce the 404 page to signin.
+    pathname === '/pages/not-found.html' ||
     pathname.startsWith('/media/images/') ||
     pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
