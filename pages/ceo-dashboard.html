@@ -6650,10 +6650,12 @@
       return null;
     }
     var _ceoReviewDocObjUrl = null;
+    var _ceoReviewSuggested = ''; // the AI-derived note pre-filled into the box (for the reject-confirm check)
     function ceoReviewFlaggedDoc(taskId) {
       var t = findCeoTask(taskId) || {};
       // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
       var ceoReason = t.description || t.ai_match_reasoning || '';
+      _ceoReviewSuggested = ceoReason; // suggested note the reviewer can send as-is or edit
       var html = '<div class="modal-title">' + esc(t.title || 'Review flagged document') + '</div>';
       if (ceoReason) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(ceoReason) + '</div>';
       html += '<div id="ceoReviewDocPreview" style="min-height:120px;max-height:52vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
@@ -6693,6 +6695,11 @@
       var note = noteEl ? noteEl.value.trim() : '';
       if (decision === 'reject' && !note) { if (err) { err.textContent = 'A reason is required to reject — the GP will see it.'; err.style.display = 'block'; } return; }
       if (err) err.style.display = 'none';
+      // When rejecting while STILL using the suggested (AI-derived) message unedited, confirm —
+      // the AI can be wrong, and the GP receives exactly this text.
+      if (decision === 'reject' && _ceoReviewSuggested && note === String(_ceoReviewSuggested).trim()) {
+        if (!confirm('You’re about to email the GP this suggested message and reject the document.\n\nThe AI can make mistakes — please double-check the message reads correctly and that its findings are actually right. The GP receives EXACTLY what is in the box.\n\nSend this message and reject?')) return;
+      }
       var ap = document.getElementById('ceoReviewDocApprove'), rj = document.getElementById('ceoReviewDocReject');
       if (ap) ap.disabled = true; if (rj) rj.disabled = true;
       apiFetch('/api/admin/va/task/review-flagged-doc', {
