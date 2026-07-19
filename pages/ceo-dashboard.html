@@ -7281,7 +7281,11 @@
       html += callStatusPill(c.status);
       if (c.stage) html += '<span class="pill pill-muted">' + esc(STAGE_LABELS[c.stage] || c.stage) + '</span>';
       html += '<span class="ceo-gp-call-time">' + esc(timeLabel) + '</span>';
-      if (c.zoom_join_url && ['booked', 'invited'].indexOf((c.status || '').toLowerCase()) !== -1) {
+      // F8 (audit 2026-07-20): booked-only, matching admin.html's per-GP calls
+      // card. A zoom_join_url only ever exists once the Calendly webhook flips
+      // the row to 'booked' (the same PATCH writes both), and a reschedule back
+      // to 'invited' nulls it — so the old 'invited' branch could never fire.
+      if (c.zoom_join_url && (c.status || '').toLowerCase() === 'booked') {
         html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
       }
       html += '</div>';

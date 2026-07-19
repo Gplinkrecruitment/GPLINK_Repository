@@ -43495,14 +43495,17 @@ async function handleApi(req, res, pathname) {
         if (body.targetDate) profileUpdate.target_arrival_date = body.targetDate;
         if (body.whoMoving) profileUpdate.who_moving = body.whoMoving;
         if (body.childrenCount) profileUpdate.children_count = body.childrenCount;
-        if (Object.keys(profileUpdate).length > 0) {
-          profileUpdate.onboarding_completed_at = new Date().toISOString();
-          await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: profileUpdate
-          });
-        }
+        // F7 (audit 2026-07-20): ALWAYS stamp completion. Previously the stamp
+        // only wrote when at least one optional profile field was present, so a
+        // GP completing with none was invisible to BOTH the Candidates board
+        // (keys on the stamp) and the Waitlist tab (keys on user_state).
+        // Optional fields above stay conditional.
+        profileUpdate.onboarding_completed_at = new Date().toISOString();
+        await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: profileUpdate
+        });
         // Optional "How did you hear about us?" (Phase 6 H2) — whitelisted keys
         // only; skipping the question never blocks onboarding (no value = no
         // write). Sent as a SEPARATE best-effort PATCH so a DB that doesn't
@@ -57556,11 +57559,15 @@ Return ONLY valid JSON with no markdown formatting:
     var nowMs = Date.now();
     var todayStr = new Date(nowMs).toISOString().slice(0, 10);
 
-    var [rosterRows, rsoCasesRes, rsoTasksRes] = await Promise.all([
-      loadRsoTeam({ includeInactive: false }),
+    // F6 (audit 2026-07-20): fetch the FULL roster (incl. inactive) so cases
+    // still owned by a deactivated RSO can be resolved to a name below; only
+    // ACTIVE roster rows seed the visible per-RSO cards.
+    var [fullRosterRows, rsoCasesRes, rsoTasksRes] = await Promise.all([
+      loadRsoTeam({ includeInactive: true }),
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
       supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=2000')
     ]);
+    var rosterRows = fullRosterRows.filter(function (r) { return r.active !== false; });
 
     var allCases = (rsoCasesRes.ok && Array.isArray(rsoCasesRes.data)) ? rsoCasesRes.data : [];
     var rsoTasks = (rsoTasksRes.ok && Array.isArray(rsoTasksRes.data)) ? rsoTasksRes.data : [];
@@ -57591,18 +57598,54 @@ Return ONLY valid JSON with no markdown formatting:
       };
     });
 
-    // Surface the unassigned bucket if computeRsoWorkload produced one (#32).
-    var un = workloadById['__unassigned__'];
-    if (un && un.case_count > 0) {
+    // F6 (audit 2026-07-20): computeRsoWorkload buckets by assigned_rso, so a
+    // case owned by an RSO who is NOT on the active roster used to appear in
+    // the Overview workload card (built includeInactive) but under NO row of
+    // this tab. Emit a row for each such bucket: resolved via the full roster
+    // when possible (active:false — the tab renderer labels those "(inactive)"
+    // and assignment dropdowns already skip them), else folded into Unassigned.
+    var fullRosterById = {};
+    for (var fri = 0; fri < fullRosterRows.length; fri++) { fullRosterById[fullRosterRows[fri].user_id] = fullRosterRows[fri]; }
+    var emittedRsoIds = {};
+    for (var eri = 0; eri < rsos.length; eri++) { emittedRsoIds[rsos[eri].rso_id] = true; }
+    var orphanUnassigned = { case_count: 0, open_tasks: 0, overdue_tasks: 0 };
+    for (var wbi = 0; wbi < workload.length; wbi++) {
+      var wb = workload[wbi];
+      if (wb.rso_id === '__unassigned__' || emittedRsoIds[wb.rso_id]) continue;
+      if (!(wb.case_count > 0 || wb.open_tasks > 0 || wb.overdue_tasks > 0)) continue;
+      var wbMeta = fullRosterById[wb.rso_id];
+      if (wbMeta) {
+        rsos.push({
+          rso_id: wb.rso_id,
+          rso_name: wbMeta.name || String(wb.rso_id),
+          email: wbMeta.email || '',
+          phone: wbMeta.phone || '',
+          active: false,
+          case_count: wb.case_count,
+          open_tasks: wb.open_tasks,
+          overdue_tasks: wb.overdue_tasks
+        });
+      } else {
+        orphanUnassigned.case_count += wb.case_count;
+        orphanUnassigned.open_tasks += wb.open_tasks;
+        orphanUnassigned.overdue_tasks += wb.overdue_tasks;
+      }
+    }
+
+    // Surface the unassigned bucket if computeRsoWorkload produced one (#32),
+    // including any orphaned buckets folded in above (F6).
+    var un = workloadById['__unassigned__'] || { case_count: 0, open_tasks: 0, overdue_tasks: 0 };
+    var unCaseCount = un.case_count + orphanUnassigned.case_count;
+    if (unCaseCount > 0) {
       rsos.push({
         rso_id: '__unassigned__',
         rso_name: 'Unassigned',
         email: '',
         phone: '',
         active: true,
-        case_count: un.case_count,
-        open_tasks: un.open_tasks,
-        overdue_tasks: un.overdue_tasks
+        case_count: unCaseCount,
+        open_tasks: un.open_tasks + orphanUnassigned.open_tasks,
+        overdue_tasks: un.overdue_tasks + orphanUnassigned.overdue_tasks
       });
     }
 
@@ -58025,8 +58068,13 @@ Return ONLY valid JSON with no markdown formatting:
 
     var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes, interviewCallsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=created_at.desc&limit=1000'),
-      supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=500'),
+      // F11a (audit 2026-07-20): cap must match the tasks drilldown (limit=10000
+      // there too) — the old limit=1000, ordered newest-first, silently dropped
+      // the OLDEST (= most overdue) open tasks from the KPI while the drilldown
+      // still listed them.
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=created_at.desc&limit=10000'),
+      // F11b (audit 2026-07-20): match the tickets drilldown cap (limit=1000).
+      supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=1000'),
       supabaseDbRequest('gp_applications', 'select=*'),
       supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled'),
       supabaseDbRequest('career_roles', 'select=id,practice_name,is_active'),
@@ -58388,7 +58436,10 @@ Return ONLY valid JSON with no markdown formatting:
       var tTaskList = [];
       if (tActiveCaseIds.length > 0) {
         // Fetch all open-work tasks for active cases, then bucket in JS via the lib (#1/#30)
-        var tQuery = 'select=*&case_id=in.(' + tActiveCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc';
+        // F11a (audit 2026-07-20): explicit cap kept IDENTICAL to the dashboard
+        // KPI fetch (limit=10000) so tile and drilldown can never diverge on a
+        // server-side row bound.
+        var tQuery = 'select=*&case_id=in.(' + tActiveCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc&limit=10000';
         var tTasksRes = await supabaseDbRequest('registration_tasks', tQuery);
         var tAllOpen = (tTasksRes.ok && Array.isArray(tTasksRes.data)) ? tTasksRes.data : [];
         if (tStatusFilter === 'overdue') {
@@ -59012,7 +59063,9 @@ Return ONLY valid JSON with no markdown formatting:
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
     var sbStatus = url.searchParams.get('status') || 'open';
-    var sbQuery = sbStatus === 'all' ? 'select=*&order=created_at.desc&limit=200' : 'select=*&status=eq.' + encodeURIComponent(sbStatus) + '&order=severity.asc,created_at.desc&limit=200';
+    // F11c (audit 2026-07-20): list cap aligned to the summary fetch below
+    // (limit=500) — the old limit=200 list under-showed what the summary counted.
+    var sbQuery = sbStatus === 'all' ? 'select=*&order=created_at.desc&limit=500' : 'select=*&status=eq.' + encodeURIComponent(sbStatus) + '&order=severity.asc,created_at.desc&limit=500';
     var sbRes = await supabaseDbRequest('system_bugs', sbQuery);
     var bugs = (sbRes.ok && Array.isArray(sbRes.data)) ? sbRes.data : [];
     // Summary
@@ -59134,13 +59187,15 @@ Return ONLY valid JSON with no markdown formatting:
     // source='client' also matches pre-migration NULL rows (default 'client').
     if (ceSource === 'server') ceFilters += '&source=eq.server';
     else if (ceSource === 'client') ceFilters += '&or=(source.eq.client,source.is.null)';
-    var ceQuery = 'select=' + ceSafeSelect + ',source' + ceFilters + '&order=last_seen_at.desc&limit=200';
+    // F11c (audit 2026-07-20): list cap aligned to the summary fetch below
+    // (limit=500) — the old limit=200 list under-showed what the summary counted.
+    var ceQuery = 'select=' + ceSafeSelect + ',source' + ceFilters + '&order=last_seen_at.desc&limit=500';
     var ceRes = await supabaseDbRequest('client_errors', ceQuery);
     if (!ceRes.ok) {
       // source column migration (20260706093000) not applied yet — fall back
       // to the legacy shape so the tab keeps working.
       ceRes = await supabaseDbRequest('client_errors',
-        'select=' + ceSafeSelect + (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus)) + '&order=last_seen_at.desc&limit=200');
+        'select=' + ceSafeSelect + (ceStatus === 'all' ? '' : '&status=eq.' + encodeURIComponent(ceStatus)) + '&order=last_seen_at.desc&limit=500');
     }
     // If BOTH attempts failed, the list is unknown — NOT empty. Returning [] here
     // rendered "Nothing here — no problems to look at" on top of a counter saying

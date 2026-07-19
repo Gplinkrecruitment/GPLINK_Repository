@@ -403,3 +403,117 @@ describe('archived exclusion + withdraw cancels scheduled_calls + placements fal
     expect(ids).not.toContain('appOffer');    // offers are not placements
   });
 });
+
+// ── Task 14 (F11/F6/F7): cap parity, inactive-RSO visibility, completion stamp ─
+describe('CEO leftovers: cap alignment, orphaned-RSO cases, unconditional completion stamp (Task 14)', () => {
+  beforeAll(() => {
+    // F11(a): 1001 open tasks on an active case — beyond the old KPI fetch cap
+    // (limit=1000, newest-first) that silently dropped the OLDEST open tasks
+    // while the drilldown still listed them all.
+    for (let i = 0; i < 1001; i++) {
+      db.registration_tasks.push({
+        id: 'volT' + i, case_id: 'c1', status: 'open', priority: 3,
+        title: 'Volume task ' + i, description: '', due_date: null,
+        related_stage: 'amc', created_at: ago(90 - (i % 80)), updated_at: ago(1)
+      });
+    }
+    // F11(b): 600 open tickets on an active GP — beyond the old dashboard
+    // tickets fetch cap (limit=500) but inside the drilldown's limit=1000.
+    for (let i = 0; i < 600; i++) {
+      db.support_tickets.push({
+        id: 'volTk' + i, user_id: 'u1', case_id: 'c1', title: 'Volume ticket ' + i,
+        category: 'general', priority: 'medium', status: 'open',
+        created_at: ago(3), resolved_at: null
+      });
+    }
+    // F11(c): 300 open system bugs + 300 open client errors — beyond the old
+    // list caps (limit=200) but inside each summary's limit=500.
+    if (!db.system_bugs) db.system_bugs = [];
+    if (!db.client_errors) db.client_errors = [];
+    for (let i = 0; i < 300; i++) {
+      db.system_bugs.push({
+        id: 'volSb' + i, status: 'open', severity: 'high', title: 'Bug ' + i,
+        description: '', created_at: ago(2)
+      });
+      db.client_errors.push({
+        id: 'volCe' + i, error_hash: 'hash-' + i, error_message: 'Boom ' + i,
+        error_stack: '', page_url: '/x', user_email: '', user_agent: '', browser_info: '',
+        user_context: '', occurrence_count: 1, status: 'open', source: 'client',
+        created_at: ago(1), first_seen_at: ago(1), last_seen_at: ago(1),
+        resolved_by: null, resolved_at: null
+      });
+    }
+    // F6: an INACTIVE roster RSO who still owns a fresh active case. The old
+    // handler built rows from the active roster only, so this case appeared in
+    // the Overview workload card but under NO row of the RSO tab.
+    db.rso_team.push({ user_id: 'rso-old', name: 'Departed RSO', email: 'departed@test.local', phone: '', active: false, on_leave: false, calendly_event_url: '' });
+    db.registration_cases.push({ id: 'c-oldrso', user_id: 'u-oldrso', stage: 'amc', status: 'active', assigned_rso: 'rso-old', assigned_va: null, last_gp_activity_at: ago(2), updated_at: ago(2), created_at: ago(30) });
+    db.user_profiles.push({ user_id: 'u-oldrso', email: 'oldrso-gp@test.local', first_name: 'Orphaned', last_name: 'GP', phone: '', account_status: 'active' });
+  });
+
+  it('F11a: open-tasks KPI equals the tasks drilldown even past 1000 open tasks', async () => {
+    const dash = await ceoGet('/api/ceo/dashboard');
+    expect(dash.status).toBe(200);
+    const drill = await ceoGet('/api/ceo/drilldown/tasks?status=all_open');
+    expect(drill.status).toBe(200);
+    // The 1001st-oldest open task must still be counted…
+    expect((drill.body.items || []).length).toBeGreaterThanOrEqual(1001);
+    // …and the KPI tile must agree with its own drilldown.
+    expect(dash.body.kpi.open_tasks).toBe((drill.body.items || []).length);
+  });
+
+  it('F11b: open-tickets KPI equals the tickets drilldown past 500 tickets', async () => {
+    const dash = await ceoGet('/api/ceo/dashboard');
+    const drill = await ceoGet('/api/ceo/drilldown/tickets?status=open');
+    expect((drill.body.items || []).length).toBeGreaterThanOrEqual(600);
+    expect(dash.body.tickets.open).toBe((drill.body.items || []).length);
+  });
+
+  it('F11c: technical system-bugs list is no longer capped below its own summary', async () => {
+    const r = await ceoGet('/api/ceo/technical/system-bugs?status=open');
+    expect(r.status).toBe(200);
+    expect(r.body.summary.open).toBeGreaterThanOrEqual(300);
+    expect((r.body.bugs || []).length).toBeGreaterThanOrEqual(300);
+  });
+
+  it('F11c: technical client-errors list is no longer capped below its own summary', async () => {
+    const r = await ceoGet('/api/ceo/technical/client-errors?status=open');
+    expect(r.status).toBe(200);
+    expect(r.body.summary.open).toBeGreaterThanOrEqual(300);
+    expect((r.body.errors || []).length).toBeGreaterThanOrEqual(300);
+  });
+
+  it('F6: a case owned by an INACTIVE roster RSO gets its own row (active:false)', async () => {
+    const r = await ceoGet('/api/ceo/rsos');
+    expect(r.status).toBe(200);
+    const row = (r.body.rsos || []).find((x) => x.rso_id === 'rso-old');
+    expect(row).toBeTruthy();
+    expect(row.active).toBe(false);
+    expect(row.rso_name).toContain('Departed RSO');
+    expect(row.case_count).toBe(1);
+  });
+
+  it('F6: a case owned by a REMOVED (non-roster) RSO folds into Unassigned', async () => {
+    const before = await ceoGet('/api/ceo/rsos');
+    const unBefore = ((before.body.rsos || []).find((x) => x.rso_id === '__unassigned__') || { case_count: 0 }).case_count;
+    db.registration_cases.push({ id: 'c-ghostrso', user_id: 'u-ghostrso', stage: 'amc', status: 'active', assigned_rso: 'rso-ghost', assigned_va: null, last_gp_activity_at: ago(2), updated_at: ago(2), created_at: ago(30) });
+    db.user_profiles.push({ user_id: 'u-ghostrso', email: 'ghostrso-gp@test.local', first_name: 'Ghost', last_name: 'GP', phone: '', account_status: 'active' });
+    const after = await ceoGet('/api/ceo/rsos');
+    const unAfter = ((after.body.rsos || []).find((x) => x.rso_id === '__unassigned__') || { case_count: 0 }).case_count;
+    expect(unAfter).toBe(unBefore + 1);
+    // No phantom row keyed by the unknown id.
+    expect((after.body.rsos || []).find((x) => x.rso_id === 'rso-ghost')).toBeFalsy();
+  });
+
+  it('F7: completing onboarding with ZERO optional fields still stamps onboarding_completed_at', async () => {
+    db.user_profiles.push({ user_id: 'u-stamp', email: 'stamp@test.local', first_name: 'Stamp', last_name: 'Me', phone: '', account_status: 'active' });
+    const r = await req('POST', '/api/onboarding/complete', {
+      cookie: gpCookie('stamp@test.local', 'u-stamp'),
+      body: {} // no country/preferredCity/targetDate/whoMoving/childrenCount
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-stamp');
+    expect(prof.onboarding_completed_at).toBeTruthy();
+  });
+});
