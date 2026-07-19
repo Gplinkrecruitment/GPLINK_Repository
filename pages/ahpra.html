@@ -1286,8 +1286,12 @@
     .gate-content {
       position: relative; z-index: 2;
       display: flex; flex-direction: column;
-      height: 100%;
-      padding: 0 24px;
+      /* 2026-07-20 audit: height:100% claimed the FULL gate height, so the
+         .gate-controls block below squeezed into / clipped the gate text at
+         mid-size viewports (1280x900). flex:1 + min-height:0 makes the content
+         take only the space left over once the CTA block's height is reserved. */
+      flex: 1 1 auto; min-height: 0;
+      padding: 0 24px 12px;
       max-width: 480px;
       margin: 0 auto; width: 100%;
       overflow-y: auto;
@@ -1320,6 +1324,9 @@
     /* -- Bottom controls -- */
     .gate-controls {
       position: relative; z-index: 2;
+      /* Never shrinks: the CTA block keeps its natural height and the text
+         column above scrolls instead of being overlapped (2026-07-20 audit). */
+      flex-shrink: 0;
       padding: 8px 24px calc(env(safe-area-inset-bottom, 8px) + 80px);
       display: flex; flex-direction: column;
       align-items: center; gap: 12px;
@@ -1400,7 +1407,7 @@
         mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 50%, transparent 100%);
       }
       .gate-content {
-        padding: 0 32px;
+        padding: 0 32px 12px;
         max-width: 560px;
         align-items: center;
         justify-content: center;

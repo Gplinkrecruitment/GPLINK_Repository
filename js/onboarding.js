@@ -730,6 +730,10 @@
   }
 
   // ── Support popup ──────────────────────────
+  // Sentinel docKey for the identity-verification step (step "identity check"),
+  // which stores its status on state.idVerification rather than state.qualDocs.
+  var ID_SUPPORT_KEY = "__identity__";
+
   function showSupportPopup(docLabel, docType, issues, docKey) {
     // Remove existing popup if any
     var existing = document.getElementById("qualSupportPopup");
@@ -748,7 +752,9 @@
       '</div>' +
       '<h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Manual Verification Required</h3>' +
       '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
-        'Due to discrepancies in your qualifications, our team will email you to manually verify your qualifications and resume onboarding.' +
+        (docKey === ID_SUPPORT_KEY
+          ? 'Since your ID document could not be verified automatically, our team will email you to verify your identity manually and resume onboarding.'
+          : 'Due to discrepancies in your qualifications, our team will email you to manually verify your qualifications and resume onboarding.') +
       '</p>' +
       '<button id="qualSupportSendBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;font-family:inherit;">Send Support Request</button>' +
       '<button id="qualSupportCloseBtn" type="button" style="width:100%;padding:12px;border:none;border-radius:12px;background:transparent;color:#64748b;font-size:14px;cursor:pointer;font-family:inherit;">Close</button>';
@@ -780,13 +786,19 @@
       .then(function (data) {
         if (data.ok) {
           // Mark doc as support_requested so user can continue onboarding
-          if (docKey && state.qualDocs && state.qualDocs[docKey]) {
+          if (docKey === ID_SUPPORT_KEY) {
+            // Identity step (2026-07-20 audit): same fallback the qual slots
+            // have — step-completion already accepts "support_requested".
+            state.idVerification = state.idVerification || {};
+            state.idVerification.status = "support_requested";
+          } else if (docKey && state.qualDocs && state.qualDocs[docKey]) {
             state.qualDocs[docKey].status = "support_requested";
           }
           state.accountReviewFlag = true;
           try { localStorage.setItem("gp_account_under_review", "true"); } catch (e) {}
           saveState();
-          renderQualDocSlots();
+          if (docKey === ID_SUPPORT_KEY) renderIdVerifyStatus();
+          else renderQualDocSlots();
 
           card.innerHTML =
             '<div style="width:56px;height:56px;border-radius:50%;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
@@ -794,7 +806,9 @@
             '</div>' +
             '<h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Request Sent</h3>' +
             '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
-              'Our team has received your request and will email you to manually verify your qualifications. You can continue with the rest of the onboarding in the meantime.' +
+              (docKey === ID_SUPPORT_KEY
+                ? 'Our team has received your request and will email you to verify your identity manually. You can continue with the rest of the onboarding in the meantime.'
+                : 'Our team has received your request and will email you to manually verify your qualifications. You can continue with the rest of the onboarding in the meantime.') +
             '</p>' +
             '<button id="qualSupportDoneBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>';
           document.getElementById("qualSupportDoneBtn").addEventListener("click", function () { overlay.remove(); });
@@ -1223,8 +1237,19 @@
       actionsEl.style.display = "none";
     } else if (status === "failed") {
       const issues = humanizeScanIssues((idState.issues && idState.issues.length) ? idState.issues : ["Verification failed"], { mode: "identity" });
-      statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>';
+      // Same "Contact Support" fallback the qualification-doc slots offer
+      // (2026-07-20 audit): after a failed scan the doctor must always have a
+      // path forward — support_requested counts as step-complete.
+      statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>' +
+        '<button class="qual-support-btn" id="idVerifySupportBtn" type="button">Contact Support</button>';
       actionsEl.style.display = "";
+      var idSupportBtn = document.getElementById("idVerifySupportBtn");
+      if (idSupportBtn) {
+        idSupportBtn.addEventListener("click", function () {
+          var idIssues = (state.idVerification && state.idVerification.issues) || [];
+          showSupportPopup("Passport or Driver's Licence", "Identity document (passport or driver's licence)", idIssues, ID_SUPPORT_KEY);
+        });
+      }
     } else if (status === "support_requested") {
       statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Support team will verify manually via email</div>';
       actionsEl.style.display = "none";

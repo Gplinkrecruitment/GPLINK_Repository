@@ -9227,6 +9227,10 @@
     let currentChecklistOpenKey = "";
     let currentPracticeLifestyleKey = "";
     let practiceLifestyleHousingSearchTimer = 0;
+    // 2026-07-20 audit: after sign-out the error → render → ensure → schedule
+    // cycle hammered /api/career/housing-search with dozens of 401s. Once a
+    // 401 is seen the session is gone — latch and never schedule again.
+    let practiceLifestyleHousingAuthLost = false;
     let practiceLifestyleHeartPulseTimer = 0;
 
     function createPracticeLifestyleRemoteHousingBucket() {
@@ -9748,6 +9752,7 @@
     }
 
     async function refreshPracticeLifestyleHousingSearch(lifestyle, market) {
+      if (practiceLifestyleHousingAuthLost) return;
       const key = market === "buy" ? "buy" : "rent";
       const requestBody = buildPracticeLifestyleHousingSearchPayload(lifestyle, key);
       if (!requestBody) return;
@@ -9768,6 +9773,17 @@
         });
         const payload = await response.json().catch(() => null);
         if (bucket.signature !== signature) return;
+        if (response.status === 401) {
+          // Signed out — retrying can never succeed. Latch so ensure/schedule
+          // stop firing further requests (auth-guard handles the redirect).
+          practiceLifestyleHousingAuthLost = true;
+          window.clearTimeout(practiceLifestyleHousingSearchTimer);
+          practiceLifestyleHousingSearchTimer = 0;
+          bucket.status = "error";
+          bucket.error = "Please sign in again to search housing";
+          renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+          return;
+        }
         if (!response.ok || !payload || payload.ok !== true) {
           bucket.status = "error";
           bucket.error = payload && payload.message ? String(payload.message) : "Housing search failed";
@@ -9791,6 +9807,7 @@
     }
 
     function schedulePracticeLifestyleHousingSearch(lifestyle, delayMs) {
+      if (practiceLifestyleHousingAuthLost) return;
       window.clearTimeout(practiceLifestyleHousingSearchTimer);
       const delay = Math.max(0, Number(delayMs) || 0);
       practiceLifestyleHousingSearchTimer = window.setTimeout(() => {
@@ -9802,6 +9819,7 @@
     }
 
     function ensurePracticeLifestyleHousingLoaded(lifestyle) {
+      if (practiceLifestyleHousingAuthLost) return;
       if (!lifestyle || typeof lifestyle !== "object") return;
       if (practiceLifestyleState.mode !== "housing") return;
       const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
@@ -13100,9 +13118,14 @@
     // Swap a card's map-motif scenery for the real area photo once the
     // hero-image endpoint has one. Blurred stubs carry no data-role-thumb id,
     // so they keep the anonymous motif.
+    // 2026-07-20 audit: once a 401 is seen the session is gone — stop firing
+    // hero-image requests for the remaining thumbs and any later render pass.
+    let heroImageAuthLost = false;
     async function loadRoleCardHeroImages() {
+      if (heroImageAuthLost) return;
       const thumbs = document.querySelectorAll("[data-role-thumb]:not(.hero-loaded)");
       await Promise.allSettled(Array.from(thumbs).map(async (thumb) => {
+        if (heroImageAuthLost) return;
         const id = thumb.getAttribute("data-role-thumb");
         if (!id) return;
 
@@ -13114,6 +13137,7 @@
 
         try {
           const res = await fetch("/api/career/hero-image?roleId=" + encodeURIComponent(id), { credentials: "same-origin" });
+          if (res.status === 401) { heroImageAuthLost = true; return; }
           if (!res.ok) { thumb.classList.add("hero-loaded"); return; }
           const data = await res.json();
           if (data.ok && data.heroImageUrl) {

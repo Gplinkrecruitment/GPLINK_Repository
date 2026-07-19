@@ -10524,7 +10524,12 @@ const SECURITY_HEADERS = {
     `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://assets.calendly.com${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
+    // Housing/relocation listing images (career page Relocation Explorer):
+    // Domain API media comes back on *.domainstatic.com.au + bucket-api.domain.com.au
+    // (see pickDomainImageUrl/resizeDomainImageUrl), the built-in fallback listings
+    // use images.unsplash.com (buildLifestyleImage + career.html seeds), and the
+    // seeded Homely listings use www.homely.com.au.
+    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
     "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com",
@@ -38166,7 +38171,8 @@ async function handleApi(req, res, pathname) {
 
     const userId = preSessionUserId || await getSupabaseUserIdByEmail(email);
     if (!userId) {
-      sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' });
+      // Internal failure — client toasts message verbatim, never raw diagnostics.
+      sendJson(res, 400, { ok: false, message: 'Something went wrong on our side — please try again in a moment.' });
       return;
     }
 
@@ -38389,7 +38395,7 @@ async function handleApi(req, res, pathname) {
     }
 
     if (!insertResult.ok) {
-      sendJson(res, 502, { ok: false, message: 'Failed to save application.' });
+      sendJson(res, 502, { ok: false, message: 'Something went wrong on our side — please try again in a moment.' });
       return;
     }
 
@@ -62531,6 +62537,15 @@ async function handleRequest(req, res) {
     res.end(body);
     return;
   }
+  // /favicon.ico has no file at the project root, so every page load 404'd
+  // (2026-07-20 audit). Serve the smallest app icon from the PWA manifest set —
+  // serveStatic gives it image/png + the long-lived /media/ cache headers, and
+  // browsers accept PNG at /favicon.ico.
+  if (pathname === '/favicon.ico') {
+    serveStatic(req, res, '/media/icons/gp-link-icon-180.png');
+    return;
+  }
+
   if (pathname === '/sitemap.xml') {
     // Phase 6 E2: enriched with per-job URLs + privacy/terms/blog. Any data
     // failure degrades to the static-routes-only sitemap, never a 500.
