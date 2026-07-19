@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260719d";
+  var VERSION = "20260720a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -43,7 +43,7 @@
     "/js/qualification-camera.js?v=20260614a",
     "/js/account-dropdown.js?v=20260527a",
     "/js/onboarding.js?v=20260719a",
-    "/js/error-reporter.js?v=20260527a",
+    "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",
     "/js/perf-cache.js?v=20260608a",

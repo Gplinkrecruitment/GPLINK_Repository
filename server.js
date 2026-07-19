@@ -7358,6 +7358,20 @@ const CLIENT_ERROR_NOISE_RULES = [
     // machine, not in any file GP Link ships.
     reason: 'Caused by a browser add-on on the doctor’s own computer, not by GP Link.',
     test: function (m, u, s) { return /(chrome|moz|safari-web)-extension:\/\//i.test(String(m) + ' ' + String(s || '')); }
+  },
+  {
+    id: 'resource-error-media',
+    action: 'noise',
+    // js/error-reporter.js now reports any <img>/<video>/<audio> that fails to
+    // load. A missing practice photo IS worth seeing in the Technical tab, but
+    // it is cosmetic — the doctor can still do everything on the page — so it
+    // must not compete with real bugs in the owner's daily digest.
+    //
+    // Deliberately NARROW: SCRIPT, LINK (stylesheet) and IFRAME failures are
+    // NOT matched, because those genuinely break a feature and stay ranked as
+    // real bugs.
+    reason: 'A picture or video on the page did not load. The page still works — usually a missing or moved image file.',
+    test: function (m) { return /^Resource failed to load: (IMG|VIDEO|AUDIO|SOURCE|TRACK)\b/i.test(String(m).trim()); }
   }
 ];
 
@@ -7397,6 +7411,18 @@ const ERROR_PAGE_LABELS = {
   'confirm-call': 'Confirm call', 'practice-intake': 'Practice intake',
   'pep-pathway': 'PEP pathway', 'housing': 'Housing', 'documents': 'Documents',
   'support': 'Support', 'start': 'Get started',
+  // Pages that only started reporting once js/error-reporter.js was added to
+  // them (2026-07-20). Without these they would show as "Site start", "Career
+  // paused" etc., which reads like a fault rather than a page name.
+  'site-start': 'Get started (ads landing page)', 'site-home': 'Website home',
+  'site-gp-jobs': 'Website GP jobs', 'site-jobs': 'Website jobs list',
+  'site-job': 'Website job advert', 'site-employers': 'Website for practices',
+  'site-about': 'Website about', 'site-faq': 'Website FAQ',
+  'site-visa': 'Website visa', 'site-app': 'Website the app',
+  'site-exclusive': 'Website exclusive roles', 'blog': 'Blog',
+  'career-paused': 'My Practice (paused)', 'secure-interview': 'Interview room',
+  'practice-status': 'Practice status', 'practice-decision': 'Practice decision',
+  'pdf-editor': 'PDF editor',
   // Synthetic routes used by recordServerError, not real pages.
   'email-send': 'the email sender'
 };
@@ -7421,7 +7447,17 @@ const ERROR_MEANING_RULES = [
     say: 'could not send an email because our email provider refused it for sending too fast — the person it was meant for never got it' },
   { test: /^Email send failed/i,
     say: 'could not send an email, so the person it was meant for never received it' },
-  { test: /Failed to fetch|NetworkError|Load failed|ERR_(NETWORK|INTERNET_DISCONNECTED|CONNECTION)/i,
+  // Resource failures next: they must be matched on their OWN wording before
+  // the generic 4xx/5xx rules below, because a file path can contain a number
+  // that looks like a status code (e.g. /media/hero-500.jpg).
+  { test: /^Resource failed to load: (SCRIPT|LINK|IFRAME)\b/i,
+    say: 'could not load a file it needs to work, so part of the page never came to life' },
+  { test: /^Resource failed to load:/i,
+    say: 'could not load a picture or video, so it is missing from the page' },
+  // \b before "Load failed" is load-bearing: without it this matched the word
+  // "upLOAD FAILED", so every swallowed upload error (now reported as
+  // kind=console_error) was mis-explained to the owner as a network outage.
+  { test: /Failed to fetch|NetworkError|\bLoad failed\b|ERR_(NETWORK|INTERNET_DISCONNECTED|CONNECTION)/i,
     say: 'could not reach the GP Link server, so the request never got through' },
   { test: /\b(401|Unauthorized|403|Forbidden)\b/i,
     say: 'was refused access — the doctor’s sign-in had probably expired' },
