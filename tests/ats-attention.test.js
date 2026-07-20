@@ -189,12 +189,13 @@ function userCookie(email, supabaseUserId) {
 const superCookie = () => adminCookieFor(SUPER_EMAIL, 'super_admin');
 const consultantCookie = () => adminCookieFor(CONSULTANT_EMAIL, 'consultant');
 
-function httpReq(method, p, { cookie, body, host } = {}) {
+function httpReq(method, p, { cookie, body, host, bearer } = {}) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
     const headers = {};
     if (cookie) headers.Cookie = cookie;
     if (host) headers.Host = host;
+    if (bearer) headers.Authorization = 'Bearer ' + bearer;
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
       const c = []; res.on('data', (x) => c.push(x));
@@ -220,6 +221,8 @@ beforeAll(async () => {
   process.env.NODE_ENV = 'test';
   process.env.AUTH_DISABLED = 'false';
   process.env.AUTH_SECRET = 'ats-attn-secret-' + RUN_ID;
+  process.env.CRON_SECRET = 'test-cron-secret';
+  process.env.PRACTICE_REMINDER_SKIP_WEEKENDS = 'false'; // deterministic cron test regardless of the day it runs
   process.env.REQUIRE_SUPABASE_DB = 'false';
   process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
   process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
@@ -446,6 +449,111 @@ describe('GET /api/ats/new-applications — action queue', () => {
   });
 });
 
+// "Waiting on practice" tracker + the practice-decision reminder engine.
+describe('GET /api/ats/waiting-on-practice + reminders', () => {
+  const WAIT = { userId: 'u-wait-gp', email: 'wait@gplink-test.local' };
+  const EIGHT_DAYS_AGO = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+
+  beforeAll(() => {
+    db.user_profiles.push({ user_id: WAIT.userId, email: WAIT.email, first_name: 'Wendy', last_name: 'Waiting', registration_country: 'australia', onboarding_completed_at: NOW });
+    db.registration_cases.push({ id: 'case-wait', user_id: WAIT.userId, status: 'active' });
+    db.career_roles.push({ id: 'role-wait', provider: 'internal_ats', provider_role_id: 'ats_wait1', title: 'GP - Waiting', practice_name: 'Seaside Medical', practice_id: 'p-wait', location_city: 'Torquay', location_state: 'VIC', is_active: true, job_status: 'open', updated_at: NOW });
+    db.gp_applications.push(
+      // Awaiting, submitted 8 days ago, 2 reminders already sent → belongs in tracker, chase=true
+      { id: 'app-wait-chase', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'review', ats_stage: 'submitted', applied_at: EIGHT_DAYS_AGO, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: EIGHT_DAYS_AGO, practice_contact_email: 'contact@seaside.example', practice_action_token: 'wait-tok-1', practice_reminder_count: 2 },
+      // Practice turned it down but the card wasn't tidied → shows as "declined"
+      { id: 'app-wait-declined', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'review', ats_stage: 'submitted', applied_at: NOW, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: NOW, practice_decision: 'turned_down', practice_decision_reason: 'not right now', practice_contact_email: 'contact@seaside.example', practice_action_token: 'wait-tok-2' },
+      // Approved → advanced to interview → must NOT appear in the tracker
+      { id: 'app-wait-approved', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'interview', ats_stage: 'interview', applied_at: NOW, practice_submission_status: 'client_approved', practice_decision: 'approved', submitted_to_practice_at: NOW }
+    );
+  });
+
+  it('lists awaiting + declined submissions, enriched, and flags the day-7 chase', async () => {
+    const r = await atsGet('/api/ats/waiting-on-practice');
+    expect(r.status).toBe(200);
+    const rows = r.body.applications || [];
+    const chase = rows.find((a) => a.id === 'app-wait-chase');
+    expect(chase).toBeTruthy();
+    expect(chase.gp_name).toBe('Wendy Waiting');
+    expect(chase.practice_name).toBe('Seaside Medical');
+    expect(chase.status).toBe('awaiting');
+    expect(chase.days_waiting).toBeGreaterThanOrEqual(7);
+    expect(chase.chase).toBe(true);
+    expect(chase.reminder_count).toBe(2);
+    expect(chase.case_id).toBe('case-wait');
+    const declined = rows.find((a) => a.id === 'app-wait-declined');
+    expect(declined).toBeTruthy();
+    expect(declined.status).toBe('declined');
+    expect(declined.decline_reason).toBe('not right now');
+  });
+
+  it('excludes an application the practice already approved (now at interview)', async () => {
+    const r = await atsGet('/api/ats/waiting-on-practice');
+    const ids = (r.body.applications || []).map((a) => a.id);
+    expect(ids).not.toContain('app-wait-approved');
+  });
+
+  it('the attention tile counts waiting_on_practice + waiting_chase', async () => {
+    const r = await atsGet('/api/ats/attention');
+    expect(r.body.waiting_on_practice).toBeGreaterThanOrEqual(1);
+    expect(r.body.waiting_chase).toBeGreaterThanOrEqual(1);
+  });
+
+  it('POST /api/ats/application/remind-practice emails the practice and bumps the count', async () => {
+    const before = resendCalls.length;
+    const r = await httpReq('POST', '/api/ats/application/remind-practice', { host: SUPER_HOST, cookie: superCookie(), body: { applicationId: 'app-wait-chase' } });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const sent = resendCalls.slice(before);
+    const toPractice = sent.find((c) => JSON.stringify(c.body || {}).includes('contact@seaside.example'));
+    expect(toPractice).toBeTruthy();
+    expect(String(toPractice.body.subject)).toMatch(/reminder/i);
+    // count bumped 2 → 3
+    const row = db.gp_applications.find((a) => a.id === 'app-wait-chase');
+    expect(row.practice_reminder_count).toBe(3);
+    expect(row.last_practice_reminder_at).toBeTruthy();
+  });
+
+  it('refuses to remind once the practice has already responded (409)', async () => {
+    const r = await httpReq('POST', '/api/ats/application/remind-practice', { host: SUPER_HOST, cookie: superCookie(), body: { applicationId: 'app-wait-declined' } });
+    expect(r.status).toBe(409);
+  });
+
+  it('is readable by a consultant session', async () => {
+    const r = await atsGet('/api/ats/waiting-on-practice', consultantCookie());
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+  });
+});
+
+describe('cron: practice-decision-reminders', () => {
+  const THREE_DAYS_AGO = new Date(Date.now() - 3.5 * 24 * 60 * 60 * 1000).toISOString();
+  beforeAll(() => {
+    db.gp_applications.push({ id: 'app-cron-day3', user_id: 'u-wait-gp', career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'review', ats_stage: 'submitted', applied_at: THREE_DAYS_AGO, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: THREE_DAYS_AGO, practice_contact_email: 'contact3@seaside.example', practice_action_token: 'cron-tok-3', practice_reminder_count: 0 });
+  });
+
+  it('day-3 sends the first practice reminder; day-7 flags a chase + emails the owner', async () => {
+    const before = resendCalls.length;
+    const r = await httpReq('GET', '/api/cron/practice-decision-reminders', { host: SUPER_HOST, bearer: 'test-cron-secret' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const sent = resendCalls.slice(before);
+    // day-3 app got its first auto-reminder, count 0 → 1
+    const day3 = db.gp_applications.find((a) => a.id === 'app-cron-day3');
+    expect(day3.practice_reminder_count).toBe(1);
+    expect(sent.some((c) => JSON.stringify(c.body || {}).includes('contact3@seaside.example'))).toBe(true);
+    // day-8 app (no more auto-reminders — count already 2+) gets the chase flag + owner email
+    const chaseApp = db.gp_applications.find((a) => a.id === 'app-wait-chase');
+    expect(chaseApp.practice_chase_flagged_at).toBeTruthy();
+    expect(sent.some((c) => /chase needed/i.test(String(c.body && c.body.subject)))).toBe(true);
+  });
+
+  it('rejects an unauthenticated cron call', async () => {
+    const r = await httpReq('GET', '/api/cron/practice-decision-reminders', { host: SUPER_HOST });
+    expect(r.status).toBe(401);
+  });
+});
+
 describe('static UI pins', () => {
   const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
@@ -466,6 +574,16 @@ describe('static UI pins', () => {
     // The "New applications" (applied) tile must NOT reuse the furthest-stage bucket filter.
     expect(js).toContain("bucket === 'applied'");
     expect(js).toContain('Showing: <b>New applications</b>');
+  });
+
+  it('candidates JS renders the Waiting-on-practice tracker + wires Nudge/decline', () => {
+    const js = read('js/ceo-ats-candidates.js');
+    expect(js).toContain('/api/ats/waiting-on-practice');
+    expect(js).toContain('function fetchAndRenderWaitingOnPractice');
+    expect(js).toContain("data-attention=\"waiting\"");
+    expect(js).toContain('Waiting on practice');
+    expect(js).toContain('ats-wait-nudge');
+    expect(js).toContain('/api/ats/application/remind-practice');
   });
 
   it('candidates JS renders the New-applications action queue with inline Submit/Withdraw', () => {

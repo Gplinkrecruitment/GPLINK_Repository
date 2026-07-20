@@ -17,7 +17,7 @@
   function panel() { return document.getElementById(PANEL_ID); }
 
   // ---- list filter / sort / search state (kept in module scope) ----
-  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '', fresh_applied: false };
+  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '', fresh_applied: false, waiting: false };
   var searchTimer = null;
   var currentCandidate = null;
   var pipelineSummary = null; // last fetched /api/ceo/pipeline-summary payload
@@ -225,9 +225,10 @@
     if (widget) widget.addEventListener('click', function (e) {
       if (!e.target.closest) return;
       if (e.target.closest('.ats-pw-clear')) {
-        if (!state.ats_bucket && !state.fresh_applied) return;
+        if (!state.ats_bucket && !state.fresh_applied && !state.waiting) return;
         state.ats_bucket = '';
         state.fresh_applied = false;
+        state.waiting = false;
         renderPipelineWidget();
         renderList();
         return;
@@ -237,6 +238,7 @@
       var bucket = seg.getAttribute('data-bucket') || '';
       state.ats_bucket = (state.ats_bucket === bucket) ? '' : bucket;
       state.fresh_applied = false;
+      state.waiting = false;
       renderPipelineWidget();
       renderList();
     });
@@ -253,9 +255,16 @@
         // already advanced on another role is hidden by the furthest-stage
         // bucket filter, so use the fresh-apply filter that matches the count.
         state.fresh_applied = true;
+        state.waiting = false;
+        state.ats_bucket = '';
+      } else if (bucket === 'waiting') {
+        // "Waiting on practice" opens the decision tracker, not a bucket filter.
+        state.waiting = true;
+        state.fresh_applied = false;
         state.ats_bucket = '';
       } else {
         state.fresh_applied = false;
+        state.waiting = false;
         state.ats_bucket = bucket;
       }
       renderPipelineWidget();
@@ -273,6 +282,15 @@
       if (withdrawBtn) { e.stopPropagation(); withdrawNewApplication(withdrawBtn.getAttribute('data-app-id'), withdrawBtn); return; }
       var naRow = e.target.closest('.ats-newapp-row');
       if (naRow) { var cid = naRow.getAttribute('data-case-id'); if (cid) window.atsOpenCandidate(cid); return; }
+      // Waiting-on-practice tracker: Nudge / Mark declined / Withdraw / Tidy up, then row-click opens the candidate.
+      var wNudge = e.target.closest('.ats-wait-nudge');
+      if (wNudge) { e.stopPropagation(); nudgePractice(wNudge.getAttribute('data-app-id'), wNudge); return; }
+      var wDecline = e.target.closest('.ats-wait-decline');
+      if (wDecline) { e.stopPropagation(); closeWaitingApp(wDecline.getAttribute('data-app-id'), 'Marked declined'); return; }
+      var wWithdraw = e.target.closest('.ats-wait-withdraw');
+      if (wWithdraw) { e.stopPropagation(); closeWaitingApp(wWithdraw.getAttribute('data-app-id'), 'Closed'); return; }
+      var wRow = e.target.closest('.ats-wait-row');
+      if (wRow) { var wcid = wRow.getAttribute('data-case-id'); if (wcid) window.atsOpenCandidate(wcid); return; }
       var row = e.target.closest('.ats-cand-row');
       if (!row) return;
       var id = row.getAttribute('data-case-id');
@@ -307,7 +325,8 @@
   // fresh application, with inline Submit/Withdraw); every other filter shows
   // the normal per-GP candidate list.
   function renderList() {
-    if (state.fresh_applied) fetchAndRenderNewApplications();
+    if (state.waiting) fetchAndRenderWaitingOnPractice();
+    else if (state.fresh_applied) fetchAndRenderNewApplications();
     else fetchAndRenderRows();
   }
 
@@ -397,6 +416,87 @@
     }, function () { /* cancelled — leave the row as-is */ });
   }
 
+  /* ---- "Waiting on practice" tracker (behind the tile) ---- */
+  var WAITING_STATUS = {
+    awaiting: { label: 'Awaiting', bg: 'rgba(79,140,255,0.14)', fg: '#9cc0ff' },
+    reviewing: { label: 'Reviewing', bg: 'rgba(139,123,240,0.16)', fg: '#c3b8ff' },
+    declined: { label: 'Declined', bg: 'rgba(239,68,68,0.15)', fg: '#ffb0b0' }
+  };
+  function waitingRowHtml(a) {
+    var appId = ATS.escAttr(String(a.id));
+    var practice = a.practice_name || a.role_title || 'the practice';
+    var st = WAITING_STATUS[a.status] || WAITING_STATUS.awaiting;
+    var declined = a.status === 'declined';
+    var chase = !!a.chase && !declined;
+    var meta = [];
+    meta.push((a.days_waiting || 0) + 'd waiting');
+    if (declined) { meta.push('practice declined' + (a.decline_reason ? ' — “' + ATS.esc(a.decline_reason) + '”' : '') + ' · your follow-up'); }
+    else if (chase) { meta.push('<span style="color:var(--ats-amber)">⚠ no reply after 7 days — chase personally</span>'); }
+    else { meta.push((a.reminder_count || 0) + ' reminder' + ((a.reminder_count === 1) ? '' : 's') + ' sent'); }
+    if (a.role_location) meta.push(ATS.esc(a.role_location));
+    var rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid ' +
+      (chase ? 'rgba(245,158,11,0.30)' : (declined ? 'rgba(239,68,68,0.24)' : 'rgba(255,255,255,0.09)')) +
+      ';border-radius:10px;margin-bottom:8px;cursor:pointer;background:' + (chase ? 'rgba(245,158,11,0.07)' : (declined ? 'rgba(239,68,68,0.06)' : 'transparent'));
+    var acts = declined
+      ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-wait-withdraw" data-app-id="' + appId + '">Tidy up</button>'
+      : '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-wait-nudge" data-app-id="' + appId + '">Nudge now</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-wait-decline" data-app-id="' + appId + '">Mark declined</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-wait-withdraw" data-app-id="' + appId + '">Withdraw</button>';
+    return '<div class="ats-wait-row" data-case-id="' + ATS.escAttr(String(a.case_id || '')) + '" data-app-id="' + appId + '" style="' + rowStyle + '">' +
+      '<div style="min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-weight:600;color:var(--ats-text)">' + ATS.esc(a.gp_name) + '</span>' +
+          '<span style="color:var(--ats-dim)">→</span>' +
+          '<span style="color:var(--ats-text)">' + ATS.esc(practice) + '</span>' +
+          '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:' + st.bg + ';color:' + st.fg + '">' + st.label + '</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--ats-dim);margin-top:2px">' + meta.join(' · ') + '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' + acts + '</div>' +
+    '</div>';
+  }
+
+  function fetchAndRenderWaitingOnPractice() {
+    var t0 = document.getElementById('ats-cand-table');
+    if (t0) t0.innerHTML = ATS.loadingHtml('Loading waiting-on-practice…');
+    ATS.api('/api/ats/waiting-on-practice').then(function (d) {
+      var t = document.getElementById('ats-cand-table');
+      if (!t) return;
+      if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load the tracker.'); return; }
+      var list = d.applications || [];
+      if (!list.length) { t.innerHTML = ATS.emptyHtml('Nothing waiting on a practice right now.'); return; }
+      t.innerHTML = list.map(waitingRowHtml).join('');
+    });
+  }
+
+  function afterWaitingAction() {
+    if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+    fetchAttention();
+    fetchAndRenderWaitingOnPractice();
+  }
+
+  function nudgePractice(appId, btn) {
+    if (!appId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    ATS.api('/api/ats/application/remind-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) { ATS.toast('Reminder emailed to the practice.'); afterWaitingAction(); }
+      else { ATS.toast((res && (res.error || res.message)) || 'Could not send the reminder.'); if (btn) { btn.disabled = false; btn.textContent = 'Nudge now'; } }
+    });
+  }
+
+  function closeWaitingApp(appId, verb) {
+    if (!appId) return;
+    // Same optional-reason prompt as the kanban/drawer withdraw; doubles as confirm.
+    openWithdrawReasonPrompt(function (reason) {
+      var body = { stage: 'not_proceeding' };
+      if (reason) body.reason = reason;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
+        if (res && res.ok) { ATS.toast(verb + ' — removed from the tracker.'); afterWaitingAction(); }
+        else { ATS.toast((res && (res.error || res.message)) || 'Could not update the application.'); }
+      });
+    }, function () { /* cancelled */ });
+  }
+
   /* ---- "Needs attention" strip (above the pipeline funnel) ---- */
   function attentionStripInner() {
     if (!attentionSummary) return '<span class="ats-attn-loading" style="color:var(--ats-dim);font-size:12px">Checking what needs attention…</span>';
@@ -420,8 +520,22 @@
         '<span class="ats-attn-hint" style="font-size:10px;color:var(--ats-dim)">' + ATS.esc(it.hint) + '</span>' +
       '</button>';
     }).join('');
+    // "Waiting on practice" is a tracker entry point, not an alert — it opens
+    // the decision tracker and is amber ONLY when some are past day 7 (to chase).
+    // It's kept out of the "needs attention" total above (waiting with reminders
+    // still running is normal, not an alert).
+    var wCount = attentionSummary.waiting_on_practice || 0;
+    var wChase = attentionSummary.waiting_chase || 0;
+    var wLive = wCount > 0;
+    var wAccent = wChase > 0 ? 'var(--ats-amber)' : (wLive ? 'var(--ats-text)' : 'var(--ats-dim)');
+    var wCell = '<button type="button" class="ats-attn-cell' + (wLive ? ' live' : '') + '" data-attention="waiting"' + (wLive ? '' : ' disabled') +
+        ' style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 12px;border:1px solid rgba(255,255,255,0.09);border-radius:9px;background:' + (wChase > 0 ? 'rgba(245,158,11,0.10)' : 'transparent') + ';cursor:' + (wLive ? 'pointer' : 'default') + '">' +
+      '<span class="ats-attn-count" style="font-size:18px;font-weight:700;color:' + wAccent + '">' + wCount + '</span>' +
+      '<span class="ats-attn-label" style="font-size:11.5px;color:var(--ats-text)">Waiting on practice</span>' +
+      '<span class="ats-attn-hint" style="font-size:10px;color:var(--ats-dim)">' + (wChase > 0 ? (wChase + ' to chase') : 'accept / decline') + '</span>' +
+    '</button>';
     return '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' + title +
-      '<div class="ats-attn-cells" style="display:flex;gap:10px;flex-wrap:wrap">' + cells + '</div></div>';
+      '<div class="ats-attn-cells" style="display:flex;gap:10px;flex-wrap:wrap">' + cells + wCell + '</div></div>';
   }
 
   function renderAttentionStrip() {
@@ -454,7 +568,10 @@
       '</button>';
     }).join('');
     var showing = '';
-    if (state.fresh_applied) {
+    if (state.waiting) {
+      showing = '<span class="ats-pw-showing">Showing: <b>Waiting on practice</b>' +
+        ' · <button type="button" class="ats-pw-clear">Clear</button></span>';
+    } else if (state.fresh_applied) {
       showing = '<span class="ats-pw-showing">Showing: <b>New applications</b>' +
         ' · <button type="button" class="ats-pw-clear">Clear</button></span>';
     } else if (active) {

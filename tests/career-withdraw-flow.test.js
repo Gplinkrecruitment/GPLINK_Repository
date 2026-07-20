@@ -33,9 +33,28 @@ const ROOT = path.join(__dirname, '..');
 describe('withdrawal — source & migration wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
-  it('the candidates applications query no longer asks for created_at', () => {
-    expect(serverSrc).toContain("supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at&limit=5000')");
-    expect(serverSrc).not.toContain("select=user_id,ats_stage,applied_at,created_at&limit=5000");
+  // Asserts the INVARIANT, not one exact select string: gp_applications has no
+  // created_at column in production, so ANY select naming it makes PostgREST
+  // 400 the whole query — which is how every candidate silently became
+  // 'unassociated' and every pipeline chip went empty. Pinning the literal
+  // string instead would break the moment someone legitimately adds a real
+  // column to this select (match_outcome did exactly that).
+  it('no gp_applications query anywhere asks for the non-existent created_at column', () => {
+    const selects = [...serverSrc.matchAll(/supabaseDbRequest\(\s*'gp_applications'\s*,\s*'(select=[^']*)'/g)]
+      .map((m) => m[1]);
+    expect(selects.length).toBeGreaterThan(0);
+    const offenders = selects.filter((s) => /\bcreated_at\b/.test(s.split('&')[0]));
+    expect(offenders).toEqual([]);
+  });
+
+  it('the candidates applications query still selects the columns its buckets need', () => {
+    const m = serverSrc.match(/supabaseDbRequest\(\s*'gp_applications'\s*,\s*'(select=user_id,ats_stage[^']*)'/);
+    expect(m).toBeTruthy();
+    const cols = m[1].replace('select=', '').split('&')[0].split(',');
+    expect(cols).toContain('user_id');
+    expect(cols).toContain('ats_stage');
+    expect(cols).toContain('applied_at');
+    expect(cols).not.toContain('created_at');
   });
 
   it('a failed applications fetch is logged AND surfaced, never swallowed', () => {
