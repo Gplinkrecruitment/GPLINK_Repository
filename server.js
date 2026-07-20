@@ -29746,6 +29746,75 @@ async function sendRedirectEmail(applicationRow, job, alternatives) {
 // never re-written or re-emailed — a hire followed by "mark placement
 // secured" on the same job fans out ONCE. Returns { redirected, skipped,
 // errors } — never throws.
+// Resolve {gpName, roleLabel, practiceLabel} for one application (single-row,
+// for the practice-reminder email + the manual nudge + the cron). The tracker
+// list endpoint batches these instead.
+async function atsResolveAppLabels(app) {
+  var out = { gpName: 'the candidate', roleLabel: 'GP position', practiceLabel: 'your practice' };
+  if (!app || !isSupabaseDbConfigured()) return out;
+  try {
+    if (app.user_id) {
+      var p = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      var prof = (p.ok && p.data && p.data[0]) || {};
+      out.gpName = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || out.gpName;
+    }
+    if (app.career_role_id != null) {
+      var r = await supabaseDbRequest('career_roles', 'select=title,practice_name&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
+      var role = (r.ok && r.data && r.data[0]) || {};
+      if (role.title) out.roleLabel = role.title;
+      if (role.practice_name) out.practiceLabel = role.practice_name;
+    }
+  } catch (e) {}
+  return out;
+}
+
+// Re-nudge a practice that hasn't accepted/declined a submitted candidate.
+// Reuses the SAME stable approve/turn_down links (practice_action_token) as the
+// original intro email, sent to the contact we emailed at submission. Returns
+// {ok}. The caller stamps the reminder bookkeeping on success.
+async function sendPracticeDecisionReminderEmail(opts) {
+  opts = opts || {};
+  var app = opts.application || {};
+  var toEmail = opts.practiceEmail || app.practice_contact_email || '';
+  var token = app.practice_action_token || '';
+  if (!toEmail || !token) return { ok: false, error: 'missing_contact_or_token' };
+  if (!isEmailConfigured || (typeof isEmailConfigured === 'function' && !isEmailConfigured())) {
+    // fall through — sendEmail will no-op/return not-ok if unconfigured
+  }
+  var gpName = opts.gpName || 'the candidate';
+  var displayName = /^dr\b/i.test(gpName) ? gpName : ('Dr ' + gpName);
+  var roleLabel = opts.roleLabel || 'GP position';
+  var practiceLabel = opts.practiceLabel || 'your practice';
+  var approveUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(token) + '&action=approve';
+  var turnDownUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(token) + '&action=turn_down';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var lead = opts.firmer
+    ? ('We don’t want to hold ' + esc(displayName) + ' up — a quick yes or no on your ' + esc(roleLabel) + ' would really help them plan.')
+    : ('Just checking in on ' + esc(displayName) + ' for your ' + esc(roleLabel) + ' position — have you had a chance to take a look?');
+  var bodyHtml =
+    '<p>Hi ' + esc(practiceLabel) + ',</p>' +
+    '<p>' + lead + '</p>' +
+    '<p><a href="' + approveUrl + '" style="display:inline-block;background:#2f7d3a;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">Approve ' + esc(displayName) + '</a>' +
+    '&nbsp;&nbsp;<a href="' + turnDownUrl + '" style="display:inline-block;background:#eef1f5;color:#333;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600">Not this time</a></p>' +
+    '<p style="color:#667">Thank you,<br>GP Link Recruitment Team</p>';
+  var text = [
+    'Hi ' + practiceLabel + ',', '',
+    (opts.firmer
+      ? ('We don’t want to hold ' + displayName + ' up — a quick yes or no on your ' + roleLabel + ' would really help.')
+      : ('Just checking in on ' + displayName + ' for your ' + roleLabel + ' position.')),
+    '', 'Approve ' + displayName + ' and choose interview times: ' + approveUrl,
+    '', 'Turn down this candidate: ' + turnDownUrl,
+    '', 'Thank you,', 'GP Link Recruitment Team'
+  ].join('\n');
+  return await sendEmail({
+    to: toEmail,
+    subject: 'Reminder: ' + displayName + ' for your ' + roleLabel,
+    html: buildCareerEmailHtml({ title: 'A quick reminder', bodyHtml: bodyHtml }),
+    text: text,
+    from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+  });
+}
+
 async function redirectOthersForJob(jobId, hiredAppId) {
   var result = { redirected: 0, skipped: 0, errors: [] };
   if (!jobId || !isSupabaseDbConfigured()) return result;
@@ -36426,6 +36495,17 @@ async function handleApi(req, res, pathname) {
     const token = String(url.searchParams.get('token') || '').trim();
     const appRow = await findApplicationByActionToken(token);
     if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    // "Reviewing" signal for the Waiting-on-practice tracker: stamp the first
+    // time the practice OPENS the decision page. Only a real browser running
+    // this page's JS reaches this endpoint (the emailed link points at the
+    // static .html; email scanners fetch that, not this JSON API), so it's a
+    // reliable "they've seen it" marker. Fire-and-forget; only on the first open.
+    if (isSupabaseDbConfigured() && !appRow.practice_opened_at) {
+      supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appRow.id), {
+        method: 'PATCH', body: { practice_opened_at: new Date().toISOString() }
+      }).catch(function () {});
+    }
 
     // Read-only: resolve labels + interview state, but never create anything.
     const ctx = await atsGetApplicationContext(appRow.id);
@@ -62030,7 +62110,7 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/ats/attention' && req.method === 'GET') {
     var ctxAT = requireAtsSession(req, res); if (!ctxAT) return;
     var atSevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    var atNewApps = 0, atDeclined = 0, atAwaiting = 0;
+    var atNewApps = 0, atDeclined = 0, atAwaiting = 0, atWaiting = 0, atChase = 0;
     try {
       // One bounded application pull (dual-mode, limit 2000) gives us both the
       // fresh-applied count AND the stage lookup the declined-offer check needs.
@@ -62042,6 +62122,14 @@ Return ONLY valid JSON with no markdown formatting:
         if (atStage === 'applied') {
           var atWhen = a.applied_at || a.created_at || '';
           if (atWhen && String(atWhen) >= atSevenDaysAgoIso) atNewApps++;
+        }
+        // Waiting on practice: submitted, no accept/decline yet. "Chase" = day 7+.
+        var atSub = normalizeCareerPracticeSubmissionStatus(a.practice_submission_status);
+        if (atSub === 'submitted_to_practice' && !a.practice_decision) {
+          atWaiting++;
+          var atSubAt = a.submitted_to_practice_at || '';
+          var atDays = atSubAt ? Math.floor((Date.now() - new Date(atSubAt).getTime()) / 86400000) : 0;
+          if (a.practice_chase_flagged_at || atDays >= 7) atChase++;
         }
       });
       // Declined offers whose application is still sitting in the Offer lane.
@@ -62066,7 +62154,9 @@ Return ONLY valid JSON with no markdown formatting:
       ok: true,
       new_applications: atNewApps,
       declined_offers: atDeclined,
-      interviews_awaiting: atAwaiting
+      interviews_awaiting: atAwaiting,
+      waiting_on_practice: atWaiting,
+      waiting_chase: atChase
     });
     return;
   }
@@ -62140,6 +62230,90 @@ Return ONLY valid JSON with no markdown formatting:
       };
     });
     sendJson(res, 200, { ok: true, applications: naOut, total: naOut.length });
+    return;
+  }
+
+  // "Waiting on practice" tracker: every submitted candidate still awaiting the
+  // practice's accept/decline (plus turned-down ones not yet tidied up), with
+  // days-waiting, reminder count, and chase flag. Same batched-enrichment shape
+  // as /api/ats/new-applications.
+  if (pathname === '/api/ats/waiting-on-practice' && req.method === 'GET') {
+    var ctxWP = requireAtsSession(req, res); if (!ctxWP) return;
+    var wpAll = await atsListApplicationRows({});
+    var wpRows = (wpAll || []).filter(function (a) {
+      if (!a) return false;
+      var sub = normalizeCareerPracticeSubmissionStatus(a.practice_submission_status);
+      if (sub === 'submitted_to_practice' && !a.practice_decision) return true;                                  // awaiting / reviewing
+      if (a.practice_decision === 'turned_down' && ['submitted', 'reviewing'].indexOf(a.ats_stage) !== -1) return true; // declined, not tidied
+      return false;
+    });
+    wpRows.sort(function (a, b) { return String(a.submitted_to_practice_at || '').localeCompare(String(b.submitted_to_practice_at || '')); }); // longest-waiting first
+    var wpUserIds = [], wpRoleIds = [];
+    wpRows.forEach(function (a) {
+      if (a.user_id && wpUserIds.indexOf(a.user_id) === -1) wpUserIds.push(a.user_id);
+      if (a.career_role_id != null && wpRoleIds.indexOf(a.career_role_id) === -1) wpRoleIds.push(a.career_role_id);
+    });
+    var wpProf = {}, wpRole = {}, wpCase = {};
+    if (isSupabaseDbConfigured()) {
+      if (wpUserIds.length) {
+        var wpInU = wpUserIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var wpPr = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + encodeURIComponent(wpInU) + ')&limit=500');
+        ((wpPr.ok && wpPr.data) || []).forEach(function (p) { wpProf[p.user_id] = p; });
+        var wpCr = await supabaseDbRequest('registration_cases', 'select=id,user_id&user_id=in.(' + encodeURIComponent(wpInU) + ')&limit=500');
+        ((wpCr.ok && wpCr.data) || []).forEach(function (c) { if (!wpCase[c.user_id]) wpCase[c.user_id] = c.id; });
+      }
+      if (wpRoleIds.length) {
+        var wpInR = wpRoleIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var wpRr = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,location_city,location_state&id=in.(' + encodeURIComponent(wpInR) + ')&limit=500');
+        ((wpRr.ok && wpRr.data) || []).forEach(function (r) { wpRole[String(r.id)] = r; });
+      }
+    } else {
+      (dbState.atsCandidates || []).forEach(function (c) { if (c && c.user_id) { wpProf[c.user_id] = { first_name: c.first_name, last_name: c.last_name, email: c.email }; if (c.case_id) wpCase[c.user_id] = c.case_id; } });
+      (dbState.atsJobs || []).forEach(function (r) { if (r && r.id != null) wpRole[String(r.id)] = r; });
+    }
+    var wpOut = wpRows.map(function (a) {
+      var prof = wpProf[a.user_id] || {}, role = wpRole[String(a.career_role_id)] || {};
+      var submittedAt = a.submitted_to_practice_at || null;
+      var days = submittedAt ? Math.max(0, Math.floor((Date.now() - new Date(submittedAt).getTime()) / 86400000)) : 0;
+      var declined = a.practice_decision === 'turned_down';
+      var status = declined ? 'declined' : (a.practice_opened_at ? 'reviewing' : 'awaiting');
+      return {
+        id: a.id, user_id: a.user_id, case_id: wpCase[a.user_id] || null,
+        gp_name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || 'Candidate',
+        practice_name: role.practice_name || '',
+        role_title: role.title || 'General Practitioner',
+        role_location: (role.location_city || '') + (role.location_state ? ', ' + role.location_state : ''),
+        submitted_to_practice_at: submittedAt,
+        days_waiting: days,
+        reminder_count: a.practice_reminder_count || 0,
+        last_reminder_at: a.last_practice_reminder_at || null,
+        chase: !declined && (!!a.practice_chase_flagged_at || days >= 7),
+        status: status,
+        decline_reason: a.practice_decision_reason || null
+      };
+    });
+    sendJson(res, 200, { ok: true, applications: wpOut, total: wpOut.length });
+    return;
+  }
+
+  // Manual "Nudge now" — send the practice an immediate reminder (reuses the
+  // same approve/turn_down links) and bump the reminder bookkeeping.
+  if (pathname === '/api/ats/application/remind-practice' && req.method === 'POST') {
+    var ctxRP = requireAtsSession(req, res); if (!ctxRP) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
+    var rpBody; try { rpBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    var rpId = String((rpBody && (rpBody.applicationId || rpBody.id)) || '').trim();
+    if (!rpId) { sendJson(res, 400, { ok: false, message: 'applicationId is required.' }); return; }
+    var rpRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(rpId) + '&limit=1');
+    var rpApp = (rpRes.ok && rpRes.data && rpRes.data[0]) || null;
+    if (!rpApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    if (rpApp.practice_decision) { sendJson(res, 409, { ok: false, message: 'The practice has already responded.' }); return; }
+    var rpLabels = await atsResolveAppLabels(rpApp);
+    var rpSend = await sendPracticeDecisionReminderEmail({ application: rpApp, gpName: rpLabels.gpName, roleLabel: rpLabels.roleLabel, practiceLabel: rpLabels.practiceLabel, practiceEmail: rpApp.practice_contact_email, firmer: (rpApp.practice_reminder_count || 0) >= 1 });
+    if (!rpSend || !rpSend.ok) { sendJson(res, 502, { ok: false, message: 'Could not send the reminder to the practice.' }); return; }
+    var rpNow = new Date().toISOString();
+    await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(rpId), { method: 'PATCH', body: { practice_reminder_count: (rpApp.practice_reminder_count || 0) + 1, last_practice_reminder_at: rpNow, updated_at: rpNow } });
+    sendJson(res, 200, { ok: true });
     return;
   }
 

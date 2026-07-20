@@ -227,7 +227,7 @@ describe('AI Matching Task 7 — source wiring', () => {
   });
 
   it('pages/ceo-dashboard.html loads the bumped cache busters for both touched ATS scripts', () => {
-    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260719[a-z]"><\/script>/);
+    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260720[a-z]"><\/script>/);
     expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20260718a"></script>');
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707f'); // pre-Task-7 pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707g'); // pre-review-fix pin superseded
