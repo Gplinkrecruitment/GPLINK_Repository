@@ -189,12 +189,13 @@ function userCookie(email, supabaseUserId) {
 const superCookie = () => adminCookieFor(SUPER_EMAIL, 'super_admin');
 const consultantCookie = () => adminCookieFor(CONSULTANT_EMAIL, 'consultant');
 
-function httpReq(method, p, { cookie, body, host } = {}) {
+function httpReq(method, p, { cookie, body, host, bearer } = {}) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
     const headers = {};
     if (cookie) headers.Cookie = cookie;
     if (host) headers.Host = host;
+    if (bearer) headers.Authorization = 'Bearer ' + bearer;
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
       const c = []; res.on('data', (x) => c.push(x));
@@ -220,6 +221,8 @@ beforeAll(async () => {
   process.env.NODE_ENV = 'test';
   process.env.AUTH_DISABLED = 'false';
   process.env.AUTH_SECRET = 'ats-attn-secret-' + RUN_ID;
+  process.env.CRON_SECRET = 'test-cron-secret';
+  process.env.PRACTICE_REMINDER_SKIP_WEEKENDS = 'false'; // deterministic cron test regardless of the day it runs
   process.env.REQUIRE_SUPABASE_DB = 'false';
   process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
   process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
@@ -520,6 +523,34 @@ describe('GET /api/ats/waiting-on-practice + reminders', () => {
     const r = await atsGet('/api/ats/waiting-on-practice', consultantCookie());
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
+  });
+});
+
+describe('cron: practice-decision-reminders', () => {
+  const THREE_DAYS_AGO = new Date(Date.now() - 3.5 * 24 * 60 * 60 * 1000).toISOString();
+  beforeAll(() => {
+    db.gp_applications.push({ id: 'app-cron-day3', user_id: 'u-wait-gp', career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'review', ats_stage: 'submitted', applied_at: THREE_DAYS_AGO, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: THREE_DAYS_AGO, practice_contact_email: 'contact3@seaside.example', practice_action_token: 'cron-tok-3', practice_reminder_count: 0 });
+  });
+
+  it('day-3 sends the first practice reminder; day-7 flags a chase + emails the owner', async () => {
+    const before = resendCalls.length;
+    const r = await httpReq('GET', '/api/cron/practice-decision-reminders', { host: SUPER_HOST, bearer: 'test-cron-secret' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const sent = resendCalls.slice(before);
+    // day-3 app got its first auto-reminder, count 0 → 1
+    const day3 = db.gp_applications.find((a) => a.id === 'app-cron-day3');
+    expect(day3.practice_reminder_count).toBe(1);
+    expect(sent.some((c) => JSON.stringify(c.body || {}).includes('contact3@seaside.example'))).toBe(true);
+    // day-8 app (no more auto-reminders — count already 2+) gets the chase flag + owner email
+    const chaseApp = db.gp_applications.find((a) => a.id === 'app-wait-chase');
+    expect(chaseApp.practice_chase_flagged_at).toBeTruthy();
+    expect(sent.some((c) => /chase needed/i.test(String(c.body && c.body.subject)))).toBe(true);
+  });
+
+  it('rejects an unauthenticated cron call', async () => {
+    const r = await httpReq('GET', '/api/cron/practice-decision-reminders', { host: SUPER_HOST });
+    expect(r.status).toBe(401);
   });
 });
 

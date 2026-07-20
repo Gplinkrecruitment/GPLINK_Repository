@@ -7707,6 +7707,9 @@ const CRON_SCHEDULES = {
   'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
   'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 },
+  // Daily 21:50 UTC ≈ 7:50am AEST — after the nightly sweeps, chases practices
+  // sitting on a submitted candidate (day 3/5 auto-nudge, day 7 owner chase flag).
+  'practice-decision-reminders': { schedule: '50 21 * * *', cadenceMinutes: 1440 },
   // Sunday 21:00 UTC = Monday ~7am AEST — the digest lands at the start of the
   // owner's week. Weekly cadence (10080 min).
   'owner-digest': { schedule: '0 21 * * 0', cadenceMinutes: 10080 },
@@ -34071,6 +34074,66 @@ async function handleApi(req, res, pathname) {
   // category chases at most once per its window (dedup flags/task lookups)
   // and each run is capped per category (CHASE_MAX_PER_RUN). Heartbeat via
   // CRON_SCHEDULES['chase-nonresponders'].
+  // Practice-decision reminders: chase a practice that hasn't accepted/declined
+  // a submitted candidate. Day 3 + day 5 → auto-email the practice (same
+  // approve/turn_down links); day 7 → flag "chase personally" + email the owner.
+  // Reminders stop automatically because the query only selects submitted rows
+  // with no decision still in an early stage — a decided/hired/withdrawn card
+  // drops out. Practice-facing sends skip weekends (owner default; the day-7
+  // chase flag is set any day).
+  if (req.method === 'GET' && pathname === '/api/cron/practice-decision-reminders') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', reminders_sent: 0, chase_flagged: 0 }); return; }
+    var pdStart = Date.now(), pdSent = 0, pdChase = 0, pdErrors = [];
+    try {
+      var pdDow = new Date().getUTCDay(); // 0 Sun … 6 Sat
+      var pdWeekend = (process.env.PRACTICE_REMINDER_SKIP_WEEKENDS !== 'false') && (pdDow === 0 || pdDow === 6);
+      var pdCap = 40;
+      var pdRes = await supabaseDbRequest('gp_applications',
+        'select=*&practice_submission_status=eq.submitted_to_practice&practice_decision=is.null&ats_stage=in.(submitted,reviewing)&limit=500');
+      var pdRows = (pdRes.ok && Array.isArray(pdRes.data)) ? pdRes.data : [];
+      for (var pdi = 0; pdi < pdRows.length && pdSent < pdCap; pdi++) {
+        var pdApp = pdRows[pdi];
+        if (!pdApp.submitted_to_practice_at) continue;
+        var pdDays = Math.floor((Date.now() - new Date(pdApp.submitted_to_practice_at).getTime()) / 86400000);
+        var pdCount = pdApp.practice_reminder_count || 0;
+        // Day 7+: flag for a personal chase (once) and tell the owner.
+        if (pdDays >= 7 && !pdApp.practice_chase_flagged_at) {
+          try {
+            var pdLab7 = await atsResolveAppLabels(pdApp);
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdApp.id), { method: 'PATCH', body: { practice_chase_flagged_at: new Date().toISOString() } });
+            await sendEmail({
+              to: GP_OWNER_EMAIL,
+              subject: 'Chase needed: ' + pdLab7.gpName + ' at ' + pdLab7.practiceLabel + ' — no reply in ' + pdDays + ' days',
+              html: buildCareerEmailHtml({ title: 'Time to chase a practice', bodyHtml: '<p>' + String(pdLab7.gpName).replace(/</g, '&lt;') + ' was submitted to <b>' + String(pdLab7.practiceLabel).replace(/</g, '&lt;') + '</b> for the ' + String(pdLab7.roleLabel).replace(/</g, '&lt;') + ' ' + pdDays + ' days ago and they still haven’t accepted or declined. Two reminders have gone out — worth a personal call now.</p>' }),
+              text: pdLab7.gpName + ' was submitted to ' + pdLab7.practiceLabel + ' for the ' + pdLab7.roleLabel + ' ' + pdDays + ' days ago and the practice still hasn’t accepted or declined. Two reminders have been sent — worth a personal call now.',
+              from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
+            });
+            pdChase++;
+          } catch (e7) { pdErrors.push({ id: pdApp.id, error: 'chase_failed' }); }
+          continue; // no more auto-reminders to the practice past day 7
+        }
+        if (pdWeekend) continue; // defer practice-facing sends over the weekend
+        var pdDue = (pdCount === 0 && pdDays >= 3) || (pdCount === 1 && pdDays >= 5);
+        if (!pdDue) continue;
+        try {
+          var pdLab = await atsResolveAppLabels(pdApp);
+          var pdSend = await sendPracticeDecisionReminderEmail({ application: pdApp, gpName: pdLab.gpName, roleLabel: pdLab.roleLabel, practiceLabel: pdLab.practiceLabel, practiceEmail: pdApp.practice_contact_email, firmer: pdCount >= 1 });
+          if (pdSend && pdSend.ok) {
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdApp.id), { method: 'PATCH', body: { practice_reminder_count: pdCount + 1, last_practice_reminder_at: new Date().toISOString() } });
+            pdSent++;
+          } else { pdErrors.push({ id: pdApp.id, error: 'send_failed' }); }
+        } catch (eS) { pdErrors.push({ id: pdApp.id, error: 'send_error' }); }
+      }
+      await recordCronRun('practice-decision-reminders', 'ok', 'sent=' + pdSent + ' chase=' + pdChase, Date.now() - pdStart);
+      sendJson(res, 200, { ok: true, reminders_sent: pdSent, chase_flagged: pdChase, errors: pdErrors.length });
+    } catch (ePD) {
+      await recordCronRun('practice-decision-reminders', 'error', String(ePD && ePD.message), Date.now() - pdStart);
+      sendJson(res, 500, { ok: false, error: 'cron_failed' });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/cron/chase-nonresponders') {
     if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', practice: 0, officer: 0, gp: 0 }); return; }
