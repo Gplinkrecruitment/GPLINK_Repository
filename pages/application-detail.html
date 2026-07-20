@@ -11,6 +11,10 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a" defer></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
+  <!-- gp-cache: this page must be able to invalidate the cached
+       /api/career/applications list after a withdrawal, even when opened
+       standalone (outside the app shell that normally loads it). -->
+  <script src="/js/gp-cache.js?v=20260707a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
   <script src="../js/updates-sync.js?v=20260707b" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
@@ -517,6 +521,104 @@
     .btn-withdraw:hover { color: var(--gp-red); }
     .btn-withdraw:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    /* ── Withdraw confirmation modal ── */
+    .gp-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(3px);
+      animation: gpFadeUp var(--gp-dur-fast) var(--gp-ease) both;
+    }
+    .gp-modal-backdrop[hidden] { display: none; }
+    .gp-modal {
+      width: 100%;
+      max-width: 420px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: var(--gp-r-lg);
+      box-shadow: var(--shadow-card);
+      padding: 22px 20px 18px;
+    }
+    .gp-modal-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--gp-red-soft);
+      color: var(--gp-red);
+      border: 1px solid var(--gp-red-border);
+      margin-bottom: 12px;
+    }
+    .gp-modal-title {
+      margin: 0 0 10px;
+      font-family: var(--gp-font-display, inherit);
+      font-size: 19px;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--ink);
+    }
+    .gp-modal-body p {
+      margin: 0 0 10px;
+      font-size: var(--gp-fs-sm);
+      line-height: 1.55;
+      color: var(--charcoal);
+    }
+    .gp-modal-body p:last-child { margin-bottom: 0; }
+    .gp-modal-body p.gp-modal-emphasis {
+      font-weight: 600;
+      color: var(--gp-red-ink, var(--gp-red));
+      background: var(--gp-red-soft);
+      border: 1px solid var(--gp-red-border);
+      border-radius: var(--gp-r-sm);
+      padding: 10px 12px;
+    }
+    .gp-modal-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .gp-modal-btn {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: var(--gp-r-md);
+      font-size: var(--gp-fs-sm);
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: transform var(--gp-dur-fast) var(--gp-ease),
+                  background var(--gp-dur-fast) var(--gp-ease),
+                  color var(--gp-dur-fast) var(--gp-ease);
+    }
+    .gp-modal-btn-keep {
+      border: 1px solid var(--line-strong);
+      background: var(--panel-soft);
+      color: var(--ink);
+    }
+    .gp-modal-btn-keep:hover { background: var(--panel-muted); }
+    .gp-modal-btn-danger {
+      border: 1px solid var(--gp-red);
+      background: var(--gp-red);
+      color: #fff;
+    }
+    .gp-modal-btn-danger:hover { transform: translateY(-1px); }
+    .gp-modal-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .gp-modal-backdrop { animation: none; }
+      .gp-modal-btn-danger:hover { transform: none; }
+    }
+
     /* ── Reveal animations on key sections ── */
     .app-header-section { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) both; animation-delay: 0.05s; }
     .status-timeline     { animation: gpFadeUp var(--gp-dur-slow) var(--gp-ease) both; animation-delay: 0.12s; }
@@ -718,6 +820,25 @@
     </div>
   </div>
 
+  <!-- Withdraw confirmation modal -->
+  <div class="gp-modal-backdrop" id="withdrawModalBackdrop" hidden>
+    <div class="gp-modal" id="withdrawModal" role="dialog" aria-modal="true" aria-labelledby="withdrawModalTitle" aria-describedby="withdrawModalBody">
+      <div class="gp-modal-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <h2 class="gp-modal-title" id="withdrawModalTitle">Withdraw this application?</h2>
+      <div class="gp-modal-body" id="withdrawModalBody"></div>
+      <div class="gp-modal-actions">
+        <button type="button" class="gp-modal-btn gp-modal-btn-keep" id="withdrawModalCancel">Keep my application</button>
+        <button type="button" class="gp-modal-btn gp-modal-btn-danger" id="withdrawModalConfirm">Withdraw application</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function () {
       var params = new URLSearchParams(window.location.search);
@@ -852,6 +973,236 @@
       // they always act on the freshest data.
       var latestApp = null;
       var latestInterview = null;
+
+      // ── Withdraw confirmation modal ──────────────────────────────────────
+      // Replaces the old browser confirm(). The warning ESCALATES with how many
+      // applications this GP has already withdrawn, because repeat withdrawals
+      // reduce their priority for future placements. Declared here (with the
+      // other module state) so nothing below reads these as `undefined`.
+      var withdrawModalWired = false;
+      var withdrawModalTrigger = null;
+      var withdrawModalOnConfirm = null;
+
+      function ordinalLabel(n) {
+        var suffixes = ["th", "st", "nd", "rd"];
+        var v = n % 100;
+        return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
+      }
+
+      // Counts applications this GP has ALREADY withdrawn. Never rejects — a
+      // failed lookup resolves to 0 so a network problem can't block the user.
+      function countPreviousWithdrawals() {
+        return fetch("/api/career/applications", { credentials: "same-origin" })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+          .then(function (data) {
+            if (!data || !data.ok || !Array.isArray(data.applications)) return 0;
+            var currentId = (latestApp && latestApp.id) || appId;
+            var count = 0;
+            for (var i = 0; i < data.applications.length; i++) {
+              var entry = data.applications[i];
+              if (!entry) continue;
+              // The one being withdrawn right now isn't a *previous* withdrawal.
+              if (currentId && entry.id === currentId) continue;
+              if (normalizeStatusKey(entry.status) === "withdrawn") count++;
+            }
+            return count;
+          })
+          .catch(function () { return 0; });
+      }
+
+      function buildWithdrawCopy(previousCount) {
+        var cannotUndo = "Withdrawing tells the practice you are no longer interested in this role. It cannot be undone — you will not be able to rejoin this application later.";
+        if (previousCount >= 2) {
+          return {
+            title: "You have already withdrawn from " + previousCount + " roles",
+            paragraphs: [
+              { text: cannotUndo },
+              {
+                text: "This would be your " + ordinalLabel(previousCount + 1) + " withdrawal. Your priority for future placements is being noticeably reduced — we look at how often a doctor pulls out of a role when deciding who to put forward.",
+                emphasis: true
+              },
+              { text: "If you have concerns about this role, please speak to your Registration Support Officer before you withdraw. They can raise your questions with the practice for you." }
+            ]
+          };
+        }
+        if (previousCount === 1) {
+          return {
+            title: "This will be your 2nd withdrawal",
+            paragraphs: [
+              { text: cannotUndo },
+              {
+                text: "You have already withdrawn from 1 role. Withdrawing again will lower your priority for future placements.",
+                emphasis: true
+              },
+              { text: "If something about this role does not feel right, your Registration Support Officer can help before you decide." }
+            ]
+          };
+        }
+        return {
+          title: "Withdraw this application?",
+          paragraphs: [
+            { text: cannotUndo },
+            { text: "It is completely fine to change your mind once. Please keep in mind that withdrawing from roles repeatedly means you will be prioritised less for future placements." }
+          ]
+        };
+      }
+
+      function applyWithdrawCopy(copy) {
+        var titleEl = document.getElementById("withdrawModalTitle");
+        var bodyEl = document.getElementById("withdrawModalBody");
+        if (titleEl) titleEl.textContent = copy.title;
+        if (!bodyEl) return;
+        bodyEl.innerHTML = "";
+        for (var i = 0; i < copy.paragraphs.length; i++) {
+          var para = copy.paragraphs[i];
+          var p = document.createElement("p");
+          if (para.emphasis) p.className = "gp-modal-emphasis";
+          p.textContent = para.text;
+          bodyEl.appendChild(p);
+        }
+      }
+
+      function withdrawModalFocusables() {
+        var list = [
+          document.getElementById("withdrawModalCancel"),
+          document.getElementById("withdrawModalConfirm")
+        ];
+        return list.filter(function (el) { return el && !el.disabled; });
+      }
+
+      function closeWithdrawModal() {
+        var backdrop = document.getElementById("withdrawModalBackdrop");
+        if (!backdrop || backdrop.hidden) return;
+        backdrop.hidden = true;
+        document.body.style.overflow = "";
+        var trigger = withdrawModalTrigger;
+        withdrawModalTrigger = null;
+        withdrawModalOnConfirm = null;
+        if (trigger && typeof trigger.focus === "function") {
+          try { trigger.focus(); } catch (e) {}
+        }
+      }
+
+      function wireWithdrawModal() {
+        if (withdrawModalWired) return;
+        withdrawModalWired = true;
+        var backdrop = document.getElementById("withdrawModalBackdrop");
+        var cancelBtn = document.getElementById("withdrawModalCancel");
+        var confirmBtn = document.getElementById("withdrawModalConfirm");
+        if (cancelBtn) cancelBtn.addEventListener("click", closeWithdrawModal);
+        if (confirmBtn) {
+          confirmBtn.addEventListener("click", function () {
+            var onConfirm = withdrawModalOnConfirm;
+            // Close first: the trigger is still enabled at this point, so focus
+            // returns cleanly before the withdraw request disables it.
+            closeWithdrawModal();
+            if (typeof onConfirm === "function") onConfirm();
+          });
+        }
+        if (backdrop) {
+          // mousedown (not click) so a drag that ends on the backdrop from
+          // inside the dialog doesn't dismiss it.
+          backdrop.addEventListener("mousedown", function (ev) {
+            if (ev.target === backdrop) closeWithdrawModal();
+          });
+        }
+        document.addEventListener("keydown", function (ev) {
+          var bd = document.getElementById("withdrawModalBackdrop");
+          if (!bd || bd.hidden) return;
+          if (ev.key === "Escape" || ev.key === "Esc") {
+            ev.preventDefault();
+            closeWithdrawModal();
+            return;
+          }
+          if (ev.key !== "Tab") return;
+          var focusables = withdrawModalFocusables();
+          if (!focusables.length) return;
+          var first = focusables[0];
+          var last = focusables[focusables.length - 1];
+          if (focusables.indexOf(document.activeElement) === -1) {
+            ev.preventDefault();
+            first.focus();
+          } else if (ev.shiftKey && document.activeElement === first) {
+            ev.preventDefault();
+            last.focus();
+          } else if (!ev.shiftKey && document.activeElement === last) {
+            ev.preventDefault();
+            first.focus();
+          }
+        });
+      }
+
+      function openWithdrawModal(trigger, onConfirm) {
+        var backdrop = document.getElementById("withdrawModalBackdrop");
+        if (!backdrop) {
+          // Markup missing — never leave the GP without a confirmation step.
+          if (window.confirm("Withdraw this application? This cannot be undone.")) {
+            if (typeof onConfirm === "function") onConfirm();
+          }
+          return;
+        }
+        wireWithdrawModal();
+        withdrawModalTrigger = trigger || null;
+        withdrawModalOnConfirm = typeof onConfirm === "function" ? onConfirm : null;
+
+        // Open straight away with the gentle wording so the dialog never waits
+        // on the network, but hold the destructive button until the real
+        // withdrawal count lands — the GP must see the escalated warning
+        // before they can confirm.
+        applyWithdrawCopy(buildWithdrawCopy(0));
+        var confirmBtn = document.getElementById("withdrawModalConfirm");
+        if (confirmBtn) confirmBtn.disabled = true;
+        backdrop.hidden = false;
+        document.body.style.overflow = "hidden";
+        var cancelBtn = document.getElementById("withdrawModalCancel");
+        if (cancelBtn) cancelBtn.focus();
+
+        countPreviousWithdrawals().then(function (previousCount) {
+          if (backdrop.hidden) return;
+          if (previousCount > 0) applyWithdrawCopy(buildWithdrawCopy(previousCount));
+          if (confirmBtn) confirmBtn.disabled = false;
+        });
+      }
+
+      // After a successful withdrawal the cached applications list is wrong in
+      // two places: js/gp-cache.js holds /api/career/applications in its "heavy"
+      // tier (10 minutes served with NO network call), and career.html keeps its
+      // own copy in the localStorage "gp_career_state". Clear the first, patch
+      // the second, and leave a one-shot flag so career.html's next boot force-
+      // refreshes from the network. Every step is guarded — none may throw.
+      function markApplicationsStale(applicationId) {
+        try {
+          var cacheRef = window.gpCache
+            || (window.parent && window.parent !== window && window.parent.gpCache)
+            || null;
+          if (cacheRef && typeof cacheRef.invalidate === "function") {
+            cacheRef.invalidate("/api/career/applications");
+          }
+        } catch (e) { /* cross-origin parent access can throw */ }
+        try { sessionStorage.setItem("gp_career_apps_dirty", "1"); } catch (e) {}
+        try { sessionStorage.removeItem("gp_application_preview"); } catch (e) {}
+        if (!applicationId) return;
+        try {
+          var raw = localStorage.getItem("gp_career_state");
+          if (!raw) return;
+          var state = JSON.parse(raw);
+          if (!state || !Array.isArray(state.applications)) return;
+          var changed = false;
+          for (var i = 0; i < state.applications.length; i++) {
+            var entry = state.applications[i];
+            if (!entry || entry.id !== applicationId) continue;
+            entry.rawStatus = "withdrawn";
+            entry.status = "Application withdrawn";
+            entry.statusLabel = "Application withdrawn";
+            entry.statusTone = "review";
+            entry.tone = "review";
+            entry.offerPending = false;
+            entry.isPlacementSecured = false;
+            changed = true;
+          }
+          if (changed) localStorage.setItem("gp_career_state", JSON.stringify(state));
+        } catch (e) {}
+      }
 
       // ── CACHED PREVIEW RENDER ────────────────────────────────────────────
       // Paint instantly from the sessionStorage preview so the GP isn't left
@@ -1058,19 +1409,20 @@
           withdrawBtn.hidden = false;
           if (withdrawBtn.dataset.wired !== "1") {
           withdrawBtn.dataset.wired = "1";
-          withdrawBtn.addEventListener("click", function () {
-            if (!confirm("Are you sure you want to withdraw this application? This cannot be undone.")) return;
+          var performWithdraw = function () {
+            var withdrawnId = (latestApp && latestApp.id) || appId;
             withdrawBtn.disabled = true;
             withdrawBtn.textContent = "Withdrawing...";
             fetch("/api/career/application/withdraw", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "same-origin",
-              body: JSON.stringify({ applicationId: (latestApp && latestApp.id) || appId })
+              body: JSON.stringify({ applicationId: withdrawnId })
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
               if (data.ok) {
+                markApplicationsStale(withdrawnId);
                 withdrawBtn.textContent = "Application Withdrawn";
                 var pillEl = document.getElementById("statusPill");
                 pillEl.textContent = "Withdrawn";
@@ -1087,6 +1439,10 @@
               withdrawBtn.textContent = "Withdraw Application";
               alert("Network error. Please try again.");
             });
+          };
+
+          withdrawBtn.addEventListener("click", function () {
+            openWithdrawModal(withdrawBtn, performWithdraw);
           });
           }
         } else if (isWithdrawn) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeIntent, INTENT_WEIGHTS, bandFor } from '../lib/ats-intent.js';
+import { computeIntent, INTENT_WEIGHTS, bandFor, withdrawalPenalty } from '../lib/ats-intent.js';
 
 // Frozen clock for parity with the other ATS/CEO suites (intent itself is
 // clock-free — callers pass pre-computed day deltas — so this is decorative
@@ -18,7 +18,8 @@ const HOT = {
   callsCompleted: 9,
   callsMissed: 1,
   lastActiveDays: 1,
-  bestAtsStage: 'interview'
+  bestAtsStage: 'interview',
+  withdrawnCount: 0
 };
 
 // A dead-cold candidate: nothing done, no docs, no engagement.
@@ -108,6 +109,98 @@ describe('blocked-days penalty', () => {
   });
 });
 
+describe('withdrawalPenalty table', () => {
+  const WITHDRAWN_LABEL = 'Withdrawn applications';
+
+  it('escalates 0/0/6/14/24 and caps at 24', () => {
+    expect(withdrawalPenalty(0)).toBe(0);
+    expect(withdrawalPenalty(1)).toBe(0); // first withdrawal is free
+    expect(withdrawalPenalty(2)).toBe(6);
+    expect(withdrawalPenalty(3)).toBe(14);
+    expect(withdrawalPenalty(4)).toBe(24);
+    expect(withdrawalPenalty(7)).toBe(24);
+    expect(withdrawalPenalty(9999)).toBe(24);
+  });
+
+  it('treats garbage, negative and NaN counts as 0 and never leaves 0..24', () => {
+    [undefined, null, NaN, -1, -50, 'abc', {}, [], Infinity, -Infinity].forEach((bad) => {
+      const p = withdrawalPenalty(bad);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThanOrEqual(24);
+    });
+    expect(withdrawalPenalty(-3)).toBe(0);
+    expect(withdrawalPenalty(NaN)).toBe(0);
+    expect(withdrawalPenalty('abc')).toBe(0);
+    // numeric strings still resolve through the table
+    expect(withdrawalPenalty('3')).toBe(14);
+  });
+
+  it('subtracts the penalty from the score', () => {
+    const base = computeIntent({ ...HOT, withdrawnCount: 0 });
+    expect(computeIntent({ ...HOT, withdrawnCount: 1 }).score).toBe(base.score);
+    expect(computeIntent({ ...HOT, withdrawnCount: 2 }).score).toBe(base.score - 6);
+    expect(computeIntent({ ...HOT, withdrawnCount: 3 }).score).toBe(base.score - 14);
+    expect(computeIntent({ ...HOT, withdrawnCount: 4 }).score).toBe(base.score - 24);
+    expect(computeIntent({ ...HOT, withdrawnCount: 7 }).score).toBe(base.score - 24);
+  });
+
+  it('band reflects the POST-penalty score and can drop a tier', () => {
+    // A near-Hot candidate: same as HOT but only at "applied" ATS stage.
+    const nearHot = { ...HOT, bestAtsStage: 'applied' };
+    const clean = computeIntent(nearHot);
+    expect(clean.band).toBe('Hot');
+    expect(clean.score).toBeGreaterThanOrEqual(70);
+
+    const serial = computeIntent({ ...nearHot, withdrawnCount: 4 });
+    expect(serial.score).toBe(clean.score - 24);
+    expect(serial.score).toBeLessThan(70);
+    expect(serial.band).toBe('Warm');
+    expect(serial.band).toBe(bandFor(serial.score));
+  });
+
+  it('score never goes below 0 even when the penalty exceeds the total', () => {
+    const cold = computeIntent(COLD);
+    expect(cold.score).toBeLessThan(24); // pre-condition for this test
+    const r = computeIntent({ ...COLD, withdrawnCount: 9 });
+    expect(r.score).toBe(0);
+    expect(r.band).toBe('Cold');
+  });
+
+  it('appends the penalty row ONLY when the penalty is non-zero', () => {
+    [0, 1].forEach((count) => {
+      const r = computeIntent({ ...HOT, withdrawnCount: count });
+      expect(r.signals.length).toBe(7);
+      expect(sig(r, WITHDRAWN_LABEL)).toBeUndefined();
+    });
+
+    const r = computeIntent({ ...HOT, withdrawnCount: 3 });
+    expect(r.signals.length).toBe(8);
+    const row = sig(r, WITHDRAWN_LABEL);
+    expect(row).toEqual({
+      label: WITHDRAWN_LABEL,
+      w: 0,
+      v: 0,
+      points: -14,
+      penalty: true,
+      count: 3
+    });
+    expect(row.points).toBeLessThan(0);
+    // zero-weight row keeps the weight assertion for the first 7 intact
+    expect(r.signals.slice(0, 7).map((s) => s.w)).toEqual(INTENT_WEIGHTS);
+  });
+
+  it('omitting withdrawnCount is identical to passing 0 (backwards compatible)', () => {
+    const { withdrawnCount, ...noField } = HOT;
+    expect(computeIntent(noField)).toEqual(computeIntent({ ...noField, withdrawnCount: 0 }));
+    expect(computeIntent({})).toEqual(computeIntent({ withdrawnCount: 0 }));
+    expect(computeIntent(noField).signals.length).toBe(7);
+    // garbage counts also behave exactly like 0
+    expect(computeIntent({ ...noField, withdrawnCount: null })).toEqual(computeIntent(noField));
+    expect(computeIntent({ ...noField, withdrawnCount: 'nope' })).toEqual(computeIntent(noField));
+    expect(computeIntent({ ...noField, withdrawnCount: -5 })).toEqual(computeIntent(noField));
+  });
+});
+
 describe('bandFor thresholds', () => {
   it('classifies at the 70/40 boundaries', () => {
     expect(bandFor(70)).toBe('Hot');
@@ -120,9 +213,10 @@ describe('bandFor thresholds', () => {
 });
 
 describe('ats-intent API surface', () => {
-  it('exports computeIntent, INTENT_WEIGHTS and bandFor', () => {
+  it('exports computeIntent, INTENT_WEIGHTS, bandFor and withdrawalPenalty', () => {
     expect(typeof computeIntent).toBe('function');
     expect(typeof bandFor).toBe('function');
+    expect(typeof withdrawalPenalty).toBe('function');
     expect(Array.isArray(INTENT_WEIGHTS)).toBe(true);
     expect(INTENT_WEIGHTS.length).toBe(7);
   });

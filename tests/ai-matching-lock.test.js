@@ -116,7 +116,7 @@ describe('AI Matching Task 8 — source wiring', () => {
   });
 
   it('pages/ceo-dashboard.html carries the bumped cache buster for ceo-ats-candidates.js', () => {
-    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260719[a-z]"><\/script>/);
+    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260721[a-z]"><\/script>/);
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707h'); // pre-Task-8 pin superseded
   });
 });

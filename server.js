@@ -2177,11 +2177,13 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
       var practiceContactName = 'Practice Contact';
       if (userId) {
         var appRow2 = await supabaseDbRequest('gp_applications',
-          'select=practice_contact_email,practice_contact_name,practice_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
+          // gp_applications has NO practice_name column — asking for it 400'd
+          // the whole query, so practiceEmail stayed empty and this letter was
+          // ALWAYS skipped. Practice name comes from career_roles, never here.
+          'select=practice_contact_email,practice_contact_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
         if (appRow2.ok && appRow2.data && appRow2.data[0]) {
           practiceEmail = String(appRow2.data[0].practice_contact_email || '').trim();
           if (appRow2.data[0].practice_contact_name) practiceContactName = String(appRow2.data[0].practice_contact_name).trim();
-          if (!practiceName && appRow2.data[0].practice_name) practiceName = String(appRow2.data[0].practice_name).trim();
         }
       }
       if (!practiceEmail) { console.warn('[ahpra-conflict-letter] skipped — no practice email for case', caseId); return null; }
@@ -4664,7 +4666,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           }
           // Also check if sender matches a practice contact email in gp_applications
           if (!earlyGpCase) {
-            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id,practice_name&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
+            // select=user_id only — gp_applications has no practice_name column
+            // (the 400 it caused meant a practice sender NEVER matched here),
+            // and _disambiguatePracticeEmail only ever reads app.user_id.
+            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
             if (appLookup.ok && Array.isArray(appLookup.data) && appLookup.data.length > 0) {
               if (appLookup.data.length === 1) {
                 // Single GP — safe to match directly
@@ -4856,7 +4861,10 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         var senderEmail = (emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
         if (senderEmail) {
           // Check if sender is a practice contact
-          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id,practice_name&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
+          // select=user_id only — no practice_name column on gp_applications
+          // (the 400 it caused meant alt-supervisor CVs from a practice inbox
+          // were never picked up); only _acApp.user_id is read below.
+          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
           if (_appLookup.ok && Array.isArray(_appLookup.data) && _appLookup.data.length > 0) {
             // For alt CV matching, try ALL GPs at this practice — match CVs against each one's alt supervisors
             var _altCvCandidates = [];
@@ -29043,6 +29051,11 @@ function atsApplicationToCard(app, label) {
     email: (label && label.email) || app.email || '',
     country: (label && label.country) || app.country || '',
     ats_stage: app.ats_stage || 'applied',
+    // Raw gp_applications.status — 'withdrawn' means the DOCTOR pulled out.
+    // The CEO drawer needs the raw value (not just the kanban lane, which
+    // reads 'not_proceeding' for every terminal outcome) to say WHO ended it.
+    status: app.status || '',
+    withdrawn_at: app.withdrawn_at || null,
     ats_notes: app.ats_notes || app.notes || '',
     job_id: app.career_role_id || app.job_id || '',
     provider_role_id: app.provider_role_id || '',
@@ -29990,6 +30003,26 @@ var ACTIVE_APPLICATION_CAP = 3;
 // this list is stored as null, protecting Task 8's exact-match
 // reason='gp_withdrew' strike query from free-text lookalikes.
 var ATS_WITHDRAW_REASON_VALUES = ['gp_withdrew', 'practice_passed', 'unresponsive', 'other'];
+
+// GP SELF-withdrawal reason — DELIBERATELY NOT a member of
+// ATS_WITHDRAW_REASON_VALUES above, and deliberately NOT the string
+// 'gp_withdrew'.
+//
+// DO NOT "tidy this up" by unifying the two values. computeCareerStrikes
+// counts a strike from any ats_stage_events row with reason='gp_withdrew'
+// (staff recording a late withdrawal after an interview), and 3 strikes
+// PAUSE the GP's entire career page. A doctor pressing "Withdraw" on their
+// own application in the app is a normal, allowed action and must never
+// count toward that lock — so it is stored under its own value, which the
+// exact-match strike query cannot see.
+//
+// Kept OUT of ATS_WITHDRAW_REASON_VALUES for a second reason: that array is
+// the whitelist for the staff PATCH /api/ats/application `reason` field and
+// is documented to stay in lockstep with the staff dropdowns in
+// js/ceo-ats-jobs.js / js/ceo-ats-candidates.js. Adding this value there
+// would make "GP self-withdrew" a thing STAFF could pick, which it is not.
+// It still queries cleanly (reason=eq.gp_self_withdrew) for reporting.
+var ATS_GP_SELF_WITHDRAW_REASON = 'gp_self_withdrew';
 async function countActiveApplications(userId) {
   var caaRes = await supabaseDbRequest('gp_applications',
     'select=ats_stage,status,practice_submission_status&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
@@ -31300,6 +31333,19 @@ async function findApplicationByActionToken(token) {
   return (dbState.atsApplications || []).find(function (a) { return a.practice_action_token === t; }) || null;
 }
 
+// True when the DOCTOR has withdrawn this application. Every practice-facing
+// decision endpoint below must refuse on this: a practice must never be able
+// to approve, turn down, or book interview times with someone who already
+// walked away. POST /api/career/application/withdraw also NULLs
+// practice_action_token so the emailed links stop resolving — but a token can
+// be cached, replayed, or (in the signed /api/practice/respond flow) not live
+// in the database at all, so these status guards are the primary defence and
+// the nulled token is defence in depth.
+var PRACTICE_WITHDRAWN_MESSAGE = 'This doctor has withdrawn their application for this role.';
+function applicationIsWithdrawn(appRow) {
+  return String((appRow && appRow.status) || '').trim().toLowerCase() === 'withdrawn';
+}
+
 // Dual-mode PATCH for the practice-decision fields on a gp_applications row.
 async function patchApplicationDecisionFields(id, patch) {
   if (isSupabaseDbConfigured()) {
@@ -31569,7 +31615,11 @@ function atsIntentInputFromFacts(f) {
     callsCompleted: done,
     callsMissed: missed,
     lastActiveDays: lastActiveDaysForIntent,
-    bestAtsStage: best
+    bestAtsStage: best,
+    // Escalating penalty for repeatedly withdrawing own applications
+    // (lib/ats-intent.js withdrawalPenalty: 0,0,-6,-14,-24 capped). Both facts
+    // builders set f.withdrawnCount; 0 when absent keeps the score unchanged.
+    withdrawnCount: Number(f.withdrawnCount || 0)
   };
 }
 
@@ -31642,6 +31692,10 @@ function atsLocalCandidateFacts(row) {
     return Object.assign({}, a, {
       interview: intRow,
       offer: atsOfferCardState(offerRow),
+      // Parity with atsProdCandidateFacts: the drawer's withdrawal badge needs
+      // the raw status + stamp in local/dev mode too.
+      status: a.status || '',
+      withdrawn_at: a.withdrawn_at || null,
       // Drawer source chip (Task F) — local-mode apps are in-app by definition
       // unless the seed row carries a Zoho id.
       source: a.source || (a.zoho_application_id ? 'zoho' : 'in_app')
@@ -31660,6 +31714,9 @@ function atsLocalCandidateFacts(row) {
     comms: row.comms || null,
     aiHandover: row.aiHandover || '',
     apps: enrichedApps,
+    // Parity with atsProdCandidateFacts — counted off the seeded apps so local
+    // /dev intent scoring applies the same withdrawal penalty as production.
+    withdrawnCount: enrichedApps.filter(function (a) { return String(a && a.status || '') === 'withdrawn'; }).length,
     // AI Matching (Task 7): local-mode seed rows carry the velocity flag
     // directly (no separate user_state table in this mode).
     velocityFlag: row.velocityFlag || null,
@@ -31725,6 +31782,12 @@ async function atsProdCandidateFacts(regCase) {
     return {
       id: a.id, job_id: a.career_role_id || '', job_title: role.title || '—',
       practice_name: role.practice_name || '', ats_stage: a.ats_stage || atsPracticeUtil.deriveAtsStage(a, false),
+      // Raw status + withdrawal stamp — the drawer's "Candidate withdrew"
+      // badge reads these. ats_stage alone says 'not_proceeding' for EVERY
+      // terminal outcome and can't tell staff who ended it. Safe to read
+      // directly: this builder selects gp_applications with select=*.
+      status: a.status || '',
+      withdrawn_at: a.withdrawn_at || null,
       // Drives the drawer's "Submit to practice" affordance (Task D):
       // '' / null normalises to 'pending_va_submission' = still submittable.
       practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
@@ -31774,6 +31837,10 @@ async function atsProdCandidateFacts(regCase) {
     comms: comms,
     aiHandover: regCase.ai_handover_summary || '',
     apps: apps,
+    // How many of this GP's applications they withdrew themselves. Counted off
+    // the appRows already in hand (select=* above) — no extra round-trip.
+    // Feeds computeIntent's escalating withdrawal penalty (first one free).
+    withdrawnCount: appRows.filter(function (a) { return String(a && a.status || '') === 'withdrawn'; }).length,
     // AI Matching (Task 7): read live off user_state — NOT part of the
     // registration_cases.intent_signals.facts cache (that blob only
     // refreshes on intent recompute, not on every apply), so a flag written
@@ -31801,7 +31868,11 @@ async function atsStoreIntentForCase(caseId, intent, facts) {
       country: facts.country, onboarding_pct: Math.round((facts.ob.completed ? 1 : (facts.ob.fieldsFilled || 0)) * 100),
       docs: facts.docs, reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage),
       blocked_days: facts.blockedDays, name: facts.name, email: facts.email,
-      account_status: facts.account_status, rso: facts.rso
+      account_status: facts.account_status, rso: facts.rso,
+      // Same whitelisted-display-field convention as blocked_days above:
+      // persisted so the CEO list can explain a dropped score without
+      // re-reading gp_applications.
+      withdrawn_count: Number(facts.withdrawnCount || 0)
     }
   };
   await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
@@ -32883,13 +32954,17 @@ async function handleApi(req, res, pathname) {
       for (var irInterview of irInterviews) {
         try {
           // Find the GP's userId from the application
+          // gp_applications has NEITHER practice_name NOR location_label —
+          // selecting them 400'd the query, irApp was always null, and this
+          // reminder NEVER sent. The practice name lives on career_roles.
           var irAppRes = await supabaseDbRequest('gp_applications',
-            'select=user_id,practice_name,location_label&id=eq.' + encodeURIComponent(irInterview.application_id) + '&limit=1');
+            'select=user_id,career_role_id&id=eq.' + encodeURIComponent(irInterview.application_id) + '&limit=1');
           var irApp = irAppRes.ok && Array.isArray(irAppRes.data) && irAppRes.data[0] ? irAppRes.data[0] : null;
           if (!irApp || !irApp.user_id) continue;
+          var irRole = irApp.career_role_id ? await getCareerRoleRowById(irApp.career_role_id).catch(function () { return null; }) : null;
 
           await sendInterviewReminderEmail(irApp.user_id, {
-            practiceName: irApp.practice_name || irApp.location_label || '',
+            practiceName: (irRole && irRole.practice_name) || '',
             scheduledAt: irInterview.scheduled_at,
             format: irInterview.format || '',
             zoomJoinUrl: irInterview.zoom_join_url || ''
@@ -32915,8 +32990,12 @@ async function handleApi(req, res, pathname) {
       // reminders (interview rows never otherwise touch that JSONB column, so no
       // migration is needed and there is no clobber risk).
       var irScNow = Date.now();
+      // scheduled_calls has NO `format` column (verified against the live
+      // schema) — selecting it 400'd this whole query, so the LIVE interview
+      // reminder has never sent. Dropped; the consumer below already defaults
+      // to 'video', which is what every scheduled_calls interview is.
       var irScRes = await supabaseDbRequest('scheduled_calls',
-        'select=id,application_id,user_id,case_id,practice_name,scheduled_at,format,timezone,zoom_join_url,notification_channels' +
+        'select=id,application_id,user_id,case_id,practice_name,scheduled_at,timezone,zoom_join_url,notification_channels' +
         '&meeting_kind=eq.interview&status=eq.booked&limit=200');
       var irScRows = irScRes.ok && Array.isArray(irScRes.data) ? irScRes.data : [];
       var irScSent = 0;
@@ -32949,12 +33028,18 @@ async function handleApi(req, res, pathname) {
           var irScUserId = irSc.user_id || '';
           var irScPractice = irSc.practice_name || '';
           if (!irScUserId || !irScPractice) {
+            // Same non-existent-column bug as the career_interviews pass above:
+            // practice_name/location_label are not gp_applications columns, so
+            // this 400'd and the fallback resolve never worked.
             var irScAppRes = await supabaseDbRequest('gp_applications',
-              'select=user_id,practice_name,location_label&id=eq.' + encodeURIComponent(String(irSc.application_id || '')) + '&limit=1');
+              'select=user_id,career_role_id&id=eq.' + encodeURIComponent(String(irSc.application_id || '')) + '&limit=1');
             var irScApp = irScAppRes.ok && Array.isArray(irScAppRes.data) && irScAppRes.data[0] ? irScAppRes.data[0] : null;
             if (irScApp) {
               irScUserId = irScUserId || irScApp.user_id || '';
-              irScPractice = irScPractice || irScApp.practice_name || irScApp.location_label || '';
+              if (!irScPractice && irScApp.career_role_id) {
+                var irScRole = await getCareerRoleRowById(irScApp.career_role_id).catch(function () { return null; });
+                irScPractice = (irScRole && irScRole.practice_name) || '';
+              }
             }
           }
           var irScChanged = false;
@@ -33742,8 +33827,13 @@ async function handleApi(req, res, pathname) {
       // response still returns promptly with a partial, honest result.
       var mlExpiredList = [];
       if (!mlTimedOut) {
+        // career_role_id, NOT job_title — gp_applications has no job_title
+        // column (it exists only on the LOCAL-mode mirror rows). Selecting it
+        // 400'd this query, so expired matches were NEVER swept up: rows sat
+        // at 'shortlisted' past their deadline forever. Title now resolved
+        // from career_roles, the same source the reminder pass above uses.
         var mlExpRes = await supabaseDbRequest('gp_applications',
-          'select=id,user_id,job_title' +
+          'select=id,user_id,career_role_id' +
           '&ats_stage=eq.shortlisted&matched_at=not.is.null&match_expires_at=lt.' + encodeURIComponent(mlNowIso) +
           '&order=match_expires_at.asc&limit=200');
         var mlExpRows = (mlExpRes.ok && Array.isArray(mlExpRes.data)) ? mlExpRes.data : [];
@@ -33763,7 +33853,8 @@ async function handleApi(req, res, pathname) {
             mlExpiredCount++;
             var mlGpCtx = await getGpEmailContext(mlExpRow.user_id).catch(function () { return null; });
             var mlGpName = (mlGpCtx && mlGpCtx.name) || (mlGpCtx && mlGpCtx.email) || mlExpRow.user_id;
-            mlExpiredList.push({ gpName: mlGpName, jobTitle: mlExpRow.job_title || 'a role' });
+            var mlExpTitle = await careerRoleTitleForApplication(mlExpRow.career_role_id).catch(function () { return ''; });
+            mlExpiredList.push({ gpName: mlGpName, jobTitle: mlExpTitle || 'a role' });
           } catch (mlExpErr) {
             mlErrors.push({ id: mlExpRow.id, stage: 'expiry', error: mlExpErr && mlExpErr.message });
           }
@@ -36440,6 +36531,11 @@ async function handleApi(req, res, pathname) {
       roleTitle: roleTitle || '',
       practiceName: (ctx && ctx.practiceName) || '',
       decision: decision,
+      // Read-only endpoint, so it still answers 200 — but it now says plainly
+      // that the doctor pulled out, so the page can explain rather than
+      // silently offering buttons the decision endpoint will refuse.
+      withdrawn: applicationIsWithdrawn(appRow),
+      withdrawnMessage: applicationIsWithdrawn(appRow) ? PRACTICE_WITHDRAWN_MESSAGE : '',
       availabilitySubmitted: !!(interviewRow && interviewRow.practice_availability_status === 'received'),
       interviewBooked: !!(interviewRow && interviewRow.status === 'booked')
     });
@@ -36474,6 +36570,15 @@ async function handleApi(req, res, pathname) {
     if (!prCtx) {
       res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(practiceRespondExpiredPage());
+      return;
+    }
+    // The doctor withdrew — this signed link is a valid HMAC and there is no
+    // database token to null, so the status check IS the only defence here.
+    // Render the plain explanation instead of the confirm form. 410 Gone
+    // matches how this handler already reports a link that no longer applies.
+    if (applicationIsWithdrawn(prCtx.app)) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('No action needed', PRACTICE_WITHDRAWN_MESSAGE + ' There is nothing for you to do here.'));
       return;
     }
     // Show only what the practice already knows from the intro email: the
@@ -36549,6 +36654,15 @@ async function handleApi(req, res, pathname) {
     if (!prApp) {
       res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(practiceRespondExpiredPage());
+      return;
+    }
+    // Same withdrawn guard as the GET confirm page above — repeated here
+    // because a POST can be replayed straight at this endpoint without ever
+    // loading the confirm page, and nothing must be recorded against a doctor
+    // who withdrew.
+    if (applicationIsWithdrawn(prApp)) {
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(practiceRespondPage('No action needed', PRACTICE_WITHDRAWN_MESSAGE + ' Nothing has been recorded.'));
       return;
     }
 
@@ -36782,6 +36896,14 @@ async function handleApi(req, res, pathname) {
     const appRow = await findApplicationByActionToken(token);
     if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
 
+    // The doctor withdrew — refuse before anything is recorded. 409 matches
+    // the neighbouring "state doesn't allow this" refusal in POST
+    // .../availability ({ code:'not_approved' }); never a 500.
+    if (applicationIsWithdrawn(appRow)) {
+      sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE });
+      return;
+    }
+
     const action = String((body && body.action) || '').trim();
     if (action !== 'approve' && action !== 'turn_down') {
       sendJson(res, 400, { ok: false, message: 'action must be "approve" or "turn_down".' });
@@ -36947,6 +37069,14 @@ async function handleApi(req, res, pathname) {
     const token = String((body && body.token) || '').trim();
     const appRow = await findApplicationByActionToken(token);
     if (!appRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+
+    // Refuse interview times for a doctor who has withdrawn — checked BEFORE
+    // the not_approved gate so an already-approved-then-withdrawn application
+    // gets the accurate message, not a confusing "not approved".
+    if (applicationIsWithdrawn(appRow)) {
+      sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE });
+      return;
+    }
 
     if (appRow.practice_decision !== 'approved') {
       sendJson(res, 409, { ok: false, code: 'not_approved' });
@@ -40171,8 +40301,10 @@ async function handleApi(req, res, pathname) {
     const applicationId = String(body && body.applicationId || '').trim();
     if (!applicationId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
 
-    // Verify application belongs to user
-    const appResult = await supabaseDbRequest('gp_applications', `select=id,status,ats_stage&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    // Verify application belongs to user. Selects the practice-submission
+    // fields too, so the handler below knows whether a practice is sitting on
+    // a live approve/turn-down link for a doctor who just walked away.
+    const appResult = await supabaseDbRequest('gp_applications', `select=id,status,ats_stage,career_role_id,revealed,practice_submission_status,practice_contact_email,practice_contact_name,submitted_to_practice_at&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
     if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
       sendJson(res, 404, { ok: false, message: 'Application not found.' });
       return;
@@ -40185,10 +40317,19 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Update status to withdrawn
+    // Update status to withdrawn.
+    // withdrawn_at: updated_at moves for any write, so it can never answer
+    // "when did the doctor actually withdraw?" — see migration
+    // 20260721100000_gp_application_withdrawal.sql.
+    // practice_action_token: nulled so the approve / turn-down links already
+    // sitting in the practice's inbox stop resolving. The withdrawn-status
+    // guards on the practice endpoints are the primary defence (a cached
+    // token could still be replayed against a row whose token we cleared);
+    // this is defence in depth, not a substitute.
+    const withdrawNowIso = new Date().toISOString();
     const patchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
       method: 'PATCH',
-      body: { status: 'withdrawn', updated_at: new Date().toISOString() }
+      body: { status: 'withdrawn', withdrawn_at: withdrawNowIso, practice_action_token: null, updated_at: withdrawNowIso }
     });
 
     if (!patchResult.ok) {
@@ -40197,14 +40338,23 @@ async function handleApi(req, res, pathname) {
     }
 
     // Kanban: a withdrawn application leaves the active pipeline, so move the
-    // card to the terminal 'not_proceeding' lane (audit actor 'gp_withdrew').
+    // card to the terminal 'not_proceeding' lane.
     // planAtsStageReconciliation keeps terminal lanes (hired/not_proceeding)
     // untouched. Quiet move — the GP withdrew it themselves, no milestone
     // notification fires (atsUpdateApplicationStageRow never notifies).
+    //
+    // Argument positions matter: the signature is
+    // (appId, stage, notes, actor, reason). This call used to pass
+    // 'gp_withdrew' as the 4th argument, so it landed in `actor` and `reason`
+    // stayed undefined — atsRecordStageEvent only writes ev.reason when the
+    // 5th argument is truthy, so every GP self-withdrawal was invisible to
+    // every reason-based query. Actor is now the GP's own email (audit), and
+    // the reason goes in the 5th slot as ATS_GP_SELF_WITHDRAW_REASON — read
+    // the comment on that constant before changing this value.
     try {
       const withdrawNextStage = atsPracticeUtil.planAtsStageReconciliation(app.ats_stage || '', atsPracticeUtil.ATS_REJECT_STAGE);
       if (withdrawNextStage) {
-        await atsUpdateApplicationStageRow(applicationId, withdrawNextStage, undefined, 'gp_withdrew');
+        await atsUpdateApplicationStageRow(applicationId, withdrawNextStage, undefined, email || 'gp', ATS_GP_SELF_WITHDRAW_REASON);
       }
     } catch (stageErr) {
       console.error('[career withdraw] kanban stage move failed for app', applicationId, ':', stageErr && stageErr.message);
@@ -40245,6 +40395,102 @@ async function handleApi(req, res, pathname) {
         }
       }
     } catch {}
+
+    // ── Tell the practice, if the candidate ever reached them ──────────────
+    // Only fires when the introduction actually went out (submitted_to_practice_at
+    // stamped, or practice_submission_status past 'pending_va_submission').
+    // If it never left GP Link, the practice has no idea this doctor exists and
+    // must NOT be told one withdrew.
+    //
+    // Identity: gated on the submission having been sent, and that submission
+    // email (buildCandidateSubmissionEmailHtml) already names the candidate in
+    // full — "Dr <first> <last>" in both subject and body. So naming them here
+    // reveals nothing new. The `revealed` flag is checked as a belt-and-braces
+    // second condition: if it is explicitly false AND no submission timestamp
+    // exists, we fall back to the first name only, the same minimum the
+    // token-authed GET /api/practice/respond confirm page discloses.
+    //
+    // Wholly non-fatal: the withdrawal is already committed above, and an
+    // email outage must never undo or block it.
+    try {
+      const wdSubmissionStatus = normalizeCareerPracticeSubmissionStatus(app.practice_submission_status);
+      const wdWentToPractice = !!app.submitted_to_practice_at || (!!wdSubmissionStatus && wdSubmissionStatus !== 'pending_va_submission');
+      const wdContactEmail = String(app.practice_contact_email || '').trim();
+      if (wdWentToPractice && wdContactEmail && isEmailConfigured()) {
+        const wdCtx = await atsGetApplicationContext(applicationId).catch(function () { return null; });
+        const wdRoleTitle = (await careerRoleTitleForApplication(app.career_role_id).catch(function () { return ''; })) || 'the General Practitioner role';
+        const wdFullName = String((wdCtx && wdCtx.gpName) || '').trim();
+        const wdFirstName = wdFullName.split(/\s+/)[0] || 'The candidate';
+        const wdKnowsFullName = !!app.submitted_to_practice_at || app.revealed === true;
+        const wdNameRaw = (wdKnowsFullName && wdFullName) ? wdFullName : wdFirstName;
+        const wdDisplayName = /^dr\b/i.test(wdNameRaw) ? wdNameRaw : ('Dr ' + wdNameRaw);
+        const wdPracticeLabel = String((wdCtx && wdCtx.practiceName) || app.practice_contact_name || '').trim();
+        // Same inline escape convention every other email builder in this file
+        // uses — no shared escapeHtml export exists.
+        const wdEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const wdGreeting = wdPracticeLabel ? ('Dear ' + wdPracticeLabel + ' team,') : 'Dear team,';
+        const wdLines = [
+          wdGreeting,
+          '',
+          wdDisplayName + ' has withdrawn their application for your ' + wdRoleTitle + ' position, so no action is needed from you.',
+          '',
+          'Any approve or turn-down links we sent you for this candidate are no longer active. We\'re sorry for the change — we\'ll be in touch with other candidates for this role.',
+          '',
+          'Kind regards,',
+          'GP Link Recruitment Team'
+        ];
+        const wdSendResult = await sendEmail({
+          to: wdContactEmail,
+          subject: wdDisplayName + ' has withdrawn — ' + wdRoleTitle,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: 'Candidate withdrawn',
+            bodyHtml:
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">' + wdEsc(wdGreeting) + '</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px"><b>' + wdEsc(wdDisplayName) + '</b> has withdrawn their application for your <b>' + wdEsc(wdRoleTitle) + '</b> position, so <b>no action is needed from you</b>.</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">Any approve or turn-down links we sent you for this candidate are no longer active. We&rsquo;re sorry for the change &mdash; we&rsquo;ll be in touch with other candidates for this role.</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0">Kind regards,<br>GP Link Recruitment Team</p>'
+          }),
+          text: wdLines.join('\n')
+        });
+        if (!wdSendResult || !wdSendResult.ok) {
+          console.error('[career withdraw] practice notification email failed for app', applicationId, ':', wdSendResult && wdSendResult.error);
+        }
+
+        // Internal ops notify — same channel and shape the practice-decision
+        // handlers use (registration hub mailbox, buildCareerEmailHtml).
+        sendEmail({
+          to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+          subject: 'GP withdrew after submission: ' + (wdFullName || wdDisplayName) + ' — ' + wdRoleTitle,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: 'Candidate withdrew after being submitted',
+            body: wdEsc(wdFullName || wdDisplayName) + ' withdrew their application for ' + wdEsc(wdRoleTitle)
+              + (wdPracticeLabel ? (' at ' + wdEsc(wdPracticeLabel)) : '')
+              + '. The practice has been told no action is needed, and their approve/turn-down link has been deactivated.'
+          })
+        }).catch(function (opsErr) { console.warn('[career withdraw] ops notify email failed:', opsErr && opsErr.message); });
+      }
+    } catch (wdNotifyErr) {
+      console.error('[career withdraw] practice notification failed for app', applicationId, ':', wdNotifyErr && wdNotifyErr.message);
+    }
+
+    // Intent: withdrawing knocks the GP's placement-likelihood score down on
+    // an escalating scale (lib/ats-intent.js withdrawalPenalty — the first one
+    // is free). Recompute this ONE GP now so the CEO dashboard reflects it
+    // immediately instead of waiting for the nightly sweep. Stored via
+    // atsStoreIntentPreservingCareerLock (never the raw store) so an existing
+    // career-lock halving isn't clobbered. Best-effort — a scoring failure
+    // must never fail a withdrawal the GP already completed.
+    try {
+      const wdRegCase = await _getRegCaseForUser(userId);
+      if (wdRegCase) {
+        const wdFacts = await atsProdCandidateFacts(wdRegCase);
+        await atsStoreIntentPreservingCareerLock(wdFacts, atsComputeIntent(wdFacts));
+      }
+    } catch (wdIntentErr) {
+      console.error('[career withdraw] intent recompute failed for user', userId, ':', wdIntentErr && wdIntentErr.message);
+    }
 
     sendJson(res, 200, { ok: true, message: 'Application withdrawn.' });
     return;
@@ -61866,11 +62112,27 @@ Return ONLY valid JSON with no markdown formatting:
         };
       });
       // Pipeline bucket per candidate (furthest active app stage; none -> unassociated).
-      // applied_at AND created_at are fetched so has_fresh_applied can match the
-      // attention tile (F4: hasFreshApply falls back to created_at when
-      // applied_at is null — without created_at in the select that fallback
-      // was dead and tile-counted apps vanished from the fresh_applied list).
-      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at,created_at&limit=5000');
+      // applied_at ONLY — gp_applications has NO created_at column (see
+      // supabase/migrations/20260315120000_zoho_candidate_applications.sql:
+      // the table was created with applied_at NOT NULL DEFAULT now(), and no
+      // later migration ever adds created_at). Asking PostgREST for it made
+      // the WHOLE query 400 ("column gp_applications.created_at does not
+      // exist"), byUser2 stayed empty, every candidate fell through to
+      // pipeline_bucket 'unassociated', and every pipeline chip on the
+      // Candidates tab returned "No candidates match your filters" while the
+      // counts above (from /api/ceo/pipeline-summary, which selects only real
+      // columns) stayed correct. atsPracticeUtil.hasFreshApply reads
+      // `a.applied_at || a.created_at`, so created_at was only ever a dead
+      // fallback in production — applied_at alone is the real source.
+      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at&limit=5000');
+      // Never degrade silently: without these rows EVERY candidate looks
+      // 'unassociated' and the whole tab looks empty but healthy. Log loudly
+      // and tell the client the buckets are untrustworthy this request.
+      var clAppsUnavailable = false;
+      if (!appsRes2.ok || !Array.isArray(appsRes2.data)) {
+        clAppsUnavailable = true;
+        console.error('[ceo candidates] gp_applications fetch FAILED (status ' + (appsRes2 && appsRes2.status) + ') — every candidate will read as pipeline_bucket "unassociated" and the pipeline chips will look empty. PostgREST said:', (appsRes2 && appsRes2.data) || (appsRes2 && appsRes2.error) || 'no error body');
+      }
       var apps2 = (appsRes2.ok && Array.isArray(appsRes2.data)) ? appsRes2.data : [];
       var byUser2 = {};
       apps2.forEach(function (a) { (byUser2[a.user_id] = byUser2[a.user_id] || []).push(a); });
@@ -61939,7 +62201,11 @@ Return ONLY valid JSON with no markdown formatting:
     if (clAccount) rows = rows.filter(function (r) { return String(r.account_status || '').toLowerCase() === clAccount; });
     if (clSort === 'name') rows.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
     else rows.sort(function (a, b) { return (b.intent_score == null ? -1 : b.intent_score) - (a.intent_score == null ? -1 : a.intent_score); });
-    sendJson(res, 200, { ok: true, candidates: rows, total: rows.length });
+    // applications_unavailable: the gp_applications read failed this request,
+    // so pipeline_bucket / has_fresh_applied on every row are placeholders,
+    // not facts. Surfaced (rather than swallowed) so the tab can never again
+    // look calmly empty while the real cause sits only in the server log.
+    sendJson(res, 200, { ok: true, candidates: rows, total: rows.length, applications_unavailable: !!clAppsUnavailable });
     return;
   }
 
@@ -63738,6 +64004,9 @@ module.exports.__testUtils = {
   ACTIVE_APPLICATION_CAP,
   ACTIVE_APPLICATION_STAGES,
   ATS_WITHDRAW_REASON_VALUES,
+  ATS_GP_SELF_WITHDRAW_REASON,
+  applicationIsWithdrawn,
+  PRACTICE_WITHDRAWN_MESSAGE,
   countMonthlyCareerInterviews,
   currentInterviewMonthWindow,
   INTERVIEW_MONTHLY_CAP,

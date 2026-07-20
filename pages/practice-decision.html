@@ -225,12 +225,26 @@
     return "Something went wrong — please try again, or email hello@mygplink.com.au if it keeps happening.";
   }
 
-  function showError(kind) {
+  // The doctor withdrew this application after the introduction email went out.
+  // The API refuses the action with 409 {code:'withdrawn'}; without this branch
+  // the practice would see a generic "try again" and keep retrying an action
+  // that can never succeed. Returns the message to show, or '' when the
+  // response is some other failure.
+  function withdrawnMessage(res) {
+    if (!res || res.status !== 409) return '';
+    var data = res.data || {};
+    if (data.code !== 'withdrawn') return '';
+    return data.message || "This doctor has withdrawn their application for this role, so no action is needed.";
+  }
+
+  function showError(kind, customText) {
     var text = "We couldn't load this page. Please check your connection and try again.";
     if (kind === 'invalid') {
       text = "This decision link has expired or is no longer valid — it may have already been used, or the link was copied incorrectly.";
     } else if (kind === 'busy') {
       text = "Too many attempts — please wait a few minutes and try again.";
+    } else if (kind === 'withdrawn') {
+      text = customText || "This doctor has withdrawn their application for this role, so no action is needed.";
     }
     el.errorLede.textContent = text;
     show(el.error);
@@ -427,6 +441,10 @@
         if (res.status === 429) { showError('busy'); return; }
         if (!(res.status === 200 && res.data && res.data.ok)) { showError('retry'); return; }
         ctx = res.data;
+        // The doctor withdrew before the practice opened the link — say so
+        // plainly instead of presenting Approve / Turn down buttons that the
+        // API will refuse.
+        if (ctx.withdrawn) { showError('withdrawn', ctx.withdrawnMessage); return; }
         setAllText(gpNameEls, ctx.gpName || 'the candidate');
         setAllText(roleTitleEls, ctx.roleTitle || 'this role');
         route();
@@ -450,6 +468,8 @@
         if (res.status === 200 && res.data && res.data.ok) { enterAvailability(); return; }
         if (res.status === 429) { showMsg(el.approveMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
         if (res.status === 404) { showError('invalid'); return; }
+        var wdApprove = withdrawnMessage(res);
+        if (wdApprove) { showError('withdrawn', wdApprove); return; }
         showMsg(el.approveMsg, retryMessage(), true);
       })
       .catch(function () {
@@ -480,6 +500,8 @@
         }
         if (res.status === 429) { showMsg(el.availMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
         if (res.status === 404) { showError('invalid'); return; }
+        var wdAvail = withdrawnMessage(res);
+        if (wdAvail) { showError('withdrawn', wdAvail); return; }
         if (res.status === 409) { showMsg(el.availMsg, "This application isn't approved yet — please refresh the page and try again.", true); return; }
         if (res.status === 400 && res.data && res.data.message) { showMsg(el.availMsg, res.data.message, true); return; }
         showMsg(el.availMsg, retryMessage(), true);
@@ -509,6 +531,8 @@
         }
         if (res.status === 429) { showMsg(el.turnDownMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
         if (res.status === 404) { showError('invalid'); return; }
+        var wdTurnDown = withdrawnMessage(res);
+        if (wdTurnDown) { showError('withdrawn', wdTurnDown); return; }
         showMsg(el.turnDownMsg, retryMessage(), true);
       })
       .catch(function () {

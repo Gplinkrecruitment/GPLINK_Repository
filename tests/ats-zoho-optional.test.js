@@ -16,7 +16,7 @@
 //  2. GET /api/career/application — same presentation on the detail payload,
 //     plus lookup by the ROLE public id ('internal_ats:…').
 //  3. POST /api/career/application/withdraw — status → withdrawn AND the
-//     kanban card moves to 'not_proceeding' with audit actor 'gp_withdrew'.
+//     kanban card moves to 'not_proceeding' with audit reason 'gp_self_withdrew'.
 //  4. POST /api/career/upload-cv — the Zoho mirror is best-effort: with Zoho
 //     configured-but-disconnected the CV still saves, answers 200 ok:true and
 //     reports zohoSync.ok:false (previously a 502 that blocked Upload & Apply).
@@ -394,7 +394,7 @@ describe('GET /api/career/application — internal detail payload', () => {
 
 // ── 3. Withdraw — kanban reflects reality ───────────────────────────────────
 describe('POST /api/career/application/withdraw — internal app', () => {
-  it('sets status withdrawn AND moves the kanban card to not_proceeding (actor gp_withdrew)', async () => {
+  it('sets status withdrawn AND moves the kanban card to not_proceeding (reason gp_self_withdrew)', async () => {
     const r = await gpPost('/api/career/application/withdraw', { applicationId: 'app-interview' });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -402,8 +402,15 @@ describe('POST /api/career/application/withdraw — internal app', () => {
     const row = db.gp_applications.find((a) => a.id === 'app-interview');
     expect(row.status).toBe('withdrawn');
     expect(row.ats_stage).toBe('not_proceeding');
-    const ev = db.ats_stage_events.find((e) => e.application_id === 'app-interview' && e.actor === 'gp_withdrew');
+    // The old call passed 'gp_withdrew' as the 4th argument of
+    // atsUpdateApplicationStageRow(appId, stage, notes, actor, reason), so it
+    // landed in ACTOR and the reason stayed null — invisible to every
+    // reason-based query. Actor is now the GP's own email, and the reason sits
+    // in the 5th slot under its own value (never 'gp_withdrew', which is the
+    // staff-recorded value the 3-strike career lock counts).
+    const ev = db.ats_stage_events.find((e) => e.application_id === 'app-interview' && e.reason === 'gp_self_withdrew');
     expect(ev).toBeTruthy();
+    expect(ev.actor).toBe('gp@gplink-test.local');
     expect(ev.from_stage).toBe('interview');
     expect(ev.to_stage).toBe('not_proceeding');
   });

@@ -622,8 +622,22 @@
       '<div style="margin-top:14px">' + signals.map(signalRow).join('') + '</div>' +
       '<div class="ats-confirm-note">Signals &amp; weights are a first proposal — tell me what to change.</div>';
   }
+  // Intent signals. The scorer may append a PENALTY signal (negative points,
+  // e.g. withdrawn applications) — those have no meaningful 0..1 magnitude, so
+  // a progress bar would render as a 0-width stub and the points would read
+  // "+-6". Penalty rows keep the 3-column grid (so labels stay aligned) but
+  // drop the fill and show a real minus sign in the warning colour.
   function signalRow(s) {
     var pts = s.points != null ? s.points : Math.round((s.w || 0) * (s.v || 0));
+    var isPenalty = !!s.penalty || pts < 0;
+    if (isPenalty) {
+      var label = String(s.label == null ? '' : s.label) +
+        (s.count ? ' (' + s.count + ')' : '');
+      return '<div class="ats-signal-row ats-signal-penalty">' +
+        '<span style="color:var(--ats-red)">' + ATS.esc(label) + '</span>' +
+        '<span class="sr-bar" style="background:transparent;border:1px dashed var(--ats-red-dim)"></span>' +
+        '<span class="sr-pts" style="color:var(--ats-red)">−' + Math.abs(pts) + '</span></div>';
+    }
     return '<div class="ats-signal-row">' +
       '<span>' + ATS.esc(s.label) + '</span>' +
       '<span class="sr-bar"><i style="width:' + Math.round((s.v || 0) * 100) + '%"></i></span>' +
@@ -697,6 +711,9 @@
           '</div>' +
           '<div class="ats-app-right">' +
             sourceChip +
+            // Withdrawal badge sits FIRST so it reads before the pipeline pill —
+            // "Not proceeding" alone never told staff who ended it.
+            withdrawnBadgeHtml(a) +
             '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
             stageSel +
           '</div>' +
@@ -731,11 +748,45 @@
     client_reviewed: 'Reviewed by the practice',
     client_approved: 'Approved by the practice',
     client_rejected: 'Practice declined',
+    // One-click practice response (20260706190000_practice_one_click_response):
+    // without these two the practice's own "Accept" / "Request an interview"
+    // fell through to "Not submitted yet" + a live Submit button.
+    client_accepted: 'Practice accepted',
+    client_interview_requested: 'Practice requested an interview',
     interview_ready: 'Ready for interview'
   };
 
+  /* ---- Candidate withdrawals ----
+   * gp_applications.status === 'withdrawn' means the CANDIDATE pulled out.
+   * practice_submission_status stays whatever it was (usually
+   * 'submitted_to_practice' forever), so without this the drawer kept showing
+   * "Submitted to practice" + a live "Practice accepted" button for someone who
+   * is no longer in play. Withdrawal is checked ONLY off `status` — other
+   * terminal states (not_proceeding, client_rejected) must keep their actions. */
+  function isWithdrawn(a) {
+    return String((a && a.status) || '').toLowerCase() === 'withdrawn';
+  }
+  // True once the application had actually gone out to the practice — used to
+  // preserve that history in the withdrawn line instead of dropping it.
+  function hadReachedPractice(a) {
+    return !!SUBMISSION_STATUS_LABELS[(a && a.practice_submission_status) || ''];
+  }
+  function withdrawnBadgeHtml(a) {
+    if (!isWithdrawn(a)) return '';
+    var when = fmtOfferDate(a.withdrawn_at);
+    return '<span class="ats-pill red ats-app-withdrawn" style="font-weight:600">Candidate withdrew' +
+      (when ? ' · ' + ATS.esc(when) : '') + '</span>';
+  }
+
   function submitPracticeLineHtml(a) {
     var st = a.practice_submission_status || '';
+    // Withdrawn wins over every submission status: say so plainly, keep the
+    // history, and render NO action (the button branches below are skipped).
+    if (isWithdrawn(a)) {
+      return '<span style="color:var(--ats-red)">' +
+        (hadReachedPractice(a) ? 'Candidate withdrew — had been submitted to the practice' : 'Candidate withdrew') +
+        '</span>';
+    }
     if (SUBMISSION_STATUS_LABELS[st]) {
       return '<span>' + ATS.esc(SUBMISSION_STATUS_LABELS[st]) + '</span>';
     }
@@ -844,6 +895,9 @@
   function acceptApplicationLineHtml(a) {
     var st = a.practice_submission_status || '';
     var offerStatus = (a.offer && a.offer.status) || 'not_started';
+    // Never let staff "accept" a candidate who has withdrawn — accepting
+    // reveals the practice identity and emails the GP a congratulations.
+    if (isWithdrawn(a)) return '';
     if (st === 'client_approved' || st === 'interview_ready' || offerStatus === 'accepted') return '';
     return ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-accept-application" data-ats="accept-application" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">✅ Practice accepted</button>';
   }

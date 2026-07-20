@@ -268,11 +268,16 @@ describe('CEO consistency batch (F3 withdrawn, F4 created_at, F5 staleness, F10 
     // candidates or pipeline-summary.
     db.registration_cases.push({ id: 'c-wd', user_id: 'u-wd', stage: 'career', status: 'withdrawn', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(20) });
     db.user_profiles.push({ user_id: 'u-wd', email: 'withdrawn@test.local', first_name: 'With', last_name: 'Drawn', phone: '', account_status: 'active', onboarding_completed_at: ago(10) });
-    // F4: a fresh application whose applied_at is NULL — only created_at says
-    // it is fresh, so the candidates select must include created_at.
+    // F4: a fresh application. applied_at is the ONLY freshness source that
+    // exists — gp_applications has no created_at column (the base migration
+    // creates applied_at NOT NULL DEFAULT now() and nothing adds created_at),
+    // so the original fixture here (applied_at:null + created_at:ago(1))
+    // described a row production can never produce. It also hid the real bug:
+    // the candidates select asked PostgREST for created_at, which 400'd the
+    // whole query and emptied every pipeline bucket.
     db.registration_cases.push({ id: 'c-fresh', user_id: 'u-fresh', stage: 'career', status: 'active', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(15) });
     db.user_profiles.push({ user_id: 'u-fresh', email: 'fresh@test.local', first_name: 'Fresh', last_name: 'Apply', phone: '', account_status: 'active', onboarding_completed_at: ago(10) });
-    db.gp_applications.push({ id: 'appFresh', user_id: 'u-fresh', career_role_id: 'r1', status: 'applied', ats_stage: 'applied', applied_at: null, created_at: ago(1), updated_at: ago(1) });
+    db.gp_applications.push({ id: 'appFresh', user_id: 'u-fresh', career_role_id: 'r1', status: 'applied', ats_stage: 'applied', applied_at: ago(1), updated_at: ago(1) });
     // F5: one RSO owning a fresh case AND a >6-month-stale case. Without
     // nowMs the staleness cut is NaN-disabled and both count.
     db.rso_team.push({ user_id: 'rso1', name: 'Test RSO', email: 'rso@test.local', phone: '', active: true, on_leave: false, calendly_event_url: '' });
@@ -300,7 +305,7 @@ describe('CEO consistency batch (F3 withdrawn, F4 created_at, F5 staleness, F10 
     expect(r.body.total).toBe(7);
   });
 
-  it('F4: fresh_applied surfaces an app whose freshness lives only in created_at', async () => {
+  it('F4: fresh_applied surfaces an app that is fresh by applied_at', async () => {
     const r = await ceoGet('/api/ceo/candidates?fresh_applied=1');
     expect(r.status).toBe(200);
     const users = (r.body.candidates || []).map((c) => c.user_id);

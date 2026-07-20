@@ -11785,6 +11785,22 @@
       if (shouldRender) renderPage();
     }
 
+    // One-shot "the applications list just changed" flag, set by a mutation on
+    // another page (today: withdrawing on application-detail.html). Without it
+    // gp-cache.js serves /api/career/applications from sessionStorage for 10
+    // minutes with no network call, so a withdrawn role kept showing here as
+    // "Sent to the practice". Read once, then clear.
+    const CAREER_APPS_DIRTY_KEY = "gp_career_apps_dirty";
+    function consumeCareerApplicationsDirtyFlag() {
+      try {
+        if (sessionStorage.getItem(CAREER_APPS_DIRTY_KEY) === "1") {
+          sessionStorage.removeItem(CAREER_APPS_DIRTY_KEY);
+          return true;
+        }
+      } catch (e) {}
+      return false;
+    }
+
     async function loadRemoteApplications(options = {}) {
       const shouldRender = options.render !== false;
       try {
@@ -11805,7 +11821,11 @@
             gpCacheRef.invalidate("/api/career/applications");
           }
         }
-        if (gpCacheFetch && !options.forceNetwork) {
+        if (gpCacheFetch && options.forceNetwork) {
+          // Skip the cache AND repopulate it with the truth, so the next load
+          // doesn't fall back to the stale entry we just invalidated.
+          payload = await gpCacheFetch("/api/career/applications", { forceNetwork: true });
+        } else if (gpCacheFetch) {
           payload = await gpCacheFetch("/api/career/applications", {
             onUpdate: function (freshData) { mergeRemoteApplications(freshData, true); }
           });
@@ -13298,7 +13318,7 @@
       await Promise.allSettled([
         hydrateCareerSessionEmail(),
         loadRemoteRoles({ render: false }),
-        loadRemoteApplications({ render: false })
+        loadRemoteApplications({ render: false, forceNetwork: consumeCareerApplicationsDirtyFlag() })
       ]);
       syncCareerViewFromLocation();
       renderPage();

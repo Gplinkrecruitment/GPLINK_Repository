@@ -143,7 +143,10 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('GET /api/ceo/candidates merges a LIVE user_state velocity read (not just the cached facts blob)', () => {
     const idx = serverSrc.indexOf("pathname === '/api/ceo/candidates' && req.method === 'GET'");
-    const fnSrc = serverSrc.slice(idx, idx + 8000);
+    // Window widened from 8000: the handler grew the gp_applications
+    // failure-visibility block (the created_at 400 fix), pushing the velocity
+    // merge past the old cut-off. Still scoped to this one handler.
+    const fnSrc = serverSrc.slice(idx, idx + 10000);
     expect(fnSrc).toContain('application_velocity_flag');
     expect(fnSrc).toContain("supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(");
   });
@@ -227,7 +230,7 @@ describe('AI Matching Task 7 — source wiring', () => {
   });
 
   it('pages/ceo-dashboard.html loads the bumped cache busters for both touched ATS scripts', () => {
-    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260719[a-z]"><\/script>/);
+    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260721[a-z]"><\/script>/);
     expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20260718a"></script>');
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707f'); // pre-Task-7 pin superseded
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707g'); // pre-review-fix pin superseded
