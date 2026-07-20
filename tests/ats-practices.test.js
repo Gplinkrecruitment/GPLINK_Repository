@@ -170,6 +170,19 @@ describe('pipeline buckets', () => {
   it('ignores not_proceeding when an active app exists', () => {
     expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }, { ats_stage: 'applied' }])).toBe('applied');
   });
+
+  it("sends a candidate whose ONLY app was filled by someone else back to the pool (unassociated), not 'not_proceeding'", () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding', match_outcome: 'position_filled' }])).toBe('unassociated');
+  });
+
+  it('a genuine rejection (no position_filled outcome) still buckets as not_proceeding', () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }])).toBe('not_proceeding');
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding', match_outcome: 'gp_withdrew' }])).toBe('not_proceeding');
+  });
+
+  it('a position-filled app is ignored, so another active app decides the bucket', () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding', match_outcome: 'position_filled' }, { ats_stage: 'interview' }])).toBe('interview');
+  });
 });
 
 describe('hasFreshApply', () => {

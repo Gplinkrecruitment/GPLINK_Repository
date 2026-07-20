@@ -62013,7 +62013,7 @@ Return ONLY valid JSON with no markdown formatting:
       // attention tile (F4: hasFreshApply falls back to created_at when
       // applied_at is null — without created_at in the select that fallback
       // was dead and tile-counted apps vanished from the fresh_applied list).
-      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at,created_at&limit=5000');
+      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at,created_at,match_outcome&limit=5000');
       var apps2 = (appsRes2.ok && Array.isArray(appsRes2.data)) ? appsRes2.data : [];
       var byUser2 = {};
       apps2.forEach(function (a) { (byUser2[a.user_id] = byUser2[a.user_id] || []).push(a); });
@@ -62117,7 +62117,7 @@ Return ONLY valid JSON with no markdown formatting:
       // F3 (audit 2026-07-20): withdrawn cases excluded, matching /api/ceo/candidates.
       var psCasesRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,intent_signals&status=neq.withdrawn&limit=2000');
       var psCases = (psCasesRes.ok && Array.isArray(psCasesRes.data)) ? psCasesRes.data : [];
-      var psAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage&limit=5000');
+      var psAppsRes = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,match_outcome&limit=5000');
       var psApps = (psAppsRes.ok && Array.isArray(psAppsRes.data)) ? psAppsRes.data : [];
       var psByUser = {};
       psApps.forEach(function (a) { (psByUser[a.user_id] = psByUser[a.user_id] || []).push(a); });
