@@ -12913,9 +12913,15 @@ function isHtmlPageNavigation(req, pathname) {
   // an iframe). 'script', 'style', 'image', 'font', 'empty' (fetch/XHR) are not
   // navigations and must not receive HTML.
   const dest = String((req && req.headers && req.headers['sec-fetch-dest']) || '').toLowerCase();
-  if (dest) return dest === 'document' || dest === 'iframe' || dest === 'frame';
-  // Older clients: fall back to Accept. A navigation asks for text/html; fetch()
-  // defaults to */* and XHR to */*, so this stays narrow.
+  if (dest === 'document' || dest === 'iframe' || dest === 'frame') return true;
+  // Known subresource destinations never get HTML (rule 2). Anything else —
+  // including 'empty' — falls through to the Accept sniff below: the service
+  // worker's pass-through fetch of a page navigation reaches us with
+  // Sec-Fetch-Dest: empty (the navigation destination does not survive
+  // fetch(event.request)), while the original Accept: text/html header does.
+  // Rejecting on 'empty' alone served every sw-installed browser the bare
+  // plain-text 404 (live repro 2026-07-21).
+  if (dest && dest !== 'empty') return false;
   const accept = String((req && req.headers && req.headers['accept']) || '');
   return /\btext\/html\b/i.test(accept);
 }

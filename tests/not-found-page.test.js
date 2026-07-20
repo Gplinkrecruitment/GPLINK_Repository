@@ -17,9 +17,9 @@ const RUN_ID = crypto.randomBytes(4).toString('hex');
 let server;
 let addrPort;
 
-function get(path, { accept, cookie } = {}) {
+function get(path, { accept, cookie, extraHeaders } = {}) {
   return new Promise((resolve, reject) => {
-    const headers = {};
+    const headers = Object.assign({}, extraHeaders || {});
     if (accept) headers.Accept = accept;
     if (cookie) headers.Cookie = cookie;
     const req = http.request({ host: '127.0.0.1', port: addrPort, path, method: 'GET', headers }, (res) => {
@@ -91,6 +91,29 @@ describe('friendly 404 — browser navigations get the branded page', () => {
     expect(res.status).toBe(404);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(res.raw).toContain('We couldn');
+  });
+
+  it('service-worker pass-through navigation (Sec-Fetch-Dest: empty + browser Accept) → branded HTML', async () => {
+    // The sw's fetch(event.request) of a page navigation loses the 'document'
+    // destination (Chrome sends Sec-Fetch-Dest: empty) but keeps the original
+    // Accept: text/html. Live-repro'd 2026-07-21: every sw-installed browser
+    // got the bare plain-text 404. The Accept sniff must win when dest is empty.
+    const res = await get('/totally-bogus-url', {
+      accept: BROWSER_ACCEPT,
+      extraHeaders: { 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Mode': 'cors' },
+    });
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.raw).not.toBe('Not found');
+  });
+
+  it('subresource destinations (Sec-Fetch-Dest: script) stay terse plain text even with a browser Accept', async () => {
+    const res = await get('/totally-bogus-url', {
+      accept: BROWSER_ACCEPT,
+      extraHeaders: { 'Sec-Fetch-Dest': 'script' },
+    });
+    expect(res.status).toBe(404);
+    expect(res.raw).toBe('Not found');
   });
 
   it('blocked backend paths (allowlist gate) stay terse plain text — assets never get HTML', async () => {
