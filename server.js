@@ -33073,7 +33073,7 @@ async function handleApi(req, res, pathname) {
       // reminder has never sent. Dropped; the consumer below already defaults
       // to 'video', which is what every scheduled_calls interview is.
       var irScRes = await supabaseDbRequest('scheduled_calls',
-        'select=id,application_id,user_id,case_id,practice_name,scheduled_at,timezone,zoom_join_url,notification_channels' +
+        'select=id,application_id,user_id,case_id,practice_name,scheduled_at,timezone,zoom_join_url,notification_channels,practice_availability_windows' +
         '&meeting_kind=eq.interview&status=eq.booked&limit=200');
       var irScRows = irScRes.ok && Array.isArray(irScRes.data) ? irScRes.data : [];
       var irScSent = 0;
@@ -33154,7 +33154,11 @@ async function handleApi(req, res, pathname) {
               var irScPrEmail = (irScCtx && irScCtx.practiceEmail) || '';
               if (irScPrEmail && isEmailConfigured()) {
                 var irScGpName = (irScCtx && irScCtx.gpName) || 'your GP Link candidate';
-                var irScPrTz = interviewMeetings.practiceTzForLocation(irScPractice || (irScCtx && irScCtx.practiceName) || '', irScCtx && irScCtx.practiceState, irScCtx && irScCtx.practiceCity);
+                // Prefer the tz the practice contact submitted their availability
+                // in (stored with the windows JSONB); state-derived guess as fallback.
+                var irScAvailWs = Array.isArray(irSc.practice_availability_windows) ? irSc.practice_availability_windows : [];
+                var irScAvailTz = irScAvailWs.length ? interviewMeetings.sanitizeViewerTz(irScAvailWs[0] && irScAvailWs[0].tz) : '';
+                var irScPrTz = irScAvailTz || interviewMeetings.practiceTzForLocation(irScPractice || (irScCtx && irScCtx.practiceName) || '', irScCtx && irScCtx.practiceState, irScCtx && irScCtx.practiceCity);
                 var irScPrWhen;
                 try {
                   irScPrWhen = new Intl.DateTimeFormat('en-AU', {
@@ -37243,11 +37247,21 @@ async function handleApi(req, res, pathname) {
     if (!interviewRef) { sendJson(res, 502, { ok: false, message: 'Could not resolve the interview row.' }); return; }
 
     const nowIso = new Date().toISOString();
+    // The submitting contact's browser timezone (viewer_tz, from
+    // Intl.DateTimeFormat().resolvedOptions().timeZone on the decision page).
+    // Validated hard — shape regex + Intl probe — and silently dropped when
+    // invalid, so a tampered value can never poison the scheduler. When valid
+    // it is stored WITH each window (inside the same JSONB) and the scheduler
+    // interprets the wall-clock windows in THAT tz instead of the state guess.
+    const availViewerTz = interviewMeetings.sanitizeViewerTz(body && body.viewer_tz);
     // Store ONLY the canonical scheduler shape — never persist extra keys that
     // rode in on the public request body (they would land verbatim in
-    // scheduled_calls and could confuse the slot builder downstream).
+    // scheduled_calls and could confuse the slot builder downstream). The tz
+    // key is server-validated above, NOT a client passthrough.
     const canonicalWindows = windows.map(function (w) {
-      return { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+      var cw = { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+      if (availViewerTz) cw.tz = availViewerTz;
+      return cw;
     });
     const patch = {
       practice_availability_windows: canonicalWindows,
@@ -38405,7 +38419,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const cbBooked = await _bookInterviewSlot(cbRow, cbCtx, cbSlotStart, Date.now(), cbEmail || '');
+    // The device tz the GP was viewing slot times in (secure-interview.html
+    // sends viewer_tz). Validated hard; invalid → '' → country-derived fallback.
+    const cbViewerTz = interviewMeetings.sanitizeViewerTz(cbBody && cbBody.viewer_tz);
+
+    const cbBooked = await _bookInterviewSlot(cbRow, cbCtx, cbSlotStart, Date.now(), cbEmail || '', { gpViewerTz: cbViewerTz });
     if (cbBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, error: 'slot_taken' }); return; }
 
     // Vercel rule: a serverless function can be frozen the instant the
@@ -63625,7 +63643,14 @@ if (process.env.VERCEL) {
 function buildInterviewPracticeConfig(interviewRow, practiceTz) {
   var windows = Array.isArray(interviewRow.practice_availability_windows) ? interviewRow.practice_availability_windows : [];
   if ((interviewRow.practice_availability_status || '') === interviewMeetings.PRACTICE_AVAIL.RECEIVED) {
-    return { tz: practiceTz, weekday: [0, 0], weekend: [0, 0], overrides: windows };
+    // Windows submitted via the practice-decision page carry the contact's
+    // device tz (viewer_tz, validated on write). Interpret the windows — and
+    // label practice-local slot times — in THAT tz; the state-derived guess
+    // stays the fallback for windows that arrived without one (e.g. parsed
+    // out of an email reply). Re-sanitized on read so a poisoned row can
+    // never reach Intl unprobed.
+    var availTz = windows.length ? interviewMeetings.sanitizeViewerTz(windows[0] && windows[0].tz) : '';
+    return { tz: availTz || practiceTz, weekday: [0, 0], weekend: [0, 0], overrides: windows };
   }
   return { tz: practiceTz, weekday: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekday, weekend: interviewMeetings.DEFAULT_PRACTICE_CONFIG.weekend, overrides: [] };
 }
@@ -63743,8 +63768,12 @@ function _interviewIcsUid(interviewRowId) {
   return 'gplink-interview-' + String(interviewRowId) + '@mygplink.com.au';
 }
 
-async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail) {
+async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail, bookOpts) {
   var now = nowMs ? new Date(nowMs) : new Date();
+  // The device tz the booking viewer (the GP) saw the slot times in — already
+  // sanitized by the caller; the admin book path passes no bookOpts and keeps
+  // the country-derived fallback everywhere below.
+  var gpViewerTz = (bookOpts && bookOpts.gpViewerTz) || '';
 
   var slotResult = await _interviewComputeSlots(meetingRow, appCtx, now, 500, meetingRow.id);
   var slotValid = slotResult.slots.some(function (s) { return s.startUtc === slotStartUtc; });
@@ -63792,6 +63821,11 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       gcal_event_id: String(gcal.id || ''),
       updated_at: nowTs
     };
+    // Persist the tz the GP actually booked in on the row's EXISTING timezone
+    // column — the same column Calendly bookings store the invitee tz in, and
+    // the same one the interview-reminder cron already reads for the GP
+    // reminder label. No new column, no migration.
+    if (gpViewerTz) patch.timezone = gpViewerTz;
     if (isSupabaseDbConfigured()) {
       await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
@@ -63827,8 +63861,13 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(slotStartUtc));
         } catch (e) { return new Date(slotStartUtc).toUTCString(); }
       };
-      var practiceWhen = _fmtInterviewWhen(interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
-      var gpWhen = _fmtInterviewWhen(interviewMeetings.gpTzForCountry(appCtx.gpCountry));
+      // Prefer the tz each party actually operates in: the practice contact's
+      // stored availability tz (submitted with their windows) and the GP's
+      // booking-device tz — with the state/country-derived guesses as fallback.
+      var availWindows = Array.isArray(meetingRow.practice_availability_windows) ? meetingRow.practice_availability_windows : [];
+      var availTz = availWindows.length ? interviewMeetings.sanitizeViewerTz(availWindows[0] && availWindows[0].tz) : '';
+      var practiceWhen = _fmtInterviewWhen(availTz || interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
+      var gpWhen = _fmtInterviewWhen(gpViewerTz || interviewMeetings.gpTzForCountry(appCtx.gpCountry));
       var timeLabel = practiceWhen; // used by the internal ops notify below
       // Resolved join link (real Zoom → INTERVIEW_MEETING_URL standing room → '').
       var joinUrl = resolveInterviewJoinUrl(zoom.join_url);

@@ -91,11 +91,22 @@
       }
       function fmtWhen(iso, tz) {
         if (!iso) return '';
+        // timeZoneName appends the short tz label (e.g. BST, AEST) so the time
+        // clearly says which timezone it is in — the stored booking tz when the
+        // call carries one, else the device tz that is implicitly used anyway.
         try {
-          var opts = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' };
+          var opts = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' };
           if (tz) opts.timeZone = tz;
-          return new Intl.DateTimeFormat(undefined, opts).format(new Date(iso)) + (tz ? ' (' + tz + ')' : '');
-        } catch (e) { return iso; }
+          return new Intl.DateTimeFormat(undefined, opts).format(new Date(iso));
+        } catch (e) {
+          // Fallback: the pre-feature output (no short name; raw IANA suffix
+          // when a tz was stored), so a bad tz string never breaks the page.
+          try {
+            var plain = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' };
+            if (tz) plain.timeZone = tz;
+            return new Intl.DateTimeFormat(undefined, plain).format(new Date(iso)) + (tz ? ' (' + tz + ')' : '');
+          } catch (e2) { return iso; }
+        }
       }
       function renderInvite(call) {
         document.getElementById('inviteTitle').textContent = 'Confirm your Zoom call' + (call.stageLabel ? ' — ' + call.stageLabel : '');

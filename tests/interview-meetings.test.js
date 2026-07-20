@@ -56,6 +56,25 @@ describe('interview-meetings model', () => {
     expect(out.is_interview).toBe(true);
     expect(out.meeting_kind_label).toBe('Interview');
   });
+
+  // Viewer-timezone feature: viewer_tz arrives from the browser
+  // (Intl.DateTimeFormat().resolvedOptions().timeZone) on public/GP requests, so
+  // it is validated hard — shape regex AND an Intl probe — before it is ever
+  // persisted or used to render times. Invalid input → '' (caller falls back).
+  it('sanitizeViewerTz accepts real IANA zones and rejects everything else', () => {
+    expect(m.sanitizeViewerTz('Australia/Perth')).toBe('Australia/Perth');
+    expect(m.sanitizeViewerTz('Europe/London')).toBe('Europe/London');
+    expect(m.sanitizeViewerTz(' Pacific/Auckland ')).toBe('Pacific/Auckland'); // trimmed
+    expect(m.sanitizeViewerTz('America/Argentina/Buenos_Aires')).toBe('America/Argentina/Buenos_Aires');
+    expect(m.sanitizeViewerTz('UTC')).toBe('UTC');
+    expect(m.sanitizeViewerTz('Mars/OlympusMons')).toBe('');       // shape-ok but not a real zone
+    expect(m.sanitizeViewerTz('Australia/Perth;drop')).toBe('');   // shape-fail
+    expect(m.sanitizeViewerTz('a/b/c/d')).toBe('');                // too many segments
+    expect(m.sanitizeViewerTz('')).toBe('');
+    expect(m.sanitizeViewerTz(null)).toBe('');
+    expect(m.sanitizeViewerTz(undefined)).toBe('');
+    expect(m.sanitizeViewerTz(42)).toBe('');
+  });
 });
 
 describe('google-calendar request builders', () => {

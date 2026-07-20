@@ -21,6 +21,7 @@ import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import sched from '../lib/interview-scheduler.js';
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-career-interview-${RUN_ID}.json`);
@@ -46,7 +47,10 @@ const db = {
     { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW },
     // Task 8: WA practice whose NAME contains no city/state keyword — the stored
     // location_state must drive the timezone (Perth), not name sniffing (Sydney).
-    { id: 'p-int-wa', name: 'Sunrise Family Medical', source: 'internal_ats', contact_name: 'Wes Manager', contact_email: 'reception@sunrise-wa-test.local', location_city: 'Karratha', location_state: 'WA', is_active: true, created_at: NOW }
+    { id: 'p-int-wa', name: 'Sunrise Family Medical', source: 'internal_ats', contact_name: 'Wes Manager', contact_email: 'reception@sunrise-wa-test.local', location_city: 'Karratha', location_state: 'WA', is_active: true, created_at: NOW },
+    // Viewer-tz feature: an NSW-state practice whose CONTACT submits availability
+    // from a Perth browser — the submitted viewer_tz must beat the state guess.
+    { id: 'p-int-nsw', name: 'Harbour Medical Group', source: 'internal_ats', contact_name: 'Nina Manager', contact_email: 'frontdesk@nsw-practice-test.local', location_city: 'Newcastle', location_state: 'NSW', is_active: true, created_at: NOW }
   ],
   career_roles: [
     {
@@ -68,6 +72,18 @@ const db = {
       id: 'role-int-wa', provider: 'internal_ats', provider_role_id: 'ats_int_rwa', title: 'General Practitioner — VR',
       practice_name: 'Sunrise Family Medical', practice_id: 'p-int-wa', location_city: 'Karratha', location_state: 'WA',
       is_active: true, job_status: 'open', updated_at: NOW
+    },
+    // Viewer-tz feature: two roles at the NSW practice — one per availability test
+    // (each gp_applications row gets its own practice_action_token + interview row).
+    {
+      id: 'role-int-nsw', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw', title: 'General Practitioner — VR',
+      practice_name: 'Harbour Medical Group', practice_id: 'p-int-nsw', location_city: 'Newcastle', location_state: 'NSW',
+      is_active: true, job_status: 'open', updated_at: NOW
+    },
+    {
+      id: 'role-int-nsw2', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw2', title: 'General Practitioner — VR (second)',
+      practice_name: 'Harbour Medical Group', practice_id: 'p-int-nsw', location_city: 'Newcastle', location_state: 'NSW',
+      is_active: true, job_status: 'open', updated_at: NOW
     }
   ],
   gp_applications: [
@@ -78,7 +94,11 @@ const db = {
     // Belongs to GP2 — used for the wrong-owner 404 test.
     { id: 'app-int-3', user_id: GP2.userId, career_role_id: 'role-int-1', provider_role_id: 'ats_int_r3', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' },
     // Task 8: revealed offer at the WA practice — timezone-derivation tests.
-    { id: 'app-int-wa', user_id: GP.userId, career_role_id: 'role-int-wa', provider_role_id: 'ats_int_rwa', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' }
+    { id: 'app-int-wa', user_id: GP.userId, career_role_id: 'role-int-wa', provider_role_id: 'ats_int_rwa', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' },
+    // Viewer-tz feature: approved apps with practice_action_tokens so the
+    // practice-decision availability endpoint can be exercised end-to-end.
+    { id: 'app-int-nsw', user_id: GP.userId, career_role_id: 'role-int-nsw', provider_role_id: 'ats_int_rnsw', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved', practice_decision: 'approved', practice_action_token: 'tok-int-nsw-000000001' },
+    { id: 'app-int-nsw2', user_id: GP2.userId, career_role_id: 'role-int-nsw2', provider_role_id: 'ats_int_rnsw2', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved', practice_decision: 'approved', practice_action_token: 'tok-int-nsw-000000002' }
   ],
   ats_offers: [],
   ats_stage_events: [],
@@ -443,5 +463,111 @@ describe('practice timezone from stored location_state (Task 8)', () => {
     // Perth is AWST year-round; the pre-fix Sydney guess rendered AEST/AEDT.
     expect(practiceSend.body.text).toContain('AWST');
     expect(practiceSend.body.text).not.toMatch(/AE[SD]T/);
+  });
+});
+
+// Viewer-timezone feature (owner req): "interview times for practices and
+// medical centres should be translated to the location of the GP or the
+// practice contact, and should clearly show what timezone they are booking in."
+// The browser's device tz (viewer_tz) is submitted with the availability POST
+// and the booking POST; the server validates it hard and prefers it over the
+// state/country-derived guesses for window interpretation + email time labels.
+describe('viewer timezone: availability windows + booking labels', () => {
+  const ymdPlus = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+  const toOf = (c) => (Array.isArray(c.body.to) ? c.body.to : [c.body.to]).join(',');
+
+  it('(a) availability with viewer_tz Australia/Perth on an NSW-state practice: windows interpreted in Perth time', async () => {
+    const D = ymdPlus(5);
+    const r = await httpReq('POST', '/api/practice/application/availability', {
+      body: { token: 'tok-int-nsw-000000001', windows: [{ date: D, fromMin: 1080, toMin: 1200 }], viewer_tz: 'Australia/Perth' }
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw' && c.meeting_kind === 'interview');
+    expect(row).toBeTruthy();
+    expect(row.practice_availability_status).toBe('received');
+    // The validated viewer tz is stored WITH the windows (inside the same JSONB).
+    expect(row.practice_availability_windows[0].tz).toBe('Australia/Perth');
+
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-nsw', GP);
+    expect(slotsRes.status).toBe(200);
+    expect(slotsRes.body.slots.length).toBeGreaterThan(0);
+    // Concrete UTC: 18:00 in Perth (UTC+8, no DST) on D = D 10:00Z. The NSW
+    // state-derived guess (Australia/Sydney) would put it at D 08:00Z (AEST).
+    expect(slotsRes.body.slots[0].startUtc).toBe(D + 'T10:00:00.000Z');
+    // The practice-local slot labels speak the contact's tz too.
+    expect(slotsRes.body.slots[0].local.practice.tz).toBe('Australia/Perth');
+  });
+
+  it('(b) invalid viewer_tz is ignored — windows fall back to the state-derived practice tz', async () => {
+    const D = ymdPlus(6);
+    const r = await httpReq('POST', '/api/practice/application/availability', {
+      body: { token: 'tok-int-nsw-000000002', windows: [{ date: D, fromMin: 1080, toMin: 1200 }], viewer_tz: 'Mars/OlympusMons' }
+    });
+    expect(r.status).toBe(200);
+
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw2' && c.meeting_kind === 'interview');
+    expect(row.practice_availability_status).toBe('received');
+    // No tz key persisted for an invalid viewer_tz.
+    expect(row.practice_availability_windows[0].tz).toBeUndefined();
+
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-nsw2', GP2);
+    expect(slotsRes.status).toBe(200);
+    expect(slotsRes.body.slots.length).toBeGreaterThan(0);
+    // DST-proof concrete expectation: 18:00 Sydney wall time on D, whatever
+    // offset applies that day (AEST/AEDT). wallTimeToUtc is unit-tested
+    // independently in tests/interview-scheduler.test.js.
+    const expected = sched.wallTimeToUtc(D, 1080, 'Australia/Sydney').toISOString();
+    expect(slotsRes.body.slots[0].startUtc).toBe(expected);
+    expect(slotsRes.body.slots[0].startUtc).not.toBe(D + 'T10:00:00.000Z'); // NOT the Perth reading
+    expect(slotsRes.body.slots[0].local.practice.tz).toBe('Australia/Sydney');
+  });
+
+  it('(c)+(d) booking with viewer_tz persists it on the row; GP email renders in it; practice email prefers the availability tz', async () => {
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-nsw', GP);
+    expect(slotsRes.body.slots.length).toBeGreaterThan(0);
+    const slot = slotsRes.body.slots[0];
+
+    const before = resendCalls.length;
+    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-nsw', slot_start_utc: slot.startUtc, viewer_tz: 'Pacific/Auckland' }, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    // (c) persisted on the EXISTING scheduled_calls.timezone column — the same
+    // column Calendly bookings use for the invitee tz, and the same one the
+    // reminder cron already reads for the GP reminder label. No new column.
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw' && c.meeting_kind === 'interview');
+    expect(row.status).toBe('booked');
+    expect(row.timezone).toBe('Pacific/Auckland');
+
+    const sends = resendCalls.slice(before);
+    const gpSend = sends.find((c) => toOf(c).includes(GP.email));
+    expect(gpSend).toBeTruthy();
+    // GP confirmation speaks the tz the GP actually booked in (NZST/NZDT), not
+    // the registration-country guess (Europe/London → BST/GMT).
+    expect(gpSend.body.text).toMatch(/NZ[SD]T/);
+    expect(gpSend.body.text).not.toMatch(/\bBST\b|\bGMT\b/);
+
+    // (d) practice confirmation prefers the stored availability tz (Perth),
+    // not the NSW state guess (AEST/AEDT).
+    const practiceSend = sends.find((c) => toOf(c).includes('frontdesk@nsw-practice-test.local'));
+    expect(practiceSend).toBeTruthy();
+    expect(practiceSend.body.text).toContain('AWST');
+    expect(practiceSend.body.text).not.toMatch(/AE[SD]T/);
+  });
+
+  it('(c-fallback) booking with an invalid viewer_tz persists nothing and falls back to country-derived labels', async () => {
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-nsw2', GP2);
+    expect(slotsRes.body.slots.length).toBeGreaterThan(0);
+    const slot = slotsRes.body.slots[0];
+
+    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-nsw2', slot_start_utc: slot.startUtc, viewer_tz: 'Mars/OlympusMons' }, GP2);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw2' && c.meeting_kind === 'interview');
+    expect(row.status).toBe('booked');
+    expect(row.timezone == null).toBe(true); // invalid viewer_tz is never persisted
   });
 });

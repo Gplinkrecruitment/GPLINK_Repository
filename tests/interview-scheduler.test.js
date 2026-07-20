@@ -91,4 +91,28 @@ describe('interview-scheduler', () => {
       expect(h).toBeLessThan(10);
     });
   });
+
+  // Viewer-timezone feature: availability windows submitted from the practice
+  // contact's browser carry the DEVICE tz (window.tz). The scheduler must
+  // interpret those wall-clock windows in THAT tz, not the party's default tz.
+  it('interprets an override carrying its own tz in that tz (Perth window on a Sydney-tz party)', () => {
+    const p = { tz: 'Australia/Sydney', weekday: [0, 0], weekend: [0, 0], overrides: [{ date: '2026-07-06', fromMin: 1080, toMin: 1200, tz: 'Australia/Perth' }] };
+    const out = s.computeInterviewSlots(base({ practice: p, maxSlots: 50 }));
+    expect(out.slots.length).toBeGreaterThan(0);
+    // 18:00 Perth (UTC+8, no DST) = 10:00Z. A Sydney reading (AEST) = 08:00Z.
+    expect(out.slots[0].startUtc).toBe('2026-07-06T10:00:00.000Z');
+    out.slots.forEach(function (sl) {
+      const t = new Date(sl.startUtc).getTime();
+      expect(t).toBeGreaterThanOrEqual(Date.parse('2026-07-06T10:00:00Z'));
+      expect(t + 45 * 60000).toBeLessThanOrEqual(Date.parse('2026-07-06T12:00:00Z'));
+    });
+  });
+
+  it('falls back to the party tz when an override tz is invalid — a bad string never blanks the slots', () => {
+    const p = { tz: 'Australia/Sydney', weekday: [0, 0], weekend: [0, 0], overrides: [{ date: '2026-07-06', fromMin: 1080, toMin: 1200, tz: 'Mars/OlympusMons' }] };
+    const out = s.computeInterviewSlots(base({ practice: p, maxSlots: 50 }));
+    expect(out.slots.length).toBeGreaterThan(0);
+    // 18:00 Sydney (AEST in July, UTC+10) = 08:00Z.
+    expect(out.slots[0].startUtc).toBe('2026-07-06T08:00:00.000Z');
+  });
 });

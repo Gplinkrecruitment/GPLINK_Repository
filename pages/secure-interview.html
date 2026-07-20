@@ -129,6 +129,14 @@
   .btn-secondary:hover { background: var(--gp-surface-sunken); }
   .btn-block { width: 100%; }
 
+  /* ── Viewer-timezone note above the slot list ── */
+  .tz-note {
+    font-size: var(--gp-fs-sm); color: var(--gp-muted); line-height: 1.45;
+    background: var(--gp-blue-soft); border: 1px solid var(--gp-blue-border);
+    border-radius: var(--gp-r-sm); padding: 10px 12px; margin-bottom: 18px;
+  }
+  .tz-note strong { color: var(--gp-ink); font-weight: 600; }
+
   /* ── Day-grouped slots ── */
   .day-group { margin-bottom: 22px; }
   .day-group:last-child { margin-bottom: 0; }
@@ -160,13 +168,16 @@
   @media (min-width: 640px) { #confirmOverlay { align-items: center; padding: 20px; } }
   .confirm-sheet {
     background: var(--gp-surface); border-radius: var(--gp-r-xl) var(--gp-r-xl) 0 0;
-    box-shadow: var(--gp-shadow-lg); padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+    /* Include the app-shell bottom-nav clearance so the Confirm/Back buttons
+       are never hidden behind the shell's nav bar when embedded. */
+    box-shadow: var(--gp-shadow-lg); padding: 28px 24px calc(24px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
     width: 100%; max-width: 480px;
   }
   @media (min-width: 640px) { .confirm-sheet { border-radius: var(--gp-r-xl); } }
   .confirm-sheet h2 { font-family: var(--gp-font-display); font-size: var(--gp-fs-xl); color: var(--gp-ink); margin-bottom: 8px; }
   .confirm-sheet p { color: var(--gp-muted); font-size: var(--gp-fs-base); margin-bottom: 4px; }
-  .confirm-time { font-weight: 700; color: var(--gp-ink); font-size: var(--gp-fs-md); margin-bottom: 22px; }
+  .confirm-time { font-weight: 700; color: var(--gp-ink); font-size: var(--gp-fs-md); margin-bottom: 18px; }
+  .confirm-practice { color: var(--gp-muted); font-size: var(--gp-fs-sm); margin: -12px 0 18px; }
   .confirm-actions { display: flex; gap: 10px; }
   .confirm-actions .btn { flex: 1; }
 
@@ -217,6 +228,7 @@
 
     <div id="slotsState" hidden>
       <div class="card">
+        <p class="tz-note" id="tzNote" hidden></p>
         <div id="daysList"></div>
         <div class="empty-slots" id="emptySlots" hidden>No times are available right now — please check back shortly.</div>
       </div>
@@ -238,6 +250,7 @@
       <h2>Confirm your interview</h2>
       <p>You're booking for:</p>
       <div class="confirm-time" id="confirmTimeLabel"></div>
+      <p class="confirm-practice" id="confirmPracticeLabel" hidden></p>
       <div class="confirm-actions">
         <button class="btn btn-secondary" id="confirmCancelBtn" type="button">Back</button>
         <button class="btn btn-primary" id="confirmBookBtn" type="button">Confirm booking</button>
@@ -277,6 +290,35 @@
 
   var pendingSlot = null; // the slot object currently shown in the confirm sheet
   var toastTimer = null;
+
+  // ── Viewer timezone (owner req: show + book in the GP's OWN timezone) ──
+  // The browser's device tz is the "current location". Probed immediately so a
+  // bad/unsupported value can never blank the picker — every Intl call below
+  // is additionally wrapped in try/catch with the server label as fallback.
+  var viewerTz = '';
+  try {
+    var _vtz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if (_vtz) { new Intl.DateTimeFormat(undefined, { timeZone: _vtz }); viewerTz = _vtz; }
+  } catch (e) { viewerTz = ''; }
+
+  // The tz all slot labels are rendered in: device tz, else the server's
+  // country-derived GP tz that rode in on the slot payload.
+  function displayTzFor(slot) {
+    return viewerTz || (slot && slot.local && slot.local.gp && slot.local.gp.tz) || '';
+  }
+
+  // Short name (e.g. BST, AWST) for a tz at a given instant — '' when Intl can't.
+  function tzShortName(tz, dateIso) {
+    if (!tz) return '';
+    try {
+      var parts = new Intl.DateTimeFormat(undefined, { timeZone: tz, timeZoneName: 'short' })
+        .formatToParts(dateIso ? new Date(dateIso) : new Date());
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].type === 'timeZoneName') return parts[i].value;
+      }
+    } catch (e) {}
+    return '';
+  }
 
   function showToast(text) {
     toast.textContent = text;
@@ -358,7 +400,7 @@
 
   function dayGroupKey(slot) {
     try {
-      return new Intl.DateTimeFormat('en-CA', { timeZone: slot.local.gp.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(slot.startUtc));
+      return new Intl.DateTimeFormat('en-CA', { timeZone: displayTzFor(slot), year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(slot.startUtc));
     } catch (e) {
       return slot.startUtc.slice(0, 10);
     }
@@ -366,7 +408,7 @@
 
   function dayHeading(slot) {
     try {
-      return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(slot.startUtc));
+      return new Intl.DateTimeFormat(undefined, { timeZone: displayTzFor(slot), weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(slot.startUtc));
     } catch (e) {
       return dayGroupKey(slot);
     }
@@ -374,14 +416,28 @@
 
   function timeOnlyLabel(slot) {
     try {
-      return new Intl.DateTimeFormat(undefined, { timeZone: slot.local.gp.tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
+      return new Intl.DateTimeFormat(undefined, { timeZone: displayTzFor(slot), hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
     } catch (e) {
       return slot.local && slot.local.gp && slot.local.gp.label ? slot.local.gp.label : slot.startUtc;
     }
   }
 
+  // The one always-visible line above the slot list naming the timezone every
+  // time below is shown in — e.g. "Times are shown in your timezone:
+  // Europe/London (BST)".
+  function renderTzNote(slots) {
+    var tzNote = document.getElementById('tzNote');
+    if (!tzNote) return;
+    var tz = displayTzFor(slots && slots[0]);
+    if (!tz) { tzNote.hidden = true; return; }
+    var shortName = tzShortName(tz, slots && slots[0] && slots[0].startUtc);
+    tzNote.textContent = 'Times are shown in your timezone: ' + tz + (shortName ? ' (' + shortName + ')' : '');
+    tzNote.hidden = false;
+  }
+
   function renderSlots(slots) {
     daysList.textContent = '';
+    renderTzNote(slots);
     if (!slots || !slots.length) {
       emptySlots.hidden = false;
       showOnly(slotsState);
@@ -427,10 +483,29 @@
     showOnly(slotsState);
   }
 
+  var confirmPracticeLabel = document.getElementById('confirmPracticeLabel');
+
   function openConfirm(slot) {
     pendingSlot = slot;
     var label = dayHeading(slot) + ' at ' + timeOnlyLabel(slot);
-    confirmTimeLabel.textContent = label;
+    var tzShort = tzShortName(displayTzFor(slot), slot.startUtc);
+    confirmTimeLabel.textContent = label + (tzShort ? ' (' + tzShort + ')' : '');
+    // Secondary line: the same moment in the PRACTICE's timezone — only when
+    // the server sent one; skipped silently otherwise.
+    var practiceLine = '';
+    if (slot.local && slot.local.practice && slot.local.practice.tz) {
+      try {
+        var pTime = new Intl.DateTimeFormat(undefined, { timeZone: slot.local.practice.tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
+        var pShort = tzShortName(slot.local.practice.tz, slot.startUtc);
+        practiceLine = pTime + ' at the practice' + (pShort ? ' — ' + pShort : '');
+      } catch (e) {
+        practiceLine = slot.local.practice.label ? (slot.local.practice.label + ' at the practice') : '';
+      }
+    }
+    if (confirmPracticeLabel) {
+      confirmPracticeLabel.textContent = practiceLine;
+      confirmPracticeLabel.hidden = !practiceLine;
+    }
     confirmOverlay.hidden = false;
   }
 
@@ -447,7 +522,9 @@
   function renderSuccess(booked) {
     var timeLabel = '';
     try {
-      timeLabel = new Date(booked.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+      // timeZoneName appends the short tz label (e.g. BST) so the booked time
+      // clearly says which timezone it is in; device tz is the display tz.
+      timeLabel = new Date(booked.scheduled_at).toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
     } catch (e) {
       timeLabel = booked.scheduled_at || '';
     }
@@ -503,7 +580,7 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ applicationId: applicationId, slot_start_utc: slot.startUtc })
+      body: JSON.stringify({ applicationId: applicationId, slot_start_utc: slot.startUtc, viewer_tz: viewerTz || undefined })
     })
       .then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) { return { status: res.status, data: data }; });

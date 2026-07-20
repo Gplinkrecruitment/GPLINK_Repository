@@ -153,7 +153,7 @@
 
     <section id="pdAvailability" hidden>
       <h1>When suits you for an interview?</h1>
-      <p>Add a few times that work for your practice — <span data-pd="gpName"></span> will confirm one. Times are in your local timezone.</p>
+      <p>Add a few times that work for your practice — <span data-pd="gpName"></span> will confirm one. <span id="pdTzNote">Times are in your local timezone.</span></p>
       <div id="pdWindowRows"></div>
       <div class="pd-actions-row">
         <button id="pdAddWindow" class="pd-btn pd-btn-ghost" type="button">+ Add another time</button>
@@ -212,6 +212,27 @@
   var ctx = null;
   var rowCount = 0;
   var availabilityInitialized = false;
+
+  // ── Viewer timezone (owner req: clearly show what timezone they are booking
+  // in). The browser's device tz is the contact's "current location"; it is
+  // named in the availability copy and submitted with the windows so the
+  // server interprets them in THIS tz, not a state-derived guess. If Intl is
+  // unavailable the static "your local timezone" sentence stays as-is.
+  var viewerTz = '';
+  try {
+    var _tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if (_tz) {
+      new Intl.DateTimeFormat(undefined, { timeZone: _tz }); // probe
+      viewerTz = _tz;
+      var _short = '';
+      var _parts = new Intl.DateTimeFormat(undefined, { timeZone: _tz, timeZoneName: 'short' }).formatToParts(new Date());
+      for (var _i = 0; _i < _parts.length; _i++) {
+        if (_parts[_i].type === 'timeZoneName') { _short = _parts[_i].value; break; }
+      }
+      var _note = document.getElementById('pdTzNote');
+      if (_note) _note.textContent = 'Times are in your timezone: ' + _tz + (_short ? ' (' + _short + ')' : '') + '.';
+    }
+  } catch (e) { viewerTz = ''; }
 
   function show(section) {
     SECTIONS.forEach(function (s) { s.hidden = (s !== section); });
@@ -489,7 +510,7 @@
       method: 'POST',
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token, windows: result.windows })
+      body: JSON.stringify({ token: token, windows: result.windows, viewer_tz: viewerTz || undefined })
     })
       .then(parseJsonResponse)
       .then(function (res) {
