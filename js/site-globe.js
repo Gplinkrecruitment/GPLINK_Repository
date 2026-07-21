@@ -1,9 +1,9 @@
 /* ==========================================================================
-   GP Link — network globe animation (standalone, framework-free).
+   GP Link network globe animation (standalone, framework-free).
    Ported from the supplied Design-Combo scene (globe-scene.jsx): a spinning
    dotted earth with country borders and pulsing #1d52db arcs from the UK,
    Ireland and New Zealand converging on Australia. The original ran on
-   React + Babel via a CDN; this port drops all of that — a tiny element→SVG
+   React + Babel via a CDN; this port drops all of that for a tiny element to SVG
    string builder replaces React.createElement and a plain requestAnimationFrame
    loop replaces the scene runtime. Mounts on every [data-globe] element.
    ========================================================================== */
@@ -17,7 +17,7 @@
   try { reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) {}
 
   var GEO_URL = "/media/globe/countries.geo.json";
-  var LOOP = 12; // seconds — matches the scene's single "Orbit Loop" duration
+  var LOOP = 12; // seconds, matches the scene's single "Orbit Loop" duration
 
   // ── constants / projection (verbatim from the scene) ──────────────────────
   var BLUE = "#1d52db", RAD = Math.PI / 180;
@@ -98,7 +98,7 @@
     return { dots: dots, ausRings: ausRings };
   }
 
-  // ── theme (light — blends into the visa section's pale background) ────────
+  // theme (light; blends into the visa section's pale background)
   var theme = {
     sea: "#eef1f7", seaEdge: "#dde3ee",
     dot: "#a6b0c4", border: "#15181f",
@@ -299,7 +299,7 @@
     );
   }
 
-  // pick the progress where Australia faces us most — used for the static
+  // pick the progress where Australia faces us most, used for the static
   // (reduced-motion) frame.
   function bestStaticP() {
     var best = 0, bestZ = -2;
@@ -323,7 +323,7 @@
         return;
       }
       var t0 = null, raf = 0, running = false, last = -1;
-      var MIN_MS = 1000 / 30; // cap at ~30fps — the rotation is slow, this halves cost
+      var MIN_MS = 1000 / 30; // cap at ~30fps; the rotation is slow, this halves cost
       function frame(now) {
         if (!running) return;
         if (t0 == null) { t0 = now; last = -1; }

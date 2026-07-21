@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Practice Intake — GP Link</title>
+<title>Practice Intake | GP Link</title>
 <meta name="robots" content="noindex, nofollow">
 <style>
   :root{
@@ -175,6 +175,41 @@
   .error-box{background:#fef2f2;border:1px solid #fecaca;color:var(--bad);border-radius:10px;padding:11px 13px;
     font-size:13.5px;font-weight:600;margin:14px 0 0;display:none}
   .error-box.show{display:block}
+
+  /* ---- highest-impact field: gold, with a slow shimmer ---- */
+  .gold-card{position:relative;overflow:hidden;border-radius:14px;padding:18px 18px 16px;
+    background:linear-gradient(135deg,#fffaf0,#fdf3dc 55%,#fff8ea);
+    border:1.5px solid #e8c979;box-shadow:0 12px 30px -18px rgba(176,132,32,.65);}
+  .gold-in{position:relative;z-index:1}
+  .gold-shine{position:absolute;top:0;left:-60%;width:45%;height:100%;z-index:0;pointer-events:none;
+    background:linear-gradient(105deg,transparent,rgba(255,255,255,.85),transparent);
+    animation:goldSweep 4.5s ease-in-out infinite;}
+  @keyframes goldSweep{0%{left:-60%}55%{left:115%}100%{left:115%}}
+  .gold-badge{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+    color:#7a5606;background:rgba(232,201,121,.5);border:1px solid #e0bd63;border-radius:99px;
+    padding:4px 10px;margin-bottom:10px;}
+  .gold-stat{font-size:14px;color:#6b4c07;font-weight:600;margin:2px 0 8px}
+  .gold-stat b{color:#5a3f04;font-weight:800}
+  .gold-card input{background:#fffdf8;border-color:#e2c98a}
+
+  /* ---- industry-standard incentives pack ---- */
+  .std-pack{border:1px solid var(--line);border-radius:12px;background:#fafbfd;padding:14px 15px;margin-bottom:10px}
+  .std-top{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+  .std-top b{display:block;font-size:13.5px;color:var(--ink)}
+  .std-top span{display:block;font-size:12.5px;color:var(--mut);margin-top:2px;max-width:46ch}
+  .std-list{margin:11px 0 0;padding-left:19px;font-size:13px;color:var(--mut);line-height:1.75}
+  .btn.small{padding:8px 15px;font-size:13.5px;white-space:nowrap}
+  @media (prefers-reduced-motion: reduce){ .gold-shine{animation:none;display:none} }
+  .gate-msg{display:none;font-size:13px;color:var(--mut);margin:0 0 10px;width:100%}
+  .gate-msg.on{display:block}
+  .form-assure{margin:-6px 0 18px;font-size:13px;color:var(--mut);text-align:center}
+  /* Plain status dots replace the old emoji icons: same meaning, no clip-art. */
+  .icon.dot{width:42px;height:42px;border-radius:50%;margin:0 auto;position:relative}
+  .icon.dot.warn{background:#fdecec;border:2px solid #e2a1a1}
+  .icon.dot.ok{background:#e9f8f0;border:2px solid #63c69a}
+  .icon.dot::after{content:"";position:absolute;inset:0;margin:auto;width:14px;height:14px;border-radius:50%}
+  .icon.dot.warn::after{background:#c0392b}
+  .icon.dot.ok::after{background:#12a56f}
 </style>
 </head>
 <body>
@@ -190,7 +225,7 @@
 
   <!-- Expired / unknown token -->
   <div id="expiredPanel" class="card state-panel hidden">
-    <div class="icon">⚠️</div>
+    <div class="icon dot warn" aria-hidden="true"></div>
     <h1>This link has expired</h1>
     <p class="lede">We couldn't find an active form for this link. If you think this is a mistake, contact us and we'll sort it out.</p>
     <p style="margin-bottom:0"><a href="mailto:hello@mygplink.com.au" style="color:var(--brand);font-weight:650">hello@mygplink.com.au</a></p>
@@ -198,9 +233,9 @@
 
   <!-- Network / server error (never a real 404) -->
   <div id="somethingWrongPanel" class="card state-panel hidden">
-    <div class="icon">⚠️</div>
+    <div class="icon dot warn" aria-hidden="true"></div>
     <h1>Something went wrong</h1>
-    <p class="lede">We couldn't load your form just now — this is usually temporary. Please try again.</p>
+    <p class="lede">We couldn't load your form just now. This is usually temporary. Please try again.</p>
     <button type="button" class="btn" id="retryLoadBtn">Retry</button>
     <p style="margin-bottom:0;margin-top:16px">Still stuck? Contact us at <a href="mailto:hello@mygplink.com.au" style="color:var(--brand);font-weight:650">hello@mygplink.com.au</a></p>
   </div>
@@ -214,15 +249,24 @@
       <div id="st4">4 · Practices</div>
       <div id="st5">5 · Sign</div>
     </div>
+    <p class="form-assure">Takes about five minutes. Everything saves as you go, so you can close this and come back to the same link whenever you like.</p>
 
-    <!-- ============ STEP 1 — WHERE ============ -->
+    <!-- ============ STEP 1: WHERE ============ -->
     <div class="card" id="p1">
       <h1 id="p1h">Tell us about your practice</h1>
-      <p class="lede">A few quick questions. Start with your address — we work out the rest. You can come back and finish this later using the same link.</p>
+      <p class="lede">A few quick questions. Start with your address and we work out the rest. You can come back and finish this later using the same link.</p>
+
+      <div class="f">
+        <label for="practice_name">Practice name <span class="must">REQUIRED</span>
+          <span class="tip">?<span>We have filled this in from your enquiry. Whatever you confirm here becomes the name we use everywhere, so correct it if it is not exactly right.</span></span>
+        </label>
+        <div class="hint">Filled in from your enquiry. Edit it if you need to; this version is the one we will use.</div>
+        <input type="text" id="practice_name" placeholder="e.g. Bayside Family Practice">
+      </div>
 
       <div class="f">
         <label>Practice address <span class="must">REQUIRED</span>
-          <span class="tip">?<span>Start typing and pick your practice from the list. We use this to work out your suburb, state, postcode and nearest city — so you're not asked for those separately.</span></span>
+          <span class="tip">?<span>Start typing and pick your practice from the list. We use this to work out your suburb, state, postcode and nearest city, so you're not asked for those separately.</span></span>
         </label>
         <div class="hint" id="addrHint">Start typing your street number and street, then pick it from the list.</div>
         <input type="text" id="addr" autocomplete="off" placeholder="e.g. 60 Erina Valley Road, Erina">
@@ -231,7 +275,7 @@
 
         <div id="manual" class="hidden" style="margin-top:12px;background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:15px">
           <div style="font-weight:700;font-size:13px;margin-bottom:10px">Enter your address manually</div>
-          <div class="hint" style="margin-bottom:10px">This never depends on the address lookup working — fill it in and you can still submit.</div>
+          <div class="hint" style="margin-bottom:10px">This never depends on the address lookup working. Fill it in and you can still submit.</div>
           <div class="f" style="margin-bottom:12px">
             <label style="font-size:13px">Street address</label>
             <input type="text" id="mStreet" placeholder="e.g. 60 Erina Valley Road">
@@ -261,7 +305,7 @@
         </div>
 
         <div class="derived" id="derived">
-          <div class="t">✓ We've got your location</div>
+          <div class="t">We have your location</div>
           <div class="chips" id="chips"></div>
           <button type="button" class="edit-link" data-action="clear-addr">Not right? Change the address</button>
         </div>
@@ -270,15 +314,15 @@
 
       <div class="f">
         <label>Distribution Priority Area (DPA) <span class="must">REQUIRED</span>
-          <span class="tip">?<span>A Department of Health classification for your address. It decides which overseas-trained GPs are allowed to work at your practice — so it must be exactly right.</span></span>
+          <span class="tip">?<span>A Department of Health classification for your address. It decides which overseas-trained GPs are allowed to work at your practice, so it must be exactly right.</span></span>
         </label>
         <div class="hint" id="dpaHint">We'll check this against your address once it's confirmed above.</div>
         <div class="ai" id="aiDpa">
           <div class="t" id="aiT">Checking your address…</div>
           <p id="aiP"></p>
           <div class="seg">
-            <button type="button" id="dpaYes" data-action="set-dpa" data-value="yes">Yes — we're in a DPA</button>
-            <button type="button" id="dpaNo" data-action="set-dpa" data-value="no">No — we're not</button>
+            <button type="button" id="dpaYes" data-action="set-dpa" data-value="yes">Yes, we are in a DPA</button>
+            <button type="button" id="dpaNo" data-action="set-dpa" data-value="no">No, we are not</button>
           </div>
         </div>
       </div>
@@ -288,7 +332,7 @@
           <span class="tip">?<span>How we prioritise you. "ASAP" practices go to the front of the queue for candidate matching.</span></span>
         </label>
         <div class="seg urg" id="urg">
-          <button type="button" data-action="set-urgency" data-value="asap">🔥 ASAP</button>
+          <button type="button" data-action="set-urgency" data-value="asap">ASAP</button>
           <button type="button" data-action="set-urgency" data-value="3_6m">3–6 months</button>
           <button type="button" data-action="set-urgency" data-value="12m">12+ months</button>
         </div>
@@ -308,7 +352,7 @@
         </div>
         <div class="f">
           <label for="percentage_split">Percentage split <span class="must">REQUIRED</span>
-            <span class="tip">?<span>The GP's share of billings. Type it however you like — "70", "70%", "70/30" or "30/70" — we always read the larger share as the GP's.</span></span>
+            <span class="tip">?<span>The GP's share of billings. Type it however you like, such as "70", "70%", "70/30" or "30/70". We always read the larger share as the GP's.</span></span>
           </label>
           <input type="text" id="percentage_split" placeholder="e.g. 70, or 70/30">
           <div class="derived" id="splitOut" style="margin-top:8px">
@@ -317,7 +361,7 @@
               <span class="chip"><b>Practice keeps</b><b id="splitPr" style="color:var(--ink);font-size:13px;margin:0"></b></span>
             </div>
           </div>
-          <div id="splitErr" class="hint" style="color:var(--bad);display:none">Enter a percentage between 1 and 99 — e.g. 70 or 70/30.</div>
+          <div id="splitErr" class="hint" style="color:var(--bad);display:none">Enter a percentage between 1 and 99, for example 70 or 70/30.</div>
         </div>
       </div>
 
@@ -327,15 +371,15 @@
       </div>
     </div>
 
-    <!-- ============ STEP 2 — THE JOB ============ -->
+    <!-- ============ STEP 2: THE JOB ============ -->
     <div class="card hidden" id="p2">
       <h1>What you need</h1>
-      <p class="lede">The essentials for the job ad. No days-and-hours breakdown — just full-time, part-time, or flexible.</p>
+      <p class="lede">The essentials for the job ad. No days-and-hours breakdown, just full-time, part-time or flexible.</p>
 
       <div class="row">
         <div class="f">
           <label for="gps_needed">How many GPs do you need? <span class="must">REQUIRED</span>
-            <span class="tip">?<span>Each GP you need becomes its own search. If you say 3, we source 3 — today, one intake creates only one vacancy.</span></span>
+            <span class="tip">?<span>Each GP you need becomes its own search. If you say 3, we source 3. Today, one intake creates only one vacancy.</span></span>
           </label>
           <select id="gps_needed">
             <option value="" selected>Choose…</option>
@@ -351,7 +395,7 @@
             <option value="" selected>Choose…</option>
             <option value="full_time">Full-time</option>
             <option value="part_time">Part-time</option>
-            <option value="either">Either — we're flexible</option>
+            <option value="either">Either, we are flexible</option>
           </select>
         </div>
       </div>
@@ -363,36 +407,46 @@
       </div>
     </div>
 
-    <!-- ============ STEP 3 — THE PITCH ============ -->
+    <!-- ============ STEP 3: THE PITCH ============ -->
     <div class="card hidden" id="p3">
       <h1>Sell the role</h1>
-      <p class="lede">The more you tell us, the better we sell your practice to the right GP. Everything below is optional, but the more detail you give, the stronger your ad.</p>
+      <p class="lede">You do not need to write polished copy. List the points you want GPs to know and our team writes the finished ad for you.</p>
 
       <div class="f">
         <label for="intro_text">Tell us about the area, and what a GP working here can expect <span class="opt">OPTIONAL</span>
-          <span class="tip">?<span>The heart of your job ad. Write it for a doctor who has never been to Australia. What's the town like — schools, beaches, housing? And day to day, what's the patient mix, the team, the pace?</span></span>
+          <span class="tip">?<span>Think of a doctor who has never been to Australia. What is the town like for schools, beaches and housing? And day to day, what is the patient mix, the team and the pace?</span></span>
         </label>
-        <div class="hint">The most-read part of your ad. <b>Cover both:</b> what the area is like to live in, and what the job is like to do.</div>
-        <textarea id="intro_text" style="min-height:150px" placeholder="e.g. Erina sits on the NSW Central Coast, an hour from Sydney — beaches, good schools, and housing far cheaper than the city.&#10;&#10;You'd join 8 GPs and 3 practice nurses. Mostly family medicine and chronic disease, 15-minute appointments, and a genuinely supportive team — our last two international GPs are still with us five years on."></textarea>
+        <div class="hint"><b>Just list your main points. Our team writes this up professionally for you.</b> Rough notes are perfectly fine. Try to cover both what the area is like to live in and what the job is like to do.</div>
+        <textarea id="intro_text" style="min-height:150px" placeholder="e.g. Erina sits on the NSW Central Coast, an hour from Sydney, with beaches, good schools, and housing far cheaper than the city.&#10;&#10;You'd join 8 GPs and 3 practice nurses. Mostly family medicine and chronic disease, 15-minute appointments, and a genuinely supportive team. Our last two international GPs are still with us five years on."></textarea>
       </div>
       <div class="f">
         <label for="role_summary">Role summary <span class="opt">OPTIONAL</span>
           <span class="tip">?<span>The practical detail: patient load, appointment length, software.</span></span>
         </label>
-        <div class="hint">The practical detail: patient load, appointment length, software.</div>
+        <div class="hint"><b>Just the main points. Our team turns them into professional copy.</b> Patient load, appointment length and software are the useful ones.</div>
         <textarea id="role_summary" placeholder="e.g. Around 25–30 patients a day with 15-minute appointments. Nurse support on every shift. Best Practice software. Full books from week one."></textarea>
       </div>
-      <div class="note" style="margin-bottom:0">
-        <b>We write the job title for you.</b> Titles like "GP Job near Gosford · Mixed Billing · DPA" are generated from your answers, and they keep your practice name hidden until you accept a candidate.
-      </div>
-
       <h2 class="sec">Money &amp; incentives</h2>
       <div class="f">
         <label for="incentives">Incentives <span class="opt">OPTIONAL</span>
-          <span class="tip">?<span>Everything you'll put on the table — income guarantees, bonuses, relocation help. Overseas doctors care enormously about these; it's often what decides it.</span></span>
+          <span class="tip">?<span>Everything you can put on the table: income guarantees, bonuses and relocation help. Overseas doctors care enormously about these; it's often what decides it.</span></span>
         </label>
-        <div class="hint">Be specific with numbers — <b>vague offers get ignored.</b> Include any minimum income guarantee or sign-on bonus here.</div>
-        <textarea id="incentives" style="min-height:110px" placeholder="e.g. $200 per hour minimum income guarantee for the first 3 months&#10;$10,000 sign-on bonus (2-year agreement)&#10;$10,000 relocation package and 4 weeks' accommodation on arrival&#10;$3,000 annual CPD allowance and 6 weeks' paid leave&#10;Airport pickup and help finding schools"></textarea>
+        <div class="hint">Be specific with numbers. <b>Vague offers get ignored.</b> Include any minimum income guarantee or sign-on bonus here.</div>
+        <div class="std-pack">
+          <div class="std-top">
+            <div>
+              <b>The industry standard package</b>
+              <span>This is what most practices are offering right now. Add it, then change anything you like.</span>
+            </div>
+            <button type="button" class="btn small" data-action="use-standard-incentives" id="useStdInc">Use this</button>
+          </div>
+          <ul class="std-list">
+            <li>$200 per hour minimum income guarantee for the first 3 months</li>
+            <li>$10,000 relocation package and 4 weeks' accommodation on arrival</li>
+            <li>Airport pickup and help finding local schools</li>
+          </ul>
+        </div>
+        <textarea id="incentives" style="min-height:110px" placeholder="List what you can offer, one per line."></textarea>
       </div>
       <div class="row">
         <div class="f">
@@ -402,27 +456,27 @@
         </div>
         <div class="f">
           <label for="visa_sponsorship">Visa sponsorship <span class="opt">OPTIONAL</span>
-            <span class="tip">?<span>Leave blank if you're unsure — we read that as "let's talk", not as a no.</span></span>
+            <span class="tip">?<span>Leave blank if you are unsure. We read that as "let's talk", not as a no.</span></span>
           </label>
           <select id="visa_sponsorship">
-            <option value="">Not sure yet</option><option value="yes">Yes — we sponsor</option><option value="no">No</option>
+            <option value="">Not sure yet</option><option value="yes">Yes, we sponsor</option><option value="no">No</option>
           </select>
         </div>
       </div>
 
       <h2 class="sec">Your practice</h2>
       <div class="f">
-        <label for="website">Practice website <span class="opt">OPTIONAL</span>
-          <span class="tip">?<span>We read your website with AI and blend it with what you wrote above, to produce a polished, professional profile. Your practice name and address are stripped out before any GP sees it.</span></span>
+        <label for="website">Practice website <span class="must">REQUIRED</span>
+          <span class="tip">?<span>We read your website and blend it with what you wrote above to produce a polished, professional profile. Your practice name and address are stripped out before any GP sees it.</span></span>
         </label>
-        <div class="hint">Our AI combines <b>your website</b> with <b>what you wrote above</b> to write your profile. Leave it blank and we'll use only your own words.</div>
+        <div class="hint">We combine <b>your website</b> with <b>what you wrote above</b> to write your profile, so this one matters.</div>
         <input type="text" id="website" placeholder="https://www.yourpractice.com.au">
       </div>
       <div class="row">
         <div class="f"><label for="gp_count">Number of GPs <span class="opt">OPTIONAL</span></label>
           <input type="text" id="gp_count" placeholder="e.g. 8 GPs, 3 of them part-time"></div>
         <div class="f"><label for="years_operating">Years operating <span class="opt">OPTIONAL</span></label>
-          <input type="text" id="years_operating" placeholder="e.g. 14 years — same owner since 2011"></div>
+          <input type="text" id="years_operating" placeholder="e.g. 14 years, same owner since 2011"></div>
       </div>
       <div class="row">
         <div class="f"><label for="ownership">Ownership <span class="opt">OPTIONAL</span></label>
@@ -432,15 +486,22 @@
       </div>
       <div class="f">
         <label for="supervision_available">Supervision available <span class="opt">OPTIONAL</span>
-          <span class="tip">?<span>Whether a supervisor is on site for doctors who still need supervision. It's a make-or-break question for many international GPs, and it appears as its own row on your ad.</span></span>
+          <span class="tip">?<span>This appears as its own row on your ad. Most practices already meet the requirement without changing anything.</span></span>
         </label>
-        <select id="supervision_available"><option value="">Not sure</option><option value="yes">Yes — supervision available</option><option value="no">No</option></select>
+        <div class="hint">The GPs we place need either <b>no supervision at all</b> or <b>level 3 supervision</b>, which is one of the lightest levels there is: a FRACGP simply needs to be contactable by telephone. They do not need to be in the practice.</div>
+        <select id="supervision_available"><option value="">Not sure</option><option value="yes">Yes, we can provide this</option><option value="no">No</option></select>
       </div>
-      <div class="f">
-        <label for="intro_video_url">Intro video <span class="opt">OPTIONAL</span>
-          <span class="tip">?<span>A 60-second phone video walking through your practice massively outperforms text. Upload to YouTube (unlisted is fine) and paste the link.</span></span>
-        </label>
-        <input type="url" id="intro_video_url" placeholder="https://youtube.com/… — a 60-second walk-through">
+      <div class="f gold-card">
+        <span class="gold-shine" aria-hidden="true"></span>
+        <div class="gold-in">
+          <span class="gold-badge">Biggest single win</span>
+          <label for="intro_video_url">Intro video <span class="opt">OPTIONAL</span>
+            <span class="tip">?<span>A short phone video walking through your practice outperforms text by a wide margin. Upload it to YouTube, unlisted is fine, then paste the link.</span></span>
+          </label>
+          <div class="gold-stat">Practices that include an intro video get up to <b>150% more GP placements</b>.</div>
+          <div class="hint">Sixty seconds filmed on your phone is enough. Walk through the practice, introduce the team, say hello. Upload it to YouTube (unlisted is fine) and paste the link below.</div>
+          <input type="url" id="intro_video_url" placeholder="https://youtube.com/your-practice-video">
+        </div>
       </div>
 
       <div class="actions">
@@ -450,10 +511,10 @@
       </div>
     </div>
 
-    <!-- ============ STEP 4 — YOUR PRACTICES ============ -->
+    <!-- ============ STEP 4: YOUR PRACTICES ============ -->
     <div class="card hidden" id="p4">
       <h1>Your practices</h1>
-      <p class="lede">Each practice gets its own job ad, matched to its own GPs. Running a group? Add them all — you'll only sign once.</p>
+      <p class="lede">Each practice gets its own job ad, matched to its own GPs. Running a group? Add them all and you will only sign once.</p>
 
       <div class="f">
         <label>Are you a single practice, or a group?</label>
@@ -472,27 +533,27 @@
       <div class="error-box" id="step4Error"></div>
     </div>
 
-    <!-- ============ STEP 5 — SIGN ============ -->
+    <!-- ============ STEP 5: SIGN ============ -->
     <div class="card hidden" id="p5">
       <h1>Sign your recruitment agreement</h1>
-      <p class="lede">This is a legal document. Type your own details — we've deliberately filled in nothing for you.</p>
+      <p class="lede">This is a legal document. Type your own details. We have deliberately filled in nothing for you.</p>
 
       <div class="doc">
-        <div class="h">📄 GP Link Recruitment Services Agreement (2026)</div>
-        <div style="font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin-top:10px">Schedule 1 — Covered practices</div>
+        <div class="h">GP Link Recruitment Services Agreement (2026)</div>
+        <div style="font-size:12px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin-top:10px">Schedule 1: Covered practices</div>
         <div id="schedule"></div>
       </div>
 
       <div class="f">
         <label>The agreement you're signing</label>
-        <div class="hint">The full contract, embedded below — you can always read it before or after signing.</div>
+        <div class="hint">The full contract, embedded below, so you can always read it before or after signing.</div>
         <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" title="GP Link Recruitment Services Agreement"></iframe>
         <div class="pdf-fallback">
           Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" target="_blank" rel="noopener">Download the agreement (PDF)</a>
         </div>
       </div>
 
-      <div class="note"><b>Nothing is pre-filled on purpose.</b> The name, entity and ABN you type below are what get stamped onto the signed contract — so they must be yours, not ours.</div>
+      <div class="note"><b>Nothing is pre-filled on purpose.</b> The name, entity and ABN you type below are what get stamped onto the signed contract, so they must be yours, not ours.</div>
 
       <div class="f">
         <label for="signedName">Your full legal name <span class="must">REQUIRED</span></label>
@@ -505,7 +566,7 @@
       <div class="row">
         <div class="f">
           <label id="entLbl" for="legalEntityName">Legal entity name <span class="must">REQUIRED</span>
-            <span class="tip">?<span>The company registered against your ABN — not the trading name on your signage. e.g. "Coastal Health Pty Ltd".</span></span>
+            <span class="tip">?<span>The company registered against your ABN, not the trading name on your signage. e.g. "Coastal Health Pty Ltd".</span></span>
           </label>
           <input type="text" class="sig-f" id="legalEntityName" placeholder="e.g. Coastal Health Pty Ltd" maxlength="200">
         </div>
@@ -519,7 +580,7 @@
       </div>
       <div class="f">
         <label for="signedEmail">Your email <span class="must">REQUIRED</span></label>
-        <div class="hint">We already have your contact email on file — this confirms who's signing.</div>
+        <div class="hint">We already have your contact email on file. This confirms who is signing.</div>
         <input type="email" class="sig-f" id="signedEmail" placeholder="you@yourpractice.com.au">
       </div>
 
@@ -562,9 +623,9 @@
 
   <!-- Success -->
   <div id="successPanel" class="card state-panel hidden">
-    <div class="icon">✅</div>
+    <div class="icon dot ok" aria-hidden="true"></div>
     <h1>Agreement signed</h1>
-    <p style="margin-bottom:0">Agreement signed — your job listing is with our team for approval. Watch your inbox.</p>
+    <p style="margin-bottom:0">Agreement signed. Your job listing is with our team for approval. Watch your inbox.</p>
     <!-- href is filled in by showSuccess() from the page's intake token -->
     <p style="margin:18px 0 0"><a id="trackListingLink" class="btn hidden" style="text-decoration:none" href="#">Track your listing →</a></p>
   </div>
@@ -590,7 +651,7 @@
     });
   }
   function showSuccess() {
-    // Both success paths land here — a fresh sign AND reopening an
+    // Both success paths land here, a fresh sign AND reopening an
     // already-signed link. Without this link the reopened card was a
     // dead-end (the status-page URL existed only in the confirmation
     // email). Token goes into the query string URL-encoded; assigning
@@ -627,13 +688,21 @@
         } else if (!restoreDraft()) {
           addAnother();
         }
+        // Seed the name from whatever the Facebook/website lead carried, so
+        // the practice confirms or corrects it rather than retyping it. What
+        // they leave here is final and overwrites the lead's version.
+        if (!cur.practice_name && currentPractice.name) {
+          cur.practice_name = currentPractice.name;
+          var pnEl = $('practice_name');
+          if (pnEl) pnEl.value = currentPractice.name;
+        }
       })
       .catch(function () { showOnly(somethingWrongPanel); });
   }
   $('retryLoadBtn').addEventListener('click', loadPractice);
 
   // ---------------------------------------------------------------------
-  // Google Maps browser key — fetched once, referrer-locked, safe to expose.
+  // Google Maps browser key, fetched once, referrer-locked, safe to expose.
   // Places is called directly from the browser; we never proxy it through
   // our own server (a server-side key would need the referrer lock removed).
   // ---------------------------------------------------------------------
@@ -643,7 +712,7 @@
   }).catch(function () { MAPS_KEY = ''; });
 
   // ---------------------------------------------------------------------
-  // Nearest-city table — ported verbatim from lib/practice-intake-logic.js
+  // Nearest-city table, ported verbatim from lib/practice-intake-logic.js
   // so the chip we show matches what the server will actually store.
   // ---------------------------------------------------------------------
   var AU_CITIES = [
@@ -684,7 +753,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Percentage split — ported verbatim from lib/practice-intake-logic.js
+  // Percentage split, ported verbatim from lib/practice-intake-logic.js
   // parseSplit(). Same rule the server enforces: any pair of numbers that
   // sums to 100 wins (GP takes the larger); otherwise a single number is
   // read as the GP's share; anything else is refused rather than guessed.
@@ -712,7 +781,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // ABN / ACN — ported verbatim from lib/practice-intake-logic.js. Real
+  // ABN / ACN, ported verbatim from lib/practice-intake-logic.js. Real
   // checksums (ATO / ASIC), not just a digit count, so a typo is caught
   // before it ever reaches the server.
   // ---------------------------------------------------------------------
@@ -739,7 +808,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Places (New) — direct browser calls, referrer-locked key. Never
+  // Places (New), direct browser calls, referrer-locked key. Never
   // proxied through our server.
   // ---------------------------------------------------------------------
   function placesAutocomplete(input) {
@@ -804,7 +873,7 @@
 
   function freshCur() {
     return {
-      billing_style: '', percentage_split: '',
+      practice_name: '', billing_style: '', percentage_split: '',
       address: '', suburb: '', state: '', postcode: '', nearest_city: '', general_location: '',
       latitude: null, longitude: null, google_place_id: '', manual: false,
       dpa: null, dpaSuggested: null, dpaCatchment: null, mmm: null,
@@ -818,7 +887,7 @@
 
   var selectFieldIds = ['billing_style', 'gps_needed', 'employment_type'];
   var boolFieldIds = ['visa_sponsorship', 'nursing_on_site', 'supervision_available']; // 'yes'/'no'/'' selects
-  var textFieldIds = ['ownership', 'years_operating', 'gp_count', 'percentage_split', 'incentives',
+  var textFieldIds = ['practice_name', 'ownership', 'years_operating', 'gp_count', 'percentage_split', 'incentives',
     'earnings_text', 'role_summary', 'intro_text', 'intro_video_url', 'website'];
 
   function boolFromSelect(v) { if (v === 'yes') return true; if (v === 'no') return false; return ''; }
@@ -844,7 +913,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Address — autocomplete (in-browser Google Places) + a fully offline
+  // Address, autocomplete (in-browser Google Places) + a fully offline
   // manual fallback so a missed lookup can never block a submit.
   // ---------------------------------------------------------------------
   var addr = $('addr'), acbox = $('acbox');
@@ -870,7 +939,7 @@
         return;
       }
       var html = hits.map(function (h, i) {
-        return '<button type="button" data-action="pick-addr" data-idx="' + i + '"><span class="pin">📍</span><span>'
+        return '<button type="button" data-action="pick-addr" data-idx="' + i + '"><span class="pin"></span><span>'
           + '<span class="a1">' + escapeHtml(h.main) + '</span><br>'
           + '<span class="a2">' + escapeHtml(h.secondary) + '</span></span></button>';
       }).join('') + '<div class="foot">Google Places</div>';
@@ -895,7 +964,7 @@
     $('derived').classList.add('on');
     $('chips').innerHTML = '<span class="chip"><span class="spin"></span>Looking up the details…</span>';
     placeDetails(h.placeId).then(function (d) { applyPlace(d, false); }).catch(function () {
-      $('chips').innerHTML = '<span class="chip">Lookup failed — try again, or enter it manually.</span>';
+      $('chips').innerHTML = '<span class="chip">Lookup failed. Try again, or enter it manually.</span>';
     });
   }
 
@@ -919,10 +988,10 @@
 
   function renderChips() {
     $('chips').innerHTML =
-      '<span class="chip"><b>Suburb</b>' + escapeHtml(cur.suburb || '—') + '</span>' +
-      '<span class="chip"><b>State</b>' + escapeHtml(cur.state || '—') + '</span>' +
-      '<span class="chip"><b>Postcode</b>' + escapeHtml(cur.postcode || '—') + '</span>' +
-      '<span class="chip"><b>Nearest city</b>' + escapeHtml(cur.nearest_city || '—') + (cur.nearestCityKm != null ? ' (' + cur.nearestCityKm + ' km)' : '') + '</span>';
+      '<span class="chip"><b>Suburb</b>' + escapeHtml(cur.suburb || 'Not set') + '</span>' +
+      '<span class="chip"><b>State</b>' + escapeHtml(cur.state || 'Not set') + '</span>' +
+      '<span class="chip"><b>Postcode</b>' + escapeHtml(cur.postcode || 'Not set') + '</span>' +
+      '<span class="chip"><b>Nearest city</b>' + escapeHtml(cur.nearest_city || 'Not set') + (cur.nearestCityKm != null ? ' (' + cur.nearestCityKm + ' km)' : '') + '</span>';
     $('derived').classList.add('on');
   }
 
@@ -930,7 +999,7 @@
     $('manual').classList.remove('hidden');
     $('manualLink').classList.add('hidden');
     addr.style.display = 'none';
-    $('addrHint').textContent = 'Type it yourself — we still work everything out from your suburb and state.';
+    $('addrHint').textContent = 'Type it yourself and we still work everything out from your suburb and state.';
     resetLocation();
     $('mStreet').focus();
   }
@@ -979,7 +1048,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // DPA — checked against our own /api/dpa/check, always confirmed by the
+  // DPA, checked against our own /api/dpa/check, always confirmed by the
   // practice. On ANY failure we say so and require them to answer; we
   // never pre-select an answer, because a wrong DPA silently hides the
   // job from every overseas-trained doctor.
@@ -1011,21 +1080,21 @@
   function dpaUnavailable(reason) {
     cur.dpaSuggested = null; cur.mmm = null;
     var ai = $('aiDpa'); ai.className = 'ai on';
-    $('aiT').textContent = '⚠ We could not check this automatically';
+    $('aiT').textContent = 'We could not check this automatically';
     $('aiP').innerHTML = reason + ' <b>Please tell us yourself whether your practice is in a DPA.</b>' +
       '<span class="warn">You can check it at health.gov.au → Health Workforce Locator.</span>';
-    $('dpaHint').textContent = 'Automatic check unavailable — please answer.';
+    $('dpaHint').textContent = 'Automatic check unavailable. Please answer.';
     $('dpaYes').classList.remove('sel'); $('dpaNo').classList.remove('sel');
     gate1();
   }
   function paintDpaSuggestion() {
     var ai = $('aiDpa'); ai.className = 'ai on';
-    $('aiT').textContent = '🏛 Checked against the Department of Health';
+    $('aiT').textContent = 'Checked against the Department of Health';
     $('aiP').innerHTML = 'Your address falls in the <b>' + escapeHtml(cur.dpaCatchment || 'matched') + '</b> catchment, which ' +
       '<b>' + (cur.dpaSuggested ? 'IS' : 'is NOT') + '</b> a Distribution Priority Area for GPs' + (cur.mmm ? ' · <b>' + escapeHtml(cur.mmm) + '</b>' : '') + '.<br>' +
-      '<b>Please confirm — this decides which GPs can see your job.</b>' +
+      '<b>Please confirm. This decides which GPs can see your job.</b>' +
       '<span class="warn">Source: Health Workforce Locator, Australian Department of Health.</span>';
-    $('dpaHint').textContent = "We've looked it up — but you must confirm it.";
+    $('dpaHint').textContent = "We have looked it up, but you must confirm it.";
     $('dpaYes').classList.remove('sel'); $('dpaNo').classList.remove('sel');
   }
   function setDpa(v) {
@@ -1034,11 +1103,11 @@
     $('dpaYes').classList.toggle('sel', v === true);
     $('dpaNo').classList.toggle('sel', v === false);
     var ai = $('aiDpa'); ai.classList.add('done');
-    $('aiT').textContent = '✓ Confirmed by you';
+    $('aiT').textContent = 'Confirmed by you';
     var agree = cur.dpaSuggested === v;
     $('aiP').innerHTML = agree
       ? 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b>' + (cur.dpaSuggested !== null ? ". That matches the Department of Health's record." : '.')
-      : 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b> — which <b>differs</b> from the Department of Health\'s record. We\'ll use your answer and flag it for our team to verify.';
+      : 'You confirmed: <b>' + (v ? 'in a DPA' : 'not in a DPA') + '</b>, which <b>differs</b> from the Department of Health\'s record. We\'ll use your answer and flag it for our team to verify.';
     persistSoon();
     gate1();
   }
@@ -1066,14 +1135,59 @@
   // ---------------------------------------------------------------------
   // Gates
   // ---------------------------------------------------------------------
+  // A disabled button with no explanation is a dead end: people assume the
+  // form is broken and leave. Every gate below also SAYS what is still
+  // missing, right above the button.
+  function missingMsg(afterEl, items) {
+    var host = afterEl && afterEl.parentNode;
+    if (!host) return;
+    var msg = host.querySelector('.gate-msg');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.className = 'gate-msg';
+      host.insertBefore(msg, afterEl);
+    }
+    if (!items.length) { msg.textContent = ''; msg.classList.remove('on'); return; }
+    msg.textContent = 'Still needed: ' + items.join(', ') + '.';
+    msg.classList.add('on');
+  }
+
   function gate1() {
     var split = renderSplit();
+    var nameOk = !!(($('practice_name') && $('practice_name').value.trim()) || cur.practice_name);
     var addrOk = !!cur.address && !!cur.suburb && !!cur.state;
     var dpaOk = (cur.dpa === true || cur.dpa === false);
-    var ok = addrOk && dpaOk && !!cur.urgency && !!$('billing_style').value && !!split;
+    var billingOk = !!$('billing_style').value;
+    var ok = nameOk && addrOk && dpaOk && !!cur.urgency && billingOk && !!split;
     $('n1').disabled = !ok;
+    var miss = [];
+    if (!nameOk) miss.push('practice name');
+    if (!addrOk) miss.push('practice address');
+    if (!dpaOk) miss.push('the DPA answer');
+    if (!cur.urgency) miss.push('when you need a GP');
+    if (!billingOk) miss.push('billing style');
+    if (!split) miss.push('the percentage split');
+    missingMsg($('n1'), miss);
   }
-  function gate2() { $('n2').disabled = !($('gps_needed').value && $('employment_type').value); }
+  function gate2() {
+    var gpsOk = !!$('gps_needed').value, empOk = !!$('employment_type').value;
+    $('n2').disabled = !(gpsOk && empOk);
+    var miss = [];
+    if (!gpsOk) miss.push('how many GPs you need');
+    if (!empOk) miss.push('full-time or part-time');
+    missingMsg($('n2'), miss);
+  }
+  // Step 3 had no gate at all, and the practice website is now required.
+  function gate3() {
+    var siteOk = !!($('website') && $('website').value.trim());
+    var btn = $('n3');
+    if (btn) btn.disabled = !siteOk;
+    missingMsg($('n3'), siteOk ? [] : ['your practice website']);
+  }
+  var pnInput = $('practice_name');
+  if (pnInput) pnInput.addEventListener('input', function () { gate1(); persistSoon(); });
+  var siteInput = $('website');
+  if (siteInput) siteInput.addEventListener('input', function () { gate3(); persistSoon(); });
   $('billing_style').addEventListener('change', gate1);
   $('percentage_split').addEventListener('input', function () { gate1(); persistSoon(); });
   $('gps_needed').addEventListener('change', function () { gate2(); persistSoon(); });
@@ -1088,20 +1202,44 @@
     $('p' + n).classList.remove('hidden');
     [1, 2, 3, 4, 5].forEach(function (i) { $('st' + i).className = i === n ? 'on' : (i < n ? 'done' : ''); });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (n === 1) gate1();
+    if (n === 2) gate2();
+    if (n === 3) gate3();
     if (n === 4) renderList();
     if (n === 5) { renderSchedule(); mountCanvas(); gateSign(); }
     persistSoon();
   }
 
+  // The standard package is a starting point, never a lock-in: it fills the
+  // box with plain text the practice can edit line by line.
+  var STANDARD_INCENTIVES = [
+    '$200 per hour minimum income guarantee for the first 3 months',
+    "$10,000 relocation package and 4 weeks' accommodation on arrival",
+    'Airport pickup and help finding local schools'
+  ].join('\n');
+
+  function useStandardIncentives() {
+    var box = $('incentives');
+    if (!box) return;
+    var existing = (box.value || '').trim();
+    box.value = existing ? existing + '\n' + STANDARD_INCENTIVES : STANDARD_INCENTIVES;
+    box.focus();
+    captureCur();
+    persistSoon();
+    var btn = $('useStdInc');
+    if (btn) { btn.textContent = 'Added'; btn.disabled = true; }
+  }
+
   function showCancel(on) { $('b1').classList.toggle('hidden', !on); $('b2').classList.toggle('hidden', !on); $('b3').classList.toggle('hidden', !on); }
   function cancelEntry() {
-    if (!saved.length) return; // nothing saved yet — nowhere to go back to
+    if (!saved.length) return; // nothing saved yet, nowhere to go back to
     cur = freshCur(); editIdx = null;
     go(4);
   }
 
   function savePrac() {
     captureCur();
+    if (!cur.website) { gate3(); var w = $('website'); if (w) w.focus(); return; }
     if (editIdx !== null) saved[editIdx] = cur; else saved.push(cur);
     editIdx = null;
     persistSoon();
@@ -1118,12 +1256,12 @@
     }
     $('addBtn').classList.toggle('hidden', m !== 'group');
     $('entLbl').innerHTML = (m === 'group' ? 'Group legal entity name' : 'Legal entity name') +
-      ' <span class="must">REQUIRED</span><span class="tip">?<span>The company registered against your ABN — not the trading name on your signage.</span></span>';
+      ' <span class="must">REQUIRED</span><span class="tip">?<span>The company registered against your ABN, not the trading name on your signage.</span></span>';
     persistSoon();
     renderList();
   }
 
-  var URG_LABEL = { asap: '🔥 ASAP', '3_6m': '3–6 months', '12m': '12+ months' };
+  var URG_LABEL = { asap: 'ASAP', '3_6m': '3–6 months', '12m': '12+ months' };
   var EMP_LABEL = { full_time: 'Full-time', part_time: 'Part-time', either: 'FT or PT' };
   function renderList() {
     $('plist').innerHTML = saved.map(function (p, i) {
@@ -1136,10 +1274,10 @@
         '</div>'
       ) : '';
       return '<div class="prac"><div class="top"><div class="ic">' + (i + 1) + '</div><div>' +
-        '<div class="n">' + escapeHtml(p.suburb || '—') + ', ' + escapeHtml(p.state || '—') + ' — near ' + escapeHtml(p.nearest_city || '—') + '</div>' +
-        '<div class="m2">' + escapeHtml(p.billing_style || '—') + ' billing · GP keeps ' + (parseSplit(p.percentage_split) ? parseSplit(p.percentage_split).gp + '%' : '—') +
-        ' · ' + (p.dpa === true ? 'DPA' : (p.dpa === false ? 'not DPA' : '—')) + ' · ' + escapeHtml(p.gps_needed || '—') + ' × ' + (EMP_LABEL[p.employment_type] || '—') +
-        ' · ' + (URG_LABEL[p.urgency] || '—') + '</div></div>' +
+        '<div class="n">' + escapeHtml(p.suburb || 'Not set') + ', ' + escapeHtml(p.state || 'Not set') + ' near ' + escapeHtml(p.nearest_city || 'Not set') + '</div>' +
+        '<div class="m2">' + escapeHtml(p.billing_style || 'Not set') + ' billing · GP keeps ' + (parseSplit(p.percentage_split) ? parseSplit(p.percentage_split).gp + '%' : 'Not set') +
+        ' · ' + (p.dpa === true ? 'DPA' : (p.dpa === false ? 'not DPA' : 'Not set')) + ' · ' + escapeHtml(p.gps_needed || 'Not set') + ' × ' + (EMP_LABEL[p.employment_type] || 'Not set') +
+        ' · ' + (URG_LABEL[p.urgency] || 'Not set') + '</div></div>' +
         '<div class="acts"><button type="button" data-action="edit-prac" data-idx="' + i + '">Edit</button>' +
         (saved.length > 1 ? '<button type="button" class="del" data-action="remove-prac" data-idx="' + i + '">Remove</button>' : '') +
         '</div></div>' + own + '</div>';
@@ -1238,7 +1376,7 @@
       .catch(function () {
         toSignBtn.disabled = false;
         toSignBtn.textContent = 'Continue to the agreement →';
-        showStep4Error('Network error — please check your connection and try again.');
+        showStep4Error('Network error. Please check your connection and try again.');
       });
   }
   function showStep4Error(msg) { $('step4Error').textContent = msg; $('step4Error').classList.add('show'); }
@@ -1250,11 +1388,11 @@
   function renderSchedule() {
     var ent = $('legalEntityName').value.trim() || '<i style="color:var(--ink-3)">your legal entity</i>';
     var kind = idKind(idDigits($('abnAcn').value)) || 'ABN';
-    var abnVal = $('abnAcn').value.trim() || '—';
+    var abnVal = $('abnAcn').value.trim() || 'Not set';
     var rows = saved.map(function (p, i) {
       var own = p.hasOwn && (p.ownEntity || '').trim();
-      return '<tr><td>' + (i + 1) + '</td><td><b>' + escapeHtml(p.suburb || '—') + '</b>, ' + escapeHtml(p.state || '—') + '</td>' +
-        '<td>' + (own ? escapeHtml(p.ownEntity) : ent) + '<div class="abn">' + (own ? 'ABN/ACN ' + escapeHtml(p.ownAbn || '—') : kind + ' ' + escapeHtml(abnVal)) + '</div></td></tr>';
+      return '<tr><td>' + (i + 1) + '</td><td><b>' + escapeHtml(p.suburb || 'Not set') + '</b>, ' + escapeHtml(p.state || 'Not set') + '</td>' +
+        '<td>' + (own ? escapeHtml(p.ownEntity) : ent) + '<div class="abn">' + (own ? 'ABN/ACN ' + escapeHtml(p.ownAbn || 'Not set') : kind + ' ' + escapeHtml(abnVal)) + '</div></td></tr>';
     }).join('');
     $('schedule').innerHTML =
       '<table><thead><tr><th style="width:22px">#</th><th>Practice</th><th>Contracting entity</th></tr></thead>' +
@@ -1263,7 +1401,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Signature pad — draw or type. Sizing a canvas clears it, so we only
+  // Signature pad, draw or type. Sizing a canvas clears it, so we only
   // size once per visit to this step (mountCanvas), matching the proven
   // prototype's approach.
   // ---------------------------------------------------------------------
@@ -1326,10 +1464,10 @@
     var msg = $('abnMsg');
     function set(color, html) { msg.style.display = 'block'; msg.style.color = color; msg.innerHTML = html; }
     if (!d.length) msg.style.display = 'none';
-    else if (d.length < 9) set('var(--ink-3)', d.length + ' digits — an ACN has 9, an ABN has 11.');
-    else if (d.length === 9) acnOk(d) ? set('var(--good)', '✓ Valid <b>ACN</b> — or keep typing if you meant an ABN.') : set('var(--bad)', '9 digits, but not a valid ACN. Check it, or continue to 11 for an ABN.');
-    else if (d.length === 10) set('var(--ink-3)', '10 digits — an ABN has 11.');
-    else set(abnOk(d) ? 'var(--good)' : 'var(--bad)', abnOk(d) ? '✓ Valid <b>ABN</b>' : '11 digits, but not a valid ABN — please check it.');
+    else if (d.length < 9) set('var(--ink-3)', d.length + ' digits. An ACN has 9, an ABN has 11.');
+    else if (d.length === 9) acnOk(d) ? set('var(--good)', 'Valid <b>ACN</b>, or keep typing if you meant an ABN.') : set('var(--bad)', '9 digits, but not a valid ACN. Check it, or continue to 11 for an ABN.');
+    else if (d.length === 10) set('var(--ink-3)', '10 digits. An ABN has 11.');
+    else set(abnOk(d) ? 'var(--good)' : 'var(--bad)', abnOk(d) ? 'Valid <b>ABN</b>' : '11 digits, but not a valid ABN. Please check it.');
     gateSign(); persistSoon();
   });
   ['signedName', 'signerJobTitle', 'legalEntityName', 'signedEmail'].forEach(function (id) {
@@ -1338,7 +1476,7 @@
   $('authorisedCheckbox').addEventListener('change', function () { gateSign(); persistSoon(); });
 
   // ---------------------------------------------------------------------
-  // The signing gate — 8 conditions, no exceptions. Signing is NOT gated
+  // The signing gate, 8 conditions, no exceptions. Signing is NOT gated
   // on reading the agreement (owner decision, 2026-07-16): the PDF stays
   // embedded and visible, but scrolling it is never required to unlock
   // the signature fields.
@@ -1358,7 +1496,7 @@
     var n = done.filter(Boolean).length;
     $('bar').style.width = (n / 8 * 100) + '%';
     var gt = $('gt');
-    gt.textContent = n === 8 ? 'All complete — you can sign' : (n + ' of 8 completed');
+    gt.textContent = n === 8 ? 'All complete, you can sign' : (n + ' of 8 completed');
     gt.className = n === 8 ? 't ok' : 't';
     $('glist').innerHTML = n === 8 ? '' : GATE_LABELS.map(function (l, i) { return done[i] ? '' : '<li>' + l + '</li>'; }).join('');
     $('submit').disabled = n !== 8;
@@ -1406,12 +1544,12 @@
       })
       .catch(function () {
         signBtn.disabled = false; signBtn.textContent = 'Sign & submit';
-        showStep5Error('Network error — please check your connection and try again.');
+        showStep5Error('Network error. Please check your connection and try again.');
       });
   });
 
   // ---------------------------------------------------------------------
-  // Resume from the server (the intake step already succeeded once — go
+  // Resume from the server (the intake step already succeeded once, go
   // straight to signing with what the server has on file).
   // ---------------------------------------------------------------------
   function resumeFromServer(intake) {
@@ -1429,7 +1567,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Draft persistence — everything you've typed, the drawn signature, and
+  // Draft persistence, everything you've typed, the drawn signature, and
   // which step you're on, so a reload never loses the practice's work.
   // ---------------------------------------------------------------------
   // The draft store is keyed by intake token so two different practices'
@@ -1439,7 +1577,7 @@
   // Legacy migration rule (safest simple rule, documented): pre-scoping
   // drafts never recorded which token they belonged to, so ownership of a
   // legacy draft is unknowable. We therefore adopt a legacy draft AT MOST
-  // ONCE — only when it carries no token marker — and delete the legacy key
+  // ONCE, only when it carries no token marker, and delete the legacy key
   // in the same breath, so the worst case is a single adoption by the first
   // intake link opened after this deploy (overwhelmingly the same practice
   // that wrote it, since drafts are short-lived and per-browser). Every
@@ -1463,7 +1601,7 @@
         authorised: $('authorisedCheckbox').checked,
         sig: hasInk ? canvas.toDataURL('image/png') : null
       }));
-    } catch (e) { /* storage unavailable — never block the form for this */ }
+    } catch (e) { /* storage unavailable, never block the form for this */ }
   }
   function clearDraft() { try { localStorage.removeItem(STORE); } catch (e) {} }
 
@@ -1471,14 +1609,14 @@
     var d;
     try { d = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) { d = null; }
     if (!d) {
-      // One-time legacy-key migration — see the rule documented at STORE.
+      // One-time legacy-key migration, see the rule documented at STORE.
       var legacy = null;
       try { legacy = JSON.parse(localStorage.getItem(LEGACY_STORE) || 'null'); } catch (e) { legacy = null; }
       try { localStorage.removeItem(LEGACY_STORE); } catch (e) {}
       if (legacy && !legacy.token) d = legacy;
     }
     if (!d) return false;
-    // A draft that recorded a different token belongs to another practice —
+    // A draft that recorded a different token belongs to another practice,
     // never restore it here.
     if (d.token && d.token !== token) return false;
 
@@ -1528,7 +1666,7 @@
   }
 
   // ---------------------------------------------------------------------
-  // Delegated click handling (one listener, data-action driven — matches
+  // Delegated click handling (one listener, data-action driven, matches
   // the rest of the app's event-delegation convention).
   // ---------------------------------------------------------------------
   document.addEventListener('click', function (ev) {
@@ -1554,6 +1692,7 @@
       case 'edit-prac': editPrac(Number(idx)); break;
       case 'remove-prac': rmPrac(Number(idx)); break;
       case 'continue-to-agreement': continueToAgreement(); break;
+      case 'use-standard-incentives': useStandardIncentives(); break;
     }
   });
   document.addEventListener('change', function (ev) {

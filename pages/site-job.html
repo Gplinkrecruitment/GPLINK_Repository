@@ -186,7 +186,7 @@
               <span class="map-pin"><svg width="28" height="37" viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2f6bff"/><circle cx="15" cy="15" r="6" fill="white"/></svg></span>
               <span class="map-label" id="jobProfileMapLabel"></span>
             </div>
-            <p class="job-profile-mapnote">Pinned to the suburb — the exact address is shared once there's mutual interest.</p>
+            <p class="job-profile-mapnote">Pinned to the suburb. The exact address is shared once there is mutual interest.</p>
           </div>
 
           <div class="job-handles">
@@ -385,7 +385,7 @@
     if (job.suburb) {
       // Suburb-level embed centred on the suburb; the pin/ring/label overlay
       // sits at map centre, so it always marks the suburb and stays put as the
-      // visitor pans the iframe (never the exact address — public site).
+      // visitor pans the iframe (never the exact address; public site).
       var mapQuery = job.suburb + (job.location_state ? ' ' + job.location_state : '');
       profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=13&output=embed';
       var mapLabelEl = document.getElementById('jobProfileMapLabel');
@@ -443,7 +443,7 @@
     }
 
     // AI write-up "about" (Task 3, 2026-07-18 design) wins over the existing
-    // publicIntro-derived summary when present — already masked server-side
+    // publicIntro-derived summary when present; already masked server-side
     // (buildCareerRoleGpLinkMetaFromRow + the sanitizePublicJob whitelist).
     var aboutText = (job.aiAbout && String(job.aiAbout).trim()) ? job.aiAbout : job.summary;
     var summaryHtml = renderSummaryHtml(aboutText);
@@ -478,7 +478,7 @@
   // admin can see a not-yet-approved job exactly as the public would. The
   // server-rendered HTML (serveJobDetailPageWithSeo) already honors preview=1
   // for its SEO injection, but the actual content is hydrated by THIS client
-  // fetch — without forwarding preview=1 here too, a pending job would render
+  // fetch: without forwarding preview=1 here too, a pending job would render
   // "not found" even though the admin-only session is valid. GET
   // /api/public/jobs only ever honors preview=1 when the request ALSO
   // carries a valid admin/ATS session cookie (getAtsSessionSoft); for anyone

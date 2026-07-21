@@ -157,6 +157,8 @@ describe('signed-agreement email links the status page', () => {
     const intake = await req('POST', '/api/practice-intake', {
       body: {
         token,
+        practice_name: 'Bayside Family Practice',
+        website: 'https://baysidefp.com.au',
         billing_style: 'mixed',
         dpa: 'yes',
         percentage_split: '70/30',

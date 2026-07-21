@@ -36453,6 +36453,11 @@ async function handleApi(req, res, pathname) {
       // never copy the group's value down, so a later group-level edit
       // never leaves a stale copy on a clinic that never overrode it.
       const clinicPatch = {
+        // The name the practice confirms on the form is FINAL. The lead only
+        // ever carried a guess (whatever was typed into a Facebook or website
+        // form), so this overwrites it on the practices row itself — not just
+        // inside metadata — which is what every downstream read uses.
+        name: value.practice_name,
         billing_style: value.billing_style,
         dpa: value.dpa,
         nearest_city: nearestCityName,

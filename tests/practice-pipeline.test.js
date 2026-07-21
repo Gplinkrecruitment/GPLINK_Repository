@@ -17,6 +17,7 @@ import {
 function validPayload(overrides) {
   return Object.assign(
     {
+      practice_name: 'Bayside Family Practice',
       billing_style: 'mixed',
       dpa: 'true',
       percentage_split: '70%',
@@ -27,6 +28,7 @@ function validPayload(overrides) {
       urgency: 'asap',
       employment_type: 'either',
       gps_needed: '1',
+      website: 'https://baysidefp.com.au',
     },
     overrides
   );
