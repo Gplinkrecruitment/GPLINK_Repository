@@ -548,11 +548,15 @@
   }
 
   function canBypassOnboardingValidation() {
-    // The temporary tester bypass expired on 2026-06-10, so this already always
-    // returned false; the plaintext email has been removed from client code.
-    // If a new temporary bypass is ever needed, add a SHA-256 digest entry in
-    // js/bypass-config.js instead of embedding an email address here.
-    return false;
+    // Digest-gated temporary tester mechanism (js/bypass-config.js): tester
+    // emails ship only as SHA-256 digests mapped to expiry timestamps; on a
+    // match bypass-config defines the plaintext key on window.BYPASS_LOCK_EMAILS
+    // with a getter that returns false once the entry expires — so bypasses
+    // expire automatically with no code change here. No plaintext tester email
+    // is ever embedded in this file.
+    var email = String(getAccountEmail() || "").trim().toLowerCase();
+    if (!email) return false;
+    return !!(window.BYPASS_LOCK_EMAILS && window.BYPASS_LOCK_EMAILS[email]);
   }
 
   function renderQualDocSlots() {
@@ -2009,6 +2013,10 @@
       // Store profile for name matching
       if (data.profile) {
         window.gpSessionProfile = data.profile;
+        // Re-run the temporary-bypass digest match now that we know the email.
+        // On a brand-new browser bypass-config.js ran before any profile cache
+        // existed, so its self-invoke found no email and matched nothing.
+        window.gpRefreshBypassDigestMatch && window.gpRefreshBypassDigestMatch(String((data.profile && data.profile.email) || "").trim().toLowerCase());
         // The GP may have opened the eligibility off-ramp before this fetch
         // resolved (its form is reachable synchronously from the country list).
         // Re-apply the account email/name prefill now that the profile exists.
