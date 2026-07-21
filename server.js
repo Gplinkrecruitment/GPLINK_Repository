@@ -28560,6 +28560,114 @@ async function atsUpdatePracticeRow(id, patch) {
   Object.assign(p, patch); saveDbState(); return p;
 }
 
+// Normalizes a practice name for duplicate matching: case, surrounding
+// whitespace and internal runs of spaces/punctuation are all noise when
+// deciding "have we already got these people?".
+function normalizePracticeNameForMatch(name) {
+  return String(name == null ? '' : name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Duplicate suppression for the website practice flow.
+ *
+ * A practice already in the system must not create a second prospect row or
+ * be sent a second intake email. Matches on contact email first, then on a
+ * normalized practice name — one practice submitting the form twice is far
+ * more likely than two unrelated clinics sharing an exact name.
+ *
+ * Names are compared in JS rather than in the query because a practice name
+ * can contain commas and parentheses, which are PostgREST filter syntax.
+ */
+async function findExistingPracticeForLead(email, name) {
+  var cleanEmail = String(email || '').trim().toLowerCase();
+  var cleanName = normalizePracticeNameForMatch(name);
+  var blocks = practicePipeline.practiceBlocksNewLead;
+
+  // Archived/declined rows are history, not clients — they must never
+  // suppress a fresh lead. Several candidates are fetched rather than one,
+  // so a dead row can't hide a live one behind `limit=1`.
+  function pickLive(rows, predicate) {
+    return (Array.isArray(rows) ? rows : []).find(function (p) {
+      return p && blocks(p) && predicate(p);
+    }) || null;
+  }
+
+  if (isSupabaseDbConfigured()) {
+    if (cleanEmail) {
+      var byEmail = await supabaseDbRequest(
+        'practices',
+        'select=id,name,stage,contact_email,agreement_status,intake_token,metadata&contact_email=ilike.'
+          + encodeURIComponent(cleanEmail) + '&limit=20'
+      );
+      if (byEmail.ok) {
+        var emailHit = pickLive(byEmail.data, function () { return true; });
+        if (emailHit) return { practice: emailHit, matchedBy: 'email' };
+      }
+    }
+    if (cleanName) {
+      var all = await supabaseDbRequest(
+        'practices',
+        'select=id,name,stage,contact_email,agreement_status,intake_token,metadata&limit=2000'
+      );
+      if (all.ok) {
+        var nameHit = pickLive(all.data, function (p) {
+          return normalizePracticeNameForMatch(p.name) === cleanName;
+        });
+        if (nameHit) return { practice: nameHit, matchedBy: 'name' };
+      }
+    }
+    return null;
+  }
+
+  var localRows = dbState.atsPractices || [];
+  var localEmail = cleanEmail && pickLive(localRows, function (p) {
+    return String(p.contact_email || '').trim().toLowerCase() === cleanEmail;
+  });
+  if (localEmail) return { practice: localEmail, matchedBy: 'email' };
+
+  var localName = cleanName && pickLive(localRows, function (p) {
+    return normalizePracticeNameForMatch(p.name) === cleanName;
+  });
+  if (localName) return { practice: localName, matchedBy: 'name' };
+
+  return null;
+}
+
+/**
+ * Optional Cloudflare Turnstile verification.
+ *
+ * Deliberately inert until TURNSTILE_SECRET_KEY is configured, so the captcha
+ * can be switched on later purely through environment variables with no code
+ * change. When it IS configured, a missing or rejected token fails closed.
+ */
+async function verifyTurnstileToken(token, ip) {
+  var secret = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
+  if (!secret) return { ok: true, skipped: true };
+  if (!token) return { ok: false, reason: 'missing_token' };
+  try {
+    var params = new URLSearchParams();
+    params.set('secret', secret);
+    params.set('response', String(token));
+    if (ip) params.set('remoteip', String(ip));
+    var r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    var json = await r.json().catch(function () { return null; });
+    if (json && json.success === true) return { ok: true };
+    return { ok: false, reason: 'rejected' };
+  } catch (e) {
+    // A Cloudflare outage must not silently disable the captcha we were
+    // explicitly asked to enforce.
+    console.error('[turnstile] verification error:', e && e.message);
+    return { ok: false, reason: 'verify_error' };
+  }
+}
+
 // ---- Practice groups (Task 7: corporate-group intake) ---------------------
 // A corporate group can sign once for several clinics. One `practice_groups`
 // row anchors the shared entity/ABN/agreement; every practices row (one per
@@ -37400,6 +37508,195 @@ async function handleApi(req, res, pathname) {
     await maybeNotifySiteEnquiry(row);
 
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── DPA eligibility for the site's practice flow (public, no session) ────
+  // Geocodes a suburb with the existing keyless geocoder, then asks our own
+  // DPA lookup. Nothing is guessed: an area we cannot locate, or a lookup
+  // that fails, returns dpa:null and the form stays encouraging rather than
+  // telling a real practice it does not qualify.
+  if (pathname === '/api/public/practice-dpa' && req.method === 'GET') {
+    const dpaIp = getClientIp(req);
+    const dpaAllowed = await checkRateLimitWindow('practice_dpa:' + dpaIp, 40, 60 * 60 * 1000);
+    if (!dpaAllowed) {
+      sendJson(res, 429, { ok: false, error: 'Too many lookups. Please try again shortly.' });
+      return;
+    }
+
+    const dpaSuburb = String(url.searchParams.get('suburb') || '').trim();
+    const dpaState = String(url.searchParams.get('state') || '').trim();
+    if (!dpaSuburb) {
+      sendJson(res, 400, { ok: false, error: 'suburb is required' });
+      return;
+    }
+
+    try {
+      const coords = await fetchCareerSuburbCoordinates({ suburb: dpaSuburb, state: dpaState });
+      if (!coords) {
+        sendJson(res, 200, { ok: true, dpa: null, reason: 'not_located' });
+        return;
+      }
+      const dpaResult = await lookupDpa(coords.latitude, coords.longitude);
+      sendJson(res, 200, {
+        ok: true,
+        dpa: dpaResult.dpa,
+        mmm: dpaResult.mmm || null,
+        latitude: coords.latitude,
+        longitude: coords.longitude
+      });
+    } catch (err) {
+      console.warn('[practice-dpa] lookup unavailable:', err && err.message);
+      sendJson(res, 200, { ok: true, dpa: null, reason: 'lookup_unavailable' });
+    }
+    return;
+  }
+
+  // ── Practice lead from our own website (public, no session) ──────────────
+  // The site's front door into the practice pipeline, mirroring the Facebook
+  // Lead Ads webhook: it creates a prospective practice AND emails the intake
+  // link straight away, so a practice that finds us on our own site gets the
+  // same instant response as one that finds us through an ad.
+  if (pathname === '/api/public/practice-lead' && req.method === 'POST') {
+    let plBody;
+    try {
+      plBody = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+
+    // Spam layer 1 — hidden trap field. Named `company_url`, NOT `website`,
+    // because this form has a real website input: reusing the old trap name
+    // would silently discard every practice that fills its website in.
+    if (String((plBody && plBody.company_url) || '').trim()) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // Spam layer 2 — no human completes four steps in under three seconds.
+    const plElapsed = Number(plBody && plBody.elapsed_ms);
+    if (Number.isFinite(plElapsed) && plElapsed >= 0 && plElapsed < 3000) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const plIp = getClientIp(req);
+
+    // Spam layer 3 — optional captcha; inert until TURNSTILE_SECRET_KEY is set.
+    const plTurnstile = await verifyTurnstileToken(plBody && plBody.turnstile_token, plIp);
+    if (!plTurnstile.ok) {
+      sendJson(res, 400, { ok: false, error: 'We could not verify that submission. Please try again.' });
+      return;
+    }
+
+    const plLead = practicePipeline.normalizeWebsitePracticeLead(plBody);
+    if (!plLead) {
+      sendJson(res, 400, {
+        ok: false,
+        error: 'Please give us your practice name, a valid email address and a phone number.'
+      });
+      return;
+    }
+
+    // Spam layer 4 — per-IP ceiling.
+    const plAllowed = await checkRateLimitWindow('practice_lead:' + plIp, 10, 60 * 60 * 1000);
+    if (!plAllowed) {
+      sendJson(res, 429, { ok: false, error: 'Too many submissions from this address. Please try again later.' });
+      return;
+    }
+
+    const plSummary = [
+      plLead.gps_needed ? 'Needs ' + plLead.gps_needed + ' GP(s)' : '',
+      plLead.urgency ? 'timing: ' + plLead.urgency : '',
+      plLead.employment_type ? 'basis: ' + plLead.employment_type : '',
+      plLead.suburb ? 'at ' + [plLead.suburb, plLead.state, plLead.postcode].filter(Boolean).join(' ') : '',
+      typeof plLead.dpa === 'boolean' ? 'DPA: ' + (plLead.dpa ? 'yes' : 'no') : 'DPA: unknown'
+    ].filter(Boolean).join(' · ');
+
+    const plEnquiryRow = {
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      kind: 'practice',
+      name: plLead.contact_name || plLead.practice_name,
+      email: plLead.contact_email,
+      phone: plLead.contact_phone || null,
+      practice_name: plLead.practice_name,
+      state: plLead.state || null,
+      message: plSummary,
+      status: 'new',
+      metadata: {
+        source: 'marketing-site-practice-flow',
+        ip: plIp || null,
+        user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+        lead: plLead
+      }
+    };
+    // Recorded even for duplicates, so repeat interest is still visible.
+    await insertSiteEnquiryRow(plEnquiryRow);
+
+    // Spam layer 5 / duplicate suppression. The response below is IDENTICAL
+    // to the success case on purpose — replying "already registered" would
+    // let anyone probe this form to discover who our clients are.
+    const plExisting = await findExistingPracticeForLead(plLead.contact_email, plLead.practice_name);
+    if (plExisting) {
+      const plDup = plExisting.practice;
+      let plResent = false;
+
+      // The screen promises "check your inbox", so a suppressed submission
+      // must still put something there. Only an EMAIL match qualifies: on a
+      // name-only match the submitter is a stranger to that practice, and
+      // mailing them its intake link would hand over someone else's private
+      // door. Throttled to once an hour so this can't be used as a cannon.
+      if (plExisting.matchedBy === 'email' && String(plDup.agreement_status || '') !== 'signed') {
+        const plLastSent = plDup.metadata && plDup.metadata.intake_email_last_sent_at;
+        const plSentRecently = plLastSent
+          && (Date.now() - new Date(plLastSent).getTime()) < 60 * 60 * 1000;
+        if (!plSentRecently) {
+          try {
+            const plAgain = await sendPracticeIntakeEmail(plDup);
+            plResent = !(plAgain && plAgain.ok === false);
+          } catch (e) {
+            console.error('[practice-lead] duplicate resend failed:', e && e.message);
+          }
+        }
+      }
+
+      console.log('[practice-lead] duplicate by ' + plExisting.matchedBy
+        + ' → practice ' + plDup.id + ', intake email resent=' + plResent);
+      await maybeNotifySiteEnquiry(plEnquiryRow);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const plRow = practicePipeline.buildPracticeProspectRow(plLead, {
+      source: 'website_lead',
+      createdBy: 'site_practice_lead',
+      intakeToken: practicePipeline.generateIntakeToken(),
+      metadata: { website_lead: plLead, ip: plIp || null }
+    });
+
+    const plCreated = await atsInsertPracticeRow(plRow);
+    if (!plCreated) {
+      console.error('[practice-lead] could not insert practice row');
+      sendJson(res, 500, { ok: false, error: 'Something went wrong saving that. Please try again.' });
+      return;
+    }
+
+    // Awaited before responding: on Vercel the function can be killed the
+    // instant res.end() runs, so a fire-and-forget send may never complete.
+    // Still best-effort — a failed email must not fail the submission, since
+    // the prospect now exists and can be re-sent from the dashboard.
+    let plEmailed = false;
+    try {
+      const plSend = await sendPracticeIntakeEmail(plCreated);
+      plEmailed = !(plSend && plSend.ok === false);
+    } catch (e) {
+      console.error('[practice-lead] intake email send failed:', e && e.message);
+    }
+
+    await maybeNotifySiteEnquiry(plEnquiryRow);
+    sendJson(res, 200, { ok: true, emailed: plEmailed });
     return;
   }
 

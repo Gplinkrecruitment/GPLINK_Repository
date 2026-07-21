@@ -344,26 +344,45 @@ describe('POST /api/public/enquiry — rate limit (5/hour/client)', () => {
   });
 });
 
-// Task 10: real employers page (pages/site-employers.html), served at
-// GET /employers. Consumes the same GPSite.bindEnquiryForm() helper and
-// POST /api/public/enquiry endpoint covered above, with data-kind="practice".
-describe('GET /employers (Task 10 employers page)', () => {
+// Real employers page (pages/site-employers.html), served at GET /employers.
+// The one-shot enquiry form was replaced by the guided practice flow, which
+// posts to /api/public/practice-lead and enters the SAME pipeline a Facebook
+// lead does (prospect created + intake link emailed immediately).
+describe('GET /employers (employers page)', () => {
   it('is 200 text/html with no session', async () => {
     const res = await get('/employers');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
   });
 
-  it('contains the practice enquiry form wired for the shared helper', async () => {
+  it('serves the guided practice flow and its script', async () => {
     const res = await get('/employers');
-    expect(res.raw).toContain('data-enquiry-form');
-    expect(res.raw).toContain('data-kind="practice"');
-    expect(res.raw).toContain('id="practiceEnquiry"');
+    expect(res.raw).toContain('id="practiceFlow"');
+    expect(res.raw).toContain('site-practice-lead.js');
+    // All four steps present, including the confirmation screen.
+    expect(res.raw).toContain('data-pf-step="1"');
+    expect(res.raw).toContain('data-pf-step="4"');
   });
 
-  it('has the website honeypot field', async () => {
+  it('collects the answers the intake form would otherwise ask twice', async () => {
     const res = await get('/employers');
-    expect(res.raw).toMatch(/<input[^>]*name="website"[^>]*>/);
+    // Vocabulary must match lib/practice-pipeline.js exactly, or the values
+    // are dropped before they ever reach a column.
+    expect(res.raw).toContain('data-pf-choice="asap"');
+    expect(res.raw).toContain('data-pf-choice="full_time"');
+    expect(res.raw).toContain('name="practice_name"');
+    expect(res.raw).toContain('name="contact_email"');
+  });
+
+  it('uses company_url as the honeypot, NOT website', async () => {
+    // Regression guard. The old trap was name="website"; this form has a
+    // REAL website input, so reusing that name would silently discard every
+    // practice that fills its website in.
+    const res = await get('/employers');
+    expect(res.raw).toMatch(/<input class="hp-field"[^>]*name="company_url"/);
+    // website still exists — as a genuine, visible, labelled field.
+    expect(res.raw).toMatch(/<input type="url" name="website"/);
+    expect(res.raw).not.toMatch(/<input class="hp-field"[^>]*name="website"/);
   });
 
   it('has no auth-guard.js, no app-shell chrome, and no dead href="#" links', async () => {
