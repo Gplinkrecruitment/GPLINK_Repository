@@ -1,4 +1,4 @@
-// zoom_call outstanding-item override — a `registration_tasks` row with
+// zoom_call outstanding-item override, a `registration_tasks` row with
 // task_type='zoom_call' and status='waiting_on_gp' must surface in
 // GET /api/gp/outstanding with a clearer title and a deep link to the new
 // in-app confirm-call page, instead of the raw task title + stage page link.
@@ -26,13 +26,13 @@ const db = {
   user_profiles: [{ user_id: GP.userId, email: GP.email, first_name: 'Helen', last_name: 'Doctor', registration_country: 'uk' }],
   registration_cases: [{ id: 'case-zc-1', user_id: GP.userId, status: 'active' }],
   registration_tasks: [
-    // Unbooked zoom_call handed to the GP — must surface with the NEW title + deep link.
+    // Unbooked zoom_call handed to the GP, must surface with the NEW title + deep link.
     { id: 't-zoom', case_id: 'case-zc-1', task_type: 'zoom_call', status: 'waiting_on_gp',
-      title: 'Zoom Assistance Call — MyIntealth', priority: 'normal', related_stage: 'myintealth', created_at: NOW, metadata: {} },
-    // A booked zoom_call becomes status='waiting' — must NOT surface as outstanding.
+      title: 'Zoom Assistance Call, MyIntealth', priority: 'normal', related_stage: 'myintealth', created_at: NOW, metadata: {} },
+    // A booked zoom_call becomes status='waiting', must NOT surface as outstanding.
     { id: 't-zoom-booked', case_id: 'case-zc-1', task_type: 'zoom_call', status: 'waiting',
-      title: 'Zoom Assistance Call — AMC', priority: 'normal', related_stage: 'amc', created_at: NOW, metadata: {} },
-    // A non-zoom waiting task — keeps its stage-page deep link (unchanged behaviour).
+      title: 'Zoom Assistance Call, AMC', priority: 'normal', related_stage: 'amc', created_at: NOW, metadata: {} },
+    // A non-zoom waiting task, keeps its stage-page deep link (unchanged behaviour).
     { id: 't-visa', case_id: 'case-zc-1', task_type: 'stage_task', status: 'waiting_on_gp',
       title: 'Confirm your visa appointment', priority: 'normal', related_stage: 'visa', created_at: NOW, metadata: {} }
   ],
@@ -187,13 +187,13 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/gp/outstanding — zoom_call card', () => {
+describe('GET /api/gp/outstanding, zoom_call card', () => {
   it('rewrites the zoom_call task to the confirm-call page with a clearer title', async () => {
     const r = await httpReq('GET', '/api/gp/outstanding', { cookie: userCookie(GP.email, GP.userId) });
     expect(r.status).toBe(200);
     const zoom = r.body.items.find((i) => i.id === 'task-t-zoom');
     expect(zoom).toBeTruthy();
-    expect(zoom.title).toBe('Confirm your Zoom call — MyIntealth');
+    expect(zoom.title).toBe('Confirm your Zoom call, MyIntealth');
     expect(zoom.deepLink).toBe('/pages/confirm-call.html?stage=myintealth');
     expect(zoom.stage).toBe('myintealth');
   });

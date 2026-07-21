@@ -1,4 +1,4 @@
-// Full-app user-POV audit 2026-07-20 — Tasks 5/6/7 endpoint coverage.
+// Full-app user-POV audit 2026-07-20, Tasks 5/6/7 endpoint coverage.
 //
 // Boots the REAL server against the in-memory PostgREST emulator pattern from
 // tests/conversion-funnel.test.js (extended with select= projection + PATCH so
@@ -23,11 +23,11 @@ const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
 
 // ── Seed ────────────────────────────────────────────────────────────────────
 // u1..u4 are active fresh GPs. Placement facts:
-//   appOffer  — ats_stage 'offer', legacy status untouched  → Offers tile
-//   appIv     — no interview status/stage, but a BOOKED scheduled_calls
+//   appOffer , ats_stage 'offer', legacy status untouched  → Offers tile
+//   appIv    , no interview status/stage, but a BOOKED scheduled_calls
 //               interview row → Interviewing tile (union with scheduled_calls)
-//   appHired  — ats_stage 'hired', legacy status untouched  → Secured tile
-//   appLegacy — legacy status 'offer', no ats_stage         → Offers tile
+//   appHired , ats_stage 'hired', legacy status untouched  → Secured tile
+//   appLegacy, legacy status 'offer', no ats_stage         → Offers tile
 const db = {
   registration_cases: [
     { id: 'c1', user_id: 'u1', stage: 'career', status: 'active', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(30) },
@@ -90,7 +90,7 @@ function buildMatcher(searchParams) {
   });
 }
 
-// select= projection — REAL PostgREST only returns requested columns, and the
+// select= projection, REAL PostgREST only returns requested columns, and the
 // F4 bug (created_at missing from a select) is only reproducible with this on.
 function projectRow(row, selectParam) {
   const sel = String(selectParam || '').trim();
@@ -264,12 +264,12 @@ describe('CEO Overview placement tiles count ats_stage + scheduled_calls (F1)', 
 // live `db` object) so the Task 5 assertions above ran on the original seed.
 describe('CEO consistency batch (F3 withdrawn, F4 created_at, F5 staleness, F10 drilldown windows)', () => {
   beforeAll(() => {
-    // F3: a WITHDRAWN case whose GP finished onboarding — must not appear in
+    // F3: a WITHDRAWN case whose GP finished onboarding, must not appear in
     // candidates or pipeline-summary.
     db.registration_cases.push({ id: 'c-wd', user_id: 'u-wd', stage: 'career', status: 'withdrawn', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(20) });
     db.user_profiles.push({ user_id: 'u-wd', email: 'withdrawn@test.local', first_name: 'With', last_name: 'Drawn', phone: '', account_status: 'active', onboarding_completed_at: ago(10) });
     // F4: a fresh application. applied_at is the ONLY freshness source that
-    // exists — gp_applications has no created_at column (the base migration
+    // exists, gp_applications has no created_at column (the base migration
     // creates applied_at NOT NULL DEFAULT now() and nothing adds created_at),
     // so the original fixture here (applied_at:null + created_at:ago(1))
     // described a row production can never produce. It also hid the real bug:
@@ -350,7 +350,7 @@ describe('CEO consistency batch (F3 withdrawn, F4 created_at, F5 staleness, F10 
 // ── Task 7 (F2/F9/F12): archived GPs, withdraw ghosts, placements fallback ──
 describe('archived exclusion + withdraw cancels scheduled_calls + placements fallback (F2/F9/F12)', () => {
   beforeAll(() => {
-    // F2: an ARCHIVED (soft-deleted) GP — archiveUserAccount only stamps
+    // F2: an ARCHIVED (soft-deleted) GP, archiveUserAccount only stamps
     // user_profiles.account_status; the case row stays 'active'.
     db.registration_cases.push({ id: 'c-arch', user_id: 'u-arch', stage: 'career', status: 'active', assigned_rso: null, assigned_va: null, last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(20) });
     db.user_profiles.push({ user_id: 'u-arch', email: 'archived@test.local', first_name: 'Arch', last_name: 'Ived', phone: '', account_status: 'archived', onboarding_completed_at: ago(5) });
@@ -358,7 +358,7 @@ describe('archived exclusion + withdraw cancels scheduled_calls + placements fal
     // scheduled_calls (the modern booking store), not career_interviews.
     db.gp_applications.push({ id: 'appWd9', user_id: 'u-gp9', career_role_id: 'r1', status: 'applied', ats_stage: 'interview', applied_at: ago(2), created_at: ago(2), updated_at: ago(1) });
     db.scheduled_calls.push({ id: 'sc-wd9', user_id: 'u-gp9', application_id: 'appWd9', meeting_kind: 'interview', status: 'booked', scheduled_at: ago(-3), zoom_join_url: '', created_at: ago(2), updated_at: ago(1) });
-    // F12: a legacy 'hired'-status app (no placements-table row) — the Secured
+    // F12: a legacy 'hired'-status app (no placements-table row), the Secured
     // tile counts it, so the placements fallback list must show it too.
     db.gp_applications.push({ id: 'appLegacyHired', user_id: 'u-rso-fresh', career_role_id: 'r1', status: 'hired', ats_stage: null, applied_at: ago(30), created_at: ago(30), updated_at: ago(5) });
   });
@@ -381,7 +381,7 @@ describe('archived exclusion + withdraw cancels scheduled_calls + placements fal
   it('F2: /api/ceo/pipeline-summary excludes the archived GP', async () => {
     const r = await ceoGet('/api/ceo/pipeline-summary');
     expect(r.status).toBe(200);
-    // still the 7 non-withdrawn cases from the Task 6 block — c-arch must not add an 8th
+    // still the 7 non-withdrawn cases from the Task 6 block, c-arch must not add an 8th
     expect(r.body.total).toBe(7);
   });
 
@@ -412,7 +412,7 @@ describe('archived exclusion + withdraw cancels scheduled_calls + placements fal
 // ── Task 14 (F11/F6/F7): cap parity, inactive-RSO visibility, completion stamp ─
 describe('CEO leftovers: cap alignment, orphaned-RSO cases, unconditional completion stamp (Task 14)', () => {
   beforeAll(() => {
-    // F11(a): 1001 open tasks on an active case — beyond the old KPI fetch cap
+    // F11(a): 1001 open tasks on an active case, beyond the old KPI fetch cap
     // (limit=1000, newest-first) that silently dropped the OLDEST open tasks
     // while the drilldown still listed them all.
     for (let i = 0; i < 1001; i++) {
@@ -422,7 +422,7 @@ describe('CEO leftovers: cap alignment, orphaned-RSO cases, unconditional comple
         related_stage: 'amc', created_at: ago(90 - (i % 80)), updated_at: ago(1)
       });
     }
-    // F11(b): 600 open tickets on an active GP — beyond the old dashboard
+    // F11(b): 600 open tickets on an active GP, beyond the old dashboard
     // tickets fetch cap (limit=500) but inside the drilldown's limit=1000.
     for (let i = 0; i < 600; i++) {
       db.support_tickets.push({
@@ -431,7 +431,7 @@ describe('CEO leftovers: cap alignment, orphaned-RSO cases, unconditional comple
         created_at: ago(3), resolved_at: null
       });
     }
-    // F11(c): 300 open system bugs + 300 open client errors — beyond the old
+    // F11(c): 300 open system bugs + 300 open client errors, beyond the old
     // list caps (limit=200) but inside each summary's limit=500.
     if (!db.system_bugs) db.system_bugs = [];
     if (!db.client_errors) db.client_errors = [];

@@ -70,7 +70,7 @@ describe('buildClassificationPrompt', () => {
 
 describe('classifyQualificationOutcome', () => {
   // Contract: the outcome depends ONLY on the document's validity (`verified`). The name is
-  // handled separately — a name change is recorded automatically and never blocks or masks a
+  // handled separately, a name change is recorded automatically and never blocks or masks a
   // real problem (e.g. a missing certified copy). Callers pass a `verified` that already
   // reflects validity independent of the name.
   it('approves a valid (verified) document', () => {
@@ -81,7 +81,7 @@ describe('classifyQualificationOutcome', () => {
     const r = classifyQualificationOutcome({ verified: false });
     expect(r).toEqual({ action: 'flag', status: 'under_review', reasonKind: 'failed_verification' });
   });
-  it('never returns a name_change outcome — a name change does not drive the document review', () => {
+  it('never returns a name_change outcome, a name change does not drive the document review', () => {
     // A genuine document in a former name is still approved (name recorded elsewhere); a
     // not-certified document in a former name is flagged for the CERTIFICATION issue, not
     // the name. The classifier sees only `verified` and so cannot emit reasonKind name_change.
@@ -97,11 +97,11 @@ describe('buildFlagReason', () => {
       profileName: 'Smith Miller',
       expectedLabel: 'Primary Medical Degree'
     });
-    expect(r).toBe('The name on this document ("Mohammed Avais Hussain") differs from the account name ("Smith Miller") — this looks like a name change to confirm and record. The document itself does not need to be re-uploaded.');
+    expect(r).toBe('The name on this document ("Mohammed Avais Hussain") differs from the account name ("Smith Miller"), this looks like a name change to confirm and record. The document itself does not need to be re-uploaded.');
   });
   it('handles a missing document name gracefully', () => {
     const r = buildFlagReason('name_change', { nameFound: '', profileName: 'Smith Miller', expectedLabel: 'Primary Medical Degree' });
-    expect(r).toBe('The name on this document differs from the account name ("Smith Miller") — this looks like a name change to confirm and record.');
+    expect(r).toBe('The name on this document differs from the account name ("Smith Miller"), this looks like a name change to confirm and record.');
   });
   it('still maps the legacy name_mismatch kind to name-change wording', () => {
     const r = buildFlagReason('name_mismatch', { nameFound: 'Mercy Dzungwem', profileName: 'Mercy Obanimoh', expectedLabel: 'Primary Medical Degree' });

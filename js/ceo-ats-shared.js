@@ -1,5 +1,5 @@
 /* ============================================================================
- * ceo-ats-shared.js — master-tab switcher + shared helpers for the in-app ATS.
+ * ceo-ats-shared.js, master-tab switcher + shared helpers for the in-app ATS.
  * Loaded by pages/ceo-dashboard.html after its inline script. Exposes window.ATS.
  * Tab modules (candidates/jobs/practices) register window.load<Tab>Tab().
  * ========================================================================== */
@@ -31,14 +31,14 @@
   }
   function countryLabel(country) {
     var f = flag(country);
-    return country ? (f + ' ' + esc(country)) : '—';
+    return country ? (f + ' ' + esc(country)) : '-';
   }
   function bandClass(score) {
     if (score == null) return 'cold';
     return score >= 70 ? 'hot' : score >= 40 ? 'warm' : 'cold';
   }
   function bandLabel(score) {
-    if (score == null) return '—';
+    if (score == null) return '-';
     return score >= 70 ? 'Hot' : score >= 40 ? 'Warm' : 'Cold';
   }
 
@@ -79,14 +79,14 @@
   // Intent bar markup used by candidate list + cards.
   function intentChip(score, band) {
     var bl = (band || bandClass(score)).toLowerCase();
-    var s = score == null ? '—' : score;
+    var s = score == null ? '-' : score;
     return '<div class="ats-intent-chip">' +
       '<div class="ats-intent-bar"><i class="ats-fill-' + bl + '" style="width:' + (score == null ? 0 : score) + '%"></i></div>' +
       '<span class="ats-intent-score ats-band-' + bl + '">' + s + '</span>' +
       '<span class="ats-pill ' + (bl === 'hot' ? 'red' : bl === 'warm' ? 'amber' : 'muted') + '">' + bandLabel(score) + '</span></div>';
   }
 
-  // Role helpers — checkAuth (ceo-dashboard.html inline) stamps the session
+  // Role helpers, checkAuth (ceo-dashboard.html inline) stamps the session
   // role onto window.__gpAdminRole ('super_admin' | 'consultant'). Empty until
   // the session check resolves, so treat '' as "not (yet) known".
   function role() { return String(window.__gpAdminRole || ''); }
@@ -111,7 +111,7 @@
   function setActiveTab(name, skipLoad) {
     // Consultants are ATS-only: the Registration tab is hidden for them, so a
     // deep-link/hash pointing at it lands on Candidates instead (the server
-    // 403s all Registration data for consultants anyway — this is cosmetic).
+    // 403s all Registration data for consultants anyway, this is cosmetic).
     if (name === 'registration' && isConsultant()) name = 'candidates';
     window.ATS.activeTab = name;
     var tabs = document.querySelectorAll('#masterTabs .ats-master-tab');
@@ -169,7 +169,7 @@
   window.ATS.showMaster = showMaster;
   // Final-review fix (Finding 3): exposes the skipLoad-capable tab switch so a
   // drill-in opener (e.g. the Matching board's onOpenPractice/onOpenCandidate/
-  // onOpenJob) can activate the tab WITHOUT triggering its list loader — the
+  // onOpenJob) can activate the tab WITHOUT triggering its list loader, the
   // same skipLoad=true path applyHash() already uses for #candidate=/#board=/
   // #practice= deep links, so an opened detail view isn't clobbered by a
   // late-arriving list fetch racing it.

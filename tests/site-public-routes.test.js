@@ -124,13 +124,13 @@ describe('marketing site public routes', () => {
     expect(res.headers.location).toBe('/pages/index');
   });
 
-  it('/pages/index (no session) still 302s to signin — the auth wall stays intact', async () => {
+  it('/pages/index (no session) still 302s to signin, the auth wall stays intact', async () => {
     const res = await get('/pages/index');
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/pages/signin');
   });
 
-  it('/pages/account (no session) still redirects to signin — protected pages stay protected', async () => {
+  it('/pages/account (no session) still redirects to signin, protected pages stay protected', async () => {
     const res = await get('/pages/account');
     expect(res.status).toBe(302);
     expect(String(res.headers.location)).toMatch(/^\/pages\/signin/);
@@ -210,7 +210,7 @@ describe('marketing site homepage (Task 7)', () => {
 
 // Task 11: About (pages/site-about.html) and FAQ (pages/site-faq.html) pages,
 // served at GET /about and GET /faq. Same standalone marketing chrome as the
-// rest of the site — no auth-guard.js, no dead href="#" links.
+// rest of the site, no auth-guard.js, no dead href="#" links.
 describe('marketing site about + FAQ pages (Task 11)', () => {
   it('GET /about is 200, marked data-page="about", no auth-guard.js, no dead href="#" links', async () => {
     const res = await get('/about');
@@ -278,7 +278,7 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
 });
 
 // Task 12: dedicated app marketing page (pages/site-app.html), served at
-// GET /the-app. Expanded version of the homepage's app-push section — phone
+// GET /the-app. Expanded version of the homepage's app-push section, phone
 // mockup, feature grid, the 6 real product stages, 4-step flow, trust note
 // and a big "create free account" push. No auth-guard.js, no dead href="#".
 describe('marketing site app page (Task 12)', () => {
@@ -344,7 +344,7 @@ describe('marketing site app page (Task 12)', () => {
 });
 
 // Task 15: "For GPs" doctor-journey pitch page (pages/site-gp-jobs.html),
-// served at GET /gp-jobs — matches the owner's old Wix page URL so existing
+// served at GET /gp-jobs, matches the owner's old Wix page URL so existing
 // inbound links keep working after the DNS cutover. Same standalone
 // marketing chrome as the rest of the site, plus the owner-requested RSO
 // (Registration Support Officer) highlight band.
@@ -392,7 +392,7 @@ describe('marketing site "For GPs" page (Task 15)', () => {
 });
 
 // Task 19: "Exclusive placement" scarcity/teaser page (pages/site-exclusive.html),
-// served at GET /exclusive-placements — the honest landing page linked from the
+// served at GET /exclusive-placements, the honest landing page linked from the
 // job board's zero-real-match locked teaser cards. It is NOT a nav item (no
 // header/footer link points at it), so none of the shared chrome nav links are
 // marked aria-current for it.
@@ -451,7 +451,7 @@ describe('marketing site "Exclusive placement" page (Task 19)', () => {
 });
 
 // Task 16, Change 2: the old "no documents needed to start" copy was flagged
-// by the owner as false — GP Link does ask candidates to upload documents.
+// by the owner as false, GP Link does ask candidates to upload documents.
 // Regression guard: loop every public marketing route (including /gp-jobs,
 // which isn't in PUBLIC_ROUTES) and assert the claim never comes back.
 describe('marketing site never claims "no documents" (Task 16, Change 2 regression guard)', () => {

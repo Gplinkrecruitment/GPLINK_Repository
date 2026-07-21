@@ -8,7 +8,7 @@ import crypto from 'crypto';
 // Goal: prove the /api/ceo/* GET handlers do NOT throw / 500 and return the
 // correct top-level JSON shape, catching arg-order / undefined-var wiring bugs
 // (e.g. a handler referencing a function that was never defined). Data being
-// empty in test mode is fine — we are exercising the handler logic, not the DB.
+// empty in test mode is fine, we are exercising the handler logic, not the DB.
 //
 // Boot + super-admin session minting reuse the EXACT pattern from
 // tests/ceo-auth.test.js (createServer + headless gp_admin_session cookie).
@@ -19,7 +19,7 @@ import crypto from 'crypto';
 // supabaseDbRequest() fetch fails fast with connection-refused and is caught
 // inside the helper (returns {ok:false,...}). The handlers then proceed with
 // empty arrays and run their FULL aggregation logic. This is read-only and
-// touches NO real Supabase / third-party service — the target host is a closed
+// touches NO real Supabase / third-party service, the target host is a closed
 // loopback port, so nothing leaves the machine.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -172,7 +172,7 @@ describe('CEO endpoints runtime smoke (no 500 / correct shape)', () => {
 
   it('GET /api/ceo/rso/__unassigned__/summary -> 200 with rso/gps/task_counts', async () => {
     // __unassigned__ always resolves in the handler (rsoMeta set directly), so
-    // it never 404s on a missing roster row — the ideal always-resolvable id.
+    // it never 404s on a missing roster row, the ideal always-resolvable id.
     const cookie = superCookie();
     const r = await getWithHost('/api/ceo/rso/__unassigned__/summary', { host: SUPER_HOST, cookie });
     expect(r.status).not.toBe(500);

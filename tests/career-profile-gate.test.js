@@ -1,4 +1,4 @@
-// Task 3 — careers profile gate: GET status, POST CV (AI-checked genuine-CV
+// Task 3, careers profile gate: GET status, POST CV (AI-checked genuine-CV
 // gate before storage), POST cover letter (no AI scan). Boots the real server
 // against a tiny in-memory PostgREST emulator (same pattern as
 // tests/career-dpa-gate.test.js) plus a second emulator standing in for the
@@ -15,20 +15,20 @@ const db = {
   user_documents: [],
   runtime_kv: [],
   gp_applications: [],
-  // Seeded internal-ATS role for the apply-gate tests below — mirrors the
+  // Seeded internal-ATS role for the apply-gate tests below, mirrors the
   // role fixture in tests/career-internal-apply.test.js. dpa:true so a
   // uk-registered (non-Australia-trained) test GP still clears the
   // server-side DPA qualification gate inside /api/career/apply and the
   // CV gate is the only thing under test.
   career_roles: [
-    { id: 'role-gate-cv', provider: 'internal_ats', provider_role_id: 'gate_cv_role', title: 'GP — Gate CV Test Role', practice_name: 'Gate Test Practice', is_active: true, job_status: 'open', dpa: true, updated_at: '2026-01-01T00:00:00Z' }
+    { id: 'role-gate-cv', provider: 'internal_ats', provider_role_id: 'gate_cv_role', title: 'GP, Gate CV Test Role', practice_name: 'Gate Test Practice', is_active: true, job_status: 'open', dpa: true, updated_at: '2026-01-01T00:00:00Z' }
   ],
   scheduled_calls: [], ats_offers: []
 };
 const SEEDED_ROLE_ID = 'internal_ats:gate_cv_role';
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
-// Copied (verbatim, plus a multi-column on_conflict fix — see note below) from
+// Copied (verbatim, plus a multi-column on_conflict fix, see note below) from
 // tests/career-dpa-gate.test.js's startSupabaseEmulator/buildMatcher.
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
 function buildMatcher(searchParams) {
@@ -75,7 +75,7 @@ function startSupabaseEmulator() {
         res.writeHead(status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(payload));
       };
-      // supabaseStorageUploadObject POSTs here — accept anything.
+      // supabaseStorageUploadObject POSTs here, accept anything.
       if (u.pathname.startsWith('/storage/v1/')) { send(200, {}); return; }
 
       const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
@@ -98,7 +98,7 @@ function startSupabaseEmulator() {
         // target like "user_id,document_key,country_code" never matches any
         // real row and silently clobbers whichever row happens to be first
         // in the table. saveCareerProfileDocument uses exactly that 3-column
-        // on_conflict, so this copy splits it and matches on every column —
+        // on_conflict, so this copy splits it and matches on every column,
         // otherwise "store a cover letter" would silently overwrite the CV
         // row saved by the previous test instead of inserting a new row.
         const conflictCols = (u.searchParams.get('on_conflict') || '')
@@ -231,7 +231,7 @@ describe('career profile gate', () => {
     expect(res.status).toBe(422);
     expect(res.body.verified).toBe(false);
     expect(res.body.reason).toMatch(/save your CV as a PDF or Word/i);
-    // No scan attempt was consumed — the rejection happens before the spend.
+    // No scan attempt was consumed, the rejection happens before the spend.
     const after = await httpReq('GET', '/api/career/profile/status', { cookie: c });
     expect(after.body.scanRemaining).toBe(remainingBefore);
     // Nothing was stored either.
@@ -273,7 +273,7 @@ describe('career profile gate', () => {
     const res = await httpReq('POST', '/api/career/profile/cover-letter', { cookie: cookie(), body: { fileName: 'CL.pdf', fileBase64: PDF_B64, mimeType: 'application/pdf', fileSize: 500 } });
     expect(res.status).toBe(200);
     expect(db.user_documents.filter((d) => d.document_key === 'career_cover_letter')).toHaveLength(1);
-    // The earlier CV row must still be intact — this is exactly what the
+    // The earlier CV row must still be intact, this is exactly what the
     // multi-column on_conflict fix above protects against.
     expect(db.user_documents.filter((d) => d.document_key === 'career_cv')).toHaveLength(1);
   });
@@ -339,7 +339,7 @@ describe('apply gate requires career_cv', () => {
 describe('career_cv approved status is not excluded from the gate', () => {
   it('a GP whose career_cv was reviewed and approved (status=approved, not uploaded) still has cv non-null and gateRequired:false', async () => {
     // Review/delivery flows PATCH user_documents.status to 'approved' after
-    // the CV was uploaded. getCareerProfileDocument must not exclude it —
+    // the CV was uploaded. getCareerProfileDocument must not exclude it,
     // only rejected/superseded rows should be filtered out.
     db.user_profiles.push({ user_id: 'u-gate-approved', email: 'gate-approved@example.com', registration_country: 'uk' });
     db.user_state.push({ user_id: 'u-gate-approved', state: { gp_onboarding_complete: true } });

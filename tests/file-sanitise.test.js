@@ -29,7 +29,7 @@ describe('detectMimeFromMagic', () => {
     expect(detectMimeFromMagic(Buffer.from([]))).toBeNull();
     expect(detectMimeFromMagic(null)).toBeNull();
   });
-  it('ignores a wrong declared type — the Smith Miller bug', () => {
+  it('ignores a wrong declared type, the Smith Miller bug', () => {
     // A real image whose client-declared type was "application/pdf" (iOS quirk):
     // validating against the DECLARED type fails, but against the SNIFFED type passes.
     expect(validateFileUpload(jpeg, 'application/pdf', 'page.pdf').valid).toBe(false);

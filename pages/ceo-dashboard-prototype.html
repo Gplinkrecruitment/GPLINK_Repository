@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GP Link · CEO Dashboard — ATS Prototype</title>
+<title>GP Link · CEO Dashboard, ATS Prototype</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -363,7 +363,7 @@
   <section class="panel active" id="panel-registration">
     <div class="context-note">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-      <span><b>This is your dashboard exactly as it is today</b> — every card below is unchanged. It now simply lives inside the <b>Registration</b> tab, leaving room for the new Jobs &amp; Practices tabs above.</span>
+      <span><b>This is your dashboard exactly as it is today</b>, every card below is unchanged. It now simply lives inside the <b>Registration</b> tab, leaving room for the new Jobs &amp; Practices tabs above.</span>
     </div>
 
     <div class="time-filter-bar">
@@ -380,7 +380,7 @@
       <div class="kpi-card accent-green"><div class="kpi-label">Placed</div><div class="kpi-value">38</div><div class="kpi-trend up">▲ 4 this month</div></div>
       <div class="kpi-card accent-blue"><div class="kpi-label">Open Tasks</div><div class="kpi-value">67</div><div class="kpi-trend down">▼ 8 this week</div></div>
       <div class="kpi-card accent-amber"><div class="kpi-label">Overdue</div><div class="kpi-value">9</div><div class="kpi-trend up">▲ 2 this week</div></div>
-      <div class="kpi-card accent-red"><div class="kpi-label">Blocked</div><div class="kpi-value">5</div><div class="kpi-trend">— flat</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">Blocked</div><div class="kpi-value">5</div><div class="kpi-trend">, flat</div></div>
       <div class="kpi-card accent-purple"><div class="kpi-label">Completed</div><div class="kpi-value">38</div><div class="kpi-trend up">▲ 4 this month</div></div>
     </div>
 
@@ -435,7 +435,7 @@
       <div class="section-head">
         <div>
           <h2>Candidates</h2>
-          <p>Every GP on file — profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>
+          <p>Every GP on file, profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>
         </div>
       </div>
       <div class="toolbar">
@@ -462,8 +462,8 @@
           <div><h2 id="cpName"></h2><div class="ph-sub" id="cpSub"></div></div>
         </div>
         <div style="display:flex;gap:9px">
-          <button class="btn btn-ghost btn-sm" onclick="toast('Demo only — opens the full RSO file')">Open RSO file</button>
-          <button class="btn btn-primary btn-sm" onclick="toast('Demo only — schedule a call')">＋ Schedule call</button>
+          <button class="btn btn-ghost btn-sm" onclick="toast('Demo only, opens the full RSO file')">Open RSO file</button>
+          <button class="btn btn-primary btn-sm" onclick="toast('Demo only, schedule a call')">＋ Schedule call</button>
         </div>
       </div>
       <div class="cand-profile-grid">
@@ -490,7 +490,7 @@
       <div class="section-head">
         <div>
           <h2>Jobs &amp; Hiring</h2>
-          <p>Your built-in ATS — every job, every candidate, in one pipeline.</p>
+          <p>Your built-in ATS, every job, every candidate, in one pipeline.</p>
         </div>
         <button class="btn btn-primary" onclick="openJobModal()">＋ Add job</button>
       </div>
@@ -512,7 +512,7 @@
       </div>
       <div class="section-head" style="margin-bottom:6px">
         <div><h2 id="boardJobTitle"></h2></div>
-        <button class="btn btn-ghost btn-sm" onclick="toast('Demo only — job settings would open here')">⚙ Job settings</button>
+        <button class="btn btn-ghost btn-sm" onclick="toast('Demo only, job settings would open here')">⚙ Job settings</button>
       </div>
       <div class="board-job-meta" id="boardJobMeta"></div>
       <div class="board" id="board"></div>
@@ -526,7 +526,7 @@
       <div class="section-head">
         <div>
           <h2>Practices</h2>
-          <p>Clinics &amp; hospitals as real records — their jobs, contacts &amp; candidates in one place.</p>
+          <p>Clinics &amp; hospitals as real records, their jobs, contacts &amp; candidates in one place.</p>
         </div>
         <button class="btn btn-primary" onclick="openPracticeModal()">＋ Add practice</button>
       </div>
@@ -547,7 +547,7 @@
           <div class="practice-logo" id="pdLogo"></div>
           <div><h2 id="pdName"></h2><p id="pdLoc"></p></div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="toast('Demo only — edit practice would open here')">✎ Edit</button>
+        <button class="btn btn-ghost btn-sm" onclick="toast('Demo only, edit practice would open here')">✎ Edit</button>
       </div>
       <div class="detail-grid">
         <div class="card" id="pdFields"></div>
@@ -581,7 +581,7 @@
     <label>Pipeline stage</label>
     <select id="drawerStage" onchange="changeStageFromDrawer()"></select>
     <label>Schedule</label>
-    <button class="btn btn-sm" style="width:100%;justify-content:center" onclick="toast('Demo only — Zoom interview scheduler would open')">📅 Schedule interview</button>
+    <button class="btn btn-sm" style="width:100%;justify-content:center" onclick="toast('Demo only, Zoom interview scheduler would open')">📅 Schedule interview</button>
     <label>Internal notes</label>
     <textarea id="drawerNotes" placeholder="Add a note about this candidate…"></textarea>
   </div>
@@ -597,7 +597,7 @@
     <div class="modal-head"><h3>Add a job</h3><button class="drawer-close" onclick="closeModal('jobModal')">×</button></div>
     <div class="modal-body">
       <label>Job title</label>
-      <input type="text" id="njTitle" placeholder="e.g. General Practitioner — VR" />
+      <input type="text" id="njTitle" placeholder="e.g. General Practitioner, VR" />
       <label>Practice</label>
       <select id="njPractice"></select>
       <div class="form-row">
@@ -636,7 +636,7 @@
         </div>
       </div>
       <label>Type</label>
-      <input type="text" id="npType" placeholder="e.g. GP Clinic — Mixed billing" />
+      <input type="text" id="npType" placeholder="e.g. GP Clinic, Mixed billing" />
       <div class="form-row">
         <div><label>Contact name</label><input type="text" id="npContact" placeholder="Dr. Helen Carter" /></div>
         <div><label>Contact email</label><input type="text" id="npEmail" placeholder="admin@practice.com.au" /></div>
@@ -675,38 +675,38 @@ const avatarColor = name => AVATAR_COLORS[(name.charCodeAt(name.length-1) + name
 const initials = name => name.replace(/^Dr\s+/,'').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
 
 let practices = [
-  { id:'p1', name:'Greenslopes Family Medical', city:'Brisbane', state:'QLD', type:'GP Clinic — Mixed billing', contact:'Dr. Helen Carter', email:'admin@greenslopesfm.com.au', phone:'07 3845 1100', ahpra:'PRA-QLD-44821' },
+  { id:'p1', name:'Greenslopes Family Medical', city:'Brisbane', state:'QLD', type:'GP Clinic, Mixed billing', contact:'Dr. Helen Carter', email:'admin@greenslopesfm.com.au', phone:'07 3845 1100', ahpra:'PRA-QLD-44821' },
   { id:'p2', name:'Riverina Rural Practice',     city:'Wagga Wagga', state:'NSW', type:'Rural · DPA · Visa-friendly', contact:'Practice Mgr · Joanne Pike', email:'jobs@riverinarural.com.au', phone:'02 6921 4400', ahpra:'PRA-NSW-21097' },
   { id:'p3', name:'Sunshine Coast Health',       city:'Maroochydore', state:'QLD', type:'Multi-site · Mixed billing', contact:'Dr. Aaron Boyd', email:'careers@sunshinecoasthealth.au', phone:'07 5443 8800', ahpra:'PRA-QLD-30562' },
-  { id:'p4', name:'Perth Metro GP',              city:'Perth', state:'WA', type:'GP Clinic — Private billing', contact:'Dr. Nina Sandhu', email:'hello@perthmetrogp.com.au', phone:'08 9322 7600', ahpra:'PRA-WA-11843' },
-  { id:'p5', name:'Tasman Medical Centre',       city:'Hobart', state:'TAS', type:'GP Clinic — Mixed billing', contact:'Practice Mgr · Greg Hall', email:'admin@tasmanmedical.au', phone:'03 6234 5500', ahpra:'PRA-TAS-09210' },
+  { id:'p4', name:'Perth Metro GP',              city:'Perth', state:'WA', type:'GP Clinic, Private billing', contact:'Dr. Nina Sandhu', email:'hello@perthmetrogp.com.au', phone:'08 9322 7600', ahpra:'PRA-WA-11843' },
+  { id:'p5', name:'Tasman Medical Centre',       city:'Hobart', state:'TAS', type:'GP Clinic, Mixed billing', contact:'Practice Mgr · Greg Hall', email:'admin@tasmanmedical.au', phone:'03 6234 5500', ahpra:'PRA-TAS-09210' },
 ];
 
 let jobs = [
-  { id:'j1', title:'General Practitioner — VR',        practiceId:'p1', city:'Brisbane',    state:'QLD', type:'Permanent · Full-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-10' },
-  { id:'j2', title:'GP — Non-VR (DPA, visa support)',  practiceId:'p2', city:'Wagga Wagga', state:'NSW', type:'Permanent · Full-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-14' },
+  { id:'j1', title:'General Practitioner, VR',        practiceId:'p1', city:'Brisbane',    state:'QLD', type:'Permanent · Full-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-10' },
+  { id:'j2', title:'GP, Non-VR (DPA, visa support)',  practiceId:'p2', city:'Wagga Wagga', state:'NSW', type:'Permanent · Full-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-14' },
   { id:'j3', title:'GP Registrar',                     practiceId:'p3', city:'Maroochydore',state:'QLD', type:'Permanent · Part-time', billing:'Mixed billing',  status:'open',   posted:'2026-06-19' },
-  { id:'j4', title:'General Practitioner — Private',   practiceId:'p4', city:'Perth',       state:'WA',  type:'Permanent · Full-time', billing:'Private billing', status:'open',   posted:'2026-06-21' },
-  { id:'j5', title:'GP — Mixed billing',               practiceId:'p5', city:'Hobart',      state:'TAS', type:'Permanent · Full-time', billing:'Mixed billing',  status:'filled', posted:'2026-05-02' },
+  { id:'j4', title:'General Practitioner, Private',   practiceId:'p4', city:'Perth',       state:'WA',  type:'Permanent · Full-time', billing:'Private billing', status:'open',   posted:'2026-06-21' },
+  { id:'j5', title:'GP, Mixed billing',               practiceId:'p5', city:'Hobart',      state:'TAS', type:'Permanent · Full-time', billing:'Mixed billing',  status:'filled', posted:'2026-05-02' },
 ];
 
 let candidates = [
-  // j1 — Greenslopes
+  // j1, Greenslopes
   { id:'c1', name:'Dr Aisha Khan',     country:'🇬🇧 UK', jobId:'j1', stage:'applied',   email:'aisha.khan@nhs.uk',        notes:'' },
   { id:'c2', name:'Dr Liam O’Connor', country:'🇮🇪 IE', jobId:'j1', stage:'submitted', email:'l.oconnor@hse.ie',         notes:'Strong rural experience.' },
   { id:'c3', name:'Dr Priya Nair',     country:'🇬🇧 UK', jobId:'j1', stage:'reviewing', email:'priya.nair@nhs.uk',        notes:'Practice reviewing CV this week.' },
   { id:'c4', name:'Dr Marcus Webb',    country:'🇳🇿 NZ', jobId:'j1', stage:'interview', email:'m.webb@health.nz',         notes:'Interview booked Fri 2pm AEST.' },
   { id:'c5', name:'Dr Sofia Ramos',    country:'🇮🇪 IE', jobId:'j1', stage:'offer',     email:'sofia.ramos@hse.ie',       notes:'Verbal offer extended.' },
-  // j2 — Riverina
+  // j2, Riverina
   { id:'c6', name:'Dr Tao Chen',       country:'🇬🇧 UK', jobId:'j2', stage:'applied',   email:'tao.chen@nhs.uk',          notes:'' },
   { id:'c7', name:'Dr Hannah Schmidt', country:'🇬🇧 UK', jobId:'j2', stage:'submitted', email:'h.schmidt@nhs.uk',         notes:'' },
   { id:'c8', name:'Dr Daniel Okoro',   country:'🇮🇪 IE', jobId:'j2', stage:'interview', email:'d.okoro@hse.ie',           notes:'Keen on regional + DPA.' },
   { id:'c9', name:'Dr Yuki Tanaka',    country:'🇬🇧 UK', jobId:'j2', stage:'hired',     email:'yuki.tanaka@nhs.uk',       notes:'Contract signed 🎉 commencing Aug.' },
-  // j3 — Sunshine Coast
+  // j3, Sunshine Coast
   { id:'c10', name:'Dr Emma Wilson',   country:'🇳🇿 NZ', jobId:'j3', stage:'applied',   email:'e.wilson@health.nz',       notes:'' },
   { id:'c11', name:'Dr Raj Patel',     country:'🇬🇧 UK', jobId:'j3', stage:'reviewing', email:'raj.patel@nhs.uk',         notes:'' },
-  { id:'c12', name:'Dr Nadia Hassan',  country:'🇬🇧 UK', jobId:'j3', stage:'not_proceeding', email:'n.hassan@nhs.uk',     notes:'Practice passed — location mismatch.' },
-  // j4 — Perth Metro
+  { id:'c12', name:'Dr Nadia Hassan',  country:'🇬🇧 UK', jobId:'j3', stage:'not_proceeding', email:'n.hassan@nhs.uk',     notes:'Practice passed, location mismatch.' },
+  // j4, Perth Metro
   { id:'c13', name:'Dr James Murphy',  country:'🇮🇪 IE', jobId:'j4', stage:'submitted', email:'j.murphy@hse.ie',          notes:'' },
   { id:'c14', name:'Dr Lucia Ferraro', country:'🇬🇧 UK', jobId:'j4', stage:'offer',     email:'l.ferraro@nhs.uk',         notes:'Awaiting offer acceptance.' },
 ];
@@ -760,7 +760,7 @@ function renderJobs() {
       <div>
         <h3>${j.title} ${statusPill}</h3>
         <div class="job-meta">
-          <span>🏥 ${p ? p.name : '—'}</span>
+          <span>🏥 ${p ? p.name : '-'}</span>
           <span>📍 ${j.city}, ${j.state}</span>
           <span>🗓 ${j.type}</span>
           <span>💳 ${j.billing}</span>
@@ -783,7 +783,7 @@ function openBoard(jid) {
   $('jobsListView').style.display = 'none';
   $('jobBoardView').style.display = 'block';
   $('boardJobTitle').textContent = j.title;
-  $('boardJobMeta').innerHTML = `<span>🏥 ${p ? p.name : '—'}</span><span>📍 ${j.city}, ${j.state}</span><span>🗓 ${j.type}</span><span>💳 ${j.billing}</span><span>${activeCandsForJob(jid).length} active candidates</span>`;
+  $('boardJobMeta').innerHTML = `<span>🏥 ${p ? p.name : '-'}</span><span>📍 ${j.city}, ${j.state}</span><span>🗓 ${j.type}</span><span>💳 ${j.billing}</span><span>${activeCandsForJob(jid).length} active candidates</span>`;
   renderBoard();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -850,7 +850,7 @@ function openDrawer(id) {
   $('drawerAvatar').style.background = avatarColor(c.name);
   $('drawerName').textContent = c.name;
   $('drawerSub').textContent = c.country + ' · ' + c.email;
-  $('drawerJob').innerHTML = `${j.title} <span class="cc-sub">— ${p ? p.name : ''}</span>`;
+  $('drawerJob').innerHTML = `${j.title} <span class="cc-sub">, ${p ? p.name : ''}</span>`;
   $('drawerStage').innerHTML = ALL_STAGES.map(s => `<option value="${s.key}" ${s.key===c.stage?'selected':''}>${s.label}</option>`).join('');
   $('drawerNotes').value = c.notes || '';
   $('scrim').classList.add('open');
@@ -945,7 +945,7 @@ function addJob() {
   const title = $('njTitle').value.trim();
   if (!title) { toast('Enter a job title'); return; }
   const id = 'j' + (jobs.length + 1) + Date.now().toString().slice(-3);
-  jobs.push({ id, title, practiceId: $('njPractice').value, city: $('njCity').value.trim() || '—', state: $('njState').value, type: $('njType').value, billing: $('njBilling').value, status: 'open', posted: 'today' });
+  jobs.push({ id, title, practiceId: $('njPractice').value, city: $('njCity').value.trim() || '-', state: $('njState').value, type: $('njType').value, billing: $('njBilling').value, status: 'open', posted: 'today' });
   closeModal('jobModal');
   renderJobs(); renderPractices();
   toast('Job created');
@@ -954,7 +954,7 @@ function addPractice() {
   const name = $('npName').value.trim();
   if (!name) { toast('Enter a practice name'); return; }
   const id = 'p' + (practices.length + 1) + Date.now().toString().slice(-3);
-  practices.push({ id, name, city: $('npCity').value.trim() || '—', state: $('npState').value, type: $('npType').value || 'GP Clinic', contact: $('npContact').value || '—', email: $('npEmail').value || '—', phone: $('npPhone').value || '—', ahpra: $('npAhpra').value || '—' });
+  practices.push({ id, name, city: $('npCity').value.trim() || '-', state: $('npState').value, type: $('npType').value || 'GP Clinic', contact: $('npContact').value || '-', email: $('npEmail').value || '-', phone: $('npPhone').value || '-', ahpra: $('npAhpra').value || '-' });
   closeModal('practiceModal');
   renderPractices();
   toast('Practice created');
@@ -966,116 +966,116 @@ const REG_STAGES = ['Placement', 'MyIntealth', 'AMC', 'AHPRA', 'PBS & Medicare',
 // AI-captured Zoom summaries are pre-baked per call (status: completed | upcoming | no_show)
 let gps = [
   { id:'g1', name:'Dr Yuki Tanaka', country:'🇬🇧 UK', email:'yuki.tanaka@nhs.uk', phone:'+44 7700 900812', reg:'GMC 7841992', status:'active', joined:'12 Mar 2026', rso:'Hazel', zoho:'ZR-10293',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'18 Aug 2026', city:'Wagga Wagga, NSW', family:'Partner + 1 child (age 4)', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'18 Aug 2026', city:'Wagga Wagga, NSW', family:'Partner + 1 child (age 4)', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'Commencement', blockedDays:0, english:'done', lastActiveDays:1,
     calls:[
       { when:'24 Jun 2026 · 2:00pm', type:'Commencement check-in (Zoom)', status:'completed', summary:'Confirmed 18 Aug start date with Riverina Rural. Asked about relocation support for partner and childcare near Wagga. Fully documented, contract signed, no blockers. Very engaged and confident.', actions:['Send relocation + childcare pack','Confirm commencement checklist items'] },
       { when:'09 Jun 2026 · 11:30am', type:'Offer discussion (Zoom)', status:'completed', summary:'Walked through the offer terms and billing split. Accepted verbally on the call; happy with mixed billing arrangement.', actions:['Issue contract via Zoho Sign'] },
-    ], aiHandover:'Star candidate — fully documented, contract signed, commencing Aug. No concerns. Keep warm through relocation.' },
+    ], aiHandover:'Star candidate, fully documented, contract signed, commencing Aug. No concerns. Keep warm through relocation.' },
 
   { id:'g2', name:'Dr Sofia Ramos', country:'🇮🇪 IE', email:'sofia.ramos@hse.ie', phone:'+353 86 123 4567', reg:'IMC 408821', status:'active', joined:'02 Apr 2026', rso:'Hazel', zoho:'ZR-10341',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'Ireland', specialty:'MICGP — General Practice', target:'01 Oct 2026', city:'Brisbane, QLD', family:'Single', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'Ireland', specialty:'MICGP, General Practice', target:'01 Oct 2026', city:'Brisbane, QLD', family:'Single', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'PBS & Medicare', blockedDays:0, english:'done', lastActiveDays:2,
     calls:[
       { when:'21 Jun 2026 · 4:00pm', type:'Placement update (Zoom)', status:'completed', summary:'Greenslopes extended a verbal offer. Sofia keen, asked about Medicare provider number timing and start flexibility. Strong intent, responsive.', actions:['Chase signed offer from practice','Start PBS prescriber application'] },
     ], aiHandover:'Offer extended at Greenslopes, strong intent. Watch PBS/Medicare timing so start date holds.' },
 
   { id:'g3', name:'Dr Marcus Webb', country:'🇳🇿 NZ', email:'m.webb@health.nz', phone:'+64 21 555 019', reg:'MCNZ 55831', status:'active', joined:'19 Mar 2026', rso:'Hazel', zoho:'ZR-10277',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'New Zealand', specialty:'FRNZCGP — General Practice', target:'15 Sep 2026', city:'Brisbane, QLD', family:'Partner', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'New Zealand', specialty:'FRNZCGP, General Practice', target:'15 Sep 2026', city:'Brisbane, QLD', family:'Partner', idVerified:true },
     docs:{ cv:true, coverLetter:false, primaryDegree:true, idDoc:true }, regStage:'AHPRA', blockedDays:0, english:'done', lastActiveDays:3,
     calls:[
       { when:'27 Jun 2026 · 10:00am', type:'Interview prep (Zoom)', status:'upcoming', summary:'', actions:[] },
       { when:'18 Jun 2026 · 9:30am', type:'AHPRA progress (Zoom)', status:'completed', summary:'Reviewed AHPRA application progress. Awaiting supervised practice plan. Marcus organised and proactive; interview with Greenslopes booked for Fri.', actions:['Prep interview talking points','Follow up SPPA-00 with practice'] },
-    ], aiHandover:'Interviewing at Greenslopes, AHPRA in progress. Missing cover letter — request before interview.' },
+    ], aiHandover:'Interviewing at Greenslopes, AHPRA in progress. Missing cover letter, request before interview.' },
 
   { id:'g4', name:'Dr Priya Nair', country:'🇬🇧 UK', email:'priya.nair@nhs.uk', phone:'+44 7700 900145', reg:'GMC 7720461', status:'active', joined:'28 Mar 2026', rso:'Hazel', zoho:'ZR-10310',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Nov 2026', city:'Brisbane, QLD', family:'Partner + 2 children (ages 6, 9)', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'01 Nov 2026', city:'Brisbane, QLD', family:'Partner + 2 children (ages 6, 9)', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:false }, regStage:'AHPRA', blockedDays:0, english:'planned', lastActiveDays:5,
     calls:[
       { when:'17 Jun 2026 · 1:00pm', type:'Onboarding call (Zoom)', status:'completed', summary:'Discussed family relocation logistics and school enrolment for two children. CV submitted to Greenslopes; practice now reviewing. English test (IELTS) planned for July.', actions:['Book IELTS reminder for July','Send school catchment info for Brisbane'] },
-    ], aiHandover:'CV under review at Greenslopes. English test only planned — nudge to book to avoid AHPRA delay.' },
+    ], aiHandover:'CV under review at Greenslopes. English test only planned, nudge to book to avoid AHPRA delay.' },
 
   { id:'g5', name:'Dr Daniel Okoro', country:'🇮🇪 IE', email:'d.okoro@hse.ie', phone:'+353 87 998 2210', reg:'IMC 415902', status:'active', joined:'05 Apr 2026', rso:'Hazel', zoho:'ZR-10355',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'Ireland', specialty:'MICGP — General Practice', target:'20 Sep 2026', city:'Wagga Wagga, NSW', family:'Single', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'Ireland', specialty:'MICGP, General Practice', target:'20 Sep 2026', city:'Wagga Wagga, NSW', family:'Single', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AMC', blockedDays:0, english:'done', lastActiveDays:4,
     calls:[
-      { when:'20 Jun 2026 · 3:30pm', type:'Regional placement (Zoom)', status:'completed', summary:'Very keen on regional + DPA. Interview with Riverina Rural arranged. Comfortable with rural lifestyle, asked about visa support — all aligned.', actions:['Confirm interview slot','Share DPA + visa pathway summary'] },
-      { when:'12 Jun 2026 · 12:00pm', type:'Intro call (Zoom)', status:'no_show', summary:'Did not attend — rescheduled at his request after a roster clash.', actions:[] },
-    ], aiHandover:'Interviewing at Riverina Rural, strong regional fit. One earlier no-show (roster clash) — otherwise reliable.' },
+      { when:'20 Jun 2026 · 3:30pm', type:'Regional placement (Zoom)', status:'completed', summary:'Very keen on regional + DPA. Interview with Riverina Rural arranged. Comfortable with rural lifestyle, asked about visa support, all aligned.', actions:['Confirm interview slot','Share DPA + visa pathway summary'] },
+      { when:'12 Jun 2026 · 12:00pm', type:'Intro call (Zoom)', status:'no_show', summary:'Did not attend, rescheduled at his request after a roster clash.', actions:[] },
+    ], aiHandover:'Interviewing at Riverina Rural, strong regional fit. One earlier no-show (roster clash), otherwise reliable.' },
 
   { id:'g6', name:'Dr Aisha Khan', country:'🇬🇧 UK', email:'aisha.khan@nhs.uk', phone:'+44 7700 900233', reg:'GMC 7689201', status:'active', joined:'09 Apr 2026', rso:'Hazel', zoho:'ZR-10362',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Dec 2026', city:'Brisbane, QLD', family:'Partner', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'01 Dec 2026', city:'Brisbane, QLD', family:'Partner', idVerified:true },
     docs:{ cv:true, coverLetter:false, primaryDegree:true, idDoc:true }, regStage:'MyIntealth', blockedDays:0, english:'none', lastActiveDays:8,
     calls:[
-      { when:'16 Jun 2026 · 10:30am', type:'Welcome call (Zoom)', status:'completed', summary:'Early stage — just applied to Greenslopes. Walked through registration journey. Has not started English test or cover letter yet. Engaged but needs prompting on next steps.', actions:['Request cover letter','Explain English pathway options'] },
-    ], aiHandover:'Early stage, applied at Greenslopes. No cover letter, no English test started — needs active nudging.' },
+      { when:'16 Jun 2026 · 10:30am', type:'Welcome call (Zoom)', status:'completed', summary:'Early stage, just applied to Greenslopes. Walked through registration journey. Has not started English test or cover letter yet. Engaged but needs prompting on next steps.', actions:['Request cover letter','Explain English pathway options'] },
+    ], aiHandover:'Early stage, applied at Greenslopes. No cover letter, no English test started, needs active nudging.' },
 
   { id:'g7', name:'Dr Raj Patel', country:'🇬🇧 UK', email:'raj.patel@nhs.uk', phone:'+44 7700 900471', reg:'GMC 7755120', status:'active', joined:'31 Mar 2026', rso:'Hazel', zoho:'ZR-10318',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'15 Oct 2026', city:'Maroochydore, QLD', family:'Partner + 1 child', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'15 Oct 2026', city:'Maroochydore, QLD', family:'Partner + 1 child', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AMC', blockedDays:0, english:'planned', lastActiveDays:6,
     calls:[
       { when:'19 Jun 2026 · 2:30pm', type:'Placement review (Zoom)', status:'completed', summary:'CV submitted to Sunshine Coast Health; practice reviewing. Keen on the Sunshine Coast for lifestyle. IELTS planned for August.', actions:['Follow up practice review','Reminder: IELTS in August'] },
     ], aiHandover:'CV under review at Sunshine Coast. Solid docs; English only planned.' },
 
   { id:'g8', name:'Dr Tao Chen', country:'🇬🇧 UK', email:'tao.chen@nhs.uk', phone:'+44 7700 900688', reg:'GMC 7798344', status:'active', joined:'14 Apr 2026', rso:'Hazel', zoho:'ZR-10377',
-    ob:{ completed:false, fieldsFilled:0.6, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'Not set', city:'Wagga Wagga, NSW', family:'Not provided', idVerified:false },
+    ob:{ completed:false, fieldsFilled:0.6, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'Not set', city:'Wagga Wagga, NSW', family:'Not provided', idVerified:false },
     docs:{ cv:false, coverLetter:false, primaryDegree:true, idDoc:false }, regStage:'AMC', blockedDays:0, english:'planned', lastActiveDays:12,
     calls:[
       { when:'15 Jun 2026 · 11:00am', type:'Intro call (Zoom)', status:'completed', summary:'Interested in Riverina Rural but onboarding incomplete and ID not yet verified. Slightly hesitant about timeline. Needs to upload CV and complete profile.', actions:['Complete onboarding','Upload CV + verify ID'] },
-    ], aiHandover:'Applied at Riverina but onboarding incomplete, no CV, ID unverified. Lukewarm — confirm genuine intent.' },
+    ], aiHandover:'Applied at Riverina but onboarding incomplete, no CV, ID unverified. Lukewarm, confirm genuine intent.' },
 
   { id:'g9', name:'Dr Hannah Schmidt', country:'🇬🇧 UK', email:'h.schmidt@nhs.uk', phone:'+44 7700 900502', reg:'GMC 7811003', status:'active', joined:'16 Apr 2026', rso:'Hazel', zoho:'ZR-10381',
-    ob:{ completed:false, fieldsFilled:0.5, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'Not set', city:'Wagga Wagga, NSW', family:'Not provided', idVerified:false },
+    ob:{ completed:false, fieldsFilled:0.5, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'Not set', city:'Wagga Wagga, NSW', family:'Not provided', idVerified:false },
     docs:{ cv:true, coverLetter:false, primaryDegree:false, idDoc:false }, regStage:'MyIntealth', blockedDays:0, english:'none', lastActiveDays:20,
     calls:[
       { when:'10 Jun 2026 · 9:00am', type:'Intro call (Zoom)', status:'no_show', summary:'Did not attend; no response to reschedule yet.', actions:['Re-attempt contact'] },
-    ], aiHandover:'Submitted to Riverina but onboarding half-done, missed intro call, gone quiet 20 days. Cold — re-engage or park.' },
+    ], aiHandover:'Submitted to Riverina but onboarding half-done, missed intro call, gone quiet 20 days. Cold, re-engage or park.' },
 
   { id:'g10', name:'Dr Emma Wilson', country:'🇳🇿 NZ', email:'e.wilson@health.nz', phone:'+64 21 778 442', reg:'MCNZ 56012', status:'active', joined:'18 Apr 2026', rso:'Hazel', zoho:'ZR-10390',
-    ob:{ completed:false, fieldsFilled:0.4, qualCountry:'New Zealand', specialty:'FRNZCGP — General Practice', target:'Not set', city:'Maroochydore, QLD', family:'Not provided', idVerified:false },
+    ob:{ completed:false, fieldsFilled:0.4, qualCountry:'New Zealand', specialty:'FRNZCGP, General Practice', target:'Not set', city:'Maroochydore, QLD', family:'Not provided', idVerified:false },
     docs:{ cv:false, coverLetter:false, primaryDegree:false, idDoc:false }, regStage:'Placement', blockedDays:0, english:'none', lastActiveDays:9,
-    calls:[], aiHandover:'Brand new — applied at Sunshine Coast but no onboarding, no docs, no call yet. Unqualified intent; book intro call.' },
+    calls:[], aiHandover:'Brand new, applied at Sunshine Coast but no onboarding, no docs, no call yet. Unqualified intent; book intro call.' },
 
   { id:'g11', name:'Dr Grace Lim', country:'🇬🇧 UK', email:'grace.lim@nhs.uk', phone:'+44 7700 900917', reg:'GMC 7702588', status:'under_review', joined:'22 Mar 2026', rso:'Hazel', zoho:'ZR-10301',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Nov 2026', city:'Perth, WA', family:'Partner', idVerified:false },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'01 Nov 2026', city:'Perth, WA', family:'Partner', idVerified:false },
     docs:{ cv:true, coverLetter:false, primaryDegree:true, idDoc:false }, regStage:'MyIntealth', blockedDays:6, english:'none', lastActiveDays:6,
     calls:[
       { when:'21 Jun 2026 · 1:30pm', type:'Document help (Zoom)', status:'completed', summary:'ID document was rejected (glare on photo). Walked Grace through re-uploading. Account under review until ID clears. Otherwise engaged.', actions:['Re-upload clear ID','Clear under-review flag once verified'] },
-    ], aiHandover:'BLOCKED at MyIntealth — ID re-upload needed (6 days), account under review. Engaged; unblock to keep momentum.' },
+    ], aiHandover:'BLOCKED at MyIntealth, ID re-upload needed (6 days), account under review. Engaged; unblock to keep momentum.' },
 
   { id:'g12', name:'Dr Owen Park', country:'🇬🇧 UK', email:'owen.park@nhs.uk', phone:'+44 7700 900324', reg:'GMC 7766910', status:'active', joined:'25 Mar 2026', rso:'Hazel', zoho:'ZR-10308',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'01 Dec 2026', city:'Perth, WA', family:'Single', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'01 Dec 2026', city:'Perth, WA', family:'Single', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AHPRA', blockedDays:5, english:'none', lastActiveDays:4,
     calls:[
-      { when:'23 Jun 2026 · 11:00am', type:'AHPRA guidance (Zoom)', status:'completed', summary:'AHPRA application is held up — English pathway not yet selected. Explained options; Owen leaning toward OET. Documents otherwise complete.', actions:['Select English pathway','Book OET if chosen'] },
-    ], aiHandover:'BLOCKED at AHPRA — English pathway unset (5 days). Docs complete, engaged; resolve pathway to progress.' },
+      { when:'23 Jun 2026 · 11:00am', type:'AHPRA guidance (Zoom)', status:'completed', summary:'AHPRA application is held up, English pathway not yet selected. Explained options; Owen leaning toward OET. Documents otherwise complete.', actions:['Select English pathway','Book OET if chosen'] },
+    ], aiHandover:'BLOCKED at AHPRA, English pathway unset (5 days). Docs complete, engaged; resolve pathway to progress.' },
 
   { id:'g13', name:'Dr Sana Mehta', country:'🇬🇧 UK', email:'sana.mehta@nhs.uk', phone:'+44 7700 900756', reg:'GMC 7733410', status:'active', joined:'20 Mar 2026', rso:'Hazel', zoho:'ZR-10295',
-    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP — General Practice', target:'15 Sep 2026', city:'Brisbane, QLD', family:'Partner + 1 child', idVerified:true },
+    ob:{ completed:true, fieldsFilled:1, qualCountry:'United Kingdom', specialty:'MRCGP, General Practice', target:'15 Sep 2026', city:'Brisbane, QLD', family:'Partner + 1 child', idVerified:true },
     docs:{ cv:true, coverLetter:true, primaryDegree:true, idDoc:true }, regStage:'AHPRA', blockedDays:14, english:'done', lastActiveDays:14,
     calls:[
-      { when:'13 Jun 2026 · 10:00am', type:'AHPRA escalation (Zoom)', status:'completed', summary:'AHPRA stuck awaiting PSV (primary source verification) for 14 days — third-party delay, not the candidate. Sana frustrated but committed. Reassured on timeline.', actions:['Escalate PSV with AHPRA','Weekly status update to Sana'] },
+      { when:'13 Jun 2026 · 10:00am', type:'AHPRA escalation (Zoom)', status:'completed', summary:'AHPRA stuck awaiting PSV (primary source verification) for 14 days, third-party delay, not the candidate. Sana frustrated but committed. Reassured on timeline.', actions:['Escalate PSV with AHPRA','Weekly status update to Sana'] },
       { when:'04 Jun 2026 · 4:00pm', type:'Check-in (Zoom)', status:'no_show', summary:'Missed due to UK night shift; rescheduled.', actions:[] },
-    ], aiHandover:'BLOCKED at AHPRA — PSV delay (14 days, third-party). Committed candidate; keep updated weekly so intent doesn’t cool.' },
+    ], aiHandover:'BLOCKED at AHPRA, PSV delay (14 days, third-party). Committed candidate; keep updated weekly so intent doesn’t cool.' },
 ];
 
-// AI communication-engagement scan (DoubleTick / WhatsApp + email) — dummy AI read per GP
+// AI communication-engagement scan (DoubleTick / WhatsApp + email), dummy AI read per GP
 const COMMS = {
-  g1:  { messages30d:38, avgReplyHrs:1.5, tone:'Enthusiastic', engagementVal:0.95, aiRead:'Highly responsive across WhatsApp and email — usually replies within the hour. Consistently positive, proactive, asks forward-looking questions. Strong buying signals.' },
-  g2:  { messages30d:29, avgReplyHrs:2,   tone:'Enthusiastic', engagementVal:0.90, aiRead:'Very engaged, warm tone, often initiates contact. Keen to lock in start details — clear momentum.' },
+  g1:  { messages30d:38, avgReplyHrs:1.5, tone:'Enthusiastic', engagementVal:0.95, aiRead:'Highly responsive across WhatsApp and email, usually replies within the hour. Consistently positive, proactive, asks forward-looking questions. Strong buying signals.' },
+  g2:  { messages30d:29, avgReplyHrs:2,   tone:'Enthusiastic', engagementVal:0.90, aiRead:'Very engaged, warm tone, often initiates contact. Keen to lock in start details, clear momentum.' },
   g3:  { messages30d:22, avgReplyHrs:3,   tone:'Positive',     engagementVal:0.80, aiRead:'Reliable responder, upbeat and organised. Occasionally needs a nudge but always follows through.' },
-  g4:  { messages30d:18, avgReplyHrs:5,   tone:'Positive',     engagementVal:0.72, aiRead:'Engaged but practical — questions centre on family and logistics. Tone steady and committed.' },
+  g4:  { messages30d:18, avgReplyHrs:5,   tone:'Positive',     engagementVal:0.72, aiRead:'Engaged but practical, questions centre on family and logistics. Tone steady and committed.' },
   g5:  { messages30d:20, avgReplyHrs:4,   tone:'Positive',     engagementVal:0.75, aiRead:'Good engagement, enthusiastic about the regional move. Quick on WhatsApp.' },
-  g6:  { messages30d:12, avgReplyHrs:12,  tone:'Neutral',      engagementVal:0.55, aiRead:'Moderate engagement — replies but rarely initiates. Tone polite yet non-committal; needs prompting on next steps.' },
+  g6:  { messages30d:12, avgReplyHrs:12,  tone:'Neutral',      engagementVal:0.55, aiRead:'Moderate engagement, replies but rarely initiates. Tone polite yet non-committal; needs prompting on next steps.' },
   g7:  { messages30d:16, avgReplyHrs:6,   tone:'Positive',     engagementVal:0.68, aiRead:'Steady responder, positive about the Sunshine Coast. Engagement solid, not urgent.' },
-  g8:  { messages30d:6,  avgReplyHrs:30,  tone:'Hesitant',     engagementVal:0.35, aiRead:'Slow to reply, short messages. Tone hesitant about timeline — intent unclear, confirm seriousness.' },
-  g9:  { messages30d:3,  avgReplyHrs:72,  tone:'Quiet',        engagementVal:0.18, aiRead:'Largely unresponsive the last 3 weeks. Minimal messages, flat tone — cooling off.' },
-  g10: { messages30d:2,  avgReplyHrs:96,  tone:'Quiet',        engagementVal:0.12, aiRead:'Almost no two-way contact yet. Has not replied to recent outreach — unqualified.' },
-  g11: { messages30d:15, avgReplyHrs:6,   tone:'Positive',     engagementVal:0.60, aiRead:'Engaged and cooperative despite the ID block — responds quickly when chased and wants it resolved.' },
+  g8:  { messages30d:6,  avgReplyHrs:30,  tone:'Hesitant',     engagementVal:0.35, aiRead:'Slow to reply, short messages. Tone hesitant about timeline, intent unclear, confirm seriousness.' },
+  g9:  { messages30d:3,  avgReplyHrs:72,  tone:'Quiet',        engagementVal:0.18, aiRead:'Largely unresponsive the last 3 weeks. Minimal messages, flat tone, cooling off.' },
+  g10: { messages30d:2,  avgReplyHrs:96,  tone:'Quiet',        engagementVal:0.12, aiRead:'Almost no two-way contact yet. Has not replied to recent outreach, unqualified.' },
+  g11: { messages30d:15, avgReplyHrs:6,   tone:'Positive',     engagementVal:0.60, aiRead:'Engaged and cooperative despite the ID block, responds quickly when chased and wants it resolved.' },
   g12: { messages30d:17, avgReplyHrs:5,   tone:'Positive',     engagementVal:0.70, aiRead:'Responsive and motivated to clear the English-pathway blocker. Constructive tone.' },
-  g13: { messages30d:11, avgReplyHrs:8,   tone:'Frustrated but committed', engagementVal:0.62, aiRead:'Still responsive but tone shows growing frustration at the PSV delay. Committed — needs reassurance to stay warm.' },
+  g13: { messages30d:11, avgReplyHrs:8,   tone:'Frustrated but committed', engagementVal:0.62, aiRead:'Still responsive but tone shows growing frustration at the PSV delay. Committed, needs reassurance to stay warm.' },
 };
-function commsFor(id) { return COMMS[id] || { messages30d:0, avgReplyHrs:'—', tone:'No data', engagementVal:0, aiRead:'No messages on file yet.' }; }
+function commsFor(id) { return COMMS[id] || { messages30d:0, avgReplyHrs:'-', tone:'No data', engagementVal:0, aiRead:'No messages on file yet.' }; }
 function toneClass(t) { return /enthus/i.test(t) ? 'green' : /hesit|frustr|cautio/i.test(t) ? 'amber' : /posit|commit|warm/i.test(t) ? 'blue' : 'muted'; }
 
 const stageRank = { applied:1, submitted:2, reviewing:3, interview:4, offer:5, hired:6 };
@@ -1085,7 +1085,7 @@ function bestAtsStageFor(name) {
   return mine.sort((a, b) => (stageRank[b.stage] || 0) - (stageRank[a.stage] || 0))[0].stage;
 }
 
-// THE INTENT CALCULATOR — a real weighted score the user can see and tune
+// THE INTENT CALCULATOR, a real weighted score the user can see and tune
 function intentFor(gp) {
   const docKeys = ['cv', 'coverLetter', 'idDoc', 'primaryDegree'];
   const docShare = docKeys.filter(k => gp.docs[k]).length / docKeys.length;
@@ -1186,7 +1186,7 @@ function openCandidate(id) {
         <span class="sr-bar"><i style="width:${Math.round(s.v*100)}%"></i></span>
         <span class="sr-pts">+${Math.round(s.w*s.v)}</span>
       </div>`).join('')}</div>
-    <div class="confirm-note">Signals &amp; weights are a first proposal — tell me what to change.</div>`;
+    <div class="confirm-note">Signals &amp; weights are a first proposal, tell me what to change.</div>`;
 
   // Pipeline position (registration journey + job apps)
   const curIdx = REG_STAGES.indexOf(g.regStage);
@@ -1202,7 +1202,7 @@ function openCandidate(id) {
   const apps = candidates.filter(c => c.name === g.name);
   const appsHtml = apps.length ? apps.map(a => {
     const j = jobById(a.jobId), p = j ? practiceById(j.practiceId) : null;
-    return `<div class="job-app-row"><div><div class="jar-title">${j ? j.title : '—'}</div><div class="jar-sub">${p ? p.name : ''} · applied via ATS</div></div>
+    return `<div class="job-app-row"><div><div class="jar-title">${j ? j.title : '-'}</div><div class="jar-sub">${p ? p.name : ''} · applied via ATS</div></div>
       <span class="pill" style="background:rgba(255,255,255,0.06);color:${stageColor(a.stage)}">${stageLabel(a.stage)}</span></div>`;
   }).join('') : '<div class="empty-col">No job applications yet.</div>';
   $('cpPipeline').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--green)"></span> Pipeline position</div>
@@ -1251,14 +1251,14 @@ function openCandidate(id) {
 
   // Calls / AI summaries
   const callsHtml = g.calls.length ? g.calls.map(c => {
-    if (c.status === 'upcoming') return `<div class="ai-call upcoming"><div class="ac-head"><div><div class="ac-when">${c.when}</div><div class="ac-type">${c.type}</div></div><span class="pill blue">Upcoming</span></div><div class="ac-sum">Scheduled — AI will capture &amp; summarise this call automatically.</div></div>`;
+    if (c.status === 'upcoming') return `<div class="ai-call upcoming"><div class="ac-head"><div><div class="ac-when">${c.when}</div><div class="ac-type">${c.type}</div></div><span class="pill blue">Upcoming</span></div><div class="ac-sum">Scheduled, AI will capture &amp; summarise this call automatically.</div></div>`;
     const tag = c.status === 'no_show' ? '<span class="pill amber">No-show</span>' : '<span class="ai-badge">✦ AI SUMMARY</span>';
     return `<div class="ai-call"><div class="ac-head"><div><div class="ac-when">${c.when}</div><div class="ac-type">${c.type}</div></div>${tag}</div>
       <div class="ac-sum">${c.summary}</div>
       ${c.actions && c.actions.length ? `<div class="ac-actions"><div class="aca-lbl">AI-extracted action items</div><ul>${c.actions.map(a=>`<li>${a}</li>`).join('')}</ul></div>` : ''}</div>`;
   }).join('') : '<div class="empty-col">No calls recorded yet.</div>';
   $('cpCalls').innerHTML = `<div class="card-title"><span class="dot" style="background:var(--purple)"></span> Zoom call summaries</div>
-    <div class="ai-banner"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg> AI automatically joins, records &amp; summarises every Zoom call — no manual notes needed.</div>
+    <div class="ai-banner"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg> AI automatically joins, records &amp; summarises every Zoom call, no manual notes needed.</div>
     ${callsHtml}`;
 
   // AI handover summary

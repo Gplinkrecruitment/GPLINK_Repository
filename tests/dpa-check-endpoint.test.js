@@ -1,5 +1,5 @@
 // Public-surface HTTP tests for GET /api/dpa/check (no session/auth required
-// by design — the practice-intake page that calls this has no session at
+// by design, the practice-intake page that calls this has no session at
 // all). Boots the real server in LOCAL-JSON mode, same pattern as
 // tests/practice-intake-endpoints.test.js. Mocks globalThis.fetch so no test
 // ever reaches the real Department of Health service.

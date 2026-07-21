@@ -1,4 +1,4 @@
-// Phase 6 I1 (audit M2) — outbound email template library.
+// Phase 6 I1 (audit M2), outbound email template library.
 //
 // lib/email-templates.js: curated defaults + {{placeholder}} rendering + merge
 // with DB override rows. /api/admin/email-templates: read = any admin, manage =
@@ -75,7 +75,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('email templates — curated defaults + rendering (lib)', () => {
+describe('email templates, curated defaults + rendering (lib)', () => {
   it('ships a genuinely useful seeded set', () => {
     const keys = DEFAULT_EMAIL_TEMPLATES.map((t) => t.key);
     expect(keys).toEqual(expect.arrayContaining([
@@ -90,9 +90,9 @@ describe('email templates — curated defaults + rendering (lib)', () => {
   });
 
   it('substitutes {{placeholders}} the context provides and leaves the rest visible', () => {
-    const tpl = { subject: 'Interview confirmed — {{practiceName}}', body: 'Hi {{firstName}},\n\n{{rsoName}}' };
+    const tpl = { subject: 'Interview confirmed, {{practiceName}}', body: 'Hi {{firstName}},\n\n{{rsoName}}' };
     const out = renderEmailTemplate(tpl, { firstName: 'Amara', practiceName: 'Sunshine Medical' });
-    expect(out.subject).toBe('Interview confirmed — Sunshine Medical');
+    expect(out.subject).toBe('Interview confirmed, Sunshine Medical');
     expect(out.body).toContain('Hi Amara,');
     // Unknown/empty tokens stay visible so the sender can fill them in.
     expect(out.body).toContain('{{rsoName}}');

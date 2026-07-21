@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 
-// js/bypass-config.js ships NO plaintext personal email — temporary bypass
+// js/bypass-config.js ships NO plaintext personal email, temporary bypass
 // entries are keyed by the SHA-256 hex digest of the lowercase email. These
 // tests prove the embedded digest matches the intended email and that the
 // hash-compare activation behaves exactly like the old plaintext lookup.
@@ -103,7 +103,7 @@ describe('bypass-config hashed allowlist', () => {
       gp_bypass_digest_match: JSON.stringify({ email: BYPASS_EMAIL, digest: EXPECTED_DIGEST, expiresAt: EXPIRY }),
     };
     const { sandbox } = runBypassConfig({ email: BYPASS_EMAIL, nowIso: '2026-08-01T00:00:00.000Z', localStorageSeed: seed });
-    // No await — the cached match must activate before the script returns.
+    // No await, the cached match must activate before the script returns.
     expect(sandbox.BYPASS_LOCK_EMAILS[BYPASS_EMAIL]).toBe(true);
   });
 });

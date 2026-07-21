@@ -153,7 +153,7 @@ describe('validatePracticeIntakePayload', () => {
     expect(result.value.nursing_on_site).toBe(false);
   });
 
-  it('coerces a blank optional boolean (visa_sponsorship) to null, not false — "unknown" is not "no"', () => {
+  it('coerces a blank optional boolean (visa_sponsorship) to null, not false, "unknown" is not "no"', () => {
     const result = validatePracticeIntakePayload(validPayload({ visa_sponsorship: '' }));
     expect(result.ok).toBe(true);
     expect(result.value.visa_sponsorship).toBeNull();
@@ -251,7 +251,7 @@ describe('buildMaskedDisplayLabel', () => {
     expect(label).toBe('Non-DPA');
   });
 
-  it('never includes a practice name — output is a masked shape assembled only from billing/dpa/city', () => {
+  it('never includes a practice name, output is a masked shape assembled only from billing/dpa/city', () => {
     const label = buildMaskedDisplayLabel({ billingStyle: 'private', dpa: true, nearestCity: 'Brisbane' });
     expect(label).not.toMatch(/medical|clinic|centre|practice/i);
   });
@@ -300,7 +300,7 @@ describe('canRevealPracticeIdentityCore', () => {
 
   it('is false when revealed/origin columns are missing entirely (undefined, not false) and the offer is only sent', () => {
     // Missing-column tolerance: an application row read before migration
-    // 20260705100000 has no `revealed`/`origin` columns at all — both come
+    // 20260705100000 has no `revealed`/`origin` columns at all, both come
     // back undefined, not false. The core rule must still safely return
     // false rather than throwing or coercing undefined into a reveal.
     expect(
@@ -362,7 +362,7 @@ describe('rankRolesForGp', () => {
   });
 
   // Task 11: /api/career/roles ranks the ALREADY client-serialized shape
-  // produced by mapCareerRoleRowToClient — `state` (not `location_state`),
+  // produced by mapCareerRoleRowToClient, `state` (not `location_state`),
   // `nearest_city`, `dpa`, and no `published_at`/`created_at` timestamp at
   // all. Must still rank without crashing and keep stable ordering.
   it('ranks client-role-shaped objects (mapCareerRoleRowToClient output: state, nearest_city, dpa, no timestamp field)', () => {
@@ -417,7 +417,7 @@ describe('buildRedactedRoleStub', () => {
   });
 
   // Task 11: gated client roles carry dpa/nearest_city/practiceName straight
-  // from mapCareerRoleRowToClient — confirm none of that survives into the stub.
+  // from mapCareerRoleRowToClient, confirm none of that survives into the stub.
   it('leaks no dpa/nearest_city/headerImageUrl/displayLabel fields from a gated client role', () => {
     const gatedClientRole = {
       id: 'internal_ats:secret1',
@@ -494,7 +494,7 @@ describe('buildCongratsEmailCopy', () => {
       practiceName: 'Fitzroy Medical',
       secureUrl: 'https://app.mygplink.com.au/secure/xyz789',
     });
-    expect(copy.subject).toBe('Congratulations — a practice wants to meet you 🎉');
+    expect(copy.subject).toBe('Congratulations, a practice wants to meet you 🎉');
     expect(copy.body).toMatch(/Fitzroy Medical/);
     expect(copy.ctaText).toBe('Secure My Interview');
     expect(copy.ctaUrl).toBe('https://app.mygplink.com.au/secure/xyz789');

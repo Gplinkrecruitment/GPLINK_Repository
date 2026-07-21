@@ -88,7 +88,7 @@
       box-shadow:0 2px 6px -2px rgba(220,38,38,.5);
     }
 
-    /* ─── DESKTOP TOPBAR (shell nav) — hidden on mobile ─── */
+    /* ─── DESKTOP TOPBAR (shell nav), hidden on mobile ─── */
     .desktop-nav {
       display:none; align-items:center; justify-content:space-between;
       max-width:1040px; margin:0 auto; padding:18px 24px;
@@ -745,7 +745,7 @@
             </label>
             <label class="pref-row">
               <input type="checkbox" id="prefPush" data-pref-key="push" checked />
-              <span class="pref-label"><b>Push notifications</b><small id="prefPushHint">Instant updates on this device — interviews, offers and application progress.</small></span>
+              <span class="pref-label"><b>Push notifications</b><small id="prefPushHint">Instant updates on this device, interviews, offers and application progress.</small></span>
             </label>
           </div>
           <p class="security-copy" style="margin-top:10px;">Important messages about your registration, documents, offers, interviews and account security are always sent.</p>
@@ -1435,7 +1435,7 @@
        (and children count) during onboarding. Those answers live in
        user_state.gp_onboarding under different key names
        (preferredCity / targetDate / whoMoving / childrenCount) and are NOT
-       part of the /api/profile record — so this section rendered blank even
+       part of the /api/profile record, so this section rendered blank even
        though the GP had filled it in. Read them from /api/state and write
        edits straight back there, so the account page is an honest, editable
        window onto the same answers (single source of truth: gp_onboarding). */
@@ -1489,7 +1489,7 @@
         var ob = parseOnboardingBlob(stateObj.gp_onboarding);
         state.onboardingBlob = ob;
         var reloc = relocationFieldsFromOnboarding(ob);
-        // Onboarding is the source of truth for these four — always apply.
+        // Onboarding is the source of truth for these four, always apply.
         fieldEls.cityOfChoice.value = reloc.cityOfChoice;
         fieldEls.preferredStartDate.value = reloc.preferredStartDate;
         fieldEls.movingParty.value = reloc.movingParty;
@@ -1499,7 +1499,7 @@
         state.profile.movingParty = reloc.movingParty;
         state.profile.childrenMovingCount = reloc.childrenMovingCount;
         updateChildrenMovingVisibility();
-        // Loaded values are already "saved" — don't flag the form dirty.
+        // Loaded values are already "saved", don't flag the form dirty.
         state.lastSavedSnapshot = formSnapshot();
         updateSaveButtonState();
         renderSummary();
@@ -1621,7 +1621,7 @@
         if (!force) state.pendingAutoSave = true;
         return;
       }
-      // Relocation fields live in gp_onboarding, not the profile record — note
+      // Relocation fields live in gp_onboarding, not the profile record, note
       // whether they changed BEFORE lastSavedSnapshot is refreshed below.
       var relocChanged = relocationChangedSince(state.lastSavedSnapshot);
       state.isSaving = true;
@@ -1940,9 +1940,9 @@
           input.checked = false;
           var pushReason = pushResult && pushResult.reason;
           if (pushReason === "denied") {
-            setPrefStatus("Notifications are blocked for this site — allow them in your browser settings, then try again.", true);
+            setPrefStatus("Notifications are blocked for this site, allow them in your browser settings, then try again.", true);
           } else if (pushReason === "not-configured") {
-            setPrefStatus("Push notifications aren't available yet — check back soon.", true);
+            setPrefStatus("Push notifications aren't available yet, check back soon.", true);
           } else {
             setPrefStatus("Couldn't enable push notifications. Please try again.", true);
           }
@@ -2014,7 +2014,7 @@
           });
           var data = await response.json();
           if (!response.ok || !data.ok) throw new Error(data && data.message ? data.message : "Couldn't send verification.");
-          setChangeEmailStatus("Check the inbox of " + newEmail + " — click the link to confirm the change.", false);
+          setChangeEmailStatus("Check the inbox of " + newEmail + ", click the link to confirm the change.", false);
           if (newEmailInputEl) newEmailInputEl.value = "";
         } catch (err) {
           setChangeEmailStatus(err.message || "Couldn't send. Check connection.", true);

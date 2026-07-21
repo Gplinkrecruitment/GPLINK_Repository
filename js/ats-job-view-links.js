@@ -1,5 +1,5 @@
 /* ============================================================================
- * ats-job-view-links.js — pure helper that turns an ATS jobs-list card into the
+ * ats-job-view-links.js, pure helper that turns an ATS jobs-list card into the
  * two "view this opening" URLs used by the CEO/consultant Jobs board:
  *   • appUrl     → the in-app (logged-in) job page  /pages/job.html?id=<publicId>
  *   • websiteUrl → the public marketing job page     /jobs/view?id=<publicId>
@@ -10,7 +10,7 @@
  * from provider/provider_role_id as a fallback.
  *
  * Loaded as a classic <script> (exposes window.buildJobViewLinks) and importable
- * from Node/vitest via module.exports — no DOM or window dependency.
+ * from Node/vitest via module.exports, no DOM or window dependency.
  * ========================================================================== */
 (function (root, factory) {
   'use strict';

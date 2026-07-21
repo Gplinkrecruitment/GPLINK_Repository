@@ -1,4 +1,4 @@
-// Phase 6 C1 — admin two-factor authentication (TOTP), lockout-safe.
+// Phase 6 C1, admin two-factor authentication (TOTP), lockout-safe.
 //
 // Boots the REAL server against the in-memory Supabase emulator pattern from
 // tests/ats-consultant-access.test.js (PostgREST + /auth/v1/token password
@@ -6,7 +6,7 @@
 //
 // The single most important property proven here (test: "NO LOCKOUT ..."):
 // an admin with NO admin_mfa enrolment ALWAYS gets a session from
-// /api/admin/auth/login — even with REQUIRE_ADMIN_MFA=true — the flag only
+// /api/admin/auth/login even with REQUIRE_ADMIN_MFA=true the flag only
 // adds mfaEnrolmentRequired:true to the response. Nobody can be locked out.
 //
 // Also covered: enrol (setup → enable) returns 8 one-time backup codes;
@@ -296,7 +296,7 @@ describe('enrolment (setup → enable)', () => {
     expect(Array.isArray(r.body.backupCodes)).toBe(true);
     expect(r.body.backupCodes.length).toBe(8);
     ownerBackupCodes = r.body.backupCodes;
-    // Only hashes are stored — no plaintext code appears in the DB row.
+    // Only hashes are stored, no plaintext code appears in the DB row.
     const row = db.admin_mfa.find((x) => x.admin_email === SUPER_EMAIL);
     expect(row).toBeTruthy();
     expect(row.disabled).toBe(false);
@@ -383,7 +383,7 @@ describe('login step-up for the enrolled admin', () => {
 });
 
 describe('backup codes (lost-device recovery)', () => {
-  it('a backup code completes login instead of a TOTP code — exactly once', async () => {
+  it('a backup code completes login instead of a TOTP code, exactly once', async () => {
     const code = ownerBackupCodes[0];
     const login1 = await loginPassword(SUPER_EMAIL, SUPER_HOST);
     const r1 = await httpReq('POST', '/api/admin/auth/login/mfa', {
@@ -476,7 +476,7 @@ describe('hardening: re-enrolment guard, single-spend backup codes, TOTP replay'
     const setup = await doSetup();
     const r = await httpReq('POST', '/api/admin/mfa/enable', {
       host: SUPER_HOST, cookie: ownerCookie,
-      // A perfectly valid confirmation of the NEW secret — still refused,
+      // A perfectly valid confirmation of the NEW secret, still refused,
       // because possession of the session alone must not rotate 2FA.
       body: { setupToken: setup.body.setupToken, token: totp.generateTotp(setup.body.secret) }
     });

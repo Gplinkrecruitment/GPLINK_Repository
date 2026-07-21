@@ -18,7 +18,7 @@ describe('buildAltCvRequestEmail', () => {
     expect(subject).toContain('Alternate Supervisor CV needed');
     expect(bodyHtml).toContain('Ahmed Mahmoud');
     expect(bodyHtml).toContain('Jane Doe');
-    expect(bodyHtml).toContain('Hazel — GP Link Registration Team');
+    expect(bodyHtml).toContain('Hazel, GP Link Registration Team');
   });
 
   it('joins multiple alternate supervisors into a readable list', () => {
@@ -59,7 +59,7 @@ describe('buildAltCvRequestEmail', () => {
       rsoSignoffName: '',
     });
     expect(bodyHtml).toContain('GP Link Registration Team');
-    expect(bodyHtml).not.toContain('— GP Link Registration Team');
+    expect(bodyHtml).not.toContain(', GP Link Registration Team');
   });
 
   it('HTML-escapes interpolated values so injected markup cannot survive', () => {

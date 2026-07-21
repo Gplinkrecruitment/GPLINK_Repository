@@ -1,4 +1,4 @@
-// Pure walkthrough state logic — no DOM, no browser globals. UMD so vitest can require it.
+// Pure walkthrough state logic, no DOM, no browser globals. UMD so vitest can require it.
 // State shape: { tourDone: bool, tips: { home, practice, support, account, scan : bool } }
 (function (root, factory) {
   var api = factory();

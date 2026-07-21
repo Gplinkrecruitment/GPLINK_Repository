@@ -1,4 +1,4 @@
-// Phase 2 Task 3 — Atlas job detail rebuild on pages/job.html.
+// Phase 2 Task 3, Atlas job detail rebuild on pages/job.html.
 //
 // job.html is a static HTML file served verbatim (no server-side templating),
 // so reading it straight from disk is an honest check of exactly what the
@@ -7,7 +7,7 @@
 // deterministic applicantBand (never a real count), the upgraded apply-guard
 // branches exist (CV modal, not-qualified, already-placed, closed, onboarding,
 // rate limit), the reveal gate + intro video are wired, and the identity vault
-// is a placeholder graphic — never real text under a CSS blur.
+// is a placeholder graphic, never real text under a CSS blur.
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -22,7 +22,7 @@ beforeAll(() => {
   html = fs.readFileSync(JOB_PAGE_PATH, 'utf8');
 });
 
-describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
+describe('job.html, Atlas detail rebuild (Phase 2 Task 3)', () => {
   it('never says "RSO" anywhere GP-visible', () => {
     expect(html).not.toMatch(/\bRSO\b/);
   });
@@ -90,7 +90,7 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
   it('keeps the CV upload modal machinery', () => {
     expect(html).toContain('cvModal');
     // The modal uploads through the AI-scanned careers CV endpoint (stores
-    // document_key career_cv) — the legacy /api/career/upload-cv is gone.
+    // document_key career_cv), the legacy /api/career/upload-cv is gone.
     expect(html).toContain('fetch("/api/career/profile/cv"');
     expect(html).not.toContain('/api/career/upload-cv');
     expect(html).toContain('readAsDataURL');
@@ -115,9 +115,9 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
     expect(html).toContain('exact address shared on acceptance');
   });
 
-  it('name-on-acceptance dropdown masks the practice identity — never real text under the mask (2026-07 redesign)', () => {
+  it('name-on-acceptance dropdown masks the practice identity, never real text under the mask (2026-07 redesign)', () => {
     // Redesign (2026-07) restyled the identity vault into the mockup's dark
-    // <details> dropdown (buildPracticeIdentityHtml) — same reveal gate,
+    // <details> dropdown (buildPracticeIdentityHtml), same reveal gate,
     // new markup. The masked bar stays a static CSS placeholder: no role
     // field is ever interpolated into it pre-reveal.
     expect(html).toContain('at-noa-mask');

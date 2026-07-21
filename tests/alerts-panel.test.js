@@ -1,9 +1,9 @@
-// Task 9 (AI Matching, 2026-07-06 plan) — Team Alerts panel redesign
+// Task 9 (AI Matching, 2026-07-06 plan), Team Alerts panel redesign
 // (mockup docs/mockups/matching/matching-alerts-redesign-v9.html, spec §11).
 //
 // This is a rendering-only upgrade to js/updates-sync.js: storage, data flow,
 // and public API stay identical. These are source-level (regex/string)
-// assertions — the file is browser JS with no DOM available under vitest —
+// assertions, the file is browser JS with no DOM available under vitest,
 // mirroring the existing pattern used by tests/ai-matching-*.test.js.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
@@ -15,7 +15,7 @@ const ROOT = path.join(__dirname, '..');
 
 const src = fs.readFileSync(path.join(ROOT, 'js/updates-sync.js'), 'utf8');
 
-describe('Team Alerts redesign (Task 9) — js/updates-sync.js', () => {
+describe('Team Alerts redesign (Task 9), js/updates-sync.js', () => {
   it('renders a serif "Team Alerts" title', () => {
     expect(src).toContain('<h4>Team Alerts</h4>');
     expect(src).toMatch(/font-family:\s*"Source Serif 4",\s*Georgia,\s*serif/);
@@ -123,7 +123,7 @@ describe('Team Alerts redesign (Task 9) — js/updates-sync.js', () => {
   });
 });
 
-describe('Team Alerts redesign (Task 9) — cache buster bumped everywhere', () => {
+describe('Team Alerts redesign (Task 9), cache buster bumped everywhere', () => {
   const pages = [
     'pages/index.html',
     'pages/app-shell.html',

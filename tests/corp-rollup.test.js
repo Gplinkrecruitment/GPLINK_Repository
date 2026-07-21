@@ -1,4 +1,4 @@
-// Phase 6 I2 — corporation parent link + rollup view.
+// Phase 6 I2, corporation parent link + rollup view.
 // practices.parent_corporation_id through the ATS practice endpoints:
 // persistence + read-back (with the parent's display name), the corporation
 // detail rollup (members + aggregates), and the write-path validation (only a
@@ -73,14 +73,14 @@ beforeAll(async () => {
     { ...base, id: MEMBER_2, name: 'Member Two Clinic ' + RUN_ID, location_city: 'Cairns', location_state: 'QLD', org_type: 'practice', stage: 'prospective' },
     { ...base, id: LONER, name: 'Loner Clinic ' + RUN_ID, location_city: 'Hobart', location_state: 'TAS', org_type: 'practice', stage: 'active' }
   );
-  // Live jobs attach to practices by name in atsListPracticesDerived — two on
+  // Live jobs attach to practices by name in atsListPracticesDerived, two on
   // Member One, one on Member Two, so the group rollup totals 3.
   seeded.atsJobs = seeded.atsJobs || [];
   const jobBase = { provider: 'internal_ats', is_active: true, job_status: 'open', approval_status: 'approved', ats_created: true, created_at: now, updated_at: now };
   seeded.atsJobs.push(
-    { ...jobBase, id: 'jm1a-' + RUN_ID, title: 'GP — Member One A', practice_name: 'Member One Clinic ' + RUN_ID, location_city: 'Brisbane', location_state: 'QLD' },
-    { ...jobBase, id: 'jm1b-' + RUN_ID, title: 'GP — Member One B', practice_name: 'Member One Clinic ' + RUN_ID, location_city: 'Brisbane', location_state: 'QLD' },
-    { ...jobBase, id: 'jm2a-' + RUN_ID, title: 'GP — Member Two A', practice_name: 'Member Two Clinic ' + RUN_ID, location_city: 'Cairns', location_state: 'QLD' }
+    { ...jobBase, id: 'jm1a-' + RUN_ID, title: 'GP, Member One A', practice_name: 'Member One Clinic ' + RUN_ID, location_city: 'Brisbane', location_state: 'QLD' },
+    { ...jobBase, id: 'jm1b-' + RUN_ID, title: 'GP, Member One B', practice_name: 'Member One Clinic ' + RUN_ID, location_city: 'Brisbane', location_state: 'QLD' },
+    { ...jobBase, id: 'jm2a-' + RUN_ID, title: 'GP, Member Two A', practice_name: 'Member Two Clinic ' + RUN_ID, location_city: 'Cairns', location_state: 'QLD' }
   );
   fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
   const { createServer } = await import('../server.js');
@@ -159,7 +159,7 @@ describe('corporation rollup', () => {
   });
 
   it('a corporation with no members returns an empty rollup, not an error', async () => {
-    // CORP_B has one member from the create test above — make a fresh corp.
+    // CORP_B has one member from the create test above, make a fresh corp.
     const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name: 'Empty Group ' + RUN_ID, org_type: 'corporation' } });
     const id = parse(c.raw).practice.id;
     const d = await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() });

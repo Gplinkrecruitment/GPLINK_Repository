@@ -12,13 +12,13 @@ describe('buildConflictLetterEmail', () => {
 
   it('interpolates the dynamic officer, supervisor, GP and CC into the body', () => {
     const { subject, bodyHtml } = buildConflictLetterEmail(base);
-    expect(subject).toBe('Conflict-of-interest confirmation for Dr Smith Miller — please email AHPRA');
+    expect(subject).toBe('Conflict-of-interest confirmation for Dr Smith Miller, please email AHPRA');
     expect(bodyHtml).toContain('Dr John Miller');
     expect(bodyHtml).toContain('jane.officer@ahpra.gov.au');
     expect(bodyHtml).toContain('hazel@mygplink.com.au');
     expect(bodyHtml).toContain('not impair');
     expect(bodyHtml).toContain('SOP Medical Centre');
-    expect(bodyHtml).toContain('Hazel — GP Link Registration Team');
+    expect(bodyHtml).toContain('Hazel, GP Link Registration Team');
   });
 
   it('HTML-escapes interpolated values in the body but not the subject', () => {

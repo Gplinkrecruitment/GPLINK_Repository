@@ -1,4 +1,4 @@
-// Phase 3 · Task 2 — admin job-detail editor endpoints with full intake-field
+// Phase 3 · Task 2, admin job-detail editor endpoints with full intake-field
 // parity (/api/ats/job GET+PATCH, /api/ats/jobs POST intake mode) plus the
 // contract-upload %PDF- magic-byte sniff.
 //
@@ -68,12 +68,12 @@ beforeAll(async () => {
   seeded.atsJobs = seeded.atsJobs || [];
   const NOW = new Date().toISOString();
   seeded.atsJobs.push(
-    // je1 — approved live internal job used for the full-parity PATCH, the GET
+    // je1, approved live internal job used for the full-parity PATCH, the GET
     // round-trip, and the GP detail intro-video integration. Carries an OLD
     // intake-era video in source_payload so editor authority is proven.
     {
       id: 'je1', provider: 'internal_ats', provider_role_id: 'ats_je1',
-      title: 'GP — Editor Row One', masked_title: 'DPA - Oldtown - Mixed Billing',
+      title: 'GP, Editor Row One', masked_title: 'DPA - Oldtown - Mixed Billing',
       practice_name: 'Editor Practice One', location_city: 'Brisbane', location_state: 'QLD',
       suburb: 'Oldtown', nearest_city: 'Brisbane', billing_model: 'mixed', dpa: true,
       summary: 'Original summary', is_active: true, job_status: 'open', approval_status: 'approved',
@@ -82,10 +82,10 @@ beforeAll(async () => {
       details: { legacy_note: 'keep-me' },
       created_at: NOW, updated_at: NOW
     },
-    // je2 — masked-title recompute + validation target.
+    // je2, masked-title recompute + validation target.
     {
       id: 'je2', provider: 'internal_ats', provider_role_id: 'ats_je2',
-      title: 'GP — Editor Row Two', masked_title: 'DPA - Westbrook - Bulk Billing',
+      title: 'GP, Editor Row Two', masked_title: 'DPA - Westbrook - Bulk Billing',
       practice_name: 'Editor Practice Two', location_city: 'Toowoomba', location_state: 'QLD',
       suburb: 'Westbrook', nearest_city: 'Toowoomba', billing_model: 'bulk', dpa: true,
       summary: 'Row two summary', is_active: true, job_status: 'open', approval_status: 'approved',
@@ -104,7 +104,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('PATCH /api/ats/job — full intake-field parity', () => {
+describe('PATCH /api/ats/job, full intake-field parity', () => {
   it('persists every column-mapped + details-jsonb field and recomputes masked_title', async () => {
     const r = await req('PATCH', '/api/ats/job?id=je1', {
       host: SUPER_HOST, cookie: superCookie(),
@@ -137,7 +137,7 @@ describe('PATCH /api/ats/job — full intake-field parity', () => {
     expect(row.practice_type).toBe('Privately owned');
     expect(row.visa_pathway_aligned).toBe(true);
     expect(row.summary).toBe('Updated role summary');
-    // Details jsonb — merged, unknown keys kept
+    // Details jsonb, merged, unknown keys kept
     expect(row.details.gp_count).toBe('6');
     expect(row.details.percentage_split).toBe('70%');
     expect(row.details.incentives).toBe('Relocation bonus');
@@ -216,7 +216,7 @@ describe('masked-title recompute rules', () => {
   });
 });
 
-describe('partial validation — same rules as the intake form', () => {
+describe('partial validation, same rules as the intake form', () => {
   it('rejects a bad billing_style, naming the field', async () => {
     const r = await req('PATCH', '/api/ats/job?id=je2', { host: SUPER_HOST, cookie: superCookie(), body: { billing_style: 'gold-plated' } });
     expect(r.status).toBe(400);
@@ -257,7 +257,7 @@ describe('partial validation — same rules as the intake form', () => {
   });
 });
 
-describe('POST /api/ats/jobs — full manual creation via intake', () => {
+describe('POST /api/ats/jobs, full manual creation via intake', () => {
   const FULL_INTAKE = {
     practice_name: 'Wilsonton Family Practice', website: 'https://wilsonton.example',
     billing_style: 'mixed', dpa: true, mmm: 'MM4', visa_sponsorship: true,
@@ -289,7 +289,7 @@ describe('POST /api/ats/jobs — full manual creation via intake', () => {
     expect(b.editor.suburb).toBe('Wilsonton');
     expect(b.editor.billing_style).toBe('mixed');
     // Task 7 (Sub-task B): the practice's full-time/part-time answer must
-    // reach career_roles.employment_type — atsJobEditorPayload reads that
+    // reach career_roles.employment_type, atsJobEditorPayload reads that
     // COLUMN, not source_payload.intake, so createPendingJobFromIntake
     // must actually write it there or this box stays permanently blank.
     expect(row.employment_type).toBe('either');
@@ -311,16 +311,16 @@ describe('POST /api/ats/jobs — full manual creation via intake', () => {
   });
 
   it('legacy minimal POST is unchanged', async () => {
-    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP — Legacy Minimal', practice_id: 'p1', city: 'Cairns', state: 'QLD', type: 'Locum', billing: 'Mixed billing' } });
+    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP, Legacy Minimal', practice_id: 'p1', city: 'Cairns', state: 'QLD', type: 'Locum', billing: 'Mixed billing' } });
     expect(r.status).toBe(200);
     const b = parse(r.raw);
-    expect(b.job.title).toBe('GP — Legacy Minimal');
+    expect(b.job.title).toBe('GP, Legacy Minimal');
     expect(b.job.status).toBe('open');
-    expect(b.job.approval_status).toBe('approved'); // card default — live immediately, as before
+    expect(b.job.approval_status).toBe('approved'); // card default, live immediately, as before
   });
 });
 
-describe('GP-facing integration — intro video surfaces, operational detail does not', () => {
+describe('GP-facing integration, intro video surfaces, operational detail does not', () => {
   it('details.intro_video_url written by PATCH surfaces as introVideoUrl on the GP detail endpoint', async () => {
     const r = await req('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_je1'), { cookie: gpCookie() });
     expect(r.status).toBe(200);
@@ -341,7 +341,7 @@ describe('GP-facing integration — intro video surfaces, operational detail doe
   });
 });
 
-describe('contract upload — %PDF- magic-byte sniff', () => {
+describe('contract upload, %PDF- magic-byte sniff', () => {
   it('rejects a data URL that claims application/pdf but is not a PDF', async () => {
     const fake = 'data:application/pdf;base64,' + Buffer.from('hello, definitely not a pdf').toString('base64');
     const r = await req('POST', '/api/ats/practice/contract', { host: SUPER_HOST, cookie: superCookie(), body: { id: 'p1', file_data: fake } });

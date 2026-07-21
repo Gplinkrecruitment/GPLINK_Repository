@@ -26,7 +26,7 @@
     ],
     _plainDefault: [
       "Show your full name and the document date",
-      "Whole page in frame — no fingers over the text",
+      "Whole page in frame, no fingers over the text",
       "Even lighting, no glare across the page"
     ],
     primary_medical_degree: [
@@ -193,7 +193,7 @@
     });
   }
 
-  /* ── Rule-based live lighting hint (local heuristics only — no AI) ── */
+  /* ── Rule-based live lighting hint (local heuristics only, no AI) ── */
   function resetLiveHint() {
     lastLiveState = "";
     setLiveHint("ok", "Hold steady");
@@ -239,9 +239,9 @@
         count++;
       }
       var avg = count ? sum / count : 0;
-      if (avg < 55) setLiveHint("warn", "Too dark — find more light");
-      else if (avg > 238) setLiveHint("warn", "Too bright — reduce glare");
-      else setLiveHint("ok", "Lighting looks good — hold steady");
+      if (avg < 55) setLiveHint("warn", "Too dark, find more light");
+      else if (avg > 238) setLiveHint("warn", "Too bright, reduce glare");
+      else setLiveHint("ok", "Lighting looks good, hold steady");
     } catch (e) {
       // getImageData can throw on some tainted/!ready frames; ignore this tick
     }

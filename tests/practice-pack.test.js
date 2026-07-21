@@ -10,7 +10,7 @@ describe('buildMailtoLink', () => {
   it('encodes email, subject, and body', () => {
     const link = buildMailtoLink(
       'contact@practice.com',
-      'Offer/Contract Required — Dr Smith at SOP Medical',
+      'Offer/Contract Required, Dr Smith at SOP Medical',
       'Hi Jane,\n\nWe require the agreement.\n\nKind regards,\nGP Link Team'
     );
     expect(link).toContain('mailto:contact%40practice.com');

@@ -1,7 +1,7 @@
 /**
  * Automatic client error reporting.
  *
- * Five sources, all automatic — nobody has to report a bug for us to hear
+ * Five sources, all automatic, nobody has to report a bug for us to hear
  * about it:
  *   crash               window.onerror (an uncaught exception)
  *   unhandled_rejection a promise that rejected with nobody listening
@@ -10,7 +10,7 @@
  *   console_error       an exception that WAS caught but only console.error'd
  *
  * WHY the last three exist: window.onerror only sees CRASHES. The failures
- * that hurt worst were the handled ones — an upload POST returned 500, the
+ * that hurt worst were the handled ones, an upload POST returned 500, the
  * catch block logged to console, and the doctor was shown a green "Verified"
  * tick. Nothing crashed, so nothing was ever reported.
  *
@@ -66,7 +66,7 @@
   function showToast() {
     try {
       var el = document.createElement('div');
-      el.textContent = 'Something went wrong — we\'ve been notified';
+      el.textContent = 'Something went wrong, we\'ve been notified';
       el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:#fff;padding:10px 20px;border-radius:8px;font-size:14px;z-index:99999;opacity:1;transition:opacity 0.4s;pointer-events:none;white-space:nowrap';
       document.body.appendChild(el);
       setTimeout(function () { el.style.opacity = '0'; }, 3400);
@@ -77,7 +77,7 @@
   /**
    * report(message, stack, url, kind, options)
    *
-   * options.silent — when true, the doctor is told NOTHING. Reporting and
+   * options.silent, when true, the doctor is told NOTHING. Reporting and
    * telling the user are deliberately separate concerns:
    *   - a crash froze the screen, so the toast explains why → NOT silent
    *   - a background API call failed and the page handled it → SILENT
@@ -115,7 +115,7 @@
         // digest group on it, so keep it a short stable tag per signature.
         context: 'kind=' + errKind + (opts.context ? ' · ' + opts.context : '')
       };
-      // XHR, not fetch — fetch is wrapped below and we must not observe or
+      // XHR, not fetch, fetch is wrapped below and we must not observe or
       // rate-limit our own reporting traffic.
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/errors/report', true);
@@ -149,7 +149,7 @@
   // hard. Query strings routinely carry tokens, magic-link secrets, document
   // ids and email addresses, so the whole query is thrown away rather than
   // filtered. The server also redacts emails on write, but we do not rely on
-  // that — the address must never leave the browser inside free text.
+  // that, the address must never leave the browser inside free text.
   var EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
   function sanitizeUrl(raw) {
@@ -158,7 +158,7 @@
       s = s.split('#')[0];
       var qi = s.indexOf('?');
       if (qi >= 0) s = s.slice(0, qi) + '?[query removed]';
-      // Same-origin URLs become bare paths — shorter and easier to group.
+      // Same-origin URLs become bare paths, shorter and easier to group.
       try {
         if (window.location && window.location.origin && s.indexOf(window.location.origin) === 0) {
           s = s.slice(window.location.origin.length) || '/';
@@ -180,7 +180,7 @@
   // nothing is excluded "just in case".
   function isRoutineAuthRefusal(path) {
     // The auth probe every page fires on boot. Returns 401 whenever the person
-    // is signed out — i.e. on every public page, every time.
+    // is signed out, i.e. on every public page, every time.
     if (path.indexOf('/api/auth/') === 0) return true;
     // auth-guard.js polls this to detect restricted/under-review accounts;
     // 401 while signed out is its normal answer.
@@ -201,7 +201,7 @@
     if (status >= 500) return true;
     if (status === 401 || status === 403) return !isRoutineAuthRefusal(path);
     // 404/405 on a NON-api URL means a page, template or asset we asked for
-    // is not where the code thinks it is — a genuinely broken path.
+    // is not where the code thinks it is, a genuinely broken path.
     //
     // /api/ 404s are deliberately NOT reported: 200+ endpoints in server.js
     // answer 404 to mean "no such record" or "that token is not valid" (an
@@ -248,7 +248,7 @@
     var path = absolute.pathname;
 
     // NEVER observe our own reporting endpoint. A 500 here would report a 500,
-    // which would report a 500 — an infinite loop hammering production.
+    // which would report a 500, an infinite loop hammering production.
     if (path.indexOf('/api/errors/report') === 0) return;
 
     if (!shouldReportStatus(response.status, path)) return;
@@ -294,7 +294,7 @@
 
   // ── 3. Resource load failures ─────────────────────────────────────────────
   // A <script>, <img> or stylesheet that 404s fires an `error` event on the
-  // ELEMENT. It does not bubble, and window.onerror never sees it — so a
+  // ELEMENT. It does not bubble, and window.onerror never sees it, so a
   // missing script (the page silently loses a feature) was invisible. Only a
   // capture-phase listener on window catches these.
   var RESOURCE_TAGS = { SCRIPT: 1, IMG: 1, LINK: 1, VIDEO: 1, AUDIO: 1, SOURCE: 1, IFRAME: 1, TRACK: 1 };
@@ -303,7 +303,7 @@
     try {
       var target = evt && evt.target;
       // An uncaught script error is dispatched on window itself and is already
-      // handled by window.onerror above — do not report it twice.
+      // handled by window.onerror above, do not report it twice.
       if (!target || target === window || !target.tagName) return;
       var tag = String(target.tagName).toUpperCase();
       if (!RESOURCE_TAGS[tag]) return;
@@ -342,7 +342,7 @@
               parts.push(a.message);
               if (!stack && a.stack) stack = String(a.stack);
             } else if (a && typeof a === 'object') {
-              // Objects are NOT serialised — a logged API response or form
+              // Objects are NOT serialised, a logged API response or form
               // object would carry personal data straight into the report.
               parts.push('[object]');
             } else {

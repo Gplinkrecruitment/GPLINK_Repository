@@ -9,7 +9,7 @@ import path from 'path';
 // button pointed at /pages/myintealth.html; the real file is myinthealth.html
 // (no 'h' after 'myint'). Nothing caught it, because the request 302s from
 // /pages/x.html to the clean /pages/x *before* any file check, and the auth gate
-// then bounces an anonymous request to /pages/signin — so the link looks alive
+// then bounces an anonymous request to /pages/signin, so the link looks alive
 // until a signed-in GP clicks it and gets "Not found". It was the first email a
 // GP receives after finishing onboarding.
 //

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Phase 3 Task 3 — static source pins on the CEO Practices tab client script
+// Phase 3 Task 3, static source pins on the CEO Practices tab client script
 // (same style as tests/ceo-standalone-ui.test.js: readFile + regex asserts).
 const root = process.cwd();
 const src = fs.readFileSync(path.join(root, 'js/ceo-ats-practices.js'), 'utf8');
@@ -87,8 +87,8 @@ describe('CEO Practices tab UI (Phase 3 Task 3)', () => {
   });
 });
 
-// Phase 6 I2 — corporation parent link + rollup view (same static-pin style).
-describe('CEO Practices tab — corporation parent link + rollup (Phase 6 I2)', () => {
+// Phase 6 I2, corporation parent link + rollup view (same static-pin style).
+describe('CEO Practices tab, corporation parent link + rollup (Phase 6 I2)', () => {
   it('add/edit modal carries a parent-corporation dropdown wired into create/save', () => {
     expect(src).toMatch(/id="atsFParentCorpWrap"/);
     expect(src).toMatch(/id="atsFParentCorp"/);

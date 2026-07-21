@@ -1,9 +1,9 @@
 // Phase 6 Batch A security fixes (audit 2026-07-07):
-//  C1 — weekly backup no longer dumps process.env secrets (isBackupSafeEnvKey, default deny)
-//  C2 — Gmail Pub/Sub webhook requires GMAIL_WEBHOOK_SECRET when set (?token= or Bearer),
+//  C1, weekly backup no longer dumps process.env secrets (isBackupSafeEnvKey, default deny)
+//  C2, Gmail Pub/Sub webhook requires GMAIL_WEBHOOK_SECRET when set (?token= or Bearer),
 //       stays open (back-compat) when unset
-//  C3 — BK_TABLES covers the newer tables (placements, practices, ats_offers, ...)
-//  C7 — privacy/terms/blog resolve publicly for anonymous visitors
+//  C3, BK_TABLES covers the newer tables (placements, practices, ats_offers, ...)
+//  C7, privacy/terms/blog resolve publicly for anonymous visitors
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -40,7 +40,7 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = `/tmp/gplink-security-phase6-${RUN_ID}.json`;
-  delete process.env.GMAIL_WEBHOOK_SECRET; // start UNSET — the secret is read live per request
+  delete process.env.GMAIL_WEBHOOK_SECRET; // start UNSET, the secret is read live per request
 
   const mod = await import('../server.js');
   testUtils = mod.__testUtils;
@@ -54,7 +54,7 @@ afterAll(async () => {
   try { fs.unlinkSync(process.env.DB_FILE_PATH); } catch {}
 });
 
-describe('C2 — Gmail webhook auth', () => {
+describe('C2, Gmail webhook auth', () => {
   it('with secret UNSET, an unauthenticated POST is still accepted (back-compat)', async () => {
     delete process.env.GMAIL_WEBHOOK_SECRET;
     const res = await request('POST', '/api/webhooks/gmail', { body: {} });
@@ -92,7 +92,7 @@ describe('C2 — Gmail webhook auth', () => {
   });
 });
 
-describe('C1 — isBackupSafeEnvKey (default deny)', () => {
+describe('C1, isBackupSafeEnvKey (default deny)', () => {
   const SECRET_KEYS = [
     'SUPABASE_SERVICE_ROLE_KEY', 'AUTH_SECRET', 'ZOOM_CLIENT_SECRET',
     'GMAIL_WEBHOOK_SECRET', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
@@ -123,7 +123,7 @@ describe('C1 — isBackupSafeEnvKey (default deny)', () => {
   }
 });
 
-describe('C3 — backup table coverage', () => {
+describe('C3, backup table coverage', () => {
   it('BACKUP_TABLES includes the newer tables from the audit', () => {
     const tables = testUtils.BACKUP_TABLES;
     expect(Array.isArray(tables)).toBe(true);
@@ -147,7 +147,7 @@ describe('C3 — backup table coverage', () => {
   });
 });
 
-describe('C7 — legal/blog pages public when logged out', () => {
+describe('C7, legal/blog pages public when logged out', () => {
   // The marketing footers link to /pages/privacy, /pages/terms and /pages/blog
   // (extensionless clean URLs); the server normalizes those to the .html file
   // internally, so a 200 here proves the anonymous gate lets them through.

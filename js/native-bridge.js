@@ -1,5 +1,5 @@
 /**
- * native-bridge.js — Capacitor native API bridge with web fallbacks
+ * native-bridge.js, Capacitor native API bridge with web fallbacks
  * Loaded on all pages. Provides safe wrappers for native features.
  */
 (function () {
@@ -191,7 +191,7 @@
     });
 
     PushNotifications.addListener("pushNotificationReceived", function (notification) {
-      // Notification received while app is in foreground — could show in-app toast
+      // Notification received while app is in foreground, could show in-app toast
     });
 
     PushNotifications.addListener("pushNotificationActionPerformed", function (notification) {

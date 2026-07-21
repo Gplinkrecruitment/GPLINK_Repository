@@ -43,8 +43,8 @@
         <div class="row"><span class="k">With</span><span class="v" id="inviteWith">the GP Link team</span></div>
         <div class="row"><span class="k">Length</span><span class="v" id="inviteLen">30 minutes</span></div>
         <a id="chooseTimeBtn" class="btn" target="_blank" rel="noopener">Choose a time</a>
-        <button id="refreshBtn" class="btn secondary" type="button">I've booked — refresh</button>
-        <p class="muted-note">Picking a time opens our booking page in a new tab. Once you've chosen, come back here — this page updates automatically and shows your Zoom link.</p>
+        <button id="refreshBtn" class="btn secondary" type="button">I've booked, refresh</button>
+        <p class="muted-note">Picking a time opens our booking page in a new tab. Once you've chosen, come back here, this page updates automatically and shows your Zoom link.</p>
       </div>
     </div>
 
@@ -92,7 +92,7 @@
       function fmtWhen(iso, tz) {
         if (!iso) return '';
         // timeZoneName appends the short tz label (e.g. BST, AEST) so the time
-        // clearly says which timezone it is in — the stored booking tz when the
+        // clearly says which timezone it is in, the stored booking tz when the
         // call carries one, else the device tz that is implicitly used anyway.
         try {
           var opts = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' };
@@ -109,7 +109,7 @@
         }
       }
       function renderInvite(call) {
-        document.getElementById('inviteTitle').textContent = 'Confirm your Zoom call' + (call.stageLabel ? ' — ' + call.stageLabel : '');
+        document.getElementById('inviteTitle').textContent = 'Confirm your Zoom call' + (call.stageLabel ? ', ' + call.stageLabel : '');
         var reason = call.meetingReason && call.meetingReason.trim()
           ? call.meetingReason.trim()
           : ('to help you with your ' + (call.stageLabel || 'registration') + ' registration');

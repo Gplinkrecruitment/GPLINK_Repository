@@ -37,7 +37,7 @@ describe('CEO standalone page UI', () => {
     expect(ceo).not.toMatch(/data-tab="medical"/);
     expect(ceo).not.toMatch(/id="mcContent"/);
     expect(ceo).not.toMatch(/loadMedicalCentres/);
-    // The old pop-out Guide link is gone — the guide is now the Registration → Guides
+    // The old pop-out Guide link is gone, the guide is now the Registration → Guides
     // sub-tab, mounted from the shared js/guide-panel.js component (CEO-editable).
     expect(ceo).not.toMatch(/href="\/pages\/admin\?view=guide"/);
     expect(ceo).toMatch(/data-regsub="guides"/);
@@ -149,7 +149,7 @@ describe('CEO standalone page UI', () => {
     // Every GP task-card style (.stage-task, .st-dropdown, etc.) is scoped under
     // .gp-parity AND relies on the scoped CSS vars (--line/--muted/--bg2) defined
     // only on .gp-parity. renderGpTasksTab() fills #gpDetailPane, so the pane element
-    // itself must carry gp-parity — otherwise the cards render unstyled and the •••
+    // itself must carry gp-parity, otherwise the cards render unstyled and the •••
     // dropdown items show permanently (the "task cards extremely badly put in" bug).
     expect(ceo).toMatch(/class="ceo-gp-detail-pane gp-parity" id="gpDetailPane"/);
     // The scoped vars must exist (the styles are useless without them).

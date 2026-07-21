@@ -280,7 +280,7 @@
 
       // --- Self-correction: release check --------------------------------
       // Belt-and-braces with auth-guard: if this GP is no longer on the PEP
-      // waitlist, they've been released — send them into the app.
+      // waitlist, they've been released, send them into the app.
       fetch("/api/account/status", { credentials: "same-origin" })
         .then(function (res) { return res.json(); })
         .then(function (data) {

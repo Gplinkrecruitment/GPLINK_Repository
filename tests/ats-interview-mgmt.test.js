@@ -1,4 +1,4 @@
-// Phase 5 Task 3 — ATS interview-management gaps A1/A2/A4.
+// Phase 5 Task 3, ATS interview-management gaps A1/A2/A4.
 //
 // Reuses the in-memory PostgREST emulator + fetch-mocking harness from
 // tests/career-interview-booking.test.js so the real server drives the full
@@ -52,11 +52,11 @@ const db = {
     { id: 'p-mgmt-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-mgmt-1', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r1', title: 'GP — VR (default-times)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
-    { id: 'role-mgmt-2', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r2', title: 'GP — VR (cancel-rebook)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
-    { id: 'role-mgmt-3', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r3', title: 'GP — VR (no-interview)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
-    { id: 'role-mgmt-4', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r4', title: 'GP — VR (not-booked)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
-    { id: 'role-mgmt-5', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r5', title: 'GP — VR (consultant)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-mgmt-1', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r1', title: 'GP, VR (default-times)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-mgmt-2', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r2', title: 'GP, VR (cancel-rebook)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-mgmt-3', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r3', title: 'GP, VR (no-interview)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-mgmt-4', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r4', title: 'GP, VR (not-booked)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-mgmt-5', provider: 'internal_ats', provider_role_id: 'ats_mgmt_r5', title: 'GP, VR (consultant)', practice_name: 'Greenslopes Family Medical', practice_id: 'p-mgmt-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     { id: 'app-mgmt-1', user_id: GP.userId, career_role_id: 'role-mgmt-1', provider_role_id: 'ats_mgmt_r1', applied_at: NOW, ...REVEALED },
@@ -262,7 +262,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('A1 — POST /api/ats/interview/use-default-times', () => {
+describe('A1, POST /api/ats/interview/use-default-times', () => {
   it('flips a stuck "requested" interview to "defaulted" so slots compute', async () => {
     // Request an interview (leaves practice availability 'requested').
     const reqRes = await atsPost('/api/ats/interview/request', { application_id: 'app-mgmt-1' });
@@ -309,7 +309,7 @@ describe('A1 — POST /api/ats/interview/use-default-times', () => {
   });
 });
 
-describe('A4 + A2 — book (ops-notified) then cancel & rebook', () => {
+describe('A4 + A2, book (ops-notified) then cancel & rebook', () => {
   it('A4: booking an interview also emails the ops inbox hello@mygplink.com.au', async () => {
     // GP self-serve slots auto-creates a 'defaulted' row; book the first slot.
     const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-mgmt-2');
@@ -376,7 +376,7 @@ describe('A4 + A2 — book (ops-notified) then cancel & rebook', () => {
     }
   });
 
-  it('A2: the interview is rebookable — GP can pick a new slot and book again', async () => {
+  it('A2: the interview is rebookable, GP can pick a new slot and book again', async () => {
     const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-mgmt-2');
     expect(slotsRes.status).toBe(200);
     expect(slotsRes.body.slots.length).toBeGreaterThan(0);

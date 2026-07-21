@@ -3,8 +3,8 @@
 // Proves, against the REAL server:
 //   1. Approving/rejecting a flagged onboarding qualification (task
 //      related_stage 'onboarding') mirrors the decision onto the
-//      onboarding_* -keyed user_documents row — not just the canonical-key
-//      row — because the onboarding wizard reads its documents back via
+//      onboarding_* -keyed user_documents row, not just the canonical-key
+//      row, because the onboarding wizard reads its documents back via
 //      GET /api/onboarding-documents, which only sees onboarding_* rows.
 //   2. The reject bell alert (and email CTA) deep-links back into the
 //      onboarding wizard (?reupload=<key> on onboarding.html), not
@@ -278,11 +278,11 @@ const gpCookie = () => mkUserCookie(GP.email, GP.userId);
 describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
   it('reject on an onboarding-origin task mirrors rejected+reason onto the onboarding_* row', async () => {
     const r = await postJson('/api/admin/va/task/review-flagged-doc',
-      { task_id: 't-ob-flag-1', decision: 'reject', note: 'Blurry scan — please re-upload.' }, adminCookie());
+      { task_id: 't-ob-flag-1', decision: 'reject', note: 'Blurry scan, please re-upload.' }, adminCookie());
     expect(r.status).toBe(200);
     const obRow = db.user_documents.find((d) => d.document_key === 'onboarding_specialist_qualification');
     expect(obRow.status).toBe('rejected');
-    expect(obRow.rejection_reason).toBe('Blurry scan — please re-upload.');
+    expect(obRow.rejection_reason).toBe('Blurry scan, please re-upload.');
   });
 
   it('the reject bell/notification target deep-links into onboarding, not my-documents', () => {
@@ -298,7 +298,7 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     const r = await getJson('/api/onboarding-documents?country=uk', gpCookie());
     expect(r.status).toBe(200);
     expect(r.body.docs.onboarding_specialist_qualification.status).toBe('rejected');
-    expect(r.body.docs.onboarding_specialist_qualification.rejection_reason).toBe('Blurry scan — please re-upload.');
+    expect(r.body.docs.onboarding_specialist_qualification.rejection_reason).toBe('Blurry scan, please re-upload.');
   });
 
   it('approve on an onboarding-origin task mirrors approved onto the onboarding_* row', async () => {
@@ -312,15 +312,15 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
 
   it('CCT (uk third doc): reject mirrors onto onboarding_cct_certificate + deep-links with cct_certificate', async () => {
     const r = await postJson('/api/admin/va/task/review-flagged-doc',
-      { task_id: 't-ob-flag-cct', decision: 'reject', note: 'CCT unreadable — please re-upload.' }, adminCookie());
+      { task_id: 't-ob-flag-cct', decision: 'reject', note: 'CCT unreadable, please re-upload.' }, adminCookie());
     expect(r.status).toBe(200);
 
     // Mirror/canonical mapping: the canonical cct_certificate row is written
-    // AND the onboarding-namespace row the wizard reads back is mirrored —
+    // AND the onboarding-namespace row the wizard reads back is mirrored,
     // same behaviour already pinned above for the two older onboarding keys.
     const obCctRow = db.user_documents.find((d) => d.document_key === 'onboarding_cct_certificate');
     expect(obCctRow.status).toBe('rejected');
-    expect(obCctRow.rejection_reason).toBe('CCT unreadable — please re-upload.');
+    expect(obCctRow.rejection_reason).toBe('CCT unreadable, please re-upload.');
     const canonCct = db.user_documents.find((d) => d.document_key === 'cct_certificate');
     expect(canonCct).toBeTruthy();
     expect(canonCct.status).toBe('rejected');
@@ -369,7 +369,7 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(r.status).toBe(200);
 
     // The onboarding wizard's row must be untouched by an AHPRA-stage
-    // decision — the mirror is gated to onboarding-origin tasks only.
+    // decision, the mirror is gated to onboarding-origin tasks only.
     expect(obDegreeRow.status).toBe('approved');
     expect(obDegreeRow.rejection_reason).toBe('');
 
@@ -400,7 +400,7 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
 
 describe('ops resend-doc-rejection-email', () => {
   // The test server (see beforeAll above) is booted with
-  // SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key' — that's the value
+  // SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key', that's the value
   // the endpoint compares x-gp-ops-key against.
   const SERVICE_KEY = 'test-service-role-key';
   const OPS_PATH = '/api/admin/ops/resend-doc-rejection-email';
@@ -427,7 +427,7 @@ describe('ops resend-doc-rejection-email', () => {
     // rather than depending on state left over by prior tests.
     const obRow = db.user_documents.find((d) => d.document_key === 'onboarding_specialist_qualification');
     obRow.status = 'rejected';
-    obRow.rejection_reason = 'Blurry scan — please re-upload.';
+    obRow.rejection_reason = 'Blurry scan, please re-upload.';
 
     const resendCallsBefore = resendCalls.length;
     const r = await httpReq('POST', OPS_PATH, {
@@ -441,11 +441,11 @@ describe('ops resend-doc-rejection-email', () => {
     // assumed RESEND_API_KEY is unset in this test file, expecting a 502 with
     // result.error === 'Email not configured'. In fact this file's beforeAll
     // (line ~236) sets process.env.RESEND_API_KEY = 'test-resend-key' and
-    // stubs global fetch to intercept api.resend.com calls with a 200 —
+    // stubs global fetch to intercept api.resend.com calls with a 200,
     // exactly the same mocked path the FIRST describe block's reject/approve
     // tests already exercise (see their "[sendEmail] Resend accepted" log
     // lines). So sendEmail() here genuinely succeeds against the emulator,
-    // and the honest, non-fabricated outcome is 200/ok:true — verified below
+    // and the honest, non-fabricated outcome is 200/ok:true, verified below
     // by asserting the mocked Resend call was actually made with the right
     // recipient, rather than asserting a failure mode that doesn't occur in
     // this harness.

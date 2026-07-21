@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════
-   GP LINK — DESIGN TOKENS  (single source of truth for the GP-side UI)
+   GP LINK, DESIGN TOKENS  (single source of truth for the GP-side UI)
    Loaded on every GP-facing page BEFORE the page's inline <style>.
    Pages consume these via var(--gp-*). Do not redefine these locally.
    ════════════════════════════════════════════════════════════════════ */
@@ -28,7 +28,7 @@
   --gp-hero-ink: #0b1322;        /* dark hero panels */
   --gp-grad-hero: linear-gradient(160deg, #0b1322 0%, #14203a 55%, #0e1a30 100%);
 
-  /* ── Status (one of each — no variants) ─────────────────────── */
+  /* ── Status (one of each, no variants) ─────────────────────── */
   --gp-green: #16a34a;        --gp-green-soft: #eafaf0;  --gp-green-border: #c5ecd4;
   --gp-amber: #d97706;        --gp-amber-soft: #fdf3e1;  --gp-amber-border: #f4ddb0;
   --gp-red:   #dc2626;        --gp-red-soft:   #fdf0f0;  --gp-red-border:   #f5cfcf;

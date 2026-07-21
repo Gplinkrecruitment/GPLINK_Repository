@@ -1,10 +1,10 @@
-// Phase 6 F4 — per-user session epoch: the "sign out of all devices" kill-switch.
+// Phase 6 F4, per-user session epoch: the "sign out of all devices" kill-switch.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator, the
 // two properties that matter most:
 //   1. DEPLOY SAFETY / BACK-COMPAT: a token with NO epoch claim (every session
 //      issued before this feature shipped) stays VALID while the user has no
-//      stored epoch row (and while the stored epoch is 0) — so deploying the
+//      stored epoch row (and while the stored epoch is 0), so deploying the
 //      feature can never mass-log-out live users.
 //   2. KILL-SWITCH: POST /api/account/sign-out-all bumps the stored epoch;
 //      every old token (epoch 0) is rejected afterwards, while a freshly
@@ -75,7 +75,7 @@ function startSupabaseEmulator() {
         res.writeHead(status, { 'Content-Type': 'application/json' });
         res.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
       };
-      // GoTrue password login — enough for /api/auth/login to issue a session.
+      // GoTrue password login, enough for /api/auth/login to issue a session.
       if (u.pathname === '/auth/v1/token') {
         const body = await readBody(req);
         if (body && String(body.email || '').toLowerCase() === GP.email && body.password === GP.password) {
@@ -131,7 +131,7 @@ function startSupabaseEmulator() {
 
 function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 // A token exactly like every PRE-F4 session cookie: { userProfile, expiresAt }
-// only — no epoch claim at all.
+// only, no epoch claim at all.
 function legacyCookie(email, supabaseUserId) {
   const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
@@ -208,7 +208,7 @@ afterAll(async () => {
 
 describe('session epoch kill-switch (Phase 6 F4)', () => {
   it('DEPLOY BACK-COMPAT: a token with no epoch claim is valid when the user has NO stored epoch row', async () => {
-    expect(db.user_session_epoch.length).toBe(0); // nothing stored — the state every live user is in at deploy time
+    expect(db.user_session_epoch.length).toBe(0); // nothing stored, the state every live user is in at deploy time
     const res = await httpReq('GET', '/api/account/notification-preferences', { cookie: legacyCookie(GP.email, GP.userId) });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
@@ -275,7 +275,7 @@ describe('session epoch kill-switch (Phase 6 F4)', () => {
     expect(revoke.status).toBe(200);
     expect(revoke.body.ok).toBe(true);
 
-    // The refresh token must be dead too — otherwise this device could mint a
+    // The refresh token must be dead too, otherwise this device could mint a
     // brand-new session (carrying the bumped epoch) and defeat the kill-switch.
     const replay = await httpReq('POST', '/api/auth/oauth/token', { body: { grant_type: 'refresh_token', refresh_token: refreshToken } });
     expect(replay.status).toBe(401);

@@ -2,14 +2,14 @@ const {
   parseSplit, nearestCity, abnOk, acnOk, idKind, derivePlace, buildGeneralLocation,
 } = require('../lib/practice-intake-logic');
 
-describe('parseSplit — the GP always takes the larger share', () => {
+describe('parseSplit, the GP always takes the larger share', () => {
   it('reads a single number as the GP share', () => {
     expect(parseSplit('70')).toMatchObject({ gp: 70, practice: 30, canonical: '70/30' });
   });
   it('reads 70/30 as GP 70', () => {
     expect(parseSplit('70/30')).toMatchObject({ gp: 70, practice: 30 });
   });
-  it('reads 30/70 as GP 70 — order does not matter, the larger share is the GP\'s', () => {
+  it('reads 30/70 as GP 70, order does not matter, the larger share is the GP\'s', () => {
     expect(parseSplit('30/70')).toMatchObject({ gp: 70, practice: 30 });
   });
   it('handles prose around the numbers', () => {
@@ -50,7 +50,7 @@ describe('parseSplit — the GP always takes the larger share', () => {
   });
 });
 
-describe('nearestCity — measured, never inferred', () => {
+describe('nearestCity, measured, never inferred', () => {
   it('finds Melbourne for Werribee', () => {
     const r = nearestCity(-37.899, 144.661);
     expect(r.city).toBe('Melbourne');
@@ -60,13 +60,13 @@ describe('nearestCity — measured, never inferred', () => {
     expect(nearestCity(-33.868, 151.209)).toMatchObject({ city: 'Sydney', km: 0 });
   });
   it('picks the regional centre over the far-away capital', () => {
-    // Erina, NSW Central Coast — closer to Newcastle/Sydney than to anything else
+    // Erina, NSW Central Coast, closer to Newcastle/Sydney than to anything else
     const r = nearestCity(-33.433, 151.396);
     expect(['Sydney', 'Newcastle', 'Central Coast']).toContain(r.city);
   });
 });
 
-describe('abnOk / acnOk — real checksums, not length checks', () => {
+describe('abnOk / acnOk, real checksums, not length checks', () => {
   it('accepts a valid ABN', () => {
     expect(abnOk('51824753556')).toBe(true); // ATO's own published test ABN
   });
@@ -88,13 +88,13 @@ describe('abnOk / acnOk — real checksums, not length checks', () => {
   });
 });
 
-describe('idKind — a practice may give us either', () => {
+describe('idKind, a practice may give us either', () => {
   it('identifies an ABN', () => expect(idKind('51 824 753 556')).toBe('ABN'));
   it('identifies an ACN', () => expect(idKind('004 085 616')).toBe('ACN'));
   it('returns null for junk', () => expect(idKind('12345')).toBeNull());
 });
 
-describe('derivePlace — one address answers four questions', () => {
+describe('derivePlace, one address answers four questions', () => {
   const googlePlace = {
     id: 'ChIJxyz',
     formattedAddress: '60 Erina Valley Rd, Erina NSW 2250, Australia',

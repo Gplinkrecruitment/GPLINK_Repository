@@ -1,11 +1,11 @@
 // Regression (owner screenshot 2026-07-09): the practice "Candidate decision"
-// page showed a "Loading…" spinner that never went away — practices saw a
+// page showed a "Loading…" spinner that never went away, practices saw a
 // permanent loading screen sitting on top of the working Approve button and
 // assumed the link was broken.
 //
 // Cause: #pdLoading has an author rule `display:flex` (id specificity). The page
 // hides sections by setting the `hidden` attribute, which relies on the UA rule
-// [hidden]{display:none} — but an author `display` on the same element always
+// [hidden]{display:none}, but an author `display` on the same element always
 // beats that, so `el.loading.hidden = true` could not hide the spinner. (Same
 // class of bug as the career-gate scanlines, tests/career-gate-modal-fit.js.)
 //
@@ -23,7 +23,7 @@ describe('practice-decision page: hidden sections actually hide', () => {
   });
 
   it('still gives the spinner its flex layout while visible', () => {
-    // the fix must not remove the spinner styling — only override it when hidden
+    // the fix must not remove the spinner styling, only override it when hidden
     expect(html).toMatch(/#pdLoading\s*\{[^}]*display:\s*flex/);
   });
 });

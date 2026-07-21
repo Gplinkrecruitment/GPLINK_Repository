@@ -69,14 +69,14 @@
   // simply deleting the key below) but are excluded from everything the GP sees:
   // the journey list, the registration dropdown and the mobile sheet all consume
   // VISIBLE_STAGES / getStageStates below. Server-side this is mirrored by
-  // VAULTED_STAGES in server.js (page access + can-proceed) — keep the two in sync.
+  // VAULTED_STAGES in server.js (page access + can-proceed), keep the two in sync.
   var VAULTED = { commencement: true };
   var VISIBLE_STAGES = STAGES.filter(function (stage) { return !VAULTED[stage.key]; });
 
   // Derives the per-stage display state (done / locked / lockReason) from a
   // progress snapshot: { careerSecured, epicDone, amcDone, ahpraDone, visaDone,
   // pbsDone }. `bypass` mirrors BYPASS_LOCK_EMAILS handling on both surfaces.
-  // Commencement is never "done" client-side — it is the final stage and has
+  // Commencement is never "done" client-side, it is the final stage and has
   // no completion signal; it unlocks (server-gated) after PBS & Medicare.
   function getStageStates(snap, bypass) {
     var s = snap && typeof snap === "object" ? snap : {};

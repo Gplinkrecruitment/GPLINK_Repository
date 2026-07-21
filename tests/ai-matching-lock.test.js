@@ -1,4 +1,4 @@
-// Task 8 (AI Matching, 2026-07-06 plan) — 3-strike career lock: strikes,
+// Task 8 (AI Matching, 2026-07-06 plan), 3-strike career lock: strikes,
 // automatic lock, server enforcement, the lock page's data endpoints, and
 // admin release/restore-intent.
 //
@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 // ── Source wiring (no server boot needed) ───────────────────────────────────
-describe('AI Matching Task 8 — source wiring', () => {
+describe('AI Matching Task 8, source wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const lockPageHtml = fs.readFileSync(path.join(ROOT, 'pages/career-paused.html'), 'utf8');
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
@@ -372,7 +372,7 @@ function seedGp(userId, email, extra) {
 function seedRole(id, extra) {
   db.career_roles.push(Object.assign({
     id, provider: 'internal_ats', provider_role_id: id,
-    title: 'General Practitioner — VR', practice_name: 'Test Practice ' + id,
+    title: 'General Practitioner, VR', practice_name: 'Test Practice ' + id,
     location_city: 'Bundaberg', location_state: 'QLD',
     is_active: true, job_status: 'open'
   }, extra || {}));
@@ -411,7 +411,7 @@ function seedWithdrawStrike(userId, roleId, whenIso) {
 
 // Review fix (FIX 1): a completed interview whose application ended
 // not_proceeding because the PRACTICE filled the role with someone else
-// (Task 6's redirect fan-out sets match_outcome='position_filled') — not a
+// (Task 6's redirect fan-out sets match_outcome='position_filled'), not a
 // strike, even though the interview itself completed.
 function seedInterviewPositionFilled(userId, roleId, whenIso) {
   seedRole(roleId);
@@ -430,7 +430,7 @@ function seedInterviewPositionFilled(userId, roleId, whenIso) {
 
 // Review fix (FIX 1): a completed interview whose application ended
 // not_proceeding with NO match_outcome at all, but staff recorded the
-// PRACTICE's own decision via reason='practice_passed' on the stage event —
+// PRACTICE's own decision via reason='practice_passed' on the stage event,
 // not a strike.
 function seedInterviewPracticePassed(userId, roleId, whenIso) {
   seedRole(roleId);
@@ -453,7 +453,7 @@ function seedInterviewPracticePassed(userId, roleId, whenIso) {
 // Review fix (FIX 1, fail-safe): a completed interview whose application
 // ended not_proceeding with NEITHER a GP signal (match_outcome='declined' /
 // reason='gp_withdrew') NOR an explicit practice signal (staff moved it with
-// no reason at all) — must NOT count as a strike (a strike must be
+// no reason at all), must NOT count as a strike (a strike must be
 // affirmatively GP-driven, never assumed by default).
 function seedInterviewNoSignal(userId, roleId, whenIso) {
   seedRole(roleId);
@@ -499,7 +499,7 @@ describe('computeCareerStrikes', () => {
     const when = new Date(Date.now() - 3 * 86400000).toISOString();
     seedRole(roleId);
     const appId = 'app-' + roleId;
-    // match_outcome:'declined' — BOTH signals are genuinely GP-driven and
+    // match_outcome:'declined', BOTH signals are genuinely GP-driven and
     // valid here (review fix, FIX 1: an interview-source strike requires
     // match_outcome==='declined'), so this test proves true precedence
     // rather than accidentally falling back to the withdrawal source.
@@ -524,15 +524,15 @@ describe('computeCareerStrikes', () => {
     expect(strikes.length).toBe(0);
   });
 
-  it('a fresh release starts a new cycle — only strikes AFTER the last released_at count', async () => {
+  it('a fresh release starts a new cycle, only strikes AFTER the last released_at count', async () => {
     const GP = uid();
     const releasedAt = new Date(Date.now() - 10 * 86400000).toISOString();
     seedGp(GP, GP + '@gplink-test.local', {
       career_lock: { strikes: [], locked_at: new Date(Date.now() - 30 * 86400000).toISOString(), released_at: releasedAt, reasons: {}, answers_submitted_at: null, intent_halved_at: null }
     });
-    // Old strike BEFORE the release — must be excluded from this cycle.
+    // Old strike BEFORE the release, must be excluded from this cycle.
     seedInterviewStrike(GP, 'role-strike-old', new Date(Date.now() - 20 * 86400000).toISOString());
-    // New strike AFTER the release — must be included.
+    // New strike AFTER the release, must be included.
     seedInterviewStrike(GP, 'role-strike-new', new Date(Date.now() - 1 * 86400000).toISOString());
 
     const strikes = await testUtils.computeCareerStrikes(GP);
@@ -570,7 +570,7 @@ describe('computeCareerStrikes', () => {
     expect(strikes.length).toBe(0);
   });
 
-  it('review fix: mixed outcomes only count the GP-driven ones — 2 GP-declined + 1 position_filled = 2 strikes', async () => {
+  it('review fix: mixed outcomes only count the GP-driven ones, 2 GP-declined + 1 position_filled = 2 strikes', async () => {
     const GP = uid();
     seedGp(GP, GP + '@gplink-test.local');
     seedInterviewStrike(GP, 'role-mix-a', new Date(Date.now() - 9 * 86400000).toISOString());
@@ -668,7 +668,7 @@ describe('evaluateCareerLocks', () => {
   });
 });
 
-describe('Server enforcement — 423 {locked:true} while career-locked', () => {
+describe('Server enforcement, 423 {locked:true} while career-locked', () => {
   const GP = uid();
   const EMAIL = GP + '@gplink-test.local';
 
@@ -789,7 +789,7 @@ describe('POST /api/career/lock/answers', () => {
 
     // A follow-up save after completion must NOT re-fire the "submitted" email.
     resendCalls.length = 0;
-    await httpReq('POST', '/api/career/lock/answers', { cookie: userCookie(EMAIL, GP), body: { answers: { [STRIKE_IDS[2]]: 'Hours did not work — updated.' } } });
+    await httpReq('POST', '/api/career/lock/answers', { cookie: userCookie(EMAIL, GP), body: { answers: { [STRIKE_IDS[2]]: 'Hours did not work, updated.' } } });
     expect(resendCalls.filter((c) => /Career lock answers submitted/.test((c.body && c.body.subject) || '')).length).toBe(0);
   });
 });
@@ -883,11 +883,11 @@ describe('Interview-completion PATCH hook', () => {
     seedInterviewStrike(GP, 'role-hook-a', new Date(Date.now() - 6 * 86400000).toISOString());
     seedInterviewStrike(GP, 'role-hook-b', new Date(Date.now() - 3 * 86400000).toISOString());
     // Third application already sitting at not_proceeding; its interview is
-    // marked completed NOW via the real admin endpoint — this is the moment
+    // marked completed NOW via the real admin endpoint, this is the moment
     // the hook should fire.
     seedRole('role-hook-c');
     const appId = 'app-role-hook-c';
-    // match_outcome:'declined' — review fix, FIX 1: an interview-source
+    // match_outcome:'declined', review fix, FIX 1: an interview-source
     // strike now requires an affirmative GP signal (the GP declined after
     // interviewing), not merely a completed interview + not_proceeding.
     db.gp_applications.push({ id: appId, user_id: GP, career_role_id: 'role-hook-c', ats_stage: 'not_proceeding', match_outcome: 'declined', updated_at: new Date().toISOString() });
@@ -907,7 +907,7 @@ describe('Interview-completion PATCH hook', () => {
 // ── Review fix: the generic recompute paths must not undo the halving ──────
 describe('Recompute paths preserve the career-lock halving (review fix)', () => {
   // Bearer-auth cron request (same CRON_SECRET set in beforeAll before the
-  // server import — httpReq has no headers slot, so this builds its own).
+  // server import, httpReq has no headers slot, so this builds its own).
   function cronReq() {
     return new Promise((resolve, reject) => {
       const r = http.request(
@@ -947,7 +947,7 @@ describe('Recompute paths preserve the career-lock halving (review fix)', () => 
     expect(halvedBefore).toBe(Math.round(preBaseline * 0.5));
 
     // Unlocked control GP with an identical facts profile: after the cron,
-    // their stored score IS the un-halved recompute — which, with identical
+    // their stored score IS the un-halved recompute, which, with identical
     // facts, must equal the locked GP's pre_lock baseline exactly.
     const CONTROL = uid();
     seedGp(CONTROL, CONTROL + '@gplink-test.local');
@@ -1019,7 +1019,7 @@ describe('Recompute paths preserve the career-lock halving (review fix)', () => 
     const r = await cronReq();
     expect(r.status).toBe(200);
 
-    // Nightly run left the restored (full) score intact — no re-halving.
+    // Nightly run left the restored (full) score intact, no re-halving.
     const caseAfter = db.registration_cases.find((c) => c.user_id === locked.GP);
     expect(caseAfter.intent_score).toBe(restoredScore);
     const lockAfterCron = db.user_state.find((s) => s.user_id === locked.GP).state.career_lock;

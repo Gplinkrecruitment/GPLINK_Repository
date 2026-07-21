@@ -261,12 +261,12 @@
     if (!routeUrl) return "";
     resolved = resolveSupportedPath(routeUrl.pathname);
     if (FRAME_EQUIVALENT_ROUTE_PATHS[resolved]) return resolved;
-    // Fragments never change which document a frame holds — "/pages/career"
+    // Fragments never change which document a frame holds, "/pages/career"
     // and "/pages/career#secured" are the SAME loaded page. Hash-sensitive
     // matching permanently wedged the My Practice tab: career.html rewrites
     // its URL to "#secured" at boot (history.replaceState), after which the
     // nav's hash-less "/pages/career" never matched the frame's announced
-    // route — the announcement, load handler and watchdog all failed and no
+    // route, the announcement, load handler and watchdog all failed and no
     // frame ever activated. Query strings still differentiate (deep links
     // like ?match=/?role= must reach the frame).
     routeUrl.hash = "";
@@ -348,7 +348,7 @@
   }
 
   // Returns true when the frame ALREADY shows the requested route fully
-  // loaded — no load event or announcement will ever fire, so the CALLER
+  // loaded, no load event or announcement will ever fire, so the CALLER
   // must activate the frame itself. Every other path starts a real
   // (re)navigation that resolves via the announcement/load handlers.
   function loadRouteIntoFrame(frame, embeddedRoute, route) {
@@ -364,7 +364,7 @@
     if (isFrameShowingRoute(frame, route)) return true;
     // The src attribute matches but the document inside is something else
     // (self-navigated frame, aborted warm load). Force the navigation
-    // unconditionally — the old readyState==="complete" gate silently did
+    // unconditionally, the old readyState==="complete" gate silently did
     // NOTHING for an in-flight foreign document, stranding the navigation.
     try {
       frame.contentWindow.location.replace(embeddedRoute);
@@ -459,7 +459,7 @@
     });
 
     if (!fresh.length) return;
-    // Use gpCache for SWR-aware warming — populates the shared cache
+    // Use gpCache for SWR-aware warming, populates the shared cache
     if (window.gpCache && typeof window.gpCache.fetch === "function") {
       fresh.forEach(function (url) {
         window.gpCache.fetch(url).catch(function () {});
@@ -564,7 +564,7 @@
   function buildRegistrationRow(stepKey, config) {
     var locked = !!config.locked;
     var done = !!config.done;
-    // Completed steps are always returnable — users should be able to revisit any step
+    // Completed steps are always returnable, users should be able to revisit any step
     var returnable = done;
     return {
       stepKey: stepKey,
@@ -612,13 +612,13 @@
 
     var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
     var careerSecured = hasCareerSecured();
-    // Visa/PBS keep no local progress objects — their DISPLAY "done" state is derived
+    // Visa/PBS keep no local progress objects, their DISPLAY "done" state is derived
     // from the server-written case stage (gp_admin_stage_override advances on every
     // stage change), mirroring how the forced*Done flags below are derived.
     var visaDone = false;
     var pbsDone = false;
 
-    // Admin stage override — forces locking based on CEO-set stage
+    // Admin stage override, forces locking based on CEO-set stage
     var adminOverride = parseStorage("gp_admin_stage_override");
     if (adminOverride && typeof adminOverride === "string") {
       var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
@@ -661,12 +661,12 @@
     var snap = getProgressSnapshot();
     var bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
-    // Canonical 7-stage journey (js/journey-stages.js) — single source of
+    // Canonical 7-stage journey (js/journey-stages.js), single source of
     // truth for stage order/names/lock state, shared with pages/index.html.
     if (!window.GPJourneyStages || typeof window.GPJourneyStages.getStageStates !== "function") return [];
     var stages = window.GPJourneyStages.getStageStates(snap, bypassLocks);
 
-    // AHPRA is always navigable — the gate page inside ahpra.html handles
+    // AHPRA is always navigable, the gate page inside ahpra.html handles
     // the placement-required messaging when career is not yet secured.
     var ahpraStatusHint = snap.ahpraDone ? "Completed"
       : !snap.careerSecured ? "Secure a placement to continue"
@@ -1255,7 +1255,7 @@
       if (mobileNavEl) mobileNavEl.style.display = "none";
       if (desktopHostEl) desktopHostEl.style.display = "none";
     }
-  } catch (e) { /* localStorage unavailable — leave chrome visible */ }
+  } catch (e) { /* localStorage unavailable, leave chrome visible */ }
 
   function navigateTo(input, options) {
     var routeUrl = resolveRouteUrlForNavigation(input);
@@ -1274,7 +1274,7 @@
 
     var route = routeFromUrl(routeUrl);
 
-    // Hide chrome completely for onboarding — it takes over the full screen
+    // Hide chrome completely for onboarding, it takes over the full screen
     var isOnboarding = route && route.indexOf("/pages/onboarding") === 0;
     if (isOnboarding) {
       chromeHidden = true;
@@ -1284,7 +1284,7 @@
     }
 
     // The preemptive boot hide (see chromePreemptiveHide) only applies while
-    // heading to index — which resolves it via gp-shell-show-chrome — or to
+    // heading to index, which resolves it via gp-shell-show-chrome, or to
     // onboarding itself. Any other route (e.g. a deep link on a fresh
     // device) means the guess was wrong: restore chrome immediately so the
     // nav can't get stuck hidden on a page that never posts show-chrome.
@@ -1297,7 +1297,7 @@
       if (desktopHostEl) desktopHostEl.style.display = "";
     }
 
-    // Restore chrome if a child page hid it — but only when navigating
+    // Restore chrome if a child page hid it, but only when navigating
     // away from the page that hid it
     if (chromeHidden && !isOnboarding && currentRoute && route !== currentRoute) {
       chromeHidden = false;
@@ -1310,7 +1310,7 @@
 
     syncFrameStateFromLocation(activeFrameEl);
     if (routesMatchForFrame(route, currentRoute) && activeFrameEl && isFrameShowingRoute(activeFrameEl, route)) {
-      // Already on the requested page — any older in-flight intent is now
+      // Already on the requested page, any older in-flight intent is now
       // obsolete. A stranded pendingNavigation would later activate a frame
       // the user never asked for, or block their next click on its route.
       pendingNavigation = null;
@@ -1359,7 +1359,7 @@
     pendingNavigation = { route: route };
     if (!activeState || !activeState.loadedRoute) {
       setLoading(true);
-      // Nothing is on screen yet — show the route skeleton while it loads.
+      // Nothing is on screen yet, show the route skeleton while it loads.
       showSkeleton(route);
     } else {
       setLoading(false);
@@ -1373,7 +1373,7 @@
       // The target frame already holds this route fully loaded (e.g. its src
       // attribute drifted from a stale warm/self-navigation, so the cached-
       // frame lookup above missed it). Without activating here the intent
-      // would strand: no load event or announcement is ever coming — the nav
+      // would strand: no load event or announcement is ever coming, the nav
       // highlighted the tab but the page never appeared (seen live 2026-07-12
       // as "My Practice shows selected but never loads").
       activateFrame(targetFrame);
@@ -1395,7 +1395,7 @@
   // navigation (src-attribute drift, aborted warm loads and self-navigated
   // frames can eat both), re-check after 5s and force a resolution. One
   // forced reload, then give up cleanly and re-sync the nav to what is
-  // actually on screen — the UI must never wedge with a tab highlighted
+  // actually on screen, the UI must never wedge with a tab highlighted
   // and no page arriving.
   var pendingNavigationWatchdogTimer = 0;
   function armPendingNavigationWatchdog(frame, embeddedRoute, route, attempt) {
@@ -1416,7 +1416,7 @@
       }
       if (attempt === 0) {
         // If the target document has already committed and is just slow to
-        // finish (cold start, slow mobile), don't abort and restart it —
+        // finish (cold start, slow mobile), don't abort and restart it,
         // give it one more window; its announcement/load resolves the swap.
         var committedRoute = "";
         try {
@@ -1675,7 +1675,7 @@
         // Only clear pendingRoute when this load event belongs to the
         // document we are actually waiting for. A superseded document's late
         // load event (the frame was retargeted while the old page finished
-        // loading) must not erase the record of the in-flight navigation —
+        // loading) must not erase the record of the in-flight navigation,
         // that made findLoadedFrameForRoute treat a still-navigating frame
         // as idle, and activating it let the in-flight page later commit
         // over the one the user chose. Mirrors syncFrameStateFromLocation.
@@ -1742,7 +1742,7 @@
     if (event.data.type !== "gp-shell-route") return;
     if (!activeWindow || event.source !== activeWindow) {
       // Early activation: the INCOMING frame announces its route at
-      // DOMContentLoaded (nav-shell-bridge notifyParent, intent "sync") —
+      // DOMContentLoaded (nav-shell-bridge notifyParent, intent "sync"),
       // its content is already painted then. Swapping here instead of at
       // the iframe load event stops tab switches from waiting on every
       // image/font of the new page (the "loads before showing" lag).
@@ -1839,7 +1839,7 @@
     }
 
     // Prewarm every route's data at idle so the first click on any tab finds
-    // roles/applications/media-config already in the SWR cache — otherwise a
+    // roles/applications/media-config already in the SWR cache, otherwise a
     // Vercel cold start (1-3s) lands squarely on the user's click.
     scheduleIdle(function () {
       Object.keys(SAFE_ROUTE_DATA_PREFETCH).forEach(function (routeKey) {

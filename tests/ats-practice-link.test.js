@@ -1,4 +1,4 @@
-// Task 6 — first-class practice link on gp_applications + CEO live hiring funnel.
+// Task 6, first-class practice link on gp_applications + CEO live hiring funnel.
 //
 // Boots the real server against the same in-memory PostgREST emulator pattern as
 // tests/career-internal-apply.test.js, so the FULL Supabase-mode /api/career/apply
@@ -39,7 +39,7 @@ const db = {
   user_profiles: [
     // Task 11's server-side DPA gate blocks a non-Australia-trained GP from a
     // non-DPA role (these fixture roles don't set `dpa`, so it defaults false
-    // per the career_roles schema) — mark both Australia-trained (via
+    // per the career_roles schema), mark both Australia-trained (via
     // registration_country) here since this file tests practice-link/CEO-funnel
     // mechanics, not the DPA gate.
     { user_id: GP1.userId, email: GP1.email, first_name: 'Test', last_name: 'DoctorOne', zoho_candidate_id: null, registration_country: 'australia' },
@@ -61,13 +61,13 @@ const db = {
   ],
   career_roles: [
     // CEO-created ATS job that ALREADY carries a real practices-table link.
-    { id: 'role-linked', provider: 'internal_ats', provider_role_id: 'ats_linked', title: 'GP — Linked', practice_name: 'Linked Practice', practice_id: 'prac-existing', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-linked', provider: 'internal_ats', provider_role_id: 'ats_linked', title: 'GP, Linked', practice_name: 'Linked Practice', practice_id: 'prac-existing', is_active: true, job_status: 'open', updated_at: NOW },
     // Manual role whose practice only exists as denormalised text → row must be created.
-    { id: 'role-named', provider: 'manual', provider_role_id: 'man_named', title: 'GP — Named', practice_name: 'Sunrise Family Practice', is_active: true, job_status: null, updated_at: NOW },
-    // CEO-filled job — apply must be rejected with job_closed.
-    { id: 'role-filled', provider: 'internal_ats', provider_role_id: 'ats_filled', title: 'GP — Filled', practice_name: 'Filled Practice', is_active: true, job_status: 'filled', updated_at: NOW },
+    { id: 'role-named', provider: 'manual', provider_role_id: 'man_named', title: 'GP, Named', practice_name: 'Sunrise Family Practice', is_active: true, job_status: null, updated_at: NOW },
+    // CEO-filled job, apply must be rejected with job_closed.
+    { id: 'role-filled', provider: 'internal_ats', provider_role_id: 'ats_filled', title: 'GP, Filled', practice_name: 'Filled Practice', is_active: true, job_status: 'filled', updated_at: NOW },
     // Open job used by the missing-column test (runs last).
-    { id: 'role-colmiss', provider: 'internal_ats', provider_role_id: 'ats_colmiss', title: 'GP — Colmiss', practice_name: 'Colmiss Practice', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-colmiss', provider: 'internal_ats', provider_role_id: 'ats_colmiss', title: 'GP, Colmiss', practice_name: 'Colmiss Practice', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     // Pre-existing rows so the funnel has stages beyond 'applied'.
@@ -228,7 +228,7 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = DB_FILE;
-  // Zoho stays UNCONFIGURED — isZohoRecruitConfigured() must be false.
+  // Zoho stays UNCONFIGURED, isZohoRecruitConfigured() must be false.
   process.env.ZOHO_RECRUIT_CLIENT_ID = '';
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
   process.env.ZOHO_RECRUIT_REDIRECT_URI = '';
@@ -316,7 +316,7 @@ describe('closed internal job guard', () => {
   });
 });
 
-describe('GET /api/ceo/pipeline-summary — live hiring funnel counts', () => {
+describe('GET /api/ceo/pipeline-summary, live hiring funnel counts', () => {
   it('returns ats counts grouped by ats_stage (default applied)', async () => {
     const res = await httpReq('GET', '/api/ceo/pipeline-summary', { cookie: ceoCookie(), host: SUPER_HOST });
     expect(res.status).toBe(200);
@@ -367,7 +367,7 @@ describe('missing practice_id column tolerance', () => {
   });
 
   it('caches the determination: the next apply inserts WITHOUT practice_id on the first try', async () => {
-    // Emulator would reject any practice_id insert — a cached server never sends it.
+    // Emulator would reject any practice_id insert, a cached server never sends it.
     const res = await httpReq('POST', '/api/career/apply', {
       cookie: userCookie(GP1.email, GP1.userId),
       body: { roleId: 'internal_ats:ats_colmiss' }

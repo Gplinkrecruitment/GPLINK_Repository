@@ -1,4 +1,4 @@
-// Phase 6 D1b — GET /api/practice/status (read-only, intake-token-authed).
+// Phase 6 D1b, GET /api/practice/status (read-only, intake-token-authed).
 //
 // Boots the real server against the in-memory PostgREST emulator. The
 // endpoint backs the D2 practice status page: practice display fields plus,
@@ -33,12 +33,12 @@ const db = {
     { id: 'p2', name: 'Riverside Medical', source: 'internal_ats', contact_name: 'Bob Manager', contact_email: 'bob@riverside-test.local', stage: 'active', agreement_status: 'signed', intake_token: OTHER_TOKEN, is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', masked_title: 'DPA - Fitzroy - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Melbourne', location_state: 'VIC', is_active: true, job_status: 'open', approval_status: 'approved', updated_at: NOW },
-    { id: 'role-2', provider: 'internal_ats', provider_role_id: 'ats_r2', title: 'GP — After Hours', masked_title: 'Non-DPA - Cairns - Private Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Cairns', location_state: 'QLD', is_active: false, job_status: 'open', approval_status: 'pending', updated_at: NOW },
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', masked_title: 'DPA - Fitzroy - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Melbourne', location_state: 'VIC', is_active: true, job_status: 'open', approval_status: 'approved', updated_at: NOW },
+    { id: 'role-2', provider: 'internal_ats', provider_role_id: 'ats_r2', title: 'GP, After Hours', masked_title: 'Non-DPA - Cairns - Private Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Cairns', location_state: 'QLD', is_active: false, job_status: 'open', approval_status: 'pending', updated_at: NOW },
     // Audit fix (practice journey, item 7): acceptance flips job_status to
-    // 'filled' WITHOUT touching is_active — the status API must report
+    // 'filled' WITHOUT touching is_active, the status API must report
     // 'filled' (not a forever-"Live") for this row.
-    { id: 'role-3', provider: 'internal_ats', provider_role_id: 'ats_r3', title: 'GP — Chronic Care', masked_title: 'DPA - Greenslopes - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'filled', approval_status: 'approved', updated_at: NOW },
+    { id: 'role-3', provider: 'internal_ats', provider_role_id: 'ats_r3', title: 'GP, Chronic Care', masked_title: 'DPA - Greenslopes - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'filled', approval_status: 'approved', updated_at: NOW },
     { id: 'role-x', provider: 'internal_ats', provider_role_id: 'ats_rx', title: 'Riverside GP', masked_title: 'DPA - Riverside - Mixed Billing', practice_name: 'Riverside Medical', practice_id: 'p2', location_city: 'Cairns', location_state: 'QLD', is_active: true, job_status: 'open', approval_status: 'approved', updated_at: NOW }
   ],
   user_profiles: [
@@ -226,7 +226,7 @@ describe('GET /api/practice/status', () => {
     expect(live.status).toBe('live');
     expect(pending.role_label).toBe('Non-DPA - Cairns - Private Billing');
     expect(pending.status).toBe('pending');
-    // job_status='filled' wins over is_active=true — a placed practice must
+    // job_status='filled' wins over is_active=true, a placed practice must
     // never read "Live" forever (audit item 7).
     expect(filled.status).toBe('filled');
 

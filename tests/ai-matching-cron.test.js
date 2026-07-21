@@ -1,4 +1,4 @@
-// Task 5 (AI Matching, 2026-07-06 plan) — GET /api/cron/match-lifecycle.
+// Task 5 (AI Matching, 2026-07-06 plan), GET /api/cron/match-lifecycle.
 //
 // Boots the real server against a tiny in-memory PostgREST emulator (same
 // pattern as tests/ai-matching-gp-flow.test.js / tests/career-internal-apply
@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 // ── Source wiring (no server boot needed) ───────────────────────────────────
-describe('AI Matching Task 5 — source wiring', () => {
+describe('AI Matching Task 5, source wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const vercelJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
 
@@ -74,16 +74,16 @@ const db = {
   ],
   career_roles: [
     {
-      id: 'job-1', title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      id: 'job-1', title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       practice_id: 'prac-1', location_city: 'Bundaberg', location_state: 'QLD', dpa: true,
       billing_model: 'Mixed billing', job_status: 'open', is_active: true
     },
     {
-      id: 'job-2', title: 'General Practitioner — Bulk Billing', practice_name: 'Riverbend Medical Centre',
+      id: 'job-2', title: 'General Practitioner, Bulk Billing', practice_name: 'Riverbend Medical Centre',
       practice_id: 'prac-2', location_city: 'Toowoomba', location_state: 'QLD', dpa: false,
       job_status: 'open', is_active: true
     }
-    // Deliberately NO 'job-missing' row — used by REMIND_FAIL_GP's application
+    // Deliberately NO 'job-missing' row, used by REMIND_FAIL_GP's application
     // to force sendMatchEmail's real job_not_found failure branch.
   ],
   gp_applications: [
@@ -91,18 +91,18 @@ const db = {
     // in 12h (inside the 24h window) + never reminded.
     {
       id: 'app-remind-1', user_id: REMIND_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['Coastal Queensland fit'] },
       matched_at: iso(NOW - 4 * 86400000), match_expires_at: iso(NOW + 12 * 3600000), match_reminder_sent_at: null
     },
-    // Outside the 24h window (expires in 48h) — must NEVER be reminded.
+    // Outside the 24h window (expires in 48h), must NEVER be reminded.
     {
       id: 'app-remind-outside-1', user_id: REMIND_OUTSIDE_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['Coastal Queensland fit'] },
       matched_at: iso(NOW - 1 * 86400000), match_expires_at: iso(NOW + 48 * 3600000), match_reminder_sent_at: null
     },
-    // Inside the reminder window, but its job row doesn't exist — real
+    // Inside the reminder window, but its job row doesn't exist, real
     // sendMatchEmail failure path (job_not_found), used for the per-row
     // isolation test: this row must NOT stop app-remind-1 above from sending.
     {
@@ -111,12 +111,12 @@ const db = {
       match_reasons: { reasons: ['n/a'] },
       matched_at: iso(NOW - 2 * 86400000), match_expires_at: iso(NOW + 6 * 3600000), match_reminder_sent_at: null
     },
-    // matched_at is null — was never actually a real match (defensive fixture,
-    // e.g. a row shape that shouldn't exist) — must be untouched by BOTH
+    // matched_at is null, was never actually a real match (defensive fixture,
+    // e.g. a row shape that shouldn't exist), must be untouched by BOTH
     // passes even though its expiry is already in the past.
     {
       id: 'app-nomatch-1', user_id: NOMATCH_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: null, match_expires_at: iso(NOW - 1 * 86400000), match_reminder_sent_at: null
     }
@@ -128,7 +128,7 @@ const db = {
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
 // Test hook: any PATCH whose matched rows include one of these ids fails with
-// a 500 and leaves the row unmodified — used to prove that a successful
+// a 500 and leaves the row unmodified, used to prove that a successful
 // reminder send whose match_reminder_sent_at stamp write fails is reported in
 // errors[] (stamp_failed), NOT counted as reminded. supabaseDbRequest never
 // throws (it resolves {ok:false}), so this is the only way that branch can
@@ -142,7 +142,7 @@ function buildMatcher(searchParams) {
   for (const [key, raw] of searchParams.entries()) {
     if (reserved.has(key)) continue;
     // PostgREST lets any operator be negated with a leading "not." modifier
-    // (e.g. matched_at=not.is.null) — Task 5's cron uses exactly this to
+    // (e.g. matched_at=not.is.null), Task 5's cron uses exactly this to
     // select "actually matched" rows, so the emulator must honor it too.
     let negate = false;
     let rest = raw;
@@ -212,7 +212,7 @@ function startSupabaseEmulator() {
       if (!m) { send(404, { message: 'not found' }); return; }
       const rows = tableOf(decodeURIComponent(m[1]));
       const matches = buildMatcher(u.searchParams);
-      // Task 5's queries sort by match_expires_at asc — the real PostgREST
+      // Task 5's queries sort by match_expires_at asc, the real PostgREST
       // 'order' param isn't otherwise interpreted by this emulator, but
       // sorting deterministically here matches the production ordering
       // closely enough for assertions that don't depend on order anyway.
@@ -315,7 +315,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/cron/match-lifecycle — auth', () => {
+describe('GET /api/cron/match-lifecycle, auth', () => {
   it('401s without the bearer secret', async () => {
     const r = await httpReq('GET', '/api/cron/match-lifecycle');
     expect(r.status).toBe(401);
@@ -327,7 +327,7 @@ describe('GET /api/cron/match-lifecycle — auth', () => {
   });
 });
 
-describe('GET /api/cron/match-lifecycle — reminder pass + isolation + idempotency (phase 1+2, no expiries yet)', () => {
+describe('GET /api/cron/match-lifecycle, reminder pass + isolation + idempotency (phase 1+2, no expiries yet)', () => {
   it('reminds only the row inside the 24h window, isolates the failing row, leaves matched_at-null/outside-window rows untouched, and sends no summary email', async () => {
     const r = await callCron();
     expect(r.status).toBe(200);
@@ -354,13 +354,13 @@ describe('GET /api/cron/match-lifecycle — reminder pass + isolation + idempote
     expect(noMatchRow.ats_stage).toBe('shortlisted');
     expect(noMatchRow.match_reminder_sent_at).toBeFalsy();
 
-    // Exactly one email went out this run (the reminder) — no summary
+    // Exactly one email went out this run (the reminder), no summary
     // ops email, because nothing has expired yet.
     expect(resendCalls.length).toBe(1);
     const reminderEmail = resendCalls[0].body;
     // Task 2 (2026-07-11 nudges plan) verbatim subject: names the practice,
     // not the city.
-    expect(reminderEmail.subject).toBe('24 hours left — Coral Coast Family Practice is holding your spot');
+    expect(reminderEmail.subject).toBe('24 hours left, Coral Coast Family Practice is holding your spot');
     expect(reminderEmail.to).toEqual([REMIND_GP.email]);
   });
 
@@ -371,25 +371,25 @@ describe('GET /api/cron/match-lifecycle — reminder pass + isolation + idempote
     expect(r.body.reminded).toBe(0);
     expect(r.body.expired).toBe(0);
     // The failing row is still (harmlessly) retried every run since it was
-    // never successfully stamped — that's expected/acceptable, but it must
+    // never successfully stamped, that's expected/acceptable, but it must
     // not count as a false "reminded".
     expect(resendCalls.length).toBe(0);
   });
 });
 
-describe('GET /api/cron/match-lifecycle — expiry pass (phase 3)', () => {
+describe('GET /api/cron/match-lifecycle, expiry pass (phase 3)', () => {
   it('transitions expired shortlisted rows to not_proceeding/expired, records a stage event, and fires exactly one summary ops email listing both GPs', async () => {
     resendCalls.length = 0;
     db.gp_applications.push(
       {
         id: 'app-expire-a', user_id: EXPIRE_GP_A.userId, career_role_id: 'job-1',
-        ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+        ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
         match_reasons: { reasons: [] },
         matched_at: iso(NOW - 8 * 86400000), match_expires_at: iso(NOW - 3 * 86400000), match_reminder_sent_at: iso(NOW - 1 * 86400000)
       },
       {
         id: 'app-expire-b', user_id: EXPIRE_GP_B.userId, career_role_id: 'job-2',
-        ats_stage: 'shortlisted', job_title: 'General Practitioner — Bulk Billing', practice_name: 'Riverbend Medical Centre',
+        ats_stage: 'shortlisted', job_title: 'General Practitioner, Bulk Billing', practice_name: 'Riverbend Medical Centre',
         match_reasons: { reasons: [] },
         matched_at: iso(NOW - 9 * 86400000), match_expires_at: iso(NOW - 2 * 86400000), match_reminder_sent_at: iso(NOW - 1 * 86400000)
       }
@@ -421,8 +421,8 @@ describe('GET /api/cron/match-lifecycle — expiry pass (phase 3)', () => {
     expect(summary.to).toEqual(['hello@mygplink.com.au']);
     expect(summary.text).toContain('Test Doctor4'); // EXPIRE_GP_A profile (index 4 in ALL_GPS)
     expect(summary.text).toContain('Test Doctor5'); // EXPIRE_GP_B profile (index 5)
-    expect(summary.text).toContain('General Practitioner — Mixed Billing');
-    expect(summary.text).toContain('General Practitioner — Bulk Billing');
+    expect(summary.text).toContain('General Practitioner, Mixed Billing');
+    expect(summary.text).toContain('General Practitioner, Bulk Billing');
   });
 
   it('is idempotent: rerunning after the sweep does not re-expire or re-email the same rows', async () => {
@@ -438,8 +438,8 @@ describe('GET /api/cron/match-lifecycle — expiry pass (phase 3)', () => {
 // ── Reviewer follow-ups (phase 4) ────────────────────────────────────────────
 // Fixture rows here are pushed inside each test (not at boot) so the earlier
 // phases' exact reminded/expired/email counts stay untouched.
-describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () => {
-  it('a matched, never-reminded row already PAST expiry gets NO reminder — the expiry pass sweeps it instead', async () => {
+describe('GET /api/cron/match-lifecycle, reviewer follow-ups (phase 4)', () => {
+  it('a matched, never-reminded row already PAST expiry gets NO reminder, the expiry pass sweeps it instead', async () => {
     resendCalls.length = 0;
     db.user_profiles.push({
       user_id: 'gp-past-1', email: 'past@gplink-test.local',
@@ -447,12 +447,12 @@ describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () =
     });
     db.gp_applications.push({
       id: 'app-past-1', user_id: 'gp-past-1', career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       // Expired 1h ago, reminder never sent (e.g. the cron was down for the
       // final day). The gte-now bound must exclude it from the reminder pass
-      // — a "24 hours left" email about an already-dead match would be a lie
-      // — and the expiry pass must sweep it in the same run.
+      //, a "24 hours left" email about an already-dead match would be a lie
+      //, and the expiry pass must sweep it in the same run.
       matched_at: iso(Date.now() - 6 * 86400000), match_expires_at: iso(Date.now() - 3600000), match_reminder_sent_at: null
     });
 
@@ -476,7 +476,7 @@ describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () =
   it('a row expiring right at the 24h boundary is included in the reminder pass', async () => {
     resendCalls.length = 0;
     // The cron computes ITS OWN now a few ms after this row is written, so an
-    // expiry stamped test-time+24h lands just inside the lte upper bound —
+    // expiry stamped test-time+24h lands just inside the lte upper bound,
     // the closest a wall-clock HTTP test can get to the exact edge. It proves
     // the boundary is included (and would catch the window shrinking, e.g. a
     // future refactor to a 23h lookahead or a strict lt with margin).
@@ -487,7 +487,7 @@ describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () =
     });
     db.gp_applications.push({
       id: 'app-boundary-1', user_id: 'gp-boundary-1', career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['Coastal Queensland fit'] },
       matched_at: iso(reqNow - 4 * 86400000), match_expires_at: iso(reqNow + 24 * 3600000), match_reminder_sent_at: null
     });
@@ -510,7 +510,7 @@ describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () =
     });
     db.gp_applications.push({
       id: 'app-stampfail-1', user_id: 'gp-stampfail-1', career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['Coastal Queensland fit'] },
       matched_at: iso(Date.now() - 86400000), match_expires_at: iso(Date.now() + 6 * 3600000), match_reminder_sent_at: null
     });
@@ -521,7 +521,7 @@ describe('GET /api/cron/match-lifecycle — reviewer follow-ups (phase 4)', () =
       expect(r.body.reminded).toBe(0);
       expect(r.body.errors.some((e) => e.id === 'app-stampfail-1' && e.stage === 'reminder' && e.error === 'stamp_failed')).toBe(true);
 
-      // The email itself DID go out — the failure is the stamp write, not
+      // The email itself DID go out, the failure is the stamp write, not
       // the send. The honest outcome is a visible error (and a re-send next
       // hour), never a clean "reminded" count over an unstamped row.
       expect(resendCalls.some((c) => (c.body.to || []).includes('stampfail@gplink-test.local'))).toBe(true);

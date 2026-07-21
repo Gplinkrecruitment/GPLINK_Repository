@@ -1,11 +1,11 @@
-// Phase 6 G3 — eligibility off-ramp / waitlist for out-of-scope-country GPs.
+// Phase 6 G3, eligibility off-ramp / waitlist for out-of-scope-country GPs.
 //
 // Onboarding only supports GB/IE/NZ. Any other GP could sign up but was then
 // trapped forever on onboarding step 1 (index.html kept bouncing them back).
 // POST /api/eligibility-waitlist captures {country, name?} into
 // candidate_leads (source='eligibility_waitlist') and flags the GP's
 // user_state so returning visits show the "we'll be in touch" state.
-// The posted email field is IGNORED — the lead is always keyed to the
+// The posted email field is IGNORED, the lead is always keyed to the
 // signed-in session email so a GP can't waitlist an arbitrary address.
 //
 // Boots the REAL server in LOCAL-JSON mode (SUPABASE_URL='') so the stored
@@ -99,19 +99,19 @@ describe('POST /api/eligibility-waitlist', () => {
 
     const leads = waitlistLeads();
     expect(leads.length).toBe(1);
-    // Posted email is ignored — the lead is keyed to the SESSION email.
+    // Posted email is ignored, the lead is keyed to the SESSION email.
     expect(leads[0].email).toBe(GP_EMAIL);
     expect(leads[0].country).toBe('India');
     expect(leads[0].name).toBe('Dr Asha Patel');
     expect(leads[0].unsubscribed).toBe(false);
 
     // Waitlisted state persisted on the GP's account (survives returning
-    // visits — onboarding shows "we'll be in touch", not the trap).
+    // visits, onboarding shows "we'll be in touch", not the trap).
     const st = readDb().userState[GP_EMAIL] || {};
     expect(String(st.gp_eligibility_waitlist || '')).toContain('India');
   });
 
-  it('is idempotent per session email — a second post updates, never duplicates', async () => {
+  it('is idempotent per session email, a second post updates, never duplicates', async () => {
     const r = await req('POST', '/api/eligibility-waitlist', {
       cookie: userCookie(GP_EMAIL),
       body: { email: 'dr.patel@example.test', country: 'Pakistan' }
@@ -124,7 +124,7 @@ describe('POST /api/eligibility-waitlist', () => {
     expect(leads[0].country).toBe('Pakistan'); // refreshed, not duplicated
   });
 
-  it('always uses the session email — even a valid posted email is ignored', async () => {
+  it('always uses the session email, even a valid posted email is ignored', async () => {
     const r = await req('POST', '/api/eligibility-waitlist', {
       cookie: userCookie('fallback-gp@gplink-test.local'),
       body: { email: 'someone-else@example.test', country: 'Nigeria' }

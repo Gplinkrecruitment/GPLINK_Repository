@@ -1,4 +1,4 @@
-// Phase 6 Batch F1 — G1: one canonical 7-stage journey overview incl Commencement.
+// Phase 6 Batch F1, G1: one canonical 7-stage journey overview incl Commencement.
 //
 // These pages/scripts are static files served verbatim (no server templating),
 // so reading them straight from disk is an honest check of what the browser
@@ -7,7 +7,7 @@
 //     list (Secure Placement → MyIntealth → AMC → AHPRA → Visa → PBS & Medicare
 //     → Commencement) with lock copy, exposed as window.GPJourneyStages.
 //   - BOTH surfaces (pages/index.html journey + js/app-shell.js registration
-//     dropdown) consume GPJourneyStages.getStageStates — so they can't drift.
+//     dropdown) consume GPJourneyStages.getStageStates, so they can't drift.
 //   - The horizontal journey stepper and the ?locked bounce notice were
 //     REMOVED from index.html by owner request (2026-07-07): the vertical
 //     journey list is the only journey renderer on the dashboard. The server
@@ -38,7 +38,7 @@ const SEVEN_STAGE_TITLES = [
   'Commencement'
 ];
 const SEVEN_STAGE_KEYS = ['career', 'myinthealth', 'amc', 'ahpra', 'visa', 'pbs', 'commencement'];
-// Commencement is currently VAULTED (js/journey-stages.js) — its definition is
+// Commencement is currently VAULTED (js/journey-stages.js), its definition is
 // retained (so the 7 text-presence checks below still hold) but it is excluded
 // from the GP-facing list, so the journey the GP actually sees is six stages.
 const SIX_STAGE_TITLES = SEVEN_STAGE_TITLES.slice(0, 6);
@@ -58,7 +58,7 @@ beforeAll(() => {
   serverJs = fs.readFileSync(SERVER_PATH, 'utf8');
 });
 
-describe('js/journey-stages.js — canonical journey source of truth (commencement vaulted)', () => {
+describe('js/journey-stages.js, canonical journey source of truth (commencement vaulted)', () => {
   it('defines all 7 stage titles in journey order', () => {
     let lastIdx = -1;
     for (const title of SEVEN_STAGE_TITLES) {
@@ -112,7 +112,7 @@ describe('js/journey-stages.js — canonical journey source of truth (commenceme
   });
 });
 
-describe('pages/index.html — journey surface (commencement vaulted)', () => {
+describe('pages/index.html, journey surface (commencement vaulted)', () => {
   it('loads the canonical stage list and consumes it in both renderers', () => {
     expect(indexHtml).toMatch(/js\/journey-stages\.js\?v=/);
     // Journey list + nav/mobile registration rows both go through the shared list.
@@ -135,7 +135,7 @@ describe('pages/index.html — journey surface (commencement vaulted)', () => {
 
   it('does not route the "next step" to the vaulted commencement page', () => {
     expect(indexHtml).not.toContain('currentRoute = "commencement"');
-    // After PBS & Medicare the visible journey is complete — CTA points at the practice.
+    // After PBS & Medicare the visible journey is complete, CTA points at the practice.
     expect(indexHtml).toContain("You're all set");
   });
 
@@ -147,7 +147,7 @@ describe('pages/index.html — journey surface (commencement vaulted)', () => {
   it('no longer shows the false "couldn\'t refresh your progress" banner (owner request 2026-07-08)', () => {
     // The journey renders from locally cached progress and the page is
     // auth-guarded, so a transient background /api/state hiccup never meant the
-    // data shown was actually stale — the red banner only ever cried wolf.
+    // data shown was actually stale, the red banner only ever cried wolf.
     // An earlier "resilient" retry/self-heal attempt (2026-07-07) still let it
     // stick, so the whole banner + its server-ping machinery were removed.
     expect(indexHtml).not.toContain("We couldn't refresh your latest progress");
@@ -164,7 +164,7 @@ describe('pages/index.html — journey surface (commencement vaulted)', () => {
   });
 });
 
-describe('pages/index.html — featured practice banner', () => {
+describe('pages/index.html, featured practice banner', () => {
   it('adapts its copy to placement state (find-a-position until secured)', () => {
     // Placed GPs keep the secured-practice framing…
     expect(indexHtml).toContain('"Your Practice"');
@@ -186,7 +186,7 @@ describe('pages/index.html — featured practice banner', () => {
   });
 });
 
-describe('js/app-shell.js — registration dropdown agrees with the journey', () => {
+describe('js/app-shell.js, registration dropdown agrees with the journey', () => {
   it('consumes the same canonical stage list', () => {
     expect(appShellJs).toContain('GPJourneyStages.getStageStates(');
   });
@@ -202,7 +202,7 @@ describe('js/app-shell.js — registration dropdown agrees with the journey', ()
   });
 });
 
-describe('pages/app-shell.html — script wiring', () => {
+describe('pages/app-shell.html, script wiring', () => {
   it('loads journey-stages.js before app-shell.js', () => {
     const stagesIdx = appShellHtml.indexOf('/js/journey-stages.js');
     const shellIdx = appShellHtml.indexOf('/js/app-shell.js');
@@ -212,7 +212,7 @@ describe('pages/app-shell.html — script wiring', () => {
   });
 });
 
-describe('server.js — stage-gate bounce explains itself (display only)', () => {
+describe('server.js, stage-gate bounce explains itself (display only)', () => {
   it('redirects blocked stage pages with ?locked=<stage>', () => {
     expect(serverJs).toMatch(/\/pages\/index'\s*\+\s*\(lockedStage\s*\?\s*'\?locked='/);
   });

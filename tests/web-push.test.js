@@ -1,4 +1,4 @@
-// Phase 6 J1 — standards-based Web Push (VAPID) via the service worker.
+// Phase 6 J1, standards-based Web Push (VAPID) via the service worker.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. GET /api/push/vapid-public-key returns the configured key (public),
@@ -6,7 +6,7 @@
 //   2. POST /api/push/subscribe is auth-gated, validates the subscription,
 //      stores it for the caller (own-data), and dedups by endpoint.
 //   3. POST /api/push/unsubscribe removes the caller's subscription only.
-//   4. sendPushNotification (mocked web-push transport — no network):
+//   4. sendPushNotification (mocked web-push transport, no network):
 //      sends to stored subscriptions, deletes a subscription on 410,
 //      skips when the GP's `push` preference is off, no-ops without crashing
 //      when VAPID keys are unset, and never throws on transport failure.
@@ -285,7 +285,7 @@ describe('POST /api/push/unsubscribe', () => {
     expect(res.status).toBe(401);
   });
 
-  it('removes the caller\'s subscription — but never another user\'s', async () => {
+  it('removes the caller\'s subscription, but never another user\'s', async () => {
     await httpReq('POST', '/api/push/subscribe', { cookie: userCookie(GP1.email, GP1.userId), body: subscriptionBody(1) });
     await httpReq('POST', '/api/push/subscribe', { cookie: userCookie(GP2.email, GP2.userId), body: subscriptionBody(2) });
     expect(db.push_subscriptions).toHaveLength(2);

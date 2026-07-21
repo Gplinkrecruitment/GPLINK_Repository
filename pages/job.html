@@ -179,7 +179,7 @@
     }
     .at-dphoto figcaption svg { flex: none; }
 
-    /* Photo-less scenery motif — identical to career.html's .at-scene */
+    /* Photo-less scenery motif, identical to career.html's .at-scene */
     .at-scene {
       position: absolute;
       inset: 0;
@@ -410,7 +410,7 @@
       display: grid;
       place-items: center;
     }
-    /* Placeholder graphic ONLY — never real text under a blur. */
+    /* Placeholder graphic ONLY, never real text under a blur. */
     .at-vname {
       height: 15px;
       border-radius: 5px;
@@ -630,13 +630,13 @@
     .at-support b { color: var(--gp-ink, #0f172a); }
 
     /* ════════════════════════════════════════════════════════════════════
-       REDESIGN (2026-07) — job.html restyle to match the owner-approved
+       REDESIGN (2026-07), job.html restyle to match the owner-approved
        mockup. Ported class names ARE the mockup's (.noa/.headline/.panel/
        .prow), prefixed at- to sit alongside the existing Atlas at-* system
        and its tokens/fonts (var(--gp-*), DM Sans + Source Serif 4).
        ════════════════════════════════════════════════════════════════════ */
 
-    /* ── Name-on-acceptance dropdown (mockup: .noa) — sits directly under
+    /* ── Name-on-acceptance dropdown (mockup: .noa), sits directly under
        the hero, both masked (pre-reveal) and unlocked (post-reveal). Kept
        as a rounded card (not edge-to-edge) so it respects .at-dcontent's
        existing gutters instead of fighting them with negative margins. ── */
@@ -667,7 +667,7 @@
 
     /* ── "The package" headline figures + grouped rows (mockup: .headline /
        .panel / .prow). Distinct classnames from the pre-existing
-       .at-earnrow/.at-cell grid — that pair still renders offer-mode's
+       .at-earnrow/.at-cell grid, that pair still renders offer-mode's
        terms (buildOfferTermsHtml) and is left untouched. ── */
     .at-headline { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--gp-border, #e3e9f4); border-radius: var(--gp-r-lg, 18px); overflow: hidden; box-shadow: var(--gp-shadow-sm); }
     .at-headline-cell { background: var(--gp-surface, #fff); padding: 14px 15px; min-width: 0; }
@@ -682,7 +682,7 @@
     .at-prow-k { font-size: 11px; letter-spacing: .03em; text-transform: uppercase; color: var(--gp-faint, #94a3b8); font-weight: 700; }
     .at-prow-v { margin-top: 1px; font-size: 14.5px; font-weight: 650; color: var(--gp-ink, #0f172a); }
 
-    /* ── Map pin label (mockup: .pinlabel) — dark tag fixed just below the
+    /* ── Map pin label (mockup: .pinlabel), dark tag fixed just below the
        existing .at-pin overlay, never the exact address pre-reveal. ── */
     .at-map-pinlabel {
       position: absolute;
@@ -1232,7 +1232,7 @@
       <a class="btn-secondary" href="career">Browse all roles</a>
     </div>
 
-    <!-- Detail body (single render target — offer mode extends this in Task 4) -->
+    <!-- Detail body (single render target, offer mode extends this in Task 4) -->
     <div id="dbody" hidden></div>
   </div>
 
@@ -1256,7 +1256,7 @@
         <h3 class="cv-modal-title">Upload Your CV</h3>
         <button class="cv-modal-close" id="cvModalClose" type="button" aria-label="Close">&times;</button>
       </div>
-      <p class="cv-modal-desc">Your CV is required to apply. Upload a PDF or Word (.docx) file, under 3 MB — we quickly check it's a genuine CV before sending applications. Doctors with a complete CV are shortlisted first.</p>
+      <p class="cv-modal-desc">Your CV is required to apply. Upload a PDF or Word (.docx) file, under 3 MB, we quickly check it's a genuine CV before sending applications. Doctors with a complete CV are shortlisted first.</p>
 
       <div class="cv-upload-area" id="cvUploadArea">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
@@ -1286,7 +1286,7 @@
       <h2>Confirm your interview</h2>
       <p>You're booking for:</p>
       <div class="at-sheet-time" id="bookTimeLabel"></div>
-      <p>We'll lock in the Zoom call instantly — invite sent to your email, and your Registration Support Officer joins you on the call.</p>
+      <p>We'll lock in the Zoom call instantly, invite sent to your email, and your Registration Support Officer joins you on the call.</p>
       <div class="at-sheet-actions">
         <button class="at-sheet-secondary" id="bookCancelBtn" type="button">Back</button>
         <button class="at-sheet-primary" id="bookConfirmBtn" type="button">Confirm booking</button>
@@ -1298,7 +1298,7 @@
   <div class="at-sheet-overlay" id="declineOverlay" hidden>
     <div class="at-sheet">
       <h2>Decline this offer?</h2>
-      <p>This can't be undone — the practice will be told you've passed. If anything about the terms doesn't feel right, your Registration Support Officer can usually renegotiate them, so it's worth talking to them first.</p>
+      <p>This can't be undone, the practice will be told you've passed. If anything about the terms doesn't feel right, your Registration Support Officer can usually renegotiate them, so it's worth talking to them first.</p>
       <div class="at-sheet-actions">
         <button class="at-sheet-secondary" id="declineCancelBtn" type="button">Keep the offer</button>
         <button class="at-sheet-danger" id="declineConfirmBtn" type="button">Decline offer</button>
@@ -1306,13 +1306,13 @@
     </div>
   </div>
 
-  <!-- Deliberate-apply confirm sheet (AI Matching Task 7 — anti-time-waster
+  <!-- Deliberate-apply confirm sheet (AI Matching Task 7, anti-time-waster
        control, spec §9): shown before every self-apply so applying is never a
        drive-by click. -->
   <div class="at-sheet-overlay" id="applyConfirmOverlay" hidden>
     <div class="at-sheet">
       <h2 id="applyConfirmTitle">Apply for this role?</h2>
-      <p id="applyConfirmIntro">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
+      <p id="applyConfirmIntro">You can interview for up to 3 positions per month, so accept the roles you're genuinely serious about.</p>
       <div class="at-sheet-time" id="applyConfirmMeter"></div>
       <div class="at-sheet-actions">
         <button class="at-sheet-secondary" id="applyConfirmCancelBtn" type="button">Not yet</button>
@@ -1527,7 +1527,7 @@
   // opens this page as /pages/job.html?id=<publicId>&preview=1 in a new tab to
   // show a not-yet-approved job exactly as a GP would see it. The server's
   // GET /api/career/role only honors preview=1 when the request ALSO carries
-  // a valid admin/ATS session cookie (getAtsSessionSoft) — for anyone else
+  // a valid admin/ATS session cookie (getAtsSessionSoft), for anyone else
   // this flag is inert and the request 401s/404s exactly as it does today.
   function isPreviewModeFromUrl() {
     const params = new URLSearchParams(window.location.search);
@@ -1535,7 +1535,7 @@
   }
 
   // AI Matching (Task 7, 2026-07-11 matching-board): career.html links here
-  // as job.html?id={roleId}&match={applicationId} — the deep-link that says
+  // as job.html?id={roleId}&match={applicationId}, the deep-link that says
   // "this exact job opening is the GP's live match". Read once at load; the
   // server-returned role.match is what's actually trusted (this is only used
   // to confirm the link on THIS page matches the ONE live match the payload
@@ -1545,7 +1545,7 @@
     return params.get("match") || "";
   }
 
-  // http(s)-only URL gate for the revealed practice website — same rule as
+  // http(s)-only URL gate for the revealed practice website, same rule as
   // career.html's matchSafeUrl / the email builder's _matchSafeUrl: never let
   // a stored URL become a script-scheme href in the GP's session.
   function matchSafeUrl(value) {
@@ -1555,7 +1555,7 @@
 
   // Mirrors career.html's formatMatchCountdown exactly, so the sticky bar's
   // sub-line reads identically on both pages (Part D verbatim: "⏳ {time
-  // left} — your spot is reserved until then" — countdown.label already
+  // left}, your spot is reserved until then", countdown.label already
   // carries the ⏳ prefix + "left" suffix).
   function formatMatchCountdown(expiresAtIso) {
     if (!expiresAtIso) return { label: "", amber: false, expired: true };
@@ -1571,9 +1571,9 @@
 
   // The single gate for "is this page load a live matched-job view": the
   // server already only ever attaches role.match for a live/non-expired
-  // shortlisted row (Task 7's /api/career/role change) — this also requires
+  // shortlisted row (Task 7's /api/career/role change), this also requires
   // the url's own ?match= to name that exact application (never assume a
-  // role.match block implies the CURRENT visit is the matched one — a GP can
+  // role.match block implies the CURRENT visit is the matched one, a GP can
   // still open a job page they were matched on via a plain, non-match link)
   // and re-checks the countdown client-side so a stale cached payload can't
   // show the banner/sticky-accept past expiry.
@@ -1646,7 +1646,7 @@
   }
 
   // Redesign (2026-07): suburb + state (+ postcode, only when the location
-  // text we already have literally contains a 4-digit AU postcode — never
+  // text we already have literally contains a 4-digit AU postcode, never
   // fabricated) for the map's fixed pin label, e.g. "Erina, NSW 2250".
   function getRoleMapPinLabel(role) {
     const suburb = getRoleSuburbLabel(role);
@@ -1658,7 +1658,7 @@
   }
 
   // Applicant count is ALWAYS the server's deterministic presentation band
-  // (15-23) — never a real applicant count and never Math.random. Fallback
+  // (15-23), never a real applicant count and never Math.random. Fallback
   // recomputes the identical band (same djb2 as server careerApplicantBand
   // and career.html getApplicantBand) so both pages show the same number.
   function getApplicantBand(role) {
@@ -1677,7 +1677,7 @@
   const AT_PIN_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>';
 
   /* ── Redesign (2026-07): blue line-icon set for the name-on-acceptance
-     dropdown, "The package" perk rows and "The practice" facts panel — all
+     dropdown, "The package" perk rows and "The practice" facts panel, all
      ported verbatim from the owner-approved mockup (stroke=currentColor,
      no emojis). ── */
   const AT_NOA_LOCK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
@@ -1692,7 +1692,7 @@
   const AT_ICON_VISA_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>';
   const AT_ICON_TEAM_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 20v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
 
-  // Photo-less scenery: refined map motif — ported from career.html so the
+  // Photo-less scenery: refined map motif, ported from career.html so the
   // two pages share one visual system.
   function buildRoleSceneHtml(role, options) {
     const opts = options || {};
@@ -1719,7 +1719,7 @@
     const pillText = (renderContext && renderContext.mode === "offer")
       ? "Offer received"
       : (revealed ? "Identity unlocked" : "Eligible for you");
-    // AI Matching (Task 7): revealed practice website, http(s)-only —
+    // AI Matching (Task 7): revealed practice website, http(s)-only,
     // rendered right under the location line, same spot the approved
     // mockup (round6-clicky-card.html screen 2) puts it under the title.
     const website = revealed ? matchSafeUrl(role.website) : "";
@@ -1737,7 +1737,7 @@
   /* ── Hero photo / scenery ── */
   function renderHeroImage(role) {
     // A practice-uploaded header image always wins over the AI-sourced
-    // scenery photo — it's a real photo of the actual location.
+    // scenery photo, it's a real photo of the actual location.
     const imageUrl = String(role && (role.headerImageUrl || role.heroImageUrl) ? (role.headerImageUrl || role.heroImageUrl) : "").trim();
     const revealed = !!(role && role.revealed && role.realPracticeName);
     const suburb = getRoleSuburbLabel(role);
@@ -1820,7 +1820,7 @@
     }
 
     let block = "";
-    let note = '<p class="at-video-note">The team, the patient mix, your typical week — identity kept private until acceptance.</p>';
+    let note = '<p class="at-video-note">The team, the patient mix, your typical week, identity kept private until acceptance.</p>';
     if (embedSrc) {
       block = '<div class="at-video-embed"><iframe src="' + escapeHtml(embedSrc) + '" title="Practice introduction video" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div>';
     } else if (/\.(mp4|webm|m4v|mov|ogv)(?:[?#]|$)/i.test(parsed.pathname)) {
@@ -1830,7 +1830,7 @@
         '<span class="at-vthumb">' + buildRoleSceneHtml(role || {}, { hideLabel: true }) +
           '<span class="at-vplay"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></span>' +
         '</span>' +
-        '<span><h4>Practice introduction</h4><p>The team, the patient mix, your typical week — identity kept private until acceptance.</p></span>' +
+        '<span><h4>Practice introduction</h4><p>The team, the patient mix, your typical week, identity kept private until acceptance.</p></span>' +
       '</a>';
       note = "";
     }
@@ -1848,9 +1848,9 @@
     const suburb = getRoleSuburbLabel(role);
     const caption = revealed
       ? "Exact location" + (role.realPracticeName ? " · " + role.realPracticeName : "")
-      : suburb + " area — exact address shared on acceptance";
+      : suburb + " area, exact address shared on acceptance";
     // Redesign (2026-07): dark pin-label tag anchored just below the fixed
-    // pin (mockup's .pinlabel), e.g. "Erina, NSW 2250" — never the exact
+    // pin (mockup's .pinlabel), e.g. "Erina, NSW 2250", never the exact
     // address pre-reveal, only the same suburb/state already used for the
     // caption below.
     const pinLabel = getRoleMapPinLabel(role);
@@ -1860,7 +1860,7 @@
       : '<span class="at-map-overlay at-map-overlay--fuzzy"><span class="at-pin"><span class="at-ring"><span class="at-dotpin"></span></span></span>' + pinLabelHtml + '</span>';
     // AI Matching (Task 7): revealed-only "Open in Maps ↗" link, same pattern
     // career.html's match card uses (a real maps.google.com link, opened in
-    // a new tab — distinct from the embed iframe's src above).
+    // a new tab, distinct from the embed iframe's src above).
     const openMapsLink = revealed
       ? '<a class="at-map-open" href="https://www.google.com/maps?q=' + encodeURIComponent(query) + '" target="_blank" rel="noopener noreferrer">Open in Maps ↗</a>'
       : '';
@@ -1879,14 +1879,14 @@
   }
 
   /* ── AI Matching (Task 7): blue "matched" banner + "Why this matches you"
-     ticks — only when this exact page load is the GP's live, deep-linked
+     ticks, only when this exact page load is the GP's live, deep-linked
      match (getActiveMatch), never merely because the role happens to carry
      a match block server-side. ── */
   function buildMatchBannerHtml(role) {
     const match = getActiveMatch(role);
     if (!match) return "";
     return '<div class="at-matchbanner"><span class="at-matchbanner-ico">💙</span>' +
-      '<span>Your team matched you here for a reason — this page normally hides the practice name, but your match unlocks the full picture.</span></div>';
+      '<span>Your team matched you here for a reason, this page normally hides the practice name, but your match unlocks the full picture.</span></div>';
   }
 
   function buildMatchWhyHtml(role) {
@@ -1899,11 +1899,11 @@
       '</div>';
   }
 
-  /* ── Redesign (2026-07): name-on-acceptance — a dark <details> dropdown
+  /* ── Redesign (2026-07): name-on-acceptance, a dark <details> dropdown
      directly under the hero (mockup's .noa). Pre-reveal: masked bar the GP
      can expand to read why it's hidden. Post-reveal: the SAME reveal gate
      (role.revealed && role.realPracticeName) that has always driven this
-     component — restyled, never re-decided — shown open/unlocked with the
+     component restyled, never re-decided shown open/unlocked with the
      real name + address. This function is shared with offer-mode
      (renderOfferBody), so both surfaces pick up the new look together. ── */
   function buildPracticeIdentityHtml(role) {
@@ -1922,7 +1922,7 @@
           : "") +
       '</details>';
     }
-    // Pre-reveal: masked bar only (never real text under a blur) — expands
+    // Pre-reveal: masked bar only (never real text under a blur), expands
     // to an explainer, exactly like the mockup's disclosure interaction.
     return '<details class="at-noa at-rv">' +
       '<summary>' +
@@ -1933,7 +1933,7 @@
         '</span>' +
         '<span class="at-noa-chev">' + AT_NOA_CHEV_SVG + '</span>' +
       '</summary>' +
-      '<div class="at-noa-body">The practice’s <b>name, address and team</b> stay private until you’re accepted. This keeps matching fair — practices are judged on the role, and you’re judged on your profile. Your Registration Support Officer reviews your application before the practice sees it.</div>' +
+      '<div class="at-noa-body">The practice’s <b>name, address and team</b> stay private until you’re accepted. This keeps matching fair, practices are judged on the role, and you’re judged on your profile. Your Registration Support Officer reviews your application before the practice sees it.</div>' +
     '</details>';
   }
 
@@ -1947,7 +1947,7 @@
   }
 
   // Picks a blue line icon per perk row by matching common keywords in the
-  // AI-sorted (or fallback) label — never invented data, just an icon choice.
+  // AI-sorted (or fallback) label, never invented data, just an icon choice.
   function pickPerkIcon(label) {
     const l = String(label || "").toLowerCase();
     if (/guarantee|income|salary|hourly|rate/.test(l)) return AT_ICON_SHIELD_SVG;
@@ -1957,7 +1957,7 @@
     return AT_ICON_GIFT_SVG;
   }
 
-  // Redesign (2026-07): "The package" — a two-figure headline (Earnings +
+  // Redesign (2026-07): "The package", a two-figure headline (Earnings +
   // Billing split) above a grouped, blue-icon rows panel. DPA/visa/
   // supervision move out to the new "The practice" facts panel (see
   // buildPracticeFactsHtml) so they're not duplicated here.
@@ -1989,7 +1989,7 @@
       if (pt.agreementBonus) perkRows.push({ icon: AT_ICON_GIFT_SVG, k: "Sign-on bonus", v: String(pt.agreementBonus) });
     }
     // Only add a distinct Billing row when the headline is occupied by the
-    // split percentage — otherwise the headline is already showing role.billing.
+    // split percentage, otherwise the headline is already showing role.billing.
     if (splitPct) perkRows.push({ icon: AT_ICON_BILLING_SVG, k: "Billing", v: role.billing || "Billing on request" });
 
     return '<div class="at-sech">The package</div>' +
@@ -2008,7 +2008,7 @@
         : "");
   }
 
-  // Redesign (2026-07): "The practice" facts panel — DPA / Supervision /
+  // Redesign (2026-07): "The practice" facts panel, DPA / Supervision /
   // Visa / Team, blue-icon rows. Only rows whose data actually exists are
   // rendered; nothing here is invented. role.dpa is always a boolean on the
   // client payload (never undefined) so that row always shows.
@@ -2019,7 +2019,7 @@
       rows.push({
         icon: AT_ICON_DPA_SVG,
         k: "Distribution Priority Area",
-        v: role.dpa ? "Yes — open to overseas-trained GPs" : "No"
+        v: role.dpa ? "Yes, open to overseas-trained GPs" : "No"
       });
     }
     if (pt.supervision) {
@@ -2042,7 +2042,7 @@
   }
 
   // Only surfaces a "Team" line when the current role payload actually
-  // carries team-size/tenure/nursing data — none of these fields exist on
+  // carries team-size/tenure/nursing data, none of these fields exist on
   // job.html's client payload today, so this returns "" for every current
   // role. Checked defensively (not invented) so the row appears the moment
   // the payload gains them, without a code change here.
@@ -2062,7 +2062,7 @@
 
   function buildBenefitsHtml(role) {
     // AI write-up highlights (Task 3) win over the derived benefits list when
-    // present — up to 5 per the write-up spec; falls back to the existing
+    // present, up to 5 per the write-up spec; falls back to the existing
     // masked benefits when no write-up has been generated for this role yet.
     const aiItems = (Array.isArray(role.aiHighlights) ? role.aiHighlights.filter(Boolean) : []).slice(0, 5);
     const items = aiItems.length
@@ -2084,21 +2084,21 @@
       '<div class="at-ph"><span class="at-live"></span>High interest in this role' +
         '<span class="at-pcount">' + band + '<span> applied</span></span></div>' +
       '<div class="at-pbar"><i id="pbarFill"></i></div>' +
-      '<p class="at-pnote">Doctors with a <b>complete CV and profile</b> are shortlisted first — the practice sees them before anyone else.</p>' +
+      '<p class="at-pnote">Doctors with a <b>complete CV and profile</b> are shortlisted first, the practice sees them before anyone else.</p>' +
     '</section>';
   }
 
   function buildReceivedHtml() {
     return '<div class="at-received at-rv" id="appliedBanner">' +
       '<span class="at-received-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
-      '<div><b>Application received</b><p>In review — your Registration Support Officer checks it before the practice sees it.</p></div>' +
+      '<div><b>Application received</b><p>In review, your Registration Support Officer checks it before the practice sees it.</p></div>' +
     '</div>';
   }
 
   function buildSupportHtml() {
     return '<div class="at-sech">In your corner</div>' +
       '<div class="at-support at-rv at-rv4"><span class="at-ava">GP</span>' +
-      '<p><b>Your Registration Support Officer reviews every application before the practice sees it</b> — and negotiates your terms. Apply to the roles that genuinely fit; focused applications get championed. Free for doctors, always.</p></div>';
+      '<p><b>Your Registration Support Officer reviews every application before the practice sees it</b>, and negotiates your terms. Apply to the roles that genuinely fit; focused applications get championed. Free for doctors, always.</p></div>';
   }
 
   /* ════════════════════════════════════════════════════════════════════
@@ -2110,7 +2110,7 @@
      secure-interview pages keep working unchanged.
      ════════════════════════════════════════════════════════════════════ */
   const OFFER_CLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>';
-  // No reschedule endpoint exists — rescheduling goes through the
+  // No reschedule endpoint exists, rescheduling goes through the
   // Registration Support Officer, never a fake in-page reschedule.
   const OFFICER_RESCHEDULE_MAILTO = "mailto:hello@mygplink.com.au?subject=" +
     encodeURIComponent("Interview reschedule request") + "&body=" +
@@ -2152,7 +2152,7 @@
     }
   }
 
-  // ── Confetti (ported from pages/secure-interview.html — self-contained
+  // ── Confetti (ported from pages/secure-interview.html, self-contained
   // canvas burst, removes its own canvas after) ──
   function launchConfetti() {
     const palette = ["#2563eb", "#22c55e", "#f59e0b", "#ef4444", "#a855f7"];
@@ -2203,7 +2203,7 @@
     requestAnimationFrame(frame);
   }
 
-  /* ── Slot label helpers — same grouping rules as secure-interview.html ── */
+  /* ── Slot label helpers, same grouping rules as secure-interview.html ── */
   function slotDayKey(slot) {
     try {
       return new Intl.DateTimeFormat("en-CA", { timeZone: slot.local.gp.tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(slot.startUtc));
@@ -2266,7 +2266,7 @@
   }
 
   // https-only guard on server-provided Zoom links (same rule as
-  // secure-interview.html) — anything else renders no join button.
+  // secure-interview.html), anything else renders no join button.
   function getSafeZoomUrl(booked) {
     const zoomUrl = String((booked && booked.zoom_join_url) || "");
     return zoomUrl.indexOf("https://") === 0 ? zoomUrl : "";
@@ -2283,9 +2283,9 @@
     if (Number.isNaN(start.getTime())) return "";
     const end = new Date(start.getTime() + 45 * 60 * 1000);
     const revealed = !!(currentRole && currentRole.revealed && currentRole.realPracticeName);
-    const title = revealed ? ("Interview — " + String(currentRole.realPracticeName)) : "GP Link practice interview";
+    const title = revealed ? ("Interview, " + String(currentRole.realPracticeName)) : "GP Link practice interview";
     const zoomUrl = getSafeZoomUrl(booked);
-    const details = "Video interview arranged by GP Link — your Registration Support Officer joins you on the call." +
+    const details = "Video interview arranged by GP Link, your Registration Support Officer joins you on the call." +
       (zoomUrl ? "\n\nJoin on Zoom: " + zoomUrl : "");
     const params = new URLSearchParams({
       action: "TEMPLATE",
@@ -2304,11 +2304,11 @@
     // Identity in the banner copy comes ONLY from server reveal fields.
     const revealedName = (role && role.revealed && role.realPracticeName) ? String(role.realPracticeName) : "";
     const intro = accepted
-      ? ("Great news — <b>" + escapeHtml(revealedName || "the practice") + "</b> reviewed your profile and wants to meet. " +
+      ? ("Great news, <b>" + escapeHtml(revealedName || "the practice") + "</b> reviewed your profile and wants to meet. " +
          (booked
-           ? "Your video interview is locked in — your Registration Support Officer joins you on the call."
+           ? "Your video interview is locked in, your Registration Support Officer joins you on the call."
            : "Choose a time below and we'll set up a video interview with the practice and your Registration Support Officer."))
-      : ("Great news — the practice reviewed your profile and wants to meet. " +
+      : ("Great news, the practice reviewed your profile and wants to meet. " +
          "Review the offer terms below; accepting unlocks the practice identity and lets you schedule the interview. " +
          "Your Registration Support Officer negotiated these terms for you.");
     const chip = booked ? "Interview confirmed" : (accepted ? "Pick a time below" : "Please respond within 5 days");
@@ -2355,7 +2355,7 @@
   function buildOfferSupportHtml() {
     return '<div class="at-sech">In your corner</div>' +
       '<div class="at-support at-rv at-rv4"><span class="at-ava">GP</span>' +
-      '<p><b>Your Registration Support Officer arranged this offer</b> and will join the interview with you — so you’re never in the room alone.</p></div>';
+      '<p><b>Your Registration Support Officer arranged this offer</b> and will join the interview with you, so you’re never in the room alone.</p></div>';
   }
 
   function renderOfferBody(role) {
@@ -2374,7 +2374,7 @@
     if (accepted) renderSched();
   }
 
-  /* ── Inline scheduler — mirrors secure-interview.html's loadSlots/bookSlot ── */
+  /* ── Inline scheduler, mirrors secure-interview.html's loadSlots/bookSlot ── */
   function renderSched() {
     const wrap = document.getElementById("schedWrap");
     if (!wrap) return;
@@ -2397,7 +2397,7 @@
     }
 
     if (!offerContext.interviewBookable) {
-      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Interview times aren’t open yet — <a href="offer-review?applicationId=' + encodeURIComponent(offerContext.applicationId || "") + '">check your offer</a> for the latest status.</p></div>';
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Interview times aren’t open yet, <a href="offer-review?applicationId=' + encodeURIComponent(offerContext.applicationId || "") + '">check your offer</a> for the latest status.</p></div>';
       return;
     }
 
@@ -2407,7 +2407,7 @@
     }
 
     if (offerSlotsStatus === "not_available") {
-      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Your interview isn’t available to book yet — <a href="offer-review?applicationId=' + encodeURIComponent(offerContext.applicationId || "") + '">check your offer</a> for the latest status.</p></div>';
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Your interview isn’t available to book yet, <a href="offer-review?applicationId=' + encodeURIComponent(offerContext.applicationId || "") + '">check your offer</a> for the latest status.</p></div>';
       return;
     }
 
@@ -2418,7 +2418,7 @@
 
     const groups = groupSlotsByDay(offerSlots);
     if (!groups.length) {
-      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">No times are available right now — please check back shortly, or <a href="' + OFFICER_RESCHEDULE_MAILTO + '">message your Registration Support Officer</a>.</p></div>';
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">No times are available right now, please check back shortly, or <a href="' + OFFICER_RESCHEDULE_MAILTO + '">message your Registration Support Officer</a>.</p></div>';
       return;
     }
 
@@ -2526,19 +2526,19 @@
       }
       if (res.status === 409 && data && data.error === "slot_taken") {
         closeBookConfirm();
-        showToast("That time was just taken — please pick another.");
+        showToast("That time was just taken, please pick another.");
         offerSelectedSlotUtc = null;
         loadOfferSlots();
         return;
       }
       if (res.status === 409 && data && data.error === "interview_cap") {
-        // AI Matching (Task 7): interview cap (3/calendar month, spec §9) —
+        // AI Matching (Task 7): interview cap (3/calendar month, spec §9),
         // friendly blocked message with the reset date, not a generic error.
         closeBookConfirm();
         const resetsLabel = data.resetsAt
           ? new Date(data.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })
           : "";
-        showToast("You've used all 3 interviews this month" + (resetsLabel ? " — resets " + resetsLabel : "") + ". Talk to your Registration Support Officer if this one's urgent.");
+        showToast("You've used all 3 interviews this month" + (resetsLabel ? ", resets " + resetsLabel : "") + ". Talk to your Registration Support Officer if this one's urgent.");
         return;
       }
       if (res.status === 403 && data && data.error === "not_available") {
@@ -2552,14 +2552,14 @@
         return;
       }
       closeBookConfirm();
-      showToast("Something went wrong booking that time — please try again.");
+      showToast("Something went wrong booking that time, please try again.");
     } catch (err) {
       closeBookConfirm();
-      showToast("Something went wrong booking that time — please try again.");
+      showToast("Something went wrong booking that time, please try again.");
     }
   }
 
-  /* ── Accept / decline — server is the source of truth ── */
+  /* ── Accept / decline, server is the source of truth ── */
   async function refreshOfferState() {
     const [freshRole, offerData] = await Promise.all([
       loadRoleDetail(pageRoleId, 25000, { bypassCache: true }),
@@ -2598,7 +2598,7 @@
       }
       if (res.ok && data && data.ok) {
         // Celebratory moment, then re-fetch detail + my-offer so the reveal
-        // comes from the server — never assumed client-side.
+        // comes from the server, never assumed client-side.
         launchConfetti();
         showToast("Offer accepted 🎉 Unlocking the practice…");
         await refreshOfferState();
@@ -2606,11 +2606,11 @@
         return;
       }
       renderOfferBody(currentRole);
-      showToast((data && data.message) || "That didn’t go through — please try again.");
+      showToast((data && data.message) || "That didn’t go through, please try again.");
     } catch (err) {
       offerAccepting = false;
       renderOfferBody(currentRole);
-      showToast("Network error — please try again.");
+      showToast("Network error, please try again.");
     }
   }
 
@@ -2647,26 +2647,26 @@
         offerContext = null;
         offerBookedInterview = null;
         renderRole(currentRole, { mode: "standard" });
-        showToast("Offer declined — your Registration Support Officer will be in touch about other options.");
+        showToast("Offer declined, your Registration Support Officer will be in touch about other options.");
         return;
       }
       closeDeclineConfirm();
-      showToast((data && data.message) || "We couldn’t record that just now — please try again.");
+      showToast((data && data.message) || "We couldn’t record that just now, please try again.");
     } catch (err) {
       offerDeclining = false;
       closeDeclineConfirm();
-      showToast("Network error — please try again.");
+      showToast("Network error, please try again.");
     }
   }
 
   function renderBody(role, ctx) {
     if (ctx && ctx.mode === "offer" && offerContext && offerContext.offer) {
-      // Offer mode: no urgency/applicant counts — the offer is the story.
+      // Offer mode: no urgency/applicant counts, the offer is the story.
       renderOfferBody(role);
       return;
     }
     // AI write-up "about" (Task 3) wins over the existing publicIntro/summary
-    // fallback when present — already masked server-side (buildCareerRoleGpLinkMetaFromRow).
+    // fallback when present, already masked server-side (buildCareerRoleGpLinkMetaFromRow).
     const summary = String(
       (role.aiAbout && String(role.aiAbout).trim())
         ? role.aiAbout
@@ -2703,10 +2703,10 @@
   function renderRole(role, ctx) {
     renderContext = ctx || renderContext || { mode: "standard" };
     // A blurred (non-qualifying) filler stub has no real practice details to
-    // show — never render it as an openable job page.
+    // show, never render it as an openable job page.
     if (role && role.blurred) {
       currentRole = null;
-      setPageState("error", "This role is unavailable — you don't currently qualify for it.");
+      setPageState("error", "This role is unavailable, you don't currently qualify for it.");
       return;
     }
     currentRole = role;
@@ -2745,7 +2745,7 @@
     }
     // AI Matching (Task 7): when this page load is the GP's live, deep-
     // linked match, the sticky bar's idle state becomes the "Accept this
-    // match" bar (spec Part D verbatim sub-line) — restyling the SAME
+    // match" bar (spec Part D verbatim sub-line), restyling the SAME
     // button/flow, never a second bar or a new accept call (submitApply()
     // still POSTs the ordinary /api/career/apply, which the server already
     // merges into accepting the match on a live-shortlisted row).
@@ -2754,7 +2754,7 @@
       idle: activeMatch
         ? {
             cls: "at-bapply",
-            html: "Accept this match<small>" + escapeHtml(formatMatchCountdown(activeMatch.expiresAt).label) + " — your spot is reserved until then</small>",
+            html: "Accept this match<small>" + escapeHtml(formatMatchCountdown(activeMatch.expiresAt).label) + ", your spot is reserved until then</small>",
             disabled: false
           }
         : {
@@ -2775,7 +2775,7 @@
       },
       closed: {
         cls: "at-bapply at-bapply--muted",
-        html: "This position has been filled<small>Browse other roles — we'll help you find the right fit</small>",
+        html: "This position has been filled<small>Browse other roles, we'll help you find the right fit</small>",
         disabled: true
       },
       not_qualified: {
@@ -2839,11 +2839,11 @@
     }
   }
 
-  // options.bypassCache: skip (and refresh) the 10-minute localStorage cache —
+  // options.bypassCache: skip (and refresh) the 10-minute localStorage cache,
   // used whenever an offer is detected so reveal fields are never stale.
   // loadRoleDetail._fromCache reports where the last resolved role came from.
   // Admin preview (?preview=1) always bypasses the cache too, both directions
-  // — it must never read back a stale non-preview miss for a pending job, and
+  //, it must never read back a stale non-preview miss for a pending job, and
   // must never poison the shared localStorage cache with a preview payload
   // that a later real (non-admin) visit to the same roleId could read back.
   async function loadRoleDetail(roleId, timeoutMs, options) {
@@ -2877,7 +2877,7 @@
     }
   }
 
-  /* ── Apply outcome handling — one explicit branch per server guard ── */
+  /* ── Apply outcome handling, one explicit branch per server guard ── */
   function markAppliedLocally() {
     if (!currentRole) return;
     recordApplication(currentRole);
@@ -2893,7 +2893,7 @@
       // Confirmation moment: applied state + "Application received" banner.
       markAppliedLocally();
       showToast(data.matched
-        // AI Matching (Task 7): self-apply-as-accept — this GP was already
+        // AI Matching (Task 7): self-apply-as-accept, this GP was already
         // team-matched on this exact role; applying just accepted that match.
         ? "Matched! Your team has been notified you're moving forward."
         : (opts.afterCvUpload
@@ -2904,11 +2904,11 @@
     if (data && data.expired) {
       // AI Matching (Task 7): self-applying to a job you were already team-
       // matched on, but the match window has passed and the lifecycle cron
-      // hasn't swept it yet — the same graceful "still open" notice the
+      // hasn't swept it yet, the same graceful "still open" notice the
       // career page's match-respond flow shows, not a hard error.
       applyState = "idle";
       paintApply();
-      showToast(data.message || "This match has expired — the role may still be open; your team has been told you're interested.");
+      showToast(data.message || "This match has expired, the role may still be open; your team has been told you're interested.");
       return "expired";
     }
     if (data && data.requiresCv) {
@@ -2921,7 +2921,7 @@
     if (data && data.code === "already_placed") {
       applyState = "already_placed";
       paintApply();
-      showToast("You're already placed — your Registration Support Officer manages any change from here.");
+      showToast("You're already placed, your Registration Support Officer manages any change from here.");
       return "already_placed";
     }
     if (data && data.code === "job_closed") {
@@ -2933,34 +2933,34 @@
     if (data && data.error === "not_qualified") {
       applyState = "not_qualified";
       paintApply();
-      showToast("You don't currently qualify for this role — ask your Registration Support Officer about your options.");
+      showToast("You don't currently qualify for this role, ask your Registration Support Officer about your options.");
       return "not_qualified";
     }
     if (data && data.error === "active_cap") {
       // AI Matching (Task 7): active-application cap (3 in play at once).
       applyState = "idle";
       paintApply();
-      showToast(data.message || "You have 3 active applications — focus on those first, or withdraw one.");
+      showToast(data.message || "You have 3 active applications, focus on those first, or withdraw one.");
       return "active_cap";
     }
     if (status === 429) {
       // Gentle rate-limit toast; the button stays usable for later.
       applyState = "idle";
       paintApply();
-      showToast("You're applying quickly — give it a few minutes and try again.");
+      showToast("You're applying quickly, give it a few minutes and try again.");
       return "rate_limited";
     }
     if (status === 403) {
       // Onboarding incomplete: repurpose the button as the onboarding link.
       applyState = "onboarding";
       paintApply();
-      showToast("Finish onboarding first — tap the button below to continue.");
+      showToast("Finish onboarding first, tap the button below to continue.");
       return "onboarding";
     }
     if (status === 409) {
-      // Duplicate application — reflect the truth: it's already in.
+      // Duplicate application, reflect the truth: it's already in.
       markAppliedLocally();
-      showToast("You've already applied — your Registration Support Officer is on it.");
+      showToast("You've already applied, your Registration Support Officer is on it.");
       return "duplicate";
     }
     applyState = "idle";
@@ -2976,18 +2976,18 @@
 
   function openApplyConfirm() {
     // AI Matching (Task 7): the SAME confirm sheet, relabelled when this is
-    // really an accept — server-side this is still just /api/career/apply,
+    // really an accept, server-side this is still just /api/career/apply,
     // merged into accepting the match on a live-shortlisted row.
     const activeMatch = getActiveMatch(currentRole);
     applyConfirmTitleEl.textContent = activeMatch ? "Accept this match?" : "Apply for this role?";
     applyConfirmIntroEl.textContent = activeMatch
-      ? "We'll confirm your interest with the practice. You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about."
-      : "You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.";
+      ? "We'll confirm your interest with the practice. You can interview for up to 3 positions per month, so accept the roles you're genuinely serious about."
+      : "You can interview for up to 3 positions per month, so accept the roles you're genuinely serious about.";
     applyConfirmMeterEl.textContent = "";
     applyConfirmBtnEl.disabled = false;
     applyConfirmBtnEl.textContent = activeMatch ? "Accept" : "Apply";
     applyConfirmOverlayEl.hidden = false;
-    // Best-effort meter — graceful if the fetch fails: the cap note above
+    // Best-effort meter, graceful if the fetch fails: the cap note above
     // still shows, just without the "N of 3 used" line.
     fetch("/api/career/interview-usage", { credentials: "same-origin" })
       .then((res) => (res.ok ? res.json() : null))
@@ -2997,7 +2997,7 @@
         const resetsLabel = data.resetsAt
           ? new Date(data.resetsAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })
           : "";
-        applyConfirmMeterEl.textContent = data.used + " of " + (data.limit || 3) + " interviews used" + (resetsLabel ? " — resets " + resetsLabel : "");
+        applyConfirmMeterEl.textContent = data.used + " of " + (data.limit || 3) + " interviews used" + (resetsLabel ? ", resets " + resetsLabel : "");
       });
   }
 
@@ -3033,7 +3033,7 @@
   function applyForRole() {
     if (!currentRole) return;
     if (isOfferMode()) {
-      // The bar is a scroll affordance in offer mode — booking happens inline.
+      // The bar is a scroll affordance in offer mode, booking happens inline.
       const target = isOfferAccepted()
         ? (document.getElementById("schedWrap") || dbodyEl)
         : (dbodyEl.querySelector(".at-offerbanner") || dbodyEl);
@@ -3045,7 +3045,7 @@
       return;
     }
     if (applyState !== "idle") return;
-    // AI Matching (Task 7): every self-apply is a deliberate action — show
+    // AI Matching (Task 7): every self-apply is a deliberate action, show
     // the confirm sheet (cap note + interview-usage meter) before POSTing.
     openApplyConfirm();
   }
@@ -3063,7 +3063,7 @@
     showToast(nowSaved ? "Saved to your shortlist" : "Removed from shortlist");
   });
 
-  // Offer-mode controls (banner actions + scheduler) — event delegation, the
+  // Offer-mode controls (banner actions + scheduler), event delegation, the
   // scheduler re-renders its own innerHTML on every state change.
   dbodyEl.addEventListener("click", (event) => {
     if (event.target.closest("[data-offer-accept]")) { acceptOffer(); return; }
@@ -3214,7 +3214,7 @@
       cvUploadStatus.textContent = "";
 
       try {
-        // Read file as base64 data URL, then strip the "data:...;base64," prefix —
+        // Read file as base64 data URL, then strip the "data:...;base64," prefix,
         // the endpoint wants the raw base64 payload, not a data URL.
         var dataUrl = await new Promise(function (resolve, reject) {
           var reader = new FileReader();
@@ -3224,7 +3224,7 @@
         });
         var fileBase64 = String(dataUrl).split(",")[1] || "";
 
-        // Upload + AI-scan the CV via the careers profile gate endpoint —
+        // Upload + AI-scan the CV via the careers profile gate endpoint,
         // the only path that stores document_key "career_cv".
         var uploadRes = await fetch("/api/career/profile/cv", {
           method: "POST",
@@ -3252,8 +3252,8 @@
           cvUploadBtn.textContent = "Upload & Apply";
           return;
         } else if (uploadRes.status === 429) {
-          // Daily scan limit reached — no point retrying today, leave disabled.
-          cvUploadStatus.textContent = (uploadData && uploadData.message) || "You've reached today's CV check limit — please try again tomorrow.";
+          // Daily scan limit reached, no point retrying today, leave disabled.
+          cvUploadStatus.textContent = (uploadData && uploadData.message) || "You've reached today's CV check limit, please try again tomorrow.";
           cvUploadBtn.textContent = "Upload & Apply";
           return;
         } else if (uploadRes.status === 413) {
@@ -3296,7 +3296,7 @@
     });
   }
 
-  // AI Matching (Task 8): light lock check — a career-locked GP shouldn't be
+  // AI Matching (Task 8): light lock check, a career-locked GP shouldn't be
   // able to reach a job detail page (deep link, back button, stale tab)
   // either. Server-side enforcement (423s on apply/roles/etc.) is the real
   // gate; this is just the friendly bounce so the page never renders content
@@ -3351,7 +3351,7 @@
     if (offerData && offerTargetsRole(offerData, roleId)) {
       offerContext = offerData;
       offerBookedInterview = offerData.bookedInterview || null;
-      // Never trust the 10-minute detail cache once an offer exists — the
+      // Never trust the 10-minute detail cache once an offer exists, the
       // reveal fields could be up to 10 minutes stale. Re-fetch fresh.
       if (!enrichedRole || loadRoleDetail._fromCache) {
         const freshRole = await loadRoleDetail(roleId, 25000, { bypassCache: true });

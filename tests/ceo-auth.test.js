@@ -74,7 +74,7 @@ beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
   // NODE_ENV='test' boots the server without the production Supabase-key requirement
   // (validateRuntimeConfig returns early off-production). The test never uses a loopback
-  // Host header — all three cases send explicit hosts — so the 'local' auto-grant that
+  // Host header, all three cases send explicit hosts, so the 'local' auto-grant that
   // production would suppress is never reached; host scope is driven purely by the
   // *_ALLOWED_HOSTS sets and is identical under either NODE_ENV.
   process.env.NODE_ENV = 'test';

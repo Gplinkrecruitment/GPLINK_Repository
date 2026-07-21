@@ -1,6 +1,6 @@
-// AI Matching — Task 3: Matching tab UI + kanban states.
+// AI Matching, Task 3: Matching tab UI + kanban states.
 // Two halves:
-//  (A) Source-regex wiring checks — the Matching master tab is registered
+//  (A) Source-regex wiring checks, the Matching master tab is registered
 //      (button/panel/MASTER_PANELS/script tag) and js/ceo-ats-matching.js
 //      exposes window.loadMatchingTab. No DOM/browser needed for these.
 //  (B) Server endpoint tests, booted in LOCAL-JSON mode exactly like
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
-describe('AI Matching Task 3 — client wiring (source regex)', () => {
+describe('AI Matching Task 3, client wiring (source regex)', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
   const sharedSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-shared.js'), 'utf8');
   const matchingSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-matching.js'), 'utf8');
@@ -35,7 +35,7 @@ describe('AI Matching Task 3 — client wiring (source regex)', () => {
   });
 
   it('ceo-dashboard.html loads ceo-ats-matching.js with the current cache buster', () => {
-    // Bumped by the Task 5 (2026-07-11) matching-board rewrite — see
+    // Bumped by the Task 5 (2026-07-11) matching-board rewrite, see
     // tests/matching-board-ui.test.js for the full board-rewrite coverage.
     expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260719a"><\/script>/);
   });
@@ -51,11 +51,11 @@ describe('AI Matching Task 3 — client wiring (source regex)', () => {
   });
 
   it('js/ceo-ats-matching.js posts to the shortlist endpoint behind a confirm() gate', () => {
-    // Task 5 (2026-07-11) rewrote the whole tab into the funnel board — the
+    // Task 5 (2026-07-11) rewrote the whole tab into the funnel board, the
     // exact confirm-copy template from the original Task 3 picker no longer
     // exists verbatim (see tests/matching-board-ui.test.js's wiring-pins
-    // describe block for the current copy), but the safety gate itself —
-    // never shortlisting without an explicit confirm() — must survive.
+    // describe block for the current copy), but the safety gate itself,
+    // never shortlisting without an explicit confirm(), must survive.
     expect(matchingSrc).toContain('/api/ats/matching/shortlist');
     expect(matchingSrc).toMatch(/window\.confirm\(\s*'Send the match email and in-app notification/);
   });
@@ -108,9 +108,9 @@ const parse = (raw) => { try { return JSON.parse(raw); } catch { return null; } 
 // Seeded application ids used across the pipeline + extend tests below.
 const MATCHED_ACTIVE_ID = 'ms-active';   // shortlisted, matched, still within its 5-day window
 const MATCHED_EXPIRED_ID = 'ms-expired'; // shortlisted, matched, window already elapsed + outcome:'expired'
-const MATCHED_SWEPT_ID = 'ms-swept';     // not_proceeding + outcome:'expired' (lifecycle-swept) — the legit reopen case
-const MATCHED_HIRED_ID = 'ms-hired';     // matched but already progressed to hired — extend must be rejected
-const MATCHED_INTERVIEW_ID = 'ms-interview'; // matched but already progressed to interview — extend must be rejected
+const MATCHED_SWEPT_ID = 'ms-swept';     // not_proceeding + outcome:'expired' (lifecycle-swept), the legit reopen case
+const MATCHED_HIRED_ID = 'ms-hired';     // matched but already progressed to hired, extend must be rejected
+const MATCHED_INTERVIEW_ID = 'ms-interview'; // matched but already progressed to interview, extend must be rejected
 
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
@@ -127,7 +127,7 @@ beforeAll(async () => {
   execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'seed-ats-dev.js')], { env: { ...process.env, DB_FILE_PATH: DB_FILE } });
 
   // Inject two Shortlist-column applications on job j1 carrying Task 2's
-  // match_* fields — the seed script itself has no AI-matched rows.
+  // match_* fields, the seed script itself has no AI-matched rows.
   const seeded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   seeded.atsApplications = seeded.atsApplications || [];
   const nowIso = new Date().toISOString();
@@ -186,7 +186,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/ats/job/pipeline — match_* fields on Shortlist cards', () => {
+describe('GET /api/ats/job/pipeline, match_* fields on Shortlist cards', () => {
   it('surfaces matched_at, match_expires_at, match_seen_at, match_outcome, match_score and the plain reasons array', async () => {
     const r = await req('GET', '/api/ats/job/pipeline?id=j1', { host: SUPER_HOST, cookie: superCookie() });
     expect(r.status).toBe(200);
@@ -202,7 +202,7 @@ describe('GET /api/ats/job/pipeline — match_* fields on Shortlist cards', () =
     expect(active.match_seen_at).toBe(null);
     expect(active.match_outcome).toBe(null);
     expect(active.match_score).toBe(55);
-    // Contract note from Task 2: match_reasons is stored as {reasons, _history} —
+    // Contract note from Task 2: match_reasons is stored as {reasons, _history},
     // the card must surface the plain array, never the wrapper object.
     expect(active.match_reasons).toEqual(['Good regional fit', 'Family-friendly practice']);
 
@@ -240,7 +240,7 @@ describe('PATCH /api/ats/application {match_extend:true}', () => {
     expect(expiresAt).toBeGreaterThan(before + 4.9 * 24 * 60 * 60 * 1000);
     expect(expiresAt).toBeLessThan(before + 5.1 * 24 * 60 * 60 * 1000);
 
-    // Persisted, not just in the response — a fresh pipeline fetch agrees.
+    // Persisted, not just in the response, a fresh pipeline fetch agrees.
     const after = await req('GET', '/api/ats/job/pipeline?id=j1', { host: SUPER_HOST, cookie: superCookie() });
     const col = parse(after.raw).columns.find((c) => c.key === 'shortlisted');
     const card = col.cards.find((c) => c.id === MATCHED_EXPIRED_ID);
@@ -276,7 +276,7 @@ describe('PATCH /api/ats/application {match_extend:true}', () => {
     expect(b.ok).toBe(false);
     expect(b.error).toBe('invalid_stage_for_extend');
 
-    // The row is untouched — still hired, outcome intact.
+    // The row is untouched, still hired, outcome intact.
     const after = await req('GET', '/api/ats/job/pipeline?id=j1', { host: SUPER_HOST, cookie: superCookie() });
     const hired = parse(after.raw).columns.find((c) => c.key === 'hired').cards.find((c) => c.id === MATCHED_HIRED_ID);
     expect(hired).toBeTruthy();

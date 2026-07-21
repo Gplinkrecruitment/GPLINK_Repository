@@ -1,4 +1,4 @@
-// Phase 6 D1b — GET/POST /api/practice/respond (practice one-click response).
+// Phase 6 D1b, GET/POST /api/practice/respond (practice one-click response).
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
 // tests/ats-submit-practice.test.js. Outbound email (Resend) is captured by
@@ -7,7 +7,7 @@
 // Security model under test:
 //  * a raw GET with a valid token renders a confirm page and does NOT change
 //    state (email scanners auto-fetch GET links);
-//  * POST accept records client_accepted + notifies ops — but must NOT reveal
+//  * POST accept records client_accepted + notifies ops, but must NOT reveal
 //    identity (revealed stays falsy), NOT create an offer, NOT touch the
 //    kanban stage;
 //  * POST decline records client_rejected AND moves the kanban card to
@@ -15,7 +15,7 @@
 //  * POST request_interview records client_interview_requested;
 //  * idempotent: a second identical POST renders "already recorded" and does
 //    not re-notify; invalid tokens get a friendly expired page; the POST is
-//    rate-limited by IP (tested LAST — it exhausts the window).
+//    rate-limited by IP (tested LAST, it exhausts the window).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -53,7 +53,7 @@ const db = {
     { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', masked_title: 'DPA - Fitzroy - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Melbourne', location_state: 'VIC', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', masked_title: 'DPA - Fitzroy - Mixed Billing', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Melbourne', location_state: 'VIC', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     // accept target
@@ -274,7 +274,7 @@ describe('GET /api/practice/respond (scanner-proof confirm page)', () => {
   });
 });
 
-describe('POST /api/practice/respond — accept', () => {
+describe('POST /api/practice/respond, accept', () => {
   it('records client_accepted, notifies ops + RSO, and does NOT reveal/offer/move the kanban', async () => {
     const beforeEmails = resendCalls.length;
     const token = makeToken({ applicationId: 'app-a', action: 'accept' });
@@ -319,7 +319,7 @@ describe('POST /api/practice/respond — accept', () => {
   });
 });
 
-describe('POST /api/practice/respond — decline', () => {
+describe('POST /api/practice/respond, decline', () => {
   it('records client_rejected, moves the kanban card to not_proceeding, notifies ops', async () => {
     const beforeEmails = resendCalls.length;
     const token = makeToken({ applicationId: 'app-b', action: 'decline' });
@@ -339,7 +339,7 @@ describe('POST /api/practice/respond — decline', () => {
   });
 });
 
-describe('POST /api/practice/respond — request_interview', () => {
+describe('POST /api/practice/respond, request_interview', () => {
   it('records client_interview_requested and notifies ops to arrange a time', async () => {
     const beforeEmails = resendCalls.length;
     const token = makeToken({ applicationId: 'app-c', action: 'request_interview' });
@@ -356,7 +356,7 @@ describe('POST /api/practice/respond — request_interview', () => {
   });
 });
 
-describe('POST /api/practice/respond — invalid tokens', () => {
+describe('POST /api/practice/respond, invalid tokens', () => {
   it('shows the friendly expired page and changes nothing', async () => {
     const beforeEmails = resendCalls.length;
     const r = await formPost('garbage-token');
@@ -372,8 +372,8 @@ describe('POST /api/practice/respond — invalid tokens', () => {
   });
 });
 
-// LAST on purpose — this exhausts the per-IP window for the whole test process.
-describe('POST /api/practice/respond — rate limiting', () => {
+// LAST on purpose, this exhausts the per-IP window for the whole test process.
+describe('POST /api/practice/respond, rate limiting', () => {
   it('429s after too many POSTs from one IP', async () => {
     const token = makeToken({ applicationId: 'app-a', action: 'accept' });
     let got429 = false;

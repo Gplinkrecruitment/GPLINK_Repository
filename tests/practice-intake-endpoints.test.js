@@ -1,10 +1,10 @@
 // Public-surface HTTP tests for the practice-client pipeline (no session/auth
-// required by design — these are the endpoints a real practice contact or
+// required by design, these are the endpoints a real practice contact or
 // the Facebook Lead Ads webhook hits directly). Boots the real server in
 // LOCAL-JSON mode (SUPABASE_URL=''), same pattern as tests/ats-endpoints.test.js
-// — a hermetic temp DB file per run. Outbound email goes to a local Resend
+//, a hermetic temp DB file per run. Outbound email goes to a local Resend
 // capture server (RESEND_API_URL) so recipients/subjects can be asserted
-// directly — no real network calls.
+// directly, no real network calls.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -82,8 +82,8 @@ function validIntakePayload(token) {
   };
 }
 
-// Creates a fresh prospective practice the same way production does — via
-// the Facebook lead webhook — then reads its intake_token straight out of
+// Creates a fresh prospective practice the same way production does, via
+// the Facebook lead webhook, then reads its intake_token straight out of
 // the local JSON DB (the webhook response deliberately never returns the
 // token, so a real practice's link can't be reconstructed from the API).
 let leadCounter = 0;
@@ -104,7 +104,7 @@ async function createProspectivePractice(label) {
 }
 
 // One clinic's full set of required intake answers, no `token` (a group
-// submission's `practices[]` items never carry their own token — the token
+// submission's `practices[]` items never carry their own token, the token
 // lives once at the top of the POST body). `overrides` merges on top, same
 // convention as validIntakePayload.
 function validClinicPayload(overrides) {
@@ -128,15 +128,15 @@ function validClinicPayload(overrides) {
 }
 
 // Submits a fresh intake (creating its own prospective practice + token
-// first) and reads the persisted result straight out of the local JSON DB —
-// same house style as findPracticeByEmail above — rather than trusting a
+// first) and reads the persisted result straight out of the local JSON DB,
+// same house style as findPracticeByEmail above, rather than trusting a
 // response shape the brief never specifies. Returns the raw saved practice
 // row(s) for the group this submission's token resolves to, plus the top
 // two DPA fields promoted for the single-clinic test cases.
 //
 // `overrides.practices`, when an array, is sent verbatim as body.practices
 // (a group submission). Otherwise `overrides` is merged over a single valid
-// clinic payload and sent at the top level (today's/legacy shape — no
+// clinic payload and sent at the top level (today's/legacy shape, no
 // `practices` key at all).
 let submitCounter = 0;
 async function submitIntake(overrides = {}) {
@@ -196,7 +196,7 @@ afterAll(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
   if (resendServer) await new Promise((resolve) => resendServer.close(resolve));
   try { fs.unlinkSync(DB_FILE); } catch {}
-  // The sign endpoint's local-mode fallback writes a real PDF to disk —
+  // The sign endpoint's local-mode fallback writes a real PDF to disk,
   // clean up anything this run created.
   createdPdfPracticeIds.forEach((id) => {
     try { fs.unlinkSync(path.join(ROOT, 'data', 'practice-agreements', id + '.pdf')); } catch {}
@@ -325,7 +325,7 @@ describe('GET/POST /api/practice-intake', () => {
   });
 });
 
-describe('POST /api/practice-intake — Task 7: derived columns + DPA mismatch + groups', () => {
+describe('POST /api/practice-intake, Task 7: derived columns + DPA mismatch + groups', () => {
   it('persists urgency, postcode, employment_type, gps_needed and supervision_available to columns', async () => {
     const saved = await submitIntake({
       urgency: '3_6m',
@@ -512,7 +512,7 @@ describe('POST /api/practice-intake/sign', () => {
     const db = readDb();
     const groupRows = (db.atsPractices || []).filter((p) => p.group_id === saved.group.id);
     expect(groupRows).toHaveLength(3);
-    // Every clinic is active + signed — no sibling left behind.
+    // Every clinic is active + signed, no sibling left behind.
     groupRows.forEach((p) => {
       expect(p.stage).toBe('active');
       expect(p.agreement_status).toBe('signed');
@@ -553,12 +553,12 @@ describe('POST /api/practice-intake/sign', () => {
 });
 
 // Audit fix (practice journey, item 2): the sign step forces the signer to
-// enter their email (body.email) but the handler used to discard it — the
+// enter their email (body.email) but the handler used to discard it, the
 // countersigned-PDF/status-link confirmation went only to contact_email.
-describe('POST /api/practice-intake/sign — signer email gets the confirmation too', () => {
+describe('POST /api/practice-intake/sign, signer email gets the confirmation too', () => {
   const CONFIRMATION_SUBJECT = /signed GP Link agreement/i;
   // The intake+sign routes share a 30/hr per-IP rate limit that the earlier
-  // tests in this file mostly consume — give this describe its own budget the
+  // tests in this file mostly consume, give this describe its own budget the
   // way getClientIp keys it (first X-Forwarded-For entry).
   const XFF = { 'x-forwarded-for': '203.0.113.71' };
   function signBody(token, extra) {
@@ -624,12 +624,12 @@ describe('POST /api/practice-intake/sign — signer email gets the confirmation 
 });
 
 // Audit fix (practice journey, item 3): when the intake-token persist PATCH
-// fails, sendPracticeIntakeEmail used to email the in-memory token anyway —
+// fails, sendPracticeIntakeEmail used to email the in-memory token anyway,
 // the recipient got a link that can never match ("This link has expired").
 // A failed persist must now abort the send. Unit-called via __testUtils with
 // a practice id that doesn't exist in the local DB, which is exactly the
 // "persist returned null" failure mode.
-describe('sendPracticeIntakeEmail — failed token persist aborts the send', () => {
+describe('sendPracticeIntakeEmail, failed token persist aborts the send', () => {
   it('returns ok:false and emails nothing when the generated token cannot be persisted', async () => {
     resendCaptured.length = 0;
     const ghostEmail = `ghost-${RUN_ID}@example.com`;

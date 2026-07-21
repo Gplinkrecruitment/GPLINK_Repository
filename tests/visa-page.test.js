@@ -1,4 +1,4 @@
-// Phase 6 Batch F1 — G2: pages/visa.html is a real stage page, not a placeholder.
+// Phase 6 Batch F1, G2: pages/visa.html is a real stage page, not a placeholder.
 //
 // visa.html is static HTML served verbatim, so disk reads are an honest check
 // of what the browser receives. Contract pinned here:
@@ -27,14 +27,14 @@ beforeAll(() => {
   visaHtml = fs.readFileSync(VISA_PATH, 'utf8');
 });
 
-describe('pages/visa.html — placeholder removed', () => {
+describe('pages/visa.html, placeholder removed', () => {
   it('no longer contains the placeholder banner copy', () => {
     expect(visaHtml).not.toContain('More information will appear here');
     expect(visaHtml).not.toContain('GP Link agent');
   });
 });
 
-describe('pages/visa.html — live status section', () => {
+describe('pages/visa.html, live status section', () => {
   it('has the status card and fetches /api/visa/status', () => {
     expect(visaHtml).toContain('id="visaStatusCard"');
     expect(visaHtml).toContain('id="visaStatusBody"');
@@ -68,7 +68,7 @@ describe('pages/visa.html — live status section', () => {
   });
 });
 
-describe('pages/visa.html — document checklist removed (owner request 2026-07-08)', () => {
+describe('pages/visa.html, document checklist removed (owner request 2026-07-08)', () => {
   it('carries no visa document checklist card or leftover checklist markup/styles', () => {
     expect(visaHtml).not.toContain('Visa document checklist');
     expect(visaHtml).not.toContain('visa-checklist');
@@ -78,7 +78,7 @@ describe('pages/visa.html — document checklist removed (owner request 2026-07-
   });
 });
 
-describe('pages/visa.html — Registration Support Officer support framing', () => {
+describe('pages/visa.html, Registration Support Officer support framing', () => {
   it('says the application is handled with the Registration Support Officer', () => {
     expect(visaHtml).toContain('Your Registration Support Officer manages this application with you.');
   });
@@ -95,7 +95,7 @@ describe('pages/visa.html — Registration Support Officer support framing', () 
   });
 });
 
-describe('pages/visa.html — pathway content preserved', () => {
+describe('pages/visa.html, pathway content preserved', () => {
   it('keeps the 482 → 186 → citizenship pathway', () => {
     expect(visaHtml).toContain('Subclass 482 Visa');
     expect(visaHtml).toContain('Subclass 186 Visa');

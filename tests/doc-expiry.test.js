@@ -1,4 +1,4 @@
-// Phase 6 F3 — document expiry tracking + renewal nudges (G5).
+// Phase 6 F3, document expiry tracking + renewal nudges (G5).
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. POST /api/prepared-documents/expiry is auth-gated, validates the date,

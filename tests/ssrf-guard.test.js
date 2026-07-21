@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 // Practice-supplied website URLs are fetched server-side (AI write-up), so the
 // URL sanitizer must reject loopback / private / link-local / cloud-metadata
 // hosts. Extracts the pure isBlockedSsrfHostname() from server.js and exercises
-// it (no server boot needed — the function has no dependencies).
+// it (no server boot needed, the function has no dependencies).
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');

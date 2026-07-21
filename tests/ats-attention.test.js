@@ -1,4 +1,4 @@
-// Phase 5 Task 4 — ATS "Needs attention" visibility (GAPs A3 + A5).
+// Phase 5 Task 4, ATS "Needs attention" visibility (GAPs A3 + A5).
 //
 // Boots the real server against the same in-memory PostgREST emulator pattern
 // as tests/ats-offer-flow.test.js / tests/career-internal-apply.test.js so the
@@ -10,7 +10,7 @@
 //     fixtures (one fresh application, one declined-offer app still in the offer
 //     stage, one interview awaiting practice availability). Consultant can read it.
 //  2. POST /api/career/apply fires an ops email to hello@mygplink.com.au with a
-//     ?case= deep link — and the apply STILL succeeds when the email transport
+//     ?case= deep link, and the apply STILL succeeds when the email transport
 //     throws.
 //  3. Static UI pins: attention-strip markers, declined pill/kanban markers, and
 //     the ceo-dashboard.html cache-busters.
@@ -267,7 +267,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/ats/attention — counts', () => {
+describe('GET /api/ats/attention, counts', () => {
   it('returns the three seeded counts for the CEO', async () => {
     const r = await atsGet('/api/ats/attention');
     expect(r.status).toBe(200);
@@ -292,7 +292,7 @@ describe('GET /api/ats/attention — counts', () => {
   });
 });
 
-describe('POST /api/career/apply — ops signal (GAP A3)', () => {
+describe('POST /api/career/apply, ops signal (GAP A3)', () => {
   it('emails hello@ with a ?case= deep link when a GP applies', async () => {
     const before = resendCalls.length;
     const r = await gpPost('/api/career/apply', { roleId: 'internal_ats:ats_apply1' });
@@ -338,10 +338,10 @@ describe('POST /api/career/apply — ops signal (GAP A3)', () => {
 // Regression: the "New applications" tile counts applications per-application,
 // but clicking it used to filter the candidate list by the collapsed
 // furthest-stage bucket. A GP who already advanced on ONE role (e.g. interview)
-// was bucketed 'interview' and hidden when you filtered by 'applied' — even
+// was bucketed 'interview' and hidden when you filtered by 'applied', even
 // though a brand-new application to a DIFFERENT practice is what the tile
 // counted. This is the exact "Helen Wazalski applied but I can't see her" bug.
-describe('GET /api/ceo/candidates — New applications reconciliation (fresh_applied)', () => {
+describe('GET /api/ceo/candidates, New applications reconciliation (fresh_applied)', () => {
   const HELEN = { userId: 'u-helen-wazalski', email: 'helen.w@gplink-test.local' };
   const SEVEN_DAYS_AGO = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -371,7 +371,7 @@ describe('GET /api/ceo/candidates — New applications reconciliation (fresh_app
     expect(helen).toBeFalsy();
   });
 
-  it('DOES surface her under fresh_applied=1 — matching the "New applications" tile', async () => {
+  it('DOES surface her under fresh_applied=1, matching the "New applications" tile', async () => {
     const r = await atsGet('/api/ceo/candidates?fresh_applied=1');
     expect(r.status).toBe(200);
     const helen = (r.body.candidates || []).find((c) => c.user_id === HELEN.userId);
@@ -391,7 +391,7 @@ describe('GET /api/ceo/candidates — New applications reconciliation (fresh_app
 // The "New applications" action queue: one row per fresh pending application,
 // enriched with GP name + practice + submit eligibility, so the CEO can submit
 // or withdraw without opening each candidate.
-describe('GET /api/ats/new-applications — action queue', () => {
+describe('GET /api/ats/new-applications, action queue', () => {
   const NADIA = { userId: 'u-nadia-newapp', email: 'nadia@gplink-test.local' };
   const OLD = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -542,7 +542,7 @@ describe('cron: practice-decision-reminders', () => {
     const day3 = db.gp_applications.find((a) => a.id === 'app-cron-day3');
     expect(day3.practice_reminder_count).toBe(1);
     expect(sent.some((c) => JSON.stringify(c.body || {}).includes('contact3@seaside.example'))).toBe(true);
-    // day-8 app (no more auto-reminders — count already 2+) gets the chase flag + owner email
+    // day-8 app (no more auto-reminders, count already 2+) gets the chase flag + owner email
     const chaseApp = db.gp_applications.find((a) => a.id === 'app-wait-chase');
     expect(chaseApp.practice_chase_flagged_at).toBeTruthy();
     expect(sent.some((c) => /chase needed/i.test(String(c.body && c.body.subject)))).toBe(true);
@@ -563,7 +563,7 @@ describe('static UI pins', () => {
     expect(js).toContain('/api/ats/attention');
     expect(js).toContain('data-attention=');
     expect(js).toContain('Needs attention');
-    expect(js).toContain('Declined — action needed');
+    expect(js).toContain('Declined, action needed');
     expect(js).toContain('data-offer-declined');
   });
 

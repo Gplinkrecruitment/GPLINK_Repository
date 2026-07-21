@@ -3,15 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as atsPractices from '../lib/ats-practices.js';
 
-// AI Matching — Task 1: migration + 'shortlisted' kanban stage plumbing.
+// AI Matching, Task 1: migration + 'shortlisted' kanban stage plumbing.
 // lib/ats-practices.js is the single source of truth the server uses for the
 // /api/ats/application PATCH stage validator, the /api/ats/job/pipeline
 // column grouping, and the /api/ceo/candidates + /api/ceo/pipeline-summary
-// bucket counts — so testing it here covers every server-side whitelist.
+// bucket counts, so testing it here covers every server-side whitelist.
 
 const root = process.cwd();
 
-describe('AI Matching Task 1 — shortlisted stage', () => {
+describe('AI Matching Task 1, shortlisted stage', () => {
   describe('lib/ats-practices.js (server-side single source of truth)', () => {
     it('ATS_STAGES has shortlisted first, ahead of applied', () => {
       expect(atsPractices.ATS_STAGES).toEqual([
@@ -20,7 +20,7 @@ describe('AI Matching Task 1 — shortlisted stage', () => {
     });
 
     it('the PATCH /api/ats/application validStages set accepts shortlisted and rejects junk', () => {
-      // Mirrors server.js:48307 — var validStages = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]);
+      // Mirrors server.js:48307, var validStages = atsPracticeUtil.ATS_STAGES.concat([atsPracticeUtil.ATS_REJECT_STAGE]);
       const validStages = atsPractices.ATS_STAGES.concat([atsPractices.ATS_REJECT_STAGE]);
       expect(validStages.indexOf('shortlisted')).not.toBe(-1);
       expect(validStages.indexOf('not_proceeding')).not.toBe(-1);
@@ -107,7 +107,7 @@ describe('AI Matching Task 1 — shortlisted stage', () => {
 
     it("re-adds the origin CHECK constraint including 'ai_matched' (Task 2 shortlist inserts), guarded by an existence check", () => {
       // The live gp_applications_origin_check from migration 20260705100000
-      // only allows gp_applied|admin_applied — without this block every
+      // only allows gp_applied|admin_applied, without this block every
       // shortlist insert (origin:'ai_matched') would violate it in prod.
       expect(sql).toMatch(/SELECT 1 FROM pg_constraint WHERE conname = 'gp_applications_origin_check'/);
       expect(sql).toMatch(/DROP CONSTRAINT gp_applications_origin_check/);

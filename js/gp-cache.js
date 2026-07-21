@@ -28,7 +28,7 @@
     "/api/career/hero-image":   "metadata",
     "/api/career/applications": "heavy",
     "/api/user/nudges":         "nudges",
-    // C4 (audit 2026-07-07): heavy GP pages — short "state" tier (30s fresh /
+    // C4 (audit 2026-07-07): heavy GP pages, short "state" tier (30s fresh /
     // 2m stale-revalidate) so repeated on-load GETs coalesce without serving
     // meaningfully stale document status. Both endpoints are idempotent GETs.
     "/api/ahpra/document-readiness": "state",
@@ -122,7 +122,7 @@
     }
   }
 
-  /* ── Core SWR fetch — returns parsed JSON ─────────────────────── */
+  /* ── Core SWR fetch, returns parsed JSON ─────────────────────── */
 
   /**
    * @param {string} url - API URL to fetch
@@ -137,7 +137,7 @@
     var opts = options || {};
     var tier = tierFor(url);
 
-    // Not cacheable — pass through to network and parse JSON
+    // Not cacheable, pass through to network and parse JSON
     if (!tier) {
       return window.fetch(url, { credentials: "same-origin" }).then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
@@ -145,7 +145,7 @@
       });
     }
 
-    // Force network — skip cache
+    // Force network, skip cache
     if (opts.forceNetwork) {
       return networkFetch(url);
     }
@@ -156,19 +156,19 @@
     if (entry && entry.data !== undefined) {
       var age = Date.now() - entry.ts;
 
-      // Fresh — return cached, no network
+      // Fresh, return cached, no network
       if (age < tier.fresh) {
         return Promise.resolve(entry.data);
       }
 
-      // Stale — return cached now, revalidate in background
+      // Stale, return cached now, revalidate in background
       if (age < tier.stale) {
         revalidateBackground(url, key, entry.data, opts.onUpdate);
         return Promise.resolve(entry.data);
       }
     }
 
-    // Expired or no cache — fetch from network
+    // Expired or no cache, fetch from network
     return networkFetch(url);
   }
 

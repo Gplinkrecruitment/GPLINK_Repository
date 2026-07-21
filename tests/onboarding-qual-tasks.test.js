@@ -29,7 +29,7 @@ describe('canonicalQualKey', () => {
 
   it('leaves non-onboarding qualification keys unchanged (so their own user_documents rows still resolve)', () => {
     // A "My Documents" upload of an MRCGP certificate lives under user_documents
-    // keyed by 'mrcgp_certified' — collapsing it would break file retrieval.
+    // keyed by 'mrcgp_certified', collapsing it would break file retrieval.
     expect(canonicalQualKey('mrcgp_certified')).toBe('mrcgp_certified');
     expect(canonicalQualKey('cct_certified')).toBe('cct_certified');
     expect(canonicalQualKey('supervisor_cv')).toBe('supervisor_cv');
@@ -71,7 +71,7 @@ describe('inferStageFromDocKey', () => {
   // passes an explicit reviewStage into createDocReviewTask / createFlaggedDocTask:
   // genuine onboarding-wizard uploads pass 'onboarding', the "prepare my documents"
   // page passes 'ahpra'. inferStageFromDocKey is only the key-only FALLBACK used
-  // when no explicit stage is supplied — a qualification cert defaults to the AHPRA
+  // when no explicit stage is supplied, a qualification cert defaults to the AHPRA
   // review stage there, NEVER onboarding (only the onboarding upload path can stamp
   // a task "onboarding"). This is what stops a cert uploaded on the prepare-docs page
   // from being mislabelled "Onboarding".
@@ -99,7 +99,7 @@ describe('inferStageFromDocKey', () => {
   });
 
   it('keeps the Career-page CV and cover letter in the career stage', () => {
-    // The GP uploads a CV (and optional cover letter) on the Career page — those are
+    // The GP uploads a CV (and optional cover letter) on the Career page, those are
     // career-lane documents, not the AHPRA signed-and-dated CV (cv_signed_dated).
     expect(inferStageFromDocKey('career_cv')).toBe('career');
     expect(inferStageFromDocKey('career_cover_letter')).toBe('career');

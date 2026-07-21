@@ -6,7 +6,7 @@
 // PostgREST (/rest/v1/<table>) AND Supabase Storage (/storage/v1/...), so the
 // two new endpoints are exercised for real:
 //   POST /api/admin/offer-contract/sign-upload  → signed upload URL
-//   (browser PUTs the raw file to Storage — no base64, no 4.5MB body limit)
+//   (browser PUTs the raw file to Storage, no base64, no 4.5MB body limit)
 //   POST /api/admin/offer-contract/finalize     → user_documents offer_contract
 //     row with a storage reference (so the GP download resolves), the admin
 //     practice_doc_ops card marked completed, and the GP's cached placement
@@ -200,7 +200,7 @@ describe('admin offer/contract direct-to-Storage upload', () => {
     const pdf = Buffer.from('%PDF-1.4 fake contract bytes for Sana', 'utf8');
     const put = await putSignedUpload(sign.body.uploadUrl, pdf, 'application/pdf');
     expect(put.status).toBe(200);
-    // Storage keys by "<bucket>/<path>" — the object landed at the signed path.
+    // Storage keys by "<bucket>/<path>", the object landed at the signed path.
     expect([...storage.keys()].some((k) => k.endsWith(sign.body.storagePath))).toBe(true);
 
     // 3. finalize

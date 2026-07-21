@@ -212,7 +212,7 @@
           </span>
           <span>
             <span class="tt">Your last three interviews</span>
-            <div class="tb" id="strikesProgress"><b>0 of 3 answered</b> — tap to tell us what wasn't right</div>
+            <div class="tb" id="strikesProgress"><b>0 of 3 answered</b>, tap to tell us what wasn't right</div>
           </span>
           <span class="chev">&#9662;</span>
         </button>
@@ -227,7 +227,7 @@
         <div class="steps">
           <div class="step">
             <span class="dotn" id="stepDot1">1</span>
-            <span><span class="tt">Answer three quick questions</span><br><span class="tb">One line per practice — what wasn't right.</span></span>
+            <span><span class="tt">Answer three quick questions</span><br><span class="tb">One line per practice, what wasn't right.</span></span>
           </div>
           <div class="step">
             <span class="dotn grey" id="stepDot2">2</span>
@@ -289,8 +289,8 @@
       function updateProgress() {
         var n = answeredCount();
         var total = lockData.strikes.length || 3;
-        var trailer = n === 0 ? "tap to tell us what wasn't right" : (n >= total ? "thanks — now book your call" : "keep going");
-        strikesProgress.innerHTML = "<b>" + n + " of " + total + " answered</b> — " + trailer;
+        var trailer = n === 0 ? "tap to tell us what wasn't right" : (n >= total ? "thanks, now book your call" : "keep going");
+        strikesProgress.innerHTML = "<b>" + n + " of " + total + " answered</b>, " + trailer;
         // Steps timeline: step 1 turns blue once at least one answer is in,
         // step 2 (book a call) turns blue once all three are answered.
         if (stepDot1) stepDot1.classList.toggle("grey", n === 0);
@@ -301,7 +301,7 @@
         var reason = lockData.reasons[strike.applicationId] || "";
         var answered = !!String(reason).trim();
         var dateLabel = formatStrikeDate(strike.interviewedAt);
-        // Matches the mockup exactly: the date shows ONCE — as the small
+        // Matches the mockup exactly: the date shows ONCE, as the small
         // right-aligned badge while unanswered, folded into the location
         // line once answered (the badge slot is used by the ✓ Answered chip).
         var locLine = answered
@@ -351,7 +351,7 @@
               renderStrikes();
             }
           })
-          .catch(function () { /* best-effort autosave — the field keeps its typed value either way */ });
+          .catch(function () { /* best-effort autosave, the field keeps its typed value either way */ });
       }
 
       strikesBody.addEventListener("blur", function (e) {
@@ -388,7 +388,7 @@
           });
       });
 
-      // Boot: only a career-locked GP may see this page's content — anyone
+      // Boot: only a career-locked GP may see this page's content, anyone
       // else (never locked, or already released) is sent back to the real
       // career page immediately.
       fetch("/api/career/matches", { credentials: "same-origin" })
@@ -404,7 +404,7 @@
           renderStrikes();
         })
         .catch(function () {
-          // Network failure — stay put rather than bouncing a genuinely
+          // Network failure, stay put rather than bouncing a genuinely
           // locked GP away on a flaky connection; the fields simply stay empty.
         });
     })();

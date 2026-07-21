@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>GP Link — RSO Email Hub (Prototype)</title>
+<title>GP Link, RSO Email Hub (Prototype)</title>
 <style>
   :root {
     --teal: #0f766e;
@@ -178,7 +178,7 @@
 
   <div class="proto-flag">
     <span>🧪</span>
-    <span><b>Prototype</b> — dummy data, no real emails are sent. This shows the idea before anything is built for real.</span>
+    <span><b>Prototype</b>, dummy data, no real emails are sent. This shows the idea before anything is built for real.</span>
   </div>
 
   <!-- ============ INBOX VIEW ============ -->
@@ -201,7 +201,7 @@
     <div class="backbar"><button class="backlink" id="backBtn">← Inbox</button></div>
     <div class="filehead">
       <div>
-        <h2 id="fileName">Dr Sana Khan — Registration File</h2>
+        <h2 id="fileName">Dr Sana Khan, Registration File</h2>
         <div class="chips" id="fileChips"></div>
       </div>
       <div class="assign">
@@ -228,11 +228,11 @@
     <div class="panel" id="emailPanel">
       <div class="hubbanner">
         <span>🔗</span>
-        <span>All emails go through <b>registration@mygplink.com.au</b> — the doctor only ever sees this one address.</span>
+        <span>All emails go through <b>registration@mygplink.com.au</b>, the doctor only ever sees this one address.</span>
       </div>
       <div class="thread" id="thread"></div>
       <div class="composer">
-        <div class="sendingas">Sending as: <b id="sendingAs">Hazel — GP Link</b> &lt;registration@mygplink.com.au&gt;</div>
+        <div class="sendingas">Sending as: <b id="sendingAs">Hazel, GP Link</b> &lt;registration@mygplink.com.au&gt;</div>
         <div class="toolbar">
           <button class="ghost" id="suggestBtn">✨ Suggest a reply</button>
           <button class="ghost" id="attachBtn">📎 Attach</button>
@@ -281,7 +281,7 @@
 
   var conversations = [
     {
-      id: "priya", name: "Dr Priya Nair — Registration File", shortName: "Dr Priya Nair",
+      id: "priya", name: "Dr Priya Nair, Registration File", shortName: "Dr Priya Nair",
       initials: "PN", kind: "doctor", rso: "Hazel", unread: true,
       chips: [{label:"Stage: AMC", stage:true},{label:"India"},{label:"Case #GPL-2088"}],
       messages: [
@@ -289,20 +289,20 @@
           body:"Hi Priya, to book your AMC CAT exam we just need your passport bio page and a recent passport-style photo.",
           attachments:["1 document requested"], delivered:true },
         { dir:"in", who:"Dr Priya Nair", time:"27 Jun 8:40am", subj:"Re: Your AMC exam booking",
-          body:"Hi Hazel, passport attached. Quick question — does the photo need to be a particular size?",
+          body:"Hi Hazel, passport attached. Quick question, does the photo need to be a particular size?",
           attachments:["Passport.pdf"], delivered:false }
       ]
     },
     {
-      id: "sana", name: "Dr Sana Khan — Registration File", shortName: "Dr Sana Khan",
+      id: "sana", name: "Dr Sana Khan, Registration File", shortName: "Dr Sana Khan",
       initials: "SK", kind: "doctor", rso: "Hazel", unread: false,
       chips: [{label:"Stage: AHPRA", stage:true},{label:"United Kingdom"},{label:"Case #GPL-2041"}],
       messages: [
         { dir:"out", who:"You (Hazel)", time:"12 Jun 9:14am", subj:"Your AHPRA documents",
-          body:"Hi Sana, to move your AHPRA application forward we need two more documents from you:\n• A certified copy of your medical degree\n• Your signed, dated CV\n\nNo rush — whenever you have them handy.",
+          body:"Hi Sana, to move your AHPRA application forward we need two more documents from you:\n• A certified copy of your medical degree\n• Your signed, dated CV\n\nNo rush, whenever you have them handy.",
           attachments:["2 documents requested"], delivered:true },
         { dir:"in", who:"Dr Sana Khan", time:"12 Jun 4:02pm", subj:"Re: Your AHPRA documents",
-          body:"Thanks Hazel — I've attached my CV, but where do I find a certified copy of my degree? Does it need to be stamped by someone?",
+          body:"Thanks Hazel, I've attached my CV, but where do I find a certified copy of my degree? Does it need to be stamped by someone?",
           attachments:["CV.pdf"], delivered:false },
         { dir:"out", who:"You (Hazel)", time:"13 Jun 8:30am", subj:"Re: Your AHPRA documents",
           body:"No problem at all! A certified copy just means a JP, pharmacist or doctor writes \"true copy of the original\", signs and dates it. Pop into any pharmacy and they'll do it in two minutes.",
@@ -310,20 +310,20 @@
       ]
     },
     {
-      id: "greenslopes", name: "Greenslopes Medical Centre — Practice File", shortName: "Greenslopes Medical Centre",
+      id: "greenslopes", name: "Greenslopes Medical Centre, Practice File", shortName: "Greenslopes Medical Centre",
       initials: "GM", kind: "practice", rso: "Hazel", unread: true,
       chips: [{label:"Medical Practice", stage:true},{label:"QLD"},{label:"Re: Dr Khan"}],
       messages: [
-        { dir:"out", who:"You (Hazel)", time:"25 Jun 2:15pm", subj:"Dr Khan — employment contract",
+        { dir:"out", who:"You (Hazel)", time:"25 Jun 2:15pm", subj:"Dr Khan, employment contract",
           body:"Hi team at Greenslopes, please find Dr Khan's draft employment contract attached for signing.",
           attachments:["Draft-contract.pdf"], delivered:true },
-        { dir:"in", who:"Greenslopes Medical Centre", time:"27 Jun 9:02am", subj:"Re: Dr Khan — employment contract",
-          body:"Thanks — signed copy attached. Could you let us know the next steps for her start date?",
+        { dir:"in", who:"Greenslopes Medical Centre", time:"27 Jun 9:02am", subj:"Re: Dr Khan, employment contract",
+          body:"Thanks, signed copy attached. Could you let us know the next steps for her start date?",
           attachments:["Signed-contract.pdf"], delivered:false }
       ]
     },
     {
-      id: "ade", name: "Dr Ade Okonkwo — Registration File", shortName: "Dr Ade Okonkwo",
+      id: "ade", name: "Dr Ade Okonkwo, Registration File", shortName: "Dr Ade Okonkwo",
       initials: "AO", kind: "doctor", rso: "Smith Miller", unread: false,
       chips: [{label:"Stage: MyIntealth", stage:true},{label:"Nigeria"},{label:"Case #GPL-2067"}],
       messages: [
@@ -333,7 +333,7 @@
       ]
     },
     {
-      id: "tom", name: "Dr Tom Harris — Registration File", shortName: "Dr Tom Harris",
+      id: "tom", name: "Dr Tom Harris, Registration File", shortName: "Dr Tom Harris",
       initials: "TH", kind: "doctor", rso: "Khaleed", unread: false,
       chips: [{label:"Stage: Commencement", stage:true},{label:"New Zealand"},{label:"Case #GPL-1990"}],
       messages: [
@@ -347,14 +347,14 @@
   var state = { filter: "mine", currentId: null, pendingAtt: [], suggestIdx: 0, attachIdx: 0, docReplyIdx: 0 };
 
   var suggestions = [
-    "Great question — a standard passport photo size (35×45mm) is perfect. Any chemist or post office can take one for you.",
+    "Great question, a standard passport photo size (35×45mm) is perfect. Any chemist or post office can take one for you.",
     "Thanks for sending that through! I've got everything I need now and I'll get this moving for you today.",
-    "Happy to jump on a quick call if that's easier — just let me know a time that suits you."
+    "Happy to jump on a quick call if that's easier, just let me know a time that suits you."
   ];
   var attachNames = ["AHPRA-checklist.pdf", "Certification-guide.pdf", "Next-steps.pdf"];
   var doctorReplies = [
-    "Perfect, that's really helpful — sending it across now. Thank you so much!",
-    "One more thing — will I need to do anything else after this, or are we all set?",
+    "Perfect, that's really helpful, sending it across now. Thank you so much!",
+    "One more thing, will I need to do anything else after this, or are we all set?",
     "Brilliant, thanks for being so patient with all my questions!"
   ];
 
@@ -453,7 +453,7 @@
     var c = cur(); if (c) c.rso = name;
     $("rsoName").textContent = name;
     $("avatar").textContent = rsoInitials[name] || name.slice(0,2).toUpperCase();
-    $("sendingAs").textContent = name + " — GP Link";
+    $("sendingAs").textContent = name + ", GP Link";
   }
 
   // ---------- THREAD ----------
@@ -510,7 +510,7 @@
       var newRso = btn.getAttribute("data-rso"); var c = cur();
       if (!c || newRso === c.rso) return;
       setRso(newRso); $("reassignMenu").classList.remove("open");
-      showToast("Reassigned to " + newRso, "The whole conversation stays on this file — only future messages show " + newRso + "'s name. (In the inbox it now appears under " + newRso + ".)");
+      showToast("Reassigned to " + newRso, "The whole conversation stays on this file, only future messages show " + newRso + "'s name. (In the inbox it now appears under " + newRso + ".)");
     });
   });
 
@@ -541,13 +541,13 @@
   // Doctor view
   $("docViewBtn").addEventListener("click", function(){
     var c = cur(); if (!c) return;
-    $("docBarName").textContent = "📥 " + c.shortName + " — Inbox";
-    $("docNote").textContent = "This is their own email inbox. To them it is just one normal conversation with \"" + c.rso + " — GP Link\".";
+    $("docBarName").textContent = "📥 " + c.shortName + ", Inbox";
+    $("docNote").textContent = "This is their own email inbox. To them it is just one normal conversation with \"" + c.rso + ", GP Link\".";
     var outs = c.messages.filter(function(m){ return m.dir === "out"; }).slice().reverse();
     $("docMail").innerHTML = outs.map(function(m){
       var prev = m.body.replace(/\n/g," ");
       return '<div class="mailrow"><div class="from"><span class="avatar sm">' + (rsoInitials[c.rso]||"GL") +
-        '</span> ' + esc(c.rso) + ' — GP Link</div><div class="sub">' + esc(m.subj) + '</div>' +
+        '</span> ' + esc(c.rso) + ', GP Link</div><div class="sub">' + esc(m.subj) + '</div>' +
         '<div class="prev">' + esc(prev.length > 70 ? prev.slice(0,70) + "…" : prev) + '</div></div>';
     }).join("");
     $("overlay").classList.add("open");

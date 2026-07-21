@@ -1,4 +1,4 @@
-// AI bug-fix pipeline — the executor end to end, against a stubbed network.
+// AI bug-fix pipeline, the executor end to end, against a stubbed network.
 //
 // WHAT IS REAL HERE: every line of dispatchApprovedFixProposal, the claim/
 // double-dispatch guard, the stale-reclaim sweep, the response parsing, the
@@ -7,7 +7,7 @@
 //
 // WHAT IS STUBBED: global.fetch only. Anthropic and GitHub are both replaced by
 // a recording router, so the tests assert on the EXACT requests the executor
-// would have sent. Nothing here proves the real GitHub API accepts them — that
+// would have sent. Nothing here proves the real GitHub API accepts them, that
 // cannot be proven without a token, and the token is not available locally.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import crypto from 'crypto';
@@ -214,7 +214,7 @@ describe('the happy path: approved proposal → validated edit → pull request'
     expect(refCall.body.ref).toMatch(/^refs\/heads\/autofix\//);
     expect(refCall.body.sha).toBe('basecommitsha');
 
-    // Every write names the autofix branch — nothing targets main.
+    // Every write names the autofix branch, nothing targets main.
     urlsOf('PUT', '/contents/').forEach((c) => {
       expect(c.body.branch).toMatch(/^autofix\//);
       expect(c.body.branch).not.toBe('main');
@@ -232,7 +232,7 @@ describe('the happy path: approved proposal → validated edit → pull request'
     expect(put.body.sha).toBe('basefilesha');
   });
 
-  it('commits the edited content — read from GitHub, not from local disk', async () => {
+  it('commits the edited content, read from GitHub, not from local disk', async () => {
     await seedRows([seedProposal('p-content')]);
     await ef.dispatchApprovedFixProposal(await ef.getErrorFixProposalById('p-content'), {});
 
@@ -396,7 +396,7 @@ describe('guardrails stop the change BEFORE anything reaches GitHub', () => {
     const after = await ef.getErrorFixProposalById('g-nofiles');
     expect(after.status).toBe('failed');
     expect(after.execution_error).toMatch(/which file to change/i);
-    // Not even the AI was called — this fails before any spend.
+    // Not even the AI was called, this fails before any spend.
     expect(calls.filter((c) => c.url.indexOf('anthropic') !== -1).length).toBe(0);
   });
 
@@ -411,7 +411,7 @@ describe('guardrails stop the change BEFORE anything reaches GitHub', () => {
 });
 
 describe('failure never leaves a row stuck, and never crashes the cron', () => {
-  it('fails readably when there is no GitHub token — before any AI spend', async () => {
+  it('fails readably when there is no GitHub token, before any AI spend', async () => {
     const saved = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = '';
     try {

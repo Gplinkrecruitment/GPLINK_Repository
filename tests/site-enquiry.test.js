@@ -4,16 +4,16 @@ import crypto from 'crypto';
 import fs from 'fs';
 
 // Coverage for the new public (no-session) lead-capture endpoint:
-//   POST /api/public/enquiry — practice/GP/general enquiries from the
+//   POST /api/public/enquiry, practice/GP/general enquiries from the
 //   marketing site, stored in site_enquiries (Supabase) / dbState.siteEnquiries
 //   (local JSON-db fallback, exercised here since Supabase is left
-//   unconfigured in this test boot — same pattern as tests/site-public-apis.test.js).
+//   unconfigured in this test boot, same pattern as tests/site-public-apis.test.js).
 //
 // Validates: required fields (kind/name/email), kind enum, email format,
 // message length cap, the `website` honeypot (200 ok, but stores nothing),
 // and the in-memory per-client rate limit (max 5 stored submissions/hour),
 // keyed the same way the production getClientIp() helper keys it: by the
-// first X-Forwarded-For entry when present, else the raw socket address —
+// first X-Forwarded-For entry when present, else the raw socket address,
 // so two different XFF values get independent budgets and the same XFF
 // value shares one, matching how requests arrive behind Vercel's proxy.
 
@@ -141,7 +141,7 @@ beforeEach(() => {
   resendCaptured.length = 0;
 });
 
-describe('POST /api/public/enquiry — valid submissions', () => {
+describe('POST /api/public/enquiry, valid submissions', () => {
   it('stores a valid practice enquiry with status "new" and returns { ok: true }', async () => {
     const res = await post('/api/public/enquiry', validPracticePayload());
     expect(res.status).toBe(200);
@@ -177,7 +177,7 @@ describe('POST /api/public/enquiry — valid submissions', () => {
   });
 });
 
-describe('POST /api/public/enquiry — validation failures (400)', () => {
+describe('POST /api/public/enquiry, validation failures (400)', () => {
   it('400 when kind is missing', async () => {
     const res = await post('/api/public/enquiry', validPracticePayload({ kind: undefined }));
     expect(res.status).toBe(400);
@@ -228,10 +228,10 @@ describe('POST /api/public/enquiry — validation failures (400)', () => {
 });
 
 // Audit fix (practice journey, item 1): enquiries must always reach a human.
-// With SITE_ENQUIRY_NOTIFY_EMAIL unset the notification used to be a NO-OP —
+// With SITE_ENQUIRY_NOTIFY_EMAIL unset the notification used to be a NO-OP,
 // the enquiry was stored but no dashboard lists practice-kind enquiries, so
 // nobody ever saw it. The notification now falls back to the owner mailbox.
-describe('POST /api/public/enquiry — notification fallback', () => {
+describe('POST /api/public/enquiry, notification fallback', () => {
   it('emails hello@mygplink.com.au when SITE_ENQUIRY_NOTIFY_EMAIL is unset', async () => {
     delete process.env.SITE_ENQUIRY_NOTIFY_EMAIL;
     const res = await post('/api/public/enquiry', validPracticePayload());
@@ -261,7 +261,7 @@ describe('POST /api/public/enquiry — notification fallback', () => {
   });
 });
 
-describe('POST /api/public/enquiry — honeypot', () => {
+describe('POST /api/public/enquiry, honeypot', () => {
   it('a filled "website" field returns { ok: true } but stores no row', async () => {
     const res = await post('/api/public/enquiry', validPracticePayload({ website: 'http://spam-bot.example' }));
     expect(res.status).toBe(200);
@@ -277,7 +277,7 @@ describe('POST /api/public/enquiry — honeypot', () => {
   });
 });
 
-describe('POST /api/public/enquiry — rate limit (5/hour/client)', () => {
+describe('POST /api/public/enquiry, rate limit (5/hour/client)', () => {
   it('allows 5 stored submissions from the same X-Forwarded-For value within the hour, then 429s the 6th', async () => {
     const xff = { 'x-forwarded-for': `203.0.113.10-${RUN_ID}` };
     for (let i = 0; i < 5; i++) {
@@ -330,7 +330,7 @@ describe('POST /api/public/enquiry — rate limit (5/hour/client)', () => {
   });
 
   it('keys on the first entry of a multi-hop X-Forwarded-For header (matches getClientIp semantics)', async () => {
-    // Same leading (client) IP, different proxy-appended hops — must share one budget.
+    // Same leading (client) IP, different proxy-appended hops, must share one budget.
     const hopA = { 'x-forwarded-for': `192.0.2.30-${RUN_ID}, 10.0.0.1` };
     const hopB = { 'x-forwarded-for': `192.0.2.30-${RUN_ID}, 10.0.0.2` };
 
@@ -380,7 +380,7 @@ describe('GET /employers (employers page)', () => {
     // practice that fills its website in.
     const res = await get('/employers');
     expect(res.raw).toMatch(/<input class="hp-field"[^>]*name="company_url"/);
-    // website still exists — as a genuine, visible, labelled field.
+    // website still exists, as a genuine, visible, labelled field.
     expect(res.raw).toMatch(/<input type="url" name="website"/);
     expect(res.raw).not.toMatch(/<input class="hp-field"[^>]*name="website"/);
   });

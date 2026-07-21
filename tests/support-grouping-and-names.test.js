@@ -24,7 +24,7 @@ const {
   SUPPORT_GROUP_WINDOW_MS,
 } = __testUtils;
 
-describe('supportDisplayName — no more "Unknown"', () => {
+describe('supportDisplayName, no more "Unknown"', () => {
   it('shows a known GP their full name', () => {
     expect(supportDisplayName({ first_name: 'Smith', last_name: 'Miller' }))
       .toEqual({ name: 'Smith Miller', isExternal: false });
@@ -57,7 +57,7 @@ describe('supportDisplayName — no more "Unknown"', () => {
   });
 });
 
-describe('isWithinGroupingWindow — sliding 24h', () => {
+describe('isWithinGroupingWindow, sliding 24h', () => {
   const now = 1_800_000_000_000; // fixed epoch ms
 
   it('groups a message that arrives inside the window', () => {
@@ -113,7 +113,7 @@ describe('identity extraction for grouping + naming', () => {
       .toBe('Smith Miller');
     expect(contactNameFromSupportItem({ body: '', title: 'WhatsApp enquiry from Nohier Jackman' }))
       .toBe('Nohier Jackman');
-    expect(contactNameFromSupportItem({ body: 'no name here', title: 'GP requested WhatsApp help — AMC' }))
+    expect(contactNameFromSupportItem({ body: 'no name here', title: 'GP requested WhatsApp help, AMC' }))
       .toBe('');
   });
 });

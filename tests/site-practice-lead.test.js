@@ -44,7 +44,7 @@ describe('normalizeWebsitePracticeLead', () => {
 
   it('requires BOTH a practice name and a contact email', () => {
     // The Facebook normalizer accepts either one, because Meta controls the
-    // form. A public web form must demand both — a lead we cannot email is
+    // form. A public web form must demand both, a lead we cannot email is
     // worthless, and a lead with no practice name cannot be deduplicated.
     expect(normalizeWebsitePracticeLead(validWebsiteLead({ practice_name: '' }))).toBeNull();
     expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_email: '' }))).toBeNull();
@@ -67,7 +67,7 @@ describe('normalizeWebsitePracticeLead', () => {
     expect(lead.employment_type).toBeUndefined();
   });
 
-  it('keeps dpa as a real tri-state — true, false or unknown, never coerced', () => {
+  it('keeps dpa as a real tri-state, true, false or unknown, never coerced', () => {
     expect(normalizeWebsitePracticeLead(validWebsiteLead({ dpa: false })).dpa).toBe(false);
     expect(normalizeWebsitePracticeLead(validWebsiteLead({ dpa: null })).dpa).toBeUndefined();
     expect(normalizeWebsitePracticeLead(validWebsiteLead({ dpa: 'yes' })).dpa).toBeUndefined();
@@ -94,7 +94,7 @@ describe('normalizeWebsitePracticeLead', () => {
   });
 });
 
-describe('practiceBlocksNewLead — which existing practices suppress a new lead', () => {
+describe('practiceBlocksNewLead, which existing practices suppress a new lead', () => {
   // REGRESSION (2026-07-22): a real submission for "test practice" was
   // silently swallowed because it name-matched an ARCHIVED row called
   // "Test Practice". Nothing was created, nothing was emailed, and the
@@ -121,7 +121,7 @@ describe('practiceBlocksNewLead — which existing practices suppress a new lead
   });
 });
 
-describe('buildPracticeProspectRow — shared by both front doors', () => {
+describe('buildPracticeProspectRow, shared by both front doors', () => {
   it('builds the Facebook row exactly as the webhook always has', () => {
     const lead = normalizeFacebookLeadPayload({
       lead_id: 'L1',

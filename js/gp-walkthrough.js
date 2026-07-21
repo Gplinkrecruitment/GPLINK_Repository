@@ -24,7 +24,7 @@
   }
 
   var HOME = [
-    { target: '.glass-progress', title: 'Your journey', body: 'Every registration stage sits here — green is done, blue is your current step.' },
+    { target: '.glass-progress', title: 'Your journey', body: 'Every registration stage sits here, green is done, blue is your current step.' },
     { target: '#hero-next-action', title: 'Your next move', body: 'Your single next action is always shown here. Tap it to jump straight in.' },
     { target: '#journeyList', title: 'The full path', body: 'Scroll to see every step ahead, from MyIntealth through to starting work.' }
   ];
@@ -39,17 +39,17 @@
     if (area === 'account') return ACCOUNT;
     if (area === 'practice') {
       if (document.querySelector('.at-match-pin')) return [
-        { target: '.at-match-pin', title: 'Roles matched to you', body: 'Each match is scored against your profile — higher means a better fit.' },
+        { target: '.at-match-pin', title: 'Roles matched to you', body: 'Each match is scored against your profile, higher means a better fit.' },
         { target: '.at-match-accept', title: 'Review & accept', body: 'Open a match to meet the practice, then accept the one you want.' }
       ];
-      return [{ target: '#teamMatchesSection', title: 'Roles matched to you', body: 'When we match you to a practice it appears here — ready to review and accept.' }];
+      return [{ target: '#teamMatchesSection', title: 'Roles matched to you', body: 'When we match you to a practice it appears here, ready to review and accept.' }];
     }
     if (area === 'support') {
       if (document.querySelector('.chat-card')) return [
         { target: '#chatList', title: 'Your conversations', body: 'Every chat with your GP Link team lives here.' },
-        { target: '.chat-card', title: 'Open a conversation', body: 'Tap a chat to read replies and message back — we reply within a day.' }
+        { target: '.chat-card', title: 'Open a conversation', body: 'Tap a chat to read replies and message back, we reply within a day.' }
       ];
-      return [{ target: '#chatList', title: 'Message us any time', body: 'Your conversations with the GP Link team appear here — tap to start one.' }];
+      return [{ target: '#chatList', title: 'Message us any time', body: 'Your conversations with the GP Link team appear here, tap to start one.' }];
     }
     return [];
   }

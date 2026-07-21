@@ -263,7 +263,7 @@
       setStatus("");
       submitBtnEl.disabled = true;
 
-      // Step 2: we already hold an MFA challenge — verify the code.
+      // Step 2: we already hold an MFA challenge, verify the code.
       if (mfaChallenge) {
         const code = String(document.getElementById("mfaCode").value || "").trim();
         if (!code) {
@@ -320,7 +320,7 @@
           return;
         }
         if (data.mfaEnrolmentRequired) {
-          // Never blocks sign-in — the dashboard Security panel prompts enrolment.
+          // Never blocks sign-in, the dashboard Security panel prompts enrolment.
           try { sessionStorage.setItem("gpAdminMfaEnrolPrompt", "1"); } catch (e) {}
         }
         completeSignin(data);

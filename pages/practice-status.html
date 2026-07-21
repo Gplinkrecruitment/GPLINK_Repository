@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your Listing Status — GP Link</title>
+<title>Your Listing Status, GP Link</title>
 <meta name="robots" content="noindex, nofollow">
 <style>
   :root{
@@ -64,7 +64,7 @@
   }
   .badge-live{background:#e7f7f0;color:var(--green);border:1px solid #b8e8d4;}
   .badge-pending{background:#fef6e7;color:var(--amber);border:1px solid #f5dfae;}
-  /* A filled position is a SUCCESS state (the search worked) — styled like
+  /* A filled position is a SUCCESS state (the search worked), styled like
      the signed chip, distinct from Live green and Pending amber. */
   .badge-filled{background:#eef4ff;color:var(--blue-dark);border:1px solid #c9dcfb;}
   .job-meta{margin:10px 0 0;font-size:13.5px;color:var(--mut);}
@@ -130,7 +130,7 @@
   <div id="somethingWrongPanel" class="card state-panel hidden">
     <div class="icon">⚠️</div>
     <h1>Something went wrong</h1>
-    <p>We couldn't load your status just now — this is usually temporary. Please try again.</p>
+    <p>We couldn't load your status just now, this is usually temporary. Please try again.</p>
     <button type="button" class="btn" id="retryLoadBtn">Retry</button>
   </div>
 
@@ -138,14 +138,14 @@
   <div id="statusPanel" class="card hidden">
     <h1 id="practiceName">Your practice</h1>
     <span class="chip hidden" id="statusChip"><span class="dot"></span><span id="statusChipText"></span></span>
-    <p class="lede" style="margin-bottom:18px;">Here's a live snapshot of your GP listing with GP Link. Bookmark this page — it always shows the latest.</p>
+    <p class="lede" style="margin-bottom:18px;">Here's a live snapshot of your GP listing with GP Link. Bookmark this page, it always shows the latest.</p>
 
     <h2>Your listings</h2>
     <div id="jobsList"></div>
 
     <div id="emptyState" class="empty-state hidden">
       <div class="icon">🩺</div>
-      <p>Your listing is being set up — we'll be in touch.</p>
+      <p>Your listing is being set up, we'll be in touch.</p>
     </div>
 
     <p class="footer-note">Questions? Reply to your GP Link email or <a href="mailto:hello@mygplink.com.au">contact us</a>.</p>
@@ -176,7 +176,7 @@
     var anyFilled = (jobs || []).some(function (j) { return j && j.status === 'filled'; });
     var cls, label;
     if (anyLive) { cls = 'chip-live'; label = 'Listing live'; }
-    // All activity resolved into a placement — read as success, not limbo.
+    // All activity resolved into a placement, read as success, not limbo.
     else if (anyFilled) { cls = 'chip-live'; label = 'Position filled'; }
     else if (practice && practice.agreement_status === 'signed') { cls = 'chip-signed'; label = 'Agreement signed'; }
     else { cls = 'chip-review'; label = 'Under review'; }
@@ -205,7 +205,7 @@
     head.appendChild(title);
 
     var badge = document.createElement('span');
-    // 'filled' (position placed — a success state) wins over live/pending.
+    // 'filled' (position placed, a success state) wins over live/pending.
     if (job.status === 'filled') {
       badge.className = 'badge badge-filled';
       badge.textContent = 'Position filled';
@@ -238,7 +238,7 @@
       list.className = 'interview-list';
       interviews.forEach(function (iv) {
         var li = document.createElement('li');
-        li.textContent = '📅 Interview booked — ' + (iv.label || iv.scheduled_at || 'time to be confirmed');
+        li.textContent = '📅 Interview booked, ' + (iv.label || iv.scheduled_at || 'time to be confirmed');
         list.appendChild(li);
       });
       card.appendChild(list);

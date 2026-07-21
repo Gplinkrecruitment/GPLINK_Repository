@@ -1,4 +1,4 @@
-// Phase 6 G2a — RSO team management: mailbox (va_gmail) on RSO CRUD, on-leave flag,
+// Phase 6 G2a, RSO team management: mailbox (va_gmail) on RSO CRUD, on-leave flag,
 // and bulk case reassignment.
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
@@ -6,8 +6,8 @@
 // writes are exercised end-to-end.
 //
 // CRITICAL invariant proven here: a mailbox saved through the Team UI's endpoint
-// (va_gmail_accounts row) is what resolveCaseSenderEmail — the outbound
-// sender-identity resolver — actually reads. See the "sender identity" block.
+// (va_gmail_accounts row) is what resolveCaseSenderEmail, the outbound
+// sender-identity resolver, actually reads. See the "sender identity" block.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -34,10 +34,10 @@ const NOW = new Date().toISOString();
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
 const db = {
   rso_team: [
-    // A's roster email is deliberately PERSONAL — the sender-identity test below proves
+    // A's roster email is deliberately PERSONAL, the sender-identity test below proves
     // the registered mailbox (va_gmail_accounts) wins over the roster email.
     { user_id: RSO_A, name: 'Alice RSO', email: 'alice.personal@gmail.com', phone: '', active: true, on_leave: false, calendly_event_url: '' },
-    // B's registered mailbox DIFFERS from the roster email — the mailbox must win.
+    // B's registered mailbox DIFFERS from the roster email, the mailbox must win.
     { user_id: RSO_B, name: 'Bob RSO', email: 'bob@mygplink.com.au', phone: '', active: true, on_leave: false, calendly_event_url: '' },
     { user_id: RSO_C, name: 'Carol RSO', email: 'carol@mygplink.com.au', phone: '', active: true, on_leave: true, calendly_event_url: '' },
     { user_id: RSO_D, name: 'Dave RSO', email: 'dave@mygplink.com.au', phone: '', active: true, on_leave: false, calendly_event_url: '' }
@@ -227,7 +227,7 @@ afterAll(async () => {
 });
 
 // ── Pure builder: va_gmail + on_leave ───────────────────────────────────────
-describe('buildRsoWritePayload — mailbox + on-leave', () => {
+describe('buildRsoWritePayload, mailbox + on-leave', () => {
   const { buildRsoWritePayload } = require('../server-test-helpers.js');
 
   it('accepts + normalizes an @mygplink.com.au mailbox (returned separately, not in the rso_team payload)', () => {
@@ -369,7 +369,7 @@ describe('sender identity reads the saved mailbox', () => {
     const fromA = await serverModule.resolveCaseSenderEmail('case-a1');
     expect(fromA).toBe('alice@mygplink.com.au');
     // Bob's roster email is bob@mygplink.com.au but his REGISTERED mailbox is
-    // bob-mail@ — the mailbox wins, proving the Team UI value is what's read.
+    // bob-mail@, the mailbox wins, proving the Team UI value is what's read.
     const fromB = await serverModule.resolveCaseSenderEmail('case-b1');
     expect(fromB).toBe('bob-mail@mygplink.com.au');
   });

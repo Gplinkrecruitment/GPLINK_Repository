@@ -8,7 +8,7 @@ import fs from 'fs';
 // state, mobile menu, reveal-on-scroll, count-up, job search, enquiry form,
 // FAQ accordion, toast). Every one of the 7 public marketing pages (Tasks
 // 7-12) references these two files, so this just proves they are served
-// correctly with the right content-type — mirrors the http-harness idiom
+// correctly with the right content-type, mirrors the http-harness idiom
 // used by tests/site-public-routes.test.js.
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
@@ -77,7 +77,7 @@ describe('shared marketing-site chrome assets', () => {
   // callback and never re-read it, so a later live-stats update to the
   // data-count attribute (see pages/site-home.html applyCount()) was
   // silently stomped by the still-running animation's final frame. This is
-  // a static source assertion, not a DOM/rAF simulation — it proves the fix
+  // a static source assertion, not a DOM/rAF simulation, it proves the fix
   // (re-reading the attribute inside step()) is present in the shipped
   // file, not that the animation renders correctly frame-by-frame.
   it('count-up step() re-reads data-count from the element on every frame (no stale target closure)', async () => {

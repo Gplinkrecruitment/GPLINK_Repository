@@ -1,8 +1,8 @@
-// Phase 6 H2 — GP source attribution ("How did you hear about us?").
+// Phase 6 H2, GP source attribution ("How did you hear about us?").
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. POST /api/onboarding/complete persists lead_source (+ detail) to the
-//      GP's user_profiles row — whitelisted values only.
+//      GP's user_profiles row, whitelisted values only.
 //   2. SKIPPING the question does NOT block onboarding (200, no lead_source
 //      written) and the wizard's validateStep never checks it (static).
 //   3. GET /api/ceo/source-attribution returns the breakdown incl. 'unknown',
@@ -44,7 +44,7 @@ const db = {
     { user_id: 'u-g2', email: 'g2@t.local', lead_source: 'google' },
     { user_id: 'u-fb', email: 'fb@t.local', lead_source: 'facebook_instagram', lead_source_detail: 'saw the reel' },
     { user_id: 'u-none', email: 'none@t.local' }, // signed up, never answered → unknown
-    // Answered at onboarding but has NO registration case yet — must still count.
+    // Answered at onboarding but has NO registration case yet, must still count.
     { user_id: 'u-caseless', email: 'caseless@t.local', lead_source: 'medical_college_event', onboarding_completed_at: ago(2) }
   ],
   registration_cases: [
@@ -209,7 +209,7 @@ describe('onboarding persists lead_source', () => {
     const r = await req('POST', '/api/onboarding/complete', {
       cookie: gpCookie(GP_SKIP.email, GP_SKIP.userId),
       body: { country: 'NZ', targetDate: '2027-06-01', preferredCity: 'Perth', whoMoving: 'me_partner' }
-      // no leadSource at all — the question is OPTIONAL
+      // no leadSource at all, the question is OPTIONAL
     });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -307,7 +307,7 @@ describe('onboarding wizard changes (static)', () => {
     }
   });
 
-  it('validateStep never gates on the question — skipping cannot block progression', () => {
+  it('validateStep never gates on the question, skipping cannot block progression', () => {
     const start = wizardJs.indexOf('function validateStep');
     expect(start).toBeGreaterThan(-1);
     const end = wizardJs.indexOf('function isSkippable', start);

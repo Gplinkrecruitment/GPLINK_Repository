@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parseTriageResponse, buildTriagePrompt } from '../lib/email-triage.js';
 
-describe('Phase 1b AI matching — Sonnet + prompt cache', () => {
+describe('Phase 1b AI matching, Sonnet + prompt cache', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('posts with model claude-sonnet-4-6 and cache_control on system block', async () => {
@@ -28,7 +28,7 @@ describe('Phase 1b AI matching — Sonnet + prompt cache', () => {
   });
 });
 
-describe('Email triage — response parsing', () => {
+describe('Email triage, response parsing', () => {
   it('parses a well-formed triage response', () => {
     const text = JSON.stringify({
       matched_gp_user_id: 'u-1',
@@ -62,7 +62,7 @@ describe('Email triage — response parsing', () => {
   });
 });
 
-describe('Email triage — prompt building', () => {
+describe('Email triage, prompt building', () => {
   it('includes all placed GPs in user prompt', () => {
     const p = buildTriagePrompt(
       { sender: 's@x.com', subject: 'hi', body: 'body text', date: '2026-04-17' },

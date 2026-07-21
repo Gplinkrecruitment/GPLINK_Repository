@@ -1,4 +1,4 @@
-// Phase 6 G4 — unified GP task inbox ("Your outstanding actions").
+// Phase 6 G4, unified GP task inbox ("Your outstanding actions").
 //
 // GET /api/gp/outstanding aggregates everything genuinely waiting on THIS GP:
 //   1. AHPRA more-info / s80 items owned by the GP  -> /pages/ahpra.html?task=<id>
@@ -35,35 +35,35 @@ const db = {
   ],
   registration_cases: [
     // GP 1 has been assigned an AHPRA officer (columns are the live source of
-    // truth in prod — registration_cases has no metadata column there).
+    // truth in prod, registration_cases has no metadata column there).
     { id: 'case-out-1', user_id: GP.userId, status: 'active', ahpra_officer_name: 'Alexandra Chen', ahpra_officer_email: null },
     { id: 'case-out-2', user_id: OTHER.userId, status: 'active' }
   ],
   registration_tasks: [
-    // 1. Live s80 GP upload item — must surface with the ?task= deep link.
+    // 1. Live s80 GP upload item, must surface with the ?task= deep link.
     {
       id: 't-ahpra-1', case_id: 'case-out-1', task_type: 'ahpra_action_item', status: 'waiting_on_gp',
       title: 'Upload your English language test results', priority: 'high', created_at: NOW,
       metadata: { s80: true, owner: 'gp', review_status: 'active', mode: 'upload' }
     },
-    // Approved upload — nothing left for the GP, must NOT surface.
+    // Approved upload, nothing left for the GP, must NOT surface.
     {
       id: 't-ahpra-approved', case_id: 'case-out-1', task_type: 'ahpra_action_item', status: 'waiting_on_gp',
       title: 'Certificate of good standing', priority: 'high', created_at: NOW,
       metadata: { s80: true, owner: 'gp', review_status: 'active', mode: 'upload', upload: { status: 'approved' } }
     },
-    // The OTHER GP's s80 item — must never leak into GP 1's inbox.
+    // The OTHER GP's s80 item, must never leak into GP 1's inbox.
     {
       id: 't-ahpra-other', case_id: 'case-out-2', task_type: 'ahpra_action_item', status: 'waiting_on_gp',
       title: 'Upload your identity document', priority: 'high', created_at: NOW,
       metadata: { s80: true, owner: 'gp', review_status: 'active', mode: 'upload' }
     },
-    // A non-AHPRA task explicitly waiting on the GP — stage deep link.
+    // A non-AHPRA task explicitly waiting on the GP, stage deep link.
     {
       id: 't-wait-visa', case_id: 'case-out-1', task_type: 'stage_task', status: 'waiting_on_gp',
       title: 'Confirm your visa appointment', priority: 'normal', related_stage: 'visa', created_at: NOW, metadata: {}
     },
-    // Open admin-side task (not waiting on the GP) — must NOT surface.
+    // Open admin-side task (not waiting on the GP), must NOT surface.
     {
       id: 't-admin-open', case_id: 'case-out-1', task_type: 'flagged_doc', status: 'open',
       title: 'Review flagged qualification', priority: 'high', created_at: NOW, metadata: {}
@@ -75,9 +75,9 @@ const db = {
     { user_id: OTHER.userId, document_key: 'micgp_certified', status: 'rejected', rejection_reason: 'Wrong document', file_name: 'micgp.pdf', updated_at: NOW }
   ],
   user_nudges: [
-    { id: 'n-out-1', user_id: GP.userId, stage: 'amc', title: 'Please finish your AMC portfolio', message: 'Your AMC portfolio is nearly there — two fields left.', status: 'active', created_at: NOW },
+    { id: 'n-out-1', user_id: GP.userId, stage: 'amc', title: 'Please finish your AMC portfolio', message: 'Your AMC portfolio is nearly there, two fields left.', status: 'active', created_at: NOW },
     { id: 'n-out-dismissed', user_id: GP.userId, stage: 'ahpra', title: 'Old nudge', message: 'Done already', status: 'dismissed', created_at: NOW },
-    { id: 'n-out-info', user_id: GP.userId, stage: '', title: 'Welcome!', message: 'Pure info, no stage — not an action.', status: 'active', created_at: NOW }
+    { id: 'n-out-info', user_id: GP.userId, stage: '', title: 'Welcome!', message: 'Pure info, no stage, not an action.', status: 'active', created_at: NOW }
   ],
   user_state: [],
   runtime_kv: []
@@ -237,7 +237,7 @@ describe('GET /api/gp/outstanding', () => {
     expect([401, 403]).toContain(r.status);
   });
 
-  it('aggregates the AHPRA s80 item, the rejected document, the waiting task and the actionable nudge — with deep links', async () => {
+  it('aggregates the AHPRA s80 item, the rejected document, the waiting task and the actionable nudge, with deep links', async () => {
     const r = await httpReq('GET', '/api/gp/outstanding', { cookie: userCookie(GP.email, GP.userId) });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -324,10 +324,10 @@ describe('index.html outstanding-actions panel markers', () => {
 // ── AHPRA officer lock ──────────────────────────────────────────────────────
 // Once an AHPRA officer is assigned to the GP's application (or the officer's
 // document requests have been released), the AHPRA page must lock to the
-// Status view — the screen that shows the registration status and the
+// Status view, the screen that shows the registration status and the
 // documents AHPRA asked for. /api/ahpra/more-info is the page's data source,
 // so it carries the officer_assigned flag.
-describe('GET /api/ahpra/more-info — officer_assigned flag', () => {
+describe('GET /api/ahpra/more-info, officer_assigned flag', () => {
   it('is auth-gated', async () => {
     const r = await httpReq('GET', '/api/ahpra/more-info');
     expect([401, 403]).toContain(r.status);

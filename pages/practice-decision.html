@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
-<title>Candidate decision — GP Link</title>
+<title>Candidate decision, GP Link</title>
 <link rel="stylesheet" href="/css/gp-tokens.css?v=20260707a">
 <style>
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   /* The page hides sections via the `hidden` attribute. Some sections (e.g.
      #pdLoading) also set their own `display`, and an author `display` always
-     beats the UA [hidden]{display:none} — which left the "Loading…" spinner
+     beats the UA [hidden]{display:none}, which left the "Loading…" spinner
      stuck on screen after the page loaded. Force `hidden` to win everywhere. */
   [hidden]{display:none !important;}
   body{
@@ -153,7 +153,7 @@
 
     <section id="pdAvailability" hidden>
       <h1>When suits you for an interview?</h1>
-      <p>Add a few times that work for your practice — <span data-pd="gpName"></span> will confirm one. <span id="pdTzNote">Times are in your local timezone.</span></p>
+      <p>Add a few times that work for your practice, <span data-pd="gpName"></span> will confirm one. <span id="pdTzNote">Times are in your local timezone.</span></p>
       <div id="pdWindowRows"></div>
       <div class="pd-actions-row">
         <button id="pdAddWindow" class="pd-btn pd-btn-ghost" type="button">+ Add another time</button>
@@ -164,8 +164,8 @@
 
     <section id="pdTurnDown" hidden>
       <h1>Turn down <span data-pd="gpName"></span>?</h1>
-      <textarea id="pdReason" maxlength="500" placeholder="Optional — a short reason helps us find you a better fit"></textarea>
-      <button id="pdTurnDownBtn" class="pd-btn pd-btn-grey">Confirm — turn down this candidate</button>
+      <textarea id="pdReason" maxlength="500" placeholder="Optional, a short reason helps us find you a better fit"></textarea>
+      <button id="pdTurnDownBtn" class="pd-btn pd-btn-grey">Confirm, turn down this candidate</button>
       <p id="pdTurnDownMsg" class="pd-msg" hidden aria-live="polite"></p>
       <a href="#" id="pdKeep" class="pd-link">Actually, I'd like to approve instead</a>
     </section>
@@ -243,7 +243,7 @@
   }
 
   function retryMessage() {
-    return "Something went wrong — please try again, or email hello@mygplink.com.au if it keeps happening.";
+    return "Something went wrong, please try again, or email hello@mygplink.com.au if it keeps happening.";
   }
 
   // The doctor withdrew this application after the introduction email went out.
@@ -261,9 +261,9 @@
   function showError(kind, customText) {
     var text = "We couldn't load this page. Please check your connection and try again.";
     if (kind === 'invalid') {
-      text = "This decision link has expired or is no longer valid — it may have already been used, or the link was copied incorrectly.";
+      text = "This decision link has expired or is no longer valid, it may have already been used, or the link was copied incorrectly.";
     } else if (kind === 'busy') {
-      text = "Too many attempts — please wait a few minutes and try again.";
+      text = "Too many attempts, please wait a few minutes and try again.";
     } else if (kind === 'withdrawn') {
       text = customText || "This doctor has withdrawn their application for this role, so no action is needed.";
     }
@@ -430,11 +430,11 @@
   function route() {
     if (!ctx) { showError('retry'); return; }
     if (ctx.decision === 'turned_down') {
-      showDone("You've turned down this candidate — thanks for letting us know.");
+      showDone("You've turned down this candidate, thanks for letting us know.");
       return;
     }
     if (ctx.interviewBooked) {
-      showDone('Interview booked — check your calendar invitation.');
+      showDone('Interview booked, check your calendar invitation.');
       return;
     }
     if (ctx.decision === 'approved' && !ctx.availabilitySubmitted) {
@@ -442,7 +442,7 @@
       return;
     }
     if (ctx.availabilitySubmitted) {
-      showDone('Times received — ' + (ctx.gpName || 'the candidate') + ' will confirm shortly.');
+      showDone('Times received, ' + (ctx.gpName || 'the candidate') + ' will confirm shortly.');
       return;
     }
     if (initialAction === 'turn_down') {
@@ -462,7 +462,7 @@
         if (res.status === 429) { showError('busy'); return; }
         if (!(res.status === 200 && res.data && res.data.ok)) { showError('retry'); return; }
         ctx = res.data;
-        // The doctor withdrew before the practice opened the link — say so
+        // The doctor withdrew before the practice opened the link, say so
         // plainly instead of presenting Approve / Turn down buttons that the
         // API will refuse.
         if (ctx.withdrawn) { showError('withdrawn', ctx.withdrawnMessage); return; }
@@ -487,7 +487,7 @@
       .then(function (res) {
         setBusy(el.approveBtn, false);
         if (res.status === 200 && res.data && res.data.ok) { enterAvailability(); return; }
-        if (res.status === 429) { showMsg(el.approveMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 429) { showMsg(el.approveMsg, 'Too many attempts, please wait a few minutes and try again.', true); return; }
         if (res.status === 404) { showError('invalid'); return; }
         var wdApprove = withdrawnMessage(res);
         if (wdApprove) { showError('withdrawn', wdApprove); return; }
@@ -516,14 +516,14 @@
       .then(function (res) {
         setBusy(el.submitWindowsBtn, false);
         if (res.status === 200 && res.data && res.data.ok) {
-          showDone('Thanks! ' + (ctx && ctx.gpName ? ctx.gpName : 'The candidate') + " will confirm one of your times — you'll get a calendar invitation automatically.");
+          showDone('Thanks! ' + (ctx && ctx.gpName ? ctx.gpName : 'The candidate') + " will confirm one of your times, you'll get a calendar invitation automatically.");
           return;
         }
-        if (res.status === 429) { showMsg(el.availMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 429) { showMsg(el.availMsg, 'Too many attempts, please wait a few minutes and try again.', true); return; }
         if (res.status === 404) { showError('invalid'); return; }
         var wdAvail = withdrawnMessage(res);
         if (wdAvail) { showError('withdrawn', wdAvail); return; }
-        if (res.status === 409) { showMsg(el.availMsg, "This application isn't approved yet — please refresh the page and try again.", true); return; }
+        if (res.status === 409) { showMsg(el.availMsg, "This application isn't approved yet, please refresh the page and try again.", true); return; }
         if (res.status === 400 && res.data && res.data.message) { showMsg(el.availMsg, res.data.message, true); return; }
         showMsg(el.availMsg, retryMessage(), true);
       })
@@ -547,10 +547,10 @@
       .then(function (res) {
         setBusy(el.turnDownBtn, false);
         if (res.status === 200 && res.data && res.data.ok) {
-          showDone("You've turned down this candidate — thanks for letting us know.");
+          showDone("You've turned down this candidate, thanks for letting us know.");
           return;
         }
-        if (res.status === 429) { showMsg(el.turnDownMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 429) { showMsg(el.turnDownMsg, 'Too many attempts, please wait a few minutes and try again.', true); return; }
         if (res.status === 404) { showError('invalid'); return; }
         var wdTurnDown = withdrawnMessage(res);
         if (wdTurnDown) { showError('withdrawn', wdTurnDown); return; }

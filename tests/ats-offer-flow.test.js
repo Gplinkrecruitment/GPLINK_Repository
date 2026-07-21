@@ -1,4 +1,4 @@
-// Task B — in-app offer flow (send → doctor sees the real offer).
+// Task B, in-app offer flow (send → doctor sees the real offer).
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
 // tests/ats-consultant-access.test.js / tests/career-internal-apply.test.js.
@@ -19,7 +19,7 @@
 //     with the per-document delivery email suppressed (still one email/send).
 //  5. runtime_kv fallback: with the ats_offers table missing (PGRST205), the
 //     offer persists via `ats_offer:{id}` + `ats_offers_index` keys and both
-//     the ATS GET and the GP my-offer keep working. Runs LAST — the store
+//     the ATS GET and the GP my-offer keep working. Runs LAST, the store
 //     caches the missing-table determination for the process lifetime.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
@@ -40,7 +40,7 @@ const RSO_ID = 'rso-hazel-1';
 const NOW = new Date().toISOString();
 
 // When true the emulator answers every /rest/v1/ats_offers request with the
-// PostgREST "table not in schema cache" error — the un-applied-migration case.
+// PostgREST "table not in schema cache" error, the un-applied-migration case.
 let simulateMissingAtsOffers = false;
 
 // Captured outbound calls. Push sends land in fcmCalls via the web-push test
@@ -73,7 +73,7 @@ const db = {
     { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     { id: 'app-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
@@ -252,7 +252,7 @@ beforeAll(async () => {
   process.env.ADMIN_ALLOWED_HOSTS = 'admin-offer.local';
   process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
   process.env.ADMIN_EMAILS = '';
-  // Real email + push config so the notification legs actually run — the
+  // Real email + push config so the notification legs actually run, the
   // wrapped fetch + web-push test hook below capture them instead of
   // hitting the network.
   process.env.RESEND_API_KEY = 'test-resend-key';
@@ -289,7 +289,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('POST /api/ats/offer — send (table mode)', () => {
+describe('POST /api/ats/offer, send (table mode)', () => {
   it('persists the offer, advances the stage and notifies the GP exactly once', async () => {
     const before = resendCalls.length;
     const r = await atsPost('/api/ats/offer', {
@@ -309,7 +309,7 @@ describe('POST /api/ats/offer — send (table mode)', () => {
     const saved = db.ats_offers.find((o) => o.application_id === 'app-1');
     expect(saved).toBeTruthy();
     expect(saved.billing_split).toBe('70 / 30');
-    expect(saved.job_title).toBe('General Practitioner — VR');
+    expect(saved.job_title).toBe('General Practitioner, VR');
     expect(saved.practice_name).toBe('Greenslopes Family Medical');
     expect(saved.user_id).toBe(GP.userId);
 
@@ -320,7 +320,7 @@ describe('POST /api/ats/offer — send (table mode)', () => {
     expect(ev).toBeTruthy();
     expect(ev.actor).toBe('offer_sent');
 
-    // Exactly ONE GP email — the dedicated offer email, deep-linked to the
+    // Exactly ONE GP email, the dedicated offer email, deep-linked to the
     // offer page (the generic Task-5 stage email must NOT also fire).
     const sends = resendCalls.slice(before);
     expect(sends.length).toBe(1);
@@ -351,8 +351,8 @@ describe('POST /api/ats/offer — send (table mode)', () => {
   });
 });
 
-describe('PATCH /api/ats/application — dragging into the Offer lane is silent (F1)', () => {
-  it('moves the card but sends NO GP email/push — only POST /api/ats/offer announces an offer', async () => {
+describe('PATCH /api/ats/application, dragging into the Offer lane is silent (F1)', () => {
+  it('moves the card but sends NO GP email/push, only POST /api/ats/offer announces an offer', async () => {
     const beforeEmails = resendCalls.length;
     const beforeFcm = fcmCalls.length;
     const r = await atsPatch('/api/ats/application?id=app-drag-1', { stage: 'offer' });
@@ -369,8 +369,8 @@ describe('PATCH /api/ats/application — dragging into the Offer lane is silent 
   });
 });
 
-describe('POST /api/ats/offer — legacy Zoho-imported applications (post-decommission)', () => {
-  // Zoho Recruit is decommissioned — the old "block offers while a Zoho
+describe('POST /api/ats/offer, legacy Zoho-imported applications (post-decommission)', () => {
+  // Zoho Recruit is decommissioned, the old "block offers while a Zoho
   // connection exists" guard (F4) is gone. Legacy Zoho-imported apps now always
   // take in-app offers.
   it('a legacy Zoho app may receive an in-app offer', async () => {
@@ -380,16 +380,16 @@ describe('POST /api/ats/offer — legacy Zoho-imported applications (post-decomm
     expect(r.body.ok).toBe(true);
     expect(r.body.offer.status).toBe('sent');
     expect(db.ats_offers.find((o) => o.application_id === 'app-z1')).toBeTruthy();
-    // Still exactly ONE GP email — the dedicated offer email.
+    // Still exactly ONE GP email, the dedicated offer email.
     expect(resendCalls.length - before).toBe(1);
     expect(String(resendCalls[resendCalls.length - 1].body.html)).toContain('/pages/offer-review?applicationId=app-z1');
   });
 });
 
-describe('GET /api/career/my-offer — the doctor sees the real offer', () => {
+describe('GET /api/career/my-offer, the doctor sees the real offer', () => {
   // Task 10 (identity masking): a 'sent'-but-not-yet-accepted offer with no
   // origin='admin_applied'/revealed=true on the application must NOT reveal
-  // the real practice name/contact — canRevealPracticeIdentity only opens up
+  // the real practice name/contact, canRevealPracticeIdentity only opens up
   // once the offer is accepted (or an explicit reveal is set). See
   // tests/practice-pipeline.test.js for the underlying rule's unit coverage.
   it('masks the practice name/contact while the offer is only sent (not yet accepted)', async () => {
@@ -405,7 +405,7 @@ describe('GET /api/career/my-offer — the doctor sees the real offer', () => {
     expect(r.body.offer.sent_at).toBeTruthy();
     expect(r.body.revealed).toBe(false);
     expect(r.body.practiceName).toBe('Confidential practice');
-    expect(r.body.roleTitle).toBe('General Practitioner — VR');
+    expect(r.body.roleTitle).toBe('General Practitioner, VR');
     expect(r.body.location).toBe('Brisbane, QLD');
     expect(r.body.practiceContact).toEqual({ name: 'The practice team', role: 'Medical centre contact' });
     expect(r.body.contractAvailable).toBe(false);
@@ -436,7 +436,7 @@ describe('GET /api/career/my-offer — the doctor sees the real offer', () => {
   });
 });
 
-describe('PATCH /api/ats/offer — quiet withdraw', () => {
+describe('PATCH /api/ats/offer, quiet withdraw', () => {
   it('withdraws the offer, moves the stage back to reviewing, sends NO GP email', async () => {
     const before = resendCalls.length;
     const r = await atsPatch('/api/ats/offer', { application_id: 'app-1', action: 'withdraw' });
@@ -491,7 +491,7 @@ describe('contract data-URL delivery', () => {
     expect(doc.status).toBe('approved');
     expect(doc.file_name).toBe('Offer-Contract.pdf');
 
-    // Exactly ONE new email — the offer email; the doc-delivery email did not fire.
+    // Exactly ONE new email, the offer email; the doc-delivery email did not fire.
     expect(resendCalls.length - before).toBe(1);
     expect(String(resendCalls[resendCalls.length - 1].body.html)).toContain('/pages/offer-review?applicationId=app-1');
 
@@ -525,7 +525,7 @@ describe('runtime_kv fallback (ats_offers table not applied)', () => {
     expect(r.body.ok).toBe(true);
     expect(r.body.offer.status).toBe('sent');
 
-    // No table row — the record lives in runtime_kv (+ index for listings).
+    // No table row, the record lives in runtime_kv (+ index for listings).
     expect(db.ats_offers.find((o) => o.application_id === 'app-3')).toBeUndefined();
     const kvOffer = db.runtime_kv.find((k) => k.key === 'ats_offer:app-3');
     expect(kvOffer).toBeTruthy();
@@ -545,7 +545,7 @@ describe('runtime_kv fallback (ats_offers table not applied)', () => {
     expect(g.body.offer.billing_split).toBe('65 / 35');
 
     // …and the doctor's my-offer works end-to-end off the kv record. Still
-    // masked (Task 10) — a 'sent' offer with no accept/reveal yet.
+    // masked (Task 10), a 'sent' offer with no accept/reveal yet.
     const my = await gpGet('/api/career/my-offer?applicationId=app-3');
     expect(my.status).toBe(200);
     expect(my.body.offer.billing_split).toBe('65 / 35');

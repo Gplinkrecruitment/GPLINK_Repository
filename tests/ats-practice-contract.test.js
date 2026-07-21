@@ -1,4 +1,4 @@
-// Phase 3 Task 1 — org_type through the ATS practice endpoints + manual
+// Phase 3 Task 1, org_type through the ATS practice endpoints + manual
 // signed-contract upload (/api/ats/practice/contract).
 // Boots the real server in LOCAL-JSON mode against the dev seed (same pattern
 // as tests/ats-endpoints.test.js).
@@ -69,7 +69,7 @@ beforeAll(async () => {
   // A job whose practice exists ONLY as a name (synthetic name-id practice).
   seeded.atsJobs = seeded.atsJobs || [];
   seeded.atsJobs.push({
-    id: 'jco1', provider: 'internal_ats', title: 'GP — Contract Only', practice_name: 'Contract Only Clinic',
+    id: 'jco1', provider: 'internal_ats', title: 'GP, Contract Only', practice_name: 'Contract Only Clinic',
     location_city: 'Toowoomba', location_state: 'QLD', is_active: true, job_status: 'open',
     approval_status: 'approved', ats_created: true,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString()

@@ -6,7 +6,7 @@ import path from 'node:path';
  * Regression guard for the CEO dashboard "eternal Authenticating… spinner" bug.
  *
  * Root cause (2026-06-17): pages/ceo-dashboard.html contained a regex written with
- * RAW control bytes in its character class — /[<U+0000>-<U+001F><U+007F>]/ — instead
+ * RAW control bytes in its character class, /[<U+0000>-<U+001F><U+007F>]/, instead
  * of escape sequences. On disk this is a valid in-order range, so `node --check` and
  * the V8 render harness passed. But the HTML parser replaces a literal U+0000 (NUL)
  * inside <script> data with U+FFFD before JS tokenization, turning the class into

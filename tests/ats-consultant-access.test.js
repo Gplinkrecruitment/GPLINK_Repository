@@ -1,4 +1,4 @@
-// Task A — consultant role + requireAtsSession.
+// Task A, consultant role + requireAtsSession.
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
 // tests/ats-practice-link.test.js, extended with a tiny Supabase AUTH emulator
@@ -16,7 +16,7 @@
 //  4. consultant is rejected on the employee admin host entirely
 //  5. super_admin still passes everything it did before
 //  6. login resolves 'consultant' from the runtime_kv list, the env list and a
-//     user_roles DB row — and the minted session then passes /api/ats/jobs
+//     user_roles DB row, and the minted session then passes /api/ats/jobs
 //  7. password reset sends a recovery for consultant emails (env + kv) but not
 //     for strangers
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -66,7 +66,7 @@ const db = {
     { id: 'p1', name: 'Test Family Practice', source: 'internal_ats', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'GP — Test', practice_name: 'Test Family Practice', practice_id: 'p1', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'GP, Test', practice_name: 'Test Family Practice', practice_id: 'p1', is_active: true, job_status: 'open', updated_at: NOW }
   ]
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }

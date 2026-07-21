@@ -1,4 +1,4 @@
-// Task 6 — submit-to-practice email rebuild. Boots the real server against a
+// Task 6, submit-to-practice email rebuild. Boots the real server against a
 // tiny in-memory PostgREST emulator (career-profile-gate.test.js pattern, plus
 // its multi-column on_conflict fix) with a storage handler serving seeded
 // document bytes (ats-submit-practice.test.js pattern), an Anthropic emulator
@@ -21,7 +21,7 @@ let aiMode = 'ok'; // 'ok' | 'error'
 
 const NOW = new Date().toISOString();
 const CV_PDF = Buffer.from('%PDF-1.4 genuine cv bytes for tests');
-const CONTRACT_PDF = Buffer.from('%PDF-1.4 rejected contract bytes — must never be sent');
+const CONTRACT_PDF = Buffer.from('%PDF-1.4 rejected contract bytes, must never be sent');
 const CL_PDF = Buffer.from('%PDF-1.4 cover letter bytes for tests');
 
 const db = {
@@ -52,16 +52,16 @@ const db = {
     { id: 'app-4', user_id: 'u-4', career_role_id: 'role-1', status: 'applied', practice_submission_status: 'pending_va_submission', applied_at: NOW }
   ],
   user_documents: [
-    // u-1: rejected legacy doc is NEWER than the verified career_cv — proves
+    // u-1: rejected legacy doc is NEWER than the verified career_cv, proves
     // selection is by key+status, not recency.
     { id: 'doc-legacy-1', user_id: 'u-1', document_key: 'cv_signed_dated', status: 'rejected', file_name: 'contract.pdf', storage_bucket: 'gp-link-documents', storage_path: 'legacy/u-1/contract.pdf', mime_type: 'application/pdf', updated_at: '2026-07-01T00:00:00Z' },
     { id: 'doc-cv-1', user_id: 'u-1', document_key: 'career_cv', status: 'uploaded', file_name: 'Smith-Miller-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-1/cv.pdf', mime_type: 'application/pdf', updated_at: '2026-06-01T00:00:00Z' },
     // u-2: career_cv + a cover letter.
     { id: 'doc-cv-2', user_id: 'u-2', document_key: 'career_cv', status: 'uploaded', file_name: 'Cover-Letter-Test-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-2/cv.pdf', mime_type: 'application/pdf', updated_at: NOW },
     { id: 'doc-cl-2', user_id: 'u-2', document_key: 'career_cover_letter', status: 'uploaded', file_name: 'Cover-Letter-Test-CL.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-2/cl.pdf', mime_type: 'application/pdf', updated_at: NOW },
-    // u-3: career_cv only — used for the AI-unavailable scenario.
+    // u-3: career_cv only, used for the AI-unavailable scenario.
     { id: 'doc-cv-3', user_id: 'u-3', document_key: 'career_cv', status: 'uploaded', file_name: 'Noai-CV.pdf', storage_bucket: 'gp-link-documents', storage_path: 'career/u-3/cv.pdf', mime_type: 'application/pdf', updated_at: NOW },
-    // u-4: no career_cv at all — only a legacy cv_signed_dated doc that a
+    // u-4: no career_cv at all, only a legacy cv_signed_dated doc that a
     // review/delivery flow has since PATCHed to status='approved'. Approved
     // docs are good docs and must still be attached (only rejected/superseded
     // legacy docs should be excluded).
@@ -307,7 +307,7 @@ afterAll(async () => {
   if (resendServer) await new Promise((r) => resendServer.close(r));
 });
 
-describe('POST submit-to-practice — verified-CV email rebuild', () => {
+describe('POST submit-to-practice, verified-CV email rebuild', () => {
   it('attaches the verified career CV, never the rejected registration doc', async () => {
     const res = await submit('app-1');
     expect(res.status).toBe(200);
@@ -339,7 +339,7 @@ describe('POST submit-to-practice — verified-CV email rebuild', () => {
   });
 
   it('a resubmit attempt is refused, and the token does not rotate', async () => {
-    // The endpoint 409s on an already-submitted application — this also
+    // The endpoint 409s on an already-submitted application, this also
     // proves the persisted token from the first submit is the final one
     // a practice's already-sent email link points at (nothing regenerates it
     // out from under a link already delivered).

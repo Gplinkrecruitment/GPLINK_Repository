@@ -1,8 +1,8 @@
-// Phase 6 H1 — 12-week trends chart on the CEO dashboard (static checks):
+// Phase 6 H1, 12-week trends chart on the CEO dashboard (static checks):
 //  1. the trends section card exists and is wired into renderDashboard;
 //  2. the series toggle uses the REAL /api/ceo/trends field names (the earlier
 //     completions_done-vs-completions mismatch class of bug);
-//  3. the chart is a hand-rolled inline SVG — NO external chart lib / CDN
+//  3. the chart is a hand-rolled inline SVG, NO external chart lib / CDN
 //     (the CSP blocks CDNs, so a lib reference would silently dead the card);
 //  4. the chart carries the dashboard's visual language: area fill, faint
 //     gridlines, an emphasized latest point, native hover tooltips.
@@ -58,7 +58,7 @@ describe('CEO dashboard 12-week trends chart', () => {
     }
   });
 
-  it('hand-rolled inline SVG — no external chart library or CDN', () => {
+  it('hand-rolled inline SVG, no external chart library or CDN', () => {
     expect(html).toContain('function buildTrendChartSvg');
     expect(html).toContain('<svg');
     const forbidden = ['chart.js', 'chartjs', 'highcharts', 'd3.min', 'plotly', 'echarts', 'cdn.jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com'];

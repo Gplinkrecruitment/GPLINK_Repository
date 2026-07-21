@@ -1,4 +1,4 @@
-// GET /api/gp/assistance-call — the CURRENT GP's MyIntealth/AMC/AHPRA Zoom
+// GET /api/gp/assistance-call, the CURRENT GP's MyIntealth/AMC/AHPRA Zoom
 // assistance call (scheduled_calls, meeting_kind='consultation'). Powers the
 // in-app "Confirm your Zoom call" page (pages/confirm-call.html).
 //
@@ -35,19 +35,19 @@ const db = {
       calendly_booking_url: 'https://calendly.com/hello-mygplink/30min?utm_content=call_abc',
       scheduled_at: null, booked_at: null, timezone: null, duration_minutes: 30,
       zoom_join_url: null, assigned_rso_name: 'Priya (GP Link)', created_at: NOW },
-    // GP's BOOKED AMC consultation call — older; only returned when ?stage=amc.
+    // GP's BOOKED AMC consultation call, older; only returned when ?stage=amc.
     { id: 'sc-2', user_id: GP.userId, meeting_kind: 'consultation', stage: 'amc',
       status: 'booked', meeting_reason: null,
       calendly_booking_url: 'https://calendly.com/x?utm_content=call_def',
       scheduled_at: NOW, booked_at: NOW, timezone: 'Australia/Sydney', duration_minutes: 30,
       zoom_join_url: 'https://zoom.us/j/999', assigned_rso_name: null, created_at: '2000-01-01T00:00:00.000Z' },
-    // An INTERVIEW (not a consultation) — must never be returned here.
+    // An INTERVIEW (not a consultation), must never be returned here.
     { id: 'sc-int', user_id: GP.userId, meeting_kind: 'interview', stage: null,
       status: 'invited', created_at: NOW },
-    // A CANCELLED consultation — must never be returned.
+    // A CANCELLED consultation, must never be returned.
     { id: 'sc-cx', user_id: GP.userId, meeting_kind: 'consultation', stage: 'ahpra',
       status: 'cancelled', created_at: NOW },
-    // OTHER GP's consultation — must never leak.
+    // OTHER GP's consultation, must never leak.
     { id: 'sc-other', user_id: OTHER.userId, meeting_kind: 'consultation', stage: 'myintealth',
       status: 'invited', created_at: NOW }
   ],

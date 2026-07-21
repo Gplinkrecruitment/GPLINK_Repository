@@ -1,4 +1,4 @@
-// Phase 6 F4 (GDPR) — GET /api/account/export "Download my data".
+// Phase 6 F4 (GDPR), GET /api/account/export "Download my data".
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. Auth-gated (401 anonymous).
@@ -39,8 +39,8 @@ const db = {
     { id: 't-gp2', case_id: 'case-gp2', title: 'GP2 AMC step', task_type: 'todo', status: 'open', created_at: '2026-06-01T00:00:00Z' }
   ],
   gp_applications: [
-    { id: 'app-gp1', user_id: GP1.userId, job_title: 'GP — Sunshine Coast', practice_name: 'DPA Practice One', status: 'applied', ats_stage: 'screening', created_at: '2026-06-10T00:00:00Z' },
-    { id: 'app-gp2', user_id: GP2.userId, job_title: 'GP — Hobart', practice_name: 'DPA Practice Two', status: 'applied', ats_stage: 'screening', created_at: '2026-06-10T00:00:00Z' }
+    { id: 'app-gp1', user_id: GP1.userId, job_title: 'GP, Sunshine Coast', practice_name: 'DPA Practice One', status: 'applied', ats_stage: 'screening', created_at: '2026-06-10T00:00:00Z' },
+    { id: 'app-gp2', user_id: GP2.userId, job_title: 'GP, Hobart', practice_name: 'DPA Practice Two', status: 'applied', ats_stage: 'screening', created_at: '2026-06-10T00:00:00Z' }
   ],
   career_interviews: [],
   user_nudges: [
@@ -200,7 +200,7 @@ describe('GET /api/account/export (Phase 6 F4, GDPR)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns the caller\'s own data with download headers — and nothing from other users', async () => {
+  it('returns the caller\'s own data with download headers, and nothing from other users', async () => {
     const res = await httpReq('GET', '/api/account/export', { cookie: userCookie(GP1.email, GP1.userId) });
     expect(res.status).toBe(200);
 
@@ -214,7 +214,7 @@ describe('GET /api/account/export (Phase 6 F4, GDPR)', () => {
     expect(res.body.documents.some((d) => d.file_name === 'gp1-degree.pdf')).toBe(true);
     expect(res.body.registration.case.stage).toBe('ahpra');
     expect(res.body.registration.tasks.some((t) => t.title === 'GP1 AHPRA form')).toBe(true);
-    expect(res.body.applications.some((a) => a.job_title === 'GP — Sunshine Coast')).toBe(true);
+    expect(res.body.applications.some((a) => a.job_title === 'GP, Sunshine Coast')).toBe(true);
     expect(res.body.nudges.some((n) => n.title === 'GP1 nudge')).toBe(true);
     expect(res.body.notificationPreferences).toEqual({ emailNudges: true, whatsapp: true, push: true });
 
@@ -222,10 +222,10 @@ describe('GET /api/account/export (Phase 6 F4, GDPR)', () => {
     expect(res.raw).not.toContain(GP2.email);
     expect(res.raw).not.toContain('gp2-otherdoc.pdf');
     expect(res.raw).not.toContain('GP2 AMC step');
-    expect(res.raw).not.toContain('GP — Hobart');
+    expect(res.raw).not.toContain('GP, Hobart');
     expect(res.raw).not.toContain('Other user message');
 
-    // Metadata only — no storage paths / file bytes.
+    // Metadata only, no storage paths / file bytes.
     expect(res.raw).not.toContain('secret-path.pdf');
     expect(res.raw).not.toContain('file_url');
   });

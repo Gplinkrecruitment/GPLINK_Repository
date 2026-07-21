@@ -158,7 +158,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/career/applications — placement by association', () => {
+describe('GET /api/career/applications, placement by association', () => {
   it('surfaces a provisional secured placement for a GP tied to a practice on their case', async () => {
     const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(ASSOC.email, ASSOC.userId) });
     expect(res.status).toBe(200);
@@ -184,7 +184,7 @@ describe('GET /api/career/applications — placement by association', () => {
 
   it('never lets one account read another account\'s cached applications in the same browser', async () => {
     // This response carries per-user placement data. If it is browser-cacheable
-    // (private, max-age / stale-while-revalidate) it MUST also Vary: Cookie — otherwise
+    // (private, max-age / stale-while-revalidate) it MUST also Vary: Cookie, otherwise
     // the browser's URL-keyed HTTP cache serves account A's response to account B's
     // identical request in the SAME browser (shared/clinic computer, or two logins in
     // one browser). That was the 2026-07-09 "Smith Miller tab shows Helen's career page"
@@ -203,7 +203,7 @@ describe('GET /api/career/applications — placement by association', () => {
   });
 });
 
-describe('pages/career.html — provisional placement rendering hooks', () => {
+describe('pages/career.html, provisional placement rendering hooks', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
 
   it('renders a real-but-provisional placement honestly (no demo fallback)', () => {
@@ -234,13 +234,13 @@ describe('pages/career.html — provisional placement rendering hooks', () => {
   });
 });
 
-describe('pages/career.html — placement scroll freeze + boot flash fixes (owner request 2026-07-08)', () => {
+describe('pages/career.html, placement scroll freeze + boot flash fixes (owner request 2026-07-08)', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
 
   it('does NOT make the secured body its own momentum-scroll container (jams iOS iframe scroll)', () => {
     const start = careerHtml.indexOf('body.career-mode-secured {');
     const block = careerHtml.slice(start, start + 900);
-    // The legacy `-webkit-overflow-scrolling: touch` declaration must be gone — it
+    // The legacy `-webkit-overflow-scrolling: touch` declaration must be gone, it
     // is the only scrolling page-body in the app that ever had it, and on iOS in an
     // iframe it freezes touch scrolling.
     expect(block).not.toMatch(/-webkit-overflow-scrolling\s*:/);
@@ -250,10 +250,10 @@ describe('pages/career.html — placement scroll freeze + boot flash fixes (owne
     // On the tall hired ("My Practice") page the real vertical overflow lives on
     // <html>, and <body> is exactly content-height. Setting overflow-x turned <body>
     // into a scroll container with NO scroll range, and overscroll-behavior-y: contain
-    // then blocked the wheel from chaining up to <html> — the page moved a few px then
+    // then blocked the wheel from chaining up to <html>, the page moved a few px then
     // rubber-banded back to the top (owner report 2026-07-09). Neither may return.
     // Strip CSS comments first (they mention these props by name), THEN scope to just
-    // this rule's body — otherwise a `}` inside a comment truncates the slice.
+    // this rule's body, otherwise a `}` inside a comment truncates the slice.
     const noComments = careerHtml.replace(/\/\*[\s\S]*?\*\//g, '');
     const start = noComments.indexOf('body.career-mode-secured {');
     const block = noComments.slice(start, noComments.indexOf('}', start));
@@ -263,7 +263,7 @@ describe('pages/career.html — placement scroll freeze + boot flash fixes (owne
 
   it('does NOT borrow the demo practice contact/contract for a real server placement', () => {
     // A genuine server-side placement with an empty phone/email/WhatsApp or contract
-    // URL must stay empty (buttons disable / hide) — it must never fall back to the
+    // URL must stay empty (buttons disable / hide), it must never fall back to the
     // SECURED_PLACEMENT demo values, which pointed placed GPs at the wrong clinic and
     // a non-working contract download (owner report 2026-07-09).
     expect(careerHtml).toMatch(/hasServerPlacement\s*=\s*!!\(placementApp/);
@@ -328,7 +328,7 @@ describe('pages/career.html — placement scroll freeze + boot flash fixes (owne
   });
 });
 
-describe('GET /api/career/profile/status — placement by association', () => {
+describe('GET /api/career/profile/status, placement by association', () => {
   it('does NOT require the CV gate for a GP tied to a practice on their case', async () => {
     const res = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie(ASSOC.email, ASSOC.userId) });
     expect(res.status).toBe(200);

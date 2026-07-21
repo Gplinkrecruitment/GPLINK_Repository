@@ -37,7 +37,7 @@ describe('isAlwaysTrustedSender', function () {
   });
 });
 
-describe('shouldSuppressUnmatched (the moved triage gate — regression guard)', function () {
+describe('shouldSuppressUnmatched (the moved triage gate, regression guard)', function () {
   const allow = new Set(['smithmiller1234@gmail.com', 'khaleedmahmoud1211@gmail.com']);
 
   it('suppresses an unmatched, non-allowlisted, non-trusted sender', function () {
@@ -108,7 +108,7 @@ describe('selectAltCvReplyCandidates', function () {
   });
 });
 
-describe('interpretAltCvMatch (is_cv gate — stops the SPPA form being delivered as the CV)', function () {
+describe('interpretAltCvMatch (is_cv gate, stops the SPPA form being delivered as the CV)', function () {
   it('matches a genuine CV with a confident name match', function () {
     const r = interpretAltCvMatch({ is_cv: true, cv_name: 'Ahmed Mahmoud', matched_supervisor: 'Ahmed Mahmoud', confidence: 0.95 });
     expect(r.matched).toBe(true);

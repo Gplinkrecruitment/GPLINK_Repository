@@ -1,4 +1,4 @@
-// Phase 6 C3 (audit S2) — audit-log breadth on sensitive ATS/admin actions.
+// Phase 6 C3 (audit S2), audit-log breadth on sensitive ATS/admin actions.
 //
 // Boots the real server against the in-memory PostgREST emulator (pattern from
 // tests/ats-offer-flow.test.js, plus a /storage/v1 sign endpoint) and asserts
@@ -38,7 +38,7 @@ const db = {
     { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     { id: 'app-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
@@ -226,7 +226,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('audit breadth — sensitive actions write admin_audit_log rows', () => {
+describe('audit breadth, sensitive actions write admin_audit_log rows', () => {
   it('offer send → ats_offer_sent with actor + application target', async () => {
     const r = await atsPost('/api/ats/offer', { application_id: 'app-1', billing_split: '70%' });
     expect(r.status).toBe(200);
@@ -258,7 +258,7 @@ describe('audit breadth — sensitive actions write admin_audit_log rows', () =>
     expect(rows[0].target_type).toBe('gp');
     expect(rows[0].target_id).toBe(GP.userId);
     expect(rows[0].actor_email).toBe(SUPER_EMAIL);
-    // identifiers only — never the signed URL or file contents
+    // identifiers only, never the signed URL or file contents
     expect(JSON.stringify(rows[0].detail)).not.toMatch(/token|signed/i);
   });
 
@@ -296,7 +296,7 @@ describe('audit breadth — sensitive actions write admin_audit_log rows', () =>
   });
 
   it('manual placement → ats_placement_recorded', async () => {
-    // app-1 already has an offer from the first spec (status was withdrawn) —
+    // app-1 already has an offer from the first spec (status was withdrawn),
     // re-send so the placement gate (offer sent/accepted) passes.
     await atsPost('/api/ats/offer', { application_id: 'app-1' });
     const r = await atsPost('/api/ats/placement', { applicationId: 'app-1', commencementDate: '2026-09-01' });

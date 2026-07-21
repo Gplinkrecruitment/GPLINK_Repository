@@ -1,4 +1,4 @@
-// Phase 2 · Task 1 — server-side masking fixes + payload prep for the Atlas
+// Phase 2 · Task 1, server-side masking fixes + payload prep for the Atlas
 // career pages.
 //
 // Covers:
@@ -28,7 +28,7 @@ const GP = { userId: 'u-p2-gp-1', email: 'p2-gp@gplink-test.local' };
 const NOW = new Date().toISOString();
 
 // A Zoho legacy row whose raw `title` (and `summary`) literally IS the real
-// practice name — and NO masked_title. The masking helpers must scrub it.
+// practice name, and NO masked_title. The masking helpers must scrub it.
 const ZOHO_LEAK = {
   id: 'role-zoho-leak', provider: 'zoho_recruit', provider_role_id: 'z_leak1',
   title: 'Bramble & Voss Family Doctors',
@@ -42,19 +42,19 @@ const ZOHO_LEAK = {
 // must be kept as roleType.
 const INTERNAL_ROW = {
   id: 'role-internal', provider: 'internal_ats', provider_role_id: 'ats_int1',
-  title: 'Senior GP — VR, Full Time', masked_title: 'DPA - Geelong - Bulk Billing',
+  title: 'Senior GP, VR, Full Time', masked_title: 'DPA - Geelong - Bulk Billing',
   practice_name: 'ULTRA SECRET Geelong Clinic',
   is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true,
   dpa: true, location_state: 'VIC', nearest_city: 'Geelong', billing_model: 'bulk', updated_at: NOW
 };
 
 // Internal-ATS role with an intro video stashed on the career_roles row
-// (source_payload.practice_intro.video_url — where createPendingJobFromIntake
+// (source_payload.practice_intro.video_url, where createPendingJobFromIntake
 // puts it).
 const VIDEO_URL = 'https://videos.example.com/torquay-intro.mp4';
 const VIDEO_ROW = {
   id: 'role-video', provider: 'internal_ats', provider_role_id: 'ats_vid1',
-  title: 'GP — Coastal practice', masked_title: 'DPA - Torquay',
+  title: 'GP, Coastal practice', masked_title: 'DPA - Torquay',
   practice_name: 'Secret Torquay Practice',
   source_payload: { practice_intro: { video_url: VIDEO_URL } },
   is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true,
@@ -73,13 +73,13 @@ const db = {
     { id: 'app-offer-1', user_id: GP.userId, career_role_id: 'role-video', provider_role_id: 'ats_vid1',
       status: 'offered', ats_stage: 'offer', origin: 'gp_applied', applied_at: NOW },
     // Task 4: offer on the leaky Zoho row (NO masked_title, raw title IS the
-    // practice name) — the my-offer masked branch must still mask roleTitle.
+    // practice name), the my-offer masked branch must still mask roleTitle.
     { id: 'app-offer-zoho', user_id: GP.userId, career_role_id: 'role-zoho-leak', provider_role_id: 'z_leak1',
       status: 'offered', ats_stage: 'offer', origin: 'gp_applied', applied_at: NOW }
   ],
   ats_offers: [
     { id: 'offer-1', application_id: 'app-offer-1', status: 'sent',
-      job_title: 'GP — Coastal practice', practice_name: 'Secret Torquay Practice', sent_at: NOW },
+      job_title: 'GP, Coastal practice', practice_name: 'Secret Torquay Practice', sent_at: NOW },
     { id: 'offer-zoho', application_id: 'app-offer-zoho', status: 'sent',
       job_title: 'Bramble & Voss Family Doctors', practice_name: 'Bramble & Voss Family Doctors', sent_at: NOW }
   ],
@@ -212,7 +212,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('masked-title fallback — card roleType + public title never leak a real practice name', () => {
+describe('masked-title fallback, card roleType + public title never leak a real practice name', () => {
   it('a Zoho row with no masked_title: card roleType carries no real practice name', () => {
     const card = tu.mapCareerRoleRowToClient(ZOHO_LEAK);
     expect(card.roleType).not.toBe('Bramble & Voss Family Doctors');
@@ -234,7 +234,7 @@ describe('masked-title fallback — card roleType + public title never leak a re
 
   it('an internal-ATS row keeps its real admin-written job title in roleType', () => {
     const card = tu.mapCareerRoleRowToClient(INTERNAL_ROW);
-    expect(card.roleType).toBe('Senior GP — VR, Full Time');
+    expect(card.roleType).toBe('Senior GP, VR, Full Time');
   });
 
   it('SECURITY: an internal-ATS row whose TITLE is the practice name never leaks it in roleType', () => {
@@ -277,8 +277,8 @@ describe('masked-title fallback — card roleType + public title never leak a re
   });
 });
 
-describe('careerRoleTitleLeaksPracticeName hardening — partial phrases, punctuation, missing practice', () => {
-  // Suburb/nearest_city deliberately do NOT contain any word under test — the
+describe('careerRoleTitleLeaksPracticeName hardening, partial phrases, punctuation, missing practice', () => {
+  // Suburb/nearest_city deliberately do NOT contain any word under test, the
   // masked fallback legitimately surfaces the suburb, so the assertions below
   // isolate practice-name leakage only.
   const zooRow = (over) => ({
@@ -326,17 +326,17 @@ describe('careerRoleTitleLeaksPracticeName hardening — partial phrases, punctu
 
   it('a genuine role title that shares no distinctive practice token is kept', () => {
     const row = zooRow({
-      title: 'Locum GP — VR',
+      title: 'Locum GP, VR',
       practice_name: 'Sunnybank Family Medical Centre'
     });
     const card = tu.mapCareerRoleRowToClient(row);
     const pub = tu.mapCareerRoleRowToPublicJob(row);
-    expect(card.roleType).toBe('Locum GP — VR');
-    expect(pub.title).toBe('Locum GP — VR');
+    expect(card.roleType).toBe('Locum GP, VR');
+    expect(pub.title).toBe('Locum GP, VR');
   });
 });
 
-describe('applicantBand — fixed 15–23 deterministic band, never the real count, never on public', () => {
+describe('applicantBand, fixed 15–23 deterministic band, never the real count, never on public', () => {
   it('is an integer within [15,23]', () => {
     const card = tu.mapCareerRoleRowToClient(INTERNAL_ROW);
     expect(Number.isInteger(card.applicantBand)).toBe(true);
@@ -344,7 +344,7 @@ describe('applicantBand — fixed 15–23 deterministic band, never the real cou
     expect(card.applicantBand).toBeLessThanOrEqual(23);
   });
 
-  it('is deterministic — the same role id yields the same band twice', () => {
+  it('is deterministic, the same role id yields the same band twice', () => {
     const a = tu.mapCareerRoleRowToClient(INTERNAL_ROW).applicantBand;
     const b = tu.mapCareerRoleRowToClient(INTERNAL_ROW).applicantBand;
     expect(a).toBe(b);
@@ -372,7 +372,7 @@ describe('applicantBand — fixed 15–23 deterministic band, never the real cou
   });
 });
 
-describe('two-tier intro video — detail only, never public', () => {
+describe('two-tier intro video, detail only, never public', () => {
   it('the detail endpoint exposes introVideoUrl for an authenticated GP', async () => {
     const res = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_vid1'), {
       cookie: userCookie(GP.email, GP.userId)
@@ -400,7 +400,7 @@ describe('two-tier intro video — detail only, never public', () => {
   });
 });
 
-describe('/api/career/my-offer — includes the client roleId', () => {
+describe('/api/career/my-offer, includes the client roleId', () => {
   it('returns roleId matching the offered role', async () => {
     const res = await httpReq('GET', '/api/career/my-offer?applicationId=app-offer-1', {
       cookie: userCookie(GP.email, GP.userId)
@@ -413,7 +413,7 @@ describe('/api/career/my-offer — includes the client roleId', () => {
   });
 });
 
-describe('/api/career/my-offer — masked branch roleTitle never leaks the practice name (Task 4)', () => {
+describe('/api/career/my-offer, masked branch roleTitle never leaks the practice name (Task 4)', () => {
   it('empty masked_title + leaky raw/job title → roleTitle comes back masked', async () => {
     const res = await httpReq('GET', '/api/career/my-offer?applicationId=app-offer-zoho', {
       cookie: userCookie(GP.email, GP.userId)
@@ -430,7 +430,7 @@ describe('/api/career/my-offer — masked branch roleTitle never leaks the pract
   });
 });
 
-describe('public jobs search — the real practice name returns 0 for a masked Zoho row', () => {
+describe('public jobs search, the real practice name returns 0 for a masked Zoho row', () => {
   it('searching the full practice name matches nothing', () => {
     const resp = tu.buildPublicJobsResponse([ZOHO_LEAK], new URLSearchParams({ q: 'Bramble & Voss Family Doctors' }));
     expect(resp.total).toBe(0);

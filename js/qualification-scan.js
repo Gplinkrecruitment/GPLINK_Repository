@@ -186,7 +186,7 @@
   function getFriendlyTargetLabel(options) {
     // Prefer the clean document noun ("MRCGP Certificate", "Primary Medical Degree")
     // over the requirement label ("Certified copy of MRCGP"), so rejection messages
-    // describe the document the user uploaded — not the requirement they were given.
+    // describe the document the user uploaded, not the requirement they were given.
     var docKey = options && options.docKey;
     if (docKey && DOC_LABELS[docKey]) return DOC_LABELS[docKey];
     var title = options && options.documentTitle ? stripHtml(options.documentTitle) : "";
@@ -200,11 +200,11 @@
   // certification-required document so the reasoning reads the same everywhere.
   // NOTE: the wording below MUST keep containing a phrase that the certification
   // regex in humanizeScanIssue matches (e.g. "has not been certified"), because this
-  // message can be passed back through humanizeScanIssue a second time — it must map
+  // message can be passed back through humanizeScanIssue a second time, it must map
   // to itself rather than fall through to the generic fallback.
   function certificationGuidance(targetLabel) {
     return "We can see this is your " + targetLabel + ", but it has not been certified as a true copy of the original. "
-      + "To accept it, a solicitor or public notary must certify the copy — adding a statement that it is a true copy of the original, "
+      + "To accept it, a solicitor or public notary must certify the copy, adding a statement that it is a true copy of the original, "
       + "plus their signature, printed name, occupation and the date. Then upload the certified copy.";
   }
 
@@ -225,12 +225,12 @@
     }
     // A name that differs from the account on a genuine qualification is a name change
     // (e.g. marriage), not a wrong document. Never tell the GP to upload a "matching"
-    // document — a certificate can only carry the name it was issued in.
+    // document, a certificate can only carry the name it was issued in.
     if (/looks like a previous name|changed your name|name change|previous name/.test(lower)) {
-      return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine — we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
+      return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine, we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
     }
     if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
-      return "The name on this document is different from the name on your account. If you've changed your name, that's fine — we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
+      return "The name on this document is different from the name on your account. If you've changed your name, that's fine, we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
     }
     if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
       return "We could not clearly read the full name on this document. Please upload a clearer photo with the full name fully visible.";
@@ -272,7 +272,7 @@
       return "The scan tool is still loading. Please refresh the page and try again.";
     }
     if (/could not connect|failed to connect|network error|ai service returned an error|ai service returned|returned invalid response|invalid response format|returned empty response|ai returned an empty|verification service not configured|could not verify this document. please try again|unexpected token|is not valid json|json\.parse/.test(lower)) {
-      return "We could not finish checking this document automatically just now. This is a temporary problem on our side, not a problem with your document. Please try again in a moment — if it keeps happening, please contact support and we'll review it for you.";
+      return "We could not finish checking this document automatically just now. This is a temporary problem on our side, not a problem with your document. Please try again in a moment, if it keeps happening, please contact support and we'll review it for you.";
     }
     if (/please upload a pdf or image file/.test(lower)) {
       return "Please upload a PDF or image file for the scan.";
@@ -396,7 +396,7 @@
         mode: "qualification"
       });
 
-      // A name that differs from the account is a NAME CHANGE, not a bad document — the
+      // A name that differs from the account is a NAME CHANGE, not a bad document, the
       // certificate legitimately carries the holder's former name. Let it proceed to the
       // certification check so a genuinely certified copy is still accepted; the server
       // records the name change and the AMC step collects the proof.
@@ -731,7 +731,7 @@
       return;
     }
 
-    /* ── Certification mode for non-image (PDF etc.) — full verification flow ── */
+    /* ── Certification mode for non-image (PDF etc.), full verification flow ── */
     if (certContext && !isImage) {
       var ctx2 = certContext;
       var pdfBase64 = "";
@@ -1010,7 +1010,7 @@
 
   /* ── Event handling ── */
   /* ──────────────────────────────────────────────────────────────────────
-   *  Guided scan router (Option B) — what the nav "Scan" button opens.
+   *  Guided scan router (Option B), what the nav "Scan" button opens.
    *  Reads the GP's outstanding CERTIFIED documents from the shared gpDocPrep
    *  brain (certified-copies-first), routes each through the proven
    *  gpOpenCertScan flow, and persists via gpDocPrep so My Documents reflects
@@ -1135,7 +1135,7 @@
     var html = '<div class="gsr-prog">' +
       '<div class="gsr-prog-top"><span class="l">Documents prepared</span><span class="c">' + prog.prepared + ' of ' + prog.total + '</span></div>' +
       '<div class="gsr-bar"><span style="width:' + pct + '%"></span></div>' +
-      (routerShowAll ? '' : '<div class="gsr-ahead">💡 Get ahead now — certified copies can take a week or two to arrange. No need to wait for the AHPRA step.</div>') +
+      (routerShowAll ? '' : '<div class="gsr-ahead">💡 Get ahead now, certified copies can take a week or two to arrange. No need to wait for the AHPRA step.</div>') +
     '</div>';
 
     var suggested = list[0];

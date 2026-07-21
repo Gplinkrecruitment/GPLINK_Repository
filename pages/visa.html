@@ -622,7 +622,7 @@
         </div>
         <div class="info-banner-text">
           <strong>Your Registration Support Officer manages this application with you.</strong>
-          You don't need to lodge anything yourself — we prepare the sponsorship and nomination with
+          You don't need to lodge anything yourself, we prepare the sponsorship and nomination with
           your practice, tell you exactly which documents are needed and when, and keep you updated at
           every stage right here.
           <div style="margin-top:12px;">
@@ -656,7 +656,7 @@
         </label>
         <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
           Describe the issue
-          <textarea id="supportMessage" placeholder="Tell us about your situation — e.g. you already hold a different visa, are not interested in permanent residency, or would like to explore alternative options."></textarea>
+          <textarea id="supportMessage" placeholder="Tell us about your situation, e.g. you already hold a different visa, are not interested in permanent residency, or would like to explore alternative options."></textarea>
         </label>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -746,7 +746,7 @@
       supportModalEl.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(supportModalEl); });
     }
 
-    // Submit support ticket — writes to localStorage (state-sync pushes to server)
+    // Submit support ticket, writes to localStorage (state-sync pushes to server)
     // AND directly POSTs to the server as a belt-and-suspenders approach
     function createSupportTicket(category, title, message) {
       var storageKey = "gpLinkSupportCases";
@@ -797,7 +797,7 @@
       } catch (e) { return false; }
     }
 
-    // All dynamic values are set via textContent — never interpolated into HTML.
+    // All dynamic values are set via textContent, never interpolated into HTML.
     function el(tag, className, text) {
       var node = document.createElement(tag);
       if (className) node.className = className;
@@ -831,7 +831,7 @@
         if (track) track.hidden = true;
         body.appendChild(el("p", "visa-status-note", pastVisa
           ? "This step is marked complete on your journey. If anything further is ever needed for your visa, your Registration Support Officer will contact you directly."
-          : "Your visa case hasn't started yet. When you reach this step, your Registration Support Officer opens the application with your sponsoring practice — nomination first, then lodgement — and you'll see live progress here."));
+          : "Your visa case hasn't started yet. When you reach this step, your Registration Support Officer opens the application with your sponsoring practice nomination first, then lodgement and you'll see live progress here."));
         return;
       }
 
@@ -868,7 +868,7 @@
         item.appendChild(el("div", "visa-detail-value", value));
         grid.appendChild(item);
       }
-      addDetail("Visa type", app.visa_type || "Subclass 482 — Temporary Skill Shortage");
+      addDetail("Visa type", app.visa_type || "Subclass 482, Temporary Skill Shortage");
       addDetail("Reference number", app.reference_number);
       addDetail("Sponsoring practice", app.sponsor_name);
       addDetail("Sponsorship status", app.sponsor_status);
@@ -887,7 +887,7 @@
       }
 
       if (stage === "refused") {
-        body.appendChild(el("p", "visa-status-note", "Your Registration Support Officer is already across this and will talk you through the next options — you don't need to do anything until we're in touch."));
+        body.appendChild(el("p", "visa-status-note", "Your Registration Support Officer is already across this and will talk you through the next options, you don't need to do anything until we're in touch."));
       }
 
       var updates = Array.isArray(data.updates) ? data.updates.slice(0, 3) : [];

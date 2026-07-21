@@ -1,4 +1,4 @@
-// Phase 6 D2 — the read-only practice status page + its email links.
+// Phase 6 D2, the read-only practice status page + its email links.
 //
 // Boots the real server in LOCAL-JSON mode (SUPABASE_URL=''), same hermetic
 // pattern as tests/practice-intake-endpoints.test.js. Verifies:
@@ -88,7 +88,7 @@ describe('practice status page is public', () => {
   it('serves /pages/practice-status with 200 and no session cookie', async () => {
     const r = await req('GET', '/pages/practice-status');
     expect(r.status).toBe(200);
-    expect(r.raw).toContain('<title>Your Listing Status — GP Link</title>');
+    expect(r.raw).toContain('<title>Your Listing Status, GP Link</title>');
   });
 
   it('.html form canonical-redirects to the clean URL, keeping the token', async () => {
@@ -114,7 +114,7 @@ describe('practice status page content', () => {
 
   it('has the listings section, status chip, and empty state', () => {
     expect(html).toContain('Your listings');
-    expect(html).toContain("Your listing is being set up — we'll be in touch.");
+    expect(html).toContain("Your listing is being set up, we'll be in touch.");
     expect(html).toContain('Listing live');
     expect(html).toContain('Agreement signed');
     expect(html).toContain('Under review');

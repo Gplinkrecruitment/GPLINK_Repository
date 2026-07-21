@@ -1,4 +1,4 @@
-// Phase 6 Batch K1 — server-side per-country document requirements.
+// Phase 6 Batch K1, server-side per-country document requirements.
 //
 // lib/document-requirements.js is the single source of truth for the uk/ie/nz
 // document checklists that pages/my-documents.html renders (previously the
@@ -24,7 +24,7 @@ let port;
 const GP = `doc-req-${RUN_ID}@example.com`;
 
 // The document types each country showed in the OLD client-only COUNTRY_DOCS
-// lists in pages/my-documents.html — the server config must not drop any of
+// lists in pages/my-documents.html, the server config must not drop any of
 // them, and must keep the order.
 const EXPECTED = {
   uk: {
@@ -96,7 +96,7 @@ afterAll(async () => {
   try { fs.unlinkSync(process.env.DB_FILE_PATH); } catch {}
 });
 
-describe('lib/document-requirements.js — faithful reconciliation of the old client lists', () => {
+describe('lib/document-requirements.js, faithful reconciliation of the old client lists', () => {
   for (const country of Object.keys(EXPECTED)) {
     it(`${country}: keeps every doc type in the original order (none dropped)`, () => {
       const cfg = docReq.DOCUMENT_REQUIREMENTS[country];
@@ -161,7 +161,7 @@ describe('GET /api/gp/document-requirements', () => {
     expect(res.body.country).toBe('uk');
   });
 
-  it('an UNKNOWN country gets an explicit unsupported response — not a silent UK list', async () => {
+  it('an UNKNOWN country gets an explicit unsupported response, not a silent UK list', async () => {
     const res = await request('GET', '/api/gp/document-requirements?country=fr', { cookie: userCookie(GP) });
     expect(res.status).toBe(400);
     expect(res.body.ok).toBe(false);
@@ -190,7 +190,7 @@ describe('GET /api/gp/document-requirements', () => {
   });
 });
 
-describe('pages/my-documents.html — consumes the server config with a graceful fallback (static)', () => {
+describe('pages/my-documents.html, consumes the server config with a graceful fallback (static)', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'pages', 'my-documents.html'), 'utf8');
 
   it('fetches the server endpoint on load and after hydration', () => {

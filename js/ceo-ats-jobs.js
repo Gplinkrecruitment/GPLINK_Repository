@@ -1,5 +1,5 @@
 /* ============================================================================
- * ceo-ats-jobs.js — Jobs (ATS) tab for the in-app CEO ATS.
+ * ceo-ats-jobs.js, Jobs (ATS) tab for the in-app CEO ATS.
  * Classic <script> (NOT a module). Loaded by pages/ceo-dashboard.html after the
  * inline script and after /js/ceo-ats-shared.js (which exposes window.ATS).
  * Renders into #panel-jobs. Exposes window.loadJobsTab + window.atsOpenJobBoard.
@@ -45,13 +45,13 @@
     { value: 'private', label: 'Private billing' }
   ];
   var MMM_OPTS = [
-    { value: '', label: '— Not specified —' },
+    { value: '', label: 'Not specified' },
     { value: 'MM1', label: 'MM1' }, { value: 'MM2', label: 'MM2' }, { value: 'MM3', label: 'MM3' },
     { value: 'MM4', label: 'MM4' }, { value: 'MM5', label: 'MM5' }, { value: 'MM6', label: 'MM6' },
     { value: 'MM7', label: 'MM7' }
   ];
   // Optional booleans (visa sponsorship, nursing on site) allow a blank
-  // "unknown" — the server stores that as null (not a confirmed "no").
+  // "unknown", the server stores that as null (not a confirmed "no").
   var TRISTATE_OPTS = [
     { value: '', label: 'Unknown / blank' },
     { value: 'true', label: 'Yes' },
@@ -72,7 +72,7 @@
   function boolSelect(id, value) {
     return '<select id="' + id + '">' + valueOptions(TRISTATE_OPTS, boolToSel(value)) + '</select>';
   }
-  // Prominent DPA yes/no segmented control (DPA is the owner's durable control —
+  // Prominent DPA yes/no segmented control (DPA is the owner's durable control,
   // it drives the doctor-facing masked title). Writes into a hidden input.
   function dpaSegment(hiddenId, segId, value) {
     var v = boolToSel(value);
@@ -115,7 +115,7 @@
   var drawerCardId = null;        // open candidate drawer's application id
   var draggedId = null;           // card id mid-drag
   var settingsOriginal = null;    // job object as loaded into the settings modal
-  var settingsPublicId = '';      // job.public_id — feeds the pending-review preview links (Task 4)
+  var settingsPublicId = '';      // job.public_id, feeds the pending-review preview links (Task 4)
   var approvalJobId = null;       // job id open in the Review & approve modal
   var approvalJob = null;         // that job's card data (mutated locally after upload/reuse)
   var approvalImages = [];        // last /api/ats/suburb-images response, for the reuse picker
@@ -130,7 +130,7 @@
     return '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ats-dim)" stroke-width="2">' +
       '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
   }
-  function locStr(o) { return (o && o.city ? o.city : '—') + (o && o.state ? ', ' + o.state : ''); }
+  function locStr(o) { return (o && o.city ? o.city : '-') + (o && o.state ? ', ' + o.state : ''); }
 
   function optionsWithCurrent(list, current) {
     var arr = list.slice();
@@ -151,19 +151,19 @@
   // (server editor payload returns ''). Without a blank option the select
   // visually defaults to the first real option, and the diff would then PATCH
   // that untouched value (silently rewriting the doctor-facing masked title).
-  // Prepend a selected "— Not set —" (value "") whenever the baseline is
+  // Prepend a selected "Not set" (value "") whenever the baseline is
   // empty or not one of the known values; an explicit admin choice still wins.
   function valueOptionsMaybeBlank(list, selected) {
     var known = selected != null && selected !== '' &&
       list.some(function (o) { return String(o.value) === String(selected); });
-    return (known ? '' : '<option value="" selected>— Not set —</option>') + valueOptions(list, selected);
+    return (known ? '' : '<option value="" selected>Not set</option>') + valueOptions(list, selected);
   }
   // Same guard for the plain-text `type` select (value === label). Empty
   // baseline -> selected blank; a real (known or unmapped) value keeps the
   // existing optionsWithCurrent behaviour so it stays selected + diff-stable.
   function plainOptionsMaybeBlank(list, selected) {
     if (selected == null || selected === '') {
-      return '<option value="" selected>— Not set —</option>' + plainOptions(list, '');
+      return '<option value="" selected>Not set</option>' + plainOptions(list, '');
     }
     return plainOptions(optionsWithCurrent(list, selected), selected);
   }
@@ -186,10 +186,10 @@
     var listEl = el('atsJobList');
     if (listEl) {
       listEl.addEventListener('click', function (e) {
-        // A "View in app / on website" link is a normal <a> — let it navigate in
+        // A "View in app / on website" link is a normal <a>, let it navigate in
         // its new tab; do NOT also open the pipeline board for that job card.
         if (e.target.closest && e.target.closest('[data-ats-view]')) return;
-        // "Review & approve" always opens the combined review screen (Task 4) —
+        // "Review & approve" always opens the combined review screen (Task 4),
         // never the standalone photo-only approval modal directly; the review
         // screen itself surfaces the suburb photo + approve/reject hand-off.
         var approveBtn = e.target.closest ? e.target.closest('[data-ats-approve-job]') : null;
@@ -211,7 +211,7 @@
     return '<div id="atsJobsListView">' +
       '<div class="ats-section-head">' +
         '<div><h2>Jobs &amp; Hiring</h2>' +
-        '<p>Your built-in ATS — every job, every candidate, in one pipeline.</p></div>' +
+        '<p>Your built-in ATS, every job, every candidate, in one pipeline.</p></div>' +
         '<button class="ats-btn ats-btn-primary" id="atsAddJobBtn">＋ Add job</button>' +
       '</div>' +
       '<div class="ats-toolbar">' +
@@ -262,7 +262,7 @@
     if (status === 'open') return '<span class="ats-pill green">Open</span>';
     if (status === 'filled') return '<span class="ats-pill muted">Filled</span>';
     if (status === 'closed') return '<span class="ats-pill amber">Closed</span>';
-    return '<span class="ats-pill muted">' + A.esc(status || '—') + '</span>';
+    return '<span class="ats-pill muted">' + A.esc(status || '-') + '</span>';
   }
 
   // Practice-client pipeline (Task 9): jobs auto-created from a signed practice
@@ -283,7 +283,7 @@
     }).join('');
   }
 
-  // Cosmetic DPA / Non-DPA chip — only when the list payload carries the flag.
+  // Cosmetic DPA / Non-DPA chip, only when the list payload carries the flag.
   function dpaChip(j) {
     if (j.dpa === true) return '<span class="ats-pill green">DPA</span>';
     if (j.dpa === false) return '<span class="ats-pill muted">Non-DPA</span>';
@@ -299,12 +299,12 @@
     var chip = dpaChip(j);
     return '<div class="ats-job-card" data-job-id="' + A.escAttr(j.id) + '" data-approval-status="' + A.escAttr(j.approval_status || '') + '">' +
       '<div>' +
-        '<h3>' + A.esc(j.masked_title || j.title || '—') + ' ' + statusPill(j.status) + ' ' + approvalPill(j) + (chip ? ' ' + chip : '') + '</h3>' +
+        '<h3>' + A.esc(j.masked_title || j.title || '-') + ' ' + statusPill(j.status) + ' ' + approvalPill(j) + (chip ? ' ' + chip : '') + '</h3>' +
         '<div class="ats-job-meta">' +
-          '<span>🏥 ' + A.esc(j.practice_name || '—') + '</span>' +
+          '<span>🏥 ' + A.esc(j.practice_name || '-') + '</span>' +
           '<span>📍 ' + A.esc(j.suburb ? j.suburb : locStr(j)) + '</span>' +
-          '<span>🗓 ' + A.esc(j.type || '—') + '</span>' +
-          '<span>💳 ' + A.esc(j.billing || '—') + '</span>' +
+          '<span>🗓 ' + A.esc(j.type || '-') + '</span>' +
+          '<span>💳 ' + A.esc(j.billing || '-') + '</span>' +
         '</div>' +
         jobViewLinksHtml(j) +
       '</div>' +
@@ -318,7 +318,7 @@
   // Two "open this opening" links per job card: the in-app job page and the
   // public marketing page. Uses window.buildJobViewLinks (js/ats-job-view-links.js)
   // which turns the server-supplied public_id into the two URLs. The website link
-  // is only shown once the job is actually live to the public (open + approved) —
+  // is only shown once the job is actually live to the public (open + approved),
   // a filled/closed/pending job has no public page yet. data-ats-view lets the
   // list click handler ignore these clicks so they don't also open the pipeline.
   function jobViewLinksHtml(j) {
@@ -395,10 +395,10 @@
     if (!elm || !boardData) return;
     var job = boardData.job || {};
     elm.innerHTML =
-      '<span>🏥 ' + A.esc(job.practice_name || '—') + '</span>' +
+      '<span>🏥 ' + A.esc(job.practice_name || '-') + '</span>' +
       '<span>📍 ' + A.esc(locStr(job)) + '</span>' +
-      '<span>🗓 ' + A.esc(job.type || '—') + '</span>' +
-      '<span>💳 ' + A.esc(job.billing || '—') + '</span>' +
+      '<span>🗓 ' + A.esc(job.type || '-') + '</span>' +
+      '<span>💳 ' + A.esc(job.billing || '-') + '</span>' +
       '<span>' + computeActiveCount() + ' active candidates</span>';
   }
 
@@ -423,21 +423,21 @@
   }
 
   // AI Matching (Task 3): status sub-label for a Shortlist-column card that
-  // was actually matched (matched_at set) — never shown on a manually-dragged
+  // was actually matched (matched_at set), never shown on a manually-dragged
   // Shortlist card with no match_* data. amber (<24h) uses the same visual
   // language as the offer-declined flag above.
   function matchStatusHtml(c) {
     if (!c || c.ats_stage !== 'shortlisted' || !c.matched_at) return '';
     var extendBtn = '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats-extend="' + A.escAttr(c.id) + '" style="margin-top:5px;padding:2px 9px;font-size:10.5px">Extend 5 days</button>';
     if (c.match_outcome === 'expired') {
-      return '<div class="ats-match-status ats-match-expired">expired — no response</div>' + extendBtn;
+      return '<div class="ats-match-status ats-match-expired">expired, no response</div>' + extendBtn;
     }
     if (c.match_seen_at) {
-      return '<div class="ats-match-status">seen — awaiting response</div>';
+      return '<div class="ats-match-status">seen, awaiting response</div>';
     }
     if (c.match_expires_at) {
       var msLeft = new Date(c.match_expires_at).getTime() - Date.now();
-      if (msLeft <= 0) return '<div class="ats-match-status ats-match-expired">expired — no response</div>' + extendBtn; // not yet swept by the lifecycle cron
+      if (msLeft <= 0) return '<div class="ats-match-status ats-match-expired">expired, no response</div>' + extendBtn; // not yet swept by the lifecycle cron
       var hoursLeft = Math.floor(msLeft / 3600000);
       var d = Math.floor(hoursLeft / 24);
       var h = hoursLeft % 24;
@@ -449,7 +449,7 @@
   function cardHtml(c) {
     var notes = c.ats_notes || '';
     var snippet = notes ? '📝 ' + (notes.length > 22 ? notes.slice(0, 22) + '…' : notes) : 'No notes yet';
-    // A5: a declined offer keeps its card in the Offer lane — flag it so the
+    // A5: a declined offer keeps its card in the Offer lane, flag it so the
     // board shows the card still needs attention (re-send or move on).
     var declinedMark = (c.offer_status === 'declined')
       ? '<span class="ats-card-declined" data-offer-declined="1" style="display:inline-block;margin-top:6px;font-size:10.5px;font-weight:600;color:var(--ats-amber);background:rgba(245,158,11,0.12);border-radius:6px;padding:2px 7px">⚠ Offer declined</span>'
@@ -457,7 +457,7 @@
     return '<div class="ats-cand-card" draggable="true" data-id="' + A.escAttr(c.id) + '">' +
       '<div class="cc-top">' +
         '<div class="ats-avatar" style="background:' + A.avatarColor(c.name) + '">' + A.esc(A.initials(c.name)) + '</div>' +
-        '<div><div class="cc-name">' + A.esc(c.name || '—') + '</div><div class="cc-sub">' + A.countryLabel(c.country) + '</div></div>' +
+        '<div><div class="cc-name">' + A.esc(c.name || '-') + '</div><div class="cc-sub">' + A.countryLabel(c.country) + '</div></div>' +
       '</div>' +
       '<div class="cc-foot"><span class="cc-sub">' + A.esc(snippet) + '</span></div>' + declinedMark + matchStatusHtml(c) +
     '</div>';
@@ -478,7 +478,7 @@
       cards[k].addEventListener('dragend', onDragEnd);
       cards[k].addEventListener('click', onCardClick);
     }
-    // "Extend 5 days" (expired Shortlist cards) — stopPropagation so the click
+    // "Extend 5 days" (expired Shortlist cards), stopPropagation so the click
     // doesn't also bubble into the card's onCardClick (which opens the drawer).
     var extendBtns = board.querySelectorAll('[data-ats-extend]');
     for (var x = 0; x < extendBtns.length; x++) {
@@ -544,12 +544,12 @@
   }
 
   // AI Matching (Task 6): live-stage keys eligible for the hired/closed
-  // redirect fan-out — mirrors server.js redirectOthersForJob's own stage
+  // redirect fan-out, mirrors server.js redirectOthersForJob's own stage
   // list exactly (never 'offer', 'hired', or the reject stage).
   var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
 
   // Count of cards currently sitting in a redirect-eligible stage, from the
-  // board data already loaded for this job — excludes `excludeId` (the card
+  // board data already loaded for this job, excludes `excludeId` (the card
   // being moved to Hired) when given; pass nothing for a whole-job close.
   function countOtherLiveCards(excludeId) {
     var cols = (boardData && boardData.columns) || [];
@@ -566,14 +566,14 @@
   }
 
   // EXACT confirm copy (brief): "<N> other GPs are still active on this job
-  // — send them the redirect email?" Returns the redirect_others value to
-  // send with the PATCH — true (OK), false (Cancel — the hire/close still
-  // proceeds, just without the fan-out) — or undefined to skip the dialog
+  //, send them the redirect email?" Returns the redirect_others value to
+  // send with the PATCH true (OK), false (Cancel the hire/close still
+  // proceeds, just without the fan-out), or undefined to skip the dialog
   // entirely when there's no one else on the job to redirect.
   function confirmRedirectOthers(excludeId) {
     var n = countOtherLiveCards(excludeId);
     if (n <= 0) return undefined;
-    return window.confirm(n + ' other GPs are still active on this job — send them the redirect email?');
+    return window.confirm(n + ' other GPs are still active on this job, send them the redirect email?');
   }
 
   function redirectedSuffix(d) {
@@ -582,7 +582,7 @@
 
   // AI Matching (Task 7, spec §9): late-withdrawal reason capture. Moving a
   // card to `not_proceeding` FROM `submitted` or later prompts staff for an
-  // optional reason — "GP withdrew after submission" is the specific value
+  // optional reason, "GP withdrew after submission" is the specific value
   // Task 8's career-lock work reads as a strike source (stored verbatim on
   // the stage event by the server as `reason`).
   var STAGE_RANK = {};
@@ -598,14 +598,14 @@
     { value: 'other', label: 'Other' }
   ];
   function withdrawReasonModalHtml() {
-    var opts = '<option value="">— No reason (skip) —</option>' + WITHDRAW_REASONS.map(function (r) {
+    var opts = '<option value="">No reason (skip)</option>' + WITHDRAW_REASONS.map(function (r) {
       return '<option value="' + r.value + '">' + A.esc(r.label) + '</option>';
     }).join('');
     return '<div class="ats-modal-wrap" id="atsWithdrawModal">' +
       '<div class="ats-modal" style="max-width:420px">' +
         '<div class="ats-modal-head"><h3>Why is this application not proceeding?</h3><button class="ats-drawer-close" id="atsWithdrawClose">×</button></div>' +
         '<div class="ats-modal-body">' +
-          '<label>Reason (optional — helps track patterns)</label>' +
+          '<label>Reason (optional, helps track patterns)</label>' +
           '<select id="atsWithdrawReasonSelect">' + opts + '</select>' +
         '</div>' +
         '<div class="ats-modal-foot">' +
@@ -616,7 +616,7 @@
     '</div>';
   }
   // onProceed(reason) fires only on "Move to Not Proceeding" (reason may be
-  // '' when skipped); Cancel/close abandons the move entirely — the caller
+  // '' when skipped); Cancel/close abandons the move entirely, the caller
   // never PATCHes in that case.
   function openWithdrawReasonPrompt(onProceed) {
     A.setOverlay(withdrawReasonModalHtml());
@@ -679,22 +679,22 @@
       '<aside class="ats-drawer" id="atsJobDrawer">' +
         '<div class="ats-drawer-head">' +
           '<div class="ats-avatar" style="width:38px;height:38px;font-size:13px;background:' + A.avatarColor(c.name) + '">' + A.esc(A.initials(c.name)) + '</div>' +
-          '<div><div class="dh-name">' + A.esc(c.name || '—') + '</div>' +
-            '<div class="dh-sub">' + A.countryLabel(c.country) + ' · ' + A.esc(c.email || '—') + '</div></div>' +
+          '<div><div class="dh-name">' + A.esc(c.name || '-') + '</div>' +
+            '<div class="dh-sub">' + A.countryLabel(c.country) + ' · ' + A.esc(c.email || '-') + '</div></div>' +
           '<button class="ats-drawer-close" id="atsJobDrawerClose">×</button>' +
         '</div>' +
         '<div class="ats-drawer-body">' +
           '<label>Applying for</label>' +
-          '<div style="font-size:13.5px">' + A.esc(job.title || '—') + ' <span class="cc-sub">— ' + A.esc(job.practice_name || '') + '</span></div>' +
+          '<div style="font-size:13.5px">' + A.esc(job.title || '-') + ' <span class="cc-sub">, ' + A.esc(job.practice_name || '') + '</span></div>' +
           '<label>Pipeline stage</label>' +
           '<select id="atsJobDrawerStage">' + stageOptions + '</select>' +
           '<button class="ats-btn ats-btn-primary" id="atsJobSchedBtn">📅 Book interview</button>' +
-          // "Practice accepted" (Task 12) — hidden once the acceptance is
+          // "Practice accepted" (Task 12), hidden once the acceptance is
           // already recorded (revealed / client_approved / interview_ready),
           // mirroring ceo-ats-candidates.js's gating.
           (c.revealed === true || c.practice_submission_status === 'client_approved' || c.practice_submission_status === 'interview_ready'
             ? ''
-            : '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>') +
+            : '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted, reveal &amp; congratulate</button>') +
           '<label>Internal notes</label>' +
           '<textarea id="atsJobDrawerNotes" placeholder="Add a note about this candidate…">' + A.esc(c.ats_notes || '') + '</textarea>' +
         '</div>' +
@@ -774,7 +774,7 @@
     if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
     A.api('/api/ats/application/accept?id=' + encodeURIComponent(drawerCardId), { method: 'POST' }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not record the practice\'s acceptance'); return; }
-      A.toast(d.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+      A.toast(d.already ? 'Already accepted, nothing to change.' : 'Practice acceptance recorded, the GP has been notified.');
       closeDrawer();
       if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
     }).catch(function () { A.toast('Could not record the practice\'s acceptance'); });
@@ -815,7 +815,7 @@
 
   function req(label) { return '<span style="color:var(--ats-red)">*</span> ' + label; }
 
-  // Full manual creation form — the SAME fields the practice fills on the
+  // Full manual creation form, the SAME fields the practice fills on the
   // Facebook intake form, so the job lands as a pending row through the exact
   // same pipeline (approval + suburb-photo gate unchanged).
   function addJobModalHtml(practiceOptions) {
@@ -828,7 +828,7 @@
           '<select id="atsNjPractice">' + practiceOptions + '</select>' +
           formSection('Role',
             '<label>' + req('Job title') + '</label>' +
-            '<input type="text" id="atsNjTitle" placeholder="e.g. General Practitioner — VR" />' +
+            '<input type="text" id="atsNjTitle" placeholder="e.g. General Practitioner, VR" />' +
             '<label>About the role (shown to doctors)</label>' +
             '<textarea id="atsNjSummary" rows="3" placeholder="A short, friendly description of the practice and the role…"></textarea>'
           ) +
@@ -944,7 +944,7 @@
     A.api('/api/ats/jobs', { method: 'POST', body: { practice_id: practiceId, intake: intake } }).then(function (d) {
       if (!d || !d.ok) { reenableCreate(); njError((d && d.message) || 'Could not create job.'); return; }
       closeAddJobModal();
-      A.toast('Job created as PENDING — add a suburb header photo and approve it (Review & approve) to make it live to doctors.');
+      A.toast('Job created as PENDING, add a suburb header photo and approve it (Review & approve) to make it live to doctors.');
       loadJobsTab();
     }).catch(function () { reenableCreate(); njError('Could not create job.'); });
   }
@@ -977,7 +977,7 @@
   }
 
   // A plain click on a pending job card, or its "Review & approve" button,
-  // both land here (Task 4 — combined review screen). Just sets the same
+  // both land here (Task 4, combined review screen). Just sets the same
   // module state atsOpenJobBoard would have, so openJobSettings() can be
   // reused unmodified as the review hub.
   function openJobReview(jobId) {
@@ -1004,7 +1004,7 @@
             : '') +
           '<div style="background:rgba(120,120,140,0.1);border-radius:8px;padding:9px 11px;margin-bottom:4px">' +
             '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ats-dim)">Doctor-facing title (masked)</div>' +
-            '<div style="font-weight:600;font-size:13.5px" id="atsJsMaskedPreview">' + A.esc(e.masked_title || '—') + '</div>' +
+            '<div style="font-weight:600;font-size:13.5px" id="atsJsMaskedPreview">' + A.esc(e.masked_title || '-') + '</div>' +
             '<div style="font-size:11.5px;color:var(--ats-dim);margin-top:2px">Location, billing and DPA changes update this automatically on save.</div>' +
           '</div>' +
           '<div id="atsJsError" style="display:none;background:rgba(220,60,60,0.12);border:1px solid var(--ats-red);color:var(--ats-red);border-radius:8px;padding:9px 11px;font-size:12.5px;margin:6px 0"></div>' +
@@ -1076,7 +1076,7 @@
   }
 
   /* ============================================================
-   * REVIEW SCREEN EXTRAS (Task 4 — appended to the settings modal only when
+   * REVIEW SCREEN EXTRAS (Task 4, appended to the settings modal only when
    * the job is `approval_status:'pending'`). Three pieces: the AI write-up
    * (editable + regenerable, with a toggle to see the practice's own words),
    * two "preview as a GP would see it" links, and a hand-off into the
@@ -1088,14 +1088,14 @@
 
   function aiHighlightsListHtml(highlights) {
     var list = Array.isArray(highlights) ? highlights : [];
-    if (!list.length) return '<div style="font-size:12px;color:var(--ats-dim)">No highlights yet — regenerate to draft some.</div>';
+    if (!list.length) return '<div style="font-size:12px;color:var(--ats-dim)">No highlights yet, regenerate to draft some.</div>';
     return '<ul style="margin:8px 0 0;padding-left:18px">' + list.map(function (h) {
       return '<li style="font-size:12.5px;color:var(--ats-dim);margin-bottom:3px">' + A.esc(h) + '</li>';
     }).join('') + '</ul>';
   }
 
   // The "about" textarea is seeded from editor.ai_about; highlights render as
-  // a plain list (edited by regenerating, not by hand — they're short trust
+  // a plain list (edited by regenerating, not by hand, they're short trust
   // bullets, not prose). Regenerate re-POSTs the write-up endpoint and swaps
   // both in place. The raw practice-submitted text stays one click away.
   function aiWriteupSectionHtml(e) {
@@ -1103,7 +1103,7 @@
     return formSection('Listing write-up ✦ AI-drafted',
       '<div style="font-size:11.5px;color:var(--ats-dim);margin-bottom:8px">Written by AI from: <b>practice form</b> · <b>website</b> · <b>area</b></div>' +
       '<label>About the practice &amp; area</label>' +
-      '<textarea id="atsJsAiAbout" rows="6" placeholder="Not generated yet — hit Regenerate.">' + A.esc(e.ai_about || '') + '</textarea>' +
+      '<textarea id="atsJsAiAbout" rows="6" placeholder="Not generated yet, hit Regenerate.">' + A.esc(e.ai_about || '') + '</textarea>' +
       '<label style="margin-top:10px">Why GPs choose it</label>' +
       '<div id="atsJsAiHighlights">' + aiHighlightsListHtml(e.ai_highlights) + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
@@ -1118,7 +1118,7 @@
   }
 
   // Opens the app + website listing pages in the admin-only preview mode
-  // (Task 5's ?preview=1 — only ever bypasses is_active/approval gating for
+  // (Task 5's ?preview=1, only ever bypasses is_active/approval gating for
   // a request that also carries a valid admin/ATS session). settingsPublicId
   // is the job's provider:provider_role_id id, captured when the modal loaded.
   function previewLinksSectionHtml() {
@@ -1127,7 +1127,7 @@
     var appUrl = '/pages/job.html?id=' + enc + '&preview=1';
     var siteUrl = '/jobs/view?id=' + enc + '&preview=1';
     return formSection('Preview',
-      '<div style="font-size:11.5px;color:var(--ats-dim);margin-bottom:8px">See exactly how a GP would see this listing before it goes live — identity stays masked.</div>' +
+      '<div style="font-size:11.5px;color:var(--ats-dim);margin-bottom:8px">See exactly how a GP would see this listing before it goes live, identity stays masked.</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + A.escAttr(appUrl) + '" target="_blank" rel="noopener" data-ats-preview-app>📱 Preview in app</a>' +
         '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + A.escAttr(siteUrl) + '" target="_blank" rel="noopener" data-ats-preview-site>🌐 Preview on website</a>' +
@@ -1135,13 +1135,13 @@
     );
   }
 
-  // The suburb photo + approve/reject controls are NOT rebuilt here — this
+  // The suburb photo + approve/reject controls are NOT rebuilt here, this
   // just hands off into the existing openApprovalModal(jobId), which already
   // owns the upload/reuse-picker/approve/reject logic end to end.
   function approvalHandoffSectionHtml(e) {
     var photoLine = e.header_image_url
       ? 'Suburb header photo added.'
-      : 'No suburb header photo yet — required before this can go live.';
+      : 'No suburb header photo yet, required before this can go live.';
     return formSection('Suburb photo & approval',
       '<div style="font-size:12.5px;color:var(--ats-dim);margin-bottom:10px">' + A.esc(photoLine) + '</div>' +
       '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" id="atsJsOpenApproval" data-ats-open-approval>Review photo &amp; approve / reject</button>'
@@ -1163,7 +1163,7 @@
   // POSTs /api/ats/job/ai-writeup and re-renders just the about textarea +
   // highlights list in place (not the whole modal, so unsaved edits to other
   // fields survive a regenerate). {ok:false, reason:'ai_unavailable'} is the
-  // expected local-dev shape (no ANTHROPIC_API_KEY) — shown as a small note,
+  // expected local-dev shape (no ANTHROPIC_API_KEY), shown as a small note,
   // never a hard error.
   function regenerateWriteup(jobId) {
     var btn = el('atsJsRegenBtn');
@@ -1199,7 +1199,7 @@
     if (!currentBoardJobId || !settingsOriginal) return;
     jsError('');
     var o = settingsOriginal;
-    // Captured before settingsOriginal is reassigned below — approval_status
+    // Captured before settingsOriginal is reassigned below, approval_status
     // never changes via this form, so this reliably says "we're mid-review".
     var wasPendingReview = o.approval_status === 'pending';
     var body = {};
@@ -1234,7 +1234,7 @@
       if (v !== orig) body[f[0]] = v;
     });
 
-    // Diff-only booleans (true|false|null). DPA is required — never send a null
+    // Diff-only booleans (true|false|null). DPA is required, never send a null
     // that would strip the owner's control; only send an explicit yes/no change.
     var dpaCur = boolFromSel(val('atsJsDpa'));
     var dpaOrig = typeof o.dpa === 'boolean' ? o.dpa : null;
@@ -1252,7 +1252,7 @@
     if (!Object.keys(body).length) { closeJobSettings(); A.toast('No changes to save'); return; }
 
     // AI Matching (Task 6): closing/filling a job from here is the same
-    // redirect trigger as marking a candidate Hired — same confirm copy,
+    // redirect trigger as marking a candidate Hired, same confirm copy,
     // same opt-in flag. `o.job_status` is the job's status BEFORE this save,
     // so this only fires on a REAL flip into filled/closed.
     if ((body.job_status === 'filled' || body.job_status === 'closed') && o.job_status !== body.job_status) {
@@ -1266,7 +1266,7 @@
     function reenableSave() { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save settings'; } }
     A.api('/api/ats/job?id=' + encodeURIComponent(currentBoardJobId), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) {
-        // 400s name the offending field — surface it inline, not just a toast.
+        // 400s name the offending field, surface it inline, not just a toast.
         reenableSave();
         jsError((d && d.message) || 'Could not save job settings');
         return;
@@ -1276,14 +1276,14 @@
       settingsOriginal = d.editor || settingsOriginal;
       closeJobSettings();
       A.toast((newMasked ? 'Saved · ' + newMasked : 'Job settings saved') + redirectedSuffix(d));
-      // A pending job (Task 4 combined review) has no candidates yet — saving
+      // A pending job (Task 4 combined review) has no candidates yet, saving
       // refreshes the jobs list instead of opening the empty pipeline board.
       if (wasPendingReview) { fetchAndRenderJobList(); } else { atsOpenJobBoard(currentBoardJobId); }
     }).catch(function () { reenableSave(); jsError('Could not save job settings'); });
   }
 
   /* ============================================================
-   * REVIEW & APPROVE MODAL (Task 9 — practice-client pipeline)
+   * REVIEW & APPROVE MODAL (Task 9, practice-client pipeline)
    * Pending jobs (auto-created when a practice signs its agreement) need a
    * mandatory suburb header photo before they can go live. This modal lets an
    * admin upload a fresh photo, reuse one already used for another job in the
@@ -1327,7 +1327,7 @@
 
   function approvalModalHtml() {
     var job = approvalJob || {};
-    var suburbLabel = job.suburb || job.city || '—';
+    var suburbLabel = job.suburb || job.city || '-';
     var previewHtml = job.header_image_url
       ? '<img src="' + A.escAttr(job.header_image_url) + '" alt="Suburb header photo" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;display:block" />'
       : '<div class="ats-empty" style="padding:24px">No photo yet</div>';
@@ -1345,7 +1345,7 @@
         '<div class="ats-modal-head"><h3>Review &amp; approve</h3><button class="ats-drawer-close" id="atsApClose">×</button></div>' +
         '<div class="ats-modal-body">' +
           '<label>' + A.esc(job.masked_title || job.title || 'Job') + '</label>' +
-          '<div style="font-size:13px;color:var(--ats-dim);margin-bottom:8px">' + A.esc(job.practice_name || '—') + ' · ' + A.esc(suburbLabel) + '</div>' +
+          '<div style="font-size:13px;color:var(--ats-dim);margin-bottom:8px">' + A.esc(job.practice_name || '-') + ' · ' + A.esc(suburbLabel) + '</div>' +
           '<label>Suburb header photo (required)</label>' +
           '<div id="atsApPreview">' + previewHtml + '</div>' +
           '<label for="atsApFileInput" class="ats-btn ats-btn-ghost" style="margin-top:8px;display:inline-block;cursor:pointer">Upload photo</label>' +
@@ -1409,7 +1409,7 @@
     if (action === 'reject' && !window.confirm('Reject this job? It will not be shown to GPs.')) return;
     A.api('/api/ats/job/approve?id=' + encodeURIComponent(approvalJobId), { method: 'POST', body: { action: action } }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not update job'); return; }
-      A.toast(action === 'approve' ? 'Job approved — now visible to GPs' : 'Job rejected');
+      A.toast(action === 'approve' ? 'Job approved, now visible to GPs' : 'Job rejected');
       closeApprovalModal();
       fetchAndRenderJobList();
     });

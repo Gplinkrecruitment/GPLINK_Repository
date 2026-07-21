@@ -1,4 +1,4 @@
-// Phase 6 C3 (audit M2) — email suppression + Resend bounce/complaint webhook
+// Phase 6 C3 (audit M2), email suppression + Resend bounce/complaint webhook
 // + send-failure visibility.
 //
 // Boots the real server against the in-memory PostgREST emulator; outbound
@@ -334,7 +334,7 @@ describe('send-failure visibility', () => {
       resendFailAll = false;
     }
     expect(r.ok).toBe(false);
-    // A transient 5xx is retried before being called a failure — the send is
+    // A transient 5xx is retried before being called a failure, the send is
     // only reported once the attempt budget is exhausted.
     expect(resendCalls.length - before).toBe(testUtils.RESEND_MAX_SEND_ATTEMPTS);
     const row = db.client_errors.find((e) => String(e.page_url) === 'email-send');

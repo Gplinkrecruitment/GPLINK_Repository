@@ -1,16 +1,16 @@
-// Phase 6 C3 (audit M5) — per-ACCOUNT admin login lockout.
+// Phase 6 C3 (audit M5), per-ACCOUNT admin login lockout.
 //
 // Boots the REAL server against the in-memory Supabase emulator pattern from
 // tests/admin-mfa.test.js (PostgREST + /auth/v1/token password grant) so the
 // full admin login pipeline runs end-to-end.
 //
 // Proves:
-//  1. N bad-password attempts lock the ACCOUNT — even when every attempt comes
+//  1. N bad-password attempts lock the ACCOUNT, even when every attempt comes
 //     from a DIFFERENT IP (per-IP rate limiting alone can't catch that).
 //  2. While locked, even the CORRECT password is rejected with 429 BEFORE the
 //     credential check (the auth emulator sees no token request).
 //  3. The lock is time-based: rewinding the stored lockedUntil lets the admin
-//     straight back in — no permanent lockout is possible.
+//     straight back in, no permanent lockout is possible.
 //  4. A successful login clears the failure counter (the runtime_kv record is
 //     deleted), so the next window starts fresh.
 //  5. admin_account_locked is written to admin_audit_log at lock time.
@@ -229,7 +229,7 @@ describe('per-account admin login lockout', () => {
     const rec = lockRecordRow();
     expect(rec).toBeTruthy();
     expect(Number(rec.value.lockedUntil)).toBeGreaterThan(Date.now());
-    // Next attempt — yet another IP — is rejected 429 up front.
+    // Next attempt yet another IP is rejected 429 up front.
     const locked = await loginAttempt('wrong-password-x');
     expect(locked.status).toBe(429);
     expect(String(locked.body.message)).toMatch(/try again in \d+ minute/i);
@@ -242,7 +242,7 @@ describe('per-account admin login lockout', () => {
     expect(row.success).toBe(false);
   });
 
-  it('rejects even the CORRECT password while locked — before the credential check', async () => {
+  it('rejects even the CORRECT password while locked, before the credential check', async () => {
     const before = tokenRequests;
     const r = await loginAttempt(PASSWORD);
     expect(r.status).toBe(429);

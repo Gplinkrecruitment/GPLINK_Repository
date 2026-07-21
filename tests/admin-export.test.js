@@ -1,13 +1,13 @@
-// Phase 6 E1 (audit B3) — GET /api/admin/export?entity=…&format=csv
+// Phase 6 E1 (audit B3), GET /api/admin/export?entity=…&format=csv
 //
 // Boots the real server in LOCAL-JSON mode (SUPABASE_URL='') with a hand-built
 // DB file (same idiom as tests/onboarding-incomplete-endpoint.test.js) and
 // proves:
 //  1. every entity (gps / practices / placements / enquiries / leads) returns
 //     a real CSV: 200, text/csv, attachment disposition, correct header row;
-//  2. RFC 4180 escaping — a field containing a comma, a double-quote AND a
+//  2. RFC 4180 escaping, a field containing a comma, a double-quote AND a
 //     newline round-trips as one quoted field with doubled interior quotes;
-//  3. auth gating — no session → rejected; wrong entity/format → 400;
+//  3. auth gating, no session → rejected; wrong entity/format → 400;
 //  4. the row cap: limit=N truncates and sets X-Export-Truncated.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
@@ -60,15 +60,15 @@ beforeAll(async () => {
       { id: 'gp2', user_id: 'gp2', name: 'Isla Fraser', email: 'isla@test.local', country: 'Ireland', regStage: 'amc', rso: 'Grace', joined: now, apps: [] }
     ],
     atsJobs: [
-      { id: 'job1', title: 'GP — DPA role', practice_name: 'Riverside Family Practice', location_city: 'Dubbo', location_state: 'NSW', provider: 'internal_ats', is_active: true }
+      { id: 'job1', title: 'GP, DPA role', practice_name: 'Riverside Family Practice', location_city: 'Dubbo', location_state: 'NSW', provider: 'internal_ats', is_active: true }
     ],
     // F14 (audit 2026-07-20): a practice signed via the degraded metadata stash
-    // (no agreement_status column value) — the export must still say 'signed'.
+    // (no agreement_status column value), the export must still say 'signed'.
     atsPractices: [
       { id: 'pmeta1', name: 'Metadata Signed Practice', location_city: 'Orange', location_state: 'NSW', practice_type: 'mixed', contact_name: 'Meta Manager', contact_email: 'meta@practice.local', contact_phone: '', stage: 'active', agreement_status: '', source: 'internal_ats', created_at: now, metadata: { pipeline_agreement: { agreement_status: 'signed', agreement_signed_at: now } } }
     ],
     atsPlacements: [
-      { id: 'pl1', application_id: 'app1', user_id: 'gp2', gp_name: 'Isla Fraser', practice_name: 'Riverside Family Practice', job_title: 'GP — DPA role', location: 'Dubbo, NSW', placed_at: now, start_date: '2026-09-01' }
+      { id: 'pl1', application_id: 'app1', user_id: 'gp2', gp_name: 'Isla Fraser', practice_name: 'Riverside Family Practice', job_title: 'GP, DPA role', location: 'Dubbo, NSW', placed_at: now, start_date: '2026-09-01' }
     ],
     siteEnquiries: [
       { id: 'enq1', kind: 'practice', status: 'new', name: 'Dr Smith', email: 'smith@clinic.local', phone: '0400 000 000', practice_name: 'Clinic "A", Dubbo', state: 'NSW', message: TRICKY_MESSAGE, created_at: now },

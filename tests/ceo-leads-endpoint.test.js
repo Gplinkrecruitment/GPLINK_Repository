@@ -1,7 +1,7 @@
-// Coverage for GET /api/ceo/leads — the CEO dashboard's Leads tab data source.
+// Coverage for GET /api/ceo/leads, the CEO dashboard's Leads tab data source.
 // Reads site_enquiries kind=gp (the Meta-ads / landing-page consult funnel).
 // Boots a real server against a temp JSON DB (Supabase left unconfigured, so
-// the local-JSON-db path is exercised) with a signed super_admin cookie —
+// the local-JSON-db path is exercised) with a signed super_admin cookie,
 // harness mirrors tests/ceo-meetings-endpoints.test.js; seeding uses
 // __testUtils.__seedSiteEnquiriesForTest like tests/consult-lead-endpoints.test.js.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -49,8 +49,8 @@ const call       = (method, p) => httpReq(method, p, { host: SUPER_HOST, cookie:
 const callNoAuth = (method, p) => httpReq(method, p, { host: SUPER_HOST });
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
-// Every row carries ip + user_agent in metadata — exactly as the real capture
-// paths write them — so the privacy assertion has something real to catch.
+// Every row carries ip + user_agent in metadata, exactly as the real capture
+// paths write them, so the privacy assertion has something real to catch.
 const PRIVATE_IP = '203.0.113.77';
 const PRIVATE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) SecretAgent/1.0';
 
@@ -112,7 +112,7 @@ const CONVERTED = lead({
       { seq: 'booked_no_signup', step: 0, sent_at: '2026-07-15T05:00:00.000Z' }
     ] }
 });
-// A practice enquiry — different kind, must never appear in a GP leads list.
+// A practice enquiry, different kind, must never appear in a GP leads list.
 const PRACTICE_ROW = {
   id: 'se_prac_' + RUN_ID, created_at: '2026-07-15T06:00:00.000Z', kind: 'practice',
   name: 'Werribee Medical', email: 'admin@practice.example', state: 'vic', status: 'new',
@@ -151,7 +151,7 @@ beforeEach(() => {
   testUtils.__seedSiteEnquiriesForTest(ALL_GP.concat([PRACTICE_ROW]));
 });
 
-describe('GET /api/ceo/leads — auth', () => {
+describe('GET /api/ceo/leads, auth', () => {
   it('rejects a request with no admin session', async () => {
     const res = await callNoAuth('GET', '/api/ceo/leads');
     expect([401, 403]).toContain(res.status);
@@ -165,7 +165,7 @@ describe('GET /api/ceo/leads — auth', () => {
   });
 });
 
-describe('GET /api/ceo/leads — listing', () => {
+describe('GET /api/ceo/leads, listing', () => {
   it('returns the seeded gp leads, newest first, excluding practice enquiries', async () => {
     const res = await call('GET', '/api/ceo/leads');
     expect(res.status).toBe(200);
@@ -215,7 +215,7 @@ describe('GET /api/ceo/leads — listing', () => {
 
 // The bug this whole tab exists to prevent: a never-screened Calendly booking
 // being indistinguishable from someone we screened and turned down.
-describe('GET /api/ceo/leads — not_screened vs screened_out', () => {
+describe('GET /api/ceo/leads, not_screened vs screened_out', () => {
   it('reports a never-screened lead distinctly from a screened-out lead', async () => {
     const res = await call('GET', '/api/ceo/leads');
     const never = res.body.leads.find((l) => l.id === NOT_SCREENED.id);
@@ -229,14 +229,14 @@ describe('GET /api/ceo/leads — not_screened vs screened_out', () => {
     expect(out.screened_out).toBe(true);
     expect(out.not_screened).toBe(false);
 
-    // Both are unqualified (and so both nudge-ineligible) — which is precisely
+    // Both are unqualified (and so both nudge-ineligible), which is precisely
     // why the two flags must stay separable by the UI.
     expect(never.qualified).toBe(false);
     expect(out.qualified).toBe(false);
   });
 });
 
-describe('GET /api/ceo/leads — filters', () => {
+describe('GET /api/ceo/leads, filters', () => {
   it('filter=all returns every gp lead', async () => {
     const res = await call('GET', '/api/ceo/leads?filter=all');
     expect(res.body.leads.length).toBe(5);
@@ -280,7 +280,7 @@ describe('GET /api/ceo/leads — filters', () => {
   });
 });
 
-describe('GET /api/ceo/leads — search + paging', () => {
+describe('GET /api/ceo/leads, search + paging', () => {
   it('q matches on name and email, case-insensitively', async () => {
     const byName = await call('GET', '/api/ceo/leads?q=aisha');
     expect(byName.body.leads.map((l) => l.id)).toEqual([QUALIFIED.id]);
@@ -310,7 +310,7 @@ describe('GET /api/ceo/leads — search + paging', () => {
 // PRIVACY: metadata holds the submitter's IP + user agent. The endpoint
 // projects explicit fields precisely so these can never reach the browser;
 // assert on the RAW body so a nested/renamed leak is still caught.
-describe('GET /api/ceo/leads — privacy', () => {
+describe('GET /api/ceo/leads, privacy', () => {
   it('never returns raw metadata.ip or metadata.user_agent', async () => {
     const res = await call('GET', '/api/ceo/leads');
     expect(res.status).toBe(200);

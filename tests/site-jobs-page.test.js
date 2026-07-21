@@ -113,7 +113,7 @@ describe('GET /jobs (Task 8 job board page)', () => {
 
 // Coverage for Task 17: the filtered-search "top match + locked teasers"
 // conversion flow. This is client-side behavior that only activates when
-// the visitor's URL has q/state/type params — an HTTP-only harness that
+// the visitor's URL has q/state/type params, an HTTP-only harness that
 // requests /jobs with no query string can't exercise that branch (the
 // server always returns the same static HTML/JS regardless of query
 // params; filters are read from window.location.search in the browser).
@@ -121,7 +121,7 @@ describe('GET /jobs (Task 8 job board page)', () => {
 // source: the new DOM-building helpers, copy strings and CSS markers
 // exist, the old unfiltered-mode code paths are untouched, and no numeric
 // hidden-roles claim is printed anywhere on the page.
-describe('GET /jobs — filtered-search conversion flow (Task 17, static source coverage)', () => {
+describe('GET /jobs, filtered-search conversion flow (Task 17, static source coverage)', () => {
   it('defines a locked teaser-card builder that is aria-hidden/presentation and not a link', async () => {
     const res = await get('/jobs');
     expect(res.raw).toContain('skeleton-teaser');
@@ -175,7 +175,7 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
   });
 
   // Task 19: zero real matches on a FILTERED search no longer falls through
-  // to the generic empty state — it now shows the honest "exclusive
+  // to the generic empty state, it now shows the honest "exclusive
   // placement" scarcity flow (2 locked teaser cards linking to the dedicated
   // /exclusive-placements page + an "unlock" CTA panel). Still no fabricated
   // top match (job stays null) and no numeric hidden-roles claim.
@@ -239,7 +239,7 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
   });
 
   // Review fix: when a filtered search's total is <= 1, there is nothing
-  // hidden to unlock — so no locked teaser cards, no "unlock the rest"
+  // hidden to unlock, so no locked teaser cards, no "unlock the rest"
   // panel/header, just the one real match plus an honest, modest signup
   // panel about widening the search to future/unadvertised roles.
   it('renders a single-match panel with the exact required honest copy (no fake teasers)', async () => {

@@ -26,11 +26,11 @@ function makeFixture() {
     { id: 'c6', user_id: 'u6', stage: 'visa', status: 'active', assigned_va: 'rsoA', assigned_rso: 'rsoA', last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(100) },
     // c7 complete, completed 3 days ago (this month)
     { id: 'c7', user_id: 'u7', stage: 'complete', status: 'active', completed_at: ago(3), assigned_rso: 'rsoA', last_gp_activity_at: ago(3), updated_at: ago(3), created_at: ago(200) },
-    // c8 complete, completed 200 days ago (>6mo) — must still count toward all-time total
+    // c8 complete, completed 200 days ago (>6mo), must still count toward all-time total
     { id: 'c8', user_id: 'u8', stage: 'complete', status: 'active', completed_at: ago(200), assigned_rso: 'rsoB', last_gp_activity_at: ago(200), updated_at: ago(200), created_at: ago(400) },
-    // c9 withdrawn — excluded everywhere
+    // c9 withdrawn, excluded everywhere
     { id: 'c9', user_id: 'u9', stage: 'amc', status: 'withdrawn', assigned_rso: 'rsoA', last_gp_activity_at: ago(1), updated_at: ago(1), created_at: ago(30) },
-    // c10 active but >6mo stale — excluded unless allTime
+    // c10 active but >6mo stale, excluded unless allTime
     { id: 'c10', user_id: 'u10', stage: 'myintealth', status: 'active', assigned_rso: null, last_gp_activity_at: ago(200), updated_at: ago(200), created_at: ago(300) },
     // c11 active, commencement, fresh
     { id: 'c11', user_id: 'u11', stage: 'commencement', status: 'active', assigned_rso: 'rsoB', last_gp_activity_at: ago(0), updated_at: ago(0), created_at: ago(80) }

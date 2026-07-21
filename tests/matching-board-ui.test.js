@@ -1,4 +1,4 @@
-// Task 5 (2026-07-11 matching-board/nudges plan) — the Matching board UI
+// Task 5 (2026-07-11 matching-board/nudges plan), the Matching board UI
 // (js/ceo-ats-matching.js), a rewrite of the old job/GP picker into a
 // funnel-board (spec docs/superpowers/specs/2026-07-11-matching-board-design.md
 // Part A + Part D).
@@ -6,7 +6,7 @@
 // js/ceo-ats-matching.js is a classic <script> (not a module) that guards on
 // window.ATS existing before defining anything. It is executed here with
 // node:vm the same way tests/bypass-config.test.js exercises js/bypass-config.js
-// — a sandboxed "browser" context — except we ALSO load the real
+// a sandboxed "browser" context except we ALSO load the real
 // js/ceo-ats-shared.js into the same context first, so window.ATS.esc /
 // escAttr / initials / avatarColor / emptyHtml are the REAL implementations,
 // not a re-typed stand-in that could quietly drift from them. The module
@@ -44,7 +44,7 @@ function loadBoard() {
   };
   vm.createContext(sandbox);
   // ceo-ats-shared.js populates window.ATS with the REAL esc/escAttr/initials
-  // /avatarColor/emptyHtml/loadingHtml — its own tail-end initSwitcher() call
+  // /avatarColor/emptyHtml/loadingHtml, its own tail-end initSwitcher() call
   // bails immediately (getElementById('masterTabs') -> null), so nothing
   // network-dependent runs at load time.
   vm.runInContext(sharedSrc, sandbox, { filename: 'ceo-ats-shared.js' });
@@ -139,7 +139,7 @@ describe('pipeline node sub-labels', () => {
   });
 });
 
-describe('shortlisted node — match-driven sub-label (Part D verbatim)', () => {
+describe('shortlisted node, match-driven sub-label (Part D verbatim)', () => {
   it('⏳ Expires in {X}h when <24h left, amber "expiring" pulse class', () => {
     const match = { score: 84, expires_at: hoursFromNow(14), matched_at: daysAgo(1), seen_at: null, outcome: null, reminder_sent_at: null, final_reminder_sent_at: null, more_time_requested_at: null };
     const sub = MB.mbMatchSubLabel(match, NOW);
@@ -176,7 +176,7 @@ describe('shortlisted node — match-driven sub-label (Part D verbatim)', () => 
   });
 });
 
-describe('suggestions — dimmed, "Suggested" sub-label', () => {
+describe('suggestions, dimmed, "Suggested" sub-label', () => {
   it('renders dashed/dimmed nodes labelled "Suggested" with a score pill', () => {
     const r = row({
       suggestions: [{ user_id: 'u9', name: 'Dr J. O\'Neill', score: 87, reasons: [], chips: [] }],
@@ -232,7 +232,7 @@ describe('expand panel (Part D verbatim header + bulk bar)', () => {
       ranking: { generated_at: hoursAgo(80), age_hours: 80, excluded_count: 4 },
     });
     const html = MB.mbExpandHtml(r, { s1: true }, NOW);
-    expect(html).toContain('RANKED MATCHES — review, tick, then notify. Nothing is sent until you click.');
+    expect(html).toContain('RANKED MATCHES, review, tick, then notify. Nothing is sent until you click.');
     expect(html).toContain('1 selected');
     expect(html).toContain('each gets the match email + 5-day window · moves to Shortlist stage');
     expect(html).toContain('Shortlist 1 &amp; notify ➜');
@@ -250,7 +250,7 @@ describe('expand panel (Part D verbatim header + bulk bar)', () => {
   });
 });
 
-describe('Extend 5 days — visibility rules', () => {
+describe('Extend 5 days, visibility rules', () => {
   function expandWithMatch(match) {
     const r = row({ pipeline: [{ application_id: 'app-1', user_id: 'u1', name: 'Dr X', ats_stage: 'shortlisted', stage_updated_at: hoursAgo(1), match }] });
     return MB.mbExpandHtml(r, {}, NOW);
@@ -279,13 +279,13 @@ describe('Extend 5 days — visibility rules', () => {
 });
 
 describe('filled rows (Part D verbatim)', () => {
-  it('"✓ FILLED — {Dr Name} · {D Mon}" and the redirect line', () => {
+  it('"✓ FILLED, {Dr Name} · {D Mon}" and the redirect line', () => {
     const html = MB.mbFilledRowHtml({
       job: job({ id: 'job-filled', title: 'GP · Full time', practice_name: 'Harbourview Health', practice_id: 'prac-2', city: 'Gladstone', state: 'QLD', posted: '2026-05-07T00:00:00.000Z' }),
       hired: { name: 'Priya Krishnan', at: '2026-06-28T00:00:00.000Z' },
       redirected_count: 3,
     });
-    expect(html).toContain('✓ FILLED — Priya Krishnan · 28 Jun');
+    expect(html).toContain('✓ FILLED, Priya Krishnan · 28 Jun');
     expect(html).toContain('3 other GPs redirected to similar roles · redirect emails sent ✓');
     expect(html).toContain('was unfilled 52 days');
   });
@@ -296,7 +296,7 @@ describe('filled rows (Part D verbatim)', () => {
   });
 });
 
-describe('XSS safety — ATS.esc/escAttr on every user-derived string', () => {
+describe('XSS safety, ATS.esc/escAttr on every user-derived string', () => {
   it('a <script> practice name renders escaped, never raw, in a position row', () => {
     const evil = '<script>alert(1)</script>';
     const html = MB.mbRowHtml(row({ job: job({ practice_name: evil }) }), { nowMs: NOW });
@@ -304,7 +304,7 @@ describe('XSS safety — ATS.esc/escAttr on every user-derived string', () => {
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
 
-  it('the left block is a plain glassy panel — no photo, no gradient backdrop (owner call 2026-07-12)', () => {
+  it('the left block is a plain glassy panel, no photo, no gradient backdrop (owner call 2026-07-12)', () => {
     const evil = '"><img src=x onerror=alert(1)>';
     const html = MB.mbRowHtml(row({ job: job({ header_image_url: evil }) }), { nowMs: NOW });
     expect(html).not.toContain('"><img src=x onerror=alert(1)>');
@@ -335,7 +335,7 @@ describe('XSS safety — ATS.esc/escAttr on every user-derived string', () => {
   });
 });
 
-describe('corporate groups — opening name leads, group is a tile (owner call 2026-07-12)', () => {
+describe('corporate groups, opening name leads, group is a tile (owner call 2026-07-12)', () => {
   const groupJob = () => job({ id: 'job-9', title: 'General Practitioner || Woodlake Village Medical Centre', practice_name: 'GP West Group', practice_id: 'prac-gw' });
   it('headline is the opening name, not the corporation', () => {
     const html = MB.mbRowHtml(row({ job: groupJob() }), { nowMs: NOW });
@@ -400,32 +400,32 @@ describe('GPs -> Positions (flip) urgency + track', () => {
   it('green once something has been sent, and drops the "no matches sent" suffix', () => {
     const html = MB.mbGpRowHtml(gpRow({
       gp: { user_id: 'gp1', name: 'Dr X', days_on_books: 26 },
-      live: [{ application_id: 'a1', career_role_id: 'job-cand', title: 'GP — Candidate Job', practice_name: 'Cand Practice', ats_stage: 'interview', stage_updated_at: hoursAgo(4), match: null }],
+      live: [{ application_id: 'a1', career_role_id: 'job-cand', title: 'GP, Candidate Job', practice_name: 'Cand Practice', ats_stage: 'interview', stage_updated_at: hoursAgo(4), match: null }],
     }), { nowMs: NOW });
     expect(html).toMatch(/class="ats-mb-row green"/);
     expect(html).not.toContain('no matches sent');
   });
   it('mirrors the funnel track using practice_name as the node label', () => {
-    const r = gpRow({ live: [{ application_id: 'a1', career_role_id: 'job-cand', title: 'GP — Candidate Job', practice_name: 'Cand Practice', ats_stage: 'interview', stage_updated_at: iso(NOW - (3 * 86400000)), match: null }] });
+    const r = gpRow({ live: [{ application_id: 'a1', career_role_id: 'job-cand', title: 'GP, Candidate Job', practice_name: 'Cand Practice', ats_stage: 'interview', stage_updated_at: iso(NOW - (3 * 86400000)), match: null }] });
     const html = MB.mbGpTrackHtml(r, NOW);
     expect(html).toContain('Cand Practice');
     expect(html).toContain('Interview');
   });
   it('expand panel per-node "Open job board" action uses career_role_id', () => {
-    const r = gpRow({ live: [{ application_id: 'a1', career_role_id: 'job-cand', title: 'GP — Candidate Job', practice_name: 'Cand Practice', ats_stage: 'interview', stage_updated_at: hoursAgo(4), match: null }] });
+    const r = gpRow({ live: [{ application_id: 'a1', career_role_id: 'job-cand', title: 'GP, Candidate Job', practice_name: 'Cand Practice', ats_stage: 'interview', stage_updated_at: hoursAgo(4), match: null }] });
     const html = MB.mbExpandHtml(r, {}, NOW);
     expect(html).toContain('data-mb-open-job="job-cand"');
     expect(html).toContain('Open job board');
   });
   it('gps suggestions carry a checkbox keyed by career_role_id', () => {
-    const r = gpRow({ suggestions: [{ career_role_id: 'job-74d', title: 'GP — Long Open Role', practice_name: 'Open Roles Practice', score: 88, reasons: ['great fit'], chips: [] }] });
+    const r = gpRow({ suggestions: [{ career_role_id: 'job-74d', title: 'GP, Long Open Role', practice_name: 'Open Roles Practice', score: 88, reasons: ['great fit'], chips: [] }] });
     const html = MB.mbExpandHtml(r, {}, NOW);
     expect(html).toContain('data-mb-cb="job-74d"');
     expect(html).toContain('Open Roles Practice');
   });
 });
 
-describe('running state — generic copy, no fabricated numbers', () => {
+describe('running state, generic copy, no fabricated numbers', () => {
   it('mbRowHtml shows the shimmer + generic running copy when runningIds carries the job id', () => {
     const html = MB.mbRowHtml(row(), { nowMs: NOW, runningIds: { 'job-1': true } });
     expect(html).toContain('🤖 Ranking eligible GPs against this position… usually 10–20 seconds');
@@ -512,7 +512,7 @@ describe('client-side row filtering', () => {
   });
 });
 
-describe('wiring pins (source-level — network/DOM behaviour not exercised under vm)', () => {
+describe('wiring pins (source-level, network/DOM behaviour not exercised under vm)', () => {
   it('fetches the Task 4 board endpoint by direction', () => {
     expect(matchingSrc).toContain("'/api/ats/matching/board?direction=' + (isGp ? 'gps' : 'positions')");
   });
@@ -535,7 +535,7 @@ describe('wiring pins (source-level — network/DOM behaviour not exercised unde
     expect(matchingSrc).toContain('window.atsOpenJobBoard(id)');
     expect(matchingSrc).toContain('window.atsOpenPractice(id)');
     // Final-review fix (Finding 3): drill-ins must activate the tab via the
-    // skipLoad=true path (ATS.setActiveTab), NOT ATS.showMaster() — showMaster
+    // skipLoad=true path (ATS.setActiveTab), NOT ATS.showMaster(), showMaster
     // also fires that tab's list loader, a second async render that can race
     // the opener call below it and clobber the just-opened detail view.
     expect(matchingSrc).toMatch(/ATS\.setActiveTab\('practices',\s*true\)/);
@@ -611,7 +611,7 @@ describe('sort control (spec Part A top bar: "sort (default: longest unfilled fi
   });
 });
 
-describe('pipeline node ordering — defensive most-progressed-first sort', () => {
+describe('pipeline node ordering, defensive most-progressed-first sort', () => {
   // Deliberately shuffled (least-progressed first) to prove the board does
   // NOT silently depend on the server's offer-first ordering.
   const shuffled = [
@@ -647,7 +647,7 @@ describe('pipeline node ordering — defensive most-progressed-first sort', () =
   });
 });
 
-describe('KPI clear + flip refetch (source pins — behaviour requires a live DOM to exercise end-to-end)', () => {
+describe('KPI clear + flip refetch (source pins, behaviour requires a live DOM to exercise end-to-end)', () => {
   it('the "open" KPI tile clears urgency/status/dpa/state (its "filter" is "show everything")', () => {
     const fn = matchingSrc.slice(matchingSrc.indexOf('function onKpiClick'), matchingSrc.indexOf('function onFlipClick'));
     expect(fn).toMatch(/key === 'open'/);
@@ -657,14 +657,14 @@ describe('KPI clear + flip refetch (source pins — behaviour requires a live DO
     const fn = matchingSrc.slice(matchingSrc.indexOf('function onFlipClick'), matchingSrc.indexOf('function onFilterChipClick'));
     expect(fn).toContain('fetchBoard();');
   });
-  it('a row click never re-fetches — expand uses data already loaded in state.boardData', () => {
+  it('a row click never re-fetches, expand uses data already loaded in state.boardData', () => {
     const fn = matchingSrc.slice(matchingSrc.indexOf('function onRowToggle'), matchingSrc.indexOf('function onKpiClick'));
     expect(fn).not.toContain('fetchBoard');
     expect(fn).not.toContain('A.api(');
   });
 });
 
-describe('funnel line — solid through the pipeline, dashed through suggestions', () => {
+describe('funnel line, solid through the pipeline, dashed through suggestions', () => {
   it('css/ceo-ats.css draws the connecting line via pipezone/suggzone ::before', () => {
     expect(cssSrc).toMatch(/\.ats-mb-pipezone::before\s*\{[^}]*background:var\(--ats-blue\)/);
     expect(cssSrc).toMatch(/\.ats-mb-suggzone::before\s*\{[^}]*border-top:2px dashed/);
@@ -689,7 +689,7 @@ describe('cache buster + dead CSS pruned', () => {
   });
   it('the old picker CSS classes are gone; the kanban match-status classes survive', () => {
     // Checked as CSS rule declarations (class name + "{"), not bare
-    // substrings — this file's own header comment names the removed classes
+    // substrings, this file's own header comment names the removed classes
     // in prose for historical context, which a plain substring check would
     // false-positive on.
     ['.ats-match-direction {', '.ats-match-picker {', '.ats-match-toolbar {', '.ats-match-list {', '.ats-match-row {', '.ats-match-score {', '.ats-match-body {', '.ats-match-name {', '.ats-match-reasons {', '.ats-match-chips {', '.ats-match-actions {']

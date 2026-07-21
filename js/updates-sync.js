@@ -54,7 +54,7 @@
       detail,
       ts
     };
-    // Server-provided deep link (e.g. a rejected doc's re-upload card) — only
+    // Server-provided deep link (e.g. a rejected doc's re-upload card), only
     // same-app /pages/ paths survive sanitization.
     if (typeof item.target === "string" && item.target.indexOf("/pages/") === 0) out.target = item.target;
     if (typeof item.nudgeId === "string" && item.nudgeId) out.nudgeId = item.nudgeId;
@@ -112,7 +112,7 @@
   // The server keeps a union of read alert ids per GP (own data only). We pull
   // it and merge into the local read-state (read anywhere = read everywhere),
   // then push any locally-read ids the server doesn't know about yet. All
-  // failures are swallowed — local behaviour is unchanged when offline.
+  // failures are swallowed, local behaviour is unchanged when offline.
   let readSyncInFlight = false;
   async function syncReadStateWithServer() {
     if (readSyncInFlight) return false;
@@ -299,7 +299,7 @@
   // ── Redesigned panel (v9): pure/small rendering helpers ──
   // These read the same underlying storage buildAlertItems() already reads
   // (getGpLinkUpdates / parseSupportCases) to surface the `.detail` text that
-  // buildAlertItems() itself does not pass through — buildAlertItems() and its
+  // buildAlertItems() itself does not pass through, buildAlertItems() and its
   // output shape are left untouched, this only adds a display-time lookup.
   let panelFilter = "all"; // "all" | "action" | "update" | "support"
 
@@ -360,7 +360,7 @@
   }
 
   // Marks every passed alert item read via the existing per-item markRead
-  // mechanics (same as a single item click) — used by "Mark all read".
+  // mechanics (same as a single item click), used by "Mark all read".
   function markAllAlertsRead(items) {
     (items || []).forEach((item) => {
       markRead(item.id);
@@ -805,7 +805,7 @@
   function openPanel(triggerEl) {
     const root = ensurePanelRoot();
     renderPanel();
-    // Fire nudge pull + read-state reconcile when the user opens the bell —
+    // Fire nudge pull + read-state reconcile when the user opens the bell,
     // non-blocking, re-renders on new data
     pullServerNudges();
     syncReadStateWithServer();
@@ -918,7 +918,7 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") { pullServerNudges(); syncReadStateWithServer(); }
     });
-    // Re-reconcile once state-sync hydration lands — it can replace the local
+    // Re-reconcile once state-sync hydration lands, it can replace the local
     // read-state key with the server's copy of another device's snapshot.
     window.addEventListener("gp-state-hydrated", () => { syncReadStateWithServer(); }, { once: true });
   }

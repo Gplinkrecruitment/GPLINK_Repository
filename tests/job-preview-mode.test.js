@@ -1,11 +1,11 @@
-// Task 5 (2026-07-18 AI job write-up + review design) — admin-only preview of
+// Task 5 (2026-07-18 AI job write-up + review design), admin-only preview of
 // a not-yet-live job. The public website filters to is_active=true and
 // /api/career/role has never had its own active/approval gate, so a pending
 // (auto-created-on-signing, is_active:false) job needs a dedicated preview
 // path the CEO can open before approving. THE WHOLE POINT of this feature is
 // the security boundary: ?preview=1 must only ever bypass gating when the
 // request ALSO carries a valid admin/ATS session (super_admin or consultant,
-// on an admin-scoped host) — a bare, unauthenticated preview=1 must be a
+// on an admin-scoped host), a bare, unauthenticated preview=1 must be a
 // total no-op.
 //
 // Boots the real server in LOCAL-JSON mode (same pattern as
@@ -33,11 +33,11 @@ function signedCookie(cookieName, userProfile) {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return cookieName + '=' + encodeURIComponent(payload + '.' + sig);
 }
-// Admin/ATS session — same shape tests/ats-endpoints.test.js's superCookie() uses.
+// Admin/ATS session, same shape tests/ats-endpoints.test.js's superCookie() uses.
 function superCookie() {
   return signedCookie('gp_admin_session', { email: 'super@gplink-test.local', adminRole: 'super_admin' });
 }
-// Plain GP session — no admin role at all, so getAtsSessionSoft must reject it.
+// Plain GP session, no admin role at all, so getAtsSessionSoft must reject it.
 function gpCookie(email) {
   return signedCookie('gp_session', { email });
 }
@@ -62,8 +62,8 @@ const PENDING_PROVIDER_ROLE_ID = 'ats_prev1';
 const PENDING_PUBLIC_ID = 'internal_ats:' + PENDING_PROVIDER_ROLE_ID;
 const LIVE_PROVIDER_ROLE_ID = 'ats_prevlive1';
 const LIVE_PUBLIC_ID = 'internal_ats:' + LIVE_PROVIDER_ROLE_ID;
-const PENDING_PRACTICE_NAME = 'Preview Pipeline Practice — DO NOT LEAK';
-const LIVE_PRACTICE_NAME = 'Live Pipeline Practice — DO NOT LEAK';
+const PENDING_PRACTICE_NAME = 'Preview Pipeline Practice, DO NOT LEAK';
+const LIVE_PRACTICE_NAME = 'Live Pipeline Practice, DO NOT LEAK';
 
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
@@ -84,15 +84,15 @@ beforeAll(async () => {
   const seeded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   seeded.atsJobs = seeded.atsJobs || [];
   seeded.atsJobs.push(
-    // Pending job — the exact shape createPendingJobFromIntake writes
+    // Pending job, the exact shape createPendingJobFromIntake writes
     // (is_active:false, approval_status:'pending'), auto-created the moment a
     // practice signs, before any CEO review. dpa:false is deliberate: a
     // non-DPA role is normally redacted (buildRedactedRoleStub) for any
-    // viewer with no known GP profile — proving admin preview bypasses THAT
+    // viewer with no known GP profile, proving admin preview bypasses THAT
     // gate too, not merely the is_active filter.
     {
       id: 'preview-jp1', provider: 'internal_ats', provider_role_id: PENDING_PROVIDER_ROLE_ID,
-      title: 'GP — Preview Suburb', masked_title: 'GP | Suburb of Preview Town | Mixed billing',
+      title: 'GP, Preview Suburb', masked_title: 'GP | Suburb of Preview Town | Mixed billing',
       practice_name: PENDING_PRACTICE_NAME,
       location_city: 'Preview Town', location_state: 'QLD', suburb: 'Preview Suburb', nearest_city: 'Preview Town',
       is_active: false, job_status: 'open', approval_status: 'pending', dpa: false,
@@ -109,11 +109,11 @@ beforeAll(async () => {
         }
       }
     },
-    // Live/approved job — used to prove preview=1 doesn't change the shape
+    // Live/approved job, used to prove preview=1 doesn't change the shape
     // of an already-public job's response.
     {
       id: 'preview-jh1', provider: 'internal_ats', provider_role_id: LIVE_PROVIDER_ROLE_ID,
-      title: 'GP — Live Suburb', masked_title: 'GP | Suburb of Live Town | Private billing',
+      title: 'GP, Live Suburb', masked_title: 'GP | Suburb of Live Town | Private billing',
       practice_name: LIVE_PRACTICE_NAME,
       location_city: 'Live Town', location_state: 'QLD', suburb: 'Live Suburb', nearest_city: 'Live Town',
       is_active: true, job_status: 'open', approval_status: 'approved', dpa: true,
@@ -143,7 +143,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('Admin-only preview — in-app GET /api/career/role', () => {
+describe('Admin-only preview, in-app GET /api/career/role', () => {
   it('(a) preview=1 + a valid admin session resolves the pending job, AI write-up included', async () => {
     const r = await req('GET', '/api/career/role?id=' + encodeURIComponent(PENDING_PUBLIC_ID) + '&preview=1', { host: SUPER_HOST, cookie: superCookie() });
     expect(r.status).toBe(200);
@@ -153,7 +153,7 @@ describe('Admin-only preview — in-app GET /api/career/role', () => {
     expect(b.role.preview).toBe(true);
     expect(b.role.aiAbout).toContain('GP-owned practice');
     expect(b.role.aiHighlights).toContain('Supportive, GP-owned team');
-    // Identity masking stays intact even in preview — same name-free shape a
+    // Identity masking stays intact even in preview, same name-free shape a
     // qualifying GP would see.
     expect(JSON.stringify(b.role)).not.toContain(PENDING_PRACTICE_NAME);
     expect(b.role.revealed).toBeFalsy();
@@ -161,13 +161,13 @@ describe('Admin-only preview — in-app GET /api/career/role', () => {
 
   it('(b) preview=1 WITHOUT a valid admin session never reveals the pending job', async () => {
     // No session at all, same admin-scoped host: matches today's plain
-    // unauthenticated 401 — preview=1 changes nothing.
+    // unauthenticated 401, preview=1 changes nothing.
     const anon = await req('GET', '/api/career/role?id=' + encodeURIComponent(PENDING_PUBLIC_ID) + '&preview=1', { host: SUPER_HOST });
     expect(anon.status).toBe(401);
     expect(parse(anon.raw)?.role?.aiAbout).toBeFalsy();
 
     // A plain GP session (no admin cookie) is treated IDENTICALLY whether or
-    // not preview=1 is present — proving the flag by itself is inert without
+    // not preview=1 is present, proving the flag by itself is inert without
     // an admin/ATS session riding along.
     const cookie = gpCookie('plain-gp@gplink-test.local');
     const gpNoPreview = await req('GET', '/api/career/role?id=' + encodeURIComponent(PENDING_PUBLIC_ID), { host: SUPER_HOST, cookie });
@@ -179,7 +179,7 @@ describe('Admin-only preview — in-app GET /api/career/role', () => {
     expect(JSON.stringify(gpBody)).not.toContain(PENDING_PRACTICE_NAME);
 
     // Also confirm a non-admin host can never satisfy getAtsSessionSoft even
-    // while carrying a byte-identical admin cookie — the host scope check
+    // while carrying a byte-identical admin cookie, the host scope check
     // isn't bypassable just by having a signed cookie.
     const wrongHost = await req('GET', '/api/career/role?id=' + encodeURIComponent(PENDING_PUBLIC_ID) + '&preview=1', { host: 'not-an-admin-host.example.com', cookie: superCookie() });
     expect(wrongHost.status).not.toBe(200);
@@ -195,14 +195,14 @@ describe('Admin-only preview — in-app GET /api/career/role', () => {
     const previewRole = parse(preview.raw).role;
     expect(previewRole.preview).toBe(true);
     expect(normalRole.preview).toBeUndefined();
-    // Same shape otherwise — preview only ever ADDS the `preview` marker.
+    // Same shape otherwise, preview only ever ADDS the `preview` marker.
     delete previewRole.preview;
     expect(previewRole).toEqual(normalRole);
     expect(previewRole.aiAbout).toContain('modern private-billing clinic');
   });
 });
 
-describe('Admin-only preview — public website (/api/public/jobs + /jobs/view)', () => {
+describe('Admin-only preview, public website (/api/public/jobs + /jobs/view)', () => {
   it('(d) GET /api/public/jobs?id=&preview=1 reveals the pending job only WITH an admin session', async () => {
     const withAdmin = await req('GET', '/api/public/jobs?id=' + encodeURIComponent(PENDING_PUBLIC_ID) + '&preview=1', { host: SUPER_HOST, cookie: superCookie() });
     expect(withAdmin.status).toBe(200);

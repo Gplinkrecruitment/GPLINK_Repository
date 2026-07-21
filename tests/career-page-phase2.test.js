@@ -1,4 +1,4 @@
-// Phase 2 Task 2 — Atlas browse experience on pages/career.html.
+// Phase 2 Task 2, Atlas browse experience on pages/career.html.
 //
 // The career page is a static HTML file served verbatim (no server-side
 // templating), so reading it straight from disk is an honest check of exactly
@@ -21,7 +21,7 @@ beforeAll(() => {
   html = fs.readFileSync(CAREER_PAGE_PATH, 'utf8');
 });
 
-describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
+describe('career.html, Atlas browse rebuild (Phase 2 Task 2)', () => {
   it('has the Roles / Saved / Offers tab bar', () => {
     expect(html).toContain('data-career-tab="browse"');
     expect(html).toContain('data-career-tab="saved"');
@@ -67,7 +67,7 @@ describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
     // ...renders it as "{band} applied"...
     expect(html).toContain('${band} applied');
     // ...and has the client-side fallback hash (same djb2 as the server) so a
-    // stale cached role still gets a stable band — never Math.random().
+    // stale cached role still gets a stable band, never Math.random().
     expect(html).toContain('function getApplicantBand');
     expect(html).toMatch(/15 \+ \(h % 9\)/);
     expect(html).not.toMatch(/Math\.random\(\)[^\n]*applied/i);
@@ -113,7 +113,7 @@ describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
     expect(fn).not.toContain('role.tags');
   });
 
-  it('applying happens on the job detail page — no in-page apply endpoint call', () => {
+  it('applying happens on the job detail page, no in-page apply endpoint call', () => {
     expect(html).not.toContain('/api/career/apply');
     expect(html).not.toContain('applyForRole');
   });

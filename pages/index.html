@@ -8,7 +8,7 @@
     /* Pre-paint onboarding gate: shows a clean spinner instead of flashing the
        dashboard while the end-of-body checkOnboarding script asks the server.
        Hardcoded hex on purpose (#f4f6fb = --gp-canvas, #2563eb = --gp-blue,
-       #d6e2fb = --gp-blue-border) — external token CSS has not loaded yet. */
+       #d6e2fb = --gp-blue-border), external token CSS has not loaded yet. */
     html.gp-onboarding-gate body { visibility: hidden; }
     html.gp-onboarding-gate::before {
       content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -278,7 +278,7 @@
       position: relative;
       overflow: hidden;
     }
-    /* Shiny sweep — a soft band of light glides across the banner on a loop
+    /* Shiny sweep, a soft band of light glides across the banner on a loop
        (shown whether or not a placement is secured). */
     .dream-banner::after {
       content: "";
@@ -949,7 +949,7 @@
       <span id="next-milestone">Next milestone: Step 1 complete</span>
     </div>
 
-    <!-- OUTSTANDING ACTIONS — everything currently waiting on the GP, in one
+    <!-- OUTSTANDING ACTIONS, everything currently waiting on the GP, in one
          place. Hidden entirely when nothing is outstanding (Phase 6 G4). -->
     <section class="outstanding-card" id="outstandingActions" hidden>
       <div class="section-head">Your outstanding actions</div>
@@ -1022,7 +1022,7 @@
       function releaseGate() {
         document.documentElement.classList.remove("gp-onboarding-gate");
         // The app shell preemptively hides its nav chrome for users without
-        // the completion flag — tell it to bring the nav back.
+        // the completion flag, tell it to bring the nav back.
         try {
           if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: "gp-shell-show-chrome" }, window.location.origin);
@@ -1033,13 +1033,13 @@
       try { flagComplete = localStorage.getItem("gp_onboarding_complete") === "true"; } catch (e) {}
       if (flagComplete) {
         // Gate class won't normally be set in this case, but clear defensively
-        // AND tell the shell to restore its preemptively hidden nav chrome —
+        // AND tell the shell to restore its preemptively hidden nav chrome,
         // state-sync may have hydrated the flag after the shell hid it.
         // Posting when chrome isn't hidden is harmless.
         releaseGate();
         return;
       }
-      // localStorage may not be hydrated yet — check server before redirecting.
+      // localStorage may not be hydrated yet, check server before redirecting.
       // ~8s timeout so a hung request can't strand the spinner forever.
       var controller = typeof AbortController === "function" ? new AbortController() : null;
       var timer = controller ? setTimeout(function () { controller.abort(); }, 8000) : null;
@@ -1052,14 +1052,14 @@
             try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) {}
             releaseGate();
           } else {
-            // Leave the gate up — the spinner holds until onboarding paints,
+            // Leave the gate up, the spinner holds until onboarding paints,
             // which is the intended "gateway loading" look.
             window.location.replace("onboarding");
           }
         })
         .catch(function () {
           if (timer) clearTimeout(timer);
-          releaseGate(); // fail open — never trap the user on a spinner
+          releaseGate(); // fail open, never trap the user on a spinner
         });
     })();
     // Canonical GP journey stages (js/journey-stages.js). Commencement is
@@ -1456,7 +1456,7 @@
           '<div class="update-icon ' + c.iconType + '">' + (iconSvgs[c.iconType] || iconSvgs.info) + '</div>' +
           '<div class="update-content"><p class="update-title"></p><div class="update-ts"></div></div>' +
           '<span class="update-badge ' + c.badgeClass + '"></span>';
-        row.querySelector(".update-title").textContent = c.title;         // textContent — never innerHTML with server data
+        row.querySelector(".update-title").textContent = c.title;         // textContent, never innerHTML with server data
         row.querySelector(".update-ts").textContent = formatUpdateTimestamp(c.ts || "");
         row.querySelector(".update-badge").textContent = c.badgeLabel;
         listEl.appendChild(row);
@@ -1527,7 +1527,7 @@
 
     (function loadLiveApplicationCards() {
       // This inline block is not `defer`red, so it executes synchronously during
-      // HTML parsing — strictly BEFORE any `defer` external script (including
+      // HTML parsing, strictly BEFORE any `defer` external script (including
       // /js/career-home-card.js) runs. Gate on DOMContentLoaded (same idiom as
       // js/updates-sync.js's own bootstrap and the renderJourneyList() listener
       // above) so window.deriveCareerHomeCard is guaranteed to exist by the time
@@ -1594,13 +1594,13 @@
 
       var careerSecured = hasCareerSecured();
       var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
-      // Visa/PBS keep no local progress objects — their DISPLAY "done" state is derived
+      // Visa/PBS keep no local progress objects, their DISPLAY "done" state is derived
       // from the server-written case stage (gp_admin_stage_override advances on every
       // stage change), mirroring how the forced*Done flags below are derived.
       var visaDone = false;
       var pbsDone = false;
 
-      // Admin stage override — forces locking based on CEO-set stage
+      // Admin stage override, forces locking based on CEO-set stage
       var adminOverride = parseStorage("gp_admin_stage_override");
       if (adminOverride && typeof adminOverride === "string") {
         var OVERRIDE_ORDER = ["placement", "myintealth", "amc", "career", "ahpra", "visa", "pbs", "commencement"];
@@ -1653,10 +1653,10 @@
       else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "View your secured practice placement"; }
       else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
       else if (epicDone && amcDone && careerSecured && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
-      // Commencement is vaulted (js/journey-stages.js) — PBS & Medicare is the
+      // Commencement is vaulted (js/journey-stages.js), PBS & Medicare is the
       // final visible stage, so once it's done the journey is complete. Point the
       // CTA at the practice view instead of the shelved commencement page.
-      else if (epicDone && amcDone && careerSecured && ahpraDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete — view your practice details."; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete, view your practice details."; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1686,7 +1686,7 @@
       if (titleEl) titleEl.textContent = snap.currentTitle;
       if (subEl) subEl.textContent = snap.currentSub;
 
-      // Dream banner — a placed GP sees their secured practice; everyone else
+      // Dream banner, a placed GP sees their secured practice; everyone else
       // is pointed at finding + securing a position (the career page shows
       // them the job board until they're placed).
       const bannerTitle = document.getElementById("dreamBannerTitle");
@@ -1721,11 +1721,11 @@
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
-      // Canonical 7-stage journey — order, names and lock state come from
+      // Canonical 7-stage journey, order, names and lock state come from
       // js/journey-stages.js (shared with the app-shell registration dropdown).
       const stages = window.GPJourneyStages.getStageStates(snap, bypassAll);
 
-      // AHPRA is always navigable — gate page inside ahpra.html handles placement-required messaging
+      // AHPRA is always navigable, gate page inside ahpra.html handles placement-required messaging
       const ahpraSubText = snap.ahpraDone ? "Completed" : !snap.careerSecured ? "Secure a placement to continue" : "Specialist registration";
       const liveSubText = {
         career: snap.careerSecured ? "Placement secured" : "View your practice placement",
@@ -1823,11 +1823,11 @@
     function getRegistrationRows() {
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
-      // Canonical 7-stage journey (js/journey-stages.js) — shared with the
+      // Canonical 7-stage journey (js/journey-stages.js), shared with the
       // app-shell registration dropdown so the two surfaces always agree.
       if (!window.GPJourneyStages || typeof window.GPJourneyStages.getStageStates !== "function") return [];
       const stages = window.GPJourneyStages.getStageStates(snap, bypassAll);
-      // AHPRA always navigable — gate page inside ahpra.html handles placement-required messaging
+      // AHPRA always navigable, gate page inside ahpra.html handles placement-required messaging
       var ahpraStatusHint = snap.ahpraDone ? "Completed"
         : !snap.careerSecured ? "Secure a placement to continue"
         : !snap.amcDone ? "Complete AMC first"
@@ -2104,7 +2104,7 @@
     }
     renderRegistrationRows();
 
-    // journey-stages.js is deferred — re-render the journey list once deferred
+    // journey-stages.js is deferred, re-render the journey list once deferred
     // scripts have executed so getStageStates() actually runs.
     document.addEventListener("DOMContentLoaded", () => { renderJourneyList(); });
 
@@ -2233,7 +2233,7 @@
   </script>
 
   <script>
-    // ── OUTSTANDING ACTIONS — unified GP task inbox (Phase 6 G4) ─────────────
+    // ── OUTSTANDING ACTIONS, unified GP task inbox (Phase 6 G4) ─────────────
     // Read-only aggregation from /api/gp/outstanding: AHPRA more-info items,
     // rejected documents needing re-upload, tasks waiting on the GP, and
     // actionable nudges. Each row deep-links to the page that resolves it
@@ -2274,7 +2274,7 @@
           }).join("");
           panel.hidden = false;
         })
-        .catch(function () { /* panel stays hidden — never break the dashboard */ });
+        .catch(function () { /* panel stays hidden, never break the dashboard */ });
     })();
   </script>
 </body>

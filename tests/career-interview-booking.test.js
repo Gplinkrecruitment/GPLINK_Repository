@@ -1,4 +1,4 @@
-// Task 13 — "Secure My Interview": GP-facing instant Zoom interview booking.
+// Task 13, "Secure My Interview": GP-facing instant Zoom interview booking.
 //
 // Reuses the same in-memory PostgREST emulator + fetch-mocking harness as
 // tests/ats-accept-flow.test.js so the real server (not a stub) drives the
@@ -7,9 +7,9 @@
 // dbState.fakeCalendar fallbacks end-to-end.
 //
 // Covers:
-//  1. GET /api/career/interview/slots — creates a 'defaulted' interview row
+//  1. GET /api/career/interview/slots, creates a 'defaulted' interview row
 //     on first call (no practice round-trip) and returns >=1 slot.
-//  2. POST /api/career/interview/book — books the first slot: Zoom + GCal
+//  2. POST /api/career/interview/book, books the first slot: Zoom + GCal
 //     (local fallbacks), scheduled_calls -> booked, application -> 'interview'
 //     stage, confirmation emails sent (awaited before responding).
 //  3. Idempotent re-book returns {ok:true, already:true, booked:{...}}.
@@ -45,55 +45,55 @@ const db = {
   ],
   practices: [
     { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW },
-    // Task 8: WA practice whose NAME contains no city/state keyword — the stored
+    // Task 8: WA practice whose NAME contains no city/state keyword, the stored
     // location_state must drive the timezone (Perth), not name sniffing (Sydney).
     { id: 'p-int-wa', name: 'Sunrise Family Medical', source: 'internal_ats', contact_name: 'Wes Manager', contact_email: 'reception@sunrise-wa-test.local', location_city: 'Karratha', location_state: 'WA', is_active: true, created_at: NOW },
     // Viewer-tz feature: an NSW-state practice whose CONTACT submits availability
-    // from a Perth browser — the submitted viewer_tz must beat the state guess.
+    // from a Perth browser, the submitted viewer_tz must beat the state guess.
     { id: 'p-int-nsw', name: 'Harbour Medical Group', source: 'internal_ats', contact_name: 'Nina Manager', contact_email: 'frontdesk@nsw-practice-test.local', location_city: 'Newcastle', location_state: 'NSW', is_active: true, created_at: NOW }
   ],
   career_roles: [
     {
-      id: 'role-int-1', provider: 'internal_ats', provider_role_id: 'ats_int_r1', title: 'General Practitioner — VR',
+      id: 'role-int-1', provider: 'internal_ats', provider_role_id: 'ats_int_r1', title: 'General Practitioner, VR',
       practice_name: 'Greenslopes Family Medical', practice_id: 'p-int-1', location_city: 'Brisbane', location_state: 'QLD',
       is_active: true, job_status: 'open', updated_at: NOW
     },
-    // A second, distinct role for the not-revealed application below — reveal is
+    // A second, distinct role for the not-revealed application below, reveal is
     // keyed by (user_id, career_role_id), so app-int-2 needs its own role or it
     // would inherit app-int-1's reveal via the same (GP, role) pair.
     {
-      id: 'role-int-2', provider: 'internal_ats', provider_role_id: 'ats_int_r2', title: 'General Practitioner — VR (unrevealed role)',
+      id: 'role-int-2', provider: 'internal_ats', provider_role_id: 'ats_int_r2', title: 'General Practitioner, VR (unrevealed role)',
       practice_name: 'Riverside Medical Centre', practice_id: 'p-int-1', location_city: 'Brisbane', location_state: 'QLD',
       is_active: true, job_status: 'open', updated_at: NOW
     },
-    // Task 8: Karratha WA — neither the practice name nor the city matches the
+    // Task 8: Karratha WA, neither the practice name nor the city matches the
     // legacy name-sniffing keywords, so only location_state can yield Perth time.
     {
-      id: 'role-int-wa', provider: 'internal_ats', provider_role_id: 'ats_int_rwa', title: 'General Practitioner — VR',
+      id: 'role-int-wa', provider: 'internal_ats', provider_role_id: 'ats_int_rwa', title: 'General Practitioner, VR',
       practice_name: 'Sunrise Family Medical', practice_id: 'p-int-wa', location_city: 'Karratha', location_state: 'WA',
       is_active: true, job_status: 'open', updated_at: NOW
     },
-    // Viewer-tz feature: two roles at the NSW practice — one per availability test
+    // Viewer-tz feature: two roles at the NSW practice, one per availability test
     // (each gp_applications row gets its own practice_action_token + interview row).
     {
-      id: 'role-int-nsw', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw', title: 'General Practitioner — VR',
+      id: 'role-int-nsw', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw', title: 'General Practitioner, VR',
       practice_name: 'Harbour Medical Group', practice_id: 'p-int-nsw', location_city: 'Newcastle', location_state: 'NSW',
       is_active: true, job_status: 'open', updated_at: NOW
     },
     {
-      id: 'role-int-nsw2', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw2', title: 'General Practitioner — VR (second)',
+      id: 'role-int-nsw2', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw2', title: 'General Practitioner, VR (second)',
       practice_name: 'Harbour Medical Group', practice_id: 'p-int-nsw', location_city: 'Newcastle', location_state: 'NSW',
       is_active: true, job_status: 'open', updated_at: NOW
     }
   ],
   gp_applications: [
-    // Revealed (accepted offer) — the happy path for GP self-serve booking.
+    // Revealed (accepted offer), the happy path for GP self-serve booking.
     { id: 'app-int-1', user_id: GP.userId, career_role_id: 'role-int-1', provider_role_id: 'ats_int_r1', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' },
-    // Not revealed (different role, no offer) — used for the 403 not_available test.
+    // Not revealed (different role, no offer), used for the 403 not_available test.
     { id: 'app-int-2', user_id: GP.userId, career_role_id: 'role-int-2', provider_role_id: 'ats_int_r2', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
-    // Belongs to GP2 — used for the wrong-owner 404 test.
+    // Belongs to GP2, used for the wrong-owner 404 test.
     { id: 'app-int-3', user_id: GP2.userId, career_role_id: 'role-int-1', provider_role_id: 'ats_int_r3', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' },
-    // Task 8: revealed offer at the WA practice — timezone-derivation tests.
+    // Task 8: revealed offer at the WA practice, timezone-derivation tests.
     { id: 'app-int-wa', user_id: GP.userId, career_role_id: 'role-int-wa', provider_role_id: 'ats_int_rwa', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' },
     // Viewer-tz feature: approved apps with practice_action_tokens so the
     // practice-decision availability endpoint can be exercised end-to-end.
@@ -306,7 +306,7 @@ describe('GET /api/career/interview/slots', () => {
     expect(r.body.error).toBe('not_available');
   });
 
-  it('creates a defaulted interview row on first call and returns slots — no practice round-trip', async () => {
+  it('creates a defaulted interview row on first call and returns slots, no practice round-trip', async () => {
     const r = await gpGet('/api/career/interview/slots?applicationId=app-int-1', GP);
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -323,7 +323,7 @@ describe('GET /api/career/interview/slots', () => {
     expect(r.body.slots[0].local.gp.tz).toBe('Europe/London');
   });
 
-  it('is idempotent — a second call reuses the same interview row (no duplicate)', async () => {
+  it('is idempotent, a second call reuses the same interview row (no duplicate)', async () => {
     const before = db.scheduled_calls.length;
     const r = await gpGet('/api/career/interview/slots?applicationId=app-int-1', GP);
     expect(r.status).toBe(200);
@@ -400,14 +400,14 @@ describe('POST /api/career/interview/book', () => {
     expect(opsSend).toBeTruthy();
     expect(opsSend.body.attachments).toBeUndefined();
 
-    // A local fakeCalendar entry was created — read straight from the on-disk local DB state
+    // A local fakeCalendar entry was created, read straight from the on-disk local DB state
     // (fakeCalendar is a dbState-only structure, independent of the Supabase emulator above).
     const localDb = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     expect(Array.isArray(localDb.fakeCalendar)).toBe(true);
     expect(localDb.fakeCalendar.length).toBeGreaterThan(0);
   });
 
-  it('is idempotent — re-booking the same application returns already:true with the existing booking', async () => {
+  it('is idempotent, re-booking the same application returns already:true with the existing booking', async () => {
     const before = resendCalls.length;
     const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-1' && c.meeting_kind === 'interview');
     const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-1', slot_start_utc: row.scheduled_at }, GP);
@@ -435,7 +435,7 @@ describe('POST /api/career/interview/book', () => {
 // Task 8 (2026-07-20 audit): the practice timezone must come from the stored
 // location_state, not from sniffing the practice NAME. 'Sunrise Family Medical'
 // in Karratha WA has no city/state keyword in its name, so the legacy sniffing
-// guessed Australia/Sydney — availability windows 2-3h off and email prose
+// guessed Australia/Sydney, availability windows 2-3h off and email prose
 // disagreeing with the UTC-correct .ics.
 describe('practice timezone from stored location_state (Task 8)', () => {
   it('computes interview slots with the WA practice in Australia/Perth', async () => {
@@ -500,7 +500,7 @@ describe('viewer timezone: availability windows + booking labels', () => {
     expect(slotsRes.body.slots[0].local.practice.tz).toBe('Australia/Perth');
   });
 
-  it('(b) invalid viewer_tz is ignored — windows fall back to the state-derived practice tz', async () => {
+  it('(b) invalid viewer_tz is ignored, windows fall back to the state-derived practice tz', async () => {
     const D = ymdPlus(6);
     const r = await httpReq('POST', '/api/practice/application/availability', {
       body: { token: 'tok-int-nsw-000000002', windows: [{ date: D, fromMin: 1080, toMin: 1200 }], viewer_tz: 'Mars/OlympusMons' }
@@ -534,7 +534,7 @@ describe('viewer timezone: availability windows + booking labels', () => {
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
 
-    // (c) persisted on the EXISTING scheduled_calls.timezone column — the same
+    // (c) persisted on the EXISTING scheduled_calls.timezone column, the same
     // column Calendly bookings use for the invitee tz, and the same one the
     // reminder cron already reads for the GP reminder label. No new column.
     const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw' && c.meeting_kind === 'interview');

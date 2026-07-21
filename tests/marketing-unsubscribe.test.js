@@ -1,4 +1,4 @@
-// Phase 6 E1 (audit B6) — generic marketing unsubscribe + List-Unsubscribe:
+// Phase 6 E1 (audit B6), generic marketing unsubscribe + List-Unsubscribe:
 //  1. HMAC token round-trips; tampered/forged tokens are rejected;
 //  2. GET /api/unsubscribe is scanner-proof (confirm page, NO write);
 //  3. POST writes email_suppression AND flips candidate_leads.unsubscribed
@@ -7,7 +7,7 @@
 //     /api/unsubscribe URL) + List-Unsubscribe-Post per recipient;
 //  5. a transactional send carries NO unsubscribe headers;
 //  6. a caller-provided List-Unsubscribe (the onboarding nudge) is preserved
-//     exactly — never double-set;
+//     exactly, never double-set;
 //  7. after unsubscribing, further marketing mail to that address is skipped.
 //
 // Local-JSON mode; outbound Resend calls captured by wrapping global fetch
@@ -65,7 +65,7 @@ beforeAll(async () => {
   process.env.ADMIN_EMAILS = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
 
-  // Lead stored with MIXED-case email — the unsubscribe flip must match
+  // Lead stored with MIXED-case email, the unsubscribe flip must match
   // case-insensitively.
   fs.writeFileSync(DB_FILE, JSON.stringify({
     candidateLeads: [
@@ -205,7 +205,7 @@ describe('List-Unsubscribe headers on sendEmail', () => {
     expect(resendCalls[resendCalls.length - 1].body.headers).toBeUndefined();
   });
 
-  it('caller-provided List-Unsubscribe (nudge flow) is preserved untouched — never double-set', async () => {
+  it('caller-provided List-Unsubscribe (nudge flow) is preserved untouched, never double-set', async () => {
     const nudgeHeaders = {
       'List-Unsubscribe': '<https://app.mygplink.com.au/api/onboarding-reminders/unsubscribe?u=u1&t=tok>',
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
@@ -217,7 +217,7 @@ describe('List-Unsubscribe headers on sendEmail', () => {
     const sent = resendCalls[resendCalls.length - 1].body.headers;
     expect(sent['List-Unsubscribe']).toBe(nudgeHeaders['List-Unsubscribe']);
     expect(sent['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
-    // Exactly the caller's two headers — nothing auto-added on top.
+    // Exactly the caller's two headers, nothing auto-added on top.
     expect(Object.keys(sent).sort()).toEqual(['List-Unsubscribe', 'List-Unsubscribe-Post']);
   });
 

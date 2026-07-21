@@ -1,11 +1,11 @@
-// Task 6 (AI Matching, 2026-07-06 plan) — hired/closed job "redirect"
+// Task 6 (AI Matching, 2026-07-06 plan), hired/closed job "redirect"
 // fan-out: redirectOthersForJob(jobId, hiredAppId), buildRedirectEmailHtml,
 // sendRedirectEmail, plus the two HTTP triggers (PATCH /api/ats/application
 // stage:'hired', PATCH /api/ats/job job_status filled/closed) and the ATS
 // confirm-dialog wiring in js/ceo-ats-jobs.js.
 //
 // Two halves, mirroring tests/ai-matching-cron.test.js:
-//  (A) Source-regex wiring checks — no server boot needed.
+//  (A) Source-regex wiring checks, no server boot needed.
 //  (B) Endpoint + fan-out behavior against a real Supabase-mode boot (in-
 //      memory PostgREST emulator, Resend calls captured via a mocked
 //      fetch), plus a real super_admin ATS session for the two HTTP
@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 // ── Source wiring (no server boot needed) ───────────────────────────────────
-describe('AI Matching Task 6 — source wiring', () => {
+describe('AI Matching Task 6, source wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const jobsSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-jobs.js'), 'utf8');
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
@@ -83,7 +83,7 @@ describe('AI Matching Task 6 — source wiring', () => {
   });
 
   it('js/ceo-ats-jobs.js has the exact confirm-dialog copy, live-stage list, and cache buster', () => {
-    expect(jobsSrc).toContain("n + ' other GPs are still active on this job — send them the redirect email?'");
+    expect(jobsSrc).toContain("n + ' other GPs are still active on this job, send them the redirect email?'");
     expect(jobsSrc).toContain("var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];");
     expect(jobsSrc).toMatch(/function confirmRedirectOthers/);
     // Wired into all three PATCH sites the brief names (drag, drawer select, job settings save).
@@ -106,7 +106,7 @@ describe('AI Matching Task 6 — source wiring', () => {
     expect(idx).toBeGreaterThan(-1);
     expect(idxFinalize).toBeGreaterThan(idx);
     expect(idxFanout).toBeGreaterThan(idxFinalize); // fires AFTER the placement finalizes
-    // Deliberately NOT gated on redirect_others — the GP accepting IS the fill event.
+    // Deliberately NOT gated on redirect_others, the GP accepting IS the fill event.
     const between = serverSrc.slice(idxFinalize, idxFanout);
     expect(between).not.toContain('redirect_others');
   });
@@ -137,7 +137,7 @@ describe('AI Matching Task 6 — source wiring', () => {
   });
 
   it('candidate drawer placement confirm mirrors the kanban dialog and flag semantics', () => {
-    expect(candidatesSrc).toContain("n + ' other GPs are still active on this job — send them the redirect email?'");
+    expect(candidatesSrc).toContain("n + ' other GPs are still active on this job, send them the redirect email?'");
     expect(candidatesSrc).toContain("var REDIRECT_LIVE_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];");
     expect(candidatesSrc).toContain('/api/ats/job/pipeline?id=');
     // Flag only added when the dialog was shown; count-0 path posts with no flag.
@@ -173,7 +173,7 @@ function superCookie() {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
 }
-// GP session cookie (pattern from tests/ai-matching-gp-flow.test.js) — used by
+// GP session cookie (pattern from tests/ai-matching-gp-flow.test.js), used by
 // the POST /api/career/offer/accept auto-fire test.
 function userCookie(email, supabaseUserId) {
   const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId }, expiresAt: Date.now() + 3600000 }));
@@ -213,13 +213,13 @@ const db = {
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
 // Any PATCH whose matched rows include one of these ids fails with a 500 and
-// leaves the row unmodified — used for the per-row failure-isolation test.
+// leaves the row unmodified, used for the per-row failure-isolation test.
 const failPatchIds = new Set();
 
 // Race simulator (review-fix MINOR #3 test): after a gp_applications GET
 // returns a row whose id is in this map, the row's ats_stage is advanced to
 // the mapped value (one-shot). This deterministically reproduces "another
-// writer advanced the row between the fan-out's SELECT and its PATCH" — the
+// writer advanced the row between the fan-out's SELECT and its PATCH", the
 // stage-preconditioned PATCH must then match zero rows and skip it.
 const advanceAfterSelect = new Map();
 
@@ -345,7 +345,7 @@ function startSupabaseEmulator() {
 }
 
 // ── Fixture reset ────────────────────────────────────────────────────────────
-// career_roles is queried GLOBALLY by the fan-out ("open+active roles" — the
+// career_roles is queried GLOBALLY by the fan-out ("open+active roles", the
 // production query has no per-job scoping), so leaving every phase's fixtures
 // permanently in the shared in-memory table would let one phase's "filled"
 // job or alternative pool leak into another phase's ranking/cap assertions.
@@ -354,7 +354,7 @@ function startSupabaseEmulator() {
 // inside individual it() blocks rather than at module scope.
 function resetDb() {
   // Clear EVERY table (including any tableOf() auto-created during the
-  // previous test — the placement-finalization tests touch ats_offers,
+  // previous test, the placement-finalization tests touch ats_offers,
   // placements, career_interviews, registration_tasks, …).
   Object.keys(db).forEach((name) => { db[name].length = 0; });
   advanceAfterSelect.clear();
@@ -391,7 +391,7 @@ beforeAll(async () => {
     // Only the local Supabase emulator may be fetched for real. Everything
     // else (WhatsApp/Zoom/Google side effects reachable from the placement
     // finalization the review-fix tests exercise) gets a generic stub so no
-    // test ever touches the network — every such step in server.js is
+    // test ever touches the network, every such step in server.js is
     // best-effort/try-catch'd, so a bland {} response degrades cleanly.
     if (!/^https?:\/\/127\.0\.0\.1[:/]/.test(u)) {
       return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
@@ -411,14 +411,14 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('redirectOthersForJob — candidate-set selection + skip rules (phase 1)', () => {
+describe('redirectOthersForJob, candidate-set selection + skip rules (phase 1)', () => {
   it('redirects exactly the five live-stage rows, excludes the hired row, and skips the already-not_proceeding row untouched', async () => {
     resetDb();
     // job-fill-1 has one row in EVERY relevant stage (the five live ones,
     // plus 'offer', 'hired' and an already-'not_proceeding' row), and exactly
     // one open+active alternative role so every redirected GP gets 1
     // alternative (keeps this phase's assertions about the STAGE mechanics,
-    // not the ranking — that's phase 2).
+    // not the ranking, that's phase 2).
     db.practices.push({ id: 'prac-fill-1', name: 'Coral Coast Family Practice', website: '', intro_video_url: '' });
     db.career_roles.push({
       id: 'job-fill-1', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Bundaberg - Mixed Billing',
@@ -438,7 +438,7 @@ describe('redirectOthersForJob — candidate-set selection + skip rules (phase 1
       db.user_profiles.push({ user_id: uid, email: uid + '@gplink-test.local', first_name: 'Test', last_name: 'Doctor' + i, registration_country: 'united kingdom' });
     });
     // revealed:true on the five live rows mirrors production AI-match rows
-    // (the shortlist insert/reopen sets revealed:true) — this phase asserts
+    // (the shortlist insert/reopen sets revealed:true), this phase asserts
     // the STAGE mechanics with the real-name subject intact. Unrevealed
     // (gp_applied) masking has its own dedicated describe at the end of
     // this file.
@@ -475,12 +475,12 @@ describe('redirectOthersForJob — candidate-set selection + skip rules (phase 1
     expect(hiredRow.ats_stage).toBe('hired');
     expect(hiredRow.match_outcome).toBeUndefined();
 
-    // 'offer' is NOT one of the five live stages — untouched.
+    // 'offer' is NOT one of the five live stages, untouched.
     const offerRow = db.gp_applications.find((a) => a.id === 'app-offer-1');
     expect(offerRow.ats_stage).toBe('offer');
     expect(offerRow.redirect_alternatives).toBeUndefined();
 
-    // Already-not_proceeding row: skipped entirely — no re-write, no email.
+    // Already-not_proceeding row: skipped entirely, no re-write, no email.
     const skippedRow = db.gp_applications.find((a) => a.id === 'app-notproceeding-1');
     expect(skippedRow.match_outcome).toBe('declined'); // unchanged, not overwritten to position_filled
     expect(skippedRow.redirect_alternatives).toBeUndefined();
@@ -509,7 +509,7 @@ describe('redirectOthersForJob — candidate-set selection + skip rules (phase 1
   });
 });
 
-describe('redirectOthersForJob — alternatives ranking + exclusion + cap + masked identity (phase 2)', () => {
+describe('redirectOthersForJob, alternatives ranking + exclusion + cap + masked identity (phase 2)', () => {
   it('ranks same-state-first then internal billing/earnings similarity, excludes the GP\'s own live role, and caps at 3', async () => {
     resetDb();
     db.practices.push({ id: 'prac-fill-2', name: 'Coral Coast Family Practice', website: '', intro_video_url: '' });
@@ -519,7 +519,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
       location_city: 'Bundaberg', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
       job_status: 'open', is_active: true
     });
-    // A: best rank (same state, same billing, same earnings) — masked identity.
+    // A: best rank (same state, same billing, same earnings), masked identity.
     db.career_roles.push({
       id: 'role-alt-A', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Alt A - Mixed Billing',
       practice_name: 'Real Practice A Pty Ltd', practice_id: null,
@@ -527,7 +527,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
       dpa: true, visa_pathway_aligned: true, family_friendly: false, regional: true, metro: false, practice_type: 'Corporate',
       job_status: 'open', is_active: true
     });
-    // B: same state, different billing/earnings — mid rank.
+    // B: same state, different billing/earnings, mid rank.
     db.career_roles.push({
       id: 'role-alt-B', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'Non-DPA - Alt B - Bulk Billing',
       practice_name: 'Real Practice B', practice_id: null,
@@ -536,21 +536,21 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
       job_status: 'open', is_active: true
     });
     // EXCLUDE: would rank BEST (identical to original) but the GP already has
-    // a live application here — must never appear in their alternatives.
+    // a live application here, must never appear in their alternatives.
     db.career_roles.push({
       id: 'role-alt-exclude', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'DPA - Excluded - Mixed Billing',
       practice_name: 'Real Practice Excluded', practice_id: null,
       location_city: 'Maryborough', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
       dpa: true, job_status: 'open', is_active: true
     });
-    // C: different state — lower rank than A/B, still beats D.
+    // C: different state, lower rank than A/B, still beats D.
     db.career_roles.push({
       id: 'role-alt-C', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'Non-DPA - Alt C - Mixed Billing',
       practice_name: 'Real Practice C', practice_id: null,
       location_city: 'Newcastle', location_state: 'NSW', billing_model: 'Mixed billing', earnings_text: '70% billings',
       metro: true, job_status: 'open', is_active: true
     });
-    // D: different state AND different billing/earnings — worst rank, dropped
+    // D: different state AND different billing/earnings, worst rank, dropped
     // by the "up to 3" cap.
     db.career_roles.push({
       id: 'role-alt-D', provider: 'internal_ats', title: 'General Practitioner', masked_title: 'Non-DPA - Alt D - Bulk Billing',
@@ -559,7 +559,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
       job_status: 'open', is_active: true
     });
     // Australia-trained (DPA-eligible) so the DPA filter (review fix FIX 2)
-    // never interferes with this test's ranking-only assertions — some of
+    // never interferes with this test's ranking-only assertions, some of
     // the alt roles below are deliberately non-DPA (dpa:false/absent), which
     // a DPA-ineligible GP would now have filtered out; DPA-gating itself is
     // covered by its own dedicated tests further down this file.
@@ -578,7 +578,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
 
     const row = db.gp_applications.find((a) => a.id === 'app-rank-1');
     const alts = row.redirect_alternatives.alternatives;
-    expect(alts.length).toBe(3); // capped — role-alt-D dropped
+    expect(alts.length).toBe(3); // capped, role-alt-D dropped
     expect(alts.map((a) => a.roleId)).toEqual(['role-alt-A', 'role-alt-B', 'role-alt-C']);
     // The GP's own live application (role-alt-exclude) never appears, even
     // though it would otherwise rank BEST (identical state/billing/earnings).
@@ -594,11 +594,11 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
 
     // No income/billing/percentage/money strings in the rendered tags or
     // title (brief: "tags contain no money strings"). NOTE: practiceName is
-    // deliberately EXCLUDED from this check — it reuses the app-wide
+    // deliberately EXCLUDED from this check, it reuses the app-wide
     // masked_title convention (practicePipeline.buildMaskedTitle), which
     // legitimately embeds the job's billing STYLE label ("Mixed Billing") as
     // part of its masked location string everywhere in the app (this is a
-    // billing ARRANGEMENT descriptor, not a percentage/dollar figure — the
+    // billing ARRANGEMENT descriptor, not a percentage/dollar figure, the
     // constraint targets billing %, not the word "billing" itself).
     const moneyPattern = /%|\$|billing|income/i;
     alts.forEach((a) => {
@@ -609,7 +609,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
     // Email carries all 3 alt cards + the plural "doors" subject.
     const email = resendCalls.find((c) => (c.body.to || []).includes('gp-rank-1@gplink-test.local'));
     expect(email).toBeTruthy();
-    expect(email.body.subject).toBe("An update on Coral Coast Family Practice — and 3 doors we've already opened");
+    expect(email.body.subject).toBe("An update on Coral Coast Family Practice, and 3 doors we've already opened");
     expect(email.body.html).toContain('DPA - Alt A - Mixed Billing');
     expect(email.body.html).toContain('DPA approved');
     expect(email.body.html).not.toContain('Real Practice A');
@@ -618,7 +618,7 @@ describe('redirectOthersForJob — alternatives ranking + exclusion + cap + mask
   });
 });
 
-describe('redirectOthersForJob — zero-alternatives fallback (phase 3)', () => {
+describe('redirectOthersForJob, zero-alternatives fallback (phase 3)', () => {
   it('falls back to the personal-reply line, no cards, no shiny "see all" button, and a plain subject', async () => {
     resetDb();
     // gp-zero-1 already has a LIVE application on every open+active alt role
@@ -654,7 +654,7 @@ describe('redirectOthersForJob — zero-alternatives fallback (phase 3)', () => 
 
     const email = resendCalls.find((c) => (c.body.to || []).includes('gp-zero-1@gplink-test.local'));
     expect(email).toBeTruthy();
-    expect(email.body.subject).toBe('An update on Riverbend Medical Centre — Toowoomba');
+    expect(email.body.subject).toBe('An update on Riverbend Medical Centre, Toowoomba');
     expect(email.body.subject).not.toMatch(/door/i);
     expect(email.body.html).toContain('Reply to this email and Hazel will match you personally.');
     expect(email.body.html).not.toContain('✦ Already matched for you');
@@ -664,7 +664,7 @@ describe('redirectOthersForJob — zero-alternatives fallback (phase 3)', () => 
   });
 });
 
-describe('redirectOthersForJob — per-row failure isolation (phase 4)', () => {
+describe('redirectOthersForJob, per-row failure isolation (phase 4)', () => {
   it('one failing PATCH does not stop the other rows in the same batch, and reports the failure', async () => {
     resetDb();
     db.practices.push({ id: 'prac-fail-1', name: 'Sunnyvale Clinic', website: '', intro_video_url: '' });
@@ -698,7 +698,7 @@ describe('redirectOthersForJob — per-row failure isolation (phase 4)', () => {
       expect(okRow1.ats_stage).toBe('not_proceeding');
       expect(okRow2.ats_stage).toBe('not_proceeding');
 
-      // The failing row is completely untouched — no stage change, no event, no email.
+      // The failing row is completely untouched, no stage change, no event, no email.
       const badRow = db.gp_applications.find((a) => a.id === 'app-fail-bad-1');
       expect(badRow.ats_stage).toBe('applied');
       expect(badRow.redirect_alternatives).toBeUndefined();
@@ -714,7 +714,7 @@ describe('redirectOthersForJob — per-row failure isolation (phase 4)', () => {
   });
 });
 
-describe('HTTP wiring — PATCH /api/ats/application hired path (phase 5)', () => {
+describe('HTTP wiring, PATCH /api/ats/application hired path (phase 5)', () => {
   it('with redirect_others:true, hires the winner and redirects the others, returning {redirected:N}', async () => {
     resetDb();
     db.practices.push({ id: 'prac-hire-http-1', name: 'Northshore Medical', website: '', intro_video_url: '' });
@@ -753,7 +753,7 @@ describe('HTTP wiring — PATCH /api/ats/application hired path (phase 5)', () =
     const winner = db.gp_applications.find((a) => a.id === 'app-hire-winner-1');
     expect(winner.match_outcome).not.toBe('position_filled');
 
-    // Targeted (not blanket) email assertions — the winner ALSO gets an
+    // Targeted (not blanket) email assertions, the winner ALSO gets an
     // unrelated fire-and-forget "Congratulations" notification from the
     // existing stage-change notifier, which races independently of the
     // (awaited) redirect fan-out, so only the redirected GPs' mail is
@@ -787,12 +787,12 @@ describe('HTTP wiring — PATCH /api/ats/application hired path (phase 5)', () =
     expect(r.body.redirected).toBeUndefined();
 
     const other = db.gp_applications.find((a) => a.id === 'app-hire-flagoff-other-1');
-    expect(other.ats_stage).toBe('shortlisted'); // untouched — no fan-out ran
+    expect(other.ats_stage).toBe('shortlisted'); // untouched, no fan-out ran
     expect(other.match_outcome).toBeFalsy();
   });
 });
 
-describe('HTTP wiring — PATCH /api/ats/job close path (phase 6)', () => {
+describe('HTTP wiring, PATCH /api/ats/job close path (phase 6)', () => {
   it('with redirect_others:true, closing the job redirects every live applicant', async () => {
     resetDb();
     db.career_roles.push({
@@ -858,7 +858,7 @@ describe('HTTP wiring — PATCH /api/ats/job close path (phase 6)', () => {
 
 // ── Review fixes: the two REAL fill paths (phase 7) ─────────────────────────
 // Seeds a complete in-app-offer world (ats_offers row + registration case +
-// user_state) so finalizeInAppPlacement runs for real against the emulator —
+// user_state) so finalizeInAppPlacement runs for real against the emulator,
 // same machinery tests/audit-breadth.test.js already exercises.
 function seedOfferWorld(prefix, opts) {
   const o = opts || {};
@@ -894,7 +894,7 @@ function seedOfferWorld(prefix, opts) {
   return { jobId, winnerId, winnerAppId, others };
 }
 
-describe('review fix — POST /api/career/offer/accept auto-fires the fan-out (phase 7)', () => {
+describe('review fix, POST /api/career/offer/accept auto-fires the fan-out (phase 7)', () => {
   it('GP accepting their offer redirects every other live GP with NO flag needed; the hired GP is untouched by the fan-out', async () => {
     resetDb();
     const w = seedOfferWorld('oa');
@@ -924,14 +924,14 @@ describe('review fix — POST /api/career/offer/accept auto-fires the fan-out (p
     expect(winnerRow.status).toBe('placement_secured');
     expect(winnerRow.match_outcome).not.toBe('position_filled');
     expect(winnerRow.redirect_alternatives).toBeUndefined();
-    // No redirect email to the winner (subject check — they DO get other
+    // No redirect email to the winner (subject check, they DO get other
     // congrats/notify emails from the placement itself).
     expect(resendCalls.some((c) =>
       (c.body.to || []).includes(w.winnerId + '@gplink-test.local') && /An update on/.test(c.body.subject || ''))).toBe(false);
   }, 30000);
 });
 
-describe('review fix — POST /api/ats/placement honors redirect_others (phase 8)', () => {
+describe('review fix, POST /api/ats/placement honors redirect_others (phase 8)', () => {
   it('with redirect_others:true, marking the placement secured redirects the others and returns {redirected:N}', async () => {
     resetDb();
     const w = seedOfferWorld('plt');
@@ -980,7 +980,7 @@ describe('review fix — POST /api/ats/placement honors redirect_others (phase 8
   }, 30000);
 });
 
-describe('review fix — double trigger sends zero duplicate emails (phase 9)', () => {
+describe('review fix, double trigger sends zero duplicate emails (phase 9)', () => {
   it('kanban hire (fan-out) followed by mark-placement-secured (fan-out again) emails each redirected GP exactly once', async () => {
     resetDb();
     const w = seedOfferWorld('dbl', { winnerStage: 'offer' });
@@ -996,7 +996,7 @@ describe('review fix — double trigger sends zero duplicate emails (phase 9)', 
     expect(firstRunRedirectEmails).toBe(2);
 
     // Second trigger on the SAME job: mark placement secured, flag on again
-    // (a stale/duplicated confirm). Rows are already not_proceeding — the
+    // (a stale/duplicated confirm). Rows are already not_proceeding, the
     // fan-out's live-stage SELECT matches nobody: zero redirects, zero mail.
     resendCalls.length = 0;
     const r2 = await httpReq('POST', '/api/ats/placement', {
@@ -1014,7 +1014,7 @@ describe('review fix — double trigger sends zero duplicate emails (phase 9)', 
   }, 30000);
 });
 
-describe('review fix — interview cancellation for redirected GPs (phase 10)', () => {
+describe('review fix, interview cancellation for redirected GPs (phase 10)', () => {
   it('cancels a scheduled career_interviews row for an interview-stage redirected GP; completed rows untouched', async () => {
     resetDb();
     db.practices.push({ id: 'prac-iv-1', name: 'Interview Medical', website: '', intro_video_url: '' });
@@ -1049,7 +1049,7 @@ describe('review fix — interview cancellation for redirected GPs (phase 10)', 
   });
 });
 
-describe('review fix — stage precondition on the fan-out PATCH (phase 11)', () => {
+describe('review fix, stage precondition on the fan-out PATCH (phase 11)', () => {
   it('a row that advanced between SELECT and PATCH is left alone and counted as skipped', async () => {
     resetDb();
     db.practices.push({ id: 'prac-race-1', name: 'Race Medical', website: '', intro_video_url: '' });
@@ -1083,7 +1083,7 @@ describe('review fix — stage precondition on the fan-out PATCH (phase 11)', ()
     expect(steady.ats_stage).toBe('not_proceeding');
     expect(steady.match_outcome).toBe('position_filled');
 
-    // The advanced row: completely untouched by the fan-out — stage stays
+    // The advanced row: completely untouched by the fan-out, stage stays
     // where the "other writer" put it, no outcome, no alternatives, no
     // stage event, no email.
     const moved = db.gp_applications.find((a) => a.id === 'app-race-moved-1');
@@ -1095,8 +1095,8 @@ describe('review fix — stage precondition on the fan-out PATCH (phase 11)', ()
   });
 });
 
-describe('review fix — _redirectAltPracticeName fallback for a role with no masked_title (phase 12)', () => {
-  it('an alternative without masked_title gets the anonymous derived headline — never the real practice name', async () => {
+describe('review fix, _redirectAltPracticeName fallback for a role with no masked_title (phase 12)', () => {
+  it('an alternative without masked_title gets the anonymous derived headline, never the real practice name', async () => {
     resetDb();
     db.practices.push({ id: 'prac-fb-1', name: 'Fallback Medical', website: '', intro_video_url: '' });
     db.career_roles.push({
@@ -1135,12 +1135,12 @@ describe('review fix — _redirectAltPracticeName fallback for a role with no ma
 });
 
 // ── Review fix (FIX 2): the alternatives pool must honor the DPA gate ──────
-// (spec §4) — never suggest a DPA-restricted role (dpa!==true) to a GP who
+// (spec §4), never suggest a DPA-restricted role (dpa!==true) to a GP who
 // isn't DPA-eligible (Australia-trained). Mirrors checkMatchEligibility's
 // `j.dpa !== true && g.dpaEligible !== true` predicate in
 // lib/ai-candidate-job-match.js, applied here to redirectOthersForJob's
 // per-GP candidate pool via the shared atsBuildGpMatchInputs builder.
-describe('redirectOthersForJob — DPA gate on the alternatives pool (review fix FIX 2)', () => {
+describe('redirectOthersForJob, DPA gate on the alternatives pool (review fix FIX 2)', () => {
   it('a DPA-ineligible GP never receives a dpa=false alternative, in either the stored payload or the email', async () => {
     resetDb();
     db.practices.push({ id: 'prac-dpa-a', name: 'DPA Gate A Medical', website: '', intro_video_url: '' });
@@ -1225,7 +1225,7 @@ describe('redirectOthersForJob — DPA gate on the alternatives pool (review fix
     expect(email.body.html).toContain('Non-DPA - Restricted B - Mixed Billing');
   });
 
-  it('an unknown-eligibility GP (no profile/case row at all) is treated as ineligible — fail closed', async () => {
+  it('an unknown-eligibility GP (no profile/case row at all) is treated as ineligible, fail closed', async () => {
     resetDb();
     db.practices.push({ id: 'prac-dpa-c', name: 'DPA Gate C Medical', website: '', intro_video_url: '' });
     db.career_roles.push({
@@ -1246,7 +1246,7 @@ describe('redirectOthersForJob — DPA gate on the alternatives pool (review fix
       location_city: 'Hervey Bay', location_state: 'QLD', billing_model: 'Mixed billing', earnings_text: '70% billings',
       dpa: false, job_status: 'open', is_active: true
     });
-    // Deliberately NO user_profiles / registration_cases row for this GP —
+    // Deliberately NO user_profiles / registration_cases row for this GP,
     // atsBuildGpMatchInputs will therefore never include them in its output
     // map at all ("unknown candidate"), so the dpaEligible lookup is
     // undefined and must fail closed (treated as NOT dpaEligible).
@@ -1269,13 +1269,13 @@ describe('redirectOthersForJob — DPA gate on the alternatives pool (review fix
 // The fan-out targets live stages that include never-revealed self-applies
 // (origin 'gp_applied', revealed=false). Neither the redirect email nor the
 // GET /api/career/matches position-filled card may name the real practice
-// for those rows — they must show the same masked label every other
+// for those rows, they must show the same masked label every other
 // pre-reveal career surface uses (_redirectAltPracticeName: masked_title →
 // derived headline → generic). An application that HAS passed the central
 // reveal gate (practicePipeline.canRevealPracticeIdentityCore: admin_applied
-// origin, revealed=true — e.g. every ai_matched shortlist row — or an
+// origin, revealed=true, e.g. every ai_matched shortlist row, or an
 // accepted offer) still sees the real name.
-describe('position-filled masking — unrevealed self-applies never see the real practice name', () => {
+describe('position-filled masking, unrevealed self-applies never see the real practice name', () => {
   const REAL_NAME = 'Coral Coast Family Practice';
   const MASKED = 'DPA - Bundaberg - Mixed Billing';
 
@@ -1337,9 +1337,9 @@ describe('position-filled masking — unrevealed self-applies never see the real
     const unrevFilled = (unrevRes.body.positionFilled || []).find((f) => f.applicationId === 'app-mask-unrev-1');
     expect(unrevFilled).toBeTruthy();
     expect(unrevFilled.practiceName).toBe(MASKED);
-    // Same payload shape as before the fix — same keys, only the value masked.
+    // Same payload shape as before the fix, same keys, only the value masked.
     expect(Object.keys(unrevFilled).sort()).toEqual(['alternatives', 'applicationId', 'jobTitle', 'locationCity', 'locationState', 'practiceName']);
-    // The real practice name appears NOWHERE in this GP's matches payload —
+    // The real practice name appears NOWHERE in this GP's matches payload,
     // not in the card, not in the alternatives, not in any other field.
     expect(JSON.stringify(unrevRes.body)).not.toContain(REAL_NAME);
 

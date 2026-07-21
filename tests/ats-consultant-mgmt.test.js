@@ -1,4 +1,4 @@
-// Task E — consultant management endpoints + ATS-only dashboard experience.
+// Task E, consultant management endpoints + ATS-only dashboard experience.
 //
 // Reuses the Task A harness (tests/ats-consultant-access.test.js): real server
 // booted against an in-memory PostgREST emulator + a tiny Supabase AUTH
@@ -64,7 +64,7 @@ const resendCalls = [];        // {to, subject} sent to the Resend API
 const db = {
   user_roles: [],
   runtime_kv: [
-    // Legacy Task A write shape (plain array) — the reader must still accept it.
+    // Legacy Task A write shape (plain array), the reader must still accept it.
     { key: 'ats_consultants', value: [KV_CONSULTANT], expires_at: null }
   ],
   user_profiles: [],
@@ -78,7 +78,7 @@ const db = {
     { id: 'p1', name: 'Test Family Practice', source: 'internal_ats', is_active: true, contact_email: 'reception@practice-test.local', created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'GP — Test', practice_name: 'Test Family Practice', practice_id: 'p1', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'GP, Test', practice_name: 'Test Family Practice', practice_id: 'p1', is_active: true, job_status: 'open', updated_at: NOW }
   ]
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -285,7 +285,7 @@ beforeAll(async () => {
   process.env.ZOHO_RECRUIT_REDIRECT_URI = '';
   process.env.OPENAI_API_KEY = '';
   // Email IS configured so the branded invite send is attempted (and captured
-  // by the fetch interceptor — never a real network call).
+  // by the fetch interceptor, never a real network call).
   process.env.RESEND_API_KEY = 'test-resend-key';
   // Hosts: distinct super-admin and employee-admin scopes.
   process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
@@ -331,7 +331,7 @@ describe('GET /api/ats/consultants (CEO only)', () => {
   });
 });
 
-describe('POST /api/ats/consultants — invite flow', () => {
+describe('POST /api/ats/consultants, invite flow', () => {
   it('creates the auth user, generates a recovery link, attempts the invite email, persists the richer kv shape', async () => {
     const r = await httpReq('POST', '/api/ats/consultants', {
       host: SUPER_HOST, cookie: superCookie(),

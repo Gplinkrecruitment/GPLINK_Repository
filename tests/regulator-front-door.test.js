@@ -1,11 +1,11 @@
-// Phase 6 I1 — wider regulator front door (lib/email-triage.js).
+// Phase 6 I1, wider regulator front door (lib/email-triage.js).
 //
 // The AHPRA 6-mode classifier stays gated to @ahpra.gov.au (isAhpraEmail /
 // isAhpraSender in server.js). The NEW allowlist (isRegulatorEmail /
 // matchRegulatorDomain) only widens the GENERIC triage path so mail from other
 // Australian medical regulators / colleges (AMC, RACGP, ACRRM, Medical Board)
 // is routed as regulator correspondence instead of collapsing into the
-// one-bucket email_triage default — without misclassifying random mail.
+// one-bucket email_triage default, without misclassifying random mail.
 import { describe, it, expect } from 'vitest';
 import {
   isAhpraEmail,
@@ -15,7 +15,7 @@ import {
   REGULATOR_DOMAIN_STAGES
 } from '../lib/email-triage.js';
 
-describe('regulator front door — allowlist recognition', () => {
+describe('regulator front door, allowlist recognition', () => {
   it('recognises AMC, RACGP, ACRRM and Medical Board senders as regulators', () => {
     expect(isRegulatorEmail('assessments@amc.org.au')).toBe(true);
     expect(isRegulatorEmail('"RACGP Assessments" <pep@racgp.org.au>')).toBe(true);
@@ -55,7 +55,7 @@ describe('regulator front door — allowlist recognition', () => {
   });
 });
 
-describe('regulator front door — AHPRA 6-mode gate unchanged', () => {
+describe('regulator front door, AHPRA 6-mode gate unchanged', () => {
   it('isAhpraEmail still matches ONLY @ahpra.gov.au (the 6-mode gate)', () => {
     expect(isAhpraEmail('officer@ahpra.gov.au')).toBe(true);
     // Widened regulator domains must NOT enter the AHPRA 6-mode path.
@@ -66,7 +66,7 @@ describe('regulator front door — AHPRA 6-mode gate unchanged', () => {
   });
 });
 
-describe('regulator front door — generic routing outcome', () => {
+describe('regulator front door, generic routing outcome', () => {
   it('a case-matched AMC email routes as high-priority regulator correspondence on the amc stage', () => {
     const r = resolveEmailRouting({
       sender: 'AMC Assessments <assessments@amc.org.au>',

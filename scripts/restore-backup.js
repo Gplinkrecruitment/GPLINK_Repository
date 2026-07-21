@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * GP Link — Restore Backup Script
+ * GP Link, Restore Backup Script
  *
  * Reads a .json.gz backup (produced by /api/cron/weekly-backup) and restores
  * all tables to Supabase via the REST/PostgREST API.
@@ -27,7 +27,7 @@ const readline = require('readline');
 
 function printHelp() {
   console.log(`
-GP Link — Restore Backup
+GP Link, Restore Backup
 =========================
 
 Usage:
@@ -164,7 +164,7 @@ async function supabaseRequest(baseUrl, serviceKey, tableName, query, options) {
 
 // ── Table ordering ───────────────────────────────────────────────────────────
 
-// Child-first order — delete in this order, insert in reverse.
+// Child-first order, delete in this order, insert in reverse.
 const DELETE_ORDER = [
   'task_documents', 'task_messages', 'task_timeline',
   'ahpra_case_documents', 'ahpra_events', 'ahpra_notifications', 'ahpra_required_documents',
@@ -235,7 +235,7 @@ async function deleteTable(baseUrl, serviceKey, table, dryRun) {
     if (res.ok) {
       return { ok: true };
     }
-    // 404 typically means the column doesn't exist — try next filter
+    // 404 typically means the column doesn't exist, try next filter
     if (res.status === 404 || res.status === 400) {
       continue;
     }
@@ -375,13 +375,13 @@ async function main() {
 
   if (args.showEnv) {
     console.log('=== Backed-up Environment Variables ===');
-    // Since 2026-07 backups only contain NON-SECRET operational keys (audit C1) —
+    // Since 2026-07 backups only contain NON-SECRET operational keys (audit C1),
     // secrets are deliberately excluded and must be restored from the Vercel
     // dashboard / password manager. Older backups may still contain secrets, so
     // values stay masked either way.
     const envKeys = Object.keys(envVars).sort();
     if (envKeys.length === 0) {
-      console.log('  (none — this backup contains no env vars)');
+      console.log('  (none, this backup contains no env vars)');
     } else {
       for (const k of envKeys) {
         // Mask sensitive values
@@ -432,7 +432,7 @@ async function main() {
   // ── Dry run ─────────────────────────────────────────────────────────────
 
   if (args.dryRun) {
-    console.log('=== DRY RUN — no changes will be made ===');
+    console.log('=== DRY RUN, no changes will be made ===');
     console.log('');
 
     console.log('Phase 1: DELETE (child-first order)');
@@ -546,7 +546,7 @@ async function main() {
     console.log('');
     for (const r of results) {
       if (r.status === 'FAILED') {
-        console.log('  FAILED: ' + r.table + ' — ' + r.error);
+        console.log('  FAILED: ' + r.table + ', ' + r.error);
       }
     }
     process.exit(1);

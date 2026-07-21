@@ -87,7 +87,7 @@ describe('document-prep: scannable / outstanding / progress', () => {
 });
 
 // Drift guard: PREPARED_DOCS must stay in sync with COUNTRY_DOCS[*].prepared in
-// pages/my-documents.html. This is a forward check — every shared doc must exist
+// pages/my-documents.html. This is a forward check, every shared doc must exist
 // verbatim (key + title) in the page, and the certified-doc counts must match.
 describe('document-prep: PREPARED_DOCS stays in sync with my-documents.html', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages/my-documents.html'), 'utf8');

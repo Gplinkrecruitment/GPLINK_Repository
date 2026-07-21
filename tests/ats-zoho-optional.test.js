@@ -1,26 +1,26 @@
-// Task F — Zoho-optional hardening: the GP-facing journey is fully coherent
+// Task F, Zoho-optional hardening: the GP-facing journey is fully coherent
 // with Zoho Recruit CONFIGURED but DISCONNECTED (env keys present, no
-// integration_connections row — exactly the owner's post-disconnect state).
+// integration_connections row, exactly the owner's post-disconnect state).
 //
 // Boots the real server against the in-memory PostgREST (+ tiny storage)
 // emulator pattern from tests/ats-offer-flow.test.js.
 //
 // Covers:
-//  1. GET /api/career/applications — INTERNAL apps carry a friendly
+//  1. GET /api/career/applications, INTERNAL apps carry a friendly
 //     statusLabel derived from ats_stage + offer state (applied → "Application
 //     submitted", submitted → "Sent to the practice", reviewing → "The
 //     practice is reviewing your profile", interview → "Interview stage",
 //     offer+sent → "Offer waiting for you 🎉" with offerPending, offer lane
 //     without a live offer → quiet copy, not_proceeding → "Not proceeding this
 //     time"). Zoho apps keep their raw status and get NO statusLabel.
-//  2. GET /api/career/application — same presentation on the detail payload,
+//  2. GET /api/career/application, same presentation on the detail payload,
 //     plus lookup by the ROLE public id ('internal_ats:…').
-//  3. POST /api/career/application/withdraw — status → withdrawn AND the
+//  3. POST /api/career/application/withdraw, status → withdrawn AND the
 //     kanban card moves to 'not_proceeding' with audit reason 'gp_self_withdrew'.
-//  4. POST /api/career/upload-cv — the Zoho mirror is best-effort: with Zoho
+//  4. POST /api/career/upload-cv, the Zoho mirror is best-effort: with Zoho
 //     configured-but-disconnected the CV still saves, answers 200 ok:true and
 //     reports zohoSync.ok:false (previously a 502 that blocked Upload & Apply).
-//  5. GET /api/ceo/candidate — drawer apps carry source 'in_app' | 'zoho'
+//  5. GET /api/ceo/candidate, drawer apps carry source 'in_app' | 'zoho'
 //     (the drawer's source chip).
 //  6. /api/ats/jobs POST + /api/ats/job PATCH accept `summary` ("About the
 //     role") and it surfaces on the doctor-facing role payload.
@@ -45,7 +45,7 @@ const db = {
   user_profiles: [
     // Task 11's server-side DPA gate blurs non-DPA roles for a GP whose
     // registration country isn't Australia (these fixture roles never set
-    // `dpa`, which defaults false) — this GP is marked Australia-trained via
+    // `dpa`, which defaults false), this GP is marked Australia-trained via
     // registration_country since this file tests ATS/Zoho mechanics
     // unrelated to the DPA gate.
     { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', registration_country: 'australia' }
@@ -60,8 +60,8 @@ const db = {
     { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-int', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
-    { id: 'role-zoho', provider: 'zoho_recruit', provider_role_id: 'z_9', title: 'GP — Coastal Clinic', practice_name: 'Coastal Clinic', location_city: 'Cairns', location_state: 'QLD', is_active: true, updated_at: NOW }
+    { id: 'role-int', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-zoho', provider: 'zoho_recruit', provider_role_id: 'z_9', title: 'GP, Coastal Clinic', practice_name: 'Coastal Clinic', location_city: 'Cairns', location_state: 'QLD', is_active: true, updated_at: NOW }
   ],
   // One GP, one internal app per pipeline lane + one Zoho-managed app whose
   // connection is dead (env configured, no integration_connections row).
@@ -81,8 +81,8 @@ const db = {
     { id: 'app-zoho-offer-live', user_id: GP.userId, career_role_id: 'role-zoho', provider_role_id: 'z_9', zoho_application_id: 'z-app-offer-live', status: 'offered', ats_stage: 'offer', applied_at: NOW }
   ],
   ats_offers: [
-    { id: 'off-1', application_id: 'app-offer', user_id: GP.userId, career_role_id: 'role-int', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$350k+', start_date: '2026-08-03', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
-    { id: 'off-2', application_id: 'app-zoho-offer-live', user_id: GP.userId, career_role_id: 'role-zoho', practice_id: null, job_title: 'GP — Coastal Clinic', practice_name: 'Coastal Clinic', billing_split: '68 / 32', sessions_per_week: '7', compensation_range: '$320k+', start_date: '2026-09-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+    { id: 'off-1', application_id: 'app-offer', user_id: GP.userId, career_role_id: 'role-int', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$350k+', start_date: '2026-08-03', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    { id: 'off-2', application_id: 'app-zoho-offer-live', user_id: GP.userId, career_role_id: 'role-zoho', practice_id: null, job_title: 'GP, Coastal Clinic', practice_name: 'Coastal Clinic', billing_split: '68 / 32', sessions_per_week: '7', compensation_range: '$320k+', start_date: '2026-09-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   ats_stage_events: [],
   user_documents: [],
@@ -268,7 +268,7 @@ beforeAll(async () => {
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = DB_FILE;
   // THE POINT of this file: Zoho env keys ARE present (configured) but there
-  // is NO integration_connections row — the exact state after the owner hits
+  // is NO integration_connections row, the exact state after the owner hits
   // "Disconnect" on the Integrations card. Nothing may 500 or hang.
   process.env.ZOHO_RECRUIT_CLIENT_ID = 'test-zoho-client';
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = 'test-zoho-secret';
@@ -292,8 +292,8 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-// ── 1. Applications list — internal statusLabels through the lifecycle ─────
-describe('GET /api/career/applications — internal apps with Zoho disconnected', () => {
+// ── 1. Applications list, internal statusLabels through the lifecycle ─────
+describe('GET /api/career/applications, internal apps with Zoho disconnected', () => {
   let entries;
   it('answers 200 with every application (no 500/hang on the dead connection)', async () => {
     const r = await gpGet('/api/career/applications');
@@ -341,7 +341,7 @@ describe('GET /api/career/applications — internal apps with Zoho disconnected'
   it('a Zoho-OFFERED app without an in-app offer gets consultant copy and NO offer CTA (F7)', () => {
     expect(entries['app-zoho-offer'].status).toBe('offered');
     expect(entries['app-zoho-offer'].offerPending).toBe(false); // offer-review would be empty
-    expect(entries['app-zoho-offer'].statusLabel).toBe('Offer stage — your consultant will be in touch with the details');
+    expect(entries['app-zoho-offer'].statusLabel).toBe('Offer stage, your consultant will be in touch with the details');
     expect(entries['app-zoho-offer'].statusTone).toBe('offer');
   });
 
@@ -352,8 +352,8 @@ describe('GET /api/career/applications — internal apps with Zoho disconnected'
   });
 });
 
-// ── 2. Application detail — same presentation + role-public-id lookup ──────
-describe('GET /api/career/application — internal detail payload', () => {
+// ── 2. Application detail, same presentation + role-public-id lookup ──────
+describe('GET /api/career/application, internal detail payload', () => {
   it('returns the presentation fields for an internal app', async () => {
     const r = await gpGet('/api/career/application?id=app-offer');
     expect(r.status).toBe(200);
@@ -362,7 +362,7 @@ describe('GET /api/career/application — internal detail payload', () => {
     expect(app.status).toBe('offer');
     expect(app.statusLabel).toBe('Offer waiting for you 🎉');
     expect(app.offerPending).toBe(true);
-    expect(app.role.roleType).toBe('General Practitioner — VR');
+    expect(app.role.roleType).toBe('General Practitioner, VR');
   });
 
   it("resolves the ROLE public id ('internal_ats:ats_r1') to one of the GP's apps", async () => {
@@ -383,7 +383,7 @@ describe('GET /api/career/application — internal detail payload', () => {
     const quiet = await gpGet('/api/career/application?id=app-zoho-offer');
     expect(quiet.status).toBe(200);
     expect(quiet.body.application.offerPending).toBe(false);
-    expect(quiet.body.application.statusLabel).toBe('Offer stage — your consultant will be in touch with the details');
+    expect(quiet.body.application.statusLabel).toBe('Offer stage, your consultant will be in touch with the details');
 
     const live = await gpGet('/api/career/application?id=app-zoho-offer-live');
     expect(live.status).toBe(200);
@@ -392,8 +392,8 @@ describe('GET /api/career/application — internal detail payload', () => {
   });
 });
 
-// ── 3. Withdraw — kanban reflects reality ───────────────────────────────────
-describe('POST /api/career/application/withdraw — internal app', () => {
+// ── 3. Withdraw, kanban reflects reality ───────────────────────────────────
+describe('POST /api/career/application/withdraw, internal app', () => {
   it('sets status withdrawn AND moves the kanban card to not_proceeding (reason gp_self_withdrew)', async () => {
     const r = await gpPost('/api/career/application/withdraw', { applicationId: 'app-interview' });
     expect(r.status).toBe(200);
@@ -404,7 +404,7 @@ describe('POST /api/career/application/withdraw — internal app', () => {
     expect(row.ats_stage).toBe('not_proceeding');
     // The old call passed 'gp_withdrew' as the 4th argument of
     // atsUpdateApplicationStageRow(appId, stage, notes, actor, reason), so it
-    // landed in ACTOR and the reason stayed null — invisible to every
+    // landed in ACTOR and the reason stayed null, invisible to every
     // reason-based query. Actor is now the GP's own email, and the reason sits
     // in the 5th slot under its own value (never 'gp_withdrew', which is the
     // staff-recorded value the 3-strike career lock counts).
@@ -430,8 +430,8 @@ describe('POST /api/career/application/withdraw — internal app', () => {
   });
 });
 
-// ── 4. upload-cv — the Zoho mirror never blocks the doctor ─────────────────
-describe('POST /api/career/upload-cv — Zoho configured but disconnected', () => {
+// ── 4. upload-cv, the Zoho mirror never blocks the doctor ─────────────────
+describe('POST /api/career/upload-cv, Zoho configured but disconnected', () => {
   it('saves the CV, answers 200 ok:true and reports the skipped Zoho mirror', async () => {
     const pdf = Buffer.from('%PDF-1.4 test cv document for upload');
     const r = await gpPost('/api/career/upload-cv', {
@@ -451,8 +451,8 @@ describe('POST /api/career/upload-cv — Zoho configured but disconnected', () =
   });
 });
 
-// ── 5. Candidate drawer — source chip data ──────────────────────────────────
-describe('GET /api/ceo/candidate — apps carry their source', () => {
+// ── 5. Candidate drawer, source chip data ──────────────────────────────────
+describe('GET /api/ceo/candidate, apps carry their source', () => {
   it("marks in-app applications 'in_app' and Zoho-managed ones 'zoho'", async () => {
     const r = await atsGet('/api/ceo/candidate?case_id=case-1');
     expect(r.status).toBe(200);
@@ -470,7 +470,7 @@ describe('ATS job summary field', () => {
   let jobId;
   it('POST /api/ats/jobs stores the summary', async () => {
     const r = await atsPost('/api/ats/jobs', {
-      title: 'GP — Suburban Clinic',
+      title: 'GP, Suburban Clinic',
       practice_id: '',
       practice_name: 'Suburban Clinic',
       city: 'Ipswich', state: 'QLD', type: 'Full time', billing: 'Mixed billing',

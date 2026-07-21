@@ -1,4 +1,4 @@
-// Task 12 — practice-accept trigger: reveal identity + record offer + confetti
+// Task 12, practice-accept trigger: reveal identity + record offer + confetti
 // congrats + "Secure My Interview" email.
 //
 // Boots the real server against the same in-memory PostgREST emulator pattern
@@ -25,7 +25,7 @@
 //     (forward-only planAtsStageReconciliation); an accepted/declined offer
 //     is never stomped back to 'sent'; practice_submission_status=
 //     'client_approved' + an offer row also counts as already-processed.
-//  8. Degraded env (gp_applications.revealed column missing — simulated by
+//  8. Degraded env (gp_applications.revealed column missing, simulated by
 //     the emulator; runs LAST because the missing-column determination is
 //     cached process-wide): accept → 503 pipeline_migration_required with NO
 //     offer/email side effects; admin apply still creates the application
@@ -51,7 +51,7 @@ const RSO_ID = 'rso-accept-1';
 const NOW = new Date().toISOString();
 
 // When true the emulator rejects any gp_applications write that carries the
-// `revealed` column with the Postgres undefined-column error — the
+// `revealed` column with the Postgres undefined-column error, the
 // pre-migration-20260705100000 schema.
 let simulateRevealedMissing = false;
 
@@ -89,7 +89,7 @@ const db = {
   ],
   career_roles: [
     {
-      id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR',
+      id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR',
       practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD',
       is_active: true, job_status: 'open', updated_at: NOW,
       source_payload: { intake: { percentage_split: '65 / 35' } }
@@ -105,10 +105,10 @@ const db = {
     { id: 'app-acc-degraded', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rd', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' }
   ],
   ats_offers: [
-    // The doctor already ACCEPTED this offer — a practice-accept click must never stomp it.
-    { id: 'off-stomp-1', application_id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, notes: 'Manual offer', created_at: NOW },
+    // The doctor already ACCEPTED this offer, a practice-accept click must never stomp it.
+    { id: 'off-stomp-1', application_id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, notes: 'Manual offer', created_at: NOW },
     // Pre-migration proxy: practice_submission_status='client_approved' + an offer row = already processed.
-    { id: 'off-pss-1', application_id: 'app-acc-pss', user_id: GP2.userId, career_role_id: 'role-1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, notes: 'Prior accept (pre-migration)', created_at: NOW }
+    { id: 'off-pss-1', application_id: 'app-acc-pss', user_id: GP2.userId, career_role_id: 'role-1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, notes: 'Prior accept (pre-migration)', created_at: NOW }
   ],
   ats_stage_events: [],
   user_documents: [],
@@ -179,7 +179,7 @@ function startSupabaseEmulator() {
           send(400, { code: '42703', message: 'column "revealed" of relation "gp_applications" does not exist', details: null, hint: null });
           return;
         }
-        // Body already consumed — finish the write inline with the parsed rows.
+        // Body already consumed, finish the write inline with the parsed rows.
         if (req.method === 'POST') {
           const conflictCol = u.searchParams.get('on_conflict');
           const saved = wRows.map((r) => {
@@ -358,7 +358,7 @@ describe('POST /api/ats/application/accept', () => {
     expect(offer.status).toBe('sent');
     expect(offer.billing_split).toBe('65 / 35');
     expect(offer.practice_name).toBe('Greenslopes Family Medical');
-    expect(offer.notes).toBe('Practice accepted — interview invitation');
+    expect(offer.notes).toBe('Practice accepted, interview invitation');
     expect(offer.user_id).toBe(GP.userId);
 
     expect(app.ats_stage).toBe('offer');
@@ -389,7 +389,7 @@ describe('POST /api/ats/application/accept', () => {
   });
 });
 
-describe('GET /api/career/my-offer — reveal + interviewBookable', () => {
+describe('GET /api/career/my-offer, reveal + interviewBookable', () => {
   it('reveals the real practice name and marks the interview bookable once accepted', async () => {
     const r = await gpGet('/api/career/my-offer?applicationId=app-acc-1');
     expect(r.status).toBe(200);
@@ -501,7 +501,7 @@ describe('accept hardening (review round)', () => {
 
 // LAST on purpose: once the server observes the missing `revealed` column it
 // caches the determination (module flag) for the rest of the process.
-describe('degraded env — gp_applications.revealed column missing (migration 20260705100000 not applied)', () => {
+describe('degraded env, gp_applications.revealed column missing (migration 20260705100000 not applied)', () => {
   it('accept fails loud with 503 pipeline_migration_required and NO side effects', async () => {
     simulateRevealedMissing = true;
     const before = resendCalls.length;

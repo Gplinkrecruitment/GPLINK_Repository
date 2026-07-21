@@ -1,4 +1,4 @@
-// Phase 6 C1 — lib/totp.js unit tests.
+// Phase 6 C1, lib/totp.js unit tests.
 // Verified against the RFC 6238 Appendix B test vectors (SHA1 mode): the
 // standard 20-byte ASCII secret "12345678901234567890" produces the published
 // 8-digit codes at the published times; the 6-digit code is the same dynamic
@@ -65,7 +65,7 @@ describe('verifyTotp', () => {
     expect(totp.verifyTotp(secret, code, { time: T })).toBe(true);
   });
 
-  it('accepts codes one step behind and ahead (window 1 — clock drift)', () => {
+  it('accepts codes one step behind and ahead (window 1, clock drift)', () => {
     const prev = totp.generateTotp(secret, { time: T - 30_000 });
     const next = totp.generateTotp(secret, { time: T + 30_000 });
     expect(totp.verifyTotp(secret, prev, { time: T, window: 1 })).toBe(true);
@@ -76,7 +76,7 @@ describe('verifyTotp', () => {
     const stale = totp.generateTotp(secret, { time: T - 60_000 });
     const current = totp.generateTotp(secret, { time: T });
     // In the rare case the two codes collide, the assertion below would be
-    // vacuous — regenerate deterministically far away instead of flaking.
+    // vacuous, regenerate deterministically far away instead of flaking.
     if (stale !== current) {
       expect(totp.verifyTotp(secret, stale, { time: T, window: 1 })).toBe(false);
     }

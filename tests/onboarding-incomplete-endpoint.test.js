@@ -76,7 +76,7 @@ beforeAll(async () => {
     regStage: 'myintealth', blockedDays: 0, lastActiveDays: 0, calls: [], comms: null, aiHandover: '', apps: []
   });
   // Inject Isla: incomplete onboarding too, BUT she already has a real
-  // gp_applications entry (apps.length > 0) — a genuine ATS candidate, not a
+  // gp_applications entry (apps.length > 0), a genuine ATS candidate, not a
   // waitlist drop-out. Must NOT be chased and must NOT appear on the
   // onboarding-incomplete waitlist, but must still show up in her app bucket
   // on /api/ceo/candidates (partition: every GP lands in exactly one place).
@@ -124,11 +124,11 @@ describe('GET /api/ceo/onboarding-incomplete', () => {
     expect(helen.stopped).toBe(false);
   });
 
-  it('excludes Isla — she has a gp_applications row (real ATS candidate), even though her onboarding is incomplete too', async () => {
+  it('excludes Isla, she has a gp_applications row (real ATS candidate), even though her onboarding is incomplete too', async () => {
     // This is the partition-violation regression: on the old code (no has-apps
     // exclusion in enumerateIncompleteOnboardingGps), Isla would show up here
     // AND in her app bucket on /api/ceo/candidates, and would also get chase
-    // emails from the cron — a real candidate mistaken for a waitlist drop-out.
+    // emails from the cron, a real candidate mistaken for a waitlist drop-out.
     const r = await req('GET', '/api/ceo/onboarding-incomplete', { host: SUPER_HOST, cookie: superCookie() });
     expect(r.status).toBe(200);
     const j = parse(r.raw);

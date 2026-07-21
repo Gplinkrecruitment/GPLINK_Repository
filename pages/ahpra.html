@@ -14,7 +14,7 @@
       try { if (!bypassEmail) { var lp = localStorage.getItem("gp_session_profile_cache"); if (lp) bypassEmail = String((JSON.parse(lp) || {}).email || "").trim().toLowerCase(); } } catch (e) {}
       try { if (!bypassEmail) { var sp = sessionStorage.getItem("gp_session_profile_cache"); if (sp) bypassEmail = String((JSON.parse(sp) || {}).email || "").trim().toLowerCase(); } } catch (e) {}
       try { if (!bypassEmail) bypassEmail = String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase(); } catch (e) {}
-      // Temporary bypass match is cached by /js/bypass-config.js (hashed allowlist — no plaintext personal email shipped here).
+      // Temporary bypass match is cached by /js/bypass-config.js (hashed allowlist, no plaintext personal email shipped here).
       var tempBypassActive = false;
       try {
         var bypassMatch = JSON.parse(localStorage.getItem("gp_bypass_digest_match") || "null");
@@ -1582,7 +1582,7 @@
         display: flex;
       }
 
-      /* Additional docs modal — mobile layout */
+      /* Additional docs modal, mobile layout */
       #addlDocsModal .modal-card { max-width: 100%; }
       .addl-doc-group-title { font-size: 11px; padding: 8px 0 4px; }
       .addl-doc-row {
@@ -1609,7 +1609,7 @@
         padding: 4px 8px;
       }
 
-      /* Help popover — mobile */
+      /* Help popover, mobile */
       .help-popover {
         width: calc(100vw - 24px);
         max-height: calc(100dvh - 24px);
@@ -2171,26 +2171,26 @@
           </div>
 
           <h1 class="intro-title">Welcome to your AHPRA Registration</h1>
-          <p class="intro-subtitle">You're on the fast track. GP Link will guide you through each step of your Expedited Specialist Pathway application — from account setup to final approval.</p>
+          <p class="intro-subtitle">You're on the fast track. GP Link will guide you through each step of your Expedited Specialist Pathway application, from account setup to final approval.</p>
 
           <div class="intro-milestones">
             <div class="intro-milestone">
               <div class="intro-milestone-icon green">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </div>
-              <div class="intro-milestone-text"><strong>Create your AHPRA account</strong> — we'll walk you through it</div>
+              <div class="intro-milestone-text"><strong>Create your AHPRA account</strong>, we'll walk you through it</div>
             </div>
             <div class="intro-milestone">
               <div class="intro-milestone-icon green">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </div>
-              <div class="intro-milestone-text"><strong>Submit your application</strong> — with GP Link prepared docs</div>
+              <div class="intro-milestone-text"><strong>Submit your application</strong>, with GP Link prepared docs</div>
             </div>
             <div class="intro-milestone">
               <div class="intro-milestone-icon amber">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               </div>
-              <div class="intro-milestone-text"><strong>Track your outcome</strong> — we'll keep you updated</div>
+              <div class="intro-milestone-text"><strong>Track your outcome</strong>, we'll keep you updated</div>
             </div>
           </div>
 
@@ -2430,8 +2430,8 @@
       return s.els_pathway === 'test' && !!s.els_test_type && s.els_test_status === 'done' && !isElsProfessionExam(s.els_test_type);
     }
     // Required-document list for the Test Pathway, adapted to the chosen test, whether the GP
-    // has already sat it ('done') or is still planning ('plan'), and — for a completed standard
-    // test — whether it was sat within 2 years ('recent') or more than 2 years ago ('over2y').
+    // has already sat it ('done') or is still planning ('plan'), and, for a completed standard
+    // test, whether it was sat within 2 years ('recent') or more than 2 years ago ('over2y').
     function buildElsTestDocs(testType, testStatus, testRecency) {
       var shortName = elsShortName(testType);
       if (testStatus === 'plan') {
@@ -2454,13 +2454,13 @@
       if (/PTE/i.test(testType)) d.push('PTE Academic: authorise AHPRA to access your results through the PTE system');
       return d;
     }
-    // The REQUIRED extra evidence when a standard test was sat more than 2 years ago — the GP
+    // The REQUIRED extra evidence when a standard test was sat more than 2 years ago, the GP
     // must extend the test's validity with EITHER continuous work OR continuous study.
     function buildElsOver2yEvidence() {
       return {
         work: [
           'Your CV in AHPRA’s standard format',
-          'A letter from your employer(s) confirming continuous employment — or, if you can’t get one, a professional reference from a supervisor, colleague or other health practitioner',
+          'A letter from your employer(s) confirming continuous employment, or, if you can’t get one, a professional reference from a supervisor, colleague or other health practitioner',
           'The dates you started (and, if relevant, stopped) working'
         ],
         study: [
@@ -2522,8 +2522,8 @@
     }
     // Progressive disclosure for the Test Pathway sub-questions: each appears only once the
     // previous is answered, and its buttons stay in sync with saved state.
-    //   • "Have you completed this test?" (#elsStatusWrap) — shown once a test is chosen.
-    //   • "When did you sit this test?"   (#elsRecencyWrap) — shown for a completed standard test.
+    //   • "Have you completed this test?" (#elsStatusWrap), shown once a test is chosen.
+    //   • "When did you sit this test?"   (#elsRecencyWrap), shown for a completed standard test.
     function refreshElsRecencyControls() {
       var s = _readAhpraState();
       // Status question
@@ -2707,7 +2707,7 @@
           { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)", help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
           { key: "mrcgp_certified", title: "Certified copy of MRCGP", help: { title: "MRCGP", steps: ["Upload a certified copy of your MRCGP certificate"], certNote: true } },
           { key: "cct_certified", title: "Certified copy of CCT (General Practice) issued by the General Medical Council or PMETB", help: { title: "CCT", steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"], certNote: true } },
-          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
+          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong>, include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s), title</li><li>Facility (including name, address and contact details, i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong>, provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong>, provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong>, on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified, just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
         ]
       },
       ie: {
@@ -2719,8 +2719,8 @@
           { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree", help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
           { key: "micgp_certified", title: "Certified copy of MICGP", help: { title: "MICGP", steps: ["Upload a certified copy of your MICGP certificate", "If you do not have a copy, request a re-issue from ICGP Membership Services"], certNote: true } },
           { key: "cscst_certified", title: "Certified copy of CSCST", help: { title: "CSCST", steps: ["Upload a certified copy of your CSCST", "If needed, request a re-issue from ICGP Membership Services"], certNote: true } },
-          { key: "icgp_confirmation_letter", title: "Certified copy of ICGP Confirmation Letter", help: { title: "ICGP Confirmation Letter", steps: ['Email the Irish College of General Practitioners — ICGP at <a href="mailto:info@icgp.ie">info@icgp.ie</a>.', "Request an ICGP confirmation letter for the AHPRA expedited specialist pathway.", "Ask ICGP to confirm:<ul><li>you hold MICGP</li><li>you were awarded CSCST</li><li>the date your CSCST was awarded</li><li>your training was completed under an ICGP curriculum from 2009 onwards</li><li>your training was completed through the 4-year GP training programme, Recognition of Prior Learning, or an approved GP training scheme in Ireland</li></ul>", "Include:<ul><li>your full name</li><li>your date of birth</li><li>your ICGP number, if known</li><li>your Medical Council of Ireland registration number</li><li>the date your MICGP / CSCST was awarded, if known</li><li>your AHPRA reference number, if available</li></ul>", "Ask ICGP to provide the letter as a PDF by email.", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true, reminder: "This is the key supporting letter for Irish GPs." } },
-          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
+          { key: "icgp_confirmation_letter", title: "Certified copy of ICGP Confirmation Letter", help: { title: "ICGP Confirmation Letter", steps: ['Email the Irish College of General Practitioners, ICGP at <a href="mailto:info@icgp.ie">info@icgp.ie</a>.', "Request an ICGP confirmation letter for the AHPRA expedited specialist pathway.", "Ask ICGP to confirm:<ul><li>you hold MICGP</li><li>you were awarded CSCST</li><li>the date your CSCST was awarded</li><li>your training was completed under an ICGP curriculum from 2009 onwards</li><li>your training was completed through the 4-year GP training programme, Recognition of Prior Learning, or an approved GP training scheme in Ireland</li></ul>", "Include:<ul><li>your full name</li><li>your date of birth</li><li>your ICGP number, if known</li><li>your Medical Council of Ireland registration number</li><li>the date your MICGP / CSCST was awarded, if known</li><li>your AHPRA reference number, if available</li></ul>", "Ask ICGP to provide the letter as a PDF by email.", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true, reminder: "This is the key supporting letter for Irish GPs." } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong>, include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s), title</li><li>Facility (including name, address and contact details, i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong>, provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong>, provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong>, on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified, just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
         ]
       },
       nz: {
@@ -2731,8 +2731,8 @@
         prepared: [
           { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree", help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
           { key: "frnzcgp_certified", title: "Certified copy of FRNZCGP", help: { title: "FRNZCGP", steps: ["Upload a certified copy of your FRNZCGP certificate", "If needed, contact RNZCGP for replacement or confirmation"], certNote: true } },
-          { key: "rnzcgp_confirmation_letter", title: "Certified copy of RNZCGP Confirmation Letter", help: { title: "RNZCGP Confirmation Letter", steps: ["Email the RNZCGP Fellowship Team at <a href=\"mailto:fellowship@rnzcgp.org.nz\">fellowship@rnzcgp.org.nz</a>", "Ask RNZCGP to issue a letter confirming:<ul><li>you hold Fellowship of the Royal New Zealand College of General Practitioners — FRNZCGP</li><li>the date your FRNZCGP was awarded</li><li>that your FRNZCGP was awarded from 2012 onwards</li><li>that you completed the General Practice Education Programme — GPEP</li><li>that your GPEP was completed under the RNZCGP curriculum</li></ul>", "Ask that they return the letter as a PDF", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true } },
-          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
+          { key: "rnzcgp_confirmation_letter", title: "Certified copy of RNZCGP Confirmation Letter", help: { title: "RNZCGP Confirmation Letter", steps: ["Email the RNZCGP Fellowship Team at <a href=\"mailto:fellowship@rnzcgp.org.nz\">fellowship@rnzcgp.org.nz</a>", "Ask RNZCGP to issue a letter confirming:<ul><li>you hold Fellowship of the Royal New Zealand College of General Practitioners, FRNZCGP</li><li>the date your FRNZCGP was awarded</li><li>that your FRNZCGP was awarded from 2012 onwards</li><li>that you completed the General Practice Education Programme, GPEP</li><li>that your GPEP was completed under the RNZCGP curriculum</li></ul>", "Ask that they return the letter as a PDF", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong>, include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s), title</li><li>Facility (including name, address and contact details, i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong>, provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong>, provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong>, on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified, just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
         ]
       }
     };
@@ -2822,7 +2822,7 @@
     // user_documents) is falsely shown as "Awaiting upload" here, because this page
     // only ever saw the device's stale local cache. The /api/ahpra/document-readiness
     // endpoint merges the AHPRA document stores (prepared-by-you certs + the
-    // account/career CV — NOT onboarding uploads, which are a separate MyIntealth/ID
+    // account/career CV, NOT onboarding uploads, which are a separate MyIntealth/ID
     // store) so a doc the server has is marked uploaded with its real review status
     // (accepted / under review / rejected) and a working download URL.
     async function syncIntroPreparedDocsFromServer(country) {
@@ -2981,7 +2981,7 @@
           html += '  </div>';
         } else {
           if (doc.status === "rejected") {
-            html += '  <p class="intro-doc-desc" style="color:var(--gp-red-ink);">Rejected — please upload a corrected copy.' + (doc.rejection_reason ? ' ' + escIntro(doc.rejection_reason) : '') + '</p>';
+            html += '  <p class="intro-doc-desc" style="color:var(--gp-red-ink);">Rejected, please upload a corrected copy.' + (doc.rejection_reason ? ' ' + escIntro(doc.rejection_reason) : '') + '</p>';
           }
           html += '  <div class="intro-doc-actions">';
           html += '    <label class="intro-upload-btn" style="cursor:pointer;">';
@@ -3403,7 +3403,7 @@
       if (base.stage === 'upload_qualifications' || base.stage === 'waiting_verification') base.stage = 'awaiting_outcome';
       if (base.stage === 'verification_issued') base.stage = 'awaiting_outcome';
       if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
-      // Carry over EVERY other top-level field the GP has saved — the English-language
+      // Carry over EVERY other top-level field the GP has saved, the English-language
       // pathway choice (els_pathway / els_test_type / els_test_status / els_test_recency),
       // the criminal-history reference, and any future preference. defaultProgress() only
       // seeds stage/completed/updatedAt, so without this the migrate would silently DROP the
@@ -3452,8 +3452,8 @@
     }
 
     // ── AHPRA OFFICER LOCK ───────────────────────────────────────
-    // Once the GP's application is with AHPRA — an officer has been assigned,
-    // or the officer's document requests (s80) have been released to the GP —
+    // Once the GP's application is with AHPRA, an officer has been assigned,
+    // or the officer's document requests (s80) have been released to the GP,
     // the first two wizard steps are history, not something the GP should
     // redo. The whole stage locks to the Status view: registration status
     // plus the documents AHPRA asked for and the team released. Server truth
@@ -3461,7 +3461,7 @@
     // items), checked once at boot. The forced progress persists through
     // state-sync, so the home stepper and every other device agree.
     var ahpraOfficerLocked = false;
-    var OFFICER_LOCK_TOAST = "Your application is with AHPRA — our team manages this step now.";
+    var OFFICER_LOCK_TOAST = "Your application is with AHPRA, our team manages this step now.";
     function enforceOfficerLockProgress(progress) {
       if (!ahpraOfficerLocked || !progress || !progress.completed) return progress;
       if (!progress.completed.create_account || !progress.completed.account_establishment) {
@@ -3482,7 +3482,7 @@
       var locked = data.officer_assigned === true || (Array.isArray(data.items) && data.items.length > 0);
       if (!locked || ahpraOfficerLocked) return;
       ahpraOfficerLocked = true;
-      // A locked GP never needs the intro wizard — skip it and land on Status.
+      // A locked GP never needs the intro wizard, skip it and land on Status.
       try { localStorage.setItem(getIntroDismissedKey(), "1"); } catch (e) {}
       if (introEl && introEl.style.display !== "none") dismissIntro();
       initPage();
@@ -3686,7 +3686,7 @@
       const crimReady = crimStatus === "accepted" || crimStatus === "approved" || !!crimDlUrl;
       const crimRef = typeof crimDoc.referenceNumber === "string" && crimDoc.referenceNumber ? " (" + crimDoc.referenceNumber + ")" : "";
       const crimReason = crimRejected
-        ? "Rejected — re-upload required" + (crimDoc.reviewNote ? " (" + crimDoc.reviewNote + ")" : "")
+        ? "Rejected, re-upload required" + (crimDoc.reviewNote ? " (" + crimDoc.reviewNote + ")" : "")
         : crimUnderReview ? "Under review by GP Link (up to 24 hours)."
         : crimUploaded ? "Uploaded on Documents page."
         : "Upload your Fit2Work ICHC reference page on the Documents page.";
@@ -3725,7 +3725,7 @@
 
       // Alternative supervisor CVs are created on the GP's record by the SPPA-00
       // flow (keys alt_supervisor_cv_1, _2 …). Surface any that exist so they show
-      // under Supervised Practice — "(if applicable)" is handled automatically.
+      // under Supervised Practice, "(if applicable)" is handled automatically.
       const altCvRows = Object.keys(preparedState.docs || {})
         .filter((k) => /^alt_supervisor_cv/.test(k))
         .sort()
@@ -3734,7 +3734,7 @@
           const ready = !!(item.ready || item.url);
           const rejected = item.status === "rejected";
           const nm = item.fileName
-            || (item.supervisorName ? `${item.supervisorName} — CV (alternative supervisor)` : "Alternative Supervisor's CV");
+            || (item.supervisorName ? `${item.supervisorName}, CV (alternative supervisor)` : "Alternative Supervisor's CV");
           return {
             group: "gplink",
             key: k,
@@ -3822,7 +3822,7 @@
       return base + (extFromMime(mime) || ".pdf");
     }
 
-    // Open a download in a new top-level context — escapes the app-shell <iframe>,
+    // Open a download in a new top-level context, escapes the app-shell <iframe>,
     // where navigating window.location does NOT reliably trigger a download (esp. iOS).
     function openDownloadInNewContext(url) {
       if (!url) return;
@@ -3991,7 +3991,7 @@
         const row = rows[i];
         if (!row || !row.downloadUrl) continue;
         // The download endpoints are session-gated (requireSession), so the cookie
-        // must be sent — "omit" returns 401 and silently fails the whole ZIP.
+        // must be sent, "omit" returns 401 and silently fails the whole ZIP.
         const response = await fetch(row.downloadUrl, { credentials: "same-origin" });
         if (!response.ok) throw new Error(`download-failed-${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
@@ -4231,7 +4231,7 @@
           { key: "cct_certified", title: "Certified copy of CCT (General Practice)",
             help: { title: "CCT", steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"], certNote: true } },
           { key: "cv_signed_dated", title: "CV (Signed and dated)",
-            help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
+            help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong>, include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s), title</li><li>Facility (including name, address and contact details, i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong>, provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong>, provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong>, on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified, just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
         ],
         gplink: [
           { key: "sppa_00", title: "Supervised Practice Plan - SPPA-00" },
@@ -4256,9 +4256,9 @@
           { key: "cscst_certified", title: "Certified copy of CSCST",
             help: { title: "CSCST", steps: ["Upload a certified copy of your CSCST", "If needed, request a re-issue from ICGP Membership Services"], certNote: true } },
           { key: "icgp_confirmation_letter", title: "Certified copy of ICGP Confirmation Letter",
-            help: { title: "ICGP Confirmation Letter", steps: ['Email the Irish College of General Practitioners — ICGP at <a href="mailto:info@icgp.ie">info@icgp.ie</a>.', "Request an ICGP confirmation letter for the AHPRA expedited specialist pathway.", "Ask ICGP to confirm:<ul><li>you hold MICGP</li><li>you were awarded CSCST</li><li>the date your CSCST was awarded</li><li>your training was completed under an ICGP curriculum from 2009 onwards</li><li>your training was completed through the 4-year GP training programme, Recognition of Prior Learning, or an approved GP training scheme in Ireland</li></ul>", "Include:<ul><li>your full name</li><li>your date of birth</li><li>your ICGP number, if known</li><li>your Medical Council of Ireland registration number</li><li>the date your MICGP / CSCST was awarded, if known</li><li>your AHPRA reference number, if available</li></ul>", "Ask ICGP to provide the letter as a PDF by email.", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true, reminder: "This is the key supporting letter for Irish GPs." } },
+            help: { title: "ICGP Confirmation Letter", steps: ['Email the Irish College of General Practitioners, ICGP at <a href="mailto:info@icgp.ie">info@icgp.ie</a>.', "Request an ICGP confirmation letter for the AHPRA expedited specialist pathway.", "Ask ICGP to confirm:<ul><li>you hold MICGP</li><li>you were awarded CSCST</li><li>the date your CSCST was awarded</li><li>your training was completed under an ICGP curriculum from 2009 onwards</li><li>your training was completed through the 4-year GP training programme, Recognition of Prior Learning, or an approved GP training scheme in Ireland</li></ul>", "Include:<ul><li>your full name</li><li>your date of birth</li><li>your ICGP number, if known</li><li>your Medical Council of Ireland registration number</li><li>the date your MICGP / CSCST was awarded, if known</li><li>your AHPRA reference number, if available</li></ul>", "Ask ICGP to provide the letter as a PDF by email.", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true, reminder: "This is the key supporting letter for Irish GPs." } },
           { key: "cv_signed_dated", title: "CV (Signed and dated)",
-            help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
+            help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong>, include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s), title</li><li>Facility (including name, address and contact details, i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong>, provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong>, provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong>, on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified, just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
         ],
         gplink: [
           { key: "sppa_00", title: "Supervised Practice Plan - SPPA-00" },
@@ -4281,9 +4281,9 @@
           { key: "frnzcgp_certified", title: "Certified copy of FRNZCGP",
             help: { title: "FRNZCGP", steps: ["Upload a certified copy of your FRNZCGP certificate", "If needed, contact RNZCGP for replacement or confirmation"], certNote: true } },
           { key: "rnzcgp_confirmation_letter", title: "Certified copy of RNZCGP Confirmation Letter",
-            help: { title: "RNZCGP Confirmation Letter", steps: ["Email the RNZCGP Fellowship Team at <a href=\"mailto:fellowship@rnzcgp.org.nz\">fellowship@rnzcgp.org.nz</a>", "Ask RNZCGP to issue a letter confirming:<ul><li>you hold Fellowship of the Royal New Zealand College of General Practitioners — FRNZCGP</li><li>the date your FRNZCGP was awarded</li><li>that your FRNZCGP was awarded from 2012 onwards</li><li>that you completed the General Practice Education Programme — GPEP</li><li>that your GPEP was completed under the RNZCGP curriculum</li></ul>", "Ask that they return the letter as a PDF", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true } },
+            help: { title: "RNZCGP Confirmation Letter", steps: ["Email the RNZCGP Fellowship Team at <a href=\"mailto:fellowship@rnzcgp.org.nz\">fellowship@rnzcgp.org.nz</a>", "Ask RNZCGP to issue a letter confirming:<ul><li>you hold Fellowship of the Royal New Zealand College of General Practitioners, FRNZCGP</li><li>the date your FRNZCGP was awarded</li><li>that your FRNZCGP was awarded from 2012 onwards</li><li>that you completed the General Practice Education Programme, GPEP</li><li>that your GPEP was completed under the RNZCGP curriculum</li></ul>", "Ask that they return the letter as a PDF", "Once you receive the PDF, have it certified as a true copy of the original before uploading."], certNote: true } },
           { key: "cv_signed_dated", title: "CV (Signed and dated)",
-            help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong> — include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s) — title</li><li>Facility (including name, address and contact details — i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong> — provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong> — provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong> — on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified — just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
+            help: { title: "CV", steps: ["Your CV must be signed and dated, and cover your full work practice/history, any gaps, your registration history and a declaration.", "<strong>Work practice/history</strong>, include the following details of your current and previous positions:<ul><li>Dates (for example 30/06/2021 – 30/06/2023)</li><li>Position(s), title</li><li>Facility (including name, address and contact details, i.e. city, state, country)</li><li>Responsibilities (including whether the position was full-time or part-time; if part-time, include hours of work per week)</li><li>Internship and observership (include details of internship rotations and any periods of observership, in date order)</li></ul>", "<strong>Gaps in work practice/history</strong>, provide an explanation of any period since obtaining your professional qualifications where you have not practised, and the reasons (e.g. undertaking study, travel, family commitment).", "<strong>Registration history</strong>, provide a list of locations and registration authorities/boards/jurisdictions:<ul><li>where you are currently registered to practise, and your registration number</li><li>where you have been previously registered to practise, and your registration number (if known)</li><li>where you have applied for registration and that application remains under consideration</li></ul>", "<strong>Declaration</strong>, on your CV you must write: ‘The curriculum vitae is true and correct as at (insert date)’, then sign and date it. You do not need to get the CV certified, just write this statement and sign it. Your National Board will only accept a CV with this statement on it.", "Also attach certified copies of any results or performance reports from bridging courses, skills assessment or observership (as applicable) that you have stated in the CV.", "Upload your signed and dated CV"], reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement." } }
         ],
         gplink: [
           { key: "sppa_00", title: "Supervised Practice Plan - SPPA-00" },
@@ -4295,9 +4295,9 @@
       }
     };
 
-    // ── ICHC sample link — appended to every criminal_history help.steps entry ──
+    // ── ICHC sample link, appended to every criminal_history help.steps entry ──
     // Defined once; loop runs at script-eval time after both INTRO_COUNTRY_DOCS and ADDITIONAL_DOCS are in scope.
-    var ICHC_EXAMPLE_STEP_HTML = 'See what the page looks like: <a href="/documents/fit2work-ichc-example.pdf" target="_blank" rel="noopener noreferrer">view a sample Fit2Work ICHC reference page</a>. This is only an example — upload your own page, not this sample.';
+    var ICHC_EXAMPLE_STEP_HTML = 'See what the page looks like: <a href="/documents/fit2work-ichc-example.pdf" target="_blank" rel="noopener noreferrer">view a sample Fit2Work ICHC reference page</a>. This is only an example, upload your own page, not this sample.';
     [INTRO_COUNTRY_DOCS, ADDITIONAL_DOCS].forEach(function(configMap) {
       Object.keys(configMap).forEach(function(countryKey) {
         var cfg = configMap[countryKey];
@@ -4538,7 +4538,7 @@
             }
           }
 
-          showToast('Document uploaded — under review');
+          showToast('Document uploaded, under review');
           renderAdditionalDocsModal();
         });
       });
@@ -4570,7 +4570,7 @@
           '<div class="qp-desc">Enter this number when your AHPRA application asks for your AMC candidate number.</div>' +
           (amcNumber
             ? '<div class="qp-copy-row"><div class="qp-copy-field"><span class="qp-copy-text">AMC Number: <strong>' + amcNumber + '</strong></span><button type="button" class="qp-copy-btn" id="copyAmcNumber">' + copySvg + '</button></div></div>'
-            : '<div class="qp-desc" style="color:var(--gp-amber);font-weight:600;">Not yet entered — complete the AMC Verification step first.</div>'
+            : '<div class="qp-desc" style="color:var(--gp-amber);font-weight:600;">Not yet entered, complete the AMC Verification step first.</div>'
           ) +
         '</div>' +
       '</div>';
@@ -4612,7 +4612,7 @@
           '<div class="qp-desc">Enter this reference number when your AHPRA application asks for your criminal history check details.</div>' +
           (crimRefNum
             ? '<div class="qp-copy-row"><div class="qp-copy-field"><span class="qp-copy-text">Reference: <strong>' + crimRefNum + '</strong></span><button type="button" class="qp-copy-btn" id="copyCrimRef">' + copySvg + '</button></div></div>'
-            : '<div class="qp-desc" style="color:var(--gp-amber);font-weight:600;">Not yet entered — add your reference number in My Documents.</div>'
+            : '<div class="qp-desc" style="color:var(--gp-amber);font-weight:600;">Not yet entered, add your reference number in My Documents.</div>'
           ) +
         '</div>' +
       '</div>';
@@ -4629,7 +4629,7 @@
         savedElsTestStatus = _elsState.els_test_status || '';
         savedElsTestRecency = _elsState.els_test_recency || '';
       } catch (e) {}
-      var elsTestOptionsHtml = ['<option value="">— Choose your test —</option>'].concat(
+      var elsTestOptionsHtml = ['<option value="">Choose your test</option>'].concat(
         ELS_TEST_TYPES.map(function (tt) {
           return '<option value="' + tt + '"' + (tt === savedElsTestType ? ' selected' : '') + '>' + tt + '</option>';
         })
@@ -4645,8 +4645,8 @@
           '<div id="elsStatusWrap"' + (_showStatus ? '' : ' style="display:none"') + '>' +
             '<div class="els-select-label" style="margin-top:10px">Have you completed this test?</div>' +
             '<div class="els-status-seg" id="elsStatusSeg">' +
-              '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'done' ? ' on' : '') + '" data-els-status="done">Yes — I\'ve completed it</button>' +
-              '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'plan' ? ' on' : '') + '" data-els-status="plan">Not yet — booked / planning</button>' +
+              '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'done' ? ' on' : '') + '" data-els-status="done">Yes, I\'ve completed it</button>' +
+              '<button type="button" class="els-status-btn' + (savedElsTestStatus === 'plan' ? ' on' : '') + '" data-els-status="plan">Not yet, booked / planning</button>' +
             '</div>' +
           '</div>' +
           '<div id="elsRecencyWrap"' + (_showRecency ? '' : ' style="display:none"') + '>' +
@@ -4714,7 +4714,7 @@
         '<div class="qp-num">5</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">Upload your documents to your AHPRA application</div>' +
-          '<div class="qp-desc">Download your documents below — they’re organised to match the four upload boxes on the AHPRA application, so you can add each set to the matching box.</div>' +
+          '<div class="qp-desc">Download your documents below, they’re organised to match the four upload boxes on the AHPRA application, so you can add each set to the matching box.</div>' +
           '<div class="qp-dl-row">' +
             '<span class="qp-dl-name">Your AHPRA documents</span>' +
             '<button type="button" class="qp-dl-btn" id="ahpraDocsDownloadBtn">' + dlSvg + ' Download</button>' +
@@ -4738,7 +4738,7 @@
           renderDownloadPackModal(getDocSnapshot());
           if (downloadPackModalEl) openModal(downloadPackModalEl, addlBtn);
           // Reconcile with the authoritative server status, then re-render the pack in
-          // place — so a doc accepted/uploaded elsewhere (My Documents, onboarding, the
+          // place, so a doc accepted/uploaded elsewhere (My Documents, onboarding, the
           // account-page CV) shows its real status instead of "Awaiting upload".
           syncIntroPreparedDocsFromServer(getPageCountry()).then(function(changed) {
             if (changed) renderDownloadPackModal(getDocSnapshot());
@@ -4777,11 +4777,11 @@
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(onSuccess).catch(function() {
               if (fallbackCopy(text)) { onSuccess(); }
-              else { showToast('Could not copy — select and copy manually'); }
+              else { showToast('Could not copy, select and copy manually'); }
             });
           } else {
             if (fallbackCopy(text)) { onSuccess(); }
-            else { showToast('Could not copy — select and copy manually'); }
+            else { showToast('Could not copy, select and copy manually'); }
           }
         });
       }
@@ -4812,7 +4812,7 @@
         const isActive = currentTabKey === key;
         const isLocked = status === "locked";
         // Officer lock: earlier steps are read-only history once AHPRA holds
-        // the application — only the Status tab stays selectable.
+        // the application, only the Status tab stays selectable.
         const officerLockedTab = ahpraOfficerLocked && key !== "awaiting_outcome";
         const isSelectable = !officerLockedTab && !isLocked && (!isMobileView || isDone || isActive);
 
@@ -4889,7 +4889,7 @@
     }
     // ── Deep link: ?task=<id> jumps straight to one AHPRA action item ─────────
     // The per-task emails link the GP here as …/pages/ahpra.html?task=<id> (one
-    // email per item — Upload document / Mark as requested). Captured at
+    // email per item, Upload document / Mark as requested). Captured at
     // script-eval time for the same reason as _deepLinkDocKey below:
     // syncRouteForStage()'s replaceState strips the query string before the
     // more-info card has loaded. Scroll to + flash that item's card once rendered.
@@ -4932,7 +4932,7 @@
       if (item.mode === 'request_institution') {
         if (item.status === 'requested') {
           action = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">' +
-            '<span>✓ Marked as requested — we will confirm receipt with AHPRA.</span>' +
+            '<span>✓ Marked as requested, we will confirm receipt with AHPRA.</span>' +
             '<button type="button" data-mi-unmark="' + s80Esc(item.id) + '" style="background:none;border:none;color:var(--ink-muted);text-decoration:underline;cursor:pointer;font-size:12px;padding:0;">Undo</button></div>';
         } else {
           var inst = item.institution ? s80Esc(item.institution) : 'the issuing institution';
@@ -4946,7 +4946,7 @@
         if (item.status === 'approved') {
           action = '<div style="color:var(--gp-green-ink,#15803d);font-size:13px;font-weight:600;">✓ Accepted' + (item.file_name ? ' · ' + s80Esc(item.file_name) : '') + '</div>';
         } else if (item.status === 'under_review') {
-          action = '<div style="color:var(--gp-amber-ink,#b45309);font-size:13px;font-weight:600;">⏳ Uploaded — under review' + (item.file_name ? ' · ' + s80Esc(item.file_name) : '') + '</div>';
+          action = '<div style="color:var(--gp-amber-ink,#b45309);font-size:13px;font-weight:600;">⏳ Uploaded, under review' + (item.file_name ? ' · ' + s80Esc(item.file_name) : '') + '</div>';
         } else if (item.status === 'rejected') {
           action = '<div style="color:var(--gp-red,#dc2626);font-size:13px;font-weight:600;">Not accepted: ' + s80Esc(item.reject_reason || '') + '</div>' + ahpraUploadBtn(item, 'Re-upload document');
         } else {
@@ -4976,7 +4976,7 @@
         '<p style="font-size:14px;color:var(--ink-muted);line-height:1.5;text-align:center;max-width:440px;margin:0 auto;">Please complete the items below so we can move your application forward' + ref + '.</p>' +
         deadlineHtml +
         '<div id="ahpraMoreInfoList" style="margin-top:18px;display:flex;flex-direction:column;gap:12px;">' + itemsHtml + '</div>' +
-        '<p style="margin-top:18px;font-size:12px;color:var(--ink-muted);line-height:1.5;text-align:center;">Your supervised practice plan and qualification check are handled by our team — we will be in touch about those.</p>' +
+        '<p style="margin-top:18px;font-size:12px;color:var(--ink-muted);line-height:1.5;text-align:center;">Your supervised practice plan and qualification check are handled by our team, we will be in touch about those.</p>' +
         '</div>';
     }
     function wireAhpraMoreInfo() {
@@ -5003,7 +5003,7 @@
         });
         var d = await r.json().catch(function () { return {}; });
         if (!d.ok) { showToast(d.message || 'Could not update. Please try again.'); return; }
-        if (d.reply_created) showToast('All done — our team will reply to AHPRA to confirm.');
+        if (d.reply_created) showToast('All done, our team will reply to AHPRA to confirm.');
         loadAhpraMoreInfo();
       } catch (e) { showToast('Could not update. Please try again.'); }
     }
@@ -5021,7 +5021,7 @@
           });
           var d = await r.json().catch(function () { return {}; });
           if (!d.ok) { showToast(d.message || 'Upload failed. Please try again.'); return; }
-          showToast('Uploaded — our team will review it.');
+          showToast('Uploaded, our team will review it.');
           loadAhpraMoreInfo();
         } catch (e) { showToast('Upload failed. Please try again.'); }
       };
@@ -5163,7 +5163,7 @@
       actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
-      // Stuck help row — show on all steps including status
+      // Stuck help row, show on all steps including status
       var stuckRow = document.getElementById('stuckRow');
       if (stuckRow) {
         if (!isDone && isCurrent) {
@@ -5207,7 +5207,7 @@
 
       const markBtn = document.getElementById("actionMarkBtn");
       if (markBtn) {
-        // Always wire the handler — the button may start disabled by the English-pathway
+        // Always wire the handler, the button may start disabled by the English-pathway
         // gate and get enabled live by refreshElsGate(); markStageComplete guards anyway.
         markBtn.addEventListener("click", () => markStageComplete(progress, key));
       }
@@ -5292,7 +5292,7 @@
         try {
           var st = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
           if (testVal) { st.els_test_type = testVal; } else { delete st.els_test_type; delete st.els_test_status; }
-          // Recency only applies to a standard test — clear it for PLAB/NZREX or no test.
+          // Recency only applies to a standard test, clear it for PLAB/NZREX or no test.
           if (!testVal || isElsProfessionExam(testVal)) { delete st.els_test_recency; }
           st.updatedAt = new Date().toISOString();
           // Force write + reset batch meta so a pending batched save can't revert this test pick.
@@ -5722,7 +5722,7 @@
       });
     });
 
-    // Stuck help button — opens support modal with category prefilled
+    // Stuck help button, opens support modal with category prefilled
     document.addEventListener("click", function(e) {
       var btn = e.target.closest("#stuckHelpBtn");
       if (btn) openSupportCaseModal(btn);
@@ -5813,7 +5813,7 @@
 
     function redirectToAllowedStage() {
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
-      // No longer redirects for missing EPIC/AMC — the placement gate handles messaging.
+      // No longer redirects for missing EPIC/AMC, the placement gate handles messaging.
       // Only redirect away if AHPRA is fully completed and no return override is set.
       const ahpra = parseStorage(STORAGE_KEY);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.awaiting_outcome === true);
@@ -5981,7 +5981,7 @@
       }
       removeIntroHideStyle();
       // Officer lock: the URL can no longer steer a locked GP back to the
-      // earlier steps — always land on the Status view.
+      // earlier steps, always land on the Status view.
       const routeTab = ahpraOfficerLocked ? null : pickTabFromRoute(initialProgress);
       currentTabKey = routeTab || activeTabStage(initialProgress);
       if (!routeTab) syncRouteForStage(initialProgress.stage, true);
@@ -5994,7 +5994,7 @@
         showSecuredPage();
         return;
       }
-      // Local check failed — ask server before showing gate
+      // Local check failed, ask server before showing gate
       const serverSays = await checkCareerSecuredFromServer();
       if (redirectToAllowedStage()) return;
       if (serverSays) {
@@ -6011,7 +6011,7 @@
     // button opens, scroll to + briefly flash that document's row, then strip ?doc
     // so a refresh won't re-trigger. Defensive: must never break page load.
     var _deepLinkDocHandled = false;
-    // Capture ?doc NOW, at script-eval time — this line runs BEFORE initPage()
+    // Capture ?doc NOW, at script-eval time, this line runs BEFORE initPage()
     // (called further below). initPage() → showSecuredPage() → syncRouteForStage()
     // does history.replaceState(…, "/registration/ahpra/<slug>") with NO query
     // string, which would wipe ?doc before focusDeepLinkedDoc() could read it
@@ -6048,7 +6048,7 @@
         // Flash on the immediate render so the GP sees it without waiting on the network.
         // If the row isn't found we still leave the modal open (degrade gracefully).
         setTimeout(function () { _flashDeepLinkedDocRow(key); }, 80);
-        // Then refresh authoritative status (same call the button uses) and re-flash —
+        // Then refresh authoritative status (same call the button uses) and re-flash,
         // a re-render replaces the modal markup, so the row + flash must be re-applied.
         syncIntroPreparedDocsFromServer(getPageCountry()).then(function (changed) {
           if (changed) {

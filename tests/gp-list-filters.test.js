@@ -1,4 +1,4 @@
-// Phase 6 G2b — GP list filters + per-RSO caseload data.
+// Phase 6 G2b, GP list filters + per-RSO caseload data.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. GET /api/admin/cases (the payload the admin GP list renders from) now
@@ -8,7 +8,7 @@
 //      assigned_rso_email, country, stage and days_in_stage, and the payload
 //      includes an rso_workload rollup computed by the SAME
 //      ceoMetrics.computeRsoWorkload the CEO "RSO Workload" card uses,
-//      fed the SAME ceoMetrics.filterActiveCases input — withdrawn and
+//      fed the SAME ceoMetrics.filterActiveCases input, withdrawn and
 //      >6-month-stale cases (and their tasks) are excluded, so the admin
 //      caseload strip matches the CEO card exactly.
 //   3. Both endpoints stay auth-gated.
@@ -223,7 +223,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/admin/cases — GP list payload', () => {
+describe('GET /api/admin/cases, GP list payload', () => {
   it('is auth-gated', async () => {
     const r = await httpReq('GET', '/api/admin/cases');
     expect([401, 403]).toContain(r.status);
@@ -253,7 +253,7 @@ describe('GET /api/admin/cases — GP list payload', () => {
   });
 });
 
-describe('GET /api/admin/va/dashboard — users + rso_workload', () => {
+describe('GET /api/admin/va/dashboard, users + rso_workload', () => {
   it('is auth-gated', async () => {
     const r = await httpReq('GET', '/api/admin/va/dashboard');
     expect([401, 403]).toContain(r.status);
@@ -304,7 +304,7 @@ describe('GET /api/admin/va/dashboard — users + rso_workload', () => {
 
     // rso-1 owns THREE cases in the raw table (c-assigned, c-withdrawn, c-stale)
     // but only c-assigned is active: withdrawn and >182-day-stale cases are
-    // filtered out before computeRsoWorkload — exactly like the CEO card.
+    // filtered out before computeRsoWorkload, exactly like the CEO card.
     const rae = r.body.rso_workload.find((w) => w.rso_id === 'rso-1');
     expect(rae).toBeTruthy();
     expect(rae.case_count).toBe(1);
@@ -318,14 +318,14 @@ describe('GET /api/admin/va/dashboard — users + rso_workload', () => {
   });
 });
 
-describe('admin.html — GP-list filters removed (assigned-only)', () => {
+describe('admin.html, GP-list filters removed (assigned-only)', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages', 'admin.html'), 'utf8');
 
   it('renderFilters clears the filter bar and builds no filter controls', () => {
     const start = html.indexOf('function renderFilters(){');
     expect(start).toBeGreaterThan(-1);
     const body = html.slice(start, start + 700);
-    // The bar is emptied — an admin only ever sees GPs assigned to them, so the
+    // The bar is emptied, an admin only ever sees GPs assigned to them, so the
     // All / Needs-Action / On-Track / RSO / caseload / stage filters are gone.
     expect(body).toContain('filterBar');
     expect(body).toContain('innerHTML=""');
@@ -335,7 +335,7 @@ describe('admin.html — GP-list filters removed (assigned-only)', () => {
   });
 
   it('the list still groups cases into Needs Action / On Track lanes', () => {
-    // Lane grouping is not a filter control — it stays.
+    // Lane grouping is not a filter control, it stays.
     expect(html).toContain('function caseNeedsAction');
   });
 });

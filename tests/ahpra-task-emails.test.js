@@ -17,7 +17,7 @@ function mkTasks() {
       id: 'task-req-2',
       title: 'Certificate of Good Standing from GMC',
       mode: 'request_institution',
-      gp_instructions: 'Request this from the GMC — they send it to AHPRA directly.',
+      gp_instructions: 'Request this from the GMC, they send it to AHPRA directly.',
       institution: 'GMC',
       deadline: '2026-08-29'
     },

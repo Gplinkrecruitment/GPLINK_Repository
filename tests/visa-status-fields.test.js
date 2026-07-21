@@ -1,4 +1,4 @@
-// Phase 6 Batch F1 — hardening: /api/visa/status must not leak internal admin
+// Phase 6 Batch F1, hardening: /api/visa/status must not leak internal admin
 // data to the GP session.
 //
 // The handler used to `select=*` on visa_applications and echo the raw row,
@@ -33,7 +33,7 @@ const RAW_APPLICATION = {
   user_id: 'user-9',
   job_id: 'job-3',
   visa_subclass: '482',
-  visa_type: 'Subclass 482 — Temporary Skill Shortage',
+  visa_type: 'Subclass 482, Temporary Skill Shortage',
   stage: 'lodgement',
   status_message: 'Lodged and waiting on the department.',
   reference_number: 'REF-123',
@@ -54,7 +54,7 @@ const RAW_APPLICATION = {
   updated_at: '2026-06-21T00:00:00Z'
 };
 
-describe('/api/visa/status — GP application allowlist', () => {
+describe('/api/visa/status, GP application allowlist', () => {
   it('drops internal fields (notes, sponsor_contact, user_id, job_id)', () => {
     const out = utils.pickVisaGpFields(RAW_APPLICATION, utils.VISA_GP_APPLICATION_FIELDS);
     expect(out).not.toHaveProperty('notes');
@@ -89,7 +89,7 @@ describe('/api/visa/status — GP application allowlist', () => {
   });
 });
 
-describe('/api/visa/status — related collections drop admin identities', () => {
+describe('/api/visa/status, related collections drop admin identities', () => {
   it('updates keep body/created_at but drop created_by (admin author)', () => {
     const out = utils.pickVisaGpFields(
       { id: 'u1', visa_case_id: 'case-1', body: 'Lodged today.', visibility: 'gp', created_by: 'admin@mygplink.com.au', created_at: '2026-06-20T00:00:00Z' },
@@ -129,7 +129,7 @@ describe('/api/visa/status — related collections drop admin identities', () =>
   });
 });
 
-describe('server.js — the handler actually uses the allowlists', () => {
+describe('server.js, the handler actually uses the allowlists', () => {
   it('sanitizes the /api/visa/status response instead of echoing raw rows', () => {
     const handler = serverSrc.slice(serverSrc.indexOf("pathname === '/api/visa/status'"));
     const block = handler.slice(0, handler.indexOf('/api/visa/update'));
