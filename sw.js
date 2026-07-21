@@ -294,10 +294,10 @@
           return fetch(request).then(function (response) {
             if (!response || (response.status !== 200 && response.type !== "opaque")) return response;
             var copy = response.clone();
-            caches.open(IMAGE_CACHE).then(function (cache) { cache.put(request, copy); });
+            caches.open(IMAGE_CACHE).then(function (cache) { cache.put(request, copy); }).catch(function () {});
             return response;
           });
-        })
+        }).catch(function () { return fetch(request); })
       );
       return;
     }

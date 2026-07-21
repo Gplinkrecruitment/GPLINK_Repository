@@ -11,4 +11,7 @@ describe('career hero image caching', () => {
     const career = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
     expect(career).toMatch(/warmRoleImages/);
   });
+  it('career hero image route has .catch fallback on Cache Storage failure', () => {
+    expect(sw).toMatch(/career-hero-images[\s\S]{0,900}?\.catch\(/);
+  });
 });
