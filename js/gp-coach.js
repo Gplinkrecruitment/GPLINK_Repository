@@ -50,6 +50,10 @@
       + '.gp-coach-next{background:var(--gp-grad-brand,linear-gradient(135deg,#2e6bf0,#1d4ed8));border:none;border-radius:10px;padding:8px 15px;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer;}'
       + '.gp-coach-arrow{position:absolute;width:14px;height:14px;background:var(--gp-surface,#fff);transform:rotate(45deg);}'
       + '.gp-coach-arrow.below{top:-7px;}.gp-coach-arrow.above{bottom:-7px;}'
+      // Pointer mode: the overlay lets clicks through to the page (so tapping the
+      // highlighted target performs its normal action); only the tip stays interactive.
+      + '.gp-coach-overlay.gp-coach-pointer{pointer-events:none;}'
+      + '.gp-coach-overlay.gp-coach-pointer .gp-coach-tip{pointer-events:auto;}'
       + '@media (prefers-reduced-motion: reduce){.gp-coach-spot,.gp-coach-tip{transition:none!important;}}';
     var el = d.createElement('style'); el.id = STYLE_ID; el.textContent = css; d.head.appendChild(el);
   }
@@ -85,11 +89,12 @@
     active = true;
     ensureStyles();
     var opts = options || {};
+    var pointerMode = opts.pointer === true;
     var reduced = false;
     try { reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
 
     var overlay = d.createElement('div');
-    overlay.className = 'gp-coach-overlay';
+    overlay.className = 'gp-coach-overlay' + (pointerMode ? ' gp-coach-pointer' : '');
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-labelledby', 'gp-coach-title');
@@ -107,10 +112,20 @@
     var actsEl = tip.querySelector('.gp-coach-acts');
     var arrowEl = tip.querySelector('.gp-coach-arrow');
     var idx = 0, curTarget = null, lastFocus = d.activeElement, total = steps.length;
+    var pointerClickEl = null, settled = false;
 
     return new Promise(function (resolve) {
+      function detachPointerClick() {
+        if (pointerClickEl) {
+          try { pointerClickEl.removeEventListener('click', onTargetClick, true); } catch (e) {}
+          pointerClickEl = null;
+        }
+      }
       function cleanup(reason) {
+        if (settled) return; // this run only ever tears down once
+        settled = true;
         active = false;
+        detachPointerClick();
         window.removeEventListener('resize', reposition, true);
         window.removeEventListener('scroll', reposition, true);
         d.removeEventListener('keydown', onKey, true);
@@ -121,9 +136,19 @@
       function done() { if (opts.onDone) { try { opts.onDone(); } catch (e) {} } cleanup('done'); }
       function skip() { if (opts.onSkip) { try { opts.onSkip(); } catch (e) {} } cleanup('skip'); }
       function next() { if (idx >= total - 1) done(); else { idx++; render(); } }
+      function onTargetClick() {
+        // Never preventDefault — let the click fully proceed (navigation, row toggle),
+        // then dismiss on the next tick and report the confirmed click.
+        detachPointerClick();
+        setTimeout(function () {
+          if (settled) return;
+          if (opts.onTargetClick) { try { opts.onTargetClick(); } catch (e) {} }
+          cleanup('target');
+        }, 0);
+      }
       function onKey(e) {
         if (e.key === 'Escape') { e.preventDefault(); skip(); }
-        else if (e.key === 'Enter') { e.preventDefault(); next(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (pointerMode) skip(); else next(); }
         else if (e.key === 'Tab') {
           var btns = actsEl.querySelectorAll('button');
           if (!btns.length) return;
@@ -147,6 +172,13 @@
       }
       function renderActions() {
         actsEl.innerHTML = '';
+        if (pointerMode) {
+          // Pointer mode: no Next — the real "next" is clicking the highlighted
+          // target itself. Just a subtle dismiss (leaves the pointer pending).
+          var g = d.createElement('button'); g.type = 'button'; g.className = 'gp-coach-skip'; g.textContent = 'Got it';
+          g.addEventListener('click', skip); actsEl.appendChild(g);
+          return;
+        }
         var s = d.createElement('button'); s.type = 'button'; s.className = 'gp-coach-skip'; s.textContent = 'Skip';
         s.addEventListener('click', skip); actsEl.appendChild(s);
         if (idx > 0) {
@@ -161,6 +193,11 @@
         resolveTarget(steps[idx].target).then(function (el) {
           if (!el) { if (idx >= total - 1) { done(); } else { idx++; render(); } return; }
           curTarget = el;
+          if (pointerMode) {
+            detachPointerClick();
+            pointerClickEl = el;
+            el.addEventListener('click', onTargetClick, true);
+          }
           try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
           stepEl.textContent = typeof opts.label === 'function' ? opts.label(idx, total) : ('Step ' + (idx + 1) + ' of ' + total);
           titleEl.textContent = steps[idx].title || '';

@@ -57,9 +57,9 @@
   <script src="../js/bypass-config.js?v=20260722b"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
-  <script src="/js/gp-coach.js?v=20260711a" defer></script>
-  <script src="/js/gp-walkthrough-state.js?v=20260711a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260722b" defer></script>
+  <script src="/js/gp-coach.js?v=20260722c" defer></script>
+  <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20260722c" defer></script>
   <script src="../js/updates-sync.js?v=20260707b" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
@@ -12542,6 +12542,8 @@
     // changes on the browse->secured swap.
     function ensureSecuredScrollable() {
       try {
+        var hadGateLock = document.documentElement.classList.contains("career-gate-open")
+          || document.body.classList.contains("career-gate-open");
         document.documentElement.classList.remove("career-gate-open");
         document.body.classList.remove("career-gate-open");
         document.documentElement.style.overflow = "";
@@ -12549,6 +12551,9 @@
         document.body.style.overflow = "";
         document.body.style.overflowY = "";
         void document.body.offsetHeight; // force layout so iOS re-arms scrolling
+        // A leaked gate lock was just cleared outside the normal close path —
+        // tell gate-waiters (walkthrough deferral) the screen is free again.
+        if (hadGateLock && typeof announceCareerGateClosed === "function") announceCareerGateClosed();
       } catch (e) { /* never block the render */ }
     }
 
@@ -13206,8 +13211,11 @@
        must never lock the page (fails open). */
     var careerGateState = { cvVerified: false, checked: false };
     function careerGateEl(id) { return document.getElementById(id); }
+    // Anyone waiting on the gate (e.g. the walkthrough first-visit tip defers
+    // while the gate owns the screen) listens for this on window.
+    function announceCareerGateClosed() { try { window.dispatchEvent(new CustomEvent('gp-career-gate-closed')); } catch (e) {} }
     function openCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.add('is-open'); m.setAttribute('aria-hidden', 'false'); document.documentElement.classList.add('career-gate-open'); document.body.classList.add('career-gate-open'); } }
-    function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } document.documentElement.classList.remove('career-gate-open'); document.body.classList.remove('career-gate-open'); }
+    function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } document.documentElement.classList.remove('career-gate-open'); document.body.classList.remove('career-gate-open'); announceCareerGateClosed(); }
 
     function careerGateSetScanState(state, opts) {
       ['careerGateScanChecking', 'careerGateScanOk', 'careerGateScanBad'].forEach(function (id) { var el = careerGateEl(id); if (el) el.hidden = true; });
