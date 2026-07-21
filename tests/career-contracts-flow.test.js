@@ -517,6 +517,7 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
   const APP_MAIN = 'app-t10-main';
   const APP_DECLINE = 'app-t10-decline';
   const APP_WD = 'app-t10-withdrawn';
+  const APP_DECLINE_AFTER_OFFER = 'app-t10-decline-after-offer';
 
   let server, port, sbServer, sbPort, realFetch, mod;
   const resendCalls = [];
@@ -532,7 +533,8 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
     gp_applications: [
       { id: APP_MAIN, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@harbour-test.local', practice_contact_name: 'Harbour Reception', applied_at: NOW },
       { id: APP_DECLINE, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@harbour-test.local', practice_contact_name: 'Harbour Reception', applied_at: NOW },
-      { id: APP_WD, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'withdrawn', ats_stage: 'not_proceeding', applied_at: NOW }
+      { id: APP_WD, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'withdrawn', ats_stage: 'not_proceeding', applied_at: NOW },
+      { id: APP_DECLINE_AFTER_OFFER, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@harbour-test.local', practice_contact_name: 'Harbour Reception', applied_at: NOW }
     ],
     career_contracts: [],
     ats_offers: [],
@@ -622,6 +624,19 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
   const apiGet = (p) => httpJson('GET', p);
   const apiPost = (p, body) => httpJson('POST', p, body);
 
+  // Raw GET that never parses the body as JSON and always returns the
+  // response headers — needed to inspect 302 Location targets when checking
+  // the anonymous page-serving allowlist below.
+  function httpGetRaw(p) {
+    return new Promise((resolve, reject) => {
+      const r = http.request({ host: '127.0.0.1', port, path: p, method: 'GET' }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(c).toString('utf8') }));
+      });
+      r.on('error', reject); r.end();
+    });
+  }
+
   function putSignedUpload(uploadUrl, buffer, mime) {
     return new Promise((resolve, reject) => {
       const target = new URL(uploadUrl);
@@ -685,6 +700,29 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
     try { fs.unlinkSync(DB_FILE); } catch {}
   });
 
+  it('page: pages/practice-offer.html is reachable by an anonymous browser (no cookies) — never bounced to signin', async () => {
+    // This harness boots the server with AUTH_DISABLED='false' (real auth
+    // mode), and no cookies are ever attached by httpGetRaw, so this is a
+    // genuine unauthenticated request exactly like the practice contact
+    // clicking the emailed extend-offer/decline link cold.
+    //
+    // The server unconditionally 302s any /pages/*.html request to its clean
+    // extensionless URL BEFORE the auth/allowlist gate even runs (see the
+    // "Clean URL support" block in server.js) — so the first hop is expected
+    // to be a 302 regardless of whether the page is public. What must NEVER
+    // happen is landing on /pages/signin at any point in the chain; the
+    // allowlist entry is what keeps it off that path.
+    let hop = await httpGetRaw('/pages/practice-offer.html');
+    let redirects = 0;
+    while (hop.status === 302 && redirects < 5) {
+      expect(String(hop.headers.location || '')).not.toMatch(/\/pages\/signin/);
+      hop = await httpGetRaw(hop.headers.location);
+      redirects += 1;
+    }
+    expect(hop.status).toBe(200);
+    expect(hop.body).toContain('<html');
+  });
+
   it('context: a fresh post-interview token resolves to the "decide" state with labels', async () => {
     const r = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(postInterviewToken(APP_MAIN)));
     expect(r.status).toBe(200);
@@ -739,6 +777,57 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
     expect(r2.status).toBe(200);
     expect(r2.body.ok).toBe(true);
     expect(resendCalls.length).toBe(before2);
+  });
+
+  it('extend_offer on a not_proceeding application is refused: 409 not_available, no career_contracts row created', async () => {
+    // APP_DECLINE was flipped to not_proceeding by the test above and never
+    // had a contract. A stale/replayed extend-offer link for it must never
+    // mint a contract on a closed application.
+    expect(appRow(APP_DECLINE).status).toBe('not_proceeding');
+    const before = db.career_contracts.length;
+    const tok = postInterviewToken(APP_DECLINE);
+    const r = await apiPost('/api/practice/offer/decision', { token: tok, action: 'extend_offer' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('not_available');
+    expect(db.career_contracts.length).toBe(before);
+    expect(db.career_contracts.filter((c) => c.application_id === APP_DECLINE).length).toBe(0);
+  });
+
+  it('context: an application declined AFTER its contract reached awaiting_upload reports NOT "upload"', async () => {
+    const tok = postInterviewToken(APP_DECLINE_AFTER_OFFER);
+
+    // 1. Extend an offer — contract lands in awaiting_upload.
+    const ext = await apiPost('/api/practice/offer/decision', { token: tok, action: 'extend_offer' });
+    expect(ext.status).toBe(200);
+    const contractId = ext.body.contractId;
+    const uploadToken = ext.body.uploadToken;
+    expect(db.career_contracts.find((c) => c.id === contractId).status).toBe('awaiting_upload');
+
+    // 2. The practice (or CEO/GP path) later declines the application. The
+    // decline branch only touches gp_applications/ats_stage — it never voids
+    // or otherwise touches the career_contracts row, so the contract is left
+    // sitting in awaiting_upload while the application itself is terminal.
+    const dec = await apiPost('/api/practice/offer/decision', { token: tok, action: 'decline' });
+    expect(dec.status).toBe(200);
+    expect(appRow(APP_DECLINE_AFTER_OFFER).status).toBe('not_proceeding');
+    expect(db.career_contracts.find((c) => c.id === contractId).status).toBe('awaiting_upload');
+
+    // 3. Application-scoped context (the post-interview token) must report the
+    // application-terminal state, NOT 'upload' — a declined application can
+    // never be sent back into the upload flow.
+    const ctxByApp = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(tok));
+    expect(ctxByApp.status).toBe(200);
+    expect(ctxByApp.body.state).not.toBe('upload');
+    expect(ctxByApp.body.state).toBe('done');
+
+    // 4. Contract-scoped context (the upload token minted before the decline)
+    // must agree — the same terminal application must not resolve to
+    // 'upload' just because a different token addresses the contract row
+    // directly.
+    const ctxByContract = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(uploadToken));
+    expect(ctxByContract.status).toBe(200);
+    expect(ctxByContract.body.state).not.toBe('upload');
   });
 
   it('extend_offer: creates an awaiting_upload v1 contract and is idempotent (same contract on repeat)', async () => {

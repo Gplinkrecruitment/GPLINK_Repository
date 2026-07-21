@@ -37714,8 +37714,18 @@ async function handleApi(req, res, pathname) {
     }
 
     const poRoleTitle = await careerRoleTitleForApplication(poCtx.careerRoleId);
+    // Application-terminal check runs BEFORE the contract-state branch below.
+    // A contract can be left sitting in 'awaiting_upload' after the
+    // application itself moved to a terminal state (declined post-extend, or
+    // secured through another path) — without this the contract-state branch
+    // would still report 'upload', letting a stale link keep driving an
+    // upload flow for an application that is no longer active.
+    const poStatusKey = normalizeCareerApplicationStatusKey(poCtx.app.status);
+    const poAppTerminal = poStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(poStatusKey);
     let poState = 'done', poContractId, poUploadToken;
-    if (poCu) {
+    if (poAppTerminal) {
+      poState = 'done';
+    } else if (poCu) {
       // Contract-scoped: state is read straight off the contract row.
       if (String(poContract.status) === 'awaiting_upload') {
         poState = 'upload'; poContractId = poContract.id; poUploadToken = mintContractUploadToken(poContract.id);
@@ -37723,16 +37733,13 @@ async function handleApi(req, res, pathname) {
     } else {
       // Application-scoped: no contract → decide; latest non-void awaiting_upload
       // → upload; anything else → done. A terminal application (declined /
-      // secured) with no contract reads as 'done', NOT 'decide' — so a declined
-      // offer can never be re-extended from a stale post-interview link.
+      // secured) is already handled above and never reaches here — so a
+      // declined offer can never be re-extended from a stale post-interview link.
       const poContracts = (await listCareerContractsForApplication(poAppId)).filter((c) => String(c.status) !== 'void');
-      const poStatusKey = normalizeCareerApplicationStatusKey(poCtx.app.status);
       if (poContracts.length) {
         if (String(poContracts[0].status) === 'awaiting_upload') {
           poState = 'upload'; poContractId = poContracts[0].id; poUploadToken = mintContractUploadToken(poContracts[0].id);
         }
-      } else if (poStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(poStatusKey)) {
-        poState = 'done';
       } else {
         poState = 'decide';
       }
@@ -37782,6 +37789,15 @@ async function handleApi(req, res, pathname) {
     const odNowIso = new Date().toISOString();
 
     if (odAction === 'extend_offer') {
+      // Terminal-state guard: withdrawn is already refused above. Also refuse
+      // an application the practice already declined (not_proceeding) or one
+      // that already secured a placement — a stale/replayed extend-offer link
+      // must never mint a new contract on top of a closed application.
+      const odStatusKey = normalizeCareerApplicationStatusKey(odApp.status);
+      if (odStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(odStatusKey)) {
+        sendJson(res, 409, { ok: false, code: 'not_available', message: 'This application is no longer active.' });
+        return;
+      }
       // Idempotent: an existing live (awaiting_upload) contract is returned with
       // a FRESH upload token — never a duplicate row. A double-click is safe.
       const odExisting = (await listCareerContractsForApplication(odAppId)).filter((c) => String(c.status) !== 'void');
@@ -64097,6 +64113,11 @@ async function handleRequest(req, res) {
     // email's Approve / Turn down buttons — token-authed in the URL, no
     // session. Same exemption shape as practice-intake.html above.
     pathname === '/pages/practice-decision.html' ||
+    // Task 10: public extend-offer / decline landing page reached from the
+    // post-interview decision email's links — token-authed in the URL (its
+    // own fetches carry ?token= to /api/practice/offer/*), no session. Same
+    // exemption shape as practice-decision.html directly above.
+    pathname === '/pages/practice-offer.html' ||
     // D2: read-only practice status page — token-authed by the ?token= its
     // own fetch sends to /api/practice/status (same public model as intake).
     pathname === '/pages/practice-status.html' ||
