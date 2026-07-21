@@ -400,10 +400,19 @@ describe('email transport resilience — a Resend outage must never fail the req
   });
 });
 
+// Availability windows must be in the FUTURE — the endpoint rejects past
+// dates. These were hardcoded as '2026-07-20'/'2026-07-21' and started
+// failing the moment that date passed. Derive them instead so the suite
+// cannot expire again.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const futureDate = (daysAhead) => new Date(Date.now() + daysAhead * DAY_MS).toISOString().slice(0, 10);
+const SOON = futureDate(7);
+const SOON_PLUS_1 = futureDate(8);
+
 describe('POST /api/practice/application/availability', () => {
   it('409s when the application has not been approved yet', async () => {
     const res = await httpReq('POST', '/api/practice/application/availability', {
-      body: { token: 'tok-test-ghi789', windows: [{ date: '2026-07-20', fromMin: 540, toMin: 1020 }] }
+      body: { token: 'tok-test-ghi789', windows: [{ date: SOON, fromMin: 540, toMin: 1020 }] }
     });
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ ok: false, code: 'not_approved' });
@@ -411,7 +420,7 @@ describe('POST /api/practice/application/availability', () => {
 
   it('404s on a bad token', async () => {
     const res = await httpReq('POST', '/api/practice/application/availability', {
-      body: { token: 'nope', windows: [{ date: '2026-07-20', fromMin: 540, toMin: 1020 }] }
+      body: { token: 'nope', windows: [{ date: SOON, fromMin: 540, toMin: 1020 }] }
     });
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ ok: false, code: 'not_found' });
@@ -427,7 +436,7 @@ describe('POST /api/practice/application/availability', () => {
 
   it('rejects fromMin === toMin (zero-length window)', async () => {
     const res = await httpReq('POST', '/api/practice/application/availability', {
-      body: { token: 'tok-test-abc123', windows: [{ date: '2026-07-20', fromMin: 600, toMin: 600 }] }
+      body: { token: 'tok-test-abc123', windows: [{ date: SOON, fromMin: 600, toMin: 600 }] }
     });
     expect(res.status).toBe(400);
   });
@@ -441,14 +450,14 @@ describe('POST /api/practice/application/availability', () => {
   });
 
   it('rejects more than 10 windows', async () => {
-    const windows = Array.from({ length: 11 }, (_, i) => ({ date: '2026-07-20', fromMin: i * 10, toMin: i * 10 + 5 }));
+    const windows = Array.from({ length: 11 }, (_, i) => ({ date: SOON, fromMin: i * 10, toMin: i * 10 + 5 }));
     const res = await httpReq('POST', '/api/practice/application/availability', { body: { token: 'tok-test-abc123', windows } });
     expect(res.status).toBe(400);
   });
 
   it('stores windows and flips status to received', async () => {
     const res = await httpReq('POST', '/api/practice/application/availability', {
-      body: { token: 'tok-test-abc123', windows: [{ date: '2026-07-20', fromMin: 540, toMin: 1020 }, { date: '2026-07-21', fromMin: 600, toMin: 900 }] }
+      body: { token: 'tok-test-abc123', windows: [{ date: SOON, fromMin: 540, toMin: 1020 }, { date: SOON_PLUS_1, fromMin: 600, toMin: 900 }] }
     });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, windowsSaved: 2 });
