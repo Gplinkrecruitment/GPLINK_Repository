@@ -104,6 +104,7 @@
   const COUNTRY_DOCS = {
     GB: [
       { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
+      { key: "cct_cert", label: "CCT Certificate", type: "CCT Certificate" },
       { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
     ],
     IE: [
@@ -791,17 +792,28 @@
     });
   }
 
-  // After both docs are scanned, confirm the names align with each other and with the account.
+  // After docs are scanned, confirm the names align with each other and with the account.
+  // Countries can require more than one specialist document (UK: MRCGP + CCT), so each
+  // non-degree document is checked pairwise against the primary medical degree with the
+  // same logic that always applied to the single specialist certificate.
   function crossDocNameCheck() {
     var docs = COUNTRY_DOCS[state.country] || [];
-    var specialistKey = docs.find(function (d) { return d.key !== "primary_med_degree"; });
+    var specialistDocs = docs.filter(function (d) { return d.key !== "primary_med_degree"; });
     var medDegreeKey = docs.find(function (d) { return d.key === "primary_med_degree"; });
-    if (!specialistKey || !medDegreeKey) return;
+    if (!specialistDocs.length || !medDegreeKey) return;
 
-    var specDoc = state.qualDocs[specialistKey.key];
     var medDoc = state.qualDocs[medDegreeKey.key];
-    if (!specDoc || !medDoc) return;
+    if (!medDoc) return;
 
+    specialistDocs.forEach(function (specialistKey) {
+      var specDoc = state.qualDocs[specialistKey.key];
+      if (specDoc) crossDocNameCheckPair(specDoc, medDoc);
+    });
+  }
+
+  // The original single-pair check: one specialist certificate vs the primary medical
+  // degree. Statuses on BOTH documents may be updated by each pass.
+  function crossDocNameCheckPair(specDoc, medDoc) {
     // Both need to be verified or verified_name_pending
     var specOk = specDoc.status === "verified" || specDoc.status === "verified_name_pending";
     var medOk = medDoc.status === "verified" || medDoc.status === "verified_name_pending";
@@ -1241,6 +1253,7 @@
 
   function getOnboardingDocumentStorageKey(docKey) {
     if (docKey === "primary_med_degree") return "onboarding_primary_med_degree";
+    if (docKey === "cct_cert") return "onboarding_cct_certificate";
     return "onboarding_specialist_qualification";
   }
 
@@ -1250,7 +1263,10 @@
     if (storageKey === "onboarding_primary_med_degree") {
       return (docs.find(function (d) { return d.key === "primary_med_degree"; }) || {}).key || "primary_med_degree";
     }
-    var specialist = docs.find(function (d) { return d.key !== "primary_med_degree"; });
+    if (storageKey === "onboarding_cct_certificate") {
+      return (docs.find(function (d) { return d.key === "cct_cert"; }) || {}).key || null;
+    }
+    var specialist = docs.find(function (d) { return d.key !== "primary_med_degree" && d.key !== "cct_cert"; });
     return specialist ? specialist.key : null;
   }
 
@@ -1261,6 +1277,9 @@
     if (docs.some(function (d) { return d.key === raw; })) return raw;
     if (raw === "primary_medical_degree" || raw === "onboarding_primary_med_degree") {
       return getWizardKeyForStorageKey("onboarding_primary_med_degree", country);
+    }
+    if (raw === "cct_certificate" || raw === "onboarding_cct_certificate") {
+      return getWizardKeyForStorageKey("onboarding_cct_certificate", country);
     }
     if (raw === "specialist_qualification" || raw === "onboarding_specialist_qualification") {
       return getWizardKeyForStorageKey("onboarding_specialist_qualification", country);

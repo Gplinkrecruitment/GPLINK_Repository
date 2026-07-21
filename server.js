@@ -6357,6 +6357,7 @@ const INSTITUTION_DOCUMENT_KEYS = new Set(
 const OFFER_DOCUMENT_KEYS = new Set(['offer_contract']);
 const ONBOARDING_DOCUMENT_KEYS = new Set([
   'onboarding_specialist_qualification',
+  'onboarding_cct_certificate',
   'onboarding_primary_med_degree'
 ]);
 const ACCOUNT_CAREER_DOCUMENT_COUNTRY = 'AU';
@@ -25815,7 +25816,8 @@ var QUALIFICATION_DOC_KEYS = new Set([
   // receives onboarding qualification uploads under these keys, so they must take
   // the qualification branch — otherwise a flagged onboarding cert would also get
   // a generic doc_review task (a cross-type duplicate of the flagged_doc task).
-  'onboarding_primary_med_degree', 'onboarding_specialist_qualification'
+  'onboarding_primary_med_degree', 'onboarding_specialist_qualification',
+  'onboarding_cct_certificate'
 ]);
 
 function getDocumentLabelForKey(key) {
@@ -25845,6 +25847,8 @@ function getDocumentLabelForKey(key) {
     confirmation_of_training: 'Confirmation of Training',
     specialist_qualification: 'Specialist Qualification',
     onboarding_specialist_qualification: 'Specialist Qualification',
+    cct_certificate: 'CCT Certificate',
+    onboarding_cct_certificate: 'CCT Certificate',
     onboarding_primary_med_degree: 'Primary Medical Degree'
   };
   return labels[normalizedKey] || '';
@@ -25871,7 +25875,12 @@ function canonicalQualKey(key) {
     micgp_cert: 'specialist_qualification',
     frnzcgp_cert: 'specialist_qualification',
     cscst_cert: 'specialist_qualification',
-    onboarding_specialist_qualification: 'specialist_qualification'
+    onboarding_specialist_qualification: 'specialist_qualification',
+    // UK CCT: its own canonical key (NOT specialist_qualification — the UK collects
+    // BOTH an MRCGP and a CCT during onboarding, and collapsing them would make one
+    // overwrite/dedupe the other in review + My Documents).
+    cct_cert: 'cct_certificate',
+    onboarding_cct_certificate: 'cct_certificate'
   };
   return map[k] || key;
 }
@@ -25880,7 +25889,8 @@ function canonicalQualKey(key) {
 var ONBOARDING_QUAL_KEYS = new Set([
   'primary_med_degree', 'onboarding_primary_med_degree', 'primary_medical_degree',
   'mrcgp_cert', 'micgp_cert', 'frnzcgp_cert', 'cscst_cert',
-  'onboarding_specialist_qualification', 'specialist_qualification'
+  'onboarding_specialist_qualification', 'specialist_qualification',
+  'cct_cert', 'onboarding_cct_certificate', 'cct_certificate'
 ]);
 
 // Recognises any qualification document key across all capture-flow spellings.
@@ -25899,6 +25909,7 @@ function isQualificationDocKey(key) {
 var CERTIFICATION_REQUIRED_DOC_KEYS = new Set([
   'primary_medical_degree', 'onboarding_primary_med_degree',
   'specialist_qualification', 'onboarding_specialist_qualification',
+  'cct_certificate', 'onboarding_cct_certificate',
   'mrcgp', 'mrcgp_certified', 'cct', 'cct_certified',
   'micgp', 'micgp_certified', 'cscst', 'cscst_certified', 'frnzcgp', 'frnzcgp_certified'
 ]);
@@ -26387,7 +26398,7 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
         // create a "Review uploaded …" doc_review task. (Non-onboarding prepared-doc
         // uploads fall through to the existing doc_review pipeline so the RSO still
         // reviews those.)
-        if (documentKey === 'onboarding_primary_med_degree' || documentKey === 'onboarding_specialist_qualification') {
+        if (documentKey === 'onboarding_primary_med_degree' || documentKey === 'onboarding_specialist_qualification' || documentKey === 'onboarding_cct_certificate') {
           await autoCloseDocReviewTask(userId, documentKey);
           return;
         }
@@ -32836,7 +32847,7 @@ async function handleApi(req, res, pathname) {
         // everything else falls back to inferStageFromDocKey (AHPRA for quals).
         var rdtStage = (/^onboarding_/.test(String(rdtKey)) ||
           rdtKey === 'primary_med_degree' || rdtKey === 'mrcgp_cert' || rdtKey === 'micgp_cert' ||
-          rdtKey === 'frnzcgp_cert' || rdtKey === 'cscst_cert')
+          rdtKey === 'frnzcgp_cert' || rdtKey === 'cscst_cert' || rdtKey === 'cct_cert')
           ? 'onboarding'
           : inferStageFromDocKey(rdtKey);
         try {
@@ -54022,8 +54033,10 @@ Return ONLY valid JSON with no markdown formatting:
         const ONBOARDING_KEY_FOR_QUAL = {
           primary_medical_degree: 'onboarding_primary_med_degree',
           specialist_qualification: 'onboarding_specialist_qualification',
+          cct_certificate: 'onboarding_cct_certificate',
           onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-          onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+          onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+          onboarding_cct_certificate: 'onboarding_cct_certificate'
         };
         const onboardKey = ONBOARDING_KEY_FOR_QUAL[task.related_document_key];
         if (onboardKey) {
@@ -54089,8 +54102,10 @@ Return ONLY valid JSON with no markdown formatting:
       const ONBOARDING_KEY_FOR_SCAN = {
         primary_medical_degree: 'onboarding_primary_med_degree',
         specialist_qualification: 'onboarding_specialist_qualification',
+        cct_certificate: 'onboarding_cct_certificate',
         onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-        onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+        onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+        onboarding_cct_certificate: 'onboarding_cct_certificate'
       };
       const scObKey = ONBOARDING_KEY_FOR_SCAN[scanDocKey];
       if (scObKey) {
@@ -54212,7 +54227,8 @@ Return ONLY valid JSON with no markdown formatting:
       // Locate the GP's stored file (original onboarding upload) to attach to the record.
       const ONBOARDING_KEY_FOR_QUAL = {
         primary_medical_degree: 'onboarding_primary_med_degree',
-        specialist_qualification: 'onboarding_specialist_qualification'
+        specialist_qualification: 'onboarding_specialist_qualification',
+        cct_certificate: 'onboarding_cct_certificate'
       };
       let rfFileUrl = '';
       const rfObKey = ONBOARDING_KEY_FOR_QUAL[rfTask.related_document_key];
@@ -54452,8 +54468,10 @@ Return ONLY valid JSON with no markdown formatting:
     const GDP_ONBOARDING = {
       primary_medical_degree: 'onboarding_primary_med_degree',
       specialist_qualification: 'onboarding_specialist_qualification',
+      cct_certificate: 'onboarding_cct_certificate',
       onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-      onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+      onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+      onboarding_cct_certificate: 'onboarding_cct_certificate'
     };
     const gdpObKey = GDP_ONBOARDING[gdpKey];
     if (gdpObKey) {
@@ -57437,7 +57455,8 @@ Return ONLY valid JSON with no markdown formatting:
     // lives on the onboarding_* row; otherwise on the key itself.
     const RDR_ONBOARDING_KEY = {
       primary_medical_degree: 'onboarding_primary_med_degree',
-      specialist_qualification: 'onboarding_specialist_qualification'
+      specialist_qualification: 'onboarding_specialist_qualification',
+      cct_certificate: 'onboarding_cct_certificate'
     };
     const rdrObKey = RDR_ONBOARDING_KEY[rdrKey] || '';
     let rdrRow = null;
