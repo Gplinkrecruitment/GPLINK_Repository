@@ -98,9 +98,6 @@
     };
   });
 
-  const SUPPORTED_COUNTRY_CODES = {};
-  COUNTRIES.forEach(function (c) { SUPPORTED_COUNTRY_CODES[c.code] = true; });
-
   const COUNTRY_DOCS = {
     GB: [
       { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
@@ -203,34 +200,78 @@
     return '<li data-code="' + c.code + '"' + cls + '><span class="country-flag">' + c.flag + "</span> " + escHtml(c.name) + "</li>";
   }
 
-  // The full list is ~200 rows and re-renders on every keystroke, so this
-  // builds one HTML string and assigns innerHTML once; clicks are handled by a
-  // single delegated listener on the UL (below), no per-row listeners.
+  // Picker mode, module-level on purpose (never persisted; a reload always
+  // starts back in "default"). "default" shows ONLY the three supported
+  // countries plus a "Somewhere else" row; "other" is the search-the-whole-
+  // world mode that row switches into.
+  let countryPickerMode = "default";
+  const DEFAULT_COUNTRY_PLACEHOLDER = countrySearch ? (countrySearch.placeholder || "Select your country") : "Select your country";
+  const OTHER_COUNTRY_PLACEHOLDER = "Search for your country…";
+
+  // Re-renders on every keystroke, so this builds one HTML string and assigns
+  // innerHTML once; clicks are handled by a single delegated listener on the
+  // UL (below), no per-row listeners.
   function renderCountryList(filter) {
     const q = (filter || "").toLowerCase().trim();
-    // Supported countries always come first; the rest of the world follows
-    // alphabetically. With a filter, substring-match across ALL countries.
-    const supported = q ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q)) : COUNTRIES;
-    const others = ALL_COUNTRIES.filter((c) => !SUPPORTED_COUNTRY_CODES[c.code] && (!q || c.name.toLowerCase().includes(q)));
     let html = "";
-    if (supported.length) {
-      if (!q) html += '<li class="country-group-label">Supported today</li>';
-      html += supported.map(countryRowHtml).join("");
+    if (countryPickerMode === "other") {
+      // OTHER-COUNTRY SEARCH mode: a Back row first, then live matches across
+      // ALL countries. The supported three are included in results too, so a
+      // GP who types "United Ki" here can still pick the UK and continue down
+      // the normal supported path (delegated handler → selectCountry).
+      html += '<li class="country-back-row" id="countryBackRow"><span class="country-flag">←</span> Back</li>';
+      if (!q) {
+        html += '<li class="country-hint-row">Start typing to search all countries</li>';
+      } else {
+        const matches = ALL_COUNTRIES.filter((c) => c.name.toLowerCase().includes(q));
+        if (matches.length) {
+          html += matches.map(countryRowHtml).join("");
+        } else {
+          html += '<li class="country-hint-row">No countries match “' + escHtml(String(filter || "").trim()) + '”</li>';
+        }
+      }
+      countryList.innerHTML = html;
+      return;
     }
-    if (others.length) {
-      if (!q) html += '<li class="country-group-label">All countries</li>';
-      html += others.map(countryRowHtml).join("");
-    }
-    // Always-visible off-ramp: a GP trained anywhere else is NOT eligible yet,
-    // route them to the "Not yet eligible" waitlist instead of a dead end.
-    html += '<li class="country-not-listed" id="countryNotListed"><span class="country-flag">\u{1F30E}</span> My country isn’t listed</li>';
+    // DEFAULT mode: only the supported three (filtered by the query), plus the
+    // always-visible "Somewhere else" row that opens the search-all mode, a
+    // GP trained anywhere else is routed via that search to the "Not yet
+    // eligible" waitlist instead of a dead end.
+    const supported = q ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q)) : COUNTRIES;
+    html += supported.map(countryRowHtml).join("");
+    html += '<li class="country-not-listed" id="countryNotListed"><span class="country-flag">\u{1F30F}</span> Somewhere else</li>';
     countryList.innerHTML = html;
+  }
+
+  // "Somewhere else" clicked: switch into other-country search (NOT the
+  // waitlist, that only opens once a concrete unsupported country is picked).
+  function enterOtherCountryMode() {
+    countryPickerMode = "other";
+    countrySearch.value = "";
+    countrySearch.placeholder = OTHER_COUNTRY_PLACEHOLDER;
+    renderCountryList("");
+    try { countrySearch.focus(); } catch (e) { /* ignore */ }
+  }
+
+  function exitOtherCountryMode() {
+    countryPickerMode = "default";
+    countrySearch.placeholder = DEFAULT_COUNTRY_PLACEHOLDER;
+    // Restore the confirmed supported pick (if any) rather than leaving an
+    // abandoned search string in the box.
+    const sel = COUNTRIES.find((c) => c.code === state.country);
+    countrySearch.value = sel ? sel.name : "";
+    renderCountryList("");
+    try { countrySearch.focus(); } catch (e) { /* ignore */ }
   }
 
   function selectCountry(c) {
     state.country = c.code;
     // A confirmed supported pick supersedes any earlier unsupported attempt.
     if (state.attemptedCountry) delete state.attemptedCountry;
+    // Selecting a supported country always lands the picker back in default mode
+    // (the GP may have found it via the other-country search).
+    countryPickerMode = "default";
+    countrySearch.placeholder = DEFAULT_COUNTRY_PLACEHOLDER;
     countrySearch.value = c.name;
     renderCountryList("");
     hideError("countryError");
@@ -256,9 +297,13 @@
 
   countryList.addEventListener("click", (e) => {
     const li = e.target && e.target.closest ? e.target.closest("li") : null;
-    if (!li || !countryList.contains(li) || li.classList.contains("country-group-label")) return;
+    if (!li || !countryList.contains(li) || li.classList.contains("country-group-label") || li.classList.contains("country-hint-row")) return;
     if (li.classList.contains("country-not-listed")) {
-      openEligibilityOfframp(countrySearch.value || "");
+      enterOtherCountryMode();
+      return;
+    }
+    if (li.classList.contains("country-back-row")) {
+      exitOtherCountryMode();
       return;
     }
     const code = li.getAttribute("data-code");
@@ -442,9 +487,12 @@
       body: JSON.stringify({ state: { gp_eligibility_waitlist: null } }),
     }).catch(() => { /* best effort */ });
     // Don't leave an abandoned unsupported pick sitting in the search box,
-    // restore it to the confirmed supported country (if any) or clear it.
+    // restore it to the confirmed supported country (if any) or clear it, and
+    // drop the picker back into default (supported-only) mode.
+    countryPickerMode = "default";
     const sel = COUNTRIES.find((c) => c.code === state.country);
     if (countrySearch) {
+      countrySearch.placeholder = DEFAULT_COUNTRY_PLACEHOLDER;
       countrySearch.value = sel ? sel.name : "";
       renderCountryList("");
     }
