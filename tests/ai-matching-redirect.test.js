@@ -99,16 +99,25 @@ describe('AI Matching Task 6 — source wiring', () => {
   // ── Review-fix wiring (the two REAL fill paths + hardening) ────────────────
   const candidatesSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
 
-  it('POST /api/career/offer/accept AUTO-fires the fan-out after finalizeInAppPlacement (no flag gate)', () => {
+  it('POST /api/career/offer/accept books the interview and does NOT fan out (Task 5)', () => {
+    // Task 5 (2026-07-21): accepting an offer now accepts the INTERVIEW
+    // INVITATION only. The GP self-accept path must NOT finalize a placement
+    // and must NOT fire the redirect fan-out — a job is only "filled" by the
+    // staff paths once a signed contract lands. The fan-out belongs solely to
+    // /api/ats/placement + the kanban-hired path.
     const idx = serverSrc.indexOf("pathname === '/api/career/offer/accept'");
-    const idxFinalize = serverSrc.indexOf('await finalizeInAppPlacement(acceptTargetApp', idx);
-    const idxFanout = serverSrc.indexOf('redirectOthersForJob(acceptTargetApp.career_role_id, acceptTargetApp.id)', idx);
+    const idxEnd = serverSrc.indexOf("pathname === '/api/career/offer/decline'", idx);
     expect(idx).toBeGreaterThan(-1);
-    expect(idxFinalize).toBeGreaterThan(idx);
-    expect(idxFanout).toBeGreaterThan(idxFinalize); // fires AFTER the placement finalizes
-    // Deliberately NOT gated on redirect_others — the GP accepting IS the fill event.
-    const between = serverSrc.slice(idxFinalize, idxFanout);
-    expect(between).not.toContain('redirect_others');
+    expect(idxEnd).toBeGreaterThan(idx);
+    const handlerSrc = serverSrc.slice(idx, idxEnd);
+    // No placement-finalization CALL and no redirect-fan-out CALL inside the
+    // accept handler (comments may still reference them by name, so match the
+    // invocation syntax, not a bare mention).
+    expect(handlerSrc).not.toMatch(/finalizeInAppPlacement\s*\(/);
+    expect(handlerSrc).not.toMatch(/redirectOthersForJob\s*\(/);
+    // It moves the card to 'interview' and returns the interview-invitation shape.
+    expect(handlerSrc).toContain("planAtsStageReconciliation(acceptTargetApp.ats_stage || '', 'interview')");
+    expect(handlerSrc).toContain('interviewInvitation: true');
   });
 
   it('POST /api/ats/placement fans out only with redirect_others:true, after finalize + audit', () => {
@@ -894,8 +903,8 @@ function seedOfferWorld(prefix, opts) {
   return { jobId, winnerId, winnerAppId, others };
 }
 
-describe('review fix — POST /api/career/offer/accept auto-fires the fan-out (phase 7)', () => {
-  it('GP accepting their offer redirects every other live GP with NO flag needed; the hired GP is untouched by the fan-out', async () => {
+describe('Task 5 — POST /api/career/offer/accept books the interview, never fans out (phase 7)', () => {
+  it('GP accepting the interview invitation redirects NOBODY; every other live GP is untouched', async () => {
     resetDb();
     const w = seedOfferWorld('oa');
     resendCalls.length = 0;
@@ -906,28 +915,28 @@ describe('review fix — POST /api/career/offer/accept auto-fires the fan-out (p
     });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
-    expect(r.body.placement_secured).toBe(true);
-    expect(r.body.redirected).toBe(2);
+    expect(r.body.accepted).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
+    // No placement, no fan-out — the job is not filled by an interview accept.
+    expect(r.body.placement_secured).toBeUndefined();
+    expect(r.body.redirected).toBeUndefined();
 
-    // Others: moved + stamped + emailed.
+    // Others: completely untouched — no redirect, no stamp, no email.
     w.others.forEach((other) => {
       const row = db.gp_applications.find((a) => a.id === other.appId);
-      expect(row.ats_stage).toBe('not_proceeding');
-      expect(row.match_outcome).toBe('position_filled');
-      expect(Array.isArray(row.redirect_alternatives.alternatives)).toBe(true);
-      expect(resendCalls.some((c) => (c.body.to || []).includes(other.email))).toBe(true);
+      expect(['shortlisted', 'interview']).toContain(row.ats_stage); // still in their live lane
+      expect(row.match_outcome).toBeFalsy();
+      expect(row.redirect_alternatives).toBeUndefined();
+      expect(resendCalls.some((c) => (c.body.to || []).includes(other.email))).toBe(false);
     });
 
-    // The accepting GP's own row: hired + placement_secured, never redirected.
+    // The accepting GP's own row: interview booked (status 'interview'), NEVER hired/placed.
     const winnerRow = db.gp_applications.find((a) => a.id === w.winnerAppId);
-    expect(winnerRow.ats_stage).toBe('hired');
-    expect(winnerRow.status).toBe('placement_secured');
+    expect(winnerRow.status).toBe('interview');
+    expect(winnerRow.ats_stage).not.toBe('hired');
     expect(winnerRow.match_outcome).not.toBe('position_filled');
-    expect(winnerRow.redirect_alternatives).toBeUndefined();
-    // No redirect email to the winner (subject check — they DO get other
-    // congrats/notify emails from the placement itself).
-    expect(resendCalls.some((c) =>
-      (c.body.to || []).includes(w.winnerId + '@gplink-test.local') && /An update on/.test(c.body.subject || ''))).toBe(false);
+    // The offer is recorded as accepted.
+    expect(db.ats_offers.find((o) => o.application_id === w.winnerAppId).status).toBe('accepted');
   }, 30000);
 });
 

@@ -18030,12 +18030,16 @@ function isCareerInterviewStatus(value) {
     || normalized === 'interview_confirmed';
 }
 
+// Task 5 (2026-07-21): 'offer_accepted' was REMOVED. Accepting an offer now
+// accepts the INTERVIEW INVITATION only — the application moves to 'interview',
+// not to a secured placement. Placement is secured solely by the staff paths
+// (/api/ats/placement, kanban-hired) once a signed contract lands, and those
+// write 'placement_secured'. Zero prod rows ever carried 'offer_accepted'.
 const SECURED_CAREER_APPLICATION_STATUS_KEYS = new Set([
   'hired',
   'secured',
   'placed',
   'placement_secured',
-  'offer_accepted',
   'contract_signed'
 ]);
 
@@ -30903,6 +30907,24 @@ async function notifyGpOfSelfAcceptedPlacement(userId, applicationId, practiceNa
   ]);
 }
 
+// Task 5 (2026-07-21): the GP has accepted the practice's INTERVIEW INVITATION
+// (POST /api/career/offer/accept). This is NOT a placement — placement is
+// secured later, when a signed contract lands. Point the doctor at booking a
+// time. Mirrors the Promise.all/.catch shape of notifyGpOfSelfAcceptedPlacement;
+// the caller awaits it and only on the FIRST accept (never on a resume).
+async function notifyGpInterviewInvitationAccepted(userId, applicationId) {
+  if (!userId) return;
+  var nextPath = '/pages/secure-interview?applicationId=' + encodeURIComponent(String(applicationId || ''));
+  var title = 'Interview confirmed — pick your time';
+  var body = 'Great news — you\'ve accepted the practice\'s interview invitation. Choose a time that suits you and we\'ll set everything up, including the meeting link.';
+  await Promise.all([
+    pushCareerNotificationToUser(userId, { type: 'success', title: title, body: body }).catch(function () {}),
+    sendPushNotification(userId, { title: title, body: body, data: { type: 'career', action: 'interview_invitation_accepted', url: nextPath } }).catch(function () {}),
+    sendGpNotificationEmail(userId, 'Interview confirmed — pick your time — GP Link', title, body, 'Choose interview time', APP_BASE_URL + nextPath,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(function () {})
+  ]);
+}
+
 // Shared placement finalization (steps 1-8) used by BOTH the GP self-accept
 // (/api/career/offer/accept) and the admin manual "Mark placement secured"
 // (/api/ats/placement) paths. Given an application with an acceptable in-app
@@ -31230,17 +31252,34 @@ async function notifyOfferSenderOfDecision(offer, decision, info) {
   var roleLineHtml = escOfferHtml(jobLabel) + (practiceLabel ? ' at ' + escOfferHtml(practiceLabel) : '');
   var gpLabelHtml = escOfferHtml(gpLabel);
   var accepted = decision === 'accepted';
-  var subject = accepted
-    ? ('🎉 ' + gpLabel + ' accepted the offer for ' + roleLine)
-    : (gpLabel + ' has declined the offer for ' + roleLine);
-  var body = accepted
-    ? (gpLabelHtml + ' has accepted the offer for ' + roleLineHtml + '. The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.')
-    : (gpLabelHtml + ' has let us know they won\'t be taking the offer for ' + roleLineHtml + '. The application stays in the Offer lane so you can follow up, adjust the terms, or withdraw the offer from the ATS.');
+  // Task 5 (2026-07-21): the GP self-accept path now accepts the INTERVIEW
+  // INVITATION only (info.interviewInvitation === true), so this consultant
+  // note must NOT claim a placement. The staff placement path
+  // (finalizeInAppPlacement) passes no such flag and keeps the original
+  // "placement is recorded" wording — that path genuinely secures a placement.
+  var interviewInvitation = accepted && !!details.interviewInvitation;
+  var subject;
+  if (interviewInvitation) {
+    subject = '📅 ' + gpLabel + ' accepted the interview invitation for ' + roleLine;
+  } else if (accepted) {
+    subject = '🎉 ' + gpLabel + ' accepted the offer for ' + roleLine;
+  } else {
+    subject = gpLabel + ' has declined the offer for ' + roleLine;
+  }
+  var body;
+  if (interviewInvitation) {
+    body = gpLabelHtml + ' has accepted the interview invitation for ' + roleLineHtml
+      + '. They\'ll now choose an interview time so the practice can meet them — we\'ll confirm the details and send the meeting link. The placement is secured later, once the signed contract lands.';
+  } else if (accepted) {
+    body = gpLabelHtml + ' has accepted the offer for ' + roleLineHtml + '. The application has moved to Hired and their placement is now recorded — the registration steps that depend on a secured placement have been unlocked for them.';
+  } else {
+    body = gpLabelHtml + ' has let us know they won\'t be taking the offer for ' + roleLineHtml + '. The application stays in the Offer lane so you can follow up, adjust the terms, or withdraw the offer from the ATS.';
+  }
   await sendEmail({
     to: to,
     subject: subject,
     html: buildCareerEmailHtml({
-      title: accepted ? 'Offer accepted' : 'Offer declined',
+      title: interviewInvitation ? 'Interview invitation accepted' : (accepted ? 'Offer accepted' : 'Offer declined'),
       body: body,
       footer: 'You\'re receiving this because you sent this offer from the GP Link ATS.'
     })
@@ -38023,39 +38062,40 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // ── In-app offer: accepting completes the placement ──
-    // ('sent' → fresh acceptance; 'accepted' with an unfinished placement →
-    // resume). The full 8-step finalization is shared with the admin manual
-    // "Mark placement secured" path (/api/ats/placement) via this helper so the
-    // two can never drift; notifications fire exactly once (sent→accepted only).
-    await finalizeInAppPlacement(acceptTargetApp, acceptOffer, acceptUserId, acceptEmail, { isResume: acceptIsResume });
-
-    // AI Matching (Task 6): the GP accepting their official offer IS the
-    // definitive fill event (spec §8: a job filled "by ANY path" redirects
-    // everyone else) — AUTO-FIRED here, no confirm dialog, because no staff
-    // member is present to answer one. Safe on a resume too:
-    // redirectOthersForJob's live-stage SELECT + conditional PATCH skip rows
-    // already not_proceeding, so nobody is ever emailed twice. Own try/catch
-    // — a fan-out failure must never fail the GP's own acceptance.
-    let acceptRedirected = 0;
-    try {
-      const acceptRedirectRes = await redirectOthersForJob(acceptTargetApp.career_role_id, acceptTargetApp.id);
-      acceptRedirected = (acceptRedirectRes && acceptRedirectRes.redirected) || 0;
-      if (acceptRedirected > 0) {
-        console.log('[offer-accept] redirected ' + acceptRedirected + ' other GP(s) off job ' + acceptTargetApp.career_role_id);
-      }
-    } catch (acceptRedirectErr) {
-      console.error('[offer-accept] redirect fan-out failed for job', acceptTargetApp.career_role_id, ':', acceptRedirectErr && acceptRedirectErr.message);
+    // ── In-app offer: accepting books the INTERVIEW — never a placement ──
+    // Task 5 (2026-07-21): a real GP (Helen) tapped "Accept" thinking she was
+    // accepting an INTERVIEW invitation and was instantly PLACED. The owner has
+    // mandated: accepting here accepts the interview invitation ONLY. Placement
+    // is secured later, when a signed contract lands (career_contracts flow;
+    // built in a later task). So this path deliberately does NOT call
+    // finalizeInAppPlacement and does NOT fan out a job-fill redirect — those
+    // stay on the STAFF paths (/api/ats/placement, kanban-hired). It only:
+    // flips the offer to accepted, moves the card forward to 'interview'
+    // (forward-only — a card already at/past interview is left where it is),
+    // sets gp_applications.status = 'interview', and notifies (once, on the
+    // fresh accept only) the GP + the offer sender.
+    var acceptNowIso = new Date().toISOString();
+    var acceptedOffer = acceptIsResume
+      ? acceptOffer
+      : ((await atsOffersStore.updateAtsOfferStatus(String(acceptTargetApp.id), 'accepted', { responded_at: acceptNowIso }))
+        || Object.assign({}, acceptOffer, { status: 'accepted', responded_at: acceptNowIso }));
+    var invStage = atsPracticeUtil.planAtsStageReconciliation(acceptTargetApp.ats_stage || '', 'interview');
+    if (invStage) {
+      try { await atsUpdateApplicationStageRow(acceptTargetApp.id, invStage, undefined, acceptEmail || 'gp_accept_invitation'); }
+      catch (e) { console.error('[invite-accept] stage move failed:', e && e.message); }
     }
-
-    sendJson(res, 200, {
-      ok: true,
-      applicationId: String(acceptTargetApp.id),
-      ats_stage: acceptNextStage ? 'hired' : (acceptStoredStage || 'hired'),
-      advanced: !!acceptNextStage,
-      placement_secured: true,
-      redirected: acceptRedirected
-    });
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(acceptTargetApp.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'interview', updated_at: acceptNowIso }
+      });
+    } else {
+      acceptTargetApp.status = 'interview'; acceptTargetApp.updated_at = acceptNowIso; saveDbState();
+    }
+    if (!acceptIsResume) {
+      try { await notifyGpInterviewInvitationAccepted(acceptUserId, acceptTargetApp.id); } catch (e) {}
+      try { await notifyOfferSenderOfDecision(acceptedOffer, 'accepted', { interviewInvitation: true }); } catch (e) {}
+    }
+    sendJson(res, 200, { ok: true, accepted: true, interviewInvitation: true });
     return;
   }
 

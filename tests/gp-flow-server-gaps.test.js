@@ -273,39 +273,42 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('G6 — GP congratulated on in-app self-accept', () => {
-  it('accepts the offer, secures the placement, and emails the GP once', async () => {
-    const before = secured().length;
-    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-gap-1' });
-    expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
-    expect(r.body.placement_secured).toBe(true);
+describe('G6 — GP told the interview is confirmed on in-app self-accept', () => {
+  // Task 5 (2026-07-21): accepting an offer accepts the INTERVIEW INVITATION
+  // only — no placement, so no "placement is secured" GP email and no practice
+  // "placement confirmed" email. The GP is told to pick an interview time.
+  const interviewConfirm = () => gpEmails((s) => /interview confirmed/i.test(s));
 
-    // Exactly one "placement is secured" email to the GP.
-    expect(secured().length - before).toBe(1);
-    const email = secured().slice(-1)[0];
-    // Real practice name is fine post-accept (identity is revealed).
-    expect(String(email.body.subject)).toMatch(/placement is secured/i);
-
-    // D1a: the practice gets exactly one placement confirmation too — real
-    // doctor name (identity revealed at placement) + the commencement date.
-    expect(practiceConfirm().length).toBe(1);
-    const pMail = practiceConfirm()[0];
-    expect(String(pMail.body.subject)).toContain('Dr Gap Doctor');
-    expect(String(pMail.body.html)).toContain('Dr Gap Doctor');
-    expect(String(pMail.body.html)).toContain('has confirmed the placement');
-    // offer-gap-1 start_date 2026-09-01 → formatted commencement line.
-    expect(String(pMail.body.text)).toContain('1 September 2026');
-  });
-
-  it('does NOT re-send the GP congratulation on an idempotent repeat accept', async () => {
-    const before = secured().length;
+  it('accepts the interview invitation and emails the GP once — never a placement', async () => {
+    const beforeInterview = interviewConfirm().length;
+    const beforeSecured = secured().length;
     const beforePractice = practiceConfirm().length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-gap-1' });
     expect(r.status).toBe(200);
-    expect(r.body.placement_secured).toBe(true);
-    expect(secured().length).toBe(before); // no second email
-    expect(practiceConfirm().length).toBe(beforePractice); // practice not re-emailed either (D1a)
+    expect(r.body.ok).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
+    expect(r.body.placement_secured).toBeUndefined();
+
+    // The application books the interview — status 'interview', never secured.
+    const app = db.gp_applications.find((a) => a.id === 'app-gap-1');
+    expect(app.status).toBe('interview');
+    expect(db.ats_offers.find((o) => o.application_id === 'app-gap-1').status).toBe('accepted');
+
+    // Exactly one "interview confirmed" email to the GP — and NO placement email.
+    expect(interviewConfirm().length - beforeInterview).toBe(1);
+    const email = interviewConfirm().slice(-1)[0];
+    expect(String(email.body.subject)).toMatch(/interview confirmed/i);
+    expect(secured().length).toBe(beforeSecured); // never a "placement is secured" email
+    // The practice is NOT sent a placement confirmation (no placement happened).
+    expect(practiceConfirm().length).toBe(beforePractice);
+  });
+
+  it('does NOT re-send the GP email on an idempotent repeat accept', async () => {
+    const beforeInterview = interviewConfirm().length;
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-gap-1' });
+    expect(r.status).toBe(200);
+    expect(r.body.interviewInvitation).toBe(true);
+    expect(interviewConfirm().length).toBe(beforeInterview); // no second email
   });
 });
 

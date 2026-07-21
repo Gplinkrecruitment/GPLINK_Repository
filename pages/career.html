@@ -12413,7 +12413,7 @@
       } else if (isOfferDeclined) {
         metaLine = "You declined this offer.";
       } else if (isOffer) {
-        metaLine = "The practice would like to move forward \u2014 review your offer and schedule the interview.";
+        metaLine = "The practice wants to interview you \u2014 confirm your interview time.";
       } else if (isInterview) {
         metaLine = "Interview scheduled \u2014 your Registration Support Officer will join you, so you're never in the room alone.";
       } else if (isSubmittedToPractice) {
@@ -12426,7 +12426,7 @@
 
       let statusAction = "";
       if (isOffer) {
-        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review offer \u2192</a>';
+        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review invitation \u2192</a>';
       } else if (isInterview) {
         // ONE short CTA \u2014 the foot is a single non-wrapping flex row, so a
         // second nowrap link overflowed the card on mobile (clipping the card

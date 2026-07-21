@@ -121,7 +121,10 @@ const db = {
     { id: 'app-9', user_id: GP4.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
     { id: 'app-11', user_id: GP4.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
     // Fallback fixture: GP5's single offer-lane application (no applicationId in the POST).
-    { id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW }
+    { id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW },
+    // Task 5: staff "Mark placement secured" fixture — proves /api/ats/placement
+    // STILL finalizes a real placement (offer 'sent' + offer lane).
+    { id: 'app-staff', user_id: GP3.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'offer', applied_at: NOW }
   ],
   user_documents: [
     // CV so /api/career/apply reaches the already-placed guard. Task 4: the
@@ -142,7 +145,9 @@ const db = {
     { id: 'offer-app9', application_id: 'app-9', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '60 / 40', sessions_per_week: '5', compensation_range: '$290k+ estimated', start_date: '2026-09-07', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
     { id: 'offer-app11', application_id: 'app-11', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '66 / 34', sessions_per_week: '6', compensation_range: '$305k+ estimated', start_date: '2026-09-14', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
     // Live offer for the no-applicationId fallback accept.
-    { id: 'offer-app10', application_id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$340k+ estimated', start_date: '2026-10-05', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+    { id: 'offer-app10', application_id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$340k+ estimated', start_date: '2026-10-05', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    // Live offer for the staff /api/ats/placement finalization test.
+    { id: 'offer-app-staff', application_id: 'app-staff', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   ats_stage_events: [],
   registration_tasks: [],
@@ -438,148 +443,96 @@ describe('offer_contract download fix', () => {
   });
 });
 
-// ── 2. Accept with an in-app offer → placement completes locally ───────────
-describe('POST /api/career/offer/accept — offer record exists', () => {
-  it('completes the placement end-to-end without Zoho', async () => {
+// ── 2. Accept with an in-app offer → books the INTERVIEW, never a placement ─
+// Task 5 (2026-07-21): accepting an offer accepts the INTERVIEW INVITATION
+// only. Placement is secured later, when a signed contract lands. The GP self-
+// accept path must therefore produce ZERO placement side-effects: no kanban
+// 'hired', no placements row, no job fill, no redirect fan-out, no gp_career_
+// state secured write, and no "placement is secured"/"placement confirmed"
+// emails. The heavy placement machinery (finalizeInAppPlacement) now belongs
+// solely to the staff paths (see the staff-placement suite below).
+describe('POST /api/career/offer/accept — books the interview (never a placement)', () => {
+  it('accepts the interview invitation with no placement side-effects', async () => {
     const sendersBefore = senderEmails().length;
+    const placementsBefore = db.placements.length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-1' });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
-    expect(r.body.placement_secured).toBe(true);
-    expect(r.body.ats_stage).toBe('hired');
+    expect(r.body.accepted).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
+    // No placement fields leak into the response.
+    expect(r.body.placement_secured).toBeUndefined();
+    expect(r.body.redirected).toBeUndefined();
 
     // Offer record → accepted with a response timestamp.
     const offer = db.ats_offers.find((o) => o.application_id === 'app-1');
     expect(offer.status).toBe('accepted');
     expect(offer.responded_at).toBeTruthy();
 
-    // gp_applications: the status every legacy consumer keys off + the kanban.
+    // gp_applications: status flips to 'interview', NEVER placement_secured; the
+    // kanban card never lands in the terminal 'hired' lane.
     const app = db.gp_applications.find((a) => a.id === 'app-1');
-    expect(app.status).toBe('placement_secured');
-    expect(app.ats_stage).toBe('hired');
-    const ev = db.ats_stage_events.find((e) => e.application_id === 'app-1' && e.to_stage === 'hired');
-    expect(ev).toBeTruthy();
-    expect(ev.actor).toBe('gp_accept_offer');
+    expect(app.status).toBe('interview');
+    expect(app.ats_stage).not.toBe('hired');
+    expect(db.ats_stage_events.some((e) => e.application_id === 'app-1' && e.to_stage === 'hired')).toBe(false);
 
-    // gp_career_state — the exact Zoho reverse-sync shape.
-    const state = db.user_state.find((s) => s.user_id === GP.userId).state;
-    const career = state.gp_career_state;
-    expect(career.career_secured).toBe(true);
-    const entry = career.applications.find((a) => a.id === 'app-1');
-    expect(entry.status).toBe('placement_secured');
-    expect(entry.isPlacementSecured).toBe(true);
-    expect(entry.provider_role_id).toBe('ats_r1');
+    // ZERO placement side-effects:
+    expect(db.placements.length).toBe(placementsBefore);                            // no placements row
+    expect(db.placements.find((p) => p.application_id === 'app-1')).toBeUndefined();
+    expect(db.career_roles.find((j) => j.id === 'role-1').job_status).toBe('open'); // job NOT filled
+    const otherRow = db.gp_applications.find((a) => a.id === 'app-8');              // other candidate NOT redirected
+    expect(otherRow.ats_stage).toBe('applied');
+    expect(otherRow.match_outcome).toBeFalsy();
+    const state = db.user_state.find((s) => s.user_id === GP.userId).state;          // no secured gp_career_state
+    expect(state.gp_career_state && state.gp_career_state.career_secured).toBeFalsy();
 
-    // Placement payload fields career.html's secured view reads.
-    const placement = entry.placement;
-    expect(placement.practiceName).toBe('Greenslopes Family Medical');
-    expect(placement.roleTitle).toBe('General Practitioner — VR');
-    expect(placement.location).toBe('Brisbane, QLD');
-    expect(placement.statusLabel).toBe('Placement confirmed');
-    expect(placement.startDateIso).toBe('2026-08-03');
-    // Split is always the GP's (majority) share — '70 / 30' → '70%'.
-    const split = placement.quickStats.find((s) => s.label === 'Split');
-    expect(split.value).toBe('70%');
-    expect(placement.compensation.range).toBe('$350k+ estimated');
-    // Case practice_contact takes precedence over the practice record.
-    expect(placement.practiceContact.email).toBe('casey@case-contact.local');
-    expect(placement.practiceContact.name).toBe('Casey Contact');
-    // The delivered contract resolves through the FIXED download path.
-    expect(placement.contractUrl).toContain('/api/prepared-documents/download');
-    expect(placement.contractUrl).toContain('key=offer_contract');
-
-    // Task automation ran (observable effect: practice-pack tasks created).
-    const packTasks = db.registration_tasks.filter((t) => t.case_id === 'case-1' && t.task_type === 'practice_pack_child');
-    expect(packTasks.length).toBeGreaterThanOrEqual(5);
-    expect(packTasks.map((t) => t.related_document_key)).toContain('sppa_00');
-
-    // Placement-of-record row.
-    const placementRow = db.placements.find((p) => p.application_id === 'app-1');
-    expect(placementRow).toBeTruthy();
-    expect(placementRow.status).toBe('active');
-    expect(placementRow.billing_split).toBe('70 / 30');
-    expect(placementRow.placed_by).toBe(SUPER_EMAIL);
-    expect(placementRow.offer_id).toBe(offer.id);
-
-    // Internal job flipped to filled.
-    expect(db.career_roles.find((j) => j.id === 'role-1').job_status).toBe('filled');
-
-    // Exactly ONE email to the offer sender.
-    const senders = senderEmails().slice(sendersBefore);
-    expect(senders.length).toBe(1);
-    expect(String(senders[0].body.subject)).toContain('accepted the offer');
-    expect(String(senders[0].body.subject)).toContain('Test Doctor');
-    // G6: the GP is now congratulated on their own in-app acceptance — exactly
-    // one "placement is secured" email to the GP (previously this was missing;
-    // the practice-accept congrats never fired for in-app self-accept).
-    const gpCongrats = resendCalls.filter((c) => {
+    // The GP gets ONE interview-confirmation email — never a placement-secured one.
+    const gpMail = (matcher) => resendCalls.filter((c) => {
       const to = c.body && c.body.to;
       const toGp = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes(GP.email));
-      return toGp && /placement is secured/i.test(String(c.body && c.body.subject || ''));
+      return toGp && matcher(String(c.body && c.body.subject || ''));
     });
-    expect(gpCongrats.length).toBe(1);
+    expect(gpMail((s) => /interview confirmed/i.test(s)).length).toBe(1);
+    expect(gpMail((s) => /placement is secured/i.test(s)).length).toBe(0);
 
-    // D1a: exactly one placement confirmation to the practice contact
-    // (practices.contact_email via the offer's practice_id) — real doctor name.
+    // NO "placement confirmed" email to the practice contact.
     const practiceConfirms = resendCalls.filter((c) => {
       const to = c.body && c.body.to;
       const toPr = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
       return toPr && /placement confirmed/i.test(String(c.body && c.body.subject || ''));
     });
-    expect(practiceConfirms.length).toBe(1);
-    expect(String(practiceConfirms[0].body.subject)).toContain('Dr Test Doctor');
-    expect(String(practiceConfirms[0].body.html)).toContain('has confirmed the placement');
+    expect(practiceConfirms.length).toBe(0);
 
-    // Case timeline audit entry.
-    const tl = db.task_timeline.find((t) => t.case_id === 'case-1' && /Offer accepted in-app/.test(String(t.title || '')));
-    expect(tl).toBeTruthy();
-
-    // AI Matching (Task 6 review fix): the GP accepting their offer FILLS
-    // role-1, which auto-fires the redirect fan-out — the one other
-    // live-stage row on this job (app-8, 'applied'; all other fixtures sit
-    // in the 'offer' lane, which is not a redirect stage) moves to
-    // not_proceeding/position_filled. This is deliberate cross-fixture
-    // behavior the guardrail suite below must NOT assume away.
-    expect(r.body.redirected).toBe(1);
-    const redirectedRow = db.gp_applications.find((a) => a.id === 'app-8');
-    expect(redirectedRow.ats_stage).toBe('not_proceeding');
-    expect(redirectedRow.match_outcome).toBe('position_filled');
+    // The consultant (offer sender) IS told the doctor accepted the INTERVIEW
+    // INVITATION (not a placement).
+    const senders = senderEmails().slice(sendersBefore);
+    expect(senders.length).toBe(1);
+    expect(String(senders[0].body.subject).toLowerCase()).toContain('interview invitation');
   });
 
   it('repeat accept is idempotent — no new writes, no new emails', async () => {
     const sendersBefore = senderEmails().length;
     const placementsBefore = db.placements.length;
+    const resendBefore = resendCalls.length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-1' });
     expect(r.status).toBe(200);
-    expect(r.body.placement_secured).toBe(true);
-    expect(r.body.advanced).toBe(false);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
+    // The offer is already accepted → no consultant re-email, no new placements
+    // row (there are none), and no new email of any kind.
     expect(senderEmails().length).toBe(sendersBefore);
     expect(db.placements.length).toBe(placementsBefore);
+    expect(resendCalls.length).toBe(resendBefore);
+    expect(db.gp_applications.find((a) => a.id === 'app-1').status).toBe('interview');
   });
 
-  it('the already-placed apply-guard now fires (409 already_placed)', async () => {
-    const r = await gpPost('/api/career/apply', { roleId: 'internal_ats:ats_r1' });
-    expect(r.status).toBe(409);
-    expect(r.body.code).toBe('already_placed');
-  });
-
-  it('the withdraw-block is active for the secured application', async () => {
-    const r = await gpPost('/api/career/application/withdraw', { applicationId: 'app-1' });
-    expect(r.status).toBe(400);
-    expect(String(r.body.message)).toMatch(/secured placement/i);
-  });
-
-  it('/api/career/applications reports the secured status + in-app placement (career.html hydration source)', async () => {
+  it('/api/career/applications reports the interview status — never a secured placement', async () => {
     const r = await gpGet('/api/career/applications');
     expect(r.status).toBe(200);
     const app = r.body.applications.find((a) => String(a.id) === 'app-1');
     expect(app).toBeTruthy();
-    expect(app.status).toBe('placement_secured');
-    expect(app.placement).toBeTruthy();
-    expect(app.placement.practiceName).toBe('Greenslopes Family Medical');
-    expect(app.placement.quickStats.find((s) => s.label === 'Split').value).toBe('70%');
-    expect(app.placement.practiceContact.email).toBe('casey@case-contact.local');
-    expect(app.placement.startDateIso).toBe('2026-08-03');
+    expect(app.status).not.toBe('placement_secured');
+    expect(app.placement).toBeFalsy();   // no secured-placement payload
   });
 });
 
@@ -688,12 +641,10 @@ describe('POST /api/career/offer/accept — guardrails', () => {
   });
 
   it("an application with NO offer cannot be self-hired (404, no writes from THIS call)", async () => {
-    // NOTE (AI Matching Task 6): by the time this suite runs, app-8 is no
-    // longer in its seeded 'applied' state — app-1's in-app acceptance above
-    // filled role-1 and the auto redirect fan-out legitimately moved it to
-    // not_proceeding/position_filled (asserted in that test). The guardrail
-    // under test here is unchanged — this 404 must produce ZERO writes — so
-    // it asserts before/after equality instead of assuming pristine fixtures.
+    // Task 5: app-1's in-app acceptance no longer fans out (accepting books an
+    // interview, not a placement), so app-8 stays pristine 'applied'. The
+    // guardrail is unchanged — this 404 must produce ZERO writes — asserted via
+    // before/after equality so it holds regardless of fixture drift.
     const before = JSON.stringify(db.gp_applications.find((a) => a.id === 'app-8'));
     const eventsBefore = db.ats_stage_events.filter((e) => e.application_id === 'app-8').length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-8' }, GP4);
@@ -708,100 +659,122 @@ describe('POST /api/career/offer/accept — guardrails', () => {
   });
 });
 
-// ── 4c. Resume: offer already 'accepted' but the placement never finished ──
-describe('POST /api/career/offer/accept — resume after a partial first accept', () => {
+// ── 4c. Resume: an already-'accepted' offer re-ensures the interview state ──
+// Task 5: a repeat accept on an offer that is already 'accepted' must never
+// place the doctor — it re-ensures gp_applications.status='interview', never
+// re-emails the consultant (that note fired on the fresh accept), and never
+// writes a placement row.
+describe('POST /api/career/offer/accept — repeat on an already-accepted offer', () => {
   const practiceConfirmCount = () => resendCalls.filter((c) => {
     const to = c.body && c.body.to;
     const toPr = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
     return toPr && /placement confirmed/i.test(String(c.body && c.body.subject || ''));
   }).length;
 
-  it('completes the remaining placement steps WITHOUT re-emailing the consultant', async () => {
+  it('re-ensures the interview state WITHOUT re-emailing the consultant or writing a placement', async () => {
     const sendersBefore = senderEmails().length;
     const practiceBefore = practiceConfirmCount();
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-9' }, GP4);
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
-    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
+    expect(r.body.placement_secured).toBeUndefined();
 
     const app = db.gp_applications.find((a) => a.id === 'app-9');
-    expect(app.status).toBe('placement_secured');
-    expect(app.ats_stage).toBe('hired');
+    expect(app.status).toBe('interview');
+    expect(app.ats_stage).not.toBe('hired');
+    expect(db.ats_offers.find((o) => o.application_id === 'app-9').status).toBe('accepted');
 
-    const state = db.user_state.find((s) => s.user_id === GP4.userId).state;
-    expect(state.gp_career_state.career_secured).toBe(true);
-    const entry = state.gp_career_state.applications.find((a) => a.id === 'app-9');
-    expect(entry.isPlacementSecured).toBe(true);
-    expect(entry.placement.practiceName).toBe('Greenslopes Family Medical');
-
-    // The missing placements row is backfilled — exactly one.
-    expect(db.placements.filter((p) => p.application_id === 'app-9').length).toBe(1);
-
-    // The consultant email belongs to the sent→accepted transition (which
-    // already happened before the crash) — the resume must NOT email again.
+    // No placement row is ever written on the accept path.
+    expect(db.placements.filter((p) => p.application_id === 'app-9').length).toBe(0);
+    // The consultant note + practice confirmation belonged to the fresh accept —
+    // a resume must NOT re-send either.
     expect(senderEmails().length).toBe(sendersBefore);
-    // D1a: the practice confirmation is also tied to the sent→accepted
-    // transition — the resume path must NOT send it (fires exactly once).
     expect(practiceConfirmCount()).toBe(practiceBefore);
   });
 
-  it('a further repeat accept is the plain idempotent early-return', async () => {
+  it('a further repeat accept stays idempotent — interview state, no new emails', async () => {
     const sendersBefore = senderEmails().length;
     const placementsBefore = db.placements.length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-9' }, GP4);
     expect(r.status).toBe(200);
-    expect(r.body.placement_secured).toBe(true);
-    expect(r.body.advanced).toBe(false);
+    expect(r.body.interviewInvitation).toBe(true);
+    expect(db.gp_applications.find((a) => a.id === 'app-9').status).toBe('interview');
     expect(senderEmails().length).toBe(sendersBefore);
     expect(db.placements.length).toBe(placementsBefore);
   });
 
-  it('the placements dedupe guard keeps ONE row when the partial run already inserted it', async () => {
-    // app-11: offer 'accepted' + a placements row already on file, but the
-    // status patch never landed. Resume finishes the placement with no dupe.
+  it('a stray placements row from an OLD partial placement is left untouched (accept never touches placements)', async () => {
+    // app-11: offer 'accepted' + a placements row already on file from a
+    // pre-Task-5 partial placement. The accept path must NOT touch placements —
+    // the stray row simply remains while the application moves to 'interview'.
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-11' }, GP4);
     expect(r.status).toBe(200);
-    expect(r.body.placement_secured).toBe(true);
-    expect(db.gp_applications.find((a) => a.id === 'app-11').status).toBe('placement_secured');
+    expect(r.body.interviewInvitation).toBe(true);
+    expect(db.gp_applications.find((a) => a.id === 'app-11').status).toBe('interview');
     expect(db.placements.filter((p) => p.application_id === 'app-11').length).toBe(1);
   });
 });
 
 // ── 4d. No-applicationId fallback still picks the offer-lane application ───
 describe('POST /api/career/offer/accept — no applicationId in the body', () => {
-  it('accepts the (single) offer-lane application end-to-end', async () => {
+  it('books the interview on the (single) offer-lane application', async () => {
     const sendersBefore = senderEmails().length;
     const r = await gpPost('/api/career/offer/accept', {}, GP5);
     expect(r.status).toBe(200);
-    expect(r.body.applicationId).toBe('app-10');
-    expect(r.body.placement_secured).toBe(true);
-    expect(r.body.ats_stage).toBe('hired');
+    expect(r.body.ok).toBe(true);
+    expect(r.body.accepted).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
 
+    // The fallback resolved GP5's offer-lane app-10 — proven by its state.
     const app = db.gp_applications.find((a) => a.id === 'app-10');
-    expect(app.status).toBe('placement_secured');
-    expect(app.ats_stage).toBe('hired');
+    expect(app.status).toBe('interview');
+    expect(app.ats_stage).not.toBe('hired');
     expect(db.ats_offers.find((o) => o.application_id === 'app-10').status).toBe('accepted');
-    // Fresh sent→accepted transition → exactly one consultant email.
+    expect(db.placements.find((p) => p.application_id === 'app-10')).toBeUndefined();
+    // Fresh accept → exactly one consultant email (the interview-invitation note).
     expect(senderEmails().length).toBe(sendersBefore + 1);
   });
 });
 
-// ── 5. placements table missing → tolerant skip (LAST: cached) ─────────────
-describe('placements migration not applied (tolerant skip)', () => {
-  it('accept still completes; the placements row is skipped, everything else lands', async () => {
+// ── 5. Staff path STILL finalizes the placement (Task 5: unaffected) ───────
+// Proves finalizeInAppPlacement is untouched: /api/ats/placement secures a
+// real placement (offer accepted, status placement_secured, kanban hired,
+// placements row). Runs BEFORE the placements-missing block below (which caches
+// the missing-table determination process-wide).
+describe('POST /api/ats/placement — staff path still finalizes the placement', () => {
+  it('marks the placement secured: offer accepted, status placement_secured, kanban hired, placements row', async () => {
+    const r = await atsPost('/api/ats/placement', { applicationId: 'app-staff' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.ats_stage).toBe('hired');
+
+    const offer = db.ats_offers.find((o) => o.application_id === 'app-staff');
+    expect(offer.status).toBe('accepted');
+    const app = db.gp_applications.find((a) => a.id === 'app-staff');
+    expect(app.status).toBe('placement_secured');
+    expect(app.ats_stage).toBe('hired');
+    // The placement-of-record row the GP accept path deliberately never writes.
+    expect(db.placements.some((p) => p.application_id === 'app-staff' && p.status === 'active')).toBe(true);
+  });
+});
+
+// ── 6. placements table missing — the accept path never queries it ─────────
+// (LAST: the missing-table determination is cached process-wide.)
+describe('placements migration not applied — accept has no placements dependency', () => {
+  it('accept still books the interview even when the placements table is absent', async () => {
     simulateMissingPlacements = true;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-6' }, GP3);
     expect(r.status).toBe(200);
-    expect(r.body.placement_secured).toBe(true);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.interviewInvitation).toBe(true);
 
-    expect(db.placements.find((p) => p.application_id === 'app-6')).toBeUndefined();
     const app = db.gp_applications.find((a) => a.id === 'app-6');
-    expect(app.status).toBe('placement_secured');
-    expect(app.ats_stage).toBe('hired');
-    const offer = db.ats_offers.find((o) => o.application_id === 'app-6');
-    expect(offer.status).toBe('accepted');
-    const state = db.user_state.find((s) => s.user_id === GP3.userId).state;
-    expect(state.gp_career_state.career_secured).toBe(true);
-    expect(state.gp_career_state.applications.find((a) => a.id === 'app-6').placement.quickStats.find((s) => s.label === 'Split').value).toBe('75%');
+    expect(app.status).toBe('interview');
+    expect(app.ats_stage).not.toBe('hired');
+    expect(db.ats_offers.find((o) => o.application_id === 'app-6').status).toBe('accepted');
+    // The accept path writes NO placements row — table absence is irrelevant.
+    expect(db.placements.find((p) => p.application_id === 'app-6')).toBeUndefined();
   });
 });
