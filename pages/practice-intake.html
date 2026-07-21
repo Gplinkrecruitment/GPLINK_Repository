@@ -210,6 +210,17 @@
   .icon.dot::after{content:"";position:absolute;inset:0;margin:auto;width:14px;height:14px;border-radius:50%}
   .icon.dot.warn::after{background:#c0392b}
   .icon.dot.ok::after{background:#12a56f}
+  .steps > div.clickable{cursor:pointer}
+  .steps > div.clickable:hover{background:#eef4ff;color:var(--brand)}
+  .steps > div[aria-disabled="true"]{cursor:default;opacity:.55}
+  .steps > div:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  .vid-up{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:2px 0 10px}
+  .vid-or{font-size:13px;color:var(--ink-3)}
+  .vid-prog{margin:0 0 10px}
+  .vid-bar{height:8px;border-radius:99px;background:#eee3c6;overflow:hidden}
+  .vid-bar span{display:block;height:100%;width:0;background:linear-gradient(90deg,#d8a72a,#b8860b);
+    border-radius:99px;transition:width .25s ease}
+  .vid-stat{font-size:12.5px;color:#6b4c07;margin-top:5px;font-weight:600}
 </style>
 </head>
 <body>
@@ -499,8 +510,18 @@
             <span class="tip">?<span>A short phone video walking through your practice outperforms text by a wide margin. Upload it to YouTube, unlisted is fine, then paste the link.</span></span>
           </label>
           <div class="gold-stat">Practices that include an intro video get up to <b>150% more GP placements</b>.</div>
-          <div class="hint">Sixty seconds filmed on your phone is enough. Walk through the practice, introduce the team, say hello. Upload it to YouTube (unlisted is fine) and paste the link below.</div>
+          <div class="hint">Sixty seconds filmed on your phone is enough. Walk through the practice, introduce the team, say hello.</div>
+          <div class="vid-up">
+            <input type="file" id="introVideoFile" accept="video/mp4,video/quicktime,video/webm,video/x-m4v,video/mpeg,video/3gpp" hidden>
+            <button type="button" class="btn small" id="introVideoPick" data-action="pick-intro-video">Upload a video</button>
+            <span class="vid-or">or paste a link below</span>
+          </div>
+          <div class="vid-prog" id="introVideoProg" hidden>
+            <div class="vid-bar"><span id="introVideoBarFill"></span></div>
+            <div class="vid-stat" id="introVideoStat"></div>
+          </div>
           <input type="url" id="intro_video_url" placeholder="https://youtube.com/your-practice-video">
+          <div class="hint" style="margin-top:6px">Uploads up to 50MB. For anything longer, put it on YouTube (unlisted is fine) and paste the link.</div>
         </div>
       </div>
 
@@ -700,6 +721,15 @@
       .catch(function () { showOnly(somethingWrongPanel); });
   }
   $('retryLoadBtn').addEventListener('click', loadPractice);
+
+  [1, 2, 3, 4, 5].forEach(function (i) {
+    var el = $('st' + i);
+    if (!el) return;
+    el.addEventListener('click', function () { goRail(i); });
+    el.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); goRail(i); }
+    });
+  });
 
   // ---------------------------------------------------------------------
   // Google Maps browser key, fetched once, referrer-locked, safe to expose.
@@ -1196,12 +1226,38 @@
   // ---------------------------------------------------------------------
   // Steps
   // ---------------------------------------------------------------------
+  // Furthest step the practice has legitimately reached. The rail can jump
+  // anywhere up to here, never past it, so gates can't be skipped.
+  var maxStep = 1;
+
+  function paintRail() {
+    [1, 2, 3, 4, 5].forEach(function (i) {
+      var el = $('st' + i);
+      if (!el) return;
+      var reachable = i <= maxStep;
+      el.classList.toggle('clickable', reachable && i !== step);
+      el.setAttribute('aria-disabled', reachable ? 'false' : 'true');
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', reachable ? '0' : '-1');
+      el.title = reachable ? 'Go to step ' + i : 'Finish the current step first';
+    });
+  }
+
+  function goRail(n) {
+    if (n > maxStep) return;          // never skip ahead
+    if (n === step) return;
+    captureCur();
+    go(n);
+  }
+
   function go(n) {
     step = n;
+    if (n > maxStep) maxStep = n;
     [1, 2, 3, 4, 5].forEach(function (i) { $('p' + i).classList.add('hidden'); });
     $('p' + n).classList.remove('hidden');
     [1, 2, 3, 4, 5].forEach(function (i) { $('st' + i).className = i === n ? 'on' : (i < n ? 'done' : ''); });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    paintRail();
     if (n === 1) gate1();
     if (n === 2) gate2();
     if (n === 3) gate3();
@@ -1228,6 +1284,79 @@
     persistSoon();
     var btn = $('useStdInc');
     if (btn) { btn.textContent = 'Added'; btn.disabled = true; }
+  }
+
+  // ---------------------------------------------------------------------
+  // Intro video upload. The file goes STRAIGHT to storage using a
+  // short-lived signed URL, never through our server: Vercel caps a request
+  // body at 4.5MB, so proxying a video would fail for all but the shortest
+  // clips. XHR (not fetch) because only XHR reports upload progress, and a
+  // 50MB file on a clinic connection is a long silent wait otherwise.
+  // ---------------------------------------------------------------------
+  function fmtMB(bytes) { return (bytes / 1048576).toFixed(1) + 'MB'; }
+
+  function setVidStat(text, pct) {
+    var wrap = $('introVideoProg'), fill = $('introVideoBarFill'), stat = $('introVideoStat');
+    if (!wrap) return;
+    wrap.hidden = false;
+    if (stat) stat.textContent = text;
+    if (fill && typeof pct === 'number') fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+
+  function uploadIntroVideo(file) {
+    if (!file) return;
+    var MAX = 50 * 1024 * 1024;
+    if (file.size > MAX) {
+      setVidStat('That video is ' + fmtMB(file.size) + '. The limit is 50MB, so please put it on YouTube (unlisted is fine) and paste the link.', 0);
+      return;
+    }
+    var pick = $('introVideoPick');
+    if (pick) { pick.disabled = true; pick.textContent = 'Uploading...'; }
+    setVidStat('Preparing upload...', 2);
+
+    fetch('/api/practice-intake/video-upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, filename: file.name, contentType: file.type, sizeBytes: file.size })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok && j && j.ok, json: j || {} }; });
+    }).then(function (res) {
+      if (!res.ok) throw new Error(res.json.error || 'Could not start the upload.');
+      return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('PUT', res.json.uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.upload.onprogress = function (ev) {
+          if (!ev.lengthComputable) return;
+          var pct = (ev.loaded / ev.total) * 100;
+          setVidStat('Uploading ' + fmtMB(ev.loaded) + ' of ' + fmtMB(ev.total) + ' (' + Math.round(pct) + '%)', pct);
+        };
+        xhr.onload = function () {
+          if (xhr.status >= 200 && xhr.status < 300) resolve(res.json.publicUrl);
+          else reject(new Error('The upload did not complete. Please try again.'));
+        };
+        xhr.onerror = function () { reject(new Error('The upload failed. Please check your connection and try again.')); };
+        xhr.send(file);
+      });
+    }).then(function (publicUrl) {
+      var urlEl = $('intro_video_url');
+      if (urlEl) urlEl.value = publicUrl;
+      cur.intro_video_url = publicUrl;
+      captureCur();
+      persistSoon();
+      setVidStat('Video uploaded and attached to your listing.', 100);
+      if (pick) { pick.disabled = false; pick.textContent = 'Replace video'; }
+    }).catch(function (e) {
+      setVidStat((e && e.message) || 'Something went wrong with that upload.', 0);
+      if (pick) { pick.disabled = false; pick.textContent = 'Upload a video'; }
+    });
+  }
+
+  var introVideoInput = $('introVideoFile');
+  if (introVideoInput) {
+    introVideoInput.addEventListener('change', function () {
+      if (this.files && this.files[0]) uploadIntroVideo(this.files[0]);
+    });
   }
 
   function showCancel(on) { $('b1').classList.toggle('hidden', !on); $('b2').classList.toggle('hidden', !on); $('b3').classList.toggle('hidden', !on); }
@@ -1693,6 +1822,7 @@
       case 'remove-prac': rmPrac(Number(idx)); break;
       case 'continue-to-agreement': continueToAgreement(); break;
       case 'use-standard-incentives': useStandardIncentives(); break;
+      case 'pick-intro-video': $('introVideoFile').click(); break;
     }
   });
   document.addEventListener('change', function (ev) {

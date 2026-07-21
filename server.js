@@ -36266,6 +36266,68 @@ async function handleApi(req, res, pathname) {
   // (?token=…) with no account/login. GET loads whatever they've saved so
   // far (resumable form); POST validates + saves. Never returns internal ids
   // or any other practice's data — only the four whitelisted display fields.
+  // ── Intro video upload (token-authed, no session) ────────────────────────
+  // Returns a short-lived URL the BROWSER uploads straight to storage with.
+  // The file never passes through this function on purpose: Vercel caps a
+  // request body at 4.5MB, so routing a video through the server would fail
+  // for anything longer than a few seconds.
+  if (pathname === '/api/practice-intake/video-upload-url' && req.method === 'POST') {
+    const vuIp = getClientIp(req);
+    const vuAllowed = await checkRateLimitWindow('practice_video:' + vuIp, 20, 60 * 60 * 1000);
+    if (!vuAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let vuBody;
+    try { vuBody = await readJsonBody(req); }
+    catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+
+    const vuToken = String((vuBody && vuBody.token) || '').trim();
+    if (vuToken.length < 16) { sendJson(res, 404, { ok: false }); return; }
+    const vuPractice = await findPracticeByIntakeToken(vuToken);
+    if (!vuPractice) { sendJson(res, 404, { ok: false }); return; }
+
+    const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'video/mpeg', 'video/3gpp'];
+    const VIDEO_MAX_BYTES = 50 * 1024 * 1024; // matches the storage bucket cap
+
+    const vuType = String((vuBody && vuBody.contentType) || '').trim().toLowerCase();
+    if (VIDEO_TYPES.indexOf(vuType) === -1) {
+      sendJson(res, 400, { ok: false, error: 'That file type is not supported. Please upload an MP4, MOV or WebM video.' });
+      return;
+    }
+    const vuSize = Number(vuBody && vuBody.sizeBytes);
+    if (!Number.isFinite(vuSize) || vuSize <= 0) {
+      sendJson(res, 400, { ok: false, error: 'We could not read that file size.' });
+      return;
+    }
+    if (vuSize > VIDEO_MAX_BYTES) {
+      sendJson(res, 413, {
+        ok: false,
+        error: 'That video is larger than 50MB. Upload it to YouTube (unlisted is fine) and paste the link instead.',
+        maxBytes: VIDEO_MAX_BYTES
+      });
+      return;
+    }
+
+    // Never trust the supplied name for the stored path: derive a safe one and
+    // key it by practice id so two practices can never collide.
+    const vuExtRaw = String((vuBody && vuBody.filename) || '').toLowerCase().match(/\.([a-z0-9]{2,5})$/);
+    const vuExt = vuExtRaw ? vuExtRaw[1] : (vuType === 'video/quicktime' ? 'mov' : 'mp4');
+    const vuPath = String(vuPractice.id) + '/intro-' + Date.now() + '.' + vuExt;
+
+    const vuSigned = await supabaseStorageCreateSignedUploadUrl('practice-intro-videos', vuPath, { upsert: true });
+    if (!vuSigned) {
+      console.error('[practice-intake] could not sign a video upload URL');
+      sendJson(res, 503, { ok: false, error: 'Video uploads are unavailable right now. Please paste a link instead.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      uploadUrl: vuSigned,
+      publicUrl: SUPABASE_URL + '/storage/v1/object/public/practice-intro-videos/' + encodeSupabaseObjectPath(vuPath),
+      maxBytes: VIDEO_MAX_BYTES
+    });
+    return;
+  }
   if (pathname === '/api/practice-intake' && req.method === 'GET') {
     const ip = getClientIp(req);
     const allowed = await checkRateLimitWindow('practice_intake:' + ip, 30, 60 * 60 * 1000);
