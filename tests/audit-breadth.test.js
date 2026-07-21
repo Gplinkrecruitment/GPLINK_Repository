@@ -7,11 +7,18 @@
 //   ats_offer_sent, ats_offer_withdrawn, ats_cv_viewed, ats_consultant_added,
 //   ats_consultant_removed, ats_stage_changed, ats_placement_recorded,
 //   admin_account_status_changed.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+
+// This file's beforeAll dynamically imports the whole server.js (a large
+// module) and boots a real HTTP server + emulator; under full-suite load
+// (many worker files doing the same concurrently) that can occasionally
+// exceed the global 15s testTimeout even though it passes fine in isolation
+// — raise just this file's timeout modestly rather than restructuring it.
+vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-audit-breadth-${RUN_ID}.json`);
