@@ -1382,6 +1382,13 @@
           }
         }
 
+        // Compute terminal state flags early (needed to gate offer card below)
+        var statusKey = normalizeStatusKey(app.rawStatus || app.status);
+        var isSecured = ["hired", "secured", "placed", "placement_secured", "offer_accepted", "contract_signed"].indexOf(statusKey) !== -1;
+        var isWithdrawn = statusKey === "withdrawn";
+        var isClosed = statusKey === "not_proceeding";
+        var isOfferDeclined = statusKey === "offer_declined";
+
         // Offer card — ONLY when the server says a live in-app offer is
         // waiting (offerPending) OR a contract is out for signature
         // (contractStage === 'sent_to_gp'). An offer-ish raw status alone
@@ -1393,7 +1400,7 @@
         // gp_applications.status to 'offer' — it never creates an ats_offers
         // row — so offerPending alone silently missed this state.
         var isContractSent = app.contractStage === 'sent_to_gp';
-        var showOfferCard = app.offerPending === true || isContractSent;
+        var showOfferCard = (app.offerPending === true || isContractSent) && !isSecured && !isWithdrawn && !isClosed && !isOfferDeclined;
         var offerCard = document.getElementById('offerCard');
         if (offerCard) {
           offerCard.style.display = showOfferCard ? 'block' : 'none';
@@ -1411,10 +1418,6 @@
 
         // Withdrawal (wired once; renders can repeat)
         var withdrawBtn = document.getElementById("withdrawBtn");
-        var statusKey = normalizeStatusKey(app.rawStatus || app.status);
-        var isSecured = ["hired", "secured", "placed", "placement_secured", "offer_accepted", "contract_signed"].indexOf(statusKey) !== -1;
-        var isWithdrawn = statusKey === "withdrawn";
-        var isClosed = statusKey === "not_proceeding";
 
         if (!isSecured && !isWithdrawn && !isClosed) {
           withdrawBtn.hidden = false;

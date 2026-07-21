@@ -2042,7 +2042,8 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
   it('application-detail.html shows the offer card with a "Review contract" label when contractStage is sent_to_gp', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
     expect(html).toMatch(/isContractSent = app\.contractStage === 'sent_to_gp'/);
-    expect(html).toMatch(/showOfferCard = app\.offerPending === true \|\| isContractSent/);
+    // showOfferCard must exclude terminal states (withdrawn, not_proceeding, offer_declined, secured) to avoid showing card on withdrawn app with lingering sent_to_gp contract
+    expect(html).toMatch(/showOfferCard = \(app\.offerPending === true \|\| isContractSent\) && !isSecured && !isWithdrawn && !isClosed && !isOfferDeclined/);
     expect(html).toContain("isContractSent ? 'Review contract' : 'Review Offer'");
   });
 
