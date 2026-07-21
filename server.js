@@ -38311,6 +38311,218 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // GET /api/ceo/contracts — Task 12: CEO Contracts queue. Lists every
+  // career_contracts row (uploaded/changes_requested first — they need CEO
+  // attention now — then the rest, newest-created first) with a resolved GP
+  // name, practice/role labels and 1h signed download URLs, so the dashboard
+  // never needs a second round-trip per row. Supabase-only, like the rest of
+  // the contract pipeline (getCareerContractById etc.).
+  if (pathname === '/api/ceo/contracts' && req.method === 'GET') {
+    const ccCtx = requireCeoSession(req, res);
+    if (!ccCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, contracts: [] }); return; }
+
+    const ccRes = await supabaseDbRequest('career_contracts', 'select=*&order=created_at.desc&limit=500');
+    if (!ccRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not load contracts.' }); return; }
+    const ccRows = Array.isArray(ccRes.data) ? ccRes.data.slice() : [];
+
+    // The `order` param above is a no-op against the in-test PostgREST
+    // emulator (it ignores `order`, same as every other career_contracts
+    // helper in this file), so this JS sort is load-bearing, not decorative.
+    const CC_PRIORITY_STATUSES = new Set(['uploaded', 'changes_requested']);
+    ccRows.sort((a, b) => {
+      const ap = CC_PRIORITY_STATUSES.has(String(a.status)) ? 0 : 1;
+      const bp = CC_PRIORITY_STATUSES.has(String(b.status)) ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    });
+
+    // Batch-resolve GP name (user_profiles) + role title/practice name
+    // (career_roles) — same chunked user_id=in.(...) pattern /api/ceo/candidates uses.
+    const ccUserIds = Array.from(new Set(ccRows.map((r) => r.user_id).filter(Boolean)));
+    const ccRoleIds = Array.from(new Set(ccRows.map((r) => r.career_role_id).filter(Boolean)));
+    const ccProfMap = {};
+    for (let cpi = 0; cpi < ccUserIds.length; cpi += 200) {
+      const cpChunk = ccUserIds.slice(cpi, cpi + 200);
+      const cpList = cpChunk.map((id) => '"' + String(id).replace(/"/g, '') + '"').join(',');
+      const cpRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + encodeURIComponent(cpList) + ')&limit=2000');
+      ((cpRes.ok && cpRes.data) || []).forEach((p) => { ccProfMap[p.user_id] = p; });
+    }
+    const ccRoleMap = {};
+    for (let cri = 0; cri < ccRoleIds.length; cri += 200) {
+      const crChunk = ccRoleIds.slice(cri, cri + 200);
+      const crList = crChunk.map((id) => '"' + String(id).replace(/"/g, '') + '"').join(',');
+      const crRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name&id=in.(' + encodeURIComponent(crList) + ')&limit=2000');
+      ((crRes.ok && crRes.data) || []).forEach((r) => { ccRoleMap[r.id] = r; });
+    }
+
+    const ccContracts = await Promise.all(ccRows.map(async (row) => {
+      const prof = ccProfMap[row.user_id] || {};
+      const roleRow = ccRoleMap[row.career_role_id] || {};
+      const gpName = [String(prof.first_name || '').trim(), String(prof.last_name || '').trim()].filter(Boolean).join(' ') || String(prof.email || '').trim();
+      const contractUrl = (row.contract_bucket && row.contract_path)
+        ? (await supabaseStorageCreateSignedUrl(row.contract_bucket, row.contract_path, row.contract_filename || 'contract.pdf')) || ''
+        : '';
+      const signedUrl = (row.signed_bucket && row.signed_path)
+        ? (await supabaseStorageCreateSignedUrl(row.signed_bucket, row.signed_path, row.signed_filename || 'signed-contract.pdf')) || ''
+        : undefined;
+      return {
+        id: row.id,
+        applicationId: row.application_id,
+        gpName: gpName || '',
+        practiceName: roleRow.practice_name || '',
+        roleTitle: roleRow.title || '',
+        version: row.version,
+        status: row.status,
+        ai_review: row.ai_review || null,
+        ai_review_status: row.ai_review_status,
+        change_request: row.change_request || null,
+        uploaded_at: row.uploaded_at || null,
+        contractUrl: contractUrl,
+        signedUrl: signedUrl
+      };
+    }));
+
+    sendJson(res, 200, { ok: true, contracts: ccContracts });
+    return;
+  }
+
+  // POST /api/ceo/contract/decision — Task 12: the CEO either sends an
+  // uploaded contract on to the GP, or bounces it back to the practice for a
+  // fix (which starts a fresh awaiting_upload revision, never mutating the
+  // voided one). Same guard as the rest of the CEO contract endpoints.
+  if (pathname === '/api/ceo/contract/decision' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const cdCtx = requireCeoSession(req, res);
+    if (!cdCtx) return;
+
+    let cdBody;
+    try { cdBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const cdContractId = String((cdBody && cdBody.contractId) || '').trim();
+    const cdAction = String((cdBody && cdBody.action) || '').trim();
+    if (!cdContractId) { sendJson(res, 400, { ok: false, message: 'contractId is required.' }); return; }
+    if (cdAction !== 'submit_to_gp' && cdAction !== 'return_to_practice') {
+      sendJson(res, 400, { ok: false, message: 'action must be "submit_to_gp" or "return_to_practice".' });
+      return;
+    }
+    const cdNote = sanitizeUserString(String((cdBody && cdBody.note) || ''), 4000);
+
+    const cdContract = await getCareerContractById(cdContractId);
+    if (!cdContract) { sendJson(res, 404, { ok: false, message: 'Contract not found.' }); return; }
+    const cdNowIso = new Date().toISOString();
+
+    if (cdAction === 'submit_to_gp') {
+      // Only a freshly-uploaded contract can go to the GP — a voided/signed/
+      // already-sent/awaiting_upload/changes_requested row is refused (409),
+      // so a replayed or double-click submit can never re-fire the GP
+      // notification or re-advance an application that already moved on.
+      if (String(cdContract.status) !== 'uploaded') {
+        sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to submit to the GP.' });
+        return;
+      }
+      const cdPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cdContract.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'sent_to_gp', sent_to_gp_at: cdNowIso, ceo_note: cdNote || null, updated_at: cdNowIso }
+      });
+      if (!cdPatch || !cdPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
+
+      const cdAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(cdContract.application_id) + '&limit=1');
+      const cdApp = (cdAppRes.ok && Array.isArray(cdAppRes.data) && cdAppRes.data[0]) ? cdAppRes.data[0] : null;
+      if (cdApp) {
+        await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(cdApp.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { status: 'offer', updated_at: cdNowIso }
+        });
+        // Kanban -> 'offer' via the same forward-only rule the rest of the
+        // in-app offer flow uses (never yanks a later/terminal lane backwards).
+        const cdTarget = atsPracticeUtil.planAtsStageReconciliation(cdApp.ats_stage || '', 'offer');
+        if (cdTarget) await atsUpdateApplicationStageRow(cdApp.id, cdTarget, undefined, 'ceo_contract_submit_to_gp');
+      }
+
+      // GP notification trio — mirrors notifyGpInterviewInvitationAccepted's
+      // shape (in-app + push + email), deep-linking to the offer review page.
+      const cdGpUserId = cdContract.user_id || (cdApp && cdApp.user_id) || null;
+      if (cdGpUserId) {
+        const cdTitle = 'Your contract is ready to review 📄';
+        const cdBodyMsg = 'Your employment contract is ready. Please review the contract, then sign and upload it, or request changes if something needs to be adjusted.';
+        const cdNextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(cdContract.application_id || ''));
+        await Promise.all([
+          pushCareerNotificationToUser(cdGpUserId, { type: 'success', title: cdTitle, body: cdBodyMsg }).catch(() => {}),
+          sendPushNotification(cdGpUserId, { title: cdTitle, body: cdBodyMsg, data: { type: 'career', action: 'contract_ready', url: cdNextPath } }).catch(() => {}),
+          sendGpNotificationEmail(cdGpUserId, cdTitle + ' — GP Link', cdTitle, cdBodyMsg, 'Review your contract', APP_BASE_URL + cdNextPath,
+            'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
+        ]);
+      }
+
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // action === 'return_to_practice' — only a contract the CEO has actually
+    // seen can be bounced back; awaiting_upload/sent_to_gp/practice_review/
+    // signed/void rows are refused (409).
+    if (String(cdContract.status) !== 'uploaded' && String(cdContract.status) !== 'changes_requested') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract cannot be returned to the practice.' });
+      return;
+    }
+    const cdVoidPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cdContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'void', updated_at: cdNowIso }
+    });
+    if (!cdVoidPatch || !cdVoidPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
+
+    // New awaiting_upload row, version = 1 + max(existing across ALL rows,
+    // incl. void) — same "never collides" rule Task 10's extend_offer branch
+    // uses, copying the practice contact fields across to the new revision.
+    const cdAll = await listCareerContractsForApplication(cdContract.application_id);
+    const cdMaxV = cdAll.reduce((m, c) => Math.max(m, Number(c.version) || 0), 0);
+    const cdInsert = {
+      application_id: cdContract.application_id,
+      user_id: cdContract.user_id || null,
+      career_role_id: cdContract.career_role_id || null,
+      version: cdMaxV + 1,
+      status: 'awaiting_upload',
+      ai_review_status: 'not_run',
+      practice_contact_email: cdContract.practice_contact_email || null,
+      practice_contact_name: cdContract.practice_contact_name || null,
+      created_at: cdNowIso,
+      updated_at: cdNowIso
+    };
+    const cdIns = await supabaseDbRequest('career_contracts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [cdInsert] });
+    const cdNewRow = (cdIns.ok && Array.isArray(cdIns.data) && cdIns.data[0]) ? cdIns.data[0] : null;
+    if (!cdNewRow) { sendJson(res, 502, { ok: false, message: 'Could not start a new contract upload.' }); return; }
+
+    // Email the practice contact — the CEO's note (if any) plus a FRESH
+    // contract_upload token minted for the NEW row (never the just-voided one)
+    // so a re-open of the link can only ever drive the live revision.
+    const cdPracticeEmail = String(cdContract.practice_contact_email || '').trim();
+    if (cdPracticeEmail && isEmailConfigured()) {
+      const cdRoleTitle = await careerRoleTitleForApplication(cdContract.career_role_id).catch(() => '');
+      const cdUploadToken = mintContractUploadToken(cdNewRow.id);
+      const cdUploadUrl = APP_BASE_URL + '/pages/practice-offer.html?token=' + encodeURIComponent(cdUploadToken);
+      const cdEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const cdBodyHtml =
+        '<p>Hi ' + cdEsc(cdContract.practice_contact_name || 'there') + ',</p>' +
+        '<p>Thanks for uploading the employment contract' + (cdRoleTitle ? ' for the ' + cdEsc(cdRoleTitle) + ' role' : '') + '. Could you please make an update and re-upload it?</p>' +
+        (cdNote ? '<p><strong>What needs to change:</strong><br>' + cdEsc(cdNote).replace(/\n/g, '<br>') + '</p>' : '') +
+        '<p>Thank you,<br>GP Link Recruitment Team</p>';
+      await sendEmail({
+        to: cdPracticeEmail,
+        subject: 'Please re-upload the employment contract',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'Contract needs an update',
+          bodyHtml: cdBodyHtml,
+          ctaText: 'Upload contract',
+          ctaUrl: cdUploadUrl
+        })
+      }).catch((err) => { console.warn('[ceo contract-decision] practice email failed (ignored):', err && err.message); });
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (pathname === '/api/public/enquiry' && req.method === 'POST') {
     let body;
     try {

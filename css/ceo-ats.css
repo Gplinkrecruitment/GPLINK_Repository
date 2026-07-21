@@ -143,13 +143,13 @@
 .ats-drawer-head .dh-sub { font-size:12.5px; color:var(--ats-dim); }
 .ats-drawer-close { margin-left:auto; background:none; border:none; color:var(--ats-muted); font-size:22px; cursor:pointer; line-height:1; }
 .ats-drawer-body { padding:20px; overflow-y:auto; flex:1; }
-.ats-drawer-body label { display:block; font-size:11px; color:var(--ats-dim); text-transform:uppercase; letter-spacing:.05em; margin:18px 0 7px; }
-.ats-drawer-body label:first-child { margin-top:0; }
+.ats-drawer-body label, .ats-card label { display:block; font-size:11px; color:var(--ats-dim); text-transform:uppercase; letter-spacing:.05em; margin:18px 0 7px; }
+.ats-drawer-body label:first-child, .ats-card label:first-child { margin-top:0; }
 .ats-drawer-foot { padding:16px 20px; border-top:1px solid var(--ats-border); display:flex; gap:10px; }
-.ats-scope select, .ats-drawer-body textarea, .ats-modal input, .ats-modal select, .ats-modal textarea {
+.ats-scope select, .ats-scope textarea, .ats-drawer-body textarea, .ats-modal input, .ats-modal select, .ats-modal textarea {
   width:100%; background:var(--ats-panel); border:1px solid var(--ats-border-hover); border-radius:8px; color:var(--ats-text); font:inherit; font-size:13px; padding:9px 11px; outline:none; }
-.ats-drawer-body textarea { resize:vertical; min-height:70px; }
-.ats-drawer-body select:focus, .ats-drawer-body textarea:focus, .ats-modal input:focus, .ats-modal select:focus, .ats-modal textarea:focus { border-color:var(--ats-blue); }
+.ats-scope textarea, .ats-drawer-body textarea { resize:vertical; min-height:70px; }
+.ats-scope textarea:focus, .ats-drawer-body select:focus, .ats-drawer-body textarea:focus, .ats-modal input:focus, .ats-modal select:focus, .ats-modal textarea:focus { border-color:var(--ats-blue); }
 
 /* ---------- Modal ---------- */
 .ats-modal-wrap { position:fixed; inset:0; z-index:1300; display:none; place-items:center; background:rgba(0,0,0,0.6); backdrop-filter:blur(3px); padding:20px; }

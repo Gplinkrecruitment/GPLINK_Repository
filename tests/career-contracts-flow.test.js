@@ -1375,3 +1375,456 @@ describe('AI contract review vs Zoom-summary terms (Task 11, live-boot)', () => 
     }
   });
 });
+
+// Task 12 (2026-07-22): CEO Contracts queue — GET /api/ceo/contracts (list,
+// AI-verdict-aware ordering, 1h signed URLs) + POST /api/ceo/contract/decision
+// (submit_to_gp / return_to_practice) on pages/ceo-dashboard.html's new
+// "Contracts" master tab. Two layers of coverage, same split as Task 9/11:
+//  1. Source-assertion tests — the endpoints + client wiring exist, and the
+//     dashboard escapes every interpolated value.
+//  2. A behavioral live-boot block (own PostgREST + storage emulator) proving
+//     the ordering, the signed-URL wiring, and both decision branches —
+//     especially the two self-review-critical facts: submit_to_gp can only
+//     ever fire from 'uploaded' (never a void/signed/already-sent row), and
+//     return_to_practice mints its fresh contract_upload token for the BRAND
+//     NEW contract row, never the one it just voided.
+describe('CEO Contracts queue — wiring (Task 12)', () => {
+  const SERVER_SRC = fs.readFileSync(SERVER_PATH, 'utf8');
+
+  it('defines GET /api/ceo/contracts, guarded by requireCeoSession', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/ceo/contracts' && req.method === 'GET'");
+    expect(idx).toBeGreaterThan(-1);
+    const near = SERVER_SRC.slice(idx, idx + 300);
+    expect(near).toMatch(/requireCeoSession\(req, res\)/);
+  });
+
+  it('defines POST /api/ceo/contract/decision, guarded by requireCeoSession', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/ceo/contract/decision' && req.method === 'POST'");
+    expect(idx).toBeGreaterThan(-1);
+    const near = SERVER_SRC.slice(idx, idx + 400);
+    expect(near).toMatch(/requireCeoSession\(req, res\)/);
+  });
+
+  it('submit_to_gp is refused from anything other than "uploaded"', () => {
+    const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 900);
+    expect(branch).toMatch(/String\(cdContract\.status\) !== 'uploaded'/);
+    expect(branch).toMatch(/409/);
+  });
+
+  it('submit_to_gp advances the application to offer via forward-only stage reconciliation', () => {
+    const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
+    const branch = SERVER_SRC.slice(idx, idx + 2200);
+    expect(branch).toMatch(/status:\s*'offer'/);
+    expect(branch).toMatch(/atsPracticeUtil\.planAtsStageReconciliation\(cdApp\.ats_stage \|\| '', 'offer'\)/);
+    expect(branch).toMatch(/atsUpdateApplicationStageRow\(cdApp\.id, cdTarget/);
+  });
+
+  it('submit_to_gp fires the GP notification trio (in-app + push + email)', () => {
+    const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
+    const branch = SERVER_SRC.slice(idx, idx + 3200);
+    expect(branch).toMatch(/pushCareerNotificationToUser\(cdGpUserId/);
+    expect(branch).toMatch(/sendPushNotification\(cdGpUserId/);
+    expect(branch).toMatch(/sendGpNotificationEmail\(cdGpUserId/);
+    expect(branch).toContain('Your contract is ready to review');
+    expect(branch).toContain('/pages/offer-review?applicationId=');
+  });
+
+  it('return_to_practice is refused outside uploaded/changes_requested, then voids and starts a new revision', () => {
+    const idx = SERVER_SRC.indexOf("// action === 'return_to_practice'");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 2200);
+    expect(branch).toMatch(/String\(cdContract\.status\) !== 'uploaded' && String\(cdContract\.status\) !== 'changes_requested'/);
+    expect(branch).toMatch(/409/);
+    expect(branch).toMatch(/status:\s*'void'/);
+    expect(branch).toMatch(/status:\s*'awaiting_upload'/);
+    expect(branch).toMatch(/version:\s*cdMaxV \+ 1/);
+  });
+
+  it('return_to_practice mints the fresh upload token for the NEW row, not the voided one', () => {
+    const idx = SERVER_SRC.indexOf("// action === 'return_to_practice'");
+    const branch = SERVER_SRC.slice(idx, idx + 2900);
+    expect(branch).toMatch(/mintContractUploadToken\(cdNewRow\.id\)/);
+    // Never re-mints against the original (now-void) contract id.
+    expect(branch).not.toMatch(/mintContractUploadToken\(cdContract\.id\)/);
+  });
+});
+
+describe('CEO Contracts tab UI (Task 12)', () => {
+  const CEO_HTML = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
+  const CONTRACTS_JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8');
+
+  it('registers the Contracts master tab (nav button + panel container)', () => {
+    expect(CEO_HTML).toMatch(/data-mtab="contracts"/);
+    expect(CEO_HTML).toMatch(/id="panel-contracts"/);
+  });
+
+  it('loads the contracts tab script with a cache-busted src', () => {
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260722a');
+  });
+
+  it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {
+    const idx = CEO_HTML.indexOf('applyConsultantMode');
+    const fn = CEO_HTML.slice(idx, idx + 1500);
+    expect(fn).toMatch(/'leads', 'contracts'/);
+  });
+
+  it('registers window.loadContractsTab() as the master-tab entry point', () => {
+    expect(CONTRACTS_JS).toMatch(/window\.loadContractsTab\s*=\s*function/);
+  });
+
+  it('every interpolated GP/practice/AI-review string goes through ATS.esc/escAttr — no raw string concatenation of server data', () => {
+    // The row header interpolates gpName, practiceName, roleTitle, version and
+    // uploaded_at — all through ATS.esc/escAttr.
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(c\.gpName/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(c\.practiceName/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(c\.roleTitle/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(c\.version\)/);
+    // The AI summary, discrepancy fields and the GP's free-text change_request
+    // are all AI/GP-authored strings that must never be interpolated raw.
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(review\.summary/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(c\.change_request\)/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(d\.field/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(d\.contract_says/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(d\.expected/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.esc\(d\.source/);
+    // The signed download links are real URLs used as href attributes —
+    // ATS.escAttr, not ATS.esc.
+    expect(CONTRACTS_JS).toMatch(/ATS\.escAttr\(c\.contractUrl\)/);
+    expect(CONTRACTS_JS).toMatch(/ATS\.escAttr\(c\.signedUrl\)/);
+  });
+
+  it('shows the changes_requested change_request prominently and leaves a Task-14 placeholder (buttons not built here)', () => {
+    expect(CONTRACTS_JS).toMatch(/c\.status === 'changes_requested' && c\.change_request/);
+    expect(CONTRACTS_JS).toMatch(/Task 14/);
+  });
+
+  it('Submit to GP is only offered on an "uploaded" row; Return to practice on uploaded or changes_requested', () => {
+    expect(CONTRACTS_JS).toMatch(/canSubmit\s*=\s*c\.status === 'uploaded'/);
+    expect(CONTRACTS_JS).toMatch(/canReturn\s*=\s*c\.status === 'uploaded' \|\| c\.status === 'changes_requested'/);
+  });
+
+  it('posts the decision action with contractId/action/note to the real endpoint', () => {
+    expect(CONTRACTS_JS).toContain("ATS.api('/api/ceo/contract/decision', { method: 'POST', body: { contractId: contractId, action: action, note: note } })");
+  });
+});
+
+describe('CEO Contracts queue — live-boot (Task 12)', () => {
+  const RUN_ID = crypto.randomBytes(4).toString('hex');
+  const DB_FILE = path.join('/tmp', `gplink-t12-${RUN_ID}.json`);
+  const GP_A = { userId: 'u-gp-t12-a', email: 'gp-t12-a@gplink-test.local' };
+  const GP_B = { userId: 'u-gp-t12-b', email: 'gp-t12-b@gplink-test.local' };
+  const SUPER_HOST = 'ceo-t12.local';
+  const SUPER_EMAIL = 'super-t12@gplink-test.local';
+  const NOW = Date.now();
+  const iso = (minutesAgo) => new Date(NOW - minutesAgo * 60000).toISOString();
+
+  const APP_SUBMIT = 'app-t12-submit';
+  const APP_RETURN = 'app-t12-return';
+
+  let server, port, sbServer, sbPort, realFetch, mod;
+  const resendCalls = [];
+  const storage = new Map();
+
+  const db = {
+    user_profiles: [
+      { user_id: GP_A.userId, email: GP_A.email, first_name: 'Priya', last_name: 'Nair', registration_country: 'uk' },
+      { user_id: GP_B.userId, email: GP_B.email, first_name: 'Tomasz', last_name: 'Kowalski', registration_country: 'ie' }
+    ],
+    career_roles: [
+      { id: 'role-t12-1', provider: 'internal_ats', title: 'General Practitioner — VR', practice_name: 'Riverside Medical', practice_id: 'p-t12-1', is_active: true, job_status: 'open', updated_at: iso(0) }
+    ],
+    gp_applications: [
+      { id: APP_SUBMIT, user_id: GP_A.userId, career_role_id: 'role-t12-1', practice_id: 'p-t12-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@riverside-test.local', practice_contact_name: 'Riverside Reception', applied_at: iso(120) },
+      { id: APP_RETURN, user_id: GP_B.userId, career_role_id: 'role-t12-1', practice_id: 'p-t12-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'admin@riverside-test.local', practice_contact_name: 'Riverside Admin', applied_at: iso(120) }
+    ],
+    // Ordering fixture: priority group (uploaded/changes_requested) must sort
+    // BEFORE everything else regardless of recency — contract-t12-void (30 min
+    // ago) is more recent than contract-t12-uploaded (50 min ago) yet must
+    // still land after it, proving the two-tier sort (not a plain date sort).
+    career_contracts: [
+      { id: 'contract-t12-signed', application_id: 'app-t12-signed-dummy', user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 1, status: 'signed', ai_review_status: 'done', ai_review: { overall: 'aligned', summary: 'All good.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/signed/v1/c.pdf', signed_bucket: 'gp-link-documents', signed_path: 'contracts/t12/signed/v1/signed.pdf', created_at: iso(60), updated_at: iso(60) },
+      { id: 'contract-t12-uploaded', application_id: APP_SUBMIT, user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 1, status: 'uploaded', ai_review_status: 'done', ai_review: { overall: 'minor_gaps', summary: 'Small gap in sessions per week.', discrepancies: [{ field: 'sessions_per_week', contract_says: '3', expected: '4', source: 'offer_record', severity: 'warning' }], interview_terms_available: false }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/submit/v1/c.pdf', practice_contact_email: 'reception@riverside-test.local', practice_contact_name: 'Riverside Reception', created_at: iso(50), updated_at: iso(50) },
+      { id: 'contract-t12-changes', application_id: 'app-t12-changes-dummy', user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 2, status: 'changes_requested', change_request: 'Please correct the start date to 1 November.', ai_review_status: 'done', ai_review: { overall: 'major_discrepancies', summary: 'Start date mismatch.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/changes/v2/c.pdf', created_at: iso(40), updated_at: iso(40) },
+      { id: 'contract-t12-void', application_id: 'app-t12-void-dummy', user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 1, status: 'void', ai_review_status: 'not_run', created_at: iso(30), updated_at: iso(30) },
+      { id: 'contract-t12-return', application_id: APP_RETURN, user_id: GP_B.userId, career_role_id: 'role-t12-1', version: 1, status: 'uploaded', ai_review_status: 'done', ai_review: { overall: 'aligned', summary: 'Looks fine.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/return/v1/c.pdf', practice_contact_email: 'admin@riverside-test.local', practice_contact_name: 'Riverside Admin', created_at: iso(20), updated_at: iso(20) }
+    ],
+    ats_stage_events: [],
+    user_state: [
+      { user_id: GP_A.userId, state: { gp_onboarding_complete: true }, updated_at: iso(0) },
+      { user_id: GP_B.userId, state: { gp_onboarding_complete: true }, updated_at: iso(0) }
+    ]
+  };
+  function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+  function buildMatcher(params) {
+    const filters = [];
+    for (const [k, v] of params.entries()) {
+      if (['select', 'limit', 'order', 'on_conflict'].includes(k)) continue;
+      const mm = /^(eq|neq)\.(.*)$/s.exec(v);
+      if (mm) filters.push({ col: k, op: mm[1], val: mm[2] });
+    }
+    return (row) => filters.every((f) => {
+      const cell = row ? row[f.col] : undefined;
+      const eq = String(cell) === String(f.val);
+      return f.op === 'eq' ? eq : !eq;
+    });
+  }
+
+  function startEmulator() {
+    return new Promise((resolve) => {
+      sbServer = http.createServer(async (req, res) => {
+        const u = new URL(req.url, 'http://sb.local');
+        const sendJson = (status, payload) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)); };
+        const readRaw = () => new Promise((r) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => r(Buffer.concat(c))); });
+
+        // ── Supabase Storage — only the (non-upload) signed-download-URL
+        // route is needed here: GET /api/ceo/contracts calls
+        // supabaseStorageCreateSignedUrl, which hits /object/sign/<bucket>/<path>
+        // (distinct from Task 10/11's /object/upload/sign/ used for uploads).
+        if (u.pathname.startsWith('/storage/v1/')) {
+          const mm = u.pathname.match(/^\/storage\/v1\/object\/sign\/(.+)$/);
+          if (mm && req.method === 'POST') { await readRaw(); sendJson(200, { signedURL: '/object/sign/' + mm[1] + '?token=test-sign-token' }); return; }
+          sendJson(404, { message: 'storage not found' }); return;
+        }
+
+        // ── PostgREST ──
+        const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+        if (!m) { sendJson(404, { message: 'not found' }); return; }
+        const rows = tableOf(decodeURIComponent(m[1]));
+        const matches = buildMatcher(u.searchParams);
+        if (req.method === 'GET') {
+          let out = rows.filter(matches);
+          const limit = parseInt(u.searchParams.get('limit') || '', 10);
+          if (Number.isFinite(limit)) out = out.slice(0, limit);
+          sendJson(200, out); return;
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+          const saved = incoming.map((r) => {
+            const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+            rows.push(row); return row;
+          });
+          sendJson(201, saved); return;
+        }
+        if (req.method === 'PATCH') {
+          const patch = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, patch || {}));
+          sendJson(200, matched); return;
+        }
+        sendJson(405, { message: 'method not allowed' });
+      });
+      sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+    });
+  }
+
+  function httpJson(method, p, body, extraHeaders) {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : null;
+      const headers = Object.assign({}, extraHeaders || {});
+      if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+      const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed }); });
+      });
+      r.on('error', reject); r.end(data);
+    });
+  }
+  function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+  function adminCookie() {
+    const payload = b64url(JSON.stringify({ userProfile: { email: SUPER_EMAIL, adminRole: 'super_admin' }, expiresAt: Date.now() + 3600000 }));
+    const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+    return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+  }
+  const ceoGet = (p, withCookie = true) => httpJson('GET', p, null, Object.assign({ Host: SUPER_HOST }, withCookie ? { Cookie: adminCookie() } : {}));
+  const ceoPost = (p, body, withCookie = true) => httpJson('POST', p, body, Object.assign({ Host: SUPER_HOST }, withCookie ? { Cookie: adminCookie() } : {}));
+  const apiGet = (p) => httpJson('GET', p);
+
+  beforeAll(async () => {
+    await startEmulator();
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_DISABLED = 'false';
+    process.env.AUTH_SECRET = 'contracts-t12-secret-' + RUN_ID;
+    process.env.REQUIRE_SUPABASE_DB = 'false';
+    process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    process.env.SUPABASE_DOCUMENT_BUCKET = 'gp-link-documents';
+    process.env.ENFORCE_SAME_ORIGIN = 'false';
+    process.env.DB_FILE_PATH = DB_FILE;
+    process.env.OPENAI_API_KEY = '';
+    process.env.ANTHROPIC_API_KEY = '';
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    process.env.REGISTRATION_HUB_EMAIL = 'hello@mygplink-test.local';
+    process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+    process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
+    process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
+    process.env.ADMIN_EMAILS = '';
+
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (url, opts) => {
+      const u = String(url && url.url ? url.url : url);
+      if (u.startsWith('https://api.resend.com/')) {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        resendCalls.push({ url: u, body: parsed });
+        return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+      }
+      if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+
+    vi.resetModules();
+    mod = await import('../server.js');
+    server = mod.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+  });
+
+  afterAll(async () => {
+    if (realFetch) globalThis.fetch = realFetch;
+    if (server) await new Promise((r) => server.close(r));
+    if (sbServer) await new Promise((r) => sbServer.close(r));
+    try { fs.unlinkSync(DB_FILE); } catch {}
+  });
+
+  it('GET /api/ceo/contracts: 401 without a CEO session', async () => {
+    const r = await ceoGet('/api/ceo/contracts', false);
+    expect(r.status).toBe(401);
+  });
+
+  it('GET /api/ceo/contracts: uploaded/changes_requested sort first (newest first within each group), signed URLs are present, GP/practice/role are resolved', async () => {
+    const r = await ceoGet('/api/ceo/contracts');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const ids = r.body.contracts.map((c) => c.id);
+    expect(ids).toEqual([
+      'contract-t12-return',    // uploaded, 20 min ago — priority group, newest
+      'contract-t12-changes',   // changes_requested, 40 min ago — priority group
+      'contract-t12-uploaded',  // uploaded, 50 min ago — priority group, oldest
+      'contract-t12-void',      // void, 30 min ago — non-priority, but newer than "signed" below
+      'contract-t12-signed'     // signed, 60 min ago — non-priority, oldest overall
+    ]);
+
+    const uploaded = r.body.contracts.find((c) => c.id === 'contract-t12-uploaded');
+    expect(uploaded.gpName).toBe('Priya Nair');
+    expect(uploaded.practiceName).toBe('Riverside Medical');
+    expect(uploaded.roleTitle).toBe('General Practitioner — VR');
+    expect(uploaded.applicationId).toBe(APP_SUBMIT);
+    expect(uploaded.version).toBe(1);
+    expect(uploaded.ai_review.overall).toBe('minor_gaps');
+    expect(uploaded.ai_review_status).toBe('done');
+    expect(typeof uploaded.contractUrl).toBe('string');
+    expect(uploaded.contractUrl.length).toBeGreaterThan(0);
+    expect(uploaded.contractUrl).toContain('/object/sign/');
+    // No signed_path on this row — signedUrl is omitted (JSON.stringify drops
+    // an explicit `undefined` value), never a broken empty-string link.
+    expect(Object.prototype.hasOwnProperty.call(uploaded, 'signedUrl')).toBe(false);
+
+    const changes = r.body.contracts.find((c) => c.id === 'contract-t12-changes');
+    expect(changes.change_request).toBe('Please correct the start date to 1 November.');
+
+    const signed = r.body.contracts.find((c) => c.id === 'contract-t12-signed');
+    expect(typeof signed.signedUrl).toBe('string');
+    expect(signed.signedUrl.length).toBeGreaterThan(0);
+  });
+
+  it('POST /api/ceo/contract/decision submit_to_gp: 409 on a contract that is not "uploaded" (signed)', async () => {
+    const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-signed', action: 'submit_to_gp' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('not_available');
+    // Proves it never fired — status is untouched.
+    expect(db.career_contracts.find((c) => c.id === 'contract-t12-signed').status).toBe('signed');
+  });
+
+  it('POST /api/ceo/contract/decision submit_to_gp: 409 on a void contract (never reachable from a discarded revision)', async () => {
+    const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-void', action: 'submit_to_gp' });
+    expect(r.status).toBe(409);
+    expect(db.career_contracts.find((c) => c.id === 'contract-t12-void').status).toBe('void');
+  });
+
+  it('POST /api/ceo/contract/decision submit_to_gp: success flips contract + application, notifies the GP by email, then 409s on replay', async () => {
+    const before = resendCalls.length;
+    const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-uploaded', action: 'submit_to_gp', note: 'Please double check the billing split before signing.' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const c = db.career_contracts.find((x) => x.id === 'contract-t12-uploaded');
+    expect(c.status).toBe('sent_to_gp');
+    expect(c.sent_to_gp_at).toBeTruthy();
+    expect(c.ceo_note).toBe('Please double check the billing split before signing.');
+
+    const app = db.gp_applications.find((x) => x.id === APP_SUBMIT);
+    expect(app.status).toBe('offer');
+    expect(app.ats_stage).toBe('offer');
+    const stageEvent = db.ats_stage_events.find((e) => e.application_id === APP_SUBMIT && e.to_stage === 'offer');
+    expect(stageEvent).toBeTruthy();
+    expect(stageEvent.actor).toBe('ceo_contract_submit_to_gp');
+
+    // Exactly one new email, to the GP (Priya), with the offer-review deep link.
+    expect(resendCalls.length).toBe(before + 1);
+    const sent = resendCalls[resendCalls.length - 1];
+    expect(sent.body.to).toEqual([GP_A.email]);
+    expect(sent.body.subject).toContain('Your contract is ready to review');
+    expect(sent.body.html).toContain('/pages/offer-review?applicationId=' + APP_SUBMIT);
+
+    // Idempotent-ish: the contract already moved past 'uploaded', so a replay
+    // (double-click) 409s instead of re-flipping the application or re-sending.
+    const before2 = resendCalls.length;
+    const replay = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-uploaded', action: 'submit_to_gp' });
+    expect(replay.status).toBe(409);
+    expect(resendCalls.length).toBe(before2);
+  });
+
+  it('POST /api/ceo/contract/decision return_to_practice: voids the original, creates a v2 awaiting_upload row, and emails the practice a token minted for the NEW row', async () => {
+    const before = resendCalls.length;
+    const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-return', action: 'return_to_practice', note: 'The start date needs to move to 1 December.' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const original = db.career_contracts.find((x) => x.id === 'contract-t12-return');
+    expect(original.status).toBe('void');
+
+    const newRow = db.career_contracts.find((x) => x.application_id === APP_RETURN && x.status === 'awaiting_upload');
+    expect(newRow).toBeTruthy();
+    expect(newRow.id).not.toBe('contract-t12-return');
+    expect(newRow.version).toBe(2);
+    expect(newRow.ai_review_status).toBe('not_run');
+    expect(newRow.practice_contact_email).toBe('admin@riverside-test.local');
+    expect(newRow.practice_contact_name).toBe('Riverside Admin');
+
+    // One new email, to the practice, carrying the note.
+    expect(resendCalls.length).toBe(before + 1);
+    const sent = resendCalls[resendCalls.length - 1];
+    expect(sent.body.to).toEqual(['admin@riverside-test.local']);
+    expect(sent.body.html).toContain('The start date needs to move to 1 December.');
+
+    // Extract the contract_upload token from the emailed link and prove — via
+    // the REAL public context endpoint, not by decoding the token ourselves —
+    // that it addresses the NEW row, not the one just voided.
+    const linkMatch = sent.body.html.match(/token=([^"&]+)/);
+    expect(linkMatch).toBeTruthy();
+    const token = decodeURIComponent(linkMatch[1]);
+    const ctx = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(token));
+    expect(ctx.status).toBe(200);
+    expect(ctx.body.state).toBe('upload');
+    expect(ctx.body.contractId).toBe(newRow.id);
+    expect(ctx.body.contractId).not.toBe('contract-t12-return');
+  });
+
+  it('POST /api/ceo/contract/decision return_to_practice: 409 on a contract that is neither uploaded nor changes_requested', async () => {
+    const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-signed', action: 'return_to_practice' });
+    expect(r.status).toBe(409);
+    expect(db.career_contracts.find((c) => c.id === 'contract-t12-signed').status).toBe('signed');
+  });
+
+  it('POST /api/ceo/contract/decision: 400 on an unknown action, 404 on an unknown contractId', async () => {
+    const bad = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-void', action: 'delete_it' });
+    expect(bad.status).toBe(400);
+    const missing = await ceoPost('/api/ceo/contract/decision', { contractId: 'not-a-real-contract', action: 'submit_to_gp' });
+    expect(missing.status).toBe(404);
+  });
+});
