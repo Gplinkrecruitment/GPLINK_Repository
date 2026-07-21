@@ -145,7 +145,7 @@ describe('bestAtsStage', () => {
 describe('pipeline buckets', () => {
   it('PIPELINE_BUCKETS lists the 8 buckets in order, each with a label', () => {
     expect(M.PIPELINE_BUCKETS).toEqual([
-      'unassociated', 'shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'
+      'unassociated', 'shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired'
     ]);
     M.PIPELINE_BUCKETS.forEach((key) => {
       expect(typeof M.PIPELINE_BUCKET_LABELS[key], key).toBe('string');
@@ -153,13 +153,24 @@ describe('pipeline buckets', () => {
     });
   });
 
+  // Owner rule: no GP should ever land in a "Not proceeding" segment on the
+  // GP-level pipeline. A GP with only terminal (not_proceeding) applications
+  // reverts to 'unassociated' (back in the pool) instead of a dead-end bucket.
+  it("does not list 'not_proceeding' as a pipeline bucket", () => {
+    expect(M.PIPELINE_BUCKETS).not.toContain('not_proceeding');
+  });
+
   it("treats empty / missing apps as 'unassociated'", () => {
     expect(M.bucketForApps([])).toBe('unassociated');
     expect(M.bucketForApps(undefined)).toBe('unassociated');
   });
 
-  it("buckets a single not_proceeding app as 'not_proceeding'", () => {
-    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }])).toBe('not_proceeding');
+  it("buckets a single not_proceeding app as 'unassociated' (terminal-only GPs go back to the pool)", () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }])).toBe('unassociated');
+  });
+
+  it('terminal-only GPs land in unassociated regardless of extra fields on the row', () => {
+    expect(M.bucketForApps([{ status: 'rejected', ats_stage: 'not_proceeding' }])).toBe('unassociated');
   });
 
   it('uses the furthest active stage when several apps exist', () => {
@@ -175,9 +186,17 @@ describe('pipeline buckets', () => {
     expect(M.bucketForApps([{ ats_stage: 'not_proceeding', match_outcome: 'position_filled' }])).toBe('unassociated');
   });
 
-  it('a genuine rejection (no position_filled outcome) still buckets as not_proceeding', () => {
-    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }])).toBe('not_proceeding');
-    expect(M.bucketForApps([{ ats_stage: 'not_proceeding', match_outcome: 'gp_withdrew' }])).toBe('not_proceeding');
+  it('a genuine rejection (no position_filled outcome) ALSO reverts to unassociated — the not_proceeding bucket no longer exists at GP level', () => {
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding' }])).toBe('unassociated');
+    expect(M.bucketForApps([{ ats_stage: 'not_proceeding', match_outcome: 'gp_withdrew' }])).toBe('unassociated');
+  });
+
+  it('multiple terminal-only apps (all not_proceeding, mixed outcomes) still resolve to unassociated', () => {
+    expect(M.bucketForApps([
+      { ats_stage: 'not_proceeding', match_outcome: 'gp_withdrew' },
+      { ats_stage: 'not_proceeding', match_outcome: 'position_filled' },
+      { ats_stage: 'not_proceeding' }
+    ])).toBe('unassociated');
   });
 
   it('a position-filled app is ignored, so another active app decides the bucket', () => {

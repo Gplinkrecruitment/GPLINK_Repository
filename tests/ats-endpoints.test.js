@@ -278,16 +278,18 @@ describe('Candidates + intent', () => {
 });
 
 describe('pipeline summary + movement', () => {
-  const BUCKET_ORDER = ['unassociated', 'shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired', 'not_proceeding'];
+  // No 'not_proceeding' bucket: a GP with only terminal applications reads as
+  // 'unassociated' instead (see lib/ats-practices.js bucketForApps).
+  const BUCKET_ORDER = ['unassociated', 'shortlisted', 'applied', 'submitted', 'reviewing', 'interview', 'offer', 'hired'];
   const getSummary = async () => parse((await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST, cookie: superCookie() })).raw);
   const getBucket = async (key) => parse((await req('GET', '/api/ceo/candidates?ats_bucket=' + key, { host: SUPER_HOST, cookie: superCookie() })).raw);
 
-  it('partitions the candidate universe into 9 ordered buckets that sum to total', async () => {
+  it('partitions the candidate universe into 8 ordered buckets that sum to total', async () => {
     const r = await req('GET', '/api/ceo/pipeline-summary', { host: SUPER_HOST, cookie: superCookie() });
     expect(r.status).toBe(200);
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
-    expect(b.buckets.length).toBe(9);
+    expect(b.buckets.length).toBe(8);
     expect(b.buckets.map((x) => x.key)).toEqual(BUCKET_ORDER);
     expect(typeof b.total).toBe('number');
     // Key invariant: the buckets partition the candidate universe.
