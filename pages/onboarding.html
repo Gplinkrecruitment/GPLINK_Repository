@@ -341,6 +341,16 @@
       color: var(--gp-blue-ink);
     }
     .country-list li .country-flag { font-size: 20px; }
+    .country-list li.country-group-label {
+      padding: 8px 14px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--gp-faint);
+      cursor: default;
+      pointer-events: none;
+    }
 
     /* ── QUAL DOC VERIFICATION CARDS ────────── */
     .qual-doc-slot {
@@ -1010,6 +1020,17 @@
       text-align: left;
     }
     .waitlist-form .btn-next { width: 100%; margin-top: 4px; }
+    /* Prefilled-from-account (or dropdown-selected) fields: readonly, visually
+       locked. Readonly inputs still submit their values (unlike disabled). */
+    .waitlist-form input.input-locked {
+      background: var(--gp-canvas);
+      color: var(--gp-muted);
+      cursor: default;
+    }
+    .waitlist-form input.input-locked:focus {
+      border-color: var(--gp-border-strong);
+      box-shadow: none;
+    }
     .waitlist-error { display: none; color: var(--red); font-size: 13px; }
     .waitlist-error.show { display: block; }
     .waitlist-back {
@@ -1165,7 +1186,7 @@ if (window.parent && window.parent !== window) {
     <div class="waitlist-capture" id="waitlistCapture">
       <div class="not-eligible-globe" aria-hidden="true">&#127758;</div>
       <h1>Not yet eligible</h1>
-      <p>GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; leave your details and we'll let you know the moment yours is supported.</p>
+      <p>GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; confirm your details below and we'll let you know the moment yours is supported.</p>
       <form class="waitlist-form" id="waitlistForm" novalidate>
         <div>
           <label class="field-label" for="waitlistCountry">Country where you trained</label>
@@ -1174,6 +1195,7 @@ if (window.parent && window.parent !== window) {
         <div>
           <label class="field-label" for="waitlistEmail">Email</label>
           <input type="text" id="waitlistEmail" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+          <p class="field-hint" id="waitlistEmailHint" style="display:none;">We'll email you at the address on your GP Link account.</p>
         </div>
         <div>
           <label class="field-label" for="waitlistName">Name (optional)</label>

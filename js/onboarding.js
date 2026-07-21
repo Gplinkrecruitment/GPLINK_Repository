@@ -30,6 +30,77 @@
     { code: "NZ", name: "New Zealand", flag: "\u{1F1F3}\u{1F1FF}" },
   ];
 
+  // Every country a GP could plausibly have trained in (UN members + common
+  // others), alphabetical by name. Selecting one of these that is NOT in
+  // COUNTRIES routes to the eligibility waitlist with the exact name pre-filled
+  // — the GP never types their country freehand, so no misspellings reach the
+  // waitlist. Flag emoji are derived from the ISO alpha-2 code (regional
+  // indicator pair), which cannot drift out of sync with the code.
+  const ALL_COUNTRIES = [
+    ["AF", "Afghanistan"], ["AL", "Albania"], ["DZ", "Algeria"], ["AD", "Andorra"],
+    ["AO", "Angola"], ["AG", "Antigua and Barbuda"], ["AR", "Argentina"], ["AM", "Armenia"],
+    ["AU", "Australia"], ["AT", "Austria"], ["AZ", "Azerbaijan"], ["BS", "Bahamas"],
+    ["BH", "Bahrain"], ["BD", "Bangladesh"], ["BB", "Barbados"], ["BY", "Belarus"],
+    ["BE", "Belgium"], ["BZ", "Belize"], ["BJ", "Benin"], ["BT", "Bhutan"],
+    ["BO", "Bolivia"], ["BA", "Bosnia and Herzegovina"], ["BW", "Botswana"], ["BR", "Brazil"],
+    ["BN", "Brunei"], ["BG", "Bulgaria"], ["BF", "Burkina Faso"], ["BI", "Burundi"],
+    ["KH", "Cambodia"], ["CM", "Cameroon"], ["CA", "Canada"], ["CV", "Cape Verde"],
+    ["CF", "Central African Republic"], ["TD", "Chad"], ["CL", "Chile"], ["CN", "China"],
+    ["CO", "Colombia"], ["KM", "Comoros"], ["CR", "Costa Rica"], ["HR", "Croatia"],
+    ["CU", "Cuba"], ["CY", "Cyprus"], ["CZ", "Czech Republic"],
+    ["CD", "Democratic Republic of the Congo"], ["DK", "Denmark"], ["DJ", "Djibouti"],
+    ["DM", "Dominica"], ["DO", "Dominican Republic"], ["EC", "Ecuador"], ["EG", "Egypt"],
+    ["SV", "El Salvador"], ["GQ", "Equatorial Guinea"], ["ER", "Eritrea"], ["EE", "Estonia"],
+    ["SZ", "Eswatini"], ["ET", "Ethiopia"], ["FJ", "Fiji"], ["FI", "Finland"],
+    ["FR", "France"], ["GA", "Gabon"], ["GM", "Gambia"], ["GE", "Georgia"],
+    ["DE", "Germany"], ["GH", "Ghana"], ["GR", "Greece"], ["GD", "Grenada"],
+    ["GT", "Guatemala"], ["GN", "Guinea"], ["GW", "Guinea-Bissau"], ["GY", "Guyana"],
+    ["HT", "Haiti"], ["HN", "Honduras"], ["HK", "Hong Kong"], ["HU", "Hungary"],
+    ["IS", "Iceland"], ["IN", "India"], ["ID", "Indonesia"], ["IR", "Iran"],
+    ["IQ", "Iraq"], ["IE", "Ireland"], ["IL", "Israel"], ["IT", "Italy"],
+    ["CI", "Ivory Coast"], ["JM", "Jamaica"], ["JP", "Japan"], ["JO", "Jordan"],
+    ["KZ", "Kazakhstan"], ["KE", "Kenya"], ["KI", "Kiribati"], ["XK", "Kosovo"],
+    ["KW", "Kuwait"], ["KG", "Kyrgyzstan"], ["LA", "Laos"], ["LV", "Latvia"],
+    ["LB", "Lebanon"], ["LS", "Lesotho"], ["LR", "Liberia"], ["LY", "Libya"],
+    ["LI", "Liechtenstein"], ["LT", "Lithuania"], ["LU", "Luxembourg"], ["MO", "Macau"],
+    ["MG", "Madagascar"], ["MW", "Malawi"], ["MY", "Malaysia"], ["MV", "Maldives"],
+    ["ML", "Mali"], ["MT", "Malta"], ["MH", "Marshall Islands"], ["MR", "Mauritania"],
+    ["MU", "Mauritius"], ["MX", "Mexico"], ["FM", "Micronesia"], ["MD", "Moldova"],
+    ["MC", "Monaco"], ["MN", "Mongolia"], ["ME", "Montenegro"], ["MA", "Morocco"],
+    ["MZ", "Mozambique"], ["MM", "Myanmar"], ["NA", "Namibia"], ["NR", "Nauru"],
+    ["NP", "Nepal"], ["NL", "Netherlands"], ["NZ", "New Zealand"], ["NI", "Nicaragua"],
+    ["NE", "Niger"], ["NG", "Nigeria"], ["KP", "North Korea"], ["MK", "North Macedonia"],
+    ["NO", "Norway"], ["OM", "Oman"], ["PK", "Pakistan"], ["PW", "Palau"],
+    ["PS", "Palestine"], ["PA", "Panama"], ["PG", "Papua New Guinea"], ["PY", "Paraguay"],
+    ["PE", "Peru"], ["PH", "Philippines"], ["PL", "Poland"], ["PT", "Portugal"],
+    ["QA", "Qatar"], ["CG", "Republic of the Congo"], ["RO", "Romania"], ["RU", "Russia"],
+    ["RW", "Rwanda"], ["KN", "Saint Kitts and Nevis"], ["LC", "Saint Lucia"],
+    ["VC", "Saint Vincent and the Grenadines"], ["WS", "Samoa"], ["SM", "San Marino"],
+    ["ST", "Sao Tome and Principe"], ["SA", "Saudi Arabia"], ["SN", "Senegal"],
+    ["RS", "Serbia"], ["SC", "Seychelles"], ["SL", "Sierra Leone"], ["SG", "Singapore"],
+    ["SK", "Slovakia"], ["SI", "Slovenia"], ["SB", "Solomon Islands"], ["SO", "Somalia"],
+    ["ZA", "South Africa"], ["KR", "South Korea"], ["SS", "South Sudan"], ["ES", "Spain"],
+    ["LK", "Sri Lanka"], ["SD", "Sudan"], ["SR", "Suriname"], ["SE", "Sweden"],
+    ["CH", "Switzerland"], ["SY", "Syria"], ["TW", "Taiwan"], ["TJ", "Tajikistan"],
+    ["TZ", "Tanzania"], ["TH", "Thailand"], ["TL", "Timor-Leste"], ["TG", "Togo"],
+    ["TO", "Tonga"], ["TT", "Trinidad and Tobago"], ["TN", "Tunisia"], ["TR", "Turkey"],
+    ["TM", "Turkmenistan"], ["TV", "Tuvalu"], ["UG", "Uganda"], ["UA", "Ukraine"],
+    ["AE", "United Arab Emirates"], ["GB", "United Kingdom"], ["US", "United States"],
+    ["UY", "Uruguay"], ["UZ", "Uzbekistan"], ["VU", "Vanuatu"], ["VA", "Vatican City"],
+    ["VE", "Venezuela"], ["VN", "Vietnam"], ["YE", "Yemen"], ["ZM", "Zambia"],
+    ["ZW", "Zimbabwe"],
+  ].map(function (pair) {
+    var code = pair[0];
+    return {
+      code: code,
+      name: pair[1],
+      flag: String.fromCodePoint(0x1f1e6 + code.charCodeAt(0) - 65, 0x1f1e6 + code.charCodeAt(1) - 65),
+    };
+  });
+
+  const SUPPORTED_COUNTRY_CODES = {};
+  COUNTRIES.forEach(function (c) { SUPPORTED_COUNTRY_CODES[c.code] = true; });
+
   const COUNTRY_DOCS = {
     GB: [
       { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
@@ -126,32 +197,39 @@
   const countrySearch = document.getElementById("countrySearch");
   const countryList = document.getElementById("countryList");
 
+  function countryRowHtml(c) {
+    var cls = state.country === c.code ? ' class="selected"' : "";
+    return '<li data-code="' + c.code + '"' + cls + '><span class="country-flag">' + c.flag + "</span> " + escHtml(c.name) + "</li>";
+  }
+
+  // The full list is ~200 rows and re-renders on every keystroke, so this
+  // builds one HTML string and assigns innerHTML once; clicks are handled by a
+  // single delegated listener on the UL (below) — no per-row listeners.
   function renderCountryList(filter) {
     const q = (filter || "").toLowerCase().trim();
-    const filtered = q
-      ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q))
-      : COUNTRIES;
-    countryList.innerHTML = "";
-    filtered.forEach((c) => {
-      const li = document.createElement("li");
-      li.dataset.code = c.code;
-      li.innerHTML = `<span class="country-flag">${c.flag}</span> ${c.name}`;
-      if (state.country === c.code) li.classList.add("selected");
-      li.addEventListener("click", () => selectCountry(c));
-      countryList.appendChild(li);
-    });
+    // Supported countries always come first; the rest of the world follows
+    // alphabetically. With a filter, substring-match across ALL countries.
+    const supported = q ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q)) : COUNTRIES;
+    const others = ALL_COUNTRIES.filter((c) => !SUPPORTED_COUNTRY_CODES[c.code] && (!q || c.name.toLowerCase().includes(q)));
+    let html = "";
+    if (supported.length) {
+      if (!q) html += '<li class="country-group-label">Supported today</li>';
+      html += supported.map(countryRowHtml).join("");
+    }
+    if (others.length) {
+      if (!q) html += '<li class="country-group-label">All countries</li>';
+      html += others.map(countryRowHtml).join("");
+    }
     // Always-visible off-ramp: a GP trained anywhere else is NOT eligible yet —
     // route them to the "Not yet eligible" waitlist instead of a dead end.
-    const liOther = document.createElement("li");
-    liOther.className = "country-not-listed";
-    liOther.id = "countryNotListed";
-    liOther.innerHTML = '<span class="country-flag">\u{1F30E}</span> My country isn’t listed';
-    liOther.addEventListener("click", () => openEligibilityOfframp(countrySearch.value || ""));
-    countryList.appendChild(liOther);
+    html += '<li class="country-not-listed" id="countryNotListed"><span class="country-flag">\u{1F30E}</span> My country isn’t listed</li>';
+    countryList.innerHTML = html;
   }
 
   function selectCountry(c) {
     state.country = c.code;
+    // A confirmed supported pick supersedes any earlier unsupported attempt.
+    if (state.attemptedCountry) delete state.attemptedCountry;
     countrySearch.value = c.name;
     renderCountryList("");
     hideError("countryError");
@@ -163,6 +241,32 @@
     saveState();
     renderQualDocSlots();
   }
+
+  // Unsupported country picked from the dropdown: do NOT set state.country —
+  // instead remember the attempt on the wizard blob (so we know what they
+  // wanted even if they abandon the waitlist form) and route to the off-ramp
+  // with the exact country name locked in (the anti-typo goal).
+  function selectUnsupportedCountry(c) {
+    countrySearch.value = c.name;
+    state.attemptedCountry = c.name;
+    saveState();
+    openEligibilityOfframp(c.name, { locked: true });
+  }
+
+  countryList.addEventListener("click", (e) => {
+    const li = e.target && e.target.closest ? e.target.closest("li") : null;
+    if (!li || !countryList.contains(li) || li.classList.contains("country-group-label")) return;
+    if (li.classList.contains("country-not-listed")) {
+      openEligibilityOfframp(countrySearch.value || "");
+      return;
+    }
+    const code = li.getAttribute("data-code");
+    if (!code) return;
+    const sup = COUNTRIES.find((c) => c.code === code);
+    if (sup) { selectCountry(sup); return; }
+    const other = ALL_COUNTRIES.find((c) => c.code === code);
+    if (other) selectUnsupportedCountry(other);
+  });
 
   countrySearch.addEventListener("input", () => renderCountryList(countrySearch.value));
   countrySearch.addEventListener("focus", () => renderCountryList(countrySearch.value));
@@ -199,22 +303,84 @@
     if (screen) screen.classList.remove("show", "waitlist-submitted");
   }
 
-  function openEligibilityOfframp(countryGuess) {
+  // Cached copy of the session profile written by auth-guard.js (sessionStorage)
+  // — same fallback chain bypass-config.js uses. Covers the race where the GP
+  // reaches the off-ramp before this page's /api/auth/session fetch resolves.
+  function readCachedSessionProfile() {
+    var raw = null;
+    try { raw = sessionStorage.getItem("gp_session_profile_cache"); } catch (e) {}
+    if (!raw) { try { raw = localStorage.getItem("gp_session_profile_cache"); } catch (e) {} }
+    if (!raw) return null;
+    try {
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (e) { return null; }
+  }
+
+  function getAccountEmail() {
+    try {
+      if (window.gpSessionProfile && window.gpSessionProfile.email) return String(window.gpSessionProfile.email).trim();
+    } catch (e) {}
+    var cached = readCachedSessionProfile();
+    if (cached && cached.email) return String(cached.email).trim();
+    try { return String(localStorage.getItem("gp_state_owner") || "").trim(); } catch (e) {}
+    return "";
+  }
+
+  function lockWaitlistInput(input, value) {
+    input.value = value;
+    input.readOnly = true;
+    input.classList.add("input-locked");
+  }
+
+  function unlockWaitlistInput(input) {
+    input.readOnly = false;
+    input.classList.remove("input-locked");
+  }
+
+  // Email always comes from the signed-in account (readonly — it's where we'll
+  // notify them); name prefills from the account profile when we have it.
+  // Re-runs when /api/auth/session resolves (see init) in case the off-ramp
+  // opened before the profile arrived. Readonly (NOT disabled) inputs still
+  // submit their values through the existing handler.
+  function applyWaitlistAccountPrefill() {
+    var emailInput = document.getElementById("waitlistEmail");
+    var nameInput = document.getElementById("waitlistName");
+    var email = getAccountEmail();
+    if (emailInput && email) {
+      lockWaitlistInput(emailInput, email);
+      var hint = document.getElementById("waitlistEmailHint");
+      if (hint) hint.style.display = "block";
+    }
+    var name = getProfileName();
+    // Never clobber a name the GP typed into a still-editable field.
+    if (nameInput && name && (nameInput.readOnly || !nameInput.value.trim())) {
+      lockWaitlistInput(nameInput, name);
+    }
+  }
+
+  function openEligibilityOfframp(countryGuess, opts) {
     const rec = getWaitlistRecord();
     if (rec) { showEligibilityScreen(true); return; }
+    const locked = !!(opts && opts.locked);
     const countryInput = document.getElementById("waitlistCountry");
-    const emailInput = document.getElementById("waitlistEmail");
-    const nameInput = document.getElementById("waitlistName");
-    const profile = window.gpSessionProfile || {};
     const typed = String(countryGuess || "").trim();
-    if (countryInput && !countryInput.value && typed && !COUNTRIES.some((c) => c.name.toLowerCase() === typed.toLowerCase())) {
-      countryInput.value = typed;
+    if (countryInput) {
+      if (locked && typed) {
+        // Opened by picking a country from the dropdown: lock the exact name in.
+        lockWaitlistInput(countryInput, typed);
+      } else {
+        // Opened via "My country isn’t listed": free text stays editable. A
+        // value we locked in on an earlier dropdown pick is stale here — clear
+        // it so the GP's typed guess (below) can take its place.
+        if (countryInput.classList.contains("input-locked")) countryInput.value = "";
+        unlockWaitlistInput(countryInput);
+        if (!countryInput.value && typed && !COUNTRIES.some((c) => c.name.toLowerCase() === typed.toLowerCase())) {
+          countryInput.value = typed;
+        }
+      }
     }
-    if (emailInput && !emailInput.value && profile.email) emailInput.value = profile.email;
-    if (nameInput && !nameInput.value) {
-      const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
-      if (fullName) nameInput.value = fullName;
-    }
+    applyWaitlistAccountPrefill();
     showEligibilityScreen(false);
   }
 
@@ -274,6 +440,13 @@
       credentials: "same-origin",
       body: JSON.stringify({ state: { gp_eligibility_waitlist: null } }),
     }).catch(() => { /* best effort */ });
+    // Don't leave an abandoned unsupported pick sitting in the search box —
+    // restore it to the confirmed supported country (if any) or clear it.
+    const sel = COUNTRIES.find((c) => c.code === state.country);
+    if (countrySearch) {
+      countrySearch.value = sel ? sel.name : "";
+      renderCountryList("");
+    }
     hideEligibilityScreen();
   }
   const waitlistBackBtn = document.getElementById("waitlistBackBtn");
@@ -287,11 +460,13 @@
   let unlimitedRetries = false; // set by server response for whitelisted accounts
 
   function getProfileName() {
-    // Try to get name from session profile
-    if (window.gpSessionProfile) {
-      if (window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
-      if (window.gpSessionProfile.name) return window.gpSessionProfile.name;
-      var fn = (window.gpSessionProfile.firstName || window.gpSessionProfile.first_name || "") + " " + (window.gpSessionProfile.lastName || window.gpSessionProfile.last_name || "");
+    // Try to get name from the session profile; fall back to the cached copy
+    // (auth-guard writes it) when /api/auth/session hasn't resolved yet.
+    var profile = window.gpSessionProfile || readCachedSessionProfile();
+    if (profile) {
+      if (profile.full_name) return profile.full_name;
+      if (profile.name) return profile.name;
+      var fn = (profile.firstName || profile.first_name || "") + " " + (profile.lastName || profile.last_name || "");
       if (fn.trim()) return fn.trim();
     }
     return "";
@@ -1813,7 +1988,16 @@
         return;
       }
       // Store profile for name matching
-      if (data.profile) window.gpSessionProfile = data.profile;
+      if (data.profile) {
+        window.gpSessionProfile = data.profile;
+        // The GP may have opened the eligibility off-ramp before this fetch
+        // resolved (its form is reachable synchronously from the country list).
+        // Re-apply the account email/name prefill now that the profile exists.
+        var offrampScreen = document.getElementById("notEligibleScreen");
+        if (offrampScreen && offrampScreen.classList.contains("show") && !offrampScreen.classList.contains("waitlist-submitted")) {
+          applyWaitlistAccountPrefill();
+        }
+      }
 
       // Already on the eligibility waitlist (country not supported yet)?
       // Show the "we'll be in touch" state instead of the wizard trap.
