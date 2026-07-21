@@ -1224,7 +1224,7 @@
         // apps never render placeholder text after the fresh fetch lands.
         var role = app.role || {};
         var practiceName = app.practiceName || role.practiceName || "Medical Centre";
-        var locationText = app.location || role.location || "";
+        var locationText = String(app.location || role.location || "").replace(/^[\s,]+/, "");
         document.getElementById("practiceName").textContent = practiceName;
         document.getElementById("appLocation").textContent = locationText;
         var pillEl = document.getElementById("statusPill");

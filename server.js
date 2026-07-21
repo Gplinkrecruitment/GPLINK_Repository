@@ -41896,12 +41896,12 @@ async function handleApi(req, res, pathname) {
             id: encodeURIComponent(key),
             practice_name: key,
             client_name: /^[\d_]+$/.test(clientName) ? key : clientName,
-            location: r.location_label || ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '')),
+            location: r.location_label || [r.location_city, r.location_state].filter(Boolean).join(', '),
             work_type: r.employment_type || '',
             benefit_1: sanitizeZohoText(zoho.Benefit_1 || zoho.Benefit1 || ''),
             benefit_2: sanitizeZohoText(zoho.Benefit_2 || zoho.Benefit2 || ''),
             benefit_3: sanitizeZohoText(zoho.Benefit_3 || zoho.Benefit3 || ''),
-            address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
+            address: [r.location_city, r.location_state, r.location_country].filter(Boolean).join(', '),
             billing_type: r.billing_model || '',
             website: gpLink.websiteUrl || sanitizeHttpUrl(getZohoField(zoho, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '',
             contact_name: contactName,
@@ -41923,8 +41923,8 @@ async function handleApi(req, res, pathname) {
           title: r.title || 'General Practitioner',
           status: r.is_active ? 'open' : 'filled',
           description: r.summary || '',
-          location: r.location_label || ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '')),
-          address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
+          location: r.location_label || [r.location_city, r.location_state].filter(Boolean).join(', '),
+          address: [r.location_city, r.location_state, r.location_country].filter(Boolean).join(', '),
           work_type: r.employment_type || '',
           billing_type: r.billing_model || '',
           benefit_1: sanitizeZohoText(joZoho.Benefit_1 || joZoho.Benefit1 || ''),
@@ -42110,7 +42110,7 @@ async function handleApi(req, res, pathname) {
               const r = roleResult.data[0];
               app.role_title = r.title || 'General Practitioner';
               app.practice_name = r.practice_name || '';
-              app.role_location = (r.location_city || '') + (r.location_state ? ', ' + r.location_state : '');
+              app.role_location = [r.location_city, r.location_state].filter(Boolean).join(', ');
             }
           } catch {}
         }
@@ -62607,7 +62607,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: gpName,
         role_title: role.title || 'General Practitioner',
         practice_name: role.practice_name || '',
-        role_location: (role.location_city || '') + (role.location_state ? ', ' + role.location_state : ''),
+        role_location: [role.location_city, role.location_state].filter(Boolean).join(', '),
         applied_at: a.applied_at || null,
         ats_stage: a.ats_stage || 'applied',
         practice_submission_status: subStatus,
@@ -62668,7 +62668,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || 'Candidate',
         practice_name: role.practice_name || '',
         role_title: role.title || 'General Practitioner',
-        role_location: (role.location_city || '') + (role.location_state ? ', ' + role.location_state : ''),
+        role_location: [role.location_city, role.location_state].filter(Boolean).join(', '),
         submitted_to_practice_at: submittedAt,
         days_waiting: days,
         reminder_count: a.practice_reminder_count || 0,
