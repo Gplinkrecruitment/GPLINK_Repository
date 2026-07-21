@@ -29878,10 +29878,15 @@ async function sendPracticeDecisionReminderEmail(opts) {
 // concurrent cron pass can never double-send; a second caller sees the stamp
 // already set and bails immediately with {skipped:'already_sent'}. If
 // contact resolution or the send itself then fails, the stamp is rolled back
-// (nulled) so a LATER retry (the cron re-runs this same completion path
-// every 10 minutes) picks it back up. status/interview_completed_at are
-// deliberately NOT rolled back on a send failure — the interview genuinely
-// happened; only the notification needs retrying.
+// (nulled) so a LATER retry picks it back up: the detect-no-shows cron's
+// reconcile sweep (status='interview_completed' AND
+// post_interview_email_sent_at IS NULL, newest first, bounded) re-invokes
+// this helper within ~10 minutes. NOT the cron's main no-show loop — that
+// only looks at status='booked' scheduled_calls, and both call sites flip
+// the call to 'completed' BEFORE invoking this helper, so a failed send
+// would otherwise never be retried by the main loop alone. status/
+// interview_completed_at are deliberately NOT rolled back on a send failure
+// — the interview genuinely happened; only the notification needs retrying.
 async function sendPostInterviewDecisionEmail(applicationId) {
   var id = String(applicationId || '').trim();
   if (!id) return { ok: false, error: 'missing_application_id' };
@@ -29990,16 +29995,26 @@ async function sendPostInterviewDecisionEmail(applicationId) {
     var offerUrl = APP_BASE_URL + '/pages/practice-offer.html?token=' + encodeURIComponent(token) + '&intent=offer';
     var declineUrl = APP_BASE_URL + '/pages/practice-offer.html?token=' + encodeURIComponent(token) + '&intent=decline';
 
-    var subject = 'How did the interview with ' + gpDisplayName + ' go?';
-    // Plain text — buildCareerEmailHtml's `body` path (formatPlainTextEmailHtml)
-    // HTML-escapes every interpolated value below before it ever reaches the
-    // rendered email, same as the other practice-facing emails in this file.
-    var body =
-      'Hi ' + practiceLabel + ',\n\n' +
-      'Thanks for meeting with ' + gpDisplayName + ' for your ' + roleLabel + ' position. Let us know how it went:\n\n' +
-      '**Extend an offer** — you\'ll be asked to upload your employment contract for our review.\n\n' +
-      '**Not proceeding** — we\'ll let the doctor down gently and keep searching for you.\n\n' +
-      'Thank you,\nGP Link Recruitment Team';
+    // Subjects aren't HTML, but strip angle brackets from the GP-controlled
+    // name so a crafted profile name can't visually spoof the subject line.
+    var subjectName = gpDisplayName.replace(/[<>]/g, '');
+    var subject = 'How did the interview with ' + subjectName + ' go?';
+    // esc() + bodyHtml (NOT the plain-text `body` path) — mirrors
+    // sendPracticeDecisionReminderEmail above. buildCareerEmailHtml's `body`
+    // path only escapes via formatPlainTextEmailHtml when the assembled
+    // string contains no `<tag>`-like substring; a GP-controlled value
+    // (practiceLabel / gpDisplayName / roleLabel) containing one — e.g. an
+    // injected `<img onerror=…>` or even a benign `GP <VR>` title — flips it
+    // to the raw, UNESCAPED branch (HTML injection into the practice email).
+    // Escaping every interpolated value here and handing buildCareerEmailHtml
+    // pre-built HTML sidesteps that sniff entirely.
+    var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var bodyHtml =
+      '<p>Hi ' + esc(practiceLabel) + ',</p>' +
+      '<p>Thanks for meeting with ' + esc(gpDisplayName) + ' for your ' + esc(roleLabel) + ' position. Let us know how it went:</p>' +
+      '<p><strong>Extend an offer</strong> — you\'ll be asked to upload your employment contract for our review.</p>' +
+      '<p><strong>Not proceeding</strong> — we\'ll let the doctor down gently and keep searching for you.</p>' +
+      '<p>Thank you,<br>GP Link Recruitment Team</p>';
     var text = [
       'Hi ' + practiceLabel + ',', '',
       'Thanks for meeting with ' + gpDisplayName + ' for your ' + roleLabel + ' position. Let us know how it went:',
@@ -30013,7 +30028,7 @@ async function sendPostInterviewDecisionEmail(applicationId) {
       subject: subject,
       html: buildCareerEmailHtml({
         title: 'How did the interview go?',
-        body: body,
+        bodyHtml: bodyHtml,
         ctaText: 'Extend an offer',
         ctaUrl: offerUrl,
         secondaryCtaText: 'Not proceeding',
@@ -34982,7 +34997,34 @@ async function handleApi(req, res, pathname) {
           noShows++;
         }
       }
-      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, skipped: skipped });
+      // Retry pass: completed interviews whose decision email failed to send
+      // (post_interview_email_sent_at was rolled back by
+      // sendPostInterviewDecisionEmail's rollbackStamp — see its comment).
+      // Neither call site's own status flip survives to be picked up by the
+      // main no-show loop above (it only looks at status='booked'), so this
+      // bounded, newest-first sweep is the actual retry path. Runs every
+      // detect-no-shows pass (~10 min).
+      let postInterviewChecked = 0, postInterviewSent = 0;
+      try {
+        const piRetryRes = await supabaseDbRequest('gp_applications',
+          'select=id&status=eq.interview_completed&post_interview_email_sent_at=is.null'
+          + '&interview_completed_at=gte.' + encodeURIComponent(sinceIso) // reuse the handler's existing 7d window
+          + '&order=interview_completed_at.desc&limit=20');
+        const piRetryRows = (piRetryRes.ok && Array.isArray(piRetryRes.data)) ? piRetryRes.data : [];
+        postInterviewChecked = piRetryRows.length;
+        for (const piRow of piRetryRows) {
+          try {
+            const piResult = await sendPostInterviewDecisionEmail(String(piRow.id));
+            if (piResult && piResult.ok) postInterviewSent++;
+          } catch (piErr) {
+            console.error('[post-interview] retry send failed for app', piRow.id, ':', piErr && piErr.message);
+          }
+        }
+      } catch (piSweepErr) {
+        console.error('[post-interview] retry sweep failed:', piSweepErr && piSweepErr.message);
+      }
+
+      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent });
     } catch (e) {
       console.error('[detect-no-shows] error:', e && e.message);
       await respondServerError(res, e, { route: pathname, method: req.method });

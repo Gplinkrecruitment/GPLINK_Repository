@@ -146,6 +146,7 @@ describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.e
   const RUN_ID = crypto.randomBytes(4).toString('hex');
   const DB_FILE = path.join('/tmp', `gplink-post-interview-${RUN_ID}.json`);
   const ZOOM_SECRET = 'zoom-webhook-secret-' + RUN_ID;
+  const CRON_SECRET = 'post-interview-cron-secret-' + RUN_ID;
   const GP = { userId: 'u-gp-pi-1', email: 'pi-gp@gplink-test.local' };
   const NOW = new Date().toISOString();
 
@@ -293,6 +294,22 @@ describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.e
     });
   }
 
+  function getCron(cronPath, headers) {
+    return new Promise((resolve, reject) => {
+      const r = http.request({
+        host: '127.0.0.1', port, path: cronPath, method: 'GET', headers: headers || {}
+      }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => {
+          const raw = Buffer.concat(c).toString('utf8');
+          let parsed = null; try { parsed = JSON.parse(raw); } catch {}
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+      r.on('error', reject); r.end();
+    });
+  }
+
   const appRow = (id) => db.gp_applications.find((a) => a.id === id);
   const callRow = (id) => db.scheduled_calls.find((c) => c.id === id);
 
@@ -315,6 +332,10 @@ describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.e
     process.env.REGISTRATION_HUB_EMAIL = 'hello@mygplink-test.local';
     process.env.ZOOM_WEBHOOK_SECRET = ZOOM_SECRET;
     process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+    // CRON_SECRET is read once into a module-level const at require time (server.js
+    // ~line 85), so it must be set before `import('../server.js')` below, same as
+    // tests/consult-nudge-cron.test.js.
+    process.env.CRON_SECRET = CRON_SECRET;
 
     realFetch = globalThis.fetch;
     globalThis.fetch = (url, opts) => {
@@ -403,5 +424,75 @@ describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.e
     const token = mod.__testUtils.createSignedPurposeToken(mod.__testUtils.POST_INTERVIEW_TOKEN_PURPOSE, { applicationId: 'app-pi-1' }, 60000);
     expect(typeof token).toBe('string');
     expect(token.length).toBeGreaterThan(10);
+  });
+
+  // Post-review fix (2026-07-22): the code comment used to claim a failed
+  // send is retried by the detect-no-shows cron — but both call sites flip
+  // the scheduled_call to 'completed' BEFORE invoking the helper, and the
+  // cron's main loop only ever looks at status='booked' rows, so nothing
+  // re-invoked the helper once the stamp was rolled back. This proves the
+  // NEW bounded reconcile sweep inside GET /api/cron/detect-no-shows
+  // actually does the retrying: seed an application that's already
+  // interview_completed with no email sent (and, crucially, NO booked
+  // scheduled_call — so the main no-show loop can't be what's finding it),
+  // hit the real cron endpoint, and confirm the email goes out and the
+  // stamp gets set. A second cron run must NOT send a second email.
+  it('detect-no-shows retry sweep sends the stalled post-interview email for a completed interview with no booked call', async () => {
+    const before = resendCalls.length;
+    db.gp_applications.push({
+      id: 'app-pi-retry-1', user_id: GP.userId, career_role_id: 'role-pi-1', practice_id: 'p-pi-1',
+      provider_role_id: 'ats_pi_1', status: 'interview_completed', ats_stage: 'interview', applied_at: NOW,
+      interview_completed_at: new Date().toISOString(), post_interview_email_sent_at: null
+    });
+
+    const r1 = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
+    expect(r1.status).toBe(200);
+    expect(r1.body.ok).toBe(true);
+    expect(r1.body.postInterviewSent).toBeGreaterThanOrEqual(1);
+
+    expect(resendCalls.length).toBe(before + 1);
+    const retried = appRow('app-pi-retry-1');
+    expect(retried.post_interview_email_sent_at).toBeTruthy();
+
+    // Second cron pass: the stamp is now set, so the sweep's own query no
+    // longer matches this row — no second email.
+    const beforeSecond = resendCalls.length;
+    const r2 = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
+    expect(r2.status).toBe(200);
+    expect(resendCalls.length).toBe(beforeSecond);
+  });
+
+  it('detect-no-shows requires the cron secret', async () => {
+    const r = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer wrong-secret' });
+    expect(r.status).toBe(401);
+  });
+
+  // Escaping fix (2026-07-22): buildCareerEmailHtml's `body` path only
+  // HTML-escapes via formatPlainTextEmailHtml when the assembled string has
+  // no `<tag>`-like substring — so a GP-controlled name containing markup
+  // used to flip the whole email onto the raw, unescaped branch. Proves the
+  // helper now pre-escapes every interpolated value (practiceLabel,
+  // gpDisplayName, roleLabel) before it ever reaches the email HTML.
+  it('escapes a GP-controlled name containing markup so it can never inject HTML into the practice email', async () => {
+    db.user_profiles.push({
+      user_id: 'u-gp-pi-xss', email: 'pi-gp-xss@gplink-test.local',
+      first_name: 'Xx', last_name: '<script>evil()</script>', registration_country: 'uk'
+    });
+    db.gp_applications.push({
+      id: 'app-pi-xss', user_id: 'u-gp-pi-xss', career_role_id: 'role-pi-1', practice_id: 'p-pi-1',
+      provider_role_id: 'ats_pi_1', status: 'interview', ats_stage: 'interview', applied_at: NOW
+    });
+
+    const before = resendCalls.length;
+    const result = await mod.__testUtils.sendPostInterviewDecisionEmail('app-pi-xss');
+    expect(result).toEqual({ ok: true });
+    expect(resendCalls.length).toBe(before + 1);
+
+    const sent = resendCalls[resendCalls.length - 1].body;
+    expect(sent.html).not.toContain('<script>evil()</script>');
+    expect(sent.html).toContain('&lt;script&gt;evil()&lt;/script&gt;');
+    // Subjects aren't HTML — but angle brackets are stripped so a crafted
+    // name can't visually spoof the subject line either.
+    expect(sent.subject).not.toMatch(/[<>]/);
   });
 });
