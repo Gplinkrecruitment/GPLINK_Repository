@@ -12672,6 +12672,17 @@ const POST_INTERVIEW_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — mir
 const CONTRACT_UPLOAD_TOKEN_PURPOSE = 'contract_upload';
 const CONTRACT_UPLOAD_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// ── Task 14: contract consent tokens ────────────────────────────────────────
+// Minted when the CEO releases a changes_requested contract to the practice
+// for email consent (POST /api/ceo/contract/change-decision action:
+// 'release_to_practice'). Payload is JUST { contractId } — same shape as
+// CONTRACT_UPLOAD_TOKEN_PURPOSE's payload, but a DIFFERENT purpose string, so
+// a consent token can never drive the upload endpoints (sign-upload/finalize)
+// and an upload token can never drive the consent endpoints — each is
+// rejected by parseSignedPurposeToken's purpose check as if it were garbage.
+const CONTRACT_CONSENT_TOKEN_PURPOSE = 'contract_consent';
+const CONTRACT_CONSENT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 // ── Phase 6 F4: verified email change ───────────────────────────────────────
 // Same purpose-token scheme: unforgeable, expiring, single-purpose. The token
 // is minted at request time and only ever emailed to the NEW address, so
@@ -31968,6 +31979,12 @@ function contractMimeIsAccepted(mime) {
 function mintContractUploadToken(contractId) {
   return createSignedPurposeToken(CONTRACT_UPLOAD_TOKEN_PURPOSE, { contractId: String(contractId || '') }, CONTRACT_UPLOAD_TOKEN_TTL_MS);
 }
+// Task 14: mints the practice-consent-page token (purpose-locked, see the
+// constant's comment above). Same { contractId } payload shape as the upload
+// token, minted against whichever row is currently live for the application.
+function mintContractConsentToken(contractId) {
+  return createSignedPurposeToken(CONTRACT_CONSENT_TOKEN_PURPOSE, { contractId: String(contractId || '') }, CONTRACT_CONSENT_TOKEN_TTL_MS);
+}
 // Build "Dr <LastName>" for CEO alerts — same shape sendPostInterviewDecisionEmail
 // uses, so the two emails read consistently. Falls back to full name → "the doctor".
 async function contractGpDisplayName(userId) {
@@ -38309,6 +38326,189 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ══ Task 14: practice email consent (public + token-authed, NO login) ══════
+  // Reached from the two buttons in the change-decision email — the signed
+  // contract_consent token IS the security model, purpose-locked so an
+  // upload/post_interview token can never drive it and vice versa. GET never
+  // mutates; refuses a withdrawn doctor (409) exactly like the Task 10
+  // practice-offer endpoints.
+  if (pathname === '/api/practice/contract/consent-context' && req.method === 'GET') {
+    const pcxIp = getClientIp(req);
+    const pcxAllowed = await checkRateLimitWindow('practice-consent-ip:' + pcxIp, 60, 60 * 60 * 1000);
+    if (!pcxAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    const pcxToken = String(url.searchParams.get('token') || '').trim();
+    const pcxData = parseSignedPurposeToken(pcxToken, CONTRACT_CONSENT_TOKEN_PURPOSE);
+    if (!pcxData) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    const pcxContract = await getCareerContractById(pcxData.contractId);
+    if (!pcxContract) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    const pcxAppId = String(pcxContract.application_id || '').trim();
+    if (!pcxAppId) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    const pcxAppCtx = await atsGetApplicationContext(pcxAppId);
+    if (!pcxAppCtx || !pcxAppCtx.app) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    if (applicationIsWithdrawn(pcxAppCtx.app)) {
+      sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE });
+      return;
+    }
+
+    const pcxRoleTitle = await careerRoleTitleForApplication(pcxAppCtx.careerRoleId);
+    // 'decide' ONLY while the CEO's release is still live on THIS row — once
+    // the practice has acted (or the CEO/GP moved on some other way) the
+    // token's contract is no longer 'practice_review', so the page reports
+    // 'done' rather than re-showing the decision UI for a stale link.
+    const pcxState = String(pcxContract.status) === 'practice_review' ? 'decide' : 'done';
+
+    sendJson(res, 200, {
+      ok: true,
+      gpName: (pcxAppCtx && pcxAppCtx.gpName) || '',
+      roleTitle: pcxRoleTitle || '',
+      changeRequest: pcxContract.change_request || '',
+      state: pcxState
+    });
+    return;
+  }
+
+  if (pathname === '/api/practice/contract/consent' && req.method === 'POST') {
+    const pcaIp = getClientIp(req);
+    const pcaAllowed = await checkRateLimitWindow('practice-consent-ip:' + pcaIp, 60, 60 * 60 * 1000);
+    if (!pcaAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let pcaBody;
+    try { pcaBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    // Purpose-locked to contract_consent — a contract_upload or post_interview
+    // token can never drive the practice's approve/decline decision.
+    const pcaData = parseSignedPurposeToken(String((pcaBody && pcaBody.token) || '').trim(), CONTRACT_CONSENT_TOKEN_PURPOSE);
+    if (!pcaData) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    const pcaContract = await getCareerContractById(pcaData.contractId);
+    if (!pcaContract) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    const pcaAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(pcaContract.application_id) + '&limit=1');
+    const pcaApp = (pcaAppRes.ok && Array.isArray(pcaAppRes.data) && pcaAppRes.data[0]) ? pcaAppRes.data[0] : null;
+    if (pcaApp && applicationIsWithdrawn(pcaApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
+
+    const pcaAction = String((pcaBody && pcaBody.action) || '').trim();
+    if (pcaAction !== 'approve' && pcaAction !== 'decline') {
+      sendJson(res, 400, { ok: false, message: 'action must be "approve" or "decline".' });
+      return;
+    }
+
+    // Only a contract the CEO has actually released is decidable — a replayed
+    // or double-click consent (or one reached after the row moved on some
+    // other way) 409s instead of silently re-acting. Deliberately NOT
+    // idempotent-success here (unlike Task 10's extend_offer) — the brief
+    // allows either shape and a clear 409 is simpler than re-deriving which
+    // terminal state to echo back.
+    if (String(pcaContract.status) !== 'practice_review') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is no longer awaiting your decision.' });
+      return;
+    }
+    const pcaNowIso = new Date().toISOString();
+
+    if (pcaAction === 'approve') {
+      // Insert-before-void ordering, identical reasoning to Task 12's
+      // return_to_practice: if the insert fails, the original row is still
+      // 'practice_review' and the practice can just retry the same link,
+      // instead of void-then-insert's failure mode of stranding the
+      // application with a void contract and no live row to retry against.
+      const pcaAll = await listCareerContractsForApplication(pcaContract.application_id);
+      const pcaMaxV = pcaAll.reduce((m, c) => Math.max(m, Number(c.version) || 0), 0);
+      const pcaInsert = {
+        application_id: pcaContract.application_id,
+        user_id: pcaContract.user_id || null,
+        career_role_id: pcaContract.career_role_id || null,
+        version: pcaMaxV + 1,
+        status: 'awaiting_upload',
+        ai_review_status: 'not_run',
+        practice_contact_email: pcaContract.practice_contact_email || null,
+        practice_contact_name: pcaContract.practice_contact_name || null,
+        created_at: pcaNowIso,
+        updated_at: pcaNowIso
+      };
+      const pcaIns = await supabaseDbRequest('career_contracts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [pcaInsert] });
+      const pcaNewRow = (pcaIns.ok && Array.isArray(pcaIns.data) && pcaIns.data[0]) ? pcaIns.data[0] : null;
+      if (!pcaNewRow) { sendJson(res, 502, { ok: false, message: 'Could not start the contract upload. Please try again.' }); return; }
+
+      const pcaVoidPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(pcaContract.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'void', change_response: 'approved', updated_at: pcaNowIso }
+      });
+      if (!pcaVoidPatch || !pcaVoidPatch.ok) {
+        console.warn('[practice-consent] failed to void old contract ' + pcaContract.id + ' after starting new revision ' + pcaNewRow.id + ' (ignored — two live rows is recoverable):', pcaVoidPatch && pcaVoidPatch.error);
+      }
+
+      // Fresh contract_upload token for the NEW row (never the just-voided
+      // one) — the page immediately drops into the SAME upload UI
+      // practice-offer.html uses, and the same token is emailed for later.
+      const pcaUploadToken = mintContractUploadToken(pcaNewRow.id);
+
+      const pcaPracticeEmail = String(pcaContract.practice_contact_email || '').trim();
+      if (pcaPracticeEmail && isEmailConfigured()) {
+        const pcaRoleTitle = await careerRoleTitleForApplication(pcaContract.career_role_id).catch(() => '');
+        const pcaUploadUrl = APP_BASE_URL + '/pages/practice-offer.html?token=' + encodeURIComponent(pcaUploadToken);
+        const pcaEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        await sendEmail({
+          to: pcaPracticeEmail,
+          subject: 'Please re-upload the employment contract',
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: 'Contract change confirmed — please re-upload',
+            bodyHtml: '<p>Thanks for confirming you can make this change' + (pcaRoleTitle ? ' to the ' + pcaEsc(pcaRoleTitle) + ' role' : '') + '. Please make the update and upload the revised contract.</p>',
+            ctaText: 'Upload contract',
+            ctaUrl: pcaUploadUrl
+          })
+        }).catch((err) => { console.warn('[practice-consent] re-upload email failed (ignored):', err && err.message); });
+      }
+
+      sendJson(res, 200, { ok: true, uploadToken: pcaUploadToken });
+      return;
+    }
+
+    // pcaAction === 'decline' — the contract goes straight back to the GP as
+    // sent (mirrors the CEO's own decline_change branch).
+    const pcaPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(pcaContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'sent_to_gp', change_response: 'declined_by_practice', updated_at: pcaNowIso }
+    });
+    if (!pcaPatch || !pcaPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
+
+    const pcaGpUserId = pcaContract.user_id || null;
+    if (pcaGpUserId) {
+      const pcaTitle = 'An update on your requested contract change';
+      const pcaBodyMsg = 'The practice prefers the current terms — you can sign as-is or talk to your Registration Support Officer.';
+      const pcaNextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(pcaContract.application_id || ''));
+      await Promise.all([
+        pushCareerNotificationToUser(pcaGpUserId, { type: 'info', title: pcaTitle, body: pcaBodyMsg }).catch(() => {}),
+        sendPushNotification(pcaGpUserId, { title: pcaTitle, body: pcaBodyMsg, data: { type: 'career', action: 'contract_change_declined', url: pcaNextPath } }).catch(() => {}),
+        sendGpNotificationEmail(pcaGpUserId, pcaTitle + ' — GP Link', pcaTitle, pcaBodyMsg, 'Review your contract', APP_BASE_URL + pcaNextPath,
+          'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
+      ]);
+    }
+
+    // CEO alert — mirrors the rest of the practice-decision pipeline's
+    // "the practice made a call, the CEO should know" pattern.
+    try {
+      const pcaDrName = await contractGpDisplayName(pcaGpUserId);
+      const pcaSafeDr = pcaDrName.replace(/[<>]/g, '');
+      const pcaEsc2 = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'The practice declined ' + pcaSafeDr + '’s contract change',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'Practice declined a contract change',
+          body: 'The practice has decided not to make the change ' + pcaEsc2(pcaSafeDr) + ' requested. The contract has gone back to the doctor as originally sent, and they have been told they can sign it or talk to their Registration Support Officer.'
+        })
+      }).catch((err) => { console.warn('[practice-consent] CEO alert failed (ignored):', err && err.message); });
+    } catch (e) { /* best-effort */ }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // POST /api/ceo/contract/ai-check — CEO re-run of the Task 11 AI contract
   // review (e.g. after a practice re-uploads a corrected file, or the first
   // run landed on 'error' because Zoom/Anthropic was briefly unavailable).
@@ -38587,6 +38787,109 @@ async function handleApi(req, res, pathname) {
           ctaUrl: cdUploadUrl
         })
       }).catch((err) => { console.warn('[ceo contract-decision] practice email failed (ignored):', err && err.message); });
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // POST /api/ceo/contract/change-decision — Task 14: the CEO's triage of a
+  // GP's change_request (career_contracts.status 'changes_requested'). Either
+  // releases the request to the practice for email consent (mints a
+  // contract_consent token, purpose-locked so it can never drive the upload
+  // endpoints), or declines it outright and hands the SAME sent_to_gp
+  // contract straight back to the GP with no practice round-trip at all.
+  // Same requireCeoSession guard as every other CEO contract endpoint.
+  if (pathname === '/api/ceo/contract/change-decision' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const chdCtx = requireCeoSession(req, res);
+    if (!chdCtx) return;
+
+    let chdBody;
+    try { chdBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const chdContractId = String((chdBody && chdBody.contractId) || '').trim();
+    const chdAction = String((chdBody && chdBody.action) || '').trim();
+    if (!chdContractId) { sendJson(res, 400, { ok: false, message: 'contractId is required.' }); return; }
+    if (chdAction !== 'release_to_practice' && chdAction !== 'decline_change') {
+      sendJson(res, 400, { ok: false, message: 'action must be "release_to_practice" or "decline_change".' });
+      return;
+    }
+    const chdNote = sanitizeUserString(String((chdBody && chdBody.note) || ''), 4000);
+
+    const chdContract = await getCareerContractById(chdContractId);
+    if (!chdContract) { sendJson(res, 404, { ok: false, message: 'Contract not found.' }); return; }
+    const chdNowIso = new Date().toISOString();
+
+    // Both actions only make sense once the GP has actually asked for a
+    // change — a contract in any other status (already released, already
+    // signed, void, …) is refused so a replayed/double-click triage can never
+    // re-fire the practice email or re-decline an already-moved-on row.
+    if (String(chdContract.status) !== 'changes_requested') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not awaiting a change-request decision.' });
+      return;
+    }
+
+    const chdEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    if (chdAction === 'release_to_practice') {
+      const chdPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(chdContract.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'practice_review', ceo_note: chdNote || null, updated_at: chdNowIso }
+      });
+      if (!chdPatch || !chdPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
+
+      const chdPracticeEmail = String(chdContract.practice_contact_email || '').trim();
+      if (chdPracticeEmail && isEmailConfigured()) {
+        const chdRoleTitle = await careerRoleTitleForApplication(chdContract.career_role_id).catch(() => '');
+        const chdConsentToken = mintContractConsentToken(chdContract.id);
+        const chdApproveUrl = APP_BASE_URL + '/pages/practice-consent.html?token=' + encodeURIComponent(chdConsentToken) + '&intent=approve';
+        const chdDeclineUrl = APP_BASE_URL + '/pages/practice-consent.html?token=' + encodeURIComponent(chdConsentToken) + '&intent=decline';
+        const chdBodyHtml =
+          '<p>Hi ' + chdEsc(chdContract.practice_contact_name || 'there') + ',</p>' +
+          '<p>The doctor has asked for a change to their employment contract' + (chdRoleTitle ? ' for the ' + chdEsc(chdRoleTitle) + ' role' : '') + ' before signing.</p>' +
+          '<p><strong>What they asked for:</strong><br>' + chdEsc(chdContract.change_request || '').replace(/\n/g, '<br>') + '</p>' +
+          (chdNote ? '<p><strong>A note from our team:</strong><br>' + chdEsc(chdNote).replace(/\n/g, '<br>') + '</p>' : '') +
+          '<p>Please let us know whether you are able to make this change.</p>';
+        await sendEmail({
+          to: chdPracticeEmail,
+          subject: 'The doctor has requested a contract change',
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: 'A contract change was requested',
+            bodyHtml: chdBodyHtml,
+            ctaText: 'Yes, I can make this change',
+            ctaUrl: chdApproveUrl,
+            secondaryCtaText: 'No, the contract stands as is',
+            secondaryCtaUrl: chdDeclineUrl
+          })
+        }).catch((err) => { console.warn('[ceo contract-change-decision] practice email failed (ignored):', err && err.message); });
+      }
+
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // chdAction === 'decline_change' — the contract goes straight back to the
+    // GP exactly as it was sent (no new practice round-trip, no new revision).
+    const chdPatch2 = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(chdContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'sent_to_gp', change_response: 'declined_by_gplink', ceo_note: chdNote || null, updated_at: chdNowIso }
+    });
+    if (!chdPatch2 || !chdPatch2.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
+
+    // GP notification trio — same shape as Task 12's submit_to_gp, deep-linking
+    // to the offer-review page so the GP can sign the contract as-is.
+    const chdGpUserId = chdContract.user_id || null;
+    if (chdGpUserId) {
+      const chdTitle = 'An update on your requested contract change';
+      const chdBodyMsg = 'We checked your requested change — the contract stands as sent. You can sign it, or talk to your Registration Support Officer.';
+      const chdNextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(chdContract.application_id || ''));
+      await Promise.all([
+        pushCareerNotificationToUser(chdGpUserId, { type: 'info', title: chdTitle, body: chdBodyMsg }).catch(() => {}),
+        sendPushNotification(chdGpUserId, { title: chdTitle, body: chdBodyMsg, data: { type: 'career', action: 'contract_change_declined', url: chdNextPath } }).catch(() => {}),
+        sendGpNotificationEmail(chdGpUserId, chdTitle + ' — GP Link', chdTitle, chdBodyMsg, 'Review your contract', APP_BASE_URL + chdNextPath,
+          'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
+      ]);
     }
 
     sendJson(res, 200, { ok: true });
@@ -65057,6 +65360,11 @@ async function handleRequest(req, res) {
     // own fetches carry ?token= to /api/practice/offer/*), no session. Same
     // exemption shape as practice-decision.html directly above.
     pathname === '/pages/practice-offer.html' ||
+    // Task 14: public change-request-consent landing page reached from the
+    // CEO's change-decision email's Approve / Decline links — token-authed
+    // in the URL (?token= sent to /api/practice/contract/consent-context /
+    // /consent), no session. Same exemption shape as practice-offer.html.
+    pathname === '/pages/practice-consent.html' ||
     // D2: read-only practice status page — token-authed by the ?token= its
     // own fetch sends to /api/practice/status (same public model as intake).
     pathname === '/pages/practice-status.html' ||
@@ -65888,6 +66196,7 @@ module.exports.__testUtils = {
   sendPostInterviewDecisionEmail,
   POST_INTERVIEW_TOKEN_PURPOSE,
   CONTRACT_UPLOAD_TOKEN_PURPOSE,
+  CONTRACT_CONSENT_TOKEN_PURPOSE,
   aiReviewCareerContract,
   recordServerError,
   recordCronRun,

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Contract change request — GP Link</title>
+<link rel="stylesheet" href="/css/gp-tokens.css?v=20260707a">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  [hidden]{display:none !important;}
+  body{
+    background:var(--gp-canvas);
+    color:var(--gp-text);
+    font-family:var(--gp-font-body);
+    font-size:var(--gp-fs-base);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .po-shell{max-width:520px;margin:0 auto;min-height:100vh;background:var(--gp-surface);}
+  @media (min-width:600px){
+    body{padding:32px 16px 56px;}
+    .po-shell{min-height:0;border-radius:var(--gp-r-xl);overflow:hidden;box-shadow:var(--gp-shadow-lg);}
+  }
+
+  .po-brand{
+    background:linear-gradient(135deg,var(--gp-blue-ink),var(--gp-blue));
+    color:#fff;
+    padding:22px 22px 20px;
+    display:flex;flex-direction:column;gap:3px;
+    font-family:var(--gp-font-display);font-weight:700;font-size:20px;
+  }
+  .po-brand span{
+    font-family:var(--gp-font-body);font-weight:600;font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;opacity:.78;
+  }
+
+  main.po-shell > section, main.po-shell > #poLoading{padding:26px 22px 32px;}
+
+  h1{
+    font-family:var(--gp-font-display);font-size:var(--gp-fs-xl);
+    font-weight:700;color:var(--gp-ink);line-height:1.28;margin:0 0 10px;
+  }
+  p{margin:0 0 14px;color:var(--gp-muted);font-size:14.5px;}
+  p b{color:var(--gp-text);}
+
+  #poLoading{
+    display:flex;align-items:center;gap:12px;color:var(--gp-muted);
+    font-size:14.5px;padding-top:60px;padding-bottom:60px;justify-content:center;
+  }
+  .po-spinner{
+    width:20px;height:20px;flex:none;border-radius:50%;
+    border:2.5px solid var(--gp-blue-border);border-top-color:var(--gp-blue);
+    animation:poSpin 0.9s linear infinite;
+  }
+  @keyframes poSpin{to{transform:rotate(360deg);}}
+
+  .po-btn{
+    display:inline-block;width:100%;text-align:center;
+    font-family:var(--gp-font-body);font-size:15px;font-weight:700;
+    padding:14px 18px;border-radius:var(--gp-r-md);border:none;cursor:pointer;
+    transition:opacity .15s ease;
+  }
+  .po-btn:disabled{opacity:.6;cursor:not-allowed;}
+  .po-btn-green{background:var(--gp-green);color:#fff;box-shadow:0 8px 22px rgba(22,163,74,.28);}
+  .po-btn-grey{background:#e7ebf3;color:var(--gp-ink);}
+  .po-btn-ghost{
+    background:#fff;color:var(--gp-blue-ink);border:1px solid var(--gp-blue-border);
+    font-weight:600;font-size:14px;padding:11px 16px;
+  }
+
+  .po-actions-row{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+
+  .po-link{
+    display:inline-block;margin-top:14px;color:var(--gp-muted);
+    font-size:13.5px;text-decoration:underline;cursor:pointer;
+  }
+
+  .po-msg{
+    margin-top:12px;font-size:13.5px;padding:10px 12px;border-radius:var(--gp-r-sm);
+    background:var(--gp-blue-soft);color:var(--gp-blue-ink);border:1px solid var(--gp-blue-border);
+  }
+  .po-msg-error{background:var(--gp-red-soft);color:var(--gp-red-ink);border-color:var(--gp-red-border);}
+
+  .po-quote{
+    margin:0 0 18px;padding:14px 16px;border-radius:var(--gp-r-md);
+    background:var(--gp-surface-sunken);border:1px solid var(--gp-border);
+    color:var(--gp-text);font-size:14.5px;white-space:pre-wrap;
+  }
+
+  /* File picker */
+  .po-drop{
+    border:1.5px dashed var(--gp-border-strong);border-radius:var(--gp-r-lg);
+    background:var(--gp-surface-sunken);padding:22px 16px;text-align:center;
+    margin-bottom:14px;cursor:pointer;transition:border-color .15s ease,background .15s ease;
+  }
+  .po-drop:hover, .po-drop.po-drop-over{border-color:var(--gp-blue);background:var(--gp-blue-soft);}
+  .po-drop-ico{font-size:26px;line-height:1;margin-bottom:8px;}
+  .po-drop-hint{font-size:12.5px;color:var(--gp-muted);margin-top:4px;}
+  .po-file-name{
+    font-size:14px;font-weight:650;color:var(--gp-ink);margin-bottom:14px;
+    padding:10px 12px;border:1px solid var(--gp-border);border-radius:var(--gp-r-sm);
+    background:var(--gp-surface);display:flex;align-items:center;gap:8px;justify-content:space-between;
+  }
+  .po-file-name button{
+    background:none;border:none;color:var(--gp-muted);cursor:pointer;font-size:13px;text-decoration:underline;
+  }
+
+  .po-done{text-align:center;padding-top:36px;padding-bottom:44px;}
+  .po-done-ico{
+    width:56px;height:56px;margin:0 auto 16px;border-radius:50%;
+    background:var(--gp-green-soft);border:1px solid var(--gp-green-border);
+    display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--gp-green);
+  }
+  .po-done h1{margin-bottom:6px;}
+  .po-done p{color:var(--gp-muted);}
+
+  .po-help-line{
+    font-size:13px;color:var(--gp-muted);text-align:center;margin-top:18px;
+    padding-top:16px;border-top:1px solid var(--gp-border);
+  }
+  .po-help-line a{color:var(--gp-blue-ink);}
+</style>
+</head>
+<body>
+<script src="/js/error-reporter.js?v=20260720a"></script>
+  <main class="po-shell">
+    <header class="po-brand">GP Link<span>Contract change request</span></header>
+
+    <section id="poLoading"><div class="po-spinner" aria-hidden="true"></div> Loading…</section>
+
+    <section id="poError" hidden aria-live="polite">
+      <h1>This link isn't working</h1>
+      <p id="poErrorLede"></p>
+      <p class="po-help-line">Need help? Email <a href="mailto:hello@mygplink.com.au">hello@mygplink.com.au</a> and we'll sort it out.</p>
+    </section>
+
+    <section id="poDecide" hidden>
+      <h1>A change was requested for <span data-po="gpName"></span></h1>
+      <p>For your <b data-po="roleTitle"></b> position, the doctor has asked for the following change before signing:</p>
+      <div id="poQuote" class="po-quote"></div>
+      <p>Are you able to make this change to the employment contract?</p>
+      <div class="po-actions-row">
+        <button id="poApproveBtn" class="po-btn po-btn-green">Yes, I can make this change</button>
+        <button id="poDeclineOpenBtn" class="po-btn po-btn-grey" type="button">No, the contract stands as is</button>
+      </div>
+      <p id="poDecideMsg" class="po-msg" hidden aria-live="polite"></p>
+    </section>
+
+    <section id="poDecline" hidden>
+      <h1>Keep the contract as is?</h1>
+      <p>We'll let the doctor know the contract stands as originally sent — they can sign it, or talk to their Registration Support Officer. No message is sent until you confirm.</p>
+      <button id="poDeclineBtn" class="po-btn po-btn-grey">Confirm — keep the contract as is</button>
+      <a href="#" id="poBackToDecide" class="po-link">Actually, I can make this change</a>
+      <p id="poDeclineMsg" class="po-msg" hidden aria-live="polite"></p>
+    </section>
+
+    <section id="poUpload" hidden>
+      <h1>Upload the revised contract</h1>
+      <p>For <span data-po="gpName"></span> — your <b data-po="roleTitle"></b> position. Once you've made the change, upload the revised employment contract and we'll take it from there. PDF or Word (.docx).</p>
+
+      <div id="poDrop" class="po-drop" role="button" tabindex="0" aria-label="Choose a contract file">
+        <div class="po-drop-ico" aria-hidden="true">📄</div>
+        <div>Tap to choose a file, or drag it here</div>
+        <div class="po-drop-hint">PDF or Word document (.docx)</div>
+      </div>
+      <input id="poFileInput" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+
+      <div id="poFileName" class="po-file-name" hidden>
+        <span id="poFileNameText"></span>
+        <button id="poClearFile" type="button">Change</button>
+      </div>
+
+      <button id="poUploadBtn" class="po-btn po-btn-green" disabled>Send contract for review</button>
+      <p id="poUploadMsg" class="po-msg" hidden aria-live="polite"></p>
+    </section>
+
+    <section id="poDone" class="po-done" hidden aria-live="polite">
+      <div class="po-done-ico">✓</div>
+      <h1 id="poDoneTitle"></h1>
+      <p id="poDoneText"></p>
+    </section>
+  </main>
+
+<script>
+(function () {
+  'use strict';
+
+  var qs = new URLSearchParams(location.search);
+  var token = (qs.get('token') || '').trim();
+  var intent = (qs.get('intent') || '').trim();
+
+  var el = {
+    loading: document.getElementById('poLoading'),
+    error: document.getElementById('poError'),
+    errorLede: document.getElementById('poErrorLede'),
+    decide: document.getElementById('poDecide'),
+    quote: document.getElementById('poQuote'),
+    decline: document.getElementById('poDecline'),
+    upload: document.getElementById('poUpload'),
+    done: document.getElementById('poDone'),
+    doneTitle: document.getElementById('poDoneTitle'),
+    doneText: document.getElementById('poDoneText'),
+    approveBtn: document.getElementById('poApproveBtn'),
+    declineOpenBtn: document.getElementById('poDeclineOpenBtn'),
+    decideMsg: document.getElementById('poDecideMsg'),
+    declineBtn: document.getElementById('poDeclineBtn'),
+    backToDecide: document.getElementById('poBackToDecide'),
+    declineMsg: document.getElementById('poDeclineMsg'),
+    drop: document.getElementById('poDrop'),
+    fileInput: document.getElementById('poFileInput'),
+    fileNameWrap: document.getElementById('poFileName'),
+    fileNameText: document.getElementById('poFileNameText'),
+    clearFile: document.getElementById('poClearFile'),
+    uploadBtn: document.getElementById('poUploadBtn'),
+    uploadMsg: document.getElementById('poUploadMsg')
+  };
+
+  var SECTIONS = [el.loading, el.error, el.decide, el.decline, el.upload, el.done];
+  var gpNameEls = document.querySelectorAll('[data-po="gpName"]');
+  var roleTitleEls = document.querySelectorAll('[data-po="roleTitle"]');
+
+  var ACCEPTED_MIME = {
+    'application/pdf': true,
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true
+  };
+
+  var ctx = null;
+  var uploadToken = '';
+  var chosenFile = null;
+
+  function show(section) { SECTIONS.forEach(function (s) { s.hidden = (s !== section); }); }
+  function setAllText(nodeList, text) { nodeList.forEach(function (n) { n.textContent = text; }); }
+  function retryMessage() { return "Something went wrong — please try again, or email hello@mygplink.com.au if it keeps happening."; }
+
+  function showError(kind, customText) {
+    var text = "We couldn't load this page. Please check your connection and try again.";
+    if (kind === 'invalid') {
+      text = "This link has expired or is no longer valid — it may have already been used, or the link was copied incorrectly.";
+    } else if (kind === 'busy') {
+      text = "Too many attempts — please wait a few minutes and try again.";
+    } else if (kind === 'withdrawn') {
+      text = customText || "This doctor has withdrawn their application for this role, so no action is needed.";
+    }
+    el.errorLede.textContent = text;
+    show(el.error);
+  }
+
+  function showMsg(node, text, isError) {
+    if (!text) { node.hidden = true; node.textContent = ''; return; }
+    node.textContent = text;
+    node.hidden = false;
+    node.classList.toggle('po-msg-error', !!isError);
+  }
+
+  function setBusy(btn, busy, busyLabel) {
+    if (busy) {
+      if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = busyLabel || 'Please wait…';
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    }
+  }
+
+  function parseJsonResponse(r) {
+    return r.json().catch(function () { return null; }).then(function (data) {
+      return { status: r.status, data: data };
+    });
+  }
+
+  // 409 {code:'withdrawn'} — the doctor pulled out. Returns the message, or ''.
+  function withdrawnMessage(res) {
+    if (!res || res.status !== 409) return '';
+    var data = res.data || {};
+    if (data.code !== 'withdrawn') return '';
+    return data.message || "This doctor has withdrawn their application for this role, so no action is needed.";
+  }
+
+  function showDone(title, text) {
+    el.doneTitle.textContent = title;
+    el.doneText.textContent = text;
+    show(el.done);
+  }
+
+  // ---- routing ----
+  function route() {
+    if (!ctx) { showError('retry'); return; }
+    if (ctx.state === 'done') {
+      showDone('All done', 'Thanks — there is nothing more to do here. We\'ll be in touch with the next steps.');
+      return;
+    }
+    // state === 'decide'
+    // The GP's own free-text change request — set via textContent, never
+    // innerHTML, so it can never execute markup the doctor typed.
+    el.quote.textContent = ctx.changeRequest || '';
+    if (intent === 'decline') { show(el.decline); return; }
+    show(el.decide);
+  }
+
+  function loadContext() {
+    if (!token) { showError('invalid'); return; }
+    show(el.loading);
+    fetch('/api/practice/contract/consent-context?token=' + encodeURIComponent(token), { credentials: 'omit' })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        if (res.status === 410 || res.status === 404) { showError('invalid'); return; }
+        if (res.status === 429) { showError('busy'); return; }
+        var wd = withdrawnMessage(res);
+        if (wd) { showError('withdrawn', wd); return; }
+        if (!(res.status === 200 && res.data && res.data.ok)) { showError('retry'); return; }
+        ctx = res.data;
+        setAllText(gpNameEls, ctx.gpName || 'the doctor');
+        setAllText(roleTitleEls, ctx.roleTitle || 'this role');
+        route();
+      })
+      .catch(function () { showError('retry'); });
+  }
+
+  // ---- decide: approve the change ----
+  el.approveBtn.addEventListener('click', function () {
+    showMsg(el.decideMsg, '', false);
+    setBusy(el.approveBtn, true);
+    fetch('/api/practice/contract/consent', {
+      method: 'POST', credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, action: 'approve' })
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        setBusy(el.approveBtn, false);
+        if (res.status === 200 && res.data && res.data.ok && res.data.uploadToken) {
+          uploadToken = res.data.uploadToken;
+          show(el.upload);
+          return;
+        }
+        if (res.status === 429) { showMsg(el.decideMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 410) { showError('invalid'); return; }
+        var wd = withdrawnMessage(res);
+        if (wd) { showError('withdrawn', wd); return; }
+        if (res.status === 409) { showDone('Already actioned', "This request has already been decided — nothing more is needed."); return; }
+        showMsg(el.decideMsg, retryMessage(), true);
+      })
+      .catch(function () { setBusy(el.approveBtn, false); showMsg(el.decideMsg, retryMessage(), true); });
+  });
+
+  el.declineOpenBtn.addEventListener('click', function () { show(el.decline); });
+  el.backToDecide.addEventListener('click', function (e) { e.preventDefault(); show(el.decide); });
+
+  // ---- decline ----
+  el.declineBtn.addEventListener('click', function () {
+    showMsg(el.declineMsg, '', false);
+    setBusy(el.declineBtn, true);
+    fetch('/api/practice/contract/consent', {
+      method: 'POST', credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, action: 'decline' })
+    })
+      .then(parseJsonResponse)
+      .then(function (res) {
+        setBusy(el.declineBtn, false);
+        if (res.status === 200 && res.data && res.data.ok) {
+          showDone('Thanks for letting us know', "We've let the doctor know the contract stands as sent. Nothing more is needed from you.");
+          return;
+        }
+        if (res.status === 429) { showMsg(el.declineMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
+        if (res.status === 410) { showError('invalid'); return; }
+        var wd = withdrawnMessage(res);
+        if (wd) { showError('withdrawn', wd); return; }
+        if (res.status === 409) { showDone('Already actioned', "This request has already been decided — nothing more is needed."); return; }
+        showMsg(el.declineMsg, retryMessage(), true);
+      })
+      .catch(function () { setBusy(el.declineBtn, false); showMsg(el.declineMsg, retryMessage(), true); });
+  });
+
+  // ---- upload (reused inline — same widget code as practice-offer.html;
+  // pages here are standalone so a shared JS include is deliberately not
+  // used, per the brief) ----
+  function inferMime(file) {
+    var t = String(file.type || '').toLowerCase();
+    if (ACCEPTED_MIME[t]) return t;
+    var name = String(file.name || '').toLowerCase();
+    if (/\.pdf$/.test(name)) return 'application/pdf';
+    if (/\.docx$/.test(name)) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    return '';
+  }
+
+  function setChosenFile(file) {
+    var mime = file ? inferMime(file) : '';
+    if (file && !mime) {
+      showMsg(el.uploadMsg, 'Please choose a PDF or Word (.docx) file.', true);
+      chosenFile = null;
+      el.fileNameWrap.hidden = true;
+      el.uploadBtn.disabled = true;
+      return;
+    }
+    showMsg(el.uploadMsg, '', false);
+    chosenFile = file || null;
+    if (chosenFile) {
+      el.fileNameText.textContent = chosenFile.name;
+      el.fileNameWrap.hidden = false;
+      el.uploadBtn.disabled = false;
+    } else {
+      el.fileNameWrap.hidden = true;
+      el.uploadBtn.disabled = true;
+    }
+  }
+
+  el.drop.addEventListener('click', function () { el.fileInput.click(); });
+  el.drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.fileInput.click(); } });
+  el.drop.addEventListener('dragover', function (e) { e.preventDefault(); el.drop.classList.add('po-drop-over'); });
+  el.drop.addEventListener('dragleave', function () { el.drop.classList.remove('po-drop-over'); });
+  el.drop.addEventListener('drop', function (e) {
+    e.preventDefault();
+    el.drop.classList.remove('po-drop-over');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) setChosenFile(e.dataTransfer.files[0]);
+  });
+  el.fileInput.addEventListener('change', function () { setChosenFile(el.fileInput.files && el.fileInput.files[0]); });
+  el.clearFile.addEventListener('click', function () { el.fileInput.value = ''; setChosenFile(null); });
+
+  el.uploadBtn.addEventListener('click', function () {
+    if (!chosenFile) { showMsg(el.uploadMsg, 'Please choose a file first.', true); return; }
+    if (!uploadToken) { showError('invalid'); return; }
+    var mime = inferMime(chosenFile);
+    if (!mime) { showMsg(el.uploadMsg, 'Please choose a PDF or Word (.docx) file.', true); return; }
+    var filename = chosenFile.name || 'contract.pdf';
+
+    showMsg(el.uploadMsg, '', false);
+    setBusy(el.uploadBtn, true, 'Uploading…');
+
+    // Step 1: get a signed upload URL.
+    fetch('/api/practice/contract/sign-upload', {
+      method: 'POST', credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: uploadToken, filename: filename, mimeType: mime })
+    })
+      .then(parseJsonResponse)
+      .then(function (signRes) {
+        if (!(signRes.status === 200 && signRes.data && signRes.data.ok && signRes.data.uploadUrl)) {
+          setBusy(el.uploadBtn, false);
+          if (signRes.status === 410) { showError('invalid'); return null; }
+          var wd = withdrawnMessage(signRes);
+          if (wd) { showError('withdrawn', wd); return null; }
+          if (signRes.status === 409) { showDone('Already received', "This contract has already been uploaded — nothing more is needed."); return null; }
+          if (signRes.status === 400 && signRes.data && signRes.data.message) { showMsg(el.uploadMsg, signRes.data.message, true); return null; }
+          showMsg(el.uploadMsg, retryMessage(), true);
+          return null;
+        }
+        var uploadUrl = signRes.data.uploadUrl;
+        var storagePath = signRes.data.path;
+        // Step 2: PUT the raw file straight to Storage (no size limit).
+        return fetch(uploadUrl, {
+          method: 'PUT', credentials: 'omit',
+          headers: { 'Content-Type': mime, 'x-upsert': 'true' },
+          body: chosenFile
+        }).then(function (putRes) {
+          if (!putRes.ok) { setBusy(el.uploadBtn, false); showMsg(el.uploadMsg, retryMessage(), true); return null; }
+          // Step 3: finalize.
+          return fetch('/api/practice/contract/finalize', {
+            method: 'POST', credentials: 'omit',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: uploadToken, path: storagePath, filename: filename, mimeType: mime })
+          }).then(parseJsonResponse).then(function (finRes) {
+            setBusy(el.uploadBtn, false);
+            if (finRes.status === 200 && finRes.data && finRes.data.ok) {
+              showDone('Contract received — thank you', "We've got your revised employment contract and our team will review it, then send it on to the doctor to sign. We'll keep you posted.");
+              return null;
+            }
+            if (finRes.status === 410) { showError('invalid'); return null; }
+            var wd2 = withdrawnMessage(finRes);
+            if (wd2) { showError('withdrawn', wd2); return null; }
+            if (finRes.status === 409) { showDone('Already received', "This contract has already been uploaded — nothing more is needed."); return null; }
+            if (finRes.status === 400 && finRes.data && finRes.data.message) { showMsg(el.uploadMsg, finRes.data.message, true); return null; }
+            showMsg(el.uploadMsg, retryMessage(), true);
+            return null;
+          });
+        });
+      })
+      .catch(function () { setBusy(el.uploadBtn, false); showMsg(el.uploadMsg, retryMessage(), true); });
+  });
+
+  loadContext();
+})();
+</script>
+</body>
+</html>

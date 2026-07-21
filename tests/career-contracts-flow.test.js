@@ -1494,7 +1494,7 @@ describe('CEO Contracts tab UI (Task 12)', () => {
   });
 
   it('loads the contracts tab script with a cache-busted src', () => {
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260722a');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260722b');
   });
 
   it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {
@@ -1528,7 +1528,7 @@ describe('CEO Contracts tab UI (Task 12)', () => {
     expect(CONTRACTS_JS).toMatch(/ATS\.escAttr\(c\.signedUrl\)/);
   });
 
-  it('shows the changes_requested change_request prominently and leaves a Task-14 placeholder (buttons not built here)', () => {
+  it('shows the changes_requested change_request prominently (Task 12 surface; Task 14 wires the decision buttons)', () => {
     expect(CONTRACTS_JS).toMatch(/c\.status === 'changes_requested' && c\.change_request/);
     expect(CONTRACTS_JS).toMatch(/Task 14/);
   });
@@ -2543,5 +2543,559 @@ describe('GP contract experience — live-boot (Task 13)', () => {
     const uploadedEntry = apps.find((a) => a.id === APP_UPLOADED);
     expect(uploadedEntry).toBeTruthy();
     expect(uploadedEntry.contractStage).toBeNull();
+  });
+});
+
+// Task 14 (2026-07-22): the change-request loop. A GP's changes_requested
+// contract (Task 13) is triaged by the CEO — release it to the practice for
+// email consent, or decline it and hand the SAME contract straight back to
+// the GP. The practice consents via a tokenized page: approve re-opens the
+// SAME upload flow as Task 10/12 (a fresh awaiting_upload revision); decline
+// sends the GP back to sign as-is. Two layers of coverage, same shape as
+// Tasks 9-13: fast source-assertions for wiring/ordering that a live-boot
+// test can't distinguish, then a full live-boot block against the real
+// endpoints for behavior.
+describe('Task 14: change-request loop — wiring (source-assertion)', () => {
+  const SERVER_SRC = fs.readFileSync(SERVER_PATH, 'utf8');
+
+  it('defines CONTRACT_CONSENT_TOKEN_PURPOSE beside CONTRACT_UPLOAD_TOKEN_PURPOSE, with a distinct value', () => {
+    expect(SERVER_SRC).toMatch(/const CONTRACT_UPLOAD_TOKEN_PURPOSE = 'contract_upload';/);
+    expect(SERVER_SRC).toMatch(/const CONTRACT_CONSENT_TOKEN_PURPOSE = 'contract_consent';/);
+  });
+
+  it('defines POST /api/ceo/contract/change-decision, guarded by requireCeoSession', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/ceo/contract/change-decision' && req.method === 'POST'");
+    expect(idx).toBeGreaterThan(-1);
+    const near = SERVER_SRC.slice(idx, idx + 300);
+    expect(near).toMatch(/requireCeoSession\(req, res\)/);
+  });
+
+  it('release_to_practice and decline_change are both refused outside "changes_requested" (409)', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/ceo/contract/change-decision' && req.method === 'POST'");
+    const branch = SERVER_SRC.slice(idx, idx + 2000);
+    expect(branch).toMatch(/action must be "release_to_practice" or "decline_change"/);
+    expect(branch).toMatch(/String\(chdContract\.status\) !== 'changes_requested'/);
+    expect(branch).toMatch(/409/);
+  });
+
+  it('release_to_practice moves the contract to practice_review and mints a contract_consent token for BOTH the approve and decline links', () => {
+    const idx = SERVER_SRC.indexOf("if (chdAction === 'release_to_practice')");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 2600);
+    expect(branch).toMatch(/status:\s*'practice_review'/);
+    expect(branch).toMatch(/mintContractConsentToken\(chdContract\.id\)/);
+    expect(branch).toContain('/pages/practice-consent.html?token=');
+    expect(branch).toContain("&intent=approve");
+    expect(branch).toContain("&intent=decline");
+    // Never mints the upload-purpose token here — that only ever happens
+    // once the practice actually approves (POST .../consent below).
+    expect(branch).not.toMatch(/mintContractUploadToken/);
+  });
+
+  it('decline_change flips the contract back to sent_to_gp with change_response declined_by_gplink and fires the GP notification trio', () => {
+    const idx = SERVER_SRC.indexOf("// chdAction === 'decline_change'");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 2000);
+    expect(branch).toMatch(/status:\s*'sent_to_gp'/);
+    expect(branch).toMatch(/change_response:\s*'declined_by_gplink'/);
+    expect(branch).toMatch(/pushCareerNotificationToUser\(chdGpUserId/);
+    expect(branch).toMatch(/sendPushNotification\(chdGpUserId/);
+    expect(branch).toMatch(/sendGpNotificationEmail\(chdGpUserId/);
+    expect(branch).toContain('/pages/offer-review?applicationId=');
+  });
+
+  it('defines GET /api/practice/contract/consent-context and POST /api/practice/contract/consent, both purpose-locked to CONTRACT_CONSENT_TOKEN_PURPOSE', () => {
+    const gIdx = SERVER_SRC.indexOf("pathname === '/api/practice/contract/consent-context' && req.method === 'GET'");
+    expect(gIdx).toBeGreaterThan(-1);
+    const gBranch = SERVER_SRC.slice(gIdx, gIdx + 900);
+    expect(gBranch).toMatch(/parseSignedPurposeToken\(pcxToken, CONTRACT_CONSENT_TOKEN_PURPOSE\)/);
+
+    const pIdx = SERVER_SRC.indexOf("pathname === '/api/practice/contract/consent' && req.method === 'POST'");
+    expect(pIdx).toBeGreaterThan(-1);
+    const pBranch = SERVER_SRC.slice(pIdx, pIdx + 900);
+    expect(pBranch).toMatch(/parseSignedPurposeToken\(String\(\(pcaBody && pcaBody\.token\) \|\| ''\)\.trim\(\), CONTRACT_CONSENT_TOKEN_PURPOSE\)/);
+  });
+
+  it('consent GET reports "decide" ONLY while the contract is still practice_review', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/practice/contract/consent-context' && req.method === 'GET'");
+    const branch = SERVER_SRC.slice(idx, idx + 2200);
+    expect(branch).toMatch(/String\(pcxContract\.status\) === 'practice_review' \? 'decide' : 'done'/);
+  });
+
+  it('consent POST refuses any contract that is not practice_review (409)', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/practice/contract/consent' && req.method === 'POST'");
+    const branch = SERVER_SRC.slice(idx, idx + 2600);
+    expect(branch).toMatch(/String\(pcaContract\.status\) !== 'practice_review'/);
+    expect(branch).toMatch(/409/);
+  });
+
+  it('consent approve inserts the new awaiting_upload row BEFORE voiding the original (insert-before-void ordering, like Task 12)', () => {
+    const idx = SERVER_SRC.indexOf("if (pcaAction === 'approve')");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 2600);
+    const insertIdx = branch.indexOf("const pcaIns = await supabaseDbRequest('career_contracts', '', { method: 'POST'");
+    const voidIdx = branch.indexOf("const pcaVoidPatch = await supabaseDbRequest('career_contracts'");
+    expect(insertIdx).toBeGreaterThan(-1);
+    expect(voidIdx).toBeGreaterThan(-1);
+    expect(insertIdx).toBeLessThan(voidIdx);
+    expect(branch).toMatch(/status:\s*'awaiting_upload'/);
+    expect(branch).toMatch(/version:\s*pcaMaxV \+ 1/);
+  });
+
+  it('consent approve mints the fresh upload token for the NEW row, not the just-voided one, and voids the original with change_response approved', () => {
+    const idx = SERVER_SRC.indexOf("if (pcaAction === 'approve')");
+    const branch = SERVER_SRC.slice(idx, idx + 3200);
+    expect(branch).toMatch(/mintContractUploadToken\(pcaNewRow\.id\)/);
+    expect(branch).not.toMatch(/mintContractUploadToken\(pcaContract\.id\)/);
+    expect(branch).toMatch(/status:\s*'void',\s*change_response:\s*'approved'/);
+  });
+
+  it('consent decline flips the contract back to sent_to_gp with change_response declined_by_practice, notifies the GP, and alerts the CEO', () => {
+    const idx = SERVER_SRC.indexOf("// pcaAction === 'decline' — the contract goes straight back to the GP");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 2600);
+    expect(branch).toMatch(/status:\s*'sent_to_gp'/);
+    expect(branch).toMatch(/change_response:\s*'declined_by_practice'/);
+    expect(branch).toMatch(/sendGpNotificationEmail\(pcaGpUserId/);
+    expect(branch).toMatch(/REGISTRATION_HUB_EMAIL/);
+  });
+
+  it('/pages/practice-consent.html sits in the public allowlist right next to practice-offer.html', () => {
+    const poIdx = SERVER_SRC.indexOf("pathname === '/pages/practice-offer.html' ||");
+    const pcIdx = SERVER_SRC.indexOf("pathname === '/pages/practice-consent.html' ||");
+    expect(poIdx).toBeGreaterThan(-1);
+    expect(pcIdx).toBeGreaterThan(-1);
+    // Immediately after (within the same isPublic block, not miles away).
+    expect(pcIdx).toBeGreaterThan(poIdx);
+    expect(pcIdx - poIdx).toBeLessThan(400);
+  });
+});
+
+describe('Task 14: CEO Contracts tab UI — change-request buttons', () => {
+  const CONTRACTS_JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8');
+
+  it('canTriageChange is scoped to changes_requested rows only', () => {
+    expect(CONTRACTS_JS).toMatch(/canTriageChange\s*=\s*c\.status === 'changes_requested'/);
+  });
+
+  it('renders Release to practice / Decline change buttons with the right data-action values', () => {
+    expect(CONTRACTS_JS).toContain('data-action="release_to_practice"');
+    expect(CONTRACTS_JS).toContain('data-action="decline_change"');
+    expect(CONTRACTS_JS).toContain('Release to practice');
+    expect(CONTRACTS_JS).toMatch(/Decline change/);
+  });
+
+  it('posts change-decision actions to the dedicated /api/ceo/contract/change-decision endpoint (distinct from Task 12\'s /decision)', () => {
+    expect(CONTRACTS_JS).toContain("ATS.api('/api/ceo/contract/change-decision', { method: 'POST', body: { contractId: contractId, action: action, note: note } })");
+    // The click handler routes these two actions to the new function, not the
+    // Task 12 submitDecision (which still exists, untouched, for submit_to_gp
+    // and return_to_practice).
+    expect(CONTRACTS_JS).toMatch(/action === 'release_to_practice' \|\| action === 'decline_change'/);
+    expect(CONTRACTS_JS).toMatch(/submitChangeDecision\(contractId, action, note\)/);
+  });
+});
+
+describe('Task 14: change-request loop — live-boot', () => {
+  const RUN_ID = crypto.randomBytes(4).toString('hex');
+  const DB_FILE = path.join('/tmp', `gplink-t14-${RUN_ID}.json`);
+  const GP = { userId: 'u-gp-t14-1', email: 'gp-t14-1@gplink-test.local' };
+  const SUPER_HOST = 'ceo-t14.local';
+  const SUPER_EMAIL = 'super-t14@gplink-test.local';
+  const HUB_EMAIL = 'hello@mygplink-test.local';
+  const PRACTICE_EMAIL = 'reception@t14-clinic.local';
+  const NOW = new Date().toISOString();
+
+  const APP_RELEASE = 'app-t14-release';
+  const APP_DECLINE_CEO = 'app-t14-decline-ceo';
+  const APP_WRONGSTATUS = 'app-t14-wrongstatus';
+  const APP_REVIEW_APPROVE = 'app-t14-review-approve';
+  const APP_REVIEW_DECLINE = 'app-t14-review-decline';
+  const APP_REVIEW_WITHDRAWN = 'app-t14-review-withdrawn';
+
+  let server, port, sbServer, sbPort, realFetch, mod;
+  const resendCalls = [];
+  const storage = new Map();
+
+  const db = {
+    user_profiles: [
+      { user_id: GP.userId, email: GP.email, first_name: 'Farah', last_name: 'Osei', registration_country: 'uk' }
+    ],
+    career_roles: [
+      { id: 'role-t14-1', provider: 'internal_ats', title: 'General Practitioner — VR', practice_name: 'T14 Family Clinic', practice_id: 'p-t14-1', is_active: true, job_status: 'open', updated_at: NOW }
+    ],
+    gp_applications: [
+      { id: APP_RELEASE, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
+      { id: APP_DECLINE_CEO, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
+      { id: APP_WRONGSTATUS, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
+      { id: APP_REVIEW_APPROVE, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
+      { id: APP_REVIEW_DECLINE, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
+      { id: APP_REVIEW_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'withdrawn', ats_stage: 'not_proceeding', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW }
+    ],
+    career_contracts: [
+      { id: 'contract-t14-release', application_id: APP_RELEASE, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'changes_requested', change_request: 'Please increase sessions to 4 per week.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
+      { id: 'contract-t14-declineceo', application_id: APP_DECLINE_CEO, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'changes_requested', change_request: 'Please add a relocation allowance.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
+      { id: 'contract-t14-wrongstatus', application_id: APP_WRONGSTATUS, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'uploaded', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
+      { id: 'contract-t14-review-approve', application_id: APP_REVIEW_APPROVE, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Please move the start date to 1 December.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
+      { id: 'contract-t14-review-decline', application_id: APP_REVIEW_DECLINE, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Please add two extra leave days.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
+      { id: 'contract-t14-review-withdrawn', application_id: APP_REVIEW_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Not relevant — the doctor withdrew.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW }
+    ],
+    user_state: [
+      { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    ]
+  };
+  function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+  function buildMatcher(params) {
+    const filters = [];
+    for (const [k, v] of params.entries()) {
+      if (['select', 'limit', 'order', 'on_conflict'].includes(k)) continue;
+      const mm = /^(eq|neq)\.(.*)$/s.exec(v);
+      if (mm) filters.push({ col: k, op: mm[1], val: mm[2] });
+    }
+    return (row) => filters.every((f) => {
+      const cell = row ? row[f.col] : undefined;
+      const eq = String(cell) === String(f.val);
+      return f.op === 'eq' ? eq : !eq;
+    });
+  }
+
+  function startEmulator() {
+    return new Promise((resolve) => {
+      sbServer = http.createServer(async (req, res) => {
+        const u = new URL(req.url, 'http://sb.local');
+        const sendJson = (status, payload) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)); };
+        const readRaw = () => new Promise((r) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => r(Buffer.concat(c))); });
+
+        // ── Supabase Storage — only the upload-sign route is needed here:
+        //    proving the approve path's returned uploadToken really works
+        //    calls the real POST /api/practice/contract/sign-upload, which
+        //    hits /object/upload/sign/<path>.
+        if (u.pathname.startsWith('/storage/v1/')) {
+          const mm = u.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/(.+)$/);
+          if (mm && req.method === 'POST') { sendJson(200, { url: '/object/upload/sign/' + mm[1] + '?token=test-token' }); return; }
+          sendJson(404, { message: 'storage not found' }); return;
+        }
+
+        // ── PostgREST ──
+        const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+        if (!m) { sendJson(404, { message: 'not found' }); return; }
+        const rows = tableOf(decodeURIComponent(m[1]));
+        const matches = buildMatcher(u.searchParams);
+        if (req.method === 'GET') {
+          let out = rows.filter(matches);
+          const limit = parseInt(u.searchParams.get('limit') || '', 10);
+          if (Number.isFinite(limit)) out = out.slice(0, limit);
+          sendJson(200, out); return;
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+          const saved = incoming.map((r) => {
+            const row = Object.assign({ id: crypto.randomUUID(), created_at: new Date().toISOString() }, r);
+            rows.push(row); return row;
+          });
+          sendJson(201, saved); return;
+        }
+        if (req.method === 'PATCH') {
+          const patch = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, patch || {}));
+          sendJson(200, matched); return;
+        }
+        sendJson(405, { message: 'method not allowed' });
+      });
+      sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+    });
+  }
+
+  function httpJson(method, p, body, extraHeaders) {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : null;
+      const headers = Object.assign({}, extraHeaders || {});
+      if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+      const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed }); });
+      });
+      r.on('error', reject); r.end(data);
+    });
+  }
+  function httpGetRaw(p) {
+    return new Promise((resolve, reject) => {
+      const r = http.request({ host: '127.0.0.1', port, path: p, method: 'GET' }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(c).toString('utf8') }));
+      });
+      r.on('error', reject); r.end();
+    });
+  }
+  function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+  function adminCookie() {
+    const payload = b64url(JSON.stringify({ userProfile: { email: SUPER_EMAIL, adminRole: 'super_admin' }, expiresAt: Date.now() + 3600000 }));
+    const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+    return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+  }
+  const ceoPost = (p, body, withCookie = true) => httpJson('POST', p, body, Object.assign({ Host: SUPER_HOST }, withCookie ? { Cookie: adminCookie() } : {}));
+  const apiGet = (p) => httpJson('GET', p);
+  const apiPost = (p, body) => httpJson('POST', p, body);
+
+  const contract = (id) => db.career_contracts.find((c) => c.id === id);
+
+  beforeAll(async () => {
+    await startEmulator();
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_DISABLED = 'false';
+    process.env.AUTH_SECRET = 'contracts-t14-secret-' + RUN_ID;
+    process.env.REQUIRE_SUPABASE_DB = 'false';
+    process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    process.env.SUPABASE_DOCUMENT_BUCKET = 'gp-link-documents';
+    process.env.ENFORCE_SAME_ORIGIN = 'false';
+    process.env.DB_FILE_PATH = DB_FILE;
+    process.env.OPENAI_API_KEY = '';
+    process.env.ANTHROPIC_API_KEY = '';
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    process.env.REGISTRATION_HUB_EMAIL = HUB_EMAIL;
+    process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+    process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
+    process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
+    process.env.ADMIN_EMAILS = '';
+
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (url, opts) => {
+      const u = String(url && url.url ? url.url : url);
+      if (u.startsWith('https://api.resend.com/')) {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        resendCalls.push({ url: u, body: parsed });
+        return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+      }
+      if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+
+    vi.resetModules();
+    mod = await import('../server.js');
+    server = mod.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+  });
+
+  afterAll(async () => {
+    if (realFetch) globalThis.fetch = realFetch;
+    if (server) await new Promise((r) => server.close(r));
+    if (sbServer) await new Promise((r) => sbServer.close(r));
+    try { fs.unlinkSync(DB_FILE); } catch {}
+  });
+
+  it('page: pages/practice-consent.html is reachable by an anonymous browser (no cookies) — never bounced to signin', async () => {
+    let hop = await httpGetRaw('/pages/practice-consent.html');
+    let redirects = 0;
+    while (hop.status === 302 && redirects < 5) {
+      expect(String(hop.headers.location || '')).not.toMatch(/\/pages\/signin/);
+      hop = await httpGetRaw(hop.headers.location);
+      redirects += 1;
+    }
+    expect(hop.status).toBe(200);
+    expect(hop.body).toContain('<html');
+  });
+
+  it('POST /api/ceo/contract/change-decision: 401 without a CEO session', async () => {
+    const r = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-release', action: 'release_to_practice' }, false);
+    expect(r.status).toBe(401);
+  });
+
+  it('POST /api/ceo/contract/change-decision: 400 without a contractId, 400 on an unknown action', async () => {
+    const missing = await ceoPost('/api/ceo/contract/change-decision', { action: 'release_to_practice' });
+    expect(missing.status).toBe(400);
+    const bad = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-release', action: 'delete_it' });
+    expect(bad.status).toBe(400);
+  });
+
+  it('POST /api/ceo/contract/change-decision: 409 on a contract that is not changes_requested (both actions), status left untouched', async () => {
+    const r1 = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-wrongstatus', action: 'release_to_practice' });
+    expect(r1.status).toBe(409);
+    expect(r1.body.code).toBe('not_available');
+    const r2 = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-wrongstatus', action: 'decline_change' });
+    expect(r2.status).toBe(409);
+    expect(contract('contract-t14-wrongstatus').status).toBe('uploaded');
+  });
+
+  it('release_to_practice: moves the contract to practice_review, stamps the CEO note, and emails the practice BOTH consent links off the SAME token', async () => {
+    const before = resendCalls.length;
+    const r = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-release', action: 'release_to_practice', note: 'Please confirm by Friday.' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const c = contract('contract-t14-release');
+    expect(c.status).toBe('practice_review');
+    expect(c.ceo_note).toBe('Please confirm by Friday.');
+
+    const sent = resendCalls.slice(before);
+    const practiceMail = sent.find((x) => Array.isArray(x.body.to) ? x.body.to.includes(PRACTICE_EMAIL) : x.body.to === PRACTICE_EMAIL);
+    expect(practiceMail).toBeTruthy();
+    expect(practiceMail.body.html).toContain('Please increase sessions to 4 per week.');
+    expect(practiceMail.body.html).toContain('Please confirm by Friday.');
+
+    const hrefs = [...practiceMail.body.html.matchAll(/href="([^"]*practice-consent\.html\?[^"]*)"/g)].map((m) => m[1]);
+    expect(hrefs.length).toBe(2);
+    const urls = hrefs.map((h) => new URL(h));
+    const tokens = urls.map((u) => u.searchParams.get('token'));
+    const intents = urls.map((u) => u.searchParams.get('intent')).sort();
+    expect(tokens[0]).toBeTruthy();
+    // Both links carry the EXACT same consent token — one approve, one decline.
+    expect(tokens[0]).toBe(tokens[1]);
+    expect(intents).toEqual(['approve', 'decline']);
+
+    // Prove — via the REAL public context endpoint, not by decoding the token
+    // ourselves — that the token addresses this contract in the 'decide' state.
+    const ctx = await apiGet('/api/practice/contract/consent-context?token=' + encodeURIComponent(tokens[0]));
+    expect(ctx.status).toBe(200);
+    expect(ctx.body.state).toBe('decide');
+    expect(ctx.body.gpName).toContain('Farah');
+    expect(ctx.body.roleTitle).toContain('General Practitioner');
+    expect(ctx.body.changeRequest).toBe('Please increase sessions to 4 per week.');
+  });
+
+  it('decline_change: sends the contract back to sent_to_gp with declined_by_gplink and emails the GP with an offer-review CTA', async () => {
+    const before = resendCalls.length;
+    const r = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-declineceo', action: 'decline_change' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const c = contract('contract-t14-declineceo');
+    expect(c.status).toBe('sent_to_gp');
+    expect(c.change_response).toBe('declined_by_gplink');
+
+    const sent = resendCalls.slice(before);
+    const gpMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(GP.email));
+    expect(gpMail).toBeTruthy();
+    expect(gpMail.body.html).toContain('/pages/offer-review?applicationId=' + APP_DECLINE_CEO);
+
+    // Replay: the contract already moved past changes_requested, so a
+    // double-click 409s instead of re-flipping it or re-sending the email.
+    const before2 = resendCalls.length;
+    const replay = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-declineceo', action: 'decline_change' });
+    expect(replay.status).toBe(409);
+    expect(resendCalls.length).toBe(before2);
+  });
+
+  it('consent-context: an invalid/garbage token is 410 (never 500, never leaks state)', async () => {
+    const r = await apiGet('/api/practice/contract/consent-context?token=not-a-real-token');
+    expect(r.status).toBe(410);
+  });
+
+  it('consent-context and consent POST: a wrong-purpose (contract_upload) token is rejected — 410, never drives the practice decision', async () => {
+    const uploadToken = mod.__testUtils.createSignedPurposeToken(mod.__testUtils.CONTRACT_UPLOAD_TOKEN_PURPOSE, { contractId: 'contract-t14-review-approve' }, 3600000);
+    const ctx = await apiGet('/api/practice/contract/consent-context?token=' + encodeURIComponent(uploadToken));
+    expect(ctx.status).toBe(410);
+    const post = await apiPost('/api/practice/contract/consent', { token: uploadToken, action: 'approve' });
+    expect(post.status).toBe(410);
+    // Never mutated the contract this "almost" addressed.
+    expect(contract('contract-t14-review-approve').status).toBe('practice_review');
+  });
+
+  it('sign-upload and finalize reject a contract_consent token (wrong purpose can never drive the upload endpoints)', async () => {
+    const consentToken = mod.__testUtils.createSignedPurposeToken(mod.__testUtils.CONTRACT_CONSENT_TOKEN_PURPOSE, { contractId: 'contract-t14-review-approve' }, 3600000);
+    const sign = await apiPost('/api/practice/contract/sign-upload', { token: consentToken, filename: 'c.pdf', mimeType: 'application/pdf' });
+    expect(sign.status).toBe(410);
+    const fin = await apiPost('/api/practice/contract/finalize', { token: consentToken, path: 'x', filename: 'c.pdf', mimeType: 'application/pdf' });
+    expect(fin.status).toBe(410);
+  });
+
+  it('consent-context + consent POST: a withdrawn application answers 409 {code:"withdrawn"} and refuses to act — nothing mutated', async () => {
+    const tok = mod.__testUtils.createSignedPurposeToken(mod.__testUtils.CONTRACT_CONSENT_TOKEN_PURPOSE, { contractId: 'contract-t14-review-withdrawn' }, 3600000);
+    const ctx = await apiGet('/api/practice/contract/consent-context?token=' + encodeURIComponent(tok));
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.code).toBe('withdrawn');
+
+    const before = db.career_contracts.length;
+    const post = await apiPost('/api/practice/contract/consent', { token: tok, action: 'approve' });
+    expect(post.status).toBe(409);
+    expect(post.body.code).toBe('withdrawn');
+    expect(db.career_contracts.length).toBe(before);
+    expect(contract('contract-t14-review-withdrawn').status).toBe('practice_review');
+  });
+
+  it('consent approve: voids the current contract (approved), creates a v2 awaiting_upload row, and the returned uploadToken really works against sign-upload AND addresses the NEW row', async () => {
+    const before = resendCalls.length;
+    const tok = mod.__testUtils.createSignedPurposeToken(mod.__testUtils.CONTRACT_CONSENT_TOKEN_PURPOSE, { contractId: 'contract-t14-review-approve' }, 3600000);
+    const r = await apiPost('/api/practice/contract/consent', { token: tok, action: 'approve' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(typeof r.body.uploadToken).toBe('string');
+
+    const original = contract('contract-t14-review-approve');
+    expect(original.status).toBe('void');
+    expect(original.change_response).toBe('approved');
+
+    const newRow = db.career_contracts.find((c) => c.application_id === APP_REVIEW_APPROVE && c.status === 'awaiting_upload');
+    expect(newRow).toBeTruthy();
+    expect(newRow.id).not.toBe('contract-t14-review-approve');
+    expect(newRow.version).toBe(2);
+    expect(newRow.ai_review_status).toBe('not_run');
+    expect(newRow.practice_contact_email).toBe(PRACTICE_EMAIL);
+    expect(newRow.practice_contact_name).toBe('T14 Reception');
+
+    // (a) The returned uploadToken genuinely works against the real
+    // sign-upload endpoint — not just a plausible-looking string.
+    const sign = await apiPost('/api/practice/contract/sign-upload', { token: r.body.uploadToken, filename: 'Revised-Contract.pdf', mimeType: 'application/pdf' });
+    expect(sign.status).toBe(200);
+    expect(typeof sign.body.uploadUrl).toBe('string');
+    expect(sign.body.path).toContain('v2/');
+
+    // (b) It addresses the NEW row specifically, never the just-voided one —
+    // proven via the real public context endpoint, not by decoding the token.
+    const upCtx = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(r.body.uploadToken));
+    expect(upCtx.status).toBe(200);
+    expect(upCtx.body.state).toBe('upload');
+    expect(upCtx.body.contractId).toBe(newRow.id);
+    expect(upCtx.body.contractId).not.toBe('contract-t14-review-approve');
+
+    // (c) The practice was also emailed the re-upload link for later, off the
+    // SAME uploadToken returned in the response.
+    const sent = resendCalls.slice(before);
+    const reuploadMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(PRACTICE_EMAIL) && /re-upload/i.test(x.body.subject || ''));
+    expect(reuploadMail).toBeTruthy();
+    expect(reuploadMail.body.html).toContain(encodeURIComponent(r.body.uploadToken));
+
+    // Replay: the original token's contract is now void, not practice_review
+    // — a repeat consent 409s rather than minting yet another revision.
+    const replay = await apiPost('/api/practice/contract/consent', { token: tok, action: 'approve' });
+    expect(replay.status).toBe(409);
+    expect(replay.body.code).toBe('not_available');
+
+    // The SAME original token, re-fetched via GET, now reports "done" — a
+    // stale re-open of the emailed link no longer re-shows the decide UI.
+    const doneCtx = await apiGet('/api/practice/contract/consent-context?token=' + encodeURIComponent(tok));
+    expect(doneCtx.status).toBe(200);
+    expect(doneCtx.body.state).toBe('done');
+  });
+
+  it('consent decline: sends the contract back to sent_to_gp with declined_by_practice, notifies the GP, and alerts the CEO', async () => {
+    const before = resendCalls.length;
+    const tok = mod.__testUtils.createSignedPurposeToken(mod.__testUtils.CONTRACT_CONSENT_TOKEN_PURPOSE, { contractId: 'contract-t14-review-decline' }, 3600000);
+    const r = await apiPost('/api/practice/contract/consent', { token: tok, action: 'decline' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const c = contract('contract-t14-review-decline');
+    expect(c.status).toBe('sent_to_gp');
+    expect(c.change_response).toBe('declined_by_practice');
+
+    const sent = resendCalls.slice(before);
+    const gpMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(GP.email));
+    expect(gpMail).toBeTruthy();
+    expect(gpMail.body.html).toContain('/pages/offer-review?applicationId=' + APP_REVIEW_DECLINE);
+
+    const ceoMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(HUB_EMAIL));
+    expect(ceoMail).toBeTruthy();
+    expect(ceoMail.body.subject.toLowerCase()).toMatch(/declined/);
+
+    // Replay: no longer practice_review, so a repeat decline 409s.
+    const before2 = resendCalls.length;
+    const replay = await apiPost('/api/practice/contract/consent', { token: tok, action: 'decline' });
+    expect(replay.status).toBe(409);
+    expect(resendCalls.length).toBe(before2);
   });
 });

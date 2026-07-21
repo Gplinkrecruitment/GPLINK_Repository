@@ -131,8 +131,9 @@
     var discrepancies = review && Array.isArray(review.discrepancies) ? review.discrepancies : [];
 
     // The GP's own change-request text, shown prominently for a bounced-back
-    // contract. Task 14 wires the Accept/Counter decision buttons for this —
-    // NOT built here; this tab only surfaces the text.
+    // contract. Task 14 wires the actual Release-to-practice / Decline-change
+    // decision buttons for this in actionsHtml below — this block only
+    // surfaces the text.
     var changeReqHtml = (c.status === 'changes_requested' && c.change_request)
       ? '<div class="ats-context-note" style="margin-top:14px"><b>The GP requested changes:</b><br>' + ATS.esc(c.change_request) + '</div>'
       : '';
@@ -163,7 +164,14 @@
     // Actions only apply to a row the CEO can actually act on right now.
     var canSubmit = c.status === 'uploaded';
     var canReturn = c.status === 'uploaded' || c.status === 'changes_requested';
-    var actionsHtml = (canSubmit || canReturn)
+    // Task 14: the GP's change-request triage — release it to the practice
+    // for email consent (they either re-upload or decline), or decline the
+    // request outright and hand the SAME contract straight back to the GP as
+    // originally sent. Offered alongside Task 12's "Return to practice"
+    // above, which still lets the CEO skip practice consent entirely and
+    // start a fresh revision immediately if that's the faster call.
+    var canTriageChange = c.status === 'changes_requested';
+    var actionsHtml = (canSubmit || canReturn || canTriageChange)
       ? '' +
         '<div style="margin-top:14px">' +
           '<label>Note (optional)</label>' +
@@ -171,6 +179,8 @@
           '<div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">' +
             (canSubmit ? '<button type="button" class="ats-btn ats-btn-primary" data-action="submit_to_gp" data-contract="' + ATS.escAttr(c.id) + '">Submit to GP</button>' : '') +
             (canReturn ? '<button type="button" class="ats-btn ats-btn-ghost" data-action="return_to_practice" data-contract="' + ATS.escAttr(c.id) + '">Return to practice</button>' : '') +
+            (canTriageChange ? '<button type="button" class="ats-btn ats-btn-primary" data-action="release_to_practice" data-contract="' + ATS.escAttr(c.id) + '">Release to practice</button>' : '') +
+            (canTriageChange ? '<button type="button" class="ats-btn ats-btn-ghost" data-action="decline_change" data-contract="' + ATS.escAttr(c.id) + '">Decline change (back to GP)</button>' : '') +
           '</div>' +
         '</div>'
       : '';
@@ -203,9 +213,14 @@
         var contractId = btn.getAttribute('data-contract');
         var action = btn.getAttribute('data-action');
         if (action === 'return_to_practice' && !window.confirm('Return this contract to the practice for changes?')) return;
+        if (action === 'decline_change' && !window.confirm('Decline this change and send the contract back to the GP exactly as sent?')) return;
         var noteEl = el.querySelector('[data-note-for="' + cssEscape(contractId) + '"]');
         var note = noteEl ? noteEl.value : '';
-        submitDecision(contractId, action, note);
+        if (action === 'release_to_practice' || action === 'decline_change') {
+          submitChangeDecision(contractId, action, note);
+        } else {
+          submitDecision(contractId, action, note);
+        }
       }
     });
   }
@@ -223,6 +238,20 @@
       state.busy = false;
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update the contract.'); return; }
       ATS.toast(action === 'submit_to_gp' ? 'Sent to the GP.' : 'Returned to the practice.');
+      state.expanded = null;
+      fetchAndRender();
+    });
+  }
+
+  // Task 14: the change-request triage buttons post to the dedicated
+  // change-decision endpoint (distinct from Task 12's decision endpoint
+  // above) since they only ever apply to a 'changes_requested' row.
+  function submitChangeDecision(contractId, action, note) {
+    state.busy = true;
+    ATS.api('/api/ceo/contract/change-decision', { method: 'POST', body: { contractId: contractId, action: action, note: note } }).then(function (d) {
+      state.busy = false;
+      if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update the contract.'); return; }
+      ATS.toast(action === 'release_to_practice' ? 'Released to the practice for consent.' : 'Declined — sent back to the GP.');
       state.expanded = null;
       fetchAndRender();
     });
