@@ -8802,6 +8802,23 @@
     const cachedRoleData = readCachedCareerRoles();
     let roleData = cachedRoleData || clone(FALLBACK_ROLE_DATA);
     let careerDataSource = cachedRoleData ? "api" : "fallback";
+
+    // Practice hero images are cross-origin (Supabase storage); the service
+    // worker now caches them, but only once something requests them — warm
+    // the first screen's worth as soon as real role data lands so Roles/Saved/
+    // Offers tab switches don't pay a re-download on the first render.
+    const warmedRoleImages = new Set();
+    function warmRoleImages(roles) {
+      (roles || []).slice(0, 24).forEach((role) => {
+        const src = String((role && (role.headerImageUrl || role.heroImageUrl)) || "");
+        if (!src || warmedRoleImages.has(src)) return;
+        warmedRoleImages.add(src);
+        const img = new Image();
+        img.decoding = "async";
+        img.src = src;
+      });
+    }
+    if (cachedRoleData) warmRoleImages(cachedRoleData);
     const roleDetailCache = new Map();
 
     function escapeHtml(value) {
@@ -11727,6 +11744,7 @@
           roleDetailCache.clear();
           roleData = remoteRoles;
           writeCachedCareerRoles(remoteRoles);
+          warmRoleImages(remoteRoles);
           careerDataSource = "api";
           careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
           persistCareerState();

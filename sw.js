@@ -2,11 +2,12 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260720b";
+  var VERSION = "20260722a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
-  var CACHE_NAMES = [STATIC_CACHE, PAGE_CACHE, RUNTIME_CACHE];
+  var IMAGE_CACHE = "gp-link-images-" + VERSION;
+  var CACHE_NAMES = [STATIC_CACHE, PAGE_CACHE, RUNTIME_CACHE, IMAGE_CACHE];
   // Offline/error path only: how long to give the network before a cached
   // page may answer a request that had no cache entry to serve instantly.
   var PAGE_TIMEOUT_MS = 4000;
@@ -283,6 +284,23 @@
   self.addEventListener("fetch", function (event) {
     var request = event.request;
     var url = toUrl(request && request.url);
+
+    // Practice hero images live on the Supabase storage origin — cache-first,
+    // else every Roles/Saved/Offers tab switch re-downloads every thumbnail.
+    if (request.method === "GET" && url && url.pathname.indexOf("/storage/v1/object/public/career-hero-images/") !== -1) {
+      event.respondWith(
+        caches.match(request).then(function (cached) {
+          if (cached) return cached;
+          return fetch(request).then(function (response) {
+            if (!response || (response.status !== 200 && response.type !== "opaque")) return response;
+            var copy = response.clone();
+            caches.open(IMAGE_CACHE).then(function (cache) { cache.put(request, copy); });
+            return response;
+          });
+        })
+      );
+      return;
+    }
 
     if (!request || request.method !== "GET" || !isSameOrigin(url)) return;
     if (url.pathname === "/sw.js") return;
