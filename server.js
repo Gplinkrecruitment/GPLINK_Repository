@@ -35328,10 +35328,8 @@ async function handleApi(req, res, pathname) {
         { method: 'GET' });
       const calls = (r.ok && Array.isArray(r.data)) ? r.data : [];
       const roster = await loadRsoTeam({ includeInactive: true });
-      let noShows = 0, attended = 0, skipped = 0;
+      let noShows = 0, attended = 0, presumedComplete = 0, skipped = 0;
       for (const call of calls) {
-        if (!isNoShowCandidate(call, nowMs, GRACE_MIN)) { skipped++; continue; }
-
         // Task 15: Zoom-unconfigured (or legacy zoomless) fallback — keyed on
         // the CALL's own zoom_meeting_id, NOT global isZoomConfigured(), since
         // a zoomless row can exist even when Zoom IS configured today (older
@@ -35343,16 +35341,32 @@ async function handleApi(req, res, pathname) {
         // interview would sit 'booked' forever and the practice would never
         // get Task 9's decision email. Attendance is unknowable without Zoom
         // (never a no_show call), so once enough time has passed that the
-        // interview must be over — checked BEFORE any Zoom-API attendance
-        // attempt so a real Zoom call is never short-circuited here. Uses a
-        // shorter 15-min buffer than GRACE_MIN (60): there's no Zoom
-        // attendance record to "settle" for, so there's nothing to wait for.
+        // interview must be over, complete it directly. This runs BEFORE
+        // isNoShowCandidate/Zoom-attendance below, on purpose: a zoomless
+        // call has no attendance record to classify, so it must never reach
+        // no-show classification — this branch's own due-time check below
+        // is the real, binding gate for these rows (previously it sat
+        // behind isNoShowCandidate's 60-min-grace check, which is always
+        // stricter than this branch's 15-min buffer, making this branch's
+        // own math dead code).
+        //
+        // HONEST: the outer SQL prefilter (cutoffIso above) only ever
+        // returns calls whose scheduled_at is >=90min in the past (30min
+        // assumed call length + 60min GRACE_MIN settle window baked into
+        // that filter), so in practice a zoomless call isn't even fetched
+        // into `calls` until it's already ~90-105min past its scheduled
+        // start. The +15min math below only becomes the binding constraint
+        // for calls with duration_minutes > 75 (where dur+15 exceeds that
+        // ~90min prefilter floor); for anything shorter, this branch
+        // completes the call on the very first pass it's picked up. Truly
+        // near-instant completion (minutes after the interview actually
+        // ends, not ~90min later) requires the Zoom meeting.ended webhook —
+        // not available here since these calls have no Zoom meeting id.
         const hasZoomMeetingId = call.zoom_meeting_id != null && String(call.zoom_meeting_id).trim() !== '';
         if (!hasZoomMeetingId) {
           const noZoomStartMs = Date.parse(call.scheduled_at);
-          const noZoomDurationMin = Number(call.duration_minutes || 45);
-          const noZoomDueMs = Number.isFinite(noZoomStartMs) ? (noZoomStartMs + (noZoomDurationMin + 15) * 60000) : null;
-          if (noZoomDueMs === null || nowMs < noZoomDueMs) { skipped++; continue; } // not due yet — retry next run
+          const noZoomDueMs = noZoomStartMs + ((Number(call.duration_minutes) || 45) + 15) * 60000;
+          if (!Number.isFinite(noZoomDueMs) || nowMs < noZoomDueMs) { skipped++; continue; } // not due yet (or unparseable scheduled_at) — retry next run
           const noZoomNowIso = new Date().toISOString();
           // No summary_status flip to 'pending': there is no Zoom recording to
           // fetch for a zoomless call, so leave it at its 'not_requested'
@@ -35374,9 +35388,16 @@ async function handleApi(req, res, pathname) {
               console.error('[post-interview] detect-no-shows (no-zoom) send failed:', e && e.message);
             }
           }
-          attended++;
+          // presumedComplete, NOT attended: there is no Zoom attendance record
+          // for a zoomless call, so we don't actually know anyone showed up —
+          // we're marking it complete because enough time has passed.
+          // Counting it as `attended` would conflate a Zoom-verified
+          // attendance with a time-based presumption of completion.
+          presumedComplete++;
           continue;
         }
+
+        if (!isNoShowCandidate(call, nowMs, GRACE_MIN)) { skipped++; continue; }
 
         const participants = await fetchZoomPastMeetingParticipants(call.zoom_meeting_id);
         if (participants === null) { skipped++; continue; } // couldn't determine attendance — retry next run
@@ -35431,7 +35452,7 @@ async function handleApi(req, res, pathname) {
         console.error('[post-interview] retry sweep failed:', piSweepErr && piSweepErr.message);
       }
 
-      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent });
+      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent });
     } catch (e) {
       console.error('[detect-no-shows] error:', e && e.message);
       await respondServerError(res, e, { route: pathname, method: req.method });

@@ -3168,11 +3168,21 @@ describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
   const NOW = new Date().toISOString();
   const hoursAgoIso = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
   const hoursFromNowIso = (h) => new Date(Date.now() + h * 3600 * 1000).toISOString();
+  // Same as hoursAgoIso, but with the minutes field replaced by the
+  // out-of-range value "60" (valid minutes are 00-59) — Date.parse() returns
+  // NaN for this, while the string itself is still lexicographically ~2h in
+  // the past, so it still clears the outer SQL prefilter's lt/gt string
+  // comparisons and actually reaches the zoomless branch's own date math.
+  const malformedPastIso = (h) => hoursAgoIso(h).replace(/:(\d\d):/, ':60:');
 
   const APP_PAST = 'app-t15-past';
   const APP_FUTURE = 'app-t15-future';
+  const APP_NULLDUR = 'app-t15-nulldur';
+  const APP_BADDATE = 'app-t15-baddate';
   const CALL_PAST = 'call-t15-past';
   const CALL_FUTURE = 'call-t15-future';
+  const CALL_NULLDUR = 'call-t15-nulldur';
+  const CALL_BADDATE = 'call-t15-baddate';
 
   let server, port;
   let sbServer, sbPort;
@@ -3192,7 +3202,9 @@ describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
     ],
     gp_applications: [
       { id: APP_PAST, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW },
-      { id: APP_FUTURE, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW }
+      { id: APP_FUTURE, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW },
+      { id: APP_NULLDUR, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW },
+      { id: APP_BADDATE, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW }
     ],
     scheduled_calls: [
       // Zoom never configured at booking time -> zoom_meeting_id ''. Scheduled
@@ -3201,7 +3213,16 @@ describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
       // Also zoomless, but scheduled in the FUTURE — must stay completely
       // untouched (the outer cron query only ever selects scheduled_at in
       // the past, so this also proves the query itself never misfires here).
-      { id: CALL_FUTURE, case_id: null, user_id: GP.userId, application_id: APP_FUTURE, meeting_kind: 'interview', status: 'booked', zoom_meeting_id: '', scheduled_at: hoursFromNowIso(1), duration_minutes: 45, stage: null, summary_status: 'not_requested' }
+      { id: CALL_FUTURE, case_id: null, user_id: GP.userId, application_id: APP_FUTURE, meeting_kind: 'interview', status: 'booked', zoom_meeting_id: '', scheduled_at: hoursFromNowIso(1), duration_minutes: 45, stage: null, summary_status: 'not_requested' },
+      // duration_minutes is null (never set) — proves the `Number(x) || 45`
+      // fallback both avoids a NaN due-time AND still completes once 2h have
+      // passed (45 + 15 = 60min threshold, well under 120min elapsed).
+      { id: CALL_NULLDUR, case_id: null, user_id: GP.userId, application_id: APP_NULLDUR, meeting_kind: 'interview', status: 'booked', zoom_meeting_id: '', scheduled_at: hoursAgoIso(2), duration_minutes: null, stage: null, summary_status: 'not_requested' },
+      // scheduled_at itself is unparseable (Date.parse -> NaN) but still
+      // string-sorts as "in the past" so it clears the outer SQL prefilter —
+      // proves the branch's own Number.isFinite(noZoomDueMs) guard skips
+      // rather than completing on a NaN due-time.
+      { id: CALL_BADDATE, case_id: null, user_id: GP.userId, application_id: APP_BADDATE, meeting_kind: 'interview', status: 'booked', zoom_meeting_id: '', scheduled_at: malformedPastIso(2), duration_minutes: 45, stage: null, summary_status: 'not_requested' }
     ],
     webhook_events: [],
     registration_tasks: []
@@ -3370,6 +3391,12 @@ describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
     const r = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
+    // Stats honesty: a zoomless completion is a time-based PRESUMPTION, not a
+    // Zoom-verified attendance — it must land in its own counter, never in
+    // `attended` (this same cron pass also completes CALL_NULLDUR below, so
+    // presumedComplete is 2; CALL_BADDATE is skipped, not completed).
+    expect(r.body.attended).toBe(0);
+    expect(r.body.presumedComplete).toBe(2);
 
     const call = callRow(CALL_PAST);
     expect(call.status).toBe('completed');
@@ -3383,12 +3410,36 @@ describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
     expect(app.interview_completed_at).toBeTruthy();
     expect(app.post_interview_email_sent_at).toBeTruthy();
 
-    expect(resendCalls.length).toBe(before + 1);
-    const sent = resendCalls[resendCalls.length - 1].body;
-    expect(sent.to).toEqual(['reception@southbank-t15-test.local']);
-    expect(sent.subject).toBe('How did the interview with Dr Candidate go?');
-    expect(sent.html).toContain('intent=offer');
-    expect(sent.html).toContain('intent=decline');
+    expect(resendCalls.length).toBe(before + 2);
+    const sent = resendCalls.find((c) => c.body && c.body.to && c.body.to[0] === 'reception@southbank-t15-test.local' && c.body.subject === 'How did the interview with Dr Candidate go?');
+    expect(sent).toBeTruthy();
+    expect(sent.body.html).toContain('intent=offer');
+    expect(sent.body.html).toContain('intent=decline');
+  });
+
+  it('a zoomless call with duration_minutes null still completes once 2h have passed (the Number(x) || 45 fallback is used, not NaN)', () => {
+    // Asserted against the SAME cron pass as the previous test (this
+    // describe block's shared-db pattern — see the comment on the
+    // future-scheduled test below).
+    const call = callRow(CALL_NULLDUR);
+    expect(call.status).toBe('completed');
+    expect(call.completed_at).toBeTruthy();
+    expect(call.no_show_at == null).toBe(true);
+
+    const app = appRow(APP_NULLDUR);
+    expect(app.status).toBe('interview_completed');
+    expect(app.post_interview_email_sent_at).toBeTruthy();
+  });
+
+  it('a zoomless call with an unparseable scheduled_at is skipped, not completed (Number.isFinite guard on the NaN due-time)', () => {
+    const call = callRow(CALL_BADDATE);
+    expect(call.status).toBe('booked');
+    expect(call.completed_at == null).toBe(true);
+    expect(call.no_show_at == null).toBe(true);
+
+    const app = appRow(APP_BADDATE);
+    expect(app.status).toBe('interview');
+    expect(app.post_interview_email_sent_at == null).toBe(true);
   });
 
   // Reuses the SAME cron pass triggered by the previous test (this file's
