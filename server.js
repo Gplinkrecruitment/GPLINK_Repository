@@ -2490,7 +2490,7 @@ async function aiReviewCareerContract(contractRow) {
       summary: 'AI review unavailable — no API key configured.',
       extracted_terms: _contractAiBlankExtractedTerms(),
       discrepancies: [],
-      interview_terms_available: false
+      interview_terms_available: interviewTermsAvailable
     };
     await persist(noKeyReview, 'error', termsContext);
     return { ai_review_status: 'error', ai_review: noKeyReview };
@@ -2543,7 +2543,11 @@ async function aiReviewCareerContract(contractRow) {
   var status;
   try {
     var controller = new AbortController();
-    var timeout = setTimeout(function () { controller.abort(); }, 90000);
+    // Must stay below vercel.json functions maxDuration (60s) so the
+    // abort/error path actually runs — the platform would otherwise kill the
+    // invocation before a 90s timeout could ever fire, silently skipping the
+    // persisted 'error' status and CEO notification.
+    var timeout = setTimeout(function () { controller.abort(); }, 45000);
     var resp;
     try {
       resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2557,7 +2561,9 @@ async function aiReviewCareerContract(contractRow) {
         body: JSON.stringify({
           model: ANTHROPIC_SCAN_MODEL,
           max_tokens: 1500,
-          temperature: 0,
+          // No temperature — ANTHROPIC_SCAN_MODEL defaults to claude-opus-4-8,
+          // which REJECTS temperature/top_p/top_k with a 400. Every other
+          // scan caller already omits it; this one must too.
           messages: [{ role: 'user', content: contentBlocks }]
         })
       });
@@ -38209,6 +38215,27 @@ async function handleApi(req, res, pathname) {
     });
     if (!fzPatch || !fzPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the upload. Please try again.' }); return; }
 
+    // CEO alert — "Contract uploaded for Dr X — review it in the GP Link
+    // dashboard". Sent BEFORE the (awaited) AI review below: the review can
+    // run right up to the Vercel function time limit, and a platform kill
+    // mid-review must never silently drop the only notification the CEO
+    // gets that a contract is waiting on them.
+    try {
+      const fzDrName = await contractGpDisplayName(fzApp && fzApp.user_id);
+      const fzEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'Contract uploaded for ' + fzDrName.replace(/[<>]/g, '') + ' — review it in the GP Link dashboard',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'A practice uploaded an employment contract',
+          body: 'The practice has uploaded their employment contract for ' + fzEsc(fzDrName) + '. Open the GP Link dashboard to review it and send it on to the doctor.',
+          ctaText: 'Open the dashboard',
+          ctaUrl: APP_BASE_URL + '/pages/admin.html'
+        })
+      }).catch((err) => { console.warn('[practice-offer] contract-uploaded CEO alert failed:', err && err.message); });
+    } catch (e) { /* best-effort */ }
+
     // Task 11: AI contract review — compares the uploaded contract against
     // the interview summary (supersedes) + advertised/offer terms. Runs
     // best-effort and is fully guarded: a review failure must NOT fail the
@@ -38233,23 +38260,6 @@ async function handleApi(req, res, pathname) {
         });
       } catch (e2) { /* best effort — never fail finalize over this */ }
     }
-
-    // CEO alert — "Contract uploaded for Dr X — review it in the GP Link dashboard".
-    try {
-      const fzDrName = await contractGpDisplayName(fzApp && fzApp.user_id);
-      const fzEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      await sendEmail({
-        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
-        subject: 'Contract uploaded for ' + fzDrName.replace(/[<>]/g, '') + ' — review it in the GP Link dashboard',
-        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
-        html: buildCareerEmailHtml({
-          title: 'A practice uploaded an employment contract',
-          body: 'The practice has uploaded their employment contract for ' + fzEsc(fzDrName) + '. Open the GP Link dashboard to review it and send it on to the doctor.',
-          ctaText: 'Open the dashboard',
-          ctaUrl: APP_BASE_URL + '/pages/admin.html'
-        })
-      }).catch((err) => { console.warn('[practice-offer] contract-uploaded CEO alert failed:', err && err.message); });
-    } catch (e) { /* best-effort */ }
 
     sendJson(res, 200, { ok: true });
     return;

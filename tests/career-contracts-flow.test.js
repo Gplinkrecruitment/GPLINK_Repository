@@ -1274,7 +1274,9 @@ describe('AI contract review vs Zoom-summary terms (Task 11, live-boot)', () => 
     const sent = anthropicCalls[anthropicCalls.length - 1];
     expect(sent.model).toBeTruthy();
     expect(sent.max_tokens).toBe(1500);
-    expect(sent.temperature).toBe(0);
+    // Opus 4.8 (ANTHROPIC_SCAN_MODEL default) rejects temperature/top_p/top_k
+    // with a 400 — sending it would 400 every real review.
+    expect(sent.temperature).toBeUndefined();
     const blocks = sent.messages[0].content;
     const docBlockSent = blocks.find((b) => b.type === 'document');
     expect(docBlockSent).toBeTruthy();
@@ -1360,7 +1362,10 @@ describe('AI contract review vs Zoom-summary terms (Task 11, live-boot)', () => 
       const result = await mod.__testUtils.aiReviewCareerContract(db.career_contracts.find((x) => x.id === 'contract-t11-nokey'));
       expect(result.ai_review_status).toBe('error');
       expect(result.ai_review.summary).toMatch(/no api key configured/i);
-      expect(result.ai_review.interview_terms_available).toBe(false);
+      // interview_terms_available is now the computed value (matching the
+      // no-file stub + real path), not hardcoded false — this contract's
+      // application_id (APP_WITH_INTERVIEW) has a real interview summary.
+      expect(result.ai_review.interview_terms_available).toBe(true);
 
       const c = db.career_contracts.find((x) => x.id === 'contract-t11-nokey');
       expect(c.ai_review_status).toBe('error');
