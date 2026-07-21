@@ -1584,60 +1584,83 @@
     ).join("");
   }
 
-  // ── Button morph (translate + width/padding/font-size) ──
-  // Animates position with translateX and size with real property transitions.
-  // No scaleX/scaleY — avoids text and border-radius distortion.
+  // ── Button morph (WAAPI FLIP: transform + width only) ──
+  // Font-size and padding switch instantly with the class toggle (no per-frame
+  // text reflow) — the label crossfade masks it. The Web Animations API leaves
+  // no inline styles behind, so an interrupted morph can never strand the
+  // button at a wrong size; cancelling always lands on the final class layout.
   var btnRow = nextBtn.parentElement;
-  var flipEase = "cubic-bezier(0.22, 1, 0.36, 1)";
-  var flipDur = "0.55s";
+  var nextBtnLabel = document.getElementById("nextBtnLabel");
+  var morphAnim = null;
 
   function flipNextBtn(applyLayoutChange) {
-    var cs = getComputedStyle(nextBtn);
+    // Capture the CURRENT visual rect (includes any in-flight morph) first.
     var firstRect = nextBtn.getBoundingClientRect();
-    var firstWidth = firstRect.width;
-    var firstPadding = cs.padding;
-    var firstFontSize = cs.fontSize;
+
+    if (morphAnim) {
+      try { morphAnim.cancel(); } catch (e) { /* ignore */ }
+      morphAnim = null;
+    }
 
     nextBtn.classList.add("flipping");
     applyLayoutChange();
-    void nextBtn.offsetWidth;
+
+    if (typeof nextBtn.animate !== "function") {
+      // No WAAPI support: apply the layout change without animating.
+      nextBtn.classList.remove("flipping");
+      return;
+    }
 
     var lastRect = nextBtn.getBoundingClientRect();
-    var lastWidth = lastRect.width;
     var dx = firstRect.left + firstRect.width / 2 - (lastRect.left + lastRect.width / 2);
 
-    // Snap to old state
-    nextBtn.style.transition = "none";
-    nextBtn.style.transform = "translateX(" + dx + "px)";
-    nextBtn.style.width = firstWidth + "px";
-    nextBtn.style.minWidth = "0";
-    nextBtn.style.padding = firstPadding;
-    nextBtn.style.fontSize = firstFontSize;
-
-    void nextBtn.offsetWidth;
-
-    // Animate to new state
-    nextBtn.style.transition = [
-      "transform " + flipDur + " " + flipEase,
-      "width " + flipDur + " " + flipEase,
-      "padding " + flipDur + " " + flipEase,
-      "font-size " + flipDur + " " + flipEase
-    ].join(", ");
-    nextBtn.style.transform = "translateX(0)";
-    nextBtn.style.width = lastWidth + "px";
-    nextBtn.style.padding = "";
-    nextBtn.style.fontSize = "";
+    var anim = nextBtn.animate(
+      [
+        { transform: "translateX(" + dx + "px)", width: firstRect.width + "px", minWidth: "0" },
+        { transform: "translateX(0)", width: lastRect.width + "px", minWidth: "0" }
+      ],
+      { duration: 550, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+    );
+    var done = function () {
+      // Identity check: a cancelled morph must not clobber a newer one.
+      if (morphAnim === anim) {
+        morphAnim = null;
+        nextBtn.classList.remove("flipping");
+      }
+    };
+    anim.onfinish = done;
+    anim.oncancel = done;
+    morphAnim = anim;
   }
 
-  nextBtn.addEventListener("transitionend", function (e) {
-    if (e.propertyName === "transform") {
-      nextBtn.style.transition = "";
-      nextBtn.style.transform = "";
-      nextBtn.style.width = "";
-      nextBtn.style.minWidth = "";
-      nextBtn.classList.remove("flipping");
+  // ── Button label (crossfade, race-free) ────
+  var labelTimers = [];
+  function clearLabelTimers() {
+    while (labelTimers.length) clearTimeout(labelTimers.pop());
+  }
+  function setNextBtnLabel(newLabel, isSubmit, fade) {
+    clearLabelTimers();
+    if (nextBtnLabel.textContent === newLabel) {
+      nextBtnLabel.style.opacity = "";
+      nextBtn.classList.toggle("submit", isSubmit);
+      return;
     }
-  });
+    if (!fade) {
+      nextBtnLabel.style.opacity = "";
+      nextBtnLabel.textContent = newLabel;
+      nextBtn.classList.toggle("submit", isSubmit);
+      return;
+    }
+    // Fade out (~120ms CSS transition), swap, fade back in — well inside the
+    // 550ms morph. Timers are managed so a rapid re-nav can never strand the
+    // label hidden or on the wrong text.
+    nextBtnLabel.style.opacity = "0";
+    labelTimers.push(setTimeout(function () {
+      nextBtnLabel.textContent = newLabel;
+      nextBtn.classList.toggle("submit", isSubmit);
+      nextBtnLabel.style.opacity = "";
+    }, 140));
+  }
 
   // ── Navigation ─────────────────────────────
   function goToStep(step) {
@@ -1684,18 +1707,10 @@
       skipBtn.classList.add("invisible");
     }
 
-    // Button label — swap text mid-slide so it changes during the motion
+    // Button label — crossfade while morphing, instant swap otherwise
     var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
     var isSubmit = step === TOTAL_STEPS - 1;
-    if (nextBtn.textContent !== newLabel) {
-      var delay = needsFlip ? 300 : 0;
-      setTimeout(function () {
-        nextBtn.textContent = newLabel;
-        nextBtn.classList.toggle("submit", isSubmit);
-      }, delay);
-    } else {
-      nextBtn.classList.toggle("submit", isSubmit);
-    }
+    setNextBtnLabel(newLabel, isSubmit, needsFlip);
 
     if (step === 3) {
       buildReview();
