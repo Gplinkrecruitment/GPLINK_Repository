@@ -1415,7 +1415,7 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
 
   it('submit_to_gp advances the application to offer via forward-only stage reconciliation', () => {
     const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
-    const branch = SERVER_SRC.slice(idx, idx + 2200);
+    const branch = SERVER_SRC.slice(idx, idx + 3000);
     expect(branch).toMatch(/status:\s*'offer'/);
     expect(branch).toMatch(/atsPracticeUtil\.planAtsStageReconciliation\(cdApp\.ats_stage \|\| '', 'offer'\)/);
     expect(branch).toMatch(/atsUpdateApplicationStageRow\(cdApp\.id, cdTarget/);
@@ -1423,7 +1423,7 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
 
   it('submit_to_gp fires the GP notification trio (in-app + push + email)', () => {
     const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
-    const branch = SERVER_SRC.slice(idx, idx + 3200);
+    const branch = SERVER_SRC.slice(idx, idx + 4200);
     expect(branch).toMatch(/pushCareerNotificationToUser\(cdGpUserId/);
     expect(branch).toMatch(/sendPushNotification\(cdGpUserId/);
     expect(branch).toMatch(/sendGpNotificationEmail\(cdGpUserId/);
@@ -1431,10 +1431,25 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
     expect(branch).toContain('/pages/offer-review?applicationId=');
   });
 
+  it('submit_to_gp is refused with 409 application_terminal when the application is withdrawn/not_proceeding/already secured — checked BEFORE the contract PATCH', () => {
+    const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 3000);
+    const guardIdx = branch.search(/cdAppStatusKey === 'withdrawn' \|\| cdAppStatusKey === 'not_proceeding' \|\| isCareerPlacementSecuredStatus\(cdAppStatusKey\)/);
+    const contractPatchIdx = branch.indexOf("status: 'sent_to_gp'");
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(contractPatchIdx).toBeGreaterThan(-1);
+    // The terminal-application check must run BEFORE the contract is flipped
+    // to sent_to_gp, so a terminal application can never leave the contract
+    // half-written (PATCHed to sent_to_gp with no way to notify a live GP).
+    expect(guardIdx).toBeLessThan(contractPatchIdx);
+    expect(branch).toMatch(/code:\s*'application_terminal'/);
+  });
+
   it('return_to_practice is refused outside uploaded/changes_requested, then voids and starts a new revision', () => {
     const idx = SERVER_SRC.indexOf("// action === 'return_to_practice'");
     expect(idx).toBeGreaterThan(-1);
-    const branch = SERVER_SRC.slice(idx, idx + 2200);
+    const branch = SERVER_SRC.slice(idx, idx + 3200);
     expect(branch).toMatch(/String\(cdContract\.status\) !== 'uploaded' && String\(cdContract\.status\) !== 'changes_requested'/);
     expect(branch).toMatch(/409/);
     expect(branch).toMatch(/status:\s*'void'/);
@@ -1444,10 +1459,28 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
 
   it('return_to_practice mints the fresh upload token for the NEW row, not the voided one', () => {
     const idx = SERVER_SRC.indexOf("// action === 'return_to_practice'");
-    const branch = SERVER_SRC.slice(idx, idx + 2900);
+    const branch = SERVER_SRC.slice(idx, idx + 4000);
     expect(branch).toMatch(/mintContractUploadToken\(cdNewRow\.id\)/);
     // Never re-mints against the original (now-void) contract id.
     expect(branch).not.toMatch(/mintContractUploadToken\(cdContract\.id\)/);
+  });
+
+  // Source-level ordering pin: the new awaiting_upload row must be INSERTed
+  // before the original is PATCHed to 'void'. A behavioral test can't tell
+  // these two orders apart on the happy path (both effects hold either way),
+  // so this pins the order directly — insert-then-void means a failed insert
+  // leaves the application with its original live 'uploaded'/'changes_requested'
+  // contract intact (retryable), instead of void-then-insert's failure mode
+  // of stranding the application with a void contract and no live row at all.
+  it('return_to_practice inserts the new awaiting_upload row BEFORE voiding the original (insert-before-void ordering)', () => {
+    const idx = SERVER_SRC.indexOf("// action === 'return_to_practice'");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = SERVER_SRC.slice(idx, idx + 3600);
+    const insertIdx = branch.indexOf("const cdIns = await supabaseDbRequest('career_contracts', '', { method: 'POST'");
+    const voidIdx = branch.indexOf("const cdVoidPatch = await supabaseDbRequest('career_contracts'");
+    expect(insertIdx).toBeGreaterThan(-1);
+    expect(voidIdx).toBeGreaterThan(-1);
+    expect(insertIdx).toBeLessThan(voidIdx);
   });
 });
 
@@ -1522,6 +1555,7 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
 
   const APP_SUBMIT = 'app-t12-submit';
   const APP_RETURN = 'app-t12-return';
+  const APP_WITHDRAWN = 'app-t12-withdrawn';
 
   let server, port, sbServer, sbPort, realFetch, mod;
   const resendCalls = [];
@@ -1537,7 +1571,11 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
     ],
     gp_applications: [
       { id: APP_SUBMIT, user_id: GP_A.userId, career_role_id: 'role-t12-1', practice_id: 'p-t12-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@riverside-test.local', practice_contact_name: 'Riverside Reception', applied_at: iso(120) },
-      { id: APP_RETURN, user_id: GP_B.userId, career_role_id: 'role-t12-1', practice_id: 'p-t12-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'admin@riverside-test.local', practice_contact_name: 'Riverside Admin', applied_at: iso(120) }
+      { id: APP_RETURN, user_id: GP_B.userId, career_role_id: 'role-t12-1', practice_id: 'p-t12-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'admin@riverside-test.local', practice_contact_name: 'Riverside Admin', applied_at: iso(120) },
+      // The GP withdrew AFTER the practice uploaded the contract — the
+      // contract row below is still sitting at 'uploaded'. submit_to_gp must
+      // refuse to resurrect this application by flipping it back to 'offer'.
+      { id: APP_WITHDRAWN, user_id: GP_A.userId, career_role_id: 'role-t12-1', practice_id: 'p-t12-1', status: 'withdrawn', ats_stage: 'interview', practice_contact_email: 'reception@riverside-test.local', practice_contact_name: 'Riverside Reception', applied_at: iso(120) }
     ],
     // Ordering fixture: priority group (uploaded/changes_requested) must sort
     // BEFORE everything else regardless of recency — contract-t12-void (30 min
@@ -1548,7 +1586,8 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
       { id: 'contract-t12-uploaded', application_id: APP_SUBMIT, user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 1, status: 'uploaded', ai_review_status: 'done', ai_review: { overall: 'minor_gaps', summary: 'Small gap in sessions per week.', discrepancies: [{ field: 'sessions_per_week', contract_says: '3', expected: '4', source: 'offer_record', severity: 'warning' }], interview_terms_available: false }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/submit/v1/c.pdf', practice_contact_email: 'reception@riverside-test.local', practice_contact_name: 'Riverside Reception', created_at: iso(50), updated_at: iso(50) },
       { id: 'contract-t12-changes', application_id: 'app-t12-changes-dummy', user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 2, status: 'changes_requested', change_request: 'Please correct the start date to 1 November.', ai_review_status: 'done', ai_review: { overall: 'major_discrepancies', summary: 'Start date mismatch.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/changes/v2/c.pdf', created_at: iso(40), updated_at: iso(40) },
       { id: 'contract-t12-void', application_id: 'app-t12-void-dummy', user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 1, status: 'void', ai_review_status: 'not_run', created_at: iso(30), updated_at: iso(30) },
-      { id: 'contract-t12-return', application_id: APP_RETURN, user_id: GP_B.userId, career_role_id: 'role-t12-1', version: 1, status: 'uploaded', ai_review_status: 'done', ai_review: { overall: 'aligned', summary: 'Looks fine.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/return/v1/c.pdf', practice_contact_email: 'admin@riverside-test.local', practice_contact_name: 'Riverside Admin', created_at: iso(20), updated_at: iso(20) }
+      { id: 'contract-t12-return', application_id: APP_RETURN, user_id: GP_B.userId, career_role_id: 'role-t12-1', version: 1, status: 'uploaded', ai_review_status: 'done', ai_review: { overall: 'aligned', summary: 'Looks fine.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/return/v1/c.pdf', practice_contact_email: 'admin@riverside-test.local', practice_contact_name: 'Riverside Admin', created_at: iso(20), updated_at: iso(20) },
+      { id: 'contract-t12-withdrawn-app', application_id: APP_WITHDRAWN, user_id: GP_A.userId, career_role_id: 'role-t12-1', version: 1, status: 'uploaded', ai_review_status: 'done', ai_review: { overall: 'aligned', summary: 'Looks fine.', discrepancies: [], interview_terms_available: true }, contract_bucket: 'gp-link-documents', contract_path: 'contracts/t12/withdrawn/v1/c.pdf', practice_contact_email: 'reception@riverside-test.local', practice_contact_name: 'Riverside Reception', created_at: iso(45), updated_at: iso(45) }
     ],
     ats_stage_events: [],
     user_state: [
@@ -1701,11 +1740,12 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
     expect(r.body.ok).toBe(true);
     const ids = r.body.contracts.map((c) => c.id);
     expect(ids).toEqual([
-      'contract-t12-return',    // uploaded, 20 min ago — priority group, newest
-      'contract-t12-changes',   // changes_requested, 40 min ago — priority group
-      'contract-t12-uploaded',  // uploaded, 50 min ago — priority group, oldest
-      'contract-t12-void',      // void, 30 min ago — non-priority, but newer than "signed" below
-      'contract-t12-signed'     // signed, 60 min ago — non-priority, oldest overall
+      'contract-t12-return',          // uploaded, 20 min ago — priority group, newest
+      'contract-t12-changes',         // changes_requested, 40 min ago — priority group
+      'contract-t12-withdrawn-app',   // uploaded, 45 min ago — priority group
+      'contract-t12-uploaded',        // uploaded, 50 min ago — priority group, oldest
+      'contract-t12-void',            // void, 30 min ago — non-priority, but newer than "signed" below
+      'contract-t12-signed'           // signed, 60 min ago — non-priority, oldest overall
     ]);
 
     const uploaded = r.body.contracts.find((c) => c.id === 'contract-t12-uploaded');
@@ -1744,6 +1784,27 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
     const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-void', action: 'submit_to_gp' });
     expect(r.status).toBe(409);
     expect(db.career_contracts.find((c) => c.id === 'contract-t12-void').status).toBe('void');
+  });
+
+  it('POST /api/ceo/contract/decision submit_to_gp: 409 application_terminal when the GP withdrew after the practice uploaded — contract stays "uploaded", no resurrection, no GP email', async () => {
+    const before = resendCalls.length;
+    const r = await ceoPost('/api/ceo/contract/decision', { contractId: 'contract-t12-withdrawn-app', action: 'submit_to_gp' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('application_terminal');
+
+    // The app-status check runs BEFORE the contract PATCH, so the contract
+    // must be untouched — never flipped to sent_to_gp for a dead application.
+    const c = db.career_contracts.find((x) => x.id === 'contract-t12-withdrawn-app');
+    expect(c.status).toBe('uploaded');
+    expect(c.sent_to_gp_at).toBeFalsy();
+
+    // The application must stay withdrawn — never resurrected to 'offer'.
+    const app = db.gp_applications.find((x) => x.id === APP_WITHDRAWN);
+    expect(app.status).toBe('withdrawn');
+
+    // No GP notification email fired.
+    expect(resendCalls.length).toBe(before);
   });
 
   it('POST /api/ceo/contract/decision submit_to_gp: success flips contract + application, notifies the GP by email, then 409s on replay', async () => {

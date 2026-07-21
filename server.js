@@ -38420,14 +38420,29 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to submit to the GP.' });
         return;
       }
+
+      const cdAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(cdContract.application_id) + '&limit=1');
+      const cdApp = (cdAppRes.ok && Array.isArray(cdAppRes.data) && cdAppRes.data[0]) ? cdAppRes.data[0] : null;
+
+      // Terminal-application guard — runs BEFORE the contract PATCH so nothing
+      // is half-written. If the GP withdrew, the practice already marked the
+      // application not_proceeding, or it's already secured through another
+      // path after the practice uploaded, submitting must never resurrect it
+      // to 'offer' and email out a contract for a dead application.
+      if (cdApp) {
+        const cdAppStatusKey = normalizeCareerApplicationStatusKey(cdApp.status);
+        if (cdAppStatusKey === 'withdrawn' || cdAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(cdAppStatusKey)) {
+          sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active — the contract cannot be sent.' });
+          return;
+        }
+      }
+
       const cdPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cdContract.id), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
         body: { status: 'sent_to_gp', sent_to_gp_at: cdNowIso, ceo_note: cdNote || null, updated_at: cdNowIso }
       });
       if (!cdPatch || !cdPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
 
-      const cdAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(cdContract.application_id) + '&limit=1');
-      const cdApp = (cdAppRes.ok && Array.isArray(cdAppRes.data) && cdAppRes.data[0]) ? cdAppRes.data[0] : null;
       if (cdApp) {
         await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(cdApp.id), {
           method: 'PATCH', headers: { Prefer: 'return=minimal' },
@@ -38465,15 +38480,13 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract cannot be returned to the practice.' });
       return;
     }
-    const cdVoidPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cdContract.id), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' },
-      body: { status: 'void', updated_at: cdNowIso }
-    });
-    if (!cdVoidPatch || !cdVoidPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the contract.' }); return; }
-
     // New awaiting_upload row, version = 1 + max(existing across ALL rows,
     // incl. void) — same "never collides" rule Task 10's extend_offer branch
     // uses, copying the practice contact fields across to the new revision.
+    // INSERT FIRST, THEN VOID: if the insert fails, the original row is still
+    // 'uploaded'/'changes_requested' and the CEO can just retry — the old
+    // void-then-insert order left a failed insert stranding the application
+    // with only a void contract and no live row to retry against.
     const cdAll = await listCareerContractsForApplication(cdContract.application_id);
     const cdMaxV = cdAll.reduce((m, c) => Math.max(m, Number(c.version) || 0), 0);
     const cdInsert = {
@@ -38491,6 +38504,19 @@ async function handleApi(req, res, pathname) {
     const cdIns = await supabaseDbRequest('career_contracts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [cdInsert] });
     const cdNewRow = (cdIns.ok && Array.isArray(cdIns.data) && cdIns.data[0]) ? cdIns.data[0] : null;
     if (!cdNewRow) { sendJson(res, 502, { ok: false, message: 'Could not start a new contract upload.' }); return; }
+
+    // Void the old row now that the replacement definitely exists. If this
+    // PATCH fails it's recoverable — two live contract rows (the old one
+    // still 'uploaded'/'changes_requested' plus the new 'awaiting_upload'
+    // row) is benign compared to zero, so we log and carry on rather than
+    // failing the whole request out from under an already-created new row.
+    const cdVoidPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cdContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'void', updated_at: cdNowIso }
+    });
+    if (!cdVoidPatch || !cdVoidPatch.ok) {
+      console.warn('[ceo contract-decision] failed to void old contract ' + cdContract.id + ' after starting new revision ' + cdNewRow.id + ' (ignored — two live rows is recoverable):', cdVoidPatch && cdVoidPatch.error);
+    }
 
     // Email the practice contact — the CEO's note (if any) plus a FRESH
     // contract_upload token minted for the NEW row (never the just-voided one)
