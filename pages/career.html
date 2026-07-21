@@ -12542,8 +12542,14 @@
       // A placed GP must be able to scroll the practice page and must never be
       // trapped behind the CV-gate lock. Clear the gate (belt-and-braces — it is
       // only for job-hunting GPs) and restore natural, iOS-safe scrolling.
-      if (typeof closeCareerGateModal === "function") closeCareerGateModal();
-      ensureSecuredScrollable();
+      // ONLY for GPs genuinely locked to the placement view: for everyone else
+      // getSecuredPlacementUiState() is "ready" too, so an unguarded clear here
+      // let any late renderPage() (storage event from the app-shell frame,
+      // filter change) dismiss the non-dismissible CV gate mid-session.
+      if (shouldLockCareerToSecuredView()) {
+        if (typeof closeCareerGateModal === "function") closeCareerGateModal();
+        ensureSecuredScrollable();
+      }
       const placement = resolveSecuredPlacement();
       // Provisional placement: real practice, package not yet loaded. Mark the
       // page so CSS hides the demo-dependent sections, and show an honest note
