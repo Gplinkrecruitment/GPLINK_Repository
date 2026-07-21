@@ -12423,6 +12423,17 @@ function verifyPracticeActionToken(token) {
   return { ok: true, applicationId, action };
 }
 
+// ── Task 9/10: post-interview practice decision tokens ──────────────────────
+// Same purpose-token scheme as the practice-action tokens above. Minted by
+// sendPostInterviewDecisionEmail (Task 9) into the "how did the interview
+// go?" email fired the instant an interview completes; consumed by Task 10's
+// GET/POST /pages/practice-offer.html endpoints. The payload is deliberately
+// JUST { applicationId } — no action baked in — because the SAME token backs
+// BOTH links; which one was clicked is carried by the page's own ?intent=
+// query param (offer/decline), not the signed payload.
+const POST_INTERVIEW_TOKEN_PURPOSE = 'post_interview_decision';
+const POST_INTERVIEW_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — mirrors PRACTICE_ACTION_TOKEN's default expDays
+
 // ── Phase 6 F4: verified email change ───────────────────────────────────────
 // Same purpose-token scheme: unforgeable, expiring, single-purpose. The token
 // is minted at request time and only ever emailed to the NEW address, so
@@ -20233,6 +20244,19 @@ async function handleZoomMeetingEnded(payload) {
       }
     });
     console.log('[zoom meeting.ended] Updated registration_task', registrationTaskId, '→ completed');
+  }
+
+  // Task 9: the instant a GP's INTERVIEW concludes, the practice gets an
+  // extend-offer/not-proceeding email. Fire-and-forget guarded — an email
+  // failure must never break the Zoom webhook (it already returns 200 above
+  // regardless; this try/catch just keeps a thrown error out of the logs
+  // looking like a webhook failure).
+  if (callRecord.meeting_kind === 'interview' && callRecord.application_id) {
+    try {
+      await sendPostInterviewDecisionEmail(callRecord.application_id);
+    } catch (e) {
+      console.error('[post-interview] handleZoomMeetingEnded send failed:', e && e.message);
+    }
   }
 }
 
@@ -29841,6 +29865,171 @@ async function sendPracticeDecisionReminderEmail(opts) {
   });
 }
 
+// Task 9 (owner spec 2026-07-21): the instant "how did the interview go?"
+// email — fired the moment a GP's interview with a practice concludes, via
+// EITHER the Zoom meeting.ended webhook (handleZoomMeetingEnded) or the
+// detect-no-shows cron's attended-so-mark-completed fallback path. Gives the
+// practice two one-click choices (extend an offer / not proceeding) that
+// land on Task 10's /pages/practice-offer.html, via the SAME signed-
+// purpose-token scheme as the practice-action tokens above.
+//
+// Idempotent via gp_applications.post_interview_email_sent_at: the stamp is
+// written FIRST — write-then-send — so a duplicate webhook delivery or a
+// concurrent cron pass can never double-send; a second caller sees the stamp
+// already set and bails immediately with {skipped:'already_sent'}. If
+// contact resolution or the send itself then fails, the stamp is rolled back
+// (nulled) so a LATER retry (the cron re-runs this same completion path
+// every 10 minutes) picks it back up. status/interview_completed_at are
+// deliberately NOT rolled back on a send failure — the interview genuinely
+// happened; only the notification needs retrying.
+async function sendPostInterviewDecisionEmail(applicationId) {
+  var id = String(applicationId || '').trim();
+  if (!id) return { ok: false, error: 'missing_application_id' };
+  if (!isSupabaseDbConfigured()) return { ok: false, error: 'db_not_configured' };
+
+  var appRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  var app = (appRes.ok && Array.isArray(appRes.data) && appRes.data[0]) ? appRes.data[0] : null;
+  if (!app) return { ok: false, error: 'application_not_found' };
+  if (app.post_interview_email_sent_at) return { ok: false, skipped: 'already_sent' };
+
+  var stampIso = new Date().toISOString();
+  var stampRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: { post_interview_email_sent_at: stampIso, status: 'interview_completed', interview_completed_at: stampIso, updated_at: stampIso }
+  });
+  if (!stampRes.ok) return { ok: false, error: 'stamp_failed' };
+
+  var rollbackStamp = async function (error) {
+    try {
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { post_interview_email_sent_at: null }
+      });
+    } catch (e) { /* best-effort — worst case a missed retry, never a double-send */ }
+    return { ok: false, error: error };
+  };
+
+  try {
+    // Role + practice label/contact lookup (single fetch) — mirrors the
+    // in-app submit-to-practice branch's precedence, adapted to start from
+    // the application's OWN contact columns (set at submission time) first.
+    var role = null;
+    if (app.career_role_id != null) {
+      var roleRes = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
+      role = (roleRes.ok && Array.isArray(roleRes.data) && roleRes.data[0]) ? roleRes.data[0] : null;
+    }
+    var roleLabel = (role && role.title) || 'GP position';
+    var practiceLabel = (role && role.practice_name) || 'your practice';
+
+    // Practice-contact precedence (documented order, mirrors the in-app
+    // submit-to-practice branch): 1) gp_applications' own columns — the
+    // ATS-native source, already populated at submission time; 2) the
+    // practices table via career_roles.practice_id; 3) contact fields
+    // carried on the career_roles row / its source payload; 4) the
+    // registration case's practice_contact JSON.
+    var contactEmail = String(app.practice_contact_email || '').trim();
+    var contactName = String(app.practice_contact_name || '').trim();
+    if (!contactEmail) {
+      var practice = null;
+      var practiceId = app.practice_id || (role && role.practice_id) || null;
+      if (practiceId) {
+        try { practice = await atsGetPracticeRow(practiceId); } catch (e) { practice = null; }
+      }
+      if (practice) {
+        contactEmail = String(practice.contact_email || '').trim();
+        if (!contactName) contactName = String(practice.contact_name || '').trim();
+        if (practice.name) practiceLabel = practice.name;
+      }
+      if (!contactEmail && role) {
+        var roleSource = role.source_payload && typeof role.source_payload === 'object' ? role.source_payload : {};
+        contactEmail = String(
+          role.practice_contact_email || role.contact_email
+          || roleSource.practice_contact_email || roleSource.contact_email || ''
+        ).trim();
+        if (!contactName) {
+          contactName = String(
+            role.practice_contact_name || role.contact_name
+            || roleSource.practice_contact_name || roleSource.contact_name || ''
+          ).trim();
+        }
+      }
+      if (!contactEmail && app.user_id) {
+        try {
+          var caseRes = await supabaseDbRequest('registration_cases', 'select=practice_contact&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+          var caseRow = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+          if (caseRow && caseRow.practice_contact) {
+            var pc = typeof caseRow.practice_contact === 'string' ? JSON.parse(caseRow.practice_contact) : caseRow.practice_contact;
+            contactEmail = String((pc && (pc.contactEmail || pc.email)) || '').trim();
+            if (!contactName) contactName = String((pc && (pc.contactName || pc.name)) || '').trim();
+          }
+        } catch (e) { /* tolerated — falls through to the no-contact rollback below */ }
+      }
+    }
+    if (!contactEmail) return await rollbackStamp('no_practice_contact');
+
+    // GP name — last name for the subject line ("How did the interview with
+    // Dr <LastName> go?"), falling back to the full name (still Dr-prefixed
+    // unless already given as one) and finally "your candidate" so the
+    // subject is never blank or malformed.
+    var gpLastName = '', gpFullName = '';
+    if (app.user_id) {
+      try {
+        var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+        var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+        if (prof) {
+          gpLastName = String(prof.last_name || '').trim();
+          gpFullName = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || String(prof.email || '').trim();
+        }
+      } catch (e) { /* tolerated — falls back to "your candidate" below */ }
+    }
+    var gpDisplayName = gpLastName
+      ? ('Dr ' + gpLastName)
+      : (gpFullName ? (/^dr\b/i.test(gpFullName) ? gpFullName : ('Dr ' + gpFullName)) : 'your candidate');
+
+    var token = createSignedPurposeToken(POST_INTERVIEW_TOKEN_PURPOSE, { applicationId: id }, POST_INTERVIEW_TOKEN_TTL_MS);
+    var offerUrl = APP_BASE_URL + '/pages/practice-offer.html?token=' + encodeURIComponent(token) + '&intent=offer';
+    var declineUrl = APP_BASE_URL + '/pages/practice-offer.html?token=' + encodeURIComponent(token) + '&intent=decline';
+
+    var subject = 'How did the interview with ' + gpDisplayName + ' go?';
+    // Plain text — buildCareerEmailHtml's `body` path (formatPlainTextEmailHtml)
+    // HTML-escapes every interpolated value below before it ever reaches the
+    // rendered email, same as the other practice-facing emails in this file.
+    var body =
+      'Hi ' + practiceLabel + ',\n\n' +
+      'Thanks for meeting with ' + gpDisplayName + ' for your ' + roleLabel + ' position. Let us know how it went:\n\n' +
+      '**Extend an offer** — you\'ll be asked to upload your employment contract for our review.\n\n' +
+      '**Not proceeding** — we\'ll let the doctor down gently and keep searching for you.\n\n' +
+      'Thank you,\nGP Link Recruitment Team';
+    var text = [
+      'Hi ' + practiceLabel + ',', '',
+      'Thanks for meeting with ' + gpDisplayName + ' for your ' + roleLabel + ' position. Let us know how it went:',
+      '', 'Extend an offer — you\'ll be asked to upload your employment contract for our review: ' + offerUrl,
+      '', 'Not proceeding — we\'ll let the doctor down gently and keep searching for you: ' + declineUrl,
+      '', 'Thank you,', 'GP Link Recruitment Team'
+    ].join('\n');
+
+    var sendResult = await sendEmail({
+      to: contactEmail,
+      subject: subject,
+      html: buildCareerEmailHtml({
+        title: 'How did the interview go?',
+        body: body,
+        ctaText: 'Extend an offer',
+        ctaUrl: offerUrl,
+        secondaryCtaText: 'Not proceeding',
+        secondaryCtaUrl: declineUrl
+      }),
+      text: text,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+    });
+    if (!sendResult || !sendResult.ok) return await rollbackStamp((sendResult && sendResult.error) || 'send_failed');
+
+    return { ok: true };
+  } catch (e) {
+    return await rollbackStamp((e && e.message) || 'unexpected_error');
+  }
+}
+
 async function redirectOthersForJob(jobId, hiredAppId) {
   var result = { redirected: 0, skipped: 0, errors: [] };
   if (!jobId || !isSupabaseDbConfigured()) return result;
@@ -34778,6 +34967,15 @@ async function handleApi(req, res, pathname) {
           await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'completed', completed_at: nowIso, summary_status: (call.summary_status === 'not_requested' || !call.summary_status) ? 'pending' : call.summary_status, updated_at: nowIso } });
           const tId = getScheduledCallRegistrationTaskId(call);
           if (tId) await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(tId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: mapCallStatusToTaskStatus('completed'), updated_at: nowIso } });
+          // Task 9: same instant post-interview email as the Zoom webhook —
+          // this is the fallback path for when meeting.ended never arrived.
+          if (call.meeting_kind === 'interview' && call.application_id) {
+            try {
+              await sendPostInterviewDecisionEmail(call.application_id);
+            } catch (e) {
+              console.error('[post-interview] detect-no-shows send failed:', e && e.message);
+            }
+          }
           attended++;
         } else {
           await handleScheduledCallFailure(call, 'no_show');
@@ -64300,6 +64498,8 @@ module.exports.__testUtils = {
   makePracticeActionToken,
   verifyPracticeActionToken,
   createSignedPurposeToken,
+  sendPostInterviewDecisionEmail,
+  POST_INTERVIEW_TOKEN_PURPOSE,
   recordServerError,
   recordCronRun,
   classifyClientErrorNoise,
