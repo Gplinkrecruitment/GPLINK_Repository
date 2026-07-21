@@ -174,6 +174,12 @@
     if (!S.shouldRunNextStep(readState())) return;
     ranPointer = true; // decide once per shell boot (mirrors ranAuto)
     pointerPending = true; // holds the coach-active flag across the tour → pointer gap
+    // Boot path (tour already done on an earlier boot): nothing has broadcast
+    // coach-active yet, so a page tip could fire during the arm delay and beat
+    // the pointer. Broadcast true when ARMING — idempotent after the tour
+    // path's own broadcast — and every bail inside runNextStepPointer (plus its
+    // run().then) answers with false, mirroring the pointerPending pattern.
+    broadcastCoachActive(true);
     setTimeout(function () { pointerPending = false; runNextStepPointer(); }, delay || 600);
   }
 

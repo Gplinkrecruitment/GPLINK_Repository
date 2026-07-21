@@ -10,6 +10,13 @@
 //   3. The one-off pointer itself: pointer mode is click-through (overlay lets
 //      the click hit the real target, no preventDefault) and nextStepDone is
 //      marked ONLY via onTargetClick — Done/Skip/Escape leave it pending.
+// Extended 2026-07-22 after a real-browser verification pass:
+//   4. Priority rule — the pending pointer ALWAYS outranks the generic home tip
+//      (deterministic on the page side; shell boot path broadcasts as backup).
+//   5. Warm-frame guard — tips defer unmarked inside the shell's hidden
+//      preloaded iframe instead of burning invisibly.
+//   6. Coach hardening — document-level pointer click listener, detached-node
+//      re-resolve, pointer-mode Escape focus, sliver-rect clamp, 8s pointer wait.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -204,6 +211,106 @@ describe('GPJourneyStages.isEpicDone (behavioural, shared MyIntealth signal)', (
     expect(api.isEpicDone({})).toBe(false);
     expect(api.isEpicDone(null)).toBe(false);
     expect(api.isEpicDone('garbage')).toBe(false);
+  });
+});
+
+describe('pointer priority: the home tip yields while the pointer is pending', () => {
+  const js = read('js/gp-walkthrough.js');
+  it('homeTipYields = home area AND shouldRunNextStep (re-read from state each check)', () => {
+    const fn = js.slice(js.indexOf('function homeTipYields'), js.indexOf('function maybeRun'));
+    expect(fn).toContain("area === 'home'");
+    expect(fn).toContain('S.shouldRunNextStep(readState())');
+  });
+  it('maybeRun defers via homeTipYields at BOTH check points, unmarked, before markSeen', () => {
+    const fn = js.slice(js.indexOf('function maybeRun'), js.indexOf('function runNextStepPointer'));
+    const first = fn.indexOf('homeTipYields(area)');
+    const second = fn.indexOf('homeTipYields(area)', first + 1);
+    const iMark = fn.indexOf('markSeen(area)');
+    expect(first).toBeGreaterThan(-1);        // outer hydration-time check…
+    expect(second).toBeGreaterThan(first);    // …AND the settle-delay re-check
+    expect(second).toBeLessThan(iMark);       // both strictly before the tip is marked seen
+  });
+  it('shell boot path broadcasts coach-active true when ARMING the pointer (not just the tour path)', () => {
+    const shell = read('js/gp-walkthrough-shell.js');
+    const fn = shell.slice(shell.indexOf('function scheduleNextStepPointer'), shell.indexOf('function runTour'));
+    const iBroadcast = fn.indexOf('broadcastCoachActive(true)');
+    const iTimer = fn.indexOf('setTimeout');
+    expect(iBroadcast).toBeGreaterThan(-1);
+    expect(iBroadcast).toBeLessThan(iTimer); // flag is up BEFORE the arm-delay window opens
+  });
+});
+
+describe('warm-frame guard: tips defer inside a hidden preloaded frame (never burned)', () => {
+  const js = read('js/gp-walkthrough.js');
+  it('frameHidden treats a 0x0 viewport (display:none host) as blocked', () => {
+    const fn = js.slice(js.indexOf('function frameHidden'), js.indexOf('function pageBlocked'));
+    expect(fn).toContain('clientWidth === 0');
+    expect(fn).toContain('clientHeight === 0');
+  });
+  it('frameHidden also reads the host iframe computed style — the shell warm frame is opacity:0 at FULL size', () => {
+    const fn = js.slice(js.indexOf('function frameHidden'), js.indexOf('function pageBlocked'));
+    expect(fn).toContain('window.frameElement');
+    expect(fn).toContain("display === 'none'");
+    expect(fn).toContain("visibility === 'hidden'");
+    expect(fn).toContain('opacity');
+  });
+  it('pageBlocked includes frameHidden so the defer happens before markSeen', () => {
+    const fn = js.slice(js.indexOf('function pageBlocked'), js.indexOf('var deferRetry'));
+    expect(fn).toContain('frameHidden()');
+  });
+  it('armRetry wakes on resize (display:none host reveal) AND host class/style flips (opacity host)', () => {
+    const fn = js.slice(js.indexOf('function armRetry'), js.indexOf('var HOME'));
+    expect(fn).toContain("window.addEventListener('resize', fire)");
+    expect(fn).toContain('MutationObserver');
+    expect(fn).toContain("attributeFilter: ['class', 'style']");
+    // the poll stays bounded, but the event wake-ups survive it for hidden frames
+    expect(fn).toContain('frameHidden()');
+  });
+});
+
+describe('gp-coach pointer hardening (click resilience, Escape focus, sliver clamp, wait)', () => {
+  const js = read('js/gp-coach.js');
+  it('pointer click listener lives at DOCUMENT level (capture) and matches string targets via closest()', () => {
+    expect(js).toContain("d.addEventListener('click', onPointerDocClick, true)");
+    const fn = js.slice(js.indexOf('function onPointerDocClick'), js.indexOf('function onKey'));
+    expect(fn).toContain('closest');
+    expect(fn).toContain('curTarget.contains'); // element-target fallback match
+  });
+  it('cleanup still removes the document-level listener', () => {
+    const fn = js.slice(js.indexOf('function detachPointerClick'), js.indexOf('function cleanup'));
+    expect(fn).toContain("d.removeEventListener('click', onPointerDocClick, true)");
+  });
+  it('reposition re-resolves a DETACHED string target and keeps tracking the replacement', () => {
+    const fn = js.slice(js.indexOf('function reposition'), js.indexOf('function renderActions'));
+    expect(fn).toContain('isConnected');
+    expect(fn).toContain('d.querySelector(steps[idx].target)');
+  });
+  it('reposition clamps sliver rects to a 44px minimum BEFORE the pure computePlacement call', () => {
+    const fn = js.slice(js.indexOf('function reposition'), js.indexOf('function renderActions'));
+    const iClamp = fn.indexOf('MIN_EDGE = 44');
+    const iPlace = fn.indexOf('var pl = computePlacement'); // the CALL, not the comment
+    expect(iClamp).toBeGreaterThan(-1);
+    expect(iClamp).toBeLessThan(iPlace);
+  });
+  it('pointer mode focuses the Got-it dismiss on render so Escape reaches the coach document', () => {
+    const fn = js.slice(js.indexOf('function render()'), js.indexOf("window.addEventListener('resize'"));
+    expect(fn).toMatch(/pointerMode \? '\.gp-coach-skip' : '\.gp-coach-next'/);
+  });
+  it('steps/opts can extend the target wait; the next-step pointer uses 8s', () => {
+    expect(js).toContain('waitForElement(t, timeout || 4000)');
+    expect(js).toContain('steps[idx].timeout || opts.timeout');
+    const w = read('js/gp-walkthrough.js');
+    const fn = w.slice(w.indexOf('function runNextStepPointer'), w.indexOf("window.addEventListener('message'"));
+    expect(fn).toContain('timeout: 8000');
+  });
+});
+
+describe('placed pointer copy: never claims the tap will "open" the already-expanded row', () => {
+  const js = read('js/gp-walkthrough.js');
+  it('keeps the title and uses the non-toggling body copy', () => {
+    expect(js).toContain('Start your journey here');
+    expect(js).toContain("Begin with MyIntealth — this is your first step. Tap it when you're ready.");
+    expect(js).not.toContain('tap to open your first step');
   });
 });
 

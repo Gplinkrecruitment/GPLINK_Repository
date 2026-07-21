@@ -74,11 +74,11 @@
     });
   }
 
-  function resolveTarget(t) {
+  function resolveTarget(t, timeout) {
     var d = doc(); if (!d) return Promise.resolve(null);
     if (typeof t === 'function') { try { return Promise.resolve(t()); } catch (e) { return Promise.resolve(null); } }
     if (t && t.nodeType === 1) return Promise.resolve(t);
-    if (typeof t === 'string') return waitForElement(t, 4000);
+    if (typeof t === 'string') return waitForElement(t, timeout || 4000);
     return Promise.resolve(null);
   }
 
@@ -112,13 +112,13 @@
     var actsEl = tip.querySelector('.gp-coach-acts');
     var arrowEl = tip.querySelector('.gp-coach-arrow');
     var idx = 0, curTarget = null, lastFocus = d.activeElement, total = steps.length;
-    var pointerClickEl = null, settled = false;
+    var pointerClickArmed = false, settled = false;
 
     return new Promise(function (resolve) {
       function detachPointerClick() {
-        if (pointerClickEl) {
-          try { pointerClickEl.removeEventListener('click', onTargetClick, true); } catch (e) {}
-          pointerClickEl = null;
+        if (pointerClickArmed) {
+          pointerClickArmed = false;
+          try { d.removeEventListener('click', onPointerDocClick, true); } catch (e) {}
         }
       }
       function cleanup(reason) {
@@ -146,6 +146,19 @@
           cleanup('target');
         }, 0);
       }
+      function onPointerDocClick(e) {
+        // Document-level (capture) so a re-render replacing the target node
+        // can't take the listener down with it. String targets match by
+        // selector against the LIVE tree (the replacement node counts too);
+        // element/function targets fall back to the tracked reference.
+        var t = e.target && e.target.nodeType === 1 ? e.target : null;
+        if (!t) return;
+        var sel = steps[idx] && typeof steps[idx].target === 'string' ? steps[idx].target : null;
+        var hit = false;
+        if (sel) { try { hit = !!(t.closest && t.closest(sel)); } catch (err) {} }
+        else if (curTarget) hit = t === curTarget || !!(curTarget.contains && curTarget.contains(t));
+        if (hit) onTargetClick();
+      }
       function onKey(e) {
         if (e.key === 'Escape') { e.preventDefault(); skip(); }
         else if (e.key === 'Enter') { e.preventDefault(); if (pointerMode) skip(); else next(); }
@@ -159,9 +172,24 @@
       }
       function reposition() {
         if (!curTarget) return;
+        if (curTarget.isConnected === false && typeof steps[idx].target === 'string') {
+          // Re-renders can replace the node (the dashboard rebuilds journey
+          // rows): a detached rect reads 0x0 at 0,0. Re-resolve the selector
+          // and keep tracking the replacement.
+          var fresh = d.querySelector(steps[idx].target);
+          if (fresh) curTarget = fresh; else return;
+        }
         var r = curTarget.getBoundingClientRect();
+        var rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+        // Sliver guard: a collapsed/empty-state target (near-zero height or
+        // width) would leave an invisible spotlight. Expand the rect, centered,
+        // to a 44px minimum per side BEFORE the pure computePlacement call
+        // (computePlacement itself is unit-tested — never adjust it here).
+        var MIN_EDGE = 44;
+        if (rect.height < MIN_EDGE) { rect.top -= (MIN_EDGE - rect.height) / 2; rect.height = MIN_EDGE; }
+        if (rect.width < MIN_EDGE) { rect.left -= (MIN_EDGE - rect.width) / 2; rect.width = MIN_EDGE; }
         var pl = computePlacement(
-          { left: r.left, top: r.top, width: r.width, height: r.height },
+          rect,
           { width: tip.offsetWidth, height: tip.offsetHeight },
           { width: window.innerWidth, height: window.innerHeight }, {});
         spot.style.left = pl.spot.left + 'px'; spot.style.top = pl.spot.top + 'px';
@@ -190,13 +218,12 @@
         n.addEventListener('click', next); actsEl.appendChild(n);
       }
       function render() {
-        resolveTarget(steps[idx].target).then(function (el) {
+        resolveTarget(steps[idx].target, steps[idx].timeout || opts.timeout).then(function (el) {
           if (!el) { if (idx >= total - 1) { done(); } else { idx++; render(); } return; }
           curTarget = el;
-          if (pointerMode) {
-            detachPointerClick();
-            pointerClickEl = el;
-            el.addEventListener('click', onTargetClick, true);
+          if (pointerMode && !pointerClickArmed) {
+            pointerClickArmed = true;
+            d.addEventListener('click', onPointerDocClick, true);
           }
           try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: reduced ? 'auto' : 'smooth' }); } catch (e) {}
           stepEl.textContent = typeof opts.label === 'function' ? opts.label(idx, total) : ('Step ' + (idx + 1) + ' of ' + total);
@@ -205,7 +232,12 @@
           renderActions();
           (window.requestAnimationFrame || function (f) { setTimeout(f, 16); })(function () {
             reposition();
-            var f = actsEl.querySelector('.gp-coach-next'); if (f) { try { f.focus(); } catch (e) {} }
+            // Pointer mode has no Next — focus the "Got it" dismiss instead so
+            // the keydown listener's document can hear Escape (focus may
+            // otherwise sit in another frame). Pointer only renders at boot /
+            // timeline moments, so this never steals focus mid-typing.
+            var f = actsEl.querySelector(pointerMode ? '.gp-coach-skip' : '.gp-coach-next');
+            if (f) { try { f.focus(); } catch (e) {} }
           });
         });
       }
