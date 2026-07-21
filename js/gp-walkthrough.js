@@ -26,6 +26,98 @@
       if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
     } catch (e) {}
   }
+  function markNextStepDone() {
+    try {
+      localStorage.setItem(KEY, S.serializeState(S.withNextStepDone(readState())));
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+  }
+
+  // ---- Deferral: a tip must never fire (or be marked seen) while something else
+  // owns the screen. Blockers today: the career CV gate modal in THIS document,
+  // a shell coach run (tour / pointer) in the PARENT document — separate
+  // documents mean the page's C.isActive() can't see the shell's overlay, so the
+  // shell broadcasts `gp-shell-coach-active` messages instead — and this page
+  // being loaded invisibly in the shell's hidden warm frame. Add future gates
+  // to pageBlocked().
+  var shellCoachActive = false;
+  // The app shell preloads routes into a hidden second iframe; a tip fired in
+  // there marks itself seen without ever being visible. Measured in Chrome:
+  // a display:none host reports a 0x0 viewport inside (documentElement
+  // clientWidth/clientHeight AND innerWidth all 0), but the shell's warm frame
+  // is opacity:0 at FULL size — the only in-frame signal for it is the host
+  // iframe's computed style, readable same-origin via window.frameElement.
+  function frameHidden() {
+    try {
+      var de = document.documentElement;
+      if (de && de.clientWidth === 0 && de.clientHeight === 0) return true; // display:none host
+      var fe = window.frameElement; // null standalone; throws cross-origin (fail open)
+      if (fe) {
+        var pv = fe.ownerDocument && fe.ownerDocument.defaultView;
+        var cs = pv && pv.getComputedStyle ? pv.getComputedStyle(fe) : null;
+        if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0)) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function pageBlocked() {
+    if (shellCoachActive) return true;
+    if (frameHidden()) return true; // hidden warm frame — defer unmarked
+    // Career CV gate (pages/career.html): full-screen modal until CV verified.
+    try {
+      if (document.body && document.body.classList.contains('career-gate-open')) return true;
+      var gate = document.querySelector('.career-gate-modal.is-open');
+      if (gate) return true;
+    } catch (e) {}
+    return false;
+  }
+  var deferRetry = { armed: false, timer: null, poll: null };
+  function scheduleRetry() {
+    // Collapse multiple wake-ups into one re-check, ~500ms so the page settles.
+    if (deferRetry.timer) return;
+    deferRetry.timer = setTimeout(function () { deferRetry.timer = null; maybeRun(); }, 500);
+  }
+  function armRetry() {
+    if (deferRetry.armed) return;
+    deferRetry.armed = true;
+    function disarm() {
+      deferRetry.armed = false;
+      window.removeEventListener('gp-career-gate-closed', fire);
+      window.removeEventListener('resize', fire);
+      if (deferRetry.frameObs) { try { deferRetry.frameObs.disconnect(); } catch (e) {} deferRetry.frameObs = null; }
+      if (deferRetry.poll) { clearInterval(deferRetry.poll); deferRetry.poll = null; }
+    }
+    function fire() { disarm(); scheduleRetry(); }
+    // Primary signal: the career gate announces its close.
+    window.addEventListener('gp-career-gate-closed', fire);
+    // Warm-frame wake-ups (measured in Chrome): a display:none host firing to
+    // visible resizes this window 0x0 → real size, so 'resize' catches it; the
+    // shell's opacity:0 warm frame NEVER resizes on activation — the is-active
+    // class/style flip on the host iframe (same-origin) is the only signal.
+    window.addEventListener('resize', fire);
+    try {
+      var fe = window.frameElement;
+      if (fe && typeof MutationObserver !== 'undefined') {
+        deferRetry.frameObs = new MutationObserver(fire);
+        deferRetry.frameObs.observe(fe, { attributes: true, attributeFilter: ['class', 'style'] });
+      }
+    } catch (e) {}
+    // Fallback: gates that close without the event — poll the blocked state for
+    // up to ~60s, then give up (a fresh maybeRun() will re-arm if still blocked).
+    var deadline = Date.now() + 60000;
+    deferRetry.poll = setInterval(function () {
+      if (!pageBlocked()) { fire(); return; }
+      if (Date.now() > deadline) {
+        if (frameHidden()) {
+          // A warm frame can sit hidden for minutes: stop burning the poll but
+          // keep the event-driven wake-ups armed until activation fires them.
+          clearInterval(deferRetry.poll); deferRetry.poll = null;
+          return;
+        }
+        disarm();
+      }
+    }, 1000);
+  }
 
   var HOME = [
     { target: '.glass-progress', title: 'Your journey', body: 'Every registration stage sits here — green is done, blue is your current step.' },
@@ -66,15 +158,77 @@
     if (!steps.length) return;
     C.run(steps, { label: firstVisitLabel });
   }
+  // Priority rule: the one-off "start here" pointer ALWAYS outranks the generic
+  // home tip. The shell may ask this page to run the pointer at any moment after
+  // boot (its ~600ms arm delay races the hydration+250ms home tip), so while the
+  // pointer is still pending the home tip defers, unmarked — deterministic
+  // regardless of message timing. scheduleRetry() re-checks: pointer clicked →
+  // nextStepDone → the home tip runs ~500ms later; pointer dismissed (Got it /
+  // Escape, deliberately NOT marked) → the home tip stays deferred this boot and
+  // the pointer keeps its priority on the next boot.
+  function homeTipYields(area) {
+    return area === 'home' && S.shouldRunNextStep(readState());
+  }
   function maybeRun() {
     if (!S || !C) return;
     var area = S.routeToArea(location.pathname);
     if (!area) return;
     if (guarded()) return;
     if (!S.shouldRunTip(readState(), area)) return;
-    markSeen(area);          // mark BEFORE running so it can never double-fire
-    runArea(area);
+    if (homeTipYields(area)) return; // defer unmarked — retried via scheduleRetry()
+    if (pageBlocked()) { armRetry(); return; } // defer — deliberately BEFORE markSeen
+    // Small settle delay (fonts/layout), then re-check the blockers so a gate or
+    // coach that appeared meanwhile defers again instead of eating the tip.
+    setTimeout(function () {
+      if (guarded()) return;
+      if (homeTipYields(area)) return;
+      if (pageBlocked()) { armRetry(); return; }
+      if (!S.shouldRunTip(readState(), area)) return;
+      markSeen(area);        // mark BEFORE running so it can never double-fire
+      runArea(area);
+    }, 250);
   }
+
+  // Post-tour "start here" pointer, placed branch: the shell asks this page (home)
+  // to spotlight the MyIntealth journey row. Click-through pointer: tapping the row
+  // performs its normal action AND marks the pointer done; Escape/"Got it" leaves
+  // it pending so it re-arms on the next shell boot.
+  function runNextStepPointer() {
+    if (!S || !C) return;
+    if (C.isActive()) return;
+    if (guarded() || pageBlocked()) return;
+    if (!S.shouldRunNextStep(readState())) return;
+    // Belt and braces vs message races: if the rendered MyIntealth row is
+    // already in its "done" state (the row builder's state class, which also
+    // reflects admin stage overrides), never spotlight it as a starting point —
+    // retire the pointer permanently instead.
+    var row = document.querySelector('[data-journey-step="myinthealth"]');
+    if (row && row.classList.contains('done')) { markNextStepDone(); return; }
+    C.run([{
+      target: '[data-journey-step="myinthealth"]',
+      timeout: 8000, // cold journey-list renders can outlive the default 4s wait
+      title: 'Start your journey here',
+      // The MyIntealth row is already expanded (it IS the current step), so the
+      // copy must not claim the tap will "open" anything — tapping toggles it.
+      body: "Begin with MyIntealth — this is your first step. Tap it when you're ready."
+    }], {
+      pointer: true,
+      label: function () { return 'Next step'; },
+      onTargetClick: markNextStepDone
+    }).then(function () { scheduleRetry(); }); // a deferred tip (e.g. home) can now run
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin) return;
+    var d = e.data;
+    if (!d || !d.type) return;
+    if (d.type === 'gp-shell-coach-active') {
+      shellCoachActive = d.active === true;
+      if (!shellCoachActive) scheduleRetry(); // shell overlay gone — re-check deferred tips
+      return;
+    }
+    if (d.type === 'gp-shell-run-next-step') runNextStepPointer();
+  });
 
   // Replay entry (Account row): ask the shell to run the nav tour.
   document.addEventListener('click', function (e) {
@@ -91,5 +245,5 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea };
+  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer };
 })();

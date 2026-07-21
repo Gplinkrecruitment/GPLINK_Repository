@@ -1,5 +1,7 @@
 // Pure walkthrough state logic — no DOM, no browser globals. UMD so vitest can require it.
-// State shape: { tourDone: bool, tips: { home, practice, support, account, scan : bool } }
+// State shape: { tourDone: bool, nextStepDone: bool, tips: { home, practice, support, account, scan : bool } }
+// nextStepDone: the one-off post-tour "start here" pointer. Only marked when the GP
+// actually clicks the highlighted target — Escape/Skip leaves it pending so it re-arms.
 (function (root, factory) {
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -13,12 +15,13 @@
     return t;
   }
   function defaultState() {
-    return { tourDone: false, tips: tipsAll(false) };
+    return { tourDone: false, nextStepDone: false, tips: tipsAll(false) };
   }
   function normalize(state) {
     var d = defaultState();
     if (!state || typeof state !== 'object') return d;
     d.tourDone = state.tourDone === true;
+    d.nextStepDone = state.nextStepDone === true;
     var t = state.tips && typeof state.tips === 'object' ? state.tips : {};
     for (var i = 0; i < AREAS.length; i++) d.tips[AREAS[i]] = t[AREAS[i]] === true;
     return d;
@@ -30,15 +33,20 @@
   }
   function serializeState(state) { return JSON.stringify(normalize(state)); }
   function allSeenState() {
-    return { tourDone: true, tips: tipsAll(true) };
+    return { tourDone: true, nextStepDone: true, tips: tipsAll(true) };
   }
   function withTourDone(state) { var n = normalize(state); n.tourDone = true; return n; }
+  function withNextStepDone(state) { var n = normalize(state); n.nextStepDone = true; return n; }
   function withTipSeen(state, area) {
     var n = normalize(state);
     if (AREAS.indexOf(area) !== -1) n.tips[area] = true;
     return n;
   }
   function shouldRunTour(state) { return normalize(state).tourDone !== true; }
+  function shouldRunNextStep(state) {
+    var n = normalize(state);
+    return n.tourDone === true && n.nextStepDone !== true;
+  }
   function shouldRunTip(state, area) {
     var n = normalize(state);
     return n.tourDone === true && AREAS.indexOf(area) !== -1 && n.tips[area] === false;
@@ -57,7 +65,8 @@
 
   return {
     AREAS: AREAS, defaultState: defaultState, parseState: parseState, serializeState: serializeState,
-    allSeenState: allSeenState, withTourDone: withTourDone, withTipSeen: withTipSeen,
-    shouldRunTour: shouldRunTour, shouldRunTip: shouldRunTip, routeToArea: routeToArea
+    allSeenState: allSeenState, withTourDone: withTourDone, withNextStepDone: withNextStepDone,
+    withTipSeen: withTipSeen, shouldRunTour: shouldRunTour, shouldRunNextStep: shouldRunNextStep,
+    shouldRunTip: shouldRunTip, routeToArea: routeToArea
   };
 });

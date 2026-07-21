@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260722e";
+  var VERSION = "20260722g";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -47,13 +47,13 @@
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",
     "/js/perf-cache.js?v=20260628b",
-    "/js/journey-stages.js?v=20260711a",
+    "/js/journey-stages.js?v=20260722c",
     "/js/native-bridge.js?v=20260707a",
     "/js/match-popup.js?v=20260707b",
-    "/js/gp-coach.js?v=20260711a",
-    "/js/gp-walkthrough-state.js?v=20260711a",
-    "/js/gp-walkthrough.js?v=20260722b",
-    "/js/gp-walkthrough-shell.js?v=20260722b",
+    "/js/gp-coach.js?v=20260722d",
+    "/js/gp-walkthrough-state.js?v=20260722c",
+    "/js/gp-walkthrough.js?v=20260722d",
+    "/js/gp-walkthrough-shell.js?v=20260722d",
     "/js/document-prep.js?v=20260614a",
     "/js/career-home-card.js?v=20260709a"
   ];

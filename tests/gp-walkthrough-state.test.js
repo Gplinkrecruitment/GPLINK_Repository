@@ -11,6 +11,7 @@ describe('gp-walkthrough-state', () => {
   it('defaultState is all-false', () => {
     expect(S.defaultState()).toEqual({
       tourDone: false,
+      nextStepDone: false,
       tips: { home: false, practice: false, support: false, account: false, scan: false }
     });
   });
@@ -33,6 +34,7 @@ describe('gp-walkthrough-state', () => {
   it('allSeenState is all-true', () => {
     const a = S.allSeenState();
     expect(a.tourDone).toBe(true);
+    expect(a.nextStepDone).toBe(true);
     expect(Object.values(a.tips).every(Boolean)).toBe(true);
   });
 
@@ -45,6 +47,25 @@ describe('gp-walkthrough-state', () => {
     expect(base.tips.home).toBe(false);
     expect(seen.tips.home).toBe(true);
     expect(S.withTipSeen(base, 'nope').tips).toEqual(base.tips); // unknown area no-op
+  });
+
+  it('nextStepDone: defaults false, withNextStepDone is immutable and round-trips', () => {
+    const base = S.defaultState();
+    const n = S.withNextStepDone(base);
+    expect(base.nextStepDone).toBe(false); // original untouched
+    expect(n.nextStepDone).toBe(true);
+    expect(S.parseState(S.serializeState(n))).toEqual(n); // survives serialize/parse
+    // legacy blobs (pre-nextStepDone) normalize to false, not undefined
+    expect(S.parseState('{"tourDone":true,"tips":{}}').nextStepDone).toBe(false);
+  });
+
+  it('shouldRunNextStep: only after tour done and pointer not yet clicked', () => {
+    expect(S.shouldRunNextStep(S.defaultState())).toBe(false); // tour not done
+    const tourDone = S.withTourDone(S.defaultState());
+    expect(S.shouldRunNextStep(tourDone)).toBe(true);
+    expect(S.shouldRunNextStep(S.withNextStepDone(tourDone))).toBe(false);
+    // legacy backfilled all-seen blob WITHOUT the key: pointer is considered pending
+    expect(S.shouldRunNextStep({ tourDone: true, tips: {} })).toBe(true);
   });
 
   it('shouldRunTour: only when not done', () => {
