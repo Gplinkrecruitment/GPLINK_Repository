@@ -6,7 +6,7 @@
 // gp_applications bookkeeping columns). Later tasks build the endpoints on
 // top of it and will extend this file with server/endpoint coverage — this
 // describe block covers the migration itself.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
@@ -494,5 +494,366 @@ describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.e
     // Subjects aren't HTML — but angle brackets are stripped so a crafted
     // name can't visually spoof the subject line either.
     expect(sent.subject).not.toMatch(/[<>]/);
+  });
+});
+
+// Task 10 (2026-07-22): the practice extend-offer / decline page + its four
+// public, token-authed endpoints. No login — the signed purpose token is the
+// entire security model, so these tests are as much about what the endpoints
+// REFUSE as what they do. Boots the real server against an in-memory emulator
+// that serves BOTH PostgREST (/rest/v1/<table>) and Supabase Storage
+// (/storage/v1/...), reusing the admin-offer-contract test's storage
+// emulation, and overrides globalThis.fetch to capture Resend calls while
+// passing 127.0.0.1 traffic (the emulator) through to real fetch.
+describe('practice offer decision + contract upload (Task 10, live-boot)', () => {
+  const RUN_ID = crypto.randomBytes(4).toString('hex');
+  const DB_FILE = path.join('/tmp', `gplink-t10-${RUN_ID}.json`);
+  const GP = { userId: 'u-gp-t10-1', email: 'gp-t10@gplink-test.local' };
+  const HUB_EMAIL = 'hello@mygplink-test.local';
+  const NOW = new Date().toISOString();
+
+  // Separate application fixtures so the extend/upload sequence, the decline
+  // sequence and the withdrawn-guard cases never contaminate one another.
+  const APP_MAIN = 'app-t10-main';
+  const APP_DECLINE = 'app-t10-decline';
+  const APP_WD = 'app-t10-withdrawn';
+
+  let server, port, sbServer, sbPort, realFetch, mod;
+  const resendCalls = [];
+  const storage = new Map(); // "<bucket>/<path>" -> Buffer
+
+  const db = {
+    user_profiles: [
+      { user_id: GP.userId, email: GP.email, first_name: 'Helen', last_name: 'Rivers', registration_country: 'uk' }
+    ],
+    career_roles: [
+      { id: 'role-t10-1', provider: 'internal_ats', title: 'General Practitioner — VR', practice_name: 'Harbour Family Clinic', practice_id: 'p-t10-1', is_active: true, job_status: 'open', updated_at: NOW }
+    ],
+    gp_applications: [
+      { id: APP_MAIN, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@harbour-test.local', practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_DECLINE, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@harbour-test.local', practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_WD, user_id: GP.userId, career_role_id: 'role-t10-1', practice_id: 'p-t10-1', status: 'withdrawn', ats_stage: 'not_proceeding', applied_at: NOW }
+    ],
+    career_contracts: [],
+    ats_offers: [],
+    ats_stage_events: [],
+    user_state: [{ user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }]
+  };
+  function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+  function buildMatcher(params) {
+    const filters = [];
+    for (const [k, v] of params.entries()) {
+      if (['select', 'limit', 'order', 'on_conflict'].includes(k)) continue;
+      const mm = /^(eq|neq)\.(.*)$/s.exec(v);
+      if (mm) filters.push({ col: k, op: mm[1], val: mm[2] });
+    }
+    return (row) => filters.every((f) => {
+      const cell = row ? row[f.col] : undefined;
+      const eq = String(cell) === String(f.val);
+      return f.op === 'eq' ? eq : !eq;
+    });
+  }
+
+  function startEmulator() {
+    return new Promise((resolve) => {
+      sbServer = http.createServer(async (req, res) => {
+        const u = new URL(req.url, 'http://sb.local');
+        const sendJson = (status, payload) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)); };
+        const readRaw = () => new Promise((r) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => r(Buffer.concat(c))); });
+
+        // ── Supabase Storage ──
+        if (u.pathname.startsWith('/storage/v1/')) {
+          let mm = u.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/(.+)$/);
+          if (mm && req.method === 'POST') { sendJson(200, { url: '/object/upload/sign/' + mm[1] + '?token=test-token' }); return; }
+          if (mm && req.method === 'PUT') { storage.set(decodeURIComponent(mm[1]), await readRaw()); sendJson(200, { Key: mm[1] }); return; }
+          mm = u.pathname.match(/^\/storage\/v1\/object\/(?!upload|sign|public)(.+)$/);
+          if (mm && req.method === 'GET') {
+            const buf = storage.get(decodeURIComponent(mm[1]));
+            if (!buf) { res.writeHead(404); res.end('not found'); return; }
+            res.writeHead(200, { 'Content-Type': 'application/pdf' }); res.end(buf); return;
+          }
+          sendJson(404, { message: 'storage not found' }); return;
+        }
+
+        // ── PostgREST ──
+        const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+        if (!m) { sendJson(404, { message: 'not found' }); return; }
+        const rows = tableOf(decodeURIComponent(m[1]));
+        const matches = buildMatcher(u.searchParams);
+        if (req.method === 'GET') {
+          let out = rows.filter(matches);
+          const limit = parseInt(u.searchParams.get('limit') || '', 10);
+          if (Number.isFinite(limit)) out = out.slice(0, limit);
+          sendJson(200, out); return;
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+          const saved = incoming.map((r) => {
+            const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+            rows.push(row); return row;
+          });
+          sendJson(201, saved); return;
+        }
+        if (req.method === 'PATCH') {
+          const patch = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, patch || {}));
+          sendJson(200, matched); return;
+        }
+        sendJson(405, { message: 'method not allowed' });
+      });
+      sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+    });
+  }
+
+  function httpJson(method, p, body) {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : null;
+      const headers = {};
+      if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+      const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed }); });
+      });
+      r.on('error', reject); r.end(data);
+    });
+  }
+  const apiGet = (p) => httpJson('GET', p);
+  const apiPost = (p, body) => httpJson('POST', p, body);
+
+  function putSignedUpload(uploadUrl, buffer, mime) {
+    return new Promise((resolve, reject) => {
+      const target = new URL(uploadUrl);
+      const r = http.request({ host: target.hostname, port: target.port, path: target.pathname + target.search, method: 'PUT', headers: { 'Content-Type': mime, 'x-upsert': 'true', 'Content-Length': buffer.length } }, (res) => {
+        res.on('data', () => {}); res.on('end', () => resolve({ status: res.statusCode }));
+      });
+      r.on('error', reject); r.end(buffer);
+    });
+  }
+
+  const appRow = (id) => db.gp_applications.find((a) => a.id === id);
+  const postInterviewToken = (applicationId) => mod.__testUtils.createSignedPurposeToken(mod.__testUtils.POST_INTERVIEW_TOKEN_PURPOSE, { applicationId }, 3600000);
+
+  beforeAll(async () => {
+    await startEmulator();
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_DISABLED = 'false';
+    process.env.AUTH_SECRET = 'contracts-t10-secret-' + RUN_ID;
+    process.env.REQUIRE_SUPABASE_DB = 'false';
+    process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    process.env.SUPABASE_DOCUMENT_BUCKET = 'gp-link-documents';
+    process.env.ENFORCE_SAME_ORIGIN = 'false';
+    process.env.DB_FILE_PATH = DB_FILE;
+    process.env.OPENAI_API_KEY = '';
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    process.env.REGISTRATION_HUB_EMAIL = HUB_EMAIL;
+    process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (url, opts) => {
+      const u = String(url && url.url ? url.url : url);
+      if (u.startsWith('https://api.resend.com/')) {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        resendCalls.push({ url: u, body: parsed });
+        return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+      }
+      if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+
+    // server.js reads SUPABASE_URL / AUTH_SECRET etc. into module-level consts
+    // at import time. The Task 9 live-boot block above already imported it and
+    // pinned those to ITS (now-closed) emulator — so reset the module registry
+    // to force a FRESH evaluation that reads THIS block's env (our emulator
+    // port, our AUTH_SECRET), otherwise every DB-backed request here would hit
+    // a dead port.
+    vi.resetModules();
+    mod = await import('../server.js');
+    server = mod.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+  });
+
+  afterAll(async () => {
+    if (realFetch) globalThis.fetch = realFetch;
+    if (server) await new Promise((r) => server.close(r));
+    if (sbServer) await new Promise((r) => sbServer.close(r));
+    try { fs.unlinkSync(DB_FILE); } catch {}
+  });
+
+  it('context: a fresh post-interview token resolves to the "decide" state with labels', async () => {
+    const r = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(postInterviewToken(APP_MAIN)));
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.state).toBe('decide');
+    expect(r.body.gpName).toContain('Helen');
+    expect(r.body.roleTitle).toContain('General Practitioner');
+    expect(r.body.practiceName).toBe('Harbour Family Clinic');
+  });
+
+  it('context: an invalid/garbage token is 410 (never 500, never leaks state)', async () => {
+    const r = await apiGet('/api/practice/offer/context?token=not-a-real-token');
+    expect(r.status).toBe(410);
+  });
+
+  it('context + decision: a withdrawn application answers 409 {code:"withdrawn"} and refuses to act', async () => {
+    const tok = postInterviewToken(APP_WD);
+    const ctx = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(tok));
+    expect(ctx.status).toBe(409);
+    expect(ctx.body.code).toBe('withdrawn');
+
+    const dec = await apiPost('/api/practice/offer/decision', { token: tok, action: 'extend_offer' });
+    expect(dec.status).toBe(409);
+    expect(dec.body.code).toBe('withdrawn');
+    // No contract was created for the withdrawn application.
+    expect(db.career_contracts.filter((c) => c.application_id === APP_WD).length).toBe(0);
+  });
+
+  it('decline: flips the application to not_proceeding, emails the GP gently + alerts the CEO, and is idempotent', async () => {
+    const before = resendCalls.length;
+    const tok = postInterviewToken(APP_DECLINE);
+    const r = await apiPost('/api/practice/offer/decision', { token: tok, action: 'decline' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const app = appRow(APP_DECLINE);
+    expect(app.status).toBe('not_proceeding');
+    expect(app.ats_stage).toBe('not_proceeding');
+
+    // Two emails: a gentle note to the GP + a CEO alert to the hub inbox.
+    const sent = resendCalls.slice(before);
+    const gpEmail = sent.find((c) => Array.isArray(c.body.to) && c.body.to.includes(GP.email));
+    const ceoEmail = sent.find((c) => Array.isArray(c.body.to) && c.body.to.includes(HUB_EMAIL));
+    expect(gpEmail).toBeTruthy();
+    expect(ceoEmail).toBeTruthy();
+    // Gentle GP copy — no blunt "rejected"/"unsuccessful" wording.
+    expect(gpEmail.body.subject.toLowerCase()).not.toMatch(/reject|unsuccessful/);
+
+    // Idempotent: a repeat decline returns ok and sends NO further email.
+    const before2 = resendCalls.length;
+    const r2 = await apiPost('/api/practice/offer/decision', { token: tok, action: 'decline' });
+    expect(r2.status).toBe(200);
+    expect(r2.body.ok).toBe(true);
+    expect(resendCalls.length).toBe(before2);
+  });
+
+  it('extend_offer: creates an awaiting_upload v1 contract and is idempotent (same contract on repeat)', async () => {
+    const tok = postInterviewToken(APP_MAIN);
+    const r = await apiPost('/api/practice/offer/decision', { token: tok, action: 'extend_offer' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(typeof r.body.contractId).toBe('string');
+    expect(typeof r.body.uploadToken).toBe('string');
+
+    const rows = db.career_contracts.filter((c) => c.application_id === APP_MAIN);
+    expect(rows.length).toBe(1);
+    expect(rows[0].status).toBe('awaiting_upload');
+    expect(rows[0].version).toBe(1);
+    expect(rows[0].user_id).toBe(GP.userId);
+    expect(String(rows[0].career_role_id)).toBe('role-t10-1');
+
+    // Idempotent — a repeat extend returns the SAME contract, no duplicate row.
+    const r2 = await apiPost('/api/practice/offer/decision', { token: tok, action: 'extend_offer' });
+    expect(r2.status).toBe(200);
+    expect(r2.body.contractId).toBe(r.body.contractId);
+    expect(db.career_contracts.filter((c) => c.application_id === APP_MAIN).length).toBe(1);
+  });
+
+  it('context: with an awaiting_upload contract the post-interview token now resolves to "upload" + an uploadToken', async () => {
+    const r = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(postInterviewToken(APP_MAIN)));
+    expect(r.status).toBe(200);
+    expect(r.body.state).toBe('upload');
+    expect(typeof r.body.contractId).toBe('string');
+    expect(typeof r.body.uploadToken).toBe('string');
+  });
+
+  it('decision refuses a contract_upload token (wrong purpose can never drive extend/decline)', async () => {
+    // Get a genuine contract_upload token from the extend response.
+    const ext = await apiPost('/api/practice/offer/decision', { token: postInterviewToken(APP_MAIN), action: 'extend_offer' });
+    const uploadToken = ext.body.uploadToken;
+    const r = await apiPost('/api/practice/offer/decision', { token: uploadToken, action: 'decline' });
+    expect(r.status).toBe(410);
+  });
+
+  it('sign-upload: refuses a post_interview token (wrong purpose) and a bad mime', async () => {
+    const ext = await apiPost('/api/practice/offer/decision', { token: postInterviewToken(APP_MAIN), action: 'extend_offer' });
+    const uploadToken = ext.body.uploadToken;
+
+    // Wrong-purpose token → 410, never a signed URL.
+    const wrongPurpose = await apiPost('/api/practice/contract/sign-upload', { token: postInterviewToken(APP_MAIN), filename: 'c.pdf', mimeType: 'application/pdf' });
+    expect(wrongPurpose.status).toBe(410);
+
+    // Wrong mime → 400.
+    const badMime = await apiPost('/api/practice/contract/sign-upload', { token: uploadToken, filename: 'contract.exe', mimeType: 'application/x-msdownload' });
+    expect(badMime.status).toBe(400);
+  });
+
+  it('finalize: refuses when no object was uploaded to Storage', async () => {
+    const ext = await apiPost('/api/practice/offer/decision', { token: postInterviewToken(APP_MAIN), action: 'extend_offer' });
+    const uploadToken = ext.body.uploadToken;
+    const sign = await apiPost('/api/practice/contract/sign-upload', { token: uploadToken, filename: 'Employment-Contract.pdf', mimeType: 'application/pdf' });
+    expect(sign.status).toBe(200);
+    expect(typeof sign.body.uploadUrl).toBe('string');
+    expect(typeof sign.body.path).toBe('string');
+
+    // No PUT happened → finalize must 400, not silently mark it uploaded.
+    const fin = await apiPost('/api/practice/contract/finalize', { token: uploadToken, path: sign.body.path, filename: 'Employment-Contract.pdf', mimeType: 'application/pdf' });
+    expect(fin.status).toBe(400);
+    const c = db.career_contracts.find((x) => x.application_id === APP_MAIN);
+    expect(c.status).toBe('awaiting_upload');
+  });
+
+  it('finalize: success flips the contract to uploaded, stamps file fields, and alerts the CEO', async () => {
+    const before = resendCalls.length;
+    const ext = await apiPost('/api/practice/offer/decision', { token: postInterviewToken(APP_MAIN), action: 'extend_offer' });
+    const uploadToken = ext.body.uploadToken;
+    const sign = await apiPost('/api/practice/contract/sign-upload', { token: uploadToken, filename: 'Employment-Contract.pdf', mimeType: 'application/pdf' });
+
+    const pdf = Buffer.from('%PDF-1.4 employment contract for Helen', 'utf8');
+    const put = await putSignedUpload(sign.body.uploadUrl, pdf, 'application/pdf');
+    expect(put.status).toBe(200);
+
+    const fin = await apiPost('/api/practice/contract/finalize', { token: uploadToken, path: sign.body.path, filename: 'Employment-Contract.pdf', mimeType: 'application/pdf' });
+    expect(fin.status).toBe(200);
+    expect(fin.body.ok).toBe(true);
+
+    const c = db.career_contracts.find((x) => x.application_id === APP_MAIN);
+    expect(c.status).toBe('uploaded');
+    expect(c.uploaded_at).toBeTruthy();
+    expect(c.contract_path).toBe(sign.body.path);
+    expect(c.contract_filename).toBe('Employment-Contract.pdf');
+    expect(c.contract_mime).toBe('application/pdf');
+    // AI review is Task 11's job — this endpoint must NOT have run it.
+    expect(c.ai_review_status == null || c.ai_review_status === 'not_run').toBe(true);
+
+    const sent = resendCalls.slice(before);
+    const ceo = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(HUB_EMAIL) && /contract uploaded/i.test(x.body.subject || ''));
+    expect(ceo).toBeTruthy();
+  });
+
+  it('replay-safe: after upload, a replayed sign-upload AND a replayed finalize are both refused (no overwrite)', async () => {
+    const c = db.career_contracts.find((x) => x.application_id === APP_MAIN);
+    expect(c.status).toBe('uploaded');
+    const uploadToken = mod.__testUtils.createSignedPurposeToken('contract_upload', { contractId: c.id }, 3600000);
+
+    const replaySign = await apiPost('/api/practice/contract/sign-upload', { token: uploadToken, filename: 'evil.pdf', mimeType: 'application/pdf' });
+    expect(replaySign.status).toBe(409);
+
+    const replayFin = await apiPost('/api/practice/contract/finalize', { token: uploadToken, path: c.contract_path, filename: 'evil.pdf', mimeType: 'application/pdf' });
+    expect(replayFin.status).toBe(409);
+    // The stored file record is untouched.
+    expect(db.career_contracts.find((x) => x.application_id === APP_MAIN).contract_filename).toBe('Employment-Contract.pdf');
+  });
+
+  it('context: after upload the state is "done"', async () => {
+    const c = db.career_contracts.find((x) => x.application_id === APP_MAIN);
+    const uploadToken = mod.__testUtils.createSignedPurposeToken('contract_upload', { contractId: c.id }, 3600000);
+    const r = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(uploadToken));
+    expect(r.status).toBe(200);
+    expect(r.body.state).toBe('done');
   });
 });

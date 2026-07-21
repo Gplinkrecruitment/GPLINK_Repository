@@ -12434,6 +12434,18 @@ function verifyPracticeActionToken(token) {
 const POST_INTERVIEW_TOKEN_PURPOSE = 'post_interview_decision';
 const POST_INTERVIEW_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — mirrors PRACTICE_ACTION_TOKEN's default expDays
 
+// ── Task 10: contract-upload tokens ─────────────────────────────────────────
+// Minted when a practice extends an offer (POST /api/practice/offer/decision
+// action:'extend_offer') and handed to the practice-offer page so it can PUT
+// the employment contract straight to Storage without a login. Payload is JUST
+// { contractId } — deliberately DIFFERENT from the post_interview token's
+// { applicationId } so the two can never be swapped: the upload endpoints
+// (sign-upload / finalize) accept ONLY this purpose, and the decision endpoint
+// accepts ONLY the post_interview purpose. A cross-purpose token fails
+// parseSignedPurposeToken's purpose check and is rejected as invalid.
+const CONTRACT_UPLOAD_TOKEN_PURPOSE = 'contract_upload';
+const CONTRACT_UPLOAD_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 // ── Phase 6 F4: verified email change ───────────────────────────────────────
 // Same purpose-token scheme: unforgeable, expiring, single-purpose. The token
 // is minted at request time and only ever emailed to the NEW address, so
@@ -31654,6 +31666,55 @@ async function findApplicationByActionToken(token) {
   return (dbState.atsApplications || []).find(function (a) { return a.practice_action_token === t; }) || null;
 }
 
+// ── Task 10: career_contracts data helpers (Supabase-only, like the admin
+// offer-contract endpoints) ─────────────────────────────────────────────────
+// A "void" contract is a discarded revision; it never counts toward the live
+// state. Sorted newest-version-first in JS (the emulator ignores `order`, and
+// version-desc is the only ordering these helpers need).
+async function getCareerContractById(contractId) {
+  var id = String(contractId || '').trim();
+  if (!id || !isSupabaseDbConfigured()) return null;
+  var r = await supabaseDbRequest('career_contracts', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+async function listCareerContractsForApplication(applicationId) {
+  var id = String(applicationId || '').trim();
+  if (!id || !isSupabaseDbConfigured()) return [];
+  var r = await supabaseDbRequest('career_contracts', 'select=*&application_id=eq.' + encodeURIComponent(id) + '&limit=200');
+  var rows = (r.ok && Array.isArray(r.data)) ? r.data.slice() : [];
+  rows.sort(function (a, b) { return (Number(b.version) || 0) - (Number(a.version) || 0); });
+  return rows;
+}
+// Accepted employment-contract upload MIME types — PDF or Word .docx, mirroring
+// what the practice would realistically send. Anything else is refused at
+// sign-upload time so a signed URL is never minted for an executable/HTML.
+var CONTRACT_UPLOAD_ACCEPTED_MIME = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+]);
+function contractMimeIsAccepted(mime) {
+  return CONTRACT_UPLOAD_ACCEPTED_MIME.has(String(mime || '').trim().toLowerCase());
+}
+function mintContractUploadToken(contractId) {
+  return createSignedPurposeToken(CONTRACT_UPLOAD_TOKEN_PURPOSE, { contractId: String(contractId || '') }, CONTRACT_UPLOAD_TOKEN_TTL_MS);
+}
+// Build "Dr <LastName>" for CEO alerts — same shape sendPostInterviewDecisionEmail
+// uses, so the two emails read consistently. Falls back to full name → "the doctor".
+async function contractGpDisplayName(userId) {
+  var uid = String(userId || '').trim();
+  if (!uid || !isSupabaseDbConfigured()) return 'the doctor';
+  try {
+    var pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+    var p = (pr.ok && Array.isArray(pr.data) && pr.data[0]) ? pr.data[0] : null;
+    if (!p) return 'the doctor';
+    var last = String(p.last_name || '').trim();
+    if (last) return 'Dr ' + last;
+    var full = [String(p.first_name || '').trim(), last].filter(Boolean).join(' ').trim() || String(p.email || '').trim();
+    if (!full) return 'the doctor';
+    return /^dr\b/i.test(full) ? full : ('Dr ' + full);
+  } catch (e) { return 'the doctor'; }
+}
+
 // True when the DOCTOR has withdrawn this application. Every practice-facing
 // decision endpoint below must refuse on this: a practice must never be able
 // to approve, turn down, or book interview times with someone who already
@@ -37611,6 +37672,330 @@ async function handleApi(req, res, pathname) {
     })();
 
     sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
+    return;
+  }
+
+  // ══ Task 10: post-interview practice offer decision + contract upload ══════
+  // Public + token-authed (NO login). The signed purpose token is the ENTIRE
+  // security model, so every endpoint re-derives its subject from the token,
+  // is purpose-locked (a wrong-purpose token can never drive it), refuses on a
+  // withdrawn doctor (409), and — for the upload endpoints — refuses any
+  // contract that is not still awaiting_upload (so an uploaded contract can
+  // never be silently overwritten by a replayed request). GET never mutates.
+  if (pathname === '/api/practice/offer/context' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-offer-ip:' + ip, 60, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    const poToken = String(url.searchParams.get('token') || '').trim();
+    // Accept BOTH purposes: a post_interview token (addresses the application)
+    // OR a contract_upload token (addresses a specific contract row, used when
+    // the practice re-opens the upload page). Try post_interview first.
+    const poPi = parseSignedPurposeToken(poToken, POST_INTERVIEW_TOKEN_PURPOSE);
+    const poCu = poPi ? null : parseSignedPurposeToken(poToken, CONTRACT_UPLOAD_TOKEN_PURPOSE);
+    if (!poPi && !poCu) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    let poAppId = '', poContract = null;
+    if (poPi) {
+      poAppId = String(poPi.applicationId || '').trim();
+    } else {
+      poContract = await getCareerContractById(poCu.contractId);
+      if (!poContract) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+      poAppId = String(poContract.application_id || '').trim();
+    }
+    if (!poAppId) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    const poCtx = await atsGetApplicationContext(poAppId);
+    if (!poCtx || !poCtx.app) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    if (applicationIsWithdrawn(poCtx.app)) {
+      sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE });
+      return;
+    }
+
+    const poRoleTitle = await careerRoleTitleForApplication(poCtx.careerRoleId);
+    let poState = 'done', poContractId, poUploadToken;
+    if (poCu) {
+      // Contract-scoped: state is read straight off the contract row.
+      if (String(poContract.status) === 'awaiting_upload') {
+        poState = 'upload'; poContractId = poContract.id; poUploadToken = mintContractUploadToken(poContract.id);
+      }
+    } else {
+      // Application-scoped: no contract → decide; latest non-void awaiting_upload
+      // → upload; anything else → done. A terminal application (declined /
+      // secured) with no contract reads as 'done', NOT 'decide' — so a declined
+      // offer can never be re-extended from a stale post-interview link.
+      const poContracts = (await listCareerContractsForApplication(poAppId)).filter((c) => String(c.status) !== 'void');
+      const poStatusKey = normalizeCareerApplicationStatusKey(poCtx.app.status);
+      if (poContracts.length) {
+        if (String(poContracts[0].status) === 'awaiting_upload') {
+          poState = 'upload'; poContractId = poContracts[0].id; poUploadToken = mintContractUploadToken(poContracts[0].id);
+        }
+      } else if (poStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(poStatusKey)) {
+        poState = 'done';
+      } else {
+        poState = 'decide';
+      }
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      gpName: (poCtx && poCtx.gpName) || '',
+      roleTitle: poRoleTitle || '',
+      practiceName: (poCtx && poCtx.practiceName) || '',
+      state: poState,
+      contractId: poContractId,
+      uploadToken: poUploadToken
+    });
+    return;
+  }
+
+  if (pathname === '/api/practice/offer/decision' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-offer-ip:' + ip, 60, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let odBody;
+    try { odBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    // Purpose-locked: ONLY a post_interview token drives extend/decline. A
+    // contract_upload token (or anything else) fails the purpose check → 410.
+    const odPi = parseSignedPurposeToken(String((odBody && odBody.token) || '').trim(), POST_INTERVIEW_TOKEN_PURPOSE);
+    if (!odPi) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    const odAppId = String(odPi.applicationId || '').trim();
+    if (!odAppId) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    const odAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(odAppId) + '&limit=1');
+    const odApp = (odAppRes.ok && Array.isArray(odAppRes.data) && odAppRes.data[0]) ? odAppRes.data[0] : null;
+    if (!odApp) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    if (applicationIsWithdrawn(odApp)) {
+      sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE });
+      return;
+    }
+
+    const odAction = String((odBody && odBody.action) || '').trim();
+    if (odAction !== 'extend_offer' && odAction !== 'decline') {
+      sendJson(res, 400, { ok: false, message: 'action must be "extend_offer" or "decline".' });
+      return;
+    }
+    const odNowIso = new Date().toISOString();
+
+    if (odAction === 'extend_offer') {
+      // Idempotent: an existing live (awaiting_upload) contract is returned with
+      // a FRESH upload token — never a duplicate row. A double-click is safe.
+      const odExisting = (await listCareerContractsForApplication(odAppId)).filter((c) => String(c.status) !== 'void');
+      const odLive = odExisting.find((c) => String(c.status) === 'awaiting_upload');
+      if (odLive) {
+        sendJson(res, 200, { ok: true, contractId: odLive.id, uploadToken: mintContractUploadToken(odLive.id) });
+        return;
+      }
+      // version = 1 + max(existing across ALL rows, incl. void) so it never collides.
+      const odAll = await listCareerContractsForApplication(odAppId);
+      const odMaxV = odAll.reduce((m, c) => Math.max(m, Number(c.version) || 0), 0);
+      const odInsert = {
+        application_id: odAppId,
+        user_id: odApp.user_id || null,
+        career_role_id: odApp.career_role_id || null,
+        version: odMaxV + 1,
+        status: 'awaiting_upload',
+        ai_review_status: 'not_run',
+        practice_contact_email: String(odApp.practice_contact_email || '').trim() || null,
+        practice_contact_name: String(odApp.practice_contact_name || '').trim() || null,
+        created_at: odNowIso,
+        updated_at: odNowIso
+      };
+      const odIns = await supabaseDbRequest('career_contracts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [odInsert] });
+      const odCreated = (odIns.ok && Array.isArray(odIns.data) && odIns.data[0]) ? odIns.data[0] : null;
+      if (!odCreated) { sendJson(res, 502, { ok: false, message: 'Could not start the contract upload. Please try again.' }); return; }
+      sendJson(res, 200, { ok: true, contractId: odCreated.id, uploadToken: mintContractUploadToken(odCreated.id) });
+      return;
+    }
+
+    // action === 'decline' — terminate the application gently.
+    // Idempotent: an already-not_proceeding application returns ok and sends
+    // NOTHING further, so a double-click can never fire two GP emails / two
+    // CEO alerts.
+    if (normalizeCareerApplicationStatusKey(odApp.status) === 'not_proceeding') {
+      sendJson(res, 200, { ok: true, already: true });
+      return;
+    }
+    const odDeclinePatch = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(odAppId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'not_proceeding', updated_at: odNowIso }
+    });
+    if (!odDeclinePatch || !odDeclinePatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the application.' }); return; }
+
+    // Kanban → terminal not_proceeding (forward-only; terminal lanes untouched).
+    try {
+      const odStage = atsPracticeUtil.planAtsStageReconciliation(odApp.ats_stage || '', atsPracticeUtil.ATS_REJECT_STAGE);
+      if (odStage) await atsUpdateApplicationStageRow(odAppId, odStage, undefined, 'practice_offer_decline', 'practice_declined_post_interview');
+    } catch (e) { console.warn('[practice-offer] decline stage move failed:', e && e.message); }
+    // Withdraw any live in-app offer (no offer is fine).
+    try { await atsOffersStore.updateAtsOfferStatus(odAppId, 'withdrawn'); } catch (e) { /* ignore */ }
+
+    const odCtx = await atsGetApplicationContext(odAppId).catch(() => null);
+    const odGpUserId = (odCtx && odCtx.userId) || odApp.user_id || null;
+    const odGpName = (odCtx && odCtx.gpName) || 'the candidate';
+    const odRoleTitle = (await careerRoleTitleForApplication(odCtx && odCtx.careerRoleId).catch(() => '')) || 'the GP role';
+    const odPracticeName = (odCtx && odCtx.practiceName) || 'The practice';
+
+    // Gentle GP notification — warmly worded; no blunt "rejected"/"unsuccessful".
+    try {
+      if (odGpUserId) {
+        const odTitle = 'An update on your application';
+        const odBodyMsg = 'After your interview, this practice has decided not to move forward this time. We know that is disappointing — please do not be discouraged. Your Registration Support Officer is still searching for the right practice with you, and will be in touch with the next steps.';
+        await Promise.all([
+          pushCareerNotificationToUser(odGpUserId, { type: 'info', title: odTitle, body: odBodyMsg }).catch(() => {}),
+          sendPushNotification(odGpUserId, { title: odTitle, body: odBodyMsg, data: { type: 'career', action: 'offer_declined' } }).catch(() => {}),
+          sendGpNotificationEmail(odGpUserId, odTitle + ' — GP Link', odTitle, odBodyMsg, 'View my applications', APP_BASE_URL + '/pages/career.html#applications', 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
+        ]);
+      }
+    } catch (e) { console.warn('[practice-offer] decline GP notify failed:', e && e.message); }
+
+    // CEO alert → hello@ hub inbox.
+    try {
+      const odEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'Practice not proceeding with ' + odGpName + ' after the interview',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'Practice not proceeding after interview',
+          body: odEsc(odPracticeName) + ' has decided not to proceed with ' + odEsc(odGpName) + ' for ' + odEsc(odRoleTitle) + ' after their interview. The doctor has been told gently and their Registration Support Officer keeps searching with them.'
+        })
+      }).catch((err) => { console.warn('[practice-offer] decline CEO alert failed:', err && err.message); });
+    } catch (e) { /* best-effort */ }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === '/api/practice/contract/sign-upload' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-offer-ip:' + ip, 60, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let suBody;
+    try { suBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    // Purpose-locked to contract_upload — a post_interview token can never mint
+    // a contract upload URL.
+    const suCu = parseSignedPurposeToken(String((suBody && suBody.token) || '').trim(), CONTRACT_UPLOAD_TOKEN_PURPOSE);
+    if (!suCu) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    const suContract = await getCareerContractById(suCu.contractId);
+    if (!suContract) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    const suAppRes = await supabaseDbRequest('gp_applications', 'select=id,status&id=eq.' + encodeURIComponent(suContract.application_id) + '&limit=1');
+    const suApp = (suAppRes.ok && Array.isArray(suAppRes.data) && suAppRes.data[0]) ? suAppRes.data[0] : null;
+    if (suApp && applicationIsWithdrawn(suApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
+
+    // Only an awaiting_upload contract can be signed — this is what stops a
+    // replayed sign-upload from overwriting an already-uploaded contract.
+    if (String(suContract.status) !== 'awaiting_upload') {
+      sendJson(res, 409, { ok: false, code: 'already_uploaded', message: 'This contract has already been uploaded.' });
+      return;
+    }
+
+    const suMime = String((suBody && suBody.mimeType) || '').trim();
+    if (!contractMimeIsAccepted(suMime)) {
+      sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
+      return;
+    }
+
+    const suSafeName = sanitizeStoragePathSegment(String((suBody && suBody.filename) || 'contract.pdf'), 120);
+    const suPath = ['contracts', sanitizeStoragePathSegment(String(suContract.application_id), 80), 'v' + (Number(suContract.version) || 1), suSafeName].join('/');
+    const suUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, suPath, { upsert: true });
+    if (!suUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
+    sendJson(res, 200, { ok: true, uploadUrl: suUrl, path: suPath });
+    return;
+  }
+
+  if (pathname === '/api/practice/contract/finalize' && req.method === 'POST') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice-offer-ip:' + ip, 60, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let fzBody;
+    try { fzBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+
+    const fzCu = parseSignedPurposeToken(String((fzBody && fzBody.token) || '').trim(), CONTRACT_UPLOAD_TOKEN_PURPOSE);
+    if (!fzCu) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+    const fzContract = await getCareerContractById(fzCu.contractId);
+    if (!fzContract) { sendJson(res, 410, { ok: false, code: 'invalid' }); return; }
+
+    const fzAppRes = await supabaseDbRequest('gp_applications', 'select=id,user_id,status&id=eq.' + encodeURIComponent(fzContract.application_id) + '&limit=1');
+    const fzApp = (fzAppRes.ok && Array.isArray(fzAppRes.data) && fzAppRes.data[0]) ? fzAppRes.data[0] : null;
+    if (fzApp && applicationIsWithdrawn(fzApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
+
+    // Replay-safe: an already-uploaded (or further-along) contract cannot be
+    // re-finalized — stops a replayed finalize clobbering the stored file.
+    if (String(fzContract.status) !== 'awaiting_upload') {
+      sendJson(res, 409, { ok: false, code: 'already_uploaded', message: 'This contract has already been uploaded.' });
+      return;
+    }
+
+    const fzMime = String((fzBody && fzBody.mimeType) || '').trim();
+    if (!contractMimeIsAccepted(fzMime)) {
+      sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
+      return;
+    }
+
+    // Recompute the storage path from the contract + sanitized filename rather
+    // than trusting the client `path` — the practice can never point finalize
+    // at an arbitrary object it doesn't own.
+    const fzFilename = String((fzBody && fzBody.filename) || 'contract.pdf');
+    const fzSafeName = sanitizeStoragePathSegment(fzFilename, 120);
+    const fzPath = ['contracts', sanitizeStoragePathSegment(String(fzContract.application_id), 80), 'v' + (Number(fzContract.version) || 1), fzSafeName].join('/');
+
+    // Verify the object really exists (mirrors the admin finalize's check) — no
+    // phantom "uploaded" state off an unwritten file.
+    const fzObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, fzPath);
+    if (!fzObj || !fzObj.buffer || !fzObj.buffer.length) {
+      sendJson(res, 400, { ok: false, message: 'We could not find the uploaded file. Please try uploading again.' });
+      return;
+    }
+
+    const fzNowIso = new Date().toISOString();
+    const fzPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(fzContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        status: 'uploaded',
+        uploaded_at: fzNowIso,
+        contract_bucket: SUPABASE_DOCUMENT_BUCKET,
+        contract_path: fzPath,
+        contract_filename: sanitizeUserString(fzFilename, 240) || 'contract.pdf',
+        contract_mime: fzMime,
+        updated_at: fzNowIso
+        // ── Task 11 seam ────────────────────────────────────────────────────
+        // The AI contract review runs from HERE. ai_review_status stays
+        // 'not_run' (the migration default); Task 11 will flip it to 'running',
+        // invoke the model, then write ai_review + ai_review_status='done'.
+        // Deliberately NOT wired in Task 10 — no AI call happens on upload yet.
+      }
+    });
+    if (!fzPatch || !fzPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the upload. Please try again.' }); return; }
+
+    // CEO alert — "Contract uploaded for Dr X — review it in the GP Link dashboard".
+    try {
+      const fzDrName = await contractGpDisplayName(fzApp && fzApp.user_id);
+      const fzEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: 'Contract uploaded for ' + fzDrName.replace(/[<>]/g, '') + ' — review it in the GP Link dashboard',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'A practice uploaded an employment contract',
+          body: 'The practice has uploaded their employment contract for ' + fzEsc(fzDrName) + '. Open the GP Link dashboard to review it and send it on to the doctor.',
+          ctaText: 'Open the dashboard',
+          ctaUrl: APP_BASE_URL + '/pages/admin.html'
+        })
+      }).catch((err) => { console.warn('[practice-offer] contract-uploaded CEO alert failed:', err && err.message); });
+    } catch (e) { /* best-effort */ }
+
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -64542,6 +64927,7 @@ module.exports.__testUtils = {
   createSignedPurposeToken,
   sendPostInterviewDecisionEmail,
   POST_INTERVIEW_TOKEN_PURPOSE,
+  CONTRACT_UPLOAD_TOKEN_PURPOSE,
   recordServerError,
   recordCronRun,
   classifyClientErrorNoise,
