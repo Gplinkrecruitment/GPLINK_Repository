@@ -31,4 +31,17 @@ describe('shell wiring', () => {
     expect(js).toContain('gp-shell-frame-loaded');
     expect(js).toContain('gp-shell-run-tour');
   });
+  it('both walkthrough controllers stay guarded until onboarding is complete', () => {
+    for (const file of ['js/gp-walkthrough-shell.js', 'js/gp-walkthrough.js']) {
+      const src = read(file);
+      const guardedBlock = src.slice(src.indexOf('function guarded'), src.indexOf('function readState'));
+      expect(guardedBlock, `${file} guarded() checks the onboarding flag`).toContain('gp_onboarding_complete');
+    }
+  });
+  it('shell tour never anchors to hidden nav elements', () => {
+    const js = read('js/gp-walkthrough-shell.js');
+    const navBlock = js.slice(js.indexOf('function isShown'), js.indexOf('function buildSteps'));
+    expect(navBlock).toContain('offsetParent');
+    expect(navBlock).toMatch(/isShown\(el\) \? el : null/);
+  });
 });

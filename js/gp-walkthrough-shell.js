@@ -27,11 +27,23 @@
     support: '.nav-menu [data-route="/pages/messages"]',
     account: '.nav-menu [data-route="/pages/account"]'
   };
+  function isShown(el) {
+    if (!el) return false;
+    var cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    // offsetParent is null when the element or an ancestor is display:none
+    // (the shell hides nav hosts inline); it is also null for fixed-position
+    // elements, so only trust it for non-fixed ones.
+    if (el.offsetParent === null && cs.position !== 'fixed') return false;
+    return true;
+  }
   function navEl(area) {
     var mobile = document.querySelector('.mobile-nav');
     var mobileVisible = mobile && getComputedStyle(mobile).display !== 'none';
-    if (mobileVisible) return document.querySelector(MOBILE[area]);
-    return DESKTOP[area] ? document.querySelector(DESKTOP[area]) : null; // no scan tab on desktop
+    var el = mobileVisible
+      ? document.querySelector(MOBILE[area])
+      : (DESKTOP[area] ? document.querySelector(DESKTOP[area]) : null); // no scan tab on desktop
+    return isShown(el) ? el : null; // never anchor the tour to hidden nav chrome
   }
   function buildSteps() {
     var out = [];
@@ -43,6 +55,9 @@
   }
 
   function guarded() {
+    // Onboarding gateway owns the screen (nav chrome is hidden and the index
+    // frame is about to redirect to /pages/onboarding) — never tour over it.
+    try { if (localStorage.getItem('gp_onboarding_complete') !== 'true') return true; } catch (e) {}
     try {
       if (localStorage.getItem('gp_account_under_review') === 'true') return true;
       if (localStorage.getItem('gp_account_pep_waitlist') === 'true') return true;

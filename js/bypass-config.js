@@ -14,11 +14,12 @@ var BYPASS_LOCK_EMAILS = {
 };
 
 (function () {
-  // Two temporary tester digests are currently active (both expire 2026-09-30).
+  // Three temporary tester digests are currently active (all expire 2026-09-30).
   // { "<sha256 hex of lowercase email>": "<expiry ISO timestamp>" }
   var TEMPORARY_BYPASS_LOCK_DIGESTS = {
     "f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59.000Z",
-    "0ddbcc0ad55d9abd429a176c9e1f53e514c1551cce517c4768ff3c0c43bbecf6": "2026-09-30T23:59:59.000Z"
+    "0ddbcc0ad55d9abd429a176c9e1f53e514c1551cce517c4768ff3c0c43bbecf6": "2026-09-30T23:59:59.000Z",
+    "fb28215b317f6f7327d5223f534e04a28559ca54eb80ac9b31404601e9cc82ac": "2026-09-30T23:59:59.000Z"
   };
   var DIGEST_MATCH_CACHE_KEY = "gp_bypass_digest_match";
 

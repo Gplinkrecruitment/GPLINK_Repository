@@ -7,6 +7,10 @@
   var S = window.gpWalkthroughState, C = window.gpCoach;
 
   function guarded() {
+    // Onboarding not complete: index.html's pre-paint gate hides the body while
+    // it confirms with the server, and a tip fired then would be marked seen
+    // without ever being visible. Same guard as the shell controller.
+    try { if (localStorage.getItem('gp_onboarding_complete') !== 'true') return true; } catch (e) {}
     try {
       if (localStorage.getItem('gp_account_under_review') === 'true') return true;
       if (localStorage.getItem('gp_account_pep_waitlist') === 'true') return true;

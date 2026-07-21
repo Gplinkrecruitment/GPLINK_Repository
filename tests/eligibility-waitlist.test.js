@@ -166,11 +166,14 @@ describe('onboarding off-ramp static markers', () => {
     expect(onboardingHtml).not.toContain('onboarding.js?v=20260705b');
   });
 
-  it('onboarding.js wires the off-ramp: country-not-listed entry + waitlist POST + returning state', () => {
+  it('onboarding.js wires the off-ramp: "Somewhere else" entry + waitlist POST + returning state', () => {
     expect(onboardingJs).toContain('countryNotListed');
     expect(onboardingJs).toContain('/api/eligibility-waitlist');
     expect(onboardingJs).toContain('gp_eligibility_waitlist');
-    expect(onboardingJs).toContain('country isn’t listed');
+    // "Somewhere else" opens the search-all-countries mode; picking a concrete
+    // unsupported country from it routes to the eligibility off-ramp.
+    expect(onboardingJs).toContain('Somewhere else');
+    expect(onboardingJs).toContain('Start typing to search all countries');
   });
 
   it('never says bare "RSO"', () => {
