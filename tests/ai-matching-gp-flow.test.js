@@ -474,7 +474,7 @@ describe('sendMatchEmail', () => {
     const result = await serverModule.__testUtils.sendMatchEmail(row);
     expect(result.ok).toBe(true);
     expect(resendCalls.length).toBe(1);
-    expect(resendCalls[0].body.subject).toBe("You've been personally matched — Coral Coast Family Practice, Bundaberg QLD");
+    expect(resendCalls[0].body.subject).toBe("You've been personally matched, Coral Coast Family Practice, Bundaberg QLD");
     expect(resendCalls[0].body.html).toContain('Coral Coast Family Practice');
   });
 
@@ -483,7 +483,7 @@ describe('sendMatchEmail', () => {
     const result = await serverModule.__testUtils.sendMatchEmail(row, { reminder: true });
     expect(result.ok).toBe(true);
     expect(resendCalls.length).toBe(1);
-    expect(resendCalls[0].body.subject).toBe('24 hours left — Coral Coast Family Practice is holding your spot');
+    expect(resendCalls[0].body.subject).toBe('24 hours left, Coral Coast Family Practice is holding your spot');
   });
 });
 
@@ -619,9 +619,9 @@ describe('POST /api/career/match/respond — accept', () => {
     // Ops emails: the standard A3 "applied" notice AND the match-specific one.
     const subjects = resendCalls.map((c) => c.body && c.body.subject);
     expect(subjects.some((s) => /^Match accepted: .* → General Practitioner — Mixed Billing$/.test(s))).toBe(true);
-    expect(subjects.some((s) => / applied to .* — Coral Coast Family Practice$/.test(s))).toBe(true);
+    expect(subjects.some((s) => / applied to .*, Coral Coast Family Practice$/.test(s))).toBe(true);
     // And the GP's own "Application Submitted" confirmation email.
-    expect(subjects).toContain('Application Submitted — GP Link');
+    expect(subjects).toContain('Application Submitted, GP Link');
   });
 
   it('a second accept on the SAME (now applied) row 409s — no double-processing', async () => {
@@ -729,7 +729,7 @@ describe('POST /api/career/match/respond — expired', () => {
     expect(row.ats_stage).toBe('shortlisted');
     expect(row.match_outcome).toBeNull();
 
-    const opsEmail = resendCalls.find((c) => c.body && /^GP clicked expired match — still interested:/.test(c.body.subject));
+    const opsEmail = resendCalls.find((c) => c.body && /^GP clicked expired match, still interested:/.test(c.body.subject));
     expect(opsEmail).toBeTruthy();
   });
 
@@ -938,7 +938,7 @@ describe('review fix 3b — deep link never posts an accept', () => {
     const row = tableOf('gp_applications').find((a) => a.id === 'app-expired-1');
     expect(row.ats_stage).toBe('shortlisted'); // probe NEVER moves the row
 
-    const opsEmail = resendCalls.find((c) => c.body && /^GP clicked expired match — still interested:/.test(c.body.subject));
+    const opsEmail = resendCalls.find((c) => c.body && /^GP clicked expired match, still interested:/.test(c.body.subject));
     expect(opsEmail).toBeTruthy();
   });
 
