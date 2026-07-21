@@ -30157,6 +30157,11 @@ async function sendPostInterviewDecisionEmail(applicationId) {
   var app = (appRes.ok && Array.isArray(appRes.data) && appRes.data[0]) ? appRes.data[0] : null;
   if (!app) return { ok: false, error: 'application_not_found' };
   if (app.post_interview_email_sent_at) return { ok: false, skipped: 'already_sent' };
+  // Terminal-application guard — a withdrawn/not_proceeding/secured application
+  // must never be stamped back to 'interview_completed'. No live call site can
+  // reach here for a terminal app today, but this closes the gap one call away.
+  var piaStatusKey = normalizeCareerApplicationStatusKey(app.status);
+  if (piaStatusKey === 'withdrawn' || piaStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(piaStatusKey)) return { ok: false, skipped: 'terminal' };
 
   var stampIso = new Date().toISOString();
   var stampRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
@@ -38272,7 +38277,12 @@ async function handleApi(req, res, pathname) {
 
     const suAppRes = await supabaseDbRequest('gp_applications', 'select=id,status&id=eq.' + encodeURIComponent(suContract.application_id) + '&limit=1');
     const suApp = (suAppRes.ok && Array.isArray(suAppRes.data) && suAppRes.data[0]) ? suAppRes.data[0] : null;
-    if (suApp && applicationIsWithdrawn(suApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
+    // Fail CLOSED, not open: `suApp` is also null when the lookup itself
+    // failed (not just when the row is genuinely missing) — a plain
+    // `suApp && applicationIsWithdrawn(suApp)` would silently skip the
+    // withdrawn guard on a DB hiccup and let the upload proceed anyway.
+    if (!suApp) { sendJson(res, 502, { ok: false, message: 'Could not verify the application state — please try again.' }); return; }
+    if (applicationIsWithdrawn(suApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
 
     // Only an awaiting_upload contract can be signed — this is what stops a
     // replayed sign-upload from overwriting an already-uploaded contract.
@@ -38311,7 +38321,12 @@ async function handleApi(req, res, pathname) {
 
     const fzAppRes = await supabaseDbRequest('gp_applications', 'select=id,user_id,status&id=eq.' + encodeURIComponent(fzContract.application_id) + '&limit=1');
     const fzApp = (fzAppRes.ok && Array.isArray(fzAppRes.data) && fzAppRes.data[0]) ? fzAppRes.data[0] : null;
-    if (fzApp && applicationIsWithdrawn(fzApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
+    // Fail CLOSED, not open: `fzApp` is also null when the lookup itself
+    // failed (not just when the row is genuinely missing) — a plain
+    // `fzApp && applicationIsWithdrawn(fzApp)` would silently skip the
+    // withdrawn guard on a DB hiccup and let the finalize proceed anyway.
+    if (!fzApp) { sendJson(res, 502, { ok: false, message: 'Could not verify the application state — please try again.' }); return; }
+    if (applicationIsWithdrawn(fzApp)) { sendJson(res, 409, { ok: false, code: 'withdrawn', message: PRACTICE_WITHDRAWN_MESSAGE }); return; }
 
     // Replay-safe: an already-uploaded (or further-along) contract cannot be
     // re-finalized — stops a replayed finalize clobbering the stored file.
@@ -41874,6 +41889,19 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, contract: null });
       return;
     }
+
+    // Terminal-application guard — closes the withdrawn-GP-can-still-sign hole:
+    // once the application itself is withdrawn/not_proceeding/secured, the
+    // offer-review page must never be handed a contract it can render signing
+    // UI for. The one exception is a contract that is ALREADY 'signed' on a
+    // secured application — that's the legitimate post-placement state, so it
+    // keeps being returned (offer-review needs it to show the signed copy).
+    const ccAppStatusKey = normalizeCareerApplicationStatusKey(ccApp.status);
+    const ccAppTerminal = ccAppStatusKey === 'withdrawn' || ccAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(ccAppStatusKey);
+    if (ccAppTerminal && String(ccContract.status) !== 'signed') {
+      sendJson(res, 200, { ok: true, contract: null });
+      return;
+    }
     // The doctor views the practice's uploaded contract while it's out for
     // signature; once signed, the signed copy is what's worth showing. Signed
     // 1h URL either way (never a raw storage path in the payload).
@@ -41927,6 +41955,14 @@ async function handleApi(req, res, pathname) {
     const suApp = await getOwnedCareerApplicationRow(suAppId, suUserId);
     if (!suApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
+    // Terminal-application guard — a withdrawn/not_proceeding/secured GP must
+    // never mint a fresh sign-upload URL. Runs before any storage/DB work.
+    const suAppStatusKey = normalizeCareerApplicationStatusKey(suApp.status);
+    if (suAppStatusKey === 'withdrawn' || suAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(suAppStatusKey)) {
+      sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active.' });
+      return;
+    }
+
     const suContract = await getLatestLiveCareerContractForApplication(suAppId);
     if (!suContract || String(suContract.status) !== 'sent_to_gp') {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
@@ -41969,6 +42005,16 @@ async function handleApi(req, res, pathname) {
 
     const fsApp = await getOwnedCareerApplicationRow(fsAppId, fsUserId);
     if (!fsApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    // Terminal-application guard — the actual fix for the withdrawn-GP-can-
+    // still-sign hole: closes the window where a stale tab's finalize-signed
+    // call would overwrite a withdrawn application and secure the placement
+    // anyway. Runs before ANY storage/DB work, including the CAS PATCH below.
+    const fsAppStatusKey = normalizeCareerApplicationStatusKey(fsApp.status);
+    if (fsAppStatusKey === 'withdrawn' || fsAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(fsAppStatusKey)) {
+      sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active.' });
+      return;
+    }
 
     const fsContract = await getLatestLiveCareerContractForApplication(fsAppId);
     if (!fsContract || String(fsContract.status) !== 'sent_to_gp') {
@@ -42144,6 +42190,15 @@ async function handleApi(req, res, pathname) {
 
     const rcApp = await getOwnedCareerApplicationRow(rcAppId, rcUserId);
     if (!rcApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    // Terminal-application guard — a withdrawn/not_proceeding/secured GP must
+    // never be able to open a change-request round-trip. Runs before any
+    // storage/DB work.
+    const rcAppStatusKey = normalizeCareerApplicationStatusKey(rcApp.status);
+    if (rcAppStatusKey === 'withdrawn' || rcAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(rcAppStatusKey)) {
+      sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active.' });
+      return;
+    }
 
     const rcContract = await getLatestLiveCareerContractForApplication(rcAppId);
     if (!rcContract || String(rcContract.status) !== 'sent_to_gp') {

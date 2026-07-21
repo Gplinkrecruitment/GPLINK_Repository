@@ -140,6 +140,28 @@ describe('sendPostInterviewDecisionEmail — wiring (Task 9)', () => {
     const guardMatches = SERVER_SRC.match(/meeting_kind === 'interview' && [A-Za-z]+\.application_id\)/g) || [];
     expect(guardMatches.length).toBeGreaterThanOrEqual(2);
   });
+
+  // Final review fix wave (2026-07-22) — HARDENING 1: a withdrawn/
+  // not_proceeding/already-secured application must never be stamped back to
+  // 'interview_completed'. No live call site can reach this helper for a
+  // terminal application today, but it's one future call-site away, so the
+  // guard must exist and must run BEFORE the stamping PATCH.
+  it('skips terminal applications (withdrawn/not_proceeding/secured) BEFORE stamping interview_completed', () => {
+    const fnStart = SERVER_SRC.indexOf('async function sendPostInterviewDecisionEmail(applicationId)');
+    expect(fnStart).toBeGreaterThan(-1);
+    const guardIdx = SERVER_SRC.indexOf(
+      "piaStatusKey === 'withdrawn' || piaStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(piaStatusKey)",
+      fnStart
+    );
+    const stampIdx = SERVER_SRC.indexOf(
+      "post_interview_email_sent_at: stampIso, status: 'interview_completed'",
+      fnStart
+    );
+    expect(guardIdx).toBeGreaterThan(fnStart);
+    expect(stampIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(stampIdx);
+    expect(SERVER_SRC.slice(guardIdx, guardIdx + 200)).toContain("skipped: 'terminal'");
+  });
 });
 
 describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.ended)', () => {
@@ -2078,6 +2100,16 @@ describe('GP contract experience — live-boot (Task 13)', () => {
   // finalizeInAppPlacement to throw inside the emulator (it can't — see the
   // source-assertion test above for why).
   const APP_CAS = 'app-t13-cas';
+  // Final review fix wave (2026-07-22) — CRITICAL: the doctor withdrew AFTER
+  // the CEO already sent the contract to them (status 'withdrawn', contract
+  // still 'sent_to_gp'). This is the exact failure chain the fix closes: a
+  // stale offer-review tab must never be able to view or sign this contract.
+  const APP_WITHDRAWN_SIGNING = 'app-t13-withdrawn-signing';
+  // Regression guard for the GET exception: a contract that is genuinely
+  // 'signed' on an application that reached 'placement_secured' is the
+  // legitimate post-placement state and must keep being returned, even though
+  // the application status itself is "terminal" (isCareerPlacementSecuredStatus).
+  const APP_SECURED_SIGNED = 'app-t13-secured-signed';
 
   let server, port, sbServer, sbPort, realFetch, mod;
   const resendCalls = [];
@@ -2117,7 +2149,13 @@ describe('GP contract experience — live-boot (Task 13)', () => {
       { id: APP_GP2, user_id: GP2.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
       // Contract already signed, but the application status never advanced to
       // placement_secured (status stays 'offer') — see APP_CAS comment above.
-      { id: APP_CAS, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW }
+      { id: APP_CAS, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      // The doctor withdrew AFTER the contract was already sent_to_gp — see
+      // APP_WITHDRAWN_SIGNING comment above. This is the CRITICAL fix's target.
+      { id: APP_WITHDRAWN_SIGNING, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'withdrawn', ats_stage: 'not_proceeding', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      // Genuinely secured: contract signed AND application placement_secured —
+      // see APP_SECURED_SIGNED comment above.
+      { id: APP_SECURED_SIGNED, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'placement_secured', ats_stage: 'hired', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW }
     ],
     career_contracts: [
       contractRow('c-t13-view', APP_VIEW, 'sent_to_gp', 1),
@@ -2130,6 +2168,12 @@ describe('GP contract experience — live-boot (Task 13)', () => {
       contractRow('c-t13-draft', APP_DRAFT, 'sent_to_gp', 1),
       contractRow('c-t13-changes', APP_CHANGES, 'sent_to_gp', 1),
       contractRow('c-t13-gp2', APP_GP2, 'sent_to_gp', 1, { user_id: GP2.userId }),
+      contractRow('c-t13-withdrawn-signing', APP_WITHDRAWN_SIGNING, 'sent_to_gp', 1),
+      contractRow('c-t13-secured-signed', APP_SECURED_SIGNED, 'signed', 1, {
+        signed_at: NOW, signed_bucket: 'gp-link-documents',
+        signed_path: 'contracts/' + APP_SECURED_SIGNED + '/v1/signed/Countersigned.pdf',
+        signed_filename: 'Countersigned.pdf'
+      }),
       contractRow('c-t13-cas', APP_CAS, 'signed', 1, {
         signed_at: NOW, signed_bucket: 'gp-link-documents',
         signed_path: 'contracts/' + APP_CAS + '/v1/signed/Already-Signed.pdf',
@@ -2426,7 +2470,13 @@ describe('GP contract experience — live-boot (Task 13)', () => {
   it('finalize-signed cannot run twice (double placement): a replay after signing is 409', async () => {
     const replay = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_SUCCESS, path: 'ignored', filename: 'Helen-Signed.pdf', mimeType: 'application/pdf' }, GP);
     expect(replay.status).toBe(409);
-    expect(replay.body.code).toBe('not_available');
+    // Final review fix wave (2026-07-22): the terminal-application guard now
+    // runs BEFORE the contract-status check, and APP_SUCCESS is genuinely
+    // placement_secured after the prior test — so the replay is now caught
+    // there (application_terminal) rather than falling through to the older
+    // contract-status check (not_available). Either way a second finalize is
+    // refused with no double placement, which is what this test protects.
+    expect(replay.body.code).toBe('application_terminal');
   });
 
   // ── Review fix 3 (CAS): APP_CAS's contract is seeded ALREADY 'signed' —
@@ -2526,6 +2576,69 @@ describe('GP contract experience — live-boot (Task 13)', () => {
     expect(r.status).toBe(200);
     expect(r.body.contract.status).toBe('signed');
     expect(r.body.contract.placementSecured).toBe(false);
+  });
+
+  // ── Final review fix wave (2026-07-22) — CRITICAL: a withdrawn GP could
+  //    still view and sign a contract that was sent BEFORE they withdrew.
+  //    APP_WITHDRAWN_SIGNING's contract is still 'sent_to_gp' (nothing
+  //    reaped it) — closing the hole means every one of these must refuse. ──
+  it('GET returns contract:null for a withdrawn application even though the contract is still sent_to_gp', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_WITHDRAWN_SIGNING, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.contract).toBeNull();
+  });
+
+  it('sign-upload 409 application_terminal for a withdrawn application — no upload URL minted', async () => {
+    const r = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_WITHDRAWN_SIGNING, filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('application_terminal');
+    expect(r.body.uploadUrl).toBeUndefined();
+  });
+
+  it('finalize-signed 409 application_terminal for a withdrawn application — contract stays sent_to_gp, no placement row, no emails, no CAS PATCH attempted', async () => {
+    const placementsBefore = db.placements.length;
+    const resendBefore = resendCalls.length;
+
+    const r = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_WITHDRAWN_SIGNING, path: 'ignored', filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('application_terminal');
+
+    // Nothing was written: the contract never flipped to 'signed', no
+    // placements row was created, and the withdrawn application stays put —
+    // this is the exact failure chain the fix closes (stale tab -> finalize
+    // -> finalizeInAppPlacement overwrites a withdrawn application).
+    expect(contract('c-t13-withdrawn-signing').status).toBe('sent_to_gp');
+    expect(contract('c-t13-withdrawn-signing').signed_at).toBeFalsy();
+    expect(db.placements.length).toBe(placementsBefore);
+    expect(appRow(APP_WITHDRAWN_SIGNING).status).toBe('withdrawn');
+    expect(resendCalls.length).toBe(resendBefore);
+  });
+
+  it('request-changes 409 application_terminal for a withdrawn application — contract untouched, no CEO email', async () => {
+    const resendBefore = resendCalls.length;
+    const r = await gpPost('/api/career/contract/request-changes', { applicationId: APP_WITHDRAWN_SIGNING, message: 'Please adjust the start date.' }, GP);
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('application_terminal');
+    expect(contract('c-t13-withdrawn-signing').status).toBe('sent_to_gp');
+    expect(contract('c-t13-withdrawn-signing').change_request).toBeFalsy();
+    expect(resendCalls.length).toBe(resendBefore);
+  });
+
+  // Regression guard for the GET exception carved out above: a contract that
+  // is genuinely 'signed' on an application that reached 'placement_secured'
+  // is the legitimate post-placement state, not a stale-tab replay — it must
+  // keep being returned so offer-review.html can show the signed copy.
+  it('GET still returns a signed contract when the application is genuinely placement_secured (the terminal-guard exception)', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_SECURED_SIGNED, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.contract).not.toBeNull();
+    expect(r.body.contract.status).toBe('signed');
+    expect(r.body.contract.placementSecured).toBe(true);
   });
 
   // ── Review fix 1: the applications list must stamp contractStage from the
