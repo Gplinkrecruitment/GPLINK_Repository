@@ -882,6 +882,57 @@
     </div>
   </div>
 
+  <!-- CONTRACT STATE (Task 13): when a career_contracts row for this
+       application is out for signature this WINS over the legacy invitation
+       UI above (both .pre-accept and .post-accept are hidden). -->
+  <div id="contractState" hidden>
+    <div class="glass-section gp-reveal gp-reveal-1" style="margin-top: 8px;">
+      <div class="section-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Your Contract
+      </div>
+      <div class="section-title" id="contractHeading">Your contract is ready</div>
+      <div class="officer-copy" id="contractIntro" style="margin-top: 6px;">Please review your employment contract, then sign and upload it — or request changes if something needs adjusting.</div>
+
+      <!-- The requested-changes text (changes_requested / practice_review) -->
+      <div id="contractRequestBlock" style="margin-top: 16px;" hidden>
+        <div class="section-label">What you asked us to change</div>
+        <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text" id="contractRequestText" style="white-space:pre-line"></div></div></div>
+      </div>
+
+      <!-- Actions (sent_to_gp only) -->
+      <div id="contractActions" style="margin-top: 18px;" hidden>
+        <div class="cta-stack">
+          <a class="cta-secondary" id="viewContractBtn" href="#" target="_blank" rel="noopener" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            View contract
+          </a>
+          <input type="file" id="signedFileInput" accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
+          <button type="button" class="cta-accept" id="uploadSignedBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload signed contract
+          </button>
+          <div class="accept-error" id="signUploadStatus" role="status" hidden></div>
+          <button type="button" class="decline-link" id="showChangesBtn">I need to request changes first</button>
+          <div id="changesForm" style="margin-top: 6px;" hidden>
+            <textarea id="changesText" maxlength="4000" rows="4" placeholder="Tell us what needs to change before you can sign…" style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid rgba(148,163,184,.4); font:inherit; resize:vertical;"></textarea>
+            <button type="button" class="cta-secondary" id="submitChangesBtn" style="margin-top:10px;">Send to my GP Link team</button>
+            <div class="accept-error" id="changesStatus" role="status" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Placement secured / signed celebration -->
+      <div id="contractSecured" style="margin-top: 10px;" hidden>
+        <div class="celebration-card">
+          <div class="celebration-icon">🎉</div>
+          <div class="celebration-title" id="contractSecuredTitle">Placement secured 🎉</div>
+          <div class="celebration-sub" id="contractSecuredSub">Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -1218,14 +1269,18 @@
     if (offer.status === 'declined') showDeclinedState();
   }
 
-  // ── Fetch the real offer (?applicationId= / ?id=; server picks the latest live offer without one) ──
-  fetch('/api/career/my-offer' + (applicationId ? '?applicationId=' + encodeURIComponent(applicationId) : ''), { credentials: 'same-origin' })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      if (data && data.ok && data.offer) renderOffer(data);
-      else showEmptyState();
-    })
-    .catch(function () { showEmptyState(); });
+  // ── Legacy interview-invitation flow — runs ONLY when there is no contract
+  //    row out for signature (see the contract bootstrap at the bottom). ──
+  function startLegacyOfferFlow() {
+    fetch('/api/career/my-offer' + (applicationId ? '?applicationId=' + encodeURIComponent(applicationId) : ''), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.ok && data.offer) renderOffer(data);
+        else showEmptyState();
+      })
+      .catch(function () { showEmptyState(); });
+    loadContractLink();
+  }
 
   // ── Accept offer (event delegation) ──
   document.addEventListener('click', function(e) {
@@ -1367,7 +1422,222 @@
       });
   }
 
-  loadContractLink();
+  // ── Contract experience (Task 13) ──────────────────────────────────────
+  // The contract UI WINS over the legacy invitation UI. Bootstrap: check for a
+  // live contract first; only fall back to the legacy offer flow when there
+  // isn't one (or we have no applicationId to look one up by).
+  var contractAppId = applicationId || '';
+
+  function hideLegacyStates() {
+    var pre = document.querySelector('.pre-accept');
+    if (pre) pre.style.display = 'none';
+    var post = document.querySelector('.post-accept');
+    if (post) post.style.display = 'none';
+    var empty = document.getElementById('emptyState');
+    if (empty) empty.hidden = true;
+    document.getElementById('pageRoot').classList.remove('accepted');
+  }
+
+  function showContractSecured(title, sub) {
+    var actions = document.getElementById('contractActions');
+    if (actions) actions.hidden = true;
+    var reqBlock = document.getElementById('contractRequestBlock');
+    if (reqBlock) reqBlock.hidden = true;
+    var heading = document.getElementById('contractHeading');
+    if (heading) heading.hidden = true;
+    var intro = document.getElementById('contractIntro');
+    if (intro) intro.hidden = true;
+    setText('contractSecuredTitle', title);
+    setText('contractSecuredSub', sub);
+    var secured = document.getElementById('contractSecured');
+    if (secured) secured.hidden = false;
+  }
+
+  function renderContractState(contract) {
+    hideLegacyStates();
+    var cs = document.getElementById('contractState');
+    if (cs) cs.hidden = false;
+
+    var status = String(contract.status || '');
+    var heading = document.getElementById('contractHeading');
+    var intro = document.getElementById('contractIntro');
+    var actions = document.getElementById('contractActions');
+    var reqBlock = document.getElementById('contractRequestBlock');
+    var reqText = document.getElementById('contractRequestText');
+    var secured = document.getElementById('contractSecured');
+    if (heading) heading.hidden = false;
+    if (intro) intro.hidden = false;
+    if (actions) actions.hidden = true;
+    if (reqBlock) reqBlock.hidden = true;
+    if (secured) secured.hidden = true;
+
+    // "View contract" link — only ever an https link the server minted.
+    var viewBtn = document.getElementById('viewContractBtn');
+    if (viewBtn) {
+      var url = String(contract.contractUrl || '');
+      if (url.indexOf('http') === 0) { viewBtn.href = url; viewBtn.hidden = false; }
+      else { viewBtn.hidden = true; }
+    }
+
+    if (status === 'sent_to_gp') {
+      setText('contractHeading', 'Your contract is ready');
+      setText('contractIntro', 'Please review your employment contract, then sign and upload it — or request changes if something needs adjusting.');
+      if (actions) actions.hidden = false;
+    } else if (status === 'changes_requested') {
+      setText('contractHeading', 'Your requested changes are with us');
+      setText('contractIntro', "We've sent your requested changes to your GP Link team. We'll let you know as soon as we hear back from the practice.");
+      if (contract.changeRequest && reqText) { reqText.textContent = contract.changeRequest; if (reqBlock) reqBlock.hidden = false; }
+    } else if (status === 'practice_review') {
+      setText('contractHeading', 'The practice is reviewing your changes');
+      setText('contractIntro', 'The practice is considering your requested change. Your GP Link team will be in touch with the outcome.');
+      if (contract.changeRequest && reqText) { reqText.textContent = contract.changeRequest; if (reqBlock) reqBlock.hidden = false; }
+    } else if (status === 'signed') {
+      showContractSecured('Placement secured 🎉', 'Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
+      launchConfetti();
+    }
+  }
+
+  // Upload signed contract: sign-upload → PUT raw file to Storage → finalize.
+  function runSignedUpload(file) {
+    var statusEl = document.getElementById('signUploadStatus');
+    var uploadBtn = document.getElementById('uploadSignedBtn');
+    var setStatus = function (msg, isError) {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.hidden = !msg;
+      statusEl.style.color = isError ? '' : 'inherit';
+    };
+    var mime = file.type || '';
+    if (!mime) {
+      var lower = String(file.name || '').toLowerCase();
+      if (lower.slice(-4) === '.pdf') mime = 'application/pdf';
+      else if (lower.slice(-5) === '.docx') mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (mime !== 'application/pdf' && mime !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      setStatus('Please choose a PDF or Word (.docx) file.', true);
+      return;
+    }
+    var filename = file.name || 'signed-contract.pdf';
+    if (uploadBtn) uploadBtn.disabled = true;
+    setStatus('Uploading your signed contract…', false);
+
+    fetch('/api/career/contract/sign-upload', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicationId: contractAppId, filename: filename, mimeType: mime })
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; }); })
+      .then(function (sign) {
+        if (!(sign.status === 200 && sign.data && sign.data.ok && sign.data.uploadUrl)) {
+          if (uploadBtn) uploadBtn.disabled = false;
+          setStatus((sign.data && sign.data.message) || "That didn't go through — please try again.", true);
+          return null;
+        }
+        var uploadUrl = sign.data.uploadUrl;
+        var storagePath = sign.data.path;
+        return fetch(uploadUrl, {
+          method: 'PUT', credentials: 'omit',
+          headers: { 'Content-Type': mime, 'x-upsert': 'true' },
+          body: file
+        }).then(function (putRes) {
+          if (!putRes.ok) {
+            if (uploadBtn) uploadBtn.disabled = false;
+            setStatus("We couldn't upload that file — please try again.", true);
+            return null;
+          }
+          return fetch('/api/career/contract/finalize-signed', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationId: contractAppId, path: storagePath, filename: filename, mimeType: mime })
+          }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; }); })
+            .then(function (fin) {
+              if (uploadBtn) uploadBtn.disabled = false;
+              if (fin.status === 200 && fin.data && fin.data.ok) {
+                if (fin.data.placementSecured) {
+                  showContractSecured('Placement secured 🎉', 'Congratulations — your signed contract is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
+                  launchConfetti();
+                } else {
+                  showContractSecured('Contract signed', (fin.data.message || 'Signed — our team is finalising your placement.'));
+                }
+                return null;
+              }
+              setStatus((fin.data && fin.data.message) || "That didn't go through — please try again.", true);
+              return null;
+            });
+        });
+      })
+      .catch(function () {
+        if (uploadBtn) uploadBtn.disabled = false;
+        setStatus("That didn't go through — please check your connection and try again.", true);
+      });
+  }
+
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('#uploadSignedBtn')) {
+      var input = document.getElementById('signedFileInput');
+      if (input) input.click();
+      return;
+    }
+    if (e.target.closest('#showChangesBtn')) {
+      var form = document.getElementById('changesForm');
+      if (form) form.hidden = false;
+      var ta = document.getElementById('changesText');
+      if (ta) ta.focus();
+      return;
+    }
+    var submitChanges = e.target.closest('#submitChangesBtn');
+    if (submitChanges) {
+      var ta2 = document.getElementById('changesText');
+      var statusEl2 = document.getElementById('changesStatus');
+      var message = ta2 ? String(ta2.value || '').trim() : '';
+      var setChangesStatus = function (msg, isError) { if (statusEl2) { statusEl2.textContent = msg; statusEl2.hidden = !msg; } };
+      if (!message) { setChangesStatus('Please tell us what needs to change.', true); return; }
+      submitChanges.disabled = true;
+      setChangesStatus('Sending…', false);
+      fetch('/api/career/contract/request-changes', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: contractAppId, message: message })
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; }); })
+        .then(function (res) {
+          if (res.status === 200 && res.data && res.data.ok) {
+            renderContractState({ status: 'changes_requested', changeRequest: message });
+          } else {
+            submitChanges.disabled = false;
+            setChangesStatus((res.data && res.data.message) || "We couldn't send that just now — please try again.", true);
+          }
+        })
+        .catch(function () {
+          submitChanges.disabled = false;
+          setChangesStatus("We couldn't send that just now — please try again.", true);
+        });
+    }
+  });
+
+  (function () {
+    var input = document.getElementById('signedFileInput');
+    if (input) {
+      input.addEventListener('change', function () {
+        var file = input.files && input.files[0];
+        if (file) runSignedUpload(file);
+        input.value = '';
+      });
+    }
+  })();
+
+  // Bootstrap: contract first, legacy invitation flow only if there's no contract.
+  if (contractAppId) {
+    fetch('/api/career/contract?applicationId=' + encodeURIComponent(contractAppId), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.ok && data.contract) renderContractState(data.contract);
+        else startLegacyOfferFlow();
+      })
+      .catch(function () { startLegacyOfferFlow(); });
+  } else {
+    startLegacyOfferFlow();
+  }
 })();
 </script>
 

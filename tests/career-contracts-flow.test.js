@@ -1889,3 +1889,466 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
     expect(missing.status).toBe(404);
   });
 });
+
+// Task 13 (2026-07-22): the GP contract experience — view / sign-by-upload /
+// request changes. Signing IS the placement event now (the money path), so
+// these tests are as much about what the endpoints REFUSE (wrong owner, wrong
+// status, missing object, double-finalize) as what they do. Boots the real
+// server against an in-memory emulator serving BOTH PostgREST and Supabase
+// Storage (upload-sign + raw PUT + object download + signed-download-URL),
+// authenticating as a GP with a signed gp_session cookie.
+describe('GP contract experience — view / sign / request changes (Task 13)', () => {
+  const SERVER_SRC = fs.readFileSync(SERVER_PATH, 'utf8');
+
+  // ── Source-assertion coverage for the finalize-throw branch. It cannot be
+  //    triggered through the live-boot emulator: finalizeInAppPlacement is
+  //    internally try/caught step-by-step and supabaseDbRequest RETURNS
+  //    {ok:false} on any failure rather than throwing — so with a responsive
+  //    emulator the placement never throws. Documented here rather than
+  //    silently skipped, and pinned at the source so the branch's contract
+  //    (respond placementSecured:false, DON'T roll back the signed status) is
+  //    still verified. ──
+  it('finalize-signed wraps the placement in try/catch and responds placementSecured:false without rolling back the signed status', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/contract/finalize-signed'");
+    expect(idx).toBeGreaterThan(-1);
+    // Bound the slice to the finalize handler alone (the next route's comment
+    // block legitimately mentions sent_to_gp in describing its own guard).
+    const endIdx = SERVER_SRC.indexOf('// POST /api/career/contract/request-changes', idx);
+    const block = SERVER_SRC.slice(idx, endIdx > idx ? endIdx : idx + 9000);
+    // The signed PATCH commits BEFORE the placement is attempted.
+    const signedPatchIdx = block.indexOf("status: 'signed'");
+    const finalizeCallIdx = block.indexOf('finalizeInAppPlacement(fsApp');
+    expect(signedPatchIdx).toBeGreaterThan(-1);
+    expect(finalizeCallIdx).toBeGreaterThan(signedPatchIdx);
+    // Placement is guarded and the catch never reverts the signed status.
+    expect(block).toMatch(/catch \(fsErr\)/);
+    expect(block).toMatch(/\[contract-signed\]/);
+    expect(block).toMatch(/placementSecured: false/);
+    expect(block).toMatch(/finalising your placement/);
+    const catchIdx = block.indexOf('catch (fsErr)');
+    const afterCatch = block.slice(catchIdx);
+    // No re-PATCH back to sent_to_gp anywhere in the finalize handler.
+    expect(afterCatch).not.toMatch(/sent_to_gp/);
+    expect(block).not.toMatch(/status: 'sent_to_gp'/);
+  });
+
+  it('the signed copy is stored under a distinct .../signed/ prefix (never collides with the practice contract object) and the path is recomputed server-side', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/contract/finalize-signed'");
+    const block = SERVER_SRC.slice(idx, idx + 4000);
+    expect(block).toMatch(/'v' \+ \(Number\(fsContract\.version\) \|\| 1\), 'signed', fsSafeName/);
+    // Recomputed from the contract + sanitized filename, not the client `path`.
+    expect(block).toMatch(/sanitizeStoragePathSegment\(fsFilename, 120\)/);
+  });
+});
+
+describe('GP contract experience — live-boot (Task 13)', () => {
+  const RUN_ID = crypto.randomBytes(4).toString('hex');
+  const DB_FILE = path.join('/tmp', `gplink-t13-${RUN_ID}.json`);
+  const GP = { userId: 'u-gp-t13-1', email: 'gp-t13-1@gplink-test.local' };
+  const GP2 = { userId: 'u-gp-t13-2', email: 'gp-t13-2@gplink-test.local' };
+  const HUB_EMAIL = 'hello@mygplink-test.local';
+  const PRACTICE_EMAIL = 'reception@harbour-t13.local';
+  const NOW = new Date().toISOString();
+
+  const APP_VIEW = 'app-t13-view';
+  const APP_VOID = 'app-t13-void';
+  const APP_UPLOADED = 'app-t13-uploaded';
+  const APP_OBJMISSING = 'app-t13-objmissing';
+  const APP_SUCCESS = 'app-t13-success';
+  const APP_DRAFT = 'app-t13-draft';
+  const APP_CHANGES = 'app-t13-changes';
+  const APP_GP2 = 'app-t13-gp2';
+
+  let server, port, sbServer, sbPort, realFetch, mod;
+  const resendCalls = [];
+  const storage = new Map();
+
+  function contractRow(id, applicationId, status, version, extra) {
+    return Object.assign({
+      id, application_id: applicationId, user_id: GP.userId, career_role_id: 'role-t13-1',
+      version, status,
+      contract_bucket: 'gp-link-documents',
+      contract_path: 'contracts/' + applicationId + '/v' + version + '/Employment-Contract.pdf',
+      contract_filename: 'Employment-Contract.pdf', contract_mime: 'application/pdf',
+      sent_to_gp_at: status === 'sent_to_gp' ? NOW : null,
+      created_at: NOW, updated_at: NOW
+    }, extra || {});
+  }
+
+  const db = {
+    user_profiles: [
+      { user_id: GP.userId, email: GP.email, first_name: 'Helen', last_name: 'Rivers', registration_country: 'uk' },
+      { user_id: GP2.userId, email: GP2.email, first_name: 'Sana', last_name: 'Khan', registration_country: 'uk' }
+    ],
+    practices: [
+      { id: 'p-t13-1', name: 'Harbour Family Clinic', source: 'internal_ats', contact_name: 'Harbour Reception', contact_email: PRACTICE_EMAIL, is_active: true, created_at: NOW }
+    ],
+    career_roles: [
+      { id: 'role-t13-1', provider: 'internal_ats', provider_role_id: 'ats_t13_1', title: 'General Practitioner — VR', practice_name: 'Harbour Family Clinic', practice_id: 'p-t13-1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
+    ],
+    gp_applications: [
+      { id: APP_VIEW, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_VOID, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_UPLOADED, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'interview_completed', ats_stage: 'interview', applied_at: NOW },
+      { id: APP_OBJMISSING, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_SUCCESS, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_DRAFT, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_CHANGES, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      { id: APP_GP2, user_id: GP2.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW }
+    ],
+    career_contracts: [
+      contractRow('c-t13-view', APP_VIEW, 'sent_to_gp', 1),
+      // Latest-non-void: v2 is void, v1 (sent_to_gp) is the live one GET must pick.
+      contractRow('c-t13-void-v2', APP_VOID, 'void', 2),
+      contractRow('c-t13-void-v1', APP_VOID, 'sent_to_gp', 1),
+      contractRow('c-t13-uploaded', APP_UPLOADED, 'uploaded', 1),
+      contractRow('c-t13-objmissing', APP_OBJMISSING, 'sent_to_gp', 1),
+      contractRow('c-t13-success', APP_SUCCESS, 'sent_to_gp', 1, { practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception' }),
+      contractRow('c-t13-draft', APP_DRAFT, 'sent_to_gp', 1),
+      contractRow('c-t13-changes', APP_CHANGES, 'sent_to_gp', 1),
+      contractRow('c-t13-gp2', APP_GP2, 'sent_to_gp', 1, { user_id: GP2.userId })
+    ],
+    ats_offers: [
+      { id: 'offer-t13-draft', application_id: APP_DRAFT, user_id: GP.userId, career_role_id: 'role-t13-1', status: 'draft' }
+    ],
+    ats_stage_events: [],
+    placements: [],
+    user_state: [
+      { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+      { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    ]
+  };
+  function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+  function buildMatcher(params) {
+    const filters = [];
+    for (const [k, v] of params.entries()) {
+      if (['select', 'limit', 'order', 'on_conflict'].includes(k)) continue;
+      const mm = /^(eq|neq)\.(.*)$/s.exec(v);
+      if (mm) filters.push({ col: k, op: mm[1], val: mm[2] });
+    }
+    return (row) => filters.every((f) => {
+      const cell = row ? row[f.col] : undefined;
+      const eq = String(cell) === String(f.val);
+      return f.op === 'eq' ? eq : !eq;
+    });
+  }
+
+  function startEmulator() {
+    return new Promise((resolve) => {
+      sbServer = http.createServer(async (req, res) => {
+        const u = new URL(req.url, 'http://sb.local');
+        const sendJson = (status, payload) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)); };
+        const readRaw = () => new Promise((r) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => r(Buffer.concat(c))); });
+
+        // ── Supabase Storage: upload-sign (POST) + raw PUT, signed-download URL
+        //    (POST /object/sign/), and object download (GET) for existence checks.
+        if (u.pathname.startsWith('/storage/v1/')) {
+          let mm = u.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/(.+)$/);
+          if (mm && req.method === 'POST') { sendJson(200, { url: '/object/upload/sign/' + mm[1] + '?token=test-token' }); return; }
+          if (mm && req.method === 'PUT') { storage.set(decodeURIComponent(mm[1]), await readRaw()); sendJson(200, { Key: mm[1] }); return; }
+          mm = u.pathname.match(/^\/storage\/v1\/object\/sign\/(.+)$/);
+          if (mm && req.method === 'POST') { await readRaw(); sendJson(200, { signedURL: '/object/sign/' + mm[1] + '?token=test-sign-token' }); return; }
+          mm = u.pathname.match(/^\/storage\/v1\/object\/(?!upload|sign|public)(.+)$/);
+          if (mm && req.method === 'GET') {
+            const buf = storage.get(decodeURIComponent(mm[1]));
+            if (!buf) { res.writeHead(404); res.end('not found'); return; }
+            res.writeHead(200, { 'Content-Type': 'application/pdf' }); res.end(buf); return;
+          }
+          sendJson(404, { message: 'storage not found' }); return;
+        }
+
+        // ── PostgREST ──
+        const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+        if (!m) { sendJson(404, { message: 'not found' }); return; }
+        const rows = tableOf(decodeURIComponent(m[1]));
+        const matches = buildMatcher(u.searchParams);
+        if (req.method === 'GET') {
+          let out = rows.filter(matches);
+          const limit = parseInt(u.searchParams.get('limit') || '', 10);
+          if (Number.isFinite(limit)) out = out.slice(0, limit);
+          sendJson(200, out); return;
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+          const saved = incoming.map((r) => {
+            const row = Object.assign({ id: crypto.randomUUID(), created_at: new Date().toISOString() }, r);
+            rows.push(row); return row;
+          });
+          sendJson(201, saved); return;
+        }
+        if (req.method === 'PATCH') {
+          const patch = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, patch || {}));
+          sendJson(200, matched); return;
+        }
+        sendJson(405, { message: 'method not allowed' });
+      });
+      sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+    });
+  }
+
+  function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+  function gpCookie(user) {
+    const payload = b64url(JSON.stringify({ userProfile: { email: user.email, supabaseUserId: user.userId }, expiresAt: Date.now() + 3600000 }));
+    const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+    return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
+  }
+
+  function httpJson(method, p, body, extraHeaders) {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : null;
+      const headers = Object.assign({}, extraHeaders || {});
+      if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+      const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed }); });
+      });
+      r.on('error', reject); r.end(data);
+    });
+  }
+  const gpGet = (p, user) => httpJson('GET', p, null, { Cookie: gpCookie(user || GP) });
+  const gpPost = (p, body, user) => httpJson('POST', p, body, { Cookie: gpCookie(user || GP) });
+
+  function putSignedUpload(uploadUrl, buffer, mime) {
+    return new Promise((resolve, reject) => {
+      const target = new URL(uploadUrl);
+      const r = http.request({ host: target.hostname, port: target.port, path: target.pathname + target.search, method: 'PUT', headers: { 'Content-Type': mime, 'x-upsert': 'true', 'Content-Length': buffer.length } }, (res) => {
+        res.on('data', () => {}); res.on('end', () => resolve({ status: res.statusCode }));
+      });
+      r.on('error', reject); r.end(buffer);
+    });
+  }
+
+  const contract = (id) => db.career_contracts.find((c) => c.id === id);
+  const appRow = (id) => db.gp_applications.find((a) => a.id === id);
+
+  beforeAll(async () => {
+    await startEmulator();
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_DISABLED = 'false';
+    process.env.AUTH_SECRET = 'contracts-t13-secret-' + RUN_ID;
+    process.env.REQUIRE_SUPABASE_DB = 'false';
+    process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    process.env.SUPABASE_DOCUMENT_BUCKET = 'gp-link-documents';
+    process.env.ENFORCE_SAME_ORIGIN = 'false';
+    process.env.DB_FILE_PATH = DB_FILE;
+    process.env.OPENAI_API_KEY = '';
+    process.env.ANTHROPIC_API_KEY = '';
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    process.env.REGISTRATION_HUB_EMAIL = HUB_EMAIL;
+    process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (url, opts) => {
+      const u = String(url && url.url ? url.url : url);
+      if (u.startsWith('https://api.resend.com/')) {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        resendCalls.push({ url: u, body: parsed });
+        return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+      }
+      if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+
+    vi.resetModules();
+    mod = await import('../server.js');
+    server = mod.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+  });
+
+  afterAll(async () => {
+    if (realFetch) globalThis.fetch = realFetch;
+    if (server) await new Promise((r) => server.close(r));
+    if (sbServer) await new Promise((r) => sbServer.close(r));
+    try { fs.unlinkSync(DB_FILE); } catch {}
+  });
+
+  // ── GET /api/career/contract ──
+  it('GET requires a session (401 with no cookie)', async () => {
+    const r = await httpJson('GET', '/api/career/contract?applicationId=' + APP_VIEW);
+    expect(r.status).toBe(401);
+  });
+
+  it('GET 400 without an applicationId', async () => {
+    const r = await gpGet('/api/career/contract');
+    expect(r.status).toBe(400);
+  });
+
+  it('GET 404 for an application the session user does not own (no cross-owner read)', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_GP2, GP);
+    expect(r.status).toBe(404);
+  });
+
+  it('GET returns the sent_to_gp contract payload (signed 1h URL, camelCase fields)', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_VIEW, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.contract).toBeTruthy();
+    expect(r.body.contract.id).toBe('c-t13-view');
+    expect(r.body.contract.status).toBe('sent_to_gp');
+    expect(r.body.contract.version).toBe(1);
+    expect(typeof r.body.contract.contractUrl).toBe('string');
+    expect(r.body.contract.contractUrl.length).toBeGreaterThan(0);
+    expect(r.body.contract.contractUrl).toContain('/object/sign/');
+    expect(r.body.contract).toHaveProperty('changeRequest');
+    expect(r.body.contract).toHaveProperty('sentToGpAt');
+  });
+
+  it('GET returns the latest NON-void contract (a higher-version void row is skipped)', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_VOID, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.contract).toBeTruthy();
+    expect(r.body.contract.id).toBe('c-t13-void-v1');
+    expect(r.body.contract.status).toBe('sent_to_gp');
+  });
+
+  it('GET returns contract:null for an "uploaded" contract (GP never sees pre-submit states)', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_UPLOADED, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.contract).toBeNull();
+  });
+
+  // ── POST /api/career/contract/sign-upload ──
+  it('sign-upload 404 for a non-owned application', async () => {
+    const r = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_GP2, filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r.status).toBe(404);
+  });
+
+  it('sign-upload 409 when the contract is not sent_to_gp (uploaded)', async () => {
+    const r = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_UPLOADED, filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('not_available');
+  });
+
+  it('sign-upload 400 rejects a non-pdf/docx mime', async () => {
+    const r = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_VIEW, filename: 'signed.exe', mimeType: 'application/x-msdownload' }, GP);
+    expect(r.status).toBe(400);
+  });
+
+  it('sign-upload success returns an upload URL + a path UNDER the .../signed/ prefix', async () => {
+    const r = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_VIEW, filename: 'My Signed Contract.pdf', mimeType: 'application/pdf' }, GP);
+    expect(r.status).toBe(200);
+    expect(typeof r.body.uploadUrl).toBe('string');
+    expect(r.body.path).toContain('contracts/' + APP_VIEW + '/v1/signed/');
+    // Distinct from where the practice's own contract lives (…/v1/<name>, no /signed/).
+    expect(r.body.path).not.toBe(contract('c-t13-view').contract_path);
+  });
+
+  // ── POST /api/career/contract/finalize-signed ──
+  it('finalize-signed 400 refuses when no object was uploaded to Storage (contract stays sent_to_gp)', async () => {
+    const sign = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_OBJMISSING, filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(sign.status).toBe(200);
+    // No PUT → finalize must refuse, not phantom-sign.
+    const fin = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_OBJMISSING, path: sign.body.path, filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(fin.status).toBe(400);
+    expect(contract('c-t13-objmissing').status).toBe('sent_to_gp');
+  });
+
+  it('finalize-signed success secures the placement: contract signed, application placement_secured, placements row, minimal offer created, both signed-copy emails, placementSecured:true', async () => {
+    const before = resendCalls.length;
+    const sign = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_SUCCESS, filename: 'Helen-Signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(sign.status).toBe(200);
+    const put = await putSignedUpload(sign.body.uploadUrl, Buffer.from('%PDF-1.4 signed by Helen', 'utf8'), 'application/pdf');
+    expect(put.status).toBe(200);
+
+    const fin = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_SUCCESS, path: sign.body.path, filename: 'Helen-Signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(fin.status).toBe(200);
+    expect(fin.body.ok).toBe(true);
+    expect(fin.body.placementSecured).toBe(true);
+
+    // Contract row is signed with the signed file recorded.
+    const c = contract('c-t13-success');
+    expect(c.status).toBe('signed');
+    expect(c.signed_at).toBeTruthy();
+    expect(c.signed_path).toContain('/signed/');
+
+    // Application secured + placements row of record.
+    expect(appRow(APP_SUCCESS).status).toBe('placement_secured');
+    expect(db.placements.find((p) => p.application_id === APP_SUCCESS)).toBeTruthy();
+
+    // No offer existed → a minimal one was created and finalize accepted it.
+    const offer = db.ats_offers.find((o) => o.application_id === APP_SUCCESS);
+    expect(offer).toBeTruthy();
+    expect(offer.status).toBe('accepted');
+
+    // Two signed-copy notifications: the practice + the CEO hub.
+    const sent = resendCalls.slice(before);
+    const practiceMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(PRACTICE_EMAIL) && /has signed/i.test(x.body.subject || ''));
+    const ceoMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(HUB_EMAIL) && /placement secured/i.test(x.body.subject || ''));
+    expect(practiceMail).toBeTruthy();
+    expect(ceoMail).toBeTruthy();
+  });
+
+  it('finalize-signed cannot run twice (double placement): a replay after signing is 409', async () => {
+    const replay = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_SUCCESS, path: 'ignored', filename: 'Helen-Signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(replay.status).toBe(409);
+    expect(replay.body.code).toBe('not_available');
+  });
+
+  it('finalize-signed draft-offer flip: a draft ats_offers row is flipped to sent, then finalize accepts it', async () => {
+    const sign = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_DRAFT, filename: 'draft-signed.pdf', mimeType: 'application/pdf' }, GP);
+    const put = await putSignedUpload(sign.body.uploadUrl, Buffer.from('%PDF-1.4 signed', 'utf8'), 'application/pdf');
+    expect(put.status).toBe(200);
+    const fin = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_DRAFT, path: sign.body.path, filename: 'draft-signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(fin.status).toBe(200);
+    expect(fin.body.placementSecured).toBe(true);
+    // The pre-seeded 'draft' offer ended up accepted (draft → sent → accepted).
+    const offer = db.ats_offers.find((o) => o.id === 'offer-t13-draft');
+    expect(offer.status).toBe('accepted');
+    expect(contract('c-t13-draft').status).toBe('signed');
+  });
+
+  // ── POST /api/career/contract/request-changes ──
+  it('request-changes 400 on an empty message', async () => {
+    const r = await gpPost('/api/career/contract/request-changes', { applicationId: APP_CHANGES, message: '   ' }, GP);
+    expect(r.status).toBe(400);
+  });
+
+  it('request-changes 404 for a non-owned application', async () => {
+    const r = await gpPost('/api/career/contract/request-changes', { applicationId: APP_GP2, message: 'Please change the start date.' }, GP);
+    expect(r.status).toBe(404);
+  });
+
+  it('request-changes flips the contract to changes_requested with the text and emails the CEO', async () => {
+    const before = resendCalls.length;
+    const r = await gpPost('/api/career/contract/request-changes', { applicationId: APP_CHANGES, message: 'Please move the start date to 1 November.' }, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const c = contract('c-t13-changes');
+    expect(c.status).toBe('changes_requested');
+    expect(c.change_request).toBe('Please move the start date to 1 November.');
+
+    const sent = resendCalls.slice(before);
+    const ceoMail = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(HUB_EMAIL) && /requested changes/i.test(x.body.subject || ''));
+    expect(ceoMail).toBeTruthy();
+    expect(ceoMail.body.html).toContain('Please move the start date to 1 November.');
+  });
+
+  it('request-changes 409 once the contract is no longer sent_to_gp (already changes_requested)', async () => {
+    const r = await gpPost('/api/career/contract/request-changes', { applicationId: APP_CHANGES, message: 'Another change.' }, GP);
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('not_available');
+  });
+
+  it('GET reflects the changes_requested state with the request text back to the GP', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_CHANGES, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.contract.status).toBe('changes_requested');
+    expect(r.body.contract.changeRequest).toBe('Please move the start date to 1 November.');
+  });
+
+  it('GET shows the signed contract as status "signed" (secured state) after a successful sign', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_SUCCESS, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.contract.status).toBe('signed');
+    expect(r.body.contract.signedAt).toBeTruthy();
+  });
+});

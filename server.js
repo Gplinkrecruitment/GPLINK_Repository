@@ -31911,6 +31911,50 @@ async function listCareerContractsForApplication(applicationId) {
   rows.sort(function (a, b) { return (Number(b.version) || 0) - (Number(a.version) || 0); });
   return rows;
 }
+// The single "live" contract for an application = the highest-version row that
+// isn't void (a void row is a discarded revision). Every GP-facing contract
+// endpoint (Task 13) drives off this so a replaced/void revision can never be
+// signed or shown.
+async function getLatestLiveCareerContractForApplication(applicationId) {
+  var rows = await listCareerContractsForApplication(applicationId);
+  return rows.find(function (r) { return String(r.status) !== 'void'; }) || null;
+}
+// Fetch a gp_applications row ONLY when it belongs to `userId` — the ownership
+// check every GP contract endpoint runs (mirrors POST /api/career/application/
+// withdraw's `id=eq.…&user_id=eq.…` gate). Returns null (→ 404) otherwise, so a
+// GP can never read/sign a contract on someone else's application.
+async function getOwnedCareerApplicationRow(applicationId, userId) {
+  var appId = String(applicationId || '').trim();
+  var uid = String(userId || '').trim();
+  if (!appId || !uid || !isSupabaseDbConfigured()) return null;
+  var r = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(appId) + '&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+  return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+}
+// Resolve the practice contact email for a contract's signed-copy notification.
+// Precedence: the contract's own recorded contact → the application's contact
+// columns → the role's practice (practices table) → the role's own contact
+// fields. Mirrors sendPostInterviewDecisionEmail's fallback chain, best-effort.
+async function resolveContractPracticeEmail(contract, app) {
+  var email = String((contract && contract.practice_contact_email) || '').trim();
+  if (email) return email;
+  email = String((app && app.practice_contact_email) || '').trim();
+  if (email) return email;
+  try {
+    var roleId = (contract && contract.career_role_id) || (app && app.career_role_id) || null;
+    var role = roleId ? await getCareerRoleRowById(roleId) : null;
+    var practiceId = (app && app.practice_id) || (role && role.practice_id) || null;
+    if (practiceId) {
+      var practice = await atsGetPracticeRow(practiceId);
+      if (practice && practice.contact_email) return String(practice.contact_email).trim();
+    }
+    if (role) {
+      var rs = role.source_payload && typeof role.source_payload === 'object' ? role.source_payload : {};
+      var re = String(role.practice_contact_email || role.contact_email || rs.practice_contact_email || rs.contact_email || '').trim();
+      if (re) return re;
+    }
+  } catch (e) { /* fall through to no-contact */ }
+  return '';
+}
 // Accepted employment-contract upload MIME types — PDF or Word .docx, mirroring
 // what the practice would realistically send. Anything else is refused at
 // sign-upload time so a signed URL is never minted for an executable/HTML.
@@ -41362,33 +41406,298 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Task 13: GP contract experience ──────────────────────────────────────
+  // The post-interview contract pipeline's GP side. Once the CEO submits an
+  // uploaded contract to the GP (Task 12 → career_contracts.status
+  // 'sent_to_gp', application status 'offer'), the GP views it, signs it by
+  // uploading a countersigned copy (signing IS the placement event), or asks
+  // for changes. Every endpoint enforces ownership exactly like the withdraw
+  // endpoint (application row must belong to the session user).
+  //
+  // GET returns the latest non-void contract for the application ONLY when it
+  // is in a GP-visible status (sent_to_gp / changes_requested / practice_review
+  // / signed) — the GP never sees awaiting_upload/uploaded (practice/CEO-only).
   if (pathname === '/api/career/contract' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
-    const email = getSessionEmail(session);
-    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
-    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
-    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
-    const contractParams = new URL(req.url, 'http://x').searchParams;
-    const applicationId = String(contractParams.get('applicationId') || '').trim();
-    const attachmentId = String(contractParams.get('attachmentId') || '').trim();
-    if (!applicationId || !attachmentId) {
-      sendJson(res, 400, { ok: false, message: 'Missing applicationId or attachmentId.' });
+    const ccEmail = getSessionEmail(session);
+    if (!ccEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const ccUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(ccEmail);
+    if (!ccUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const ccParams = new URL(req.url, 'http://x').searchParams;
+    const ccAppId = String(ccParams.get('applicationId') || ccParams.get('application_id') || '').trim();
+    if (!ccAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, contract: null }); return; }
+
+    const ccApp = await getOwnedCareerApplicationRow(ccAppId, ccUserId);
+    if (!ccApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    const ccContract = await getLatestLiveCareerContractForApplication(ccAppId);
+    const CC_GP_VISIBLE = new Set(['sent_to_gp', 'changes_requested', 'practice_review', 'signed']);
+    if (!ccContract || !CC_GP_VISIBLE.has(String(ccContract.status))) {
+      sendJson(res, 200, { ok: true, contract: null });
       return;
     }
-    // Verify the user owns this application
-    const appResult = await supabaseDbRequest(
-      'gp_applications',
-      `select=id,user_id&user_id=eq.${encodeURIComponent(userId)}&zoho_application_id=eq.${encodeURIComponent(applicationId)}&limit=1`
-    );
-    if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
-      sendJson(res, 403, { ok: false, message: 'Application not found or access denied.' });
+    // The doctor views the practice's uploaded contract while it's out for
+    // signature; once signed, the signed copy is what's worth showing. Signed
+    // 1h URL either way (never a raw storage path in the payload).
+    let ccUrl = '';
+    if (String(ccContract.status) === 'signed' && ccContract.signed_bucket && ccContract.signed_path) {
+      ccUrl = (await supabaseStorageCreateSignedUrl(ccContract.signed_bucket, ccContract.signed_path, ccContract.signed_filename || 'signed-contract.pdf')) || '';
+    } else if (ccContract.contract_bucket && ccContract.contract_path) {
+      ccUrl = (await supabaseStorageCreateSignedUrl(ccContract.contract_bucket, ccContract.contract_path, ccContract.contract_filename || 'contract.pdf')) || '';
+    }
+    sendJson(res, 200, {
+      ok: true,
+      contract: {
+        id: ccContract.id,
+        status: ccContract.status,
+        version: ccContract.version,
+        contractUrl: ccUrl,
+        changeRequest: ccContract.change_request || null,
+        changeResponse: ccContract.change_response || null,
+        sentToGpAt: ccContract.sent_to_gp_at || null,
+        signedAt: ccContract.signed_at || null
+      }
+    });
+    return;
+  }
+
+  // POST /api/career/contract/sign-upload — mint a signed upload URL for the
+  // GP's countersigned copy. Only a 'sent_to_gp' contract can be signed (409
+  // otherwise, which is also what makes a replayed sign-upload after signing
+  // fail). Signed copies live UNDER a distinct .../signed/ prefix so they can
+  // never collide with the practice's own uploaded contract object.
+  if (pathname === '/api/career/contract/sign-upload' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const suEmail = getSessionEmail(session);
+    if (!suEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const suUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(suEmail);
+    if (!suUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let suBody;
+    try { suBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const suAppId = String((suBody && suBody.applicationId) || '').trim();
+    if (!suAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    const suApp = await getOwnedCareerApplicationRow(suAppId, suUserId);
+    if (!suApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    const suContract = await getLatestLiveCareerContractForApplication(suAppId);
+    if (!suContract || String(suContract.status) !== 'sent_to_gp') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
       return;
     }
-    // Zoho Recruit decommissioned — contract PDFs were fetched from Zoho
-    // attachments. In-app offer contracts are delivered to My Documents via the
-    // offer flow, so there is nothing to stream here.
-    sendJson(res, 404, { ok: false, message: 'Contract file not found.' });
+    const suMime = String((suBody && suBody.mimeType) || '').trim();
+    if (!contractMimeIsAccepted(suMime)) {
+      sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
+      return;
+    }
+    const suSafeName = sanitizeStoragePathSegment(String((suBody && suBody.filename) || 'signed-contract.pdf'), 120);
+    const suPath = ['contracts', sanitizeStoragePathSegment(String(suContract.application_id), 80), 'v' + (Number(suContract.version) || 1), 'signed', suSafeName].join('/');
+    const suUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, suPath, { upsert: true });
+    if (!suUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
+    sendJson(res, 200, { ok: true, uploadUrl: suUrl, path: suPath });
+    return;
+  }
+
+  // POST /api/career/contract/finalize-signed — the money path. Verifies the
+  // signed object exists, marks the contract signed, THEN secures the
+  // placement via finalizeInAppPlacement. The signed status is committed FIRST
+  // and never rolled back: if the placement fan-out throws, the doctor is told
+  // their placement is being finalised by the team (the CEO can complete it via
+  // /api/ats/placement) — a signature is never "lost" because a later step
+  // failed. Only a 'sent_to_gp' contract can be finalized (409 otherwise), so a
+  // second finalize (double placement) is refused the moment status → 'signed'.
+  if (pathname === '/api/career/contract/finalize-signed' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const fsEmail = getSessionEmail(session);
+    if (!fsEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const fsUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(fsEmail);
+    if (!fsUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let fsBody;
+    try { fsBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const fsAppId = String((fsBody && fsBody.applicationId) || '').trim();
+    if (!fsAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    const fsApp = await getOwnedCareerApplicationRow(fsAppId, fsUserId);
+    if (!fsApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    const fsContract = await getLatestLiveCareerContractForApplication(fsAppId);
+    if (!fsContract || String(fsContract.status) !== 'sent_to_gp') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
+      return;
+    }
+    const fsMime = String((fsBody && fsBody.mimeType) || '').trim();
+    if (!contractMimeIsAccepted(fsMime)) {
+      sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
+      return;
+    }
+    // Recompute the signed path server-side — the client `path` is ignored, so
+    // the GP can never point finalize at an arbitrary object (same rule as the
+    // practice finalize endpoint).
+    const fsFilename = String((fsBody && fsBody.filename) || 'signed-contract.pdf');
+    const fsSafeName = sanitizeStoragePathSegment(fsFilename, 120);
+    const fsPath = ['contracts', sanitizeStoragePathSegment(String(fsContract.application_id), 80), 'v' + (Number(fsContract.version) || 1), 'signed', fsSafeName].join('/');
+
+    const fsObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, fsPath);
+    if (!fsObj || !fsObj.buffer || !fsObj.buffer.length) {
+      sendJson(res, 400, { ok: false, message: 'We could not find the signed file. Please try uploading again.' });
+      return;
+    }
+
+    const fsNowIso = new Date().toISOString();
+    const fsPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(fsContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        status: 'signed',
+        signed_at: fsNowIso,
+        signed_bucket: SUPABASE_DOCUMENT_BUCKET,
+        signed_path: fsPath,
+        signed_filename: sanitizeUserString(fsFilename, 240) || 'signed-contract.pdf',
+        updated_at: fsNowIso
+      }
+    });
+    if (!fsPatch || !fsPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the signed contract.' }); return; }
+
+    // Placement. finalizeInAppPlacement expects a LIVE offer row (its
+    // sent→accepted transition). Helen's real offer row is 'draft' → flip it to
+    // 'sent' first; if there's no offer row at all, create a minimal 'sent' one
+    // so finalize has something to accept. Guarded so a placement failure NEVER
+    // undoes the committed signed status.
+    let fsPlacementSecured = false;
+    try {
+      let fsOffer = await atsOffersStore.getAtsOfferByApplication(String(fsAppId));
+      if (fsOffer && String(fsOffer.status) === 'draft') {
+        fsOffer = (await atsOffersStore.updateAtsOfferStatus(String(fsAppId), 'sent')) || fsOffer;
+      } else if (!fsOffer) {
+        fsOffer = await atsOffersStore.saveAtsOffer({
+          application_id: String(fsAppId),
+          user_id: fsUserId,
+          career_role_id: fsApp.career_role_id || null,
+          status: 'sent',
+          sent_by: 'contract_flow'
+        });
+      }
+      await finalizeInAppPlacement(fsApp, fsOffer, fsUserId, fsEmail, {});
+      fsPlacementSecured = true;
+    } catch (fsErr) {
+      console.error('[contract-signed] placement finalize failed for app', fsAppId, ':', fsErr && fsErr.message);
+    }
+
+    if (!fsPlacementSecured) {
+      sendJson(res, 200, { ok: true, placementSecured: false, message: 'Signed — our team is finalising your placement.' });
+      return;
+    }
+
+    // Placement secured — send the two signed-copy notifications, each with a
+    // fresh 1h signed download link. Both best-effort: an email outage must
+    // never turn a secured placement into a failed response.
+    try {
+      const fsSignedUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, fsPath, sanitizeUserString(fsFilename, 240) || 'signed-contract.pdf')) || '';
+      const fsDrName = await contractGpDisplayName(fsUserId);
+      const fsSafeDr = fsDrName.replace(/[<>]/g, '');
+      const fsEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const fsCtaUrl = fsSignedUrl && fsSignedUrl.indexOf('http') === 0 ? fsSignedUrl : (APP_BASE_URL + '/pages/admin.html');
+      // (a) The practice — "Dr X has signed, here's the countersigned copy".
+      try {
+        const fsPracticeEmail = await resolveContractPracticeEmail(fsContract, fsApp);
+        if (fsPracticeEmail && isEmailConfigured()) {
+          await sendEmail({
+            to: fsPracticeEmail,
+            subject: fsSafeDr + ' has signed the employment contract',
+            from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+            html: buildCareerEmailHtml({
+              title: 'The contract has been signed',
+              body: fsEsc(fsSafeDr) + ' has signed the employment contract. You can download the countersigned copy using the button below — the link is valid for one hour.',
+              ctaText: 'Download the signed contract',
+              ctaUrl: fsCtaUrl
+            })
+          });
+        }
+      } catch (e) { console.warn('[contract-signed] practice signed-copy email failed (ignored):', e && e.message); }
+      // (b) The CEO hub — placement secured alert with the signed copy link.
+      try {
+        await sendEmail({
+          to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+          subject: fsSafeDr + ' has signed — placement secured',
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: 'A doctor has signed their contract',
+            body: fsEsc(fsSafeDr) + ' has signed their employment contract and the placement is now secured. Download the signed copy below — the link is valid for one hour.',
+            ctaText: 'Download the signed contract',
+            ctaUrl: fsCtaUrl
+          })
+        });
+      } catch (e) { console.warn('[contract-signed] CEO signed-copy email failed (ignored):', e && e.message); }
+    } catch (e) { /* best-effort — the placement is already secured */ }
+
+    sendJson(res, 200, { ok: true, placementSecured: true });
+    return;
+  }
+
+  // POST /api/career/contract/request-changes — the GP asks for an adjustment
+  // instead of signing. Flips the contract to 'changes_requested' with the
+  // request text and alerts the CEO (email; the changes_requested status also
+  // surfaces the row in the CEO Contracts queue's priority group, which is the
+  // in-app side). Only a 'sent_to_gp' contract can be changed (409 otherwise).
+  if (pathname === '/api/career/contract/request-changes' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const rcEmail = getSessionEmail(session);
+    if (!rcEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const rcUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(rcEmail);
+    if (!rcUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let rcBody;
+    try { rcBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const rcAppId = String((rcBody && rcBody.applicationId) || '').trim();
+    if (!rcAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+    const rcMessage = sanitizeUserString(String((rcBody && rcBody.message) || ''), 4000);
+    if (!rcMessage) { sendJson(res, 400, { ok: false, message: 'Please tell us what you\'d like changed.' }); return; }
+
+    const rcApp = await getOwnedCareerApplicationRow(rcAppId, rcUserId);
+    if (!rcApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    const rcContract = await getLatestLiveCareerContractForApplication(rcAppId);
+    if (!rcContract || String(rcContract.status) !== 'sent_to_gp') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not open for change requests.' });
+      return;
+    }
+
+    const rcNowIso = new Date().toISOString();
+    const rcPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(rcContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'changes_requested', change_request: rcMessage, updated_at: rcNowIso }
+    });
+    if (!rcPatch || !rcPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record your request. Please try again.' }); return; }
+
+    // CEO alert — mirrors Task 10's CEO-email pattern.
+    try {
+      const rcDrName = await contractGpDisplayName(rcUserId);
+      const rcSafeDr = rcDrName.replace(/[<>]/g, '');
+      const rcEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      await sendEmail({
+        to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+        subject: rcSafeDr + ' requested changes to their contract',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'A doctor requested contract changes',
+          bodyHtml: '<p>' + rcEsc(rcSafeDr) + ' has asked for a change before signing their employment contract.</p>' +
+            '<p><strong>What they asked for:</strong><br>' + rcEsc(rcMessage).replace(/\n/g, '<br>') + '</p>',
+          ctaText: 'Open the dashboard',
+          ctaUrl: APP_BASE_URL + '/pages/admin.html'
+        })
+      });
+    } catch (e) { console.warn('[contract-changes] CEO alert failed (ignored):', e && e.message); }
+
+    sendJson(res, 200, { ok: true });
     return;
   }
 
