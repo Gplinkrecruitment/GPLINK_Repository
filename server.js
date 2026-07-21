@@ -2386,6 +2386,226 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
   }
 }
 
+// ── Task 11: AI contract review vs Zoom-summary terms ──
+// Compares an uploaded practice employment contract against (1) what was
+// actually discussed in the interview (the Zoom meeting_summary — the
+// SOURCE OF TRUTH when it exists, superseding the advertised listing) and
+// (2) the advertised/offer terms. Writes the verdict onto the
+// career_contracts row (ai_review, ai_review_status, terms_context) so both
+// the practice-facing flow and a CEO re-run endpoint can read it back.
+//
+// Never throws — every failure path (no API key, file missing, API error,
+// bad JSON) still PATCHes ai_review_status:'error' with a usable stub
+// ai_review so the row is never left half-written and callers never have to
+// special-case a thrown error.
+function _contractAiBlankExtractedTerms() {
+  return {
+    billing_split: null,
+    base_or_guarantee: null,
+    sessions_per_week: null,
+    start_date: null,
+    leave: null,
+    restraint: null,
+    other: []
+  };
+}
+
+async function aiReviewCareerContract(contractRow) {
+  var contract = contractRow && typeof contractRow === 'object' ? contractRow : {};
+  var contractId = String(contract.id || '').trim();
+
+  async function persist(reviewObj, status, termsContext) {
+    if (!contractId || !isSupabaseDbConfigured()) return;
+    try {
+      await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(contractId), {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: { ai_review: reviewObj, ai_review_status: status, terms_context: termsContext, updated_at: new Date().toISOString() }
+      });
+    } catch (e) {
+      console.error('[contract-ai] persist failed for contract', contractId, ':', e && e.message);
+    }
+  }
+
+  // ── Gather comparison context up front — used both for the prompt and
+  // (via terms_context) so a CEO reviewing the verdict can see exactly what
+  // was compared without re-deriving it. Each lookup is independently
+  // guarded so one missing source (e.g. Zoom never configured) never blocks
+  // the others.
+  var interviewSummary = null;
+  try {
+    if (contract.application_id) {
+      var ivRes = await supabaseDbRequest('scheduled_calls',
+        'select=meeting_summary&application_id=eq.' + encodeURIComponent(String(contract.application_id)) +
+        '&meeting_kind=eq.interview&status=eq.completed&order=scheduled_at.desc&limit=1');
+      var ivRow = (ivRes.ok && Array.isArray(ivRes.data) && ivRes.data[0]) ? ivRes.data[0] : null;
+      var ivSummary = ivRow && typeof ivRow.meeting_summary === 'string' ? ivRow.meeting_summary.trim() : '';
+      interviewSummary = ivSummary || null;
+    }
+  } catch (e) { console.error('[contract-ai] interview summary lookup failed:', e && e.message); }
+
+  var offerTerms = null;
+  try {
+    if (contract.application_id) {
+      var offerRow = await atsOffersStore.getAtsOfferByApplication(String(contract.application_id));
+      if (offerRow) {
+        offerTerms = {
+          billing_split: offerRow.billing_split || null,
+          compensation_range: offerRow.compensation_range || null,
+          compensation_note: offerRow.compensation_note || null,
+          sessions_per_week: offerRow.sessions_per_week || null,
+          start_date: offerRow.start_date || null
+        };
+      }
+    }
+  } catch (e) { console.error('[contract-ai] offer terms lookup failed:', e && e.message); }
+
+  var listingTerms = null;
+  try {
+    if (contract.career_role_id) {
+      var roleRow = await getCareerRoleRowById(contract.career_role_id);
+      if (roleRow) {
+        var gpLinkMeta = getCareerRoleGpLinkMeta(roleRow);
+        listingTerms = {
+          title: roleRow.title || null,
+          billing_model: roleRow.billing_model || null,
+          publicIntro: gpLinkMeta.publicIntro || null,
+          publicBenefits: Array.isArray(gpLinkMeta.publicBenefits) ? gpLinkMeta.publicBenefits : []
+        };
+      }
+    }
+  } catch (e) { console.error('[contract-ai] listing terms lookup failed:', e && e.message); }
+
+  // If no interview summary exists, comparison is against the advertised/
+  // offer terms only — deterministic, never left to the model to get right.
+  var interviewTermsAvailable = !!interviewSummary;
+  var termsContext = { interview_summary: interviewSummary, offer_terms: offerTerms, listing_terms: listingTerms };
+
+  // No API key configured (local dev / preview without the secret) — never
+  // explode; store a clearly-labelled stub so the UI has something sane to
+  // show and CEOs know a real review hasn't run yet.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    var noKeyReview = {
+      overall: 'unreadable',
+      summary: 'AI review unavailable — no API key configured.',
+      extracted_terms: _contractAiBlankExtractedTerms(),
+      discrepancies: [],
+      interview_terms_available: false
+    };
+    await persist(noKeyReview, 'error', termsContext);
+    return { ai_review_status: 'error', ai_review: noKeyReview };
+  }
+
+  // Download the contract file itself.
+  var fileObj = null;
+  try {
+    if (contract.contract_bucket && contract.contract_path) {
+      fileObj = await supabaseStorageDownloadObject(contract.contract_bucket, contract.contract_path);
+    }
+  } catch (e) { console.error('[contract-ai] contract download failed:', e && e.message); }
+
+  if (!fileObj || !fileObj.buffer || !fileObj.buffer.length) {
+    var noFileReview = {
+      overall: 'unreadable',
+      summary: 'Could not read the uploaded contract file.',
+      extracted_terms: _contractAiBlankExtractedTerms(),
+      discrepancies: [],
+      interview_terms_available: interviewTermsAvailable
+    };
+    await persist(noFileReview, 'error', termsContext);
+    return { ai_review_status: 'error', ai_review: noFileReview };
+  }
+
+  function docBlock(buf, mime) {
+    var data = buf.toString('base64');
+    var normalizedMime = String(mime || contract.contract_mime || 'application/pdf').trim() || 'application/pdf';
+    return { type: 'document', source: { type: 'base64', media_type: normalizedMime, data: data } };
+  }
+
+  var promptText = 'You are checking an employment contract a practice uploaded for a GP placement.\n' +
+    'Compare the contract against (1) the terms discussed in the interview (the Zoom\n' +
+    'meeting summary below) and (2) the advertised job terms. Where interview terms\n' +
+    'and the advertised terms differ, THE INTERVIEW TERMS SUPERSEDE the listing.\n' +
+    'If no interview summary is provided, compare against the advertised/offer terms\n' +
+    'only and set interview_terms_available=false.\n' +
+    'Respond with ONLY JSON matching: {overall, summary, extracted_terms:{...}, discrepancies:[...], interview_terms_available}';
+
+  var contentBlocks = [
+    { type: 'text', text: 'EMPLOYMENT CONTRACT (uploaded by the practice):' },
+    docBlock(fileObj.buffer, contract.contract_mime || fileObj.mimeType),
+    { type: 'text', text: 'INTERVIEW SUMMARY (Zoom meeting — supersedes the advertised terms where they differ):\n' + (interviewSummary || '(No interview summary is available for this application.)') },
+    { type: 'text', text: 'OFFER RECORD (the offer GP Link sent to the candidate):\n' + JSON.stringify(offerTerms || {}) },
+    { type: 'text', text: 'ADVERTISED JOB LISTING TERMS:\n' + JSON.stringify(listingTerms || {}) },
+    { type: 'text', text: promptText }
+  ];
+
+  var reviewResult;
+  var status;
+  try {
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 90000);
+    var resp;
+    try {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: ANTHROPIC_SCAN_MODEL,
+          max_tokens: 1500,
+          temperature: 0,
+          messages: [{ role: 'user', content: contentBlocks }]
+        })
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!resp || !resp.ok) {
+      throw new Error('Anthropic API error ' + (resp && resp.status));
+    }
+    var respJson = await resp.json();
+    var text = (respJson.content && respJson.content[0] && respJson.content[0].text) || '';
+    var cleaned = text.trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+    var parsed = JSON.parse(cleaned);
+    if (!parsed || typeof parsed !== 'object') throw new Error('AI response was not a JSON object');
+
+    var overallRaw = parsed.overall;
+    var overall = ['aligned', 'minor_gaps', 'major_discrepancies', 'unreadable'].indexOf(overallRaw) !== -1 ? overallRaw : 'unreadable';
+    reviewResult = {
+      overall: overall,
+      summary: String(parsed.summary || ''),
+      extracted_terms: Object.assign(_contractAiBlankExtractedTerms(), (parsed.extracted_terms && typeof parsed.extracted_terms === 'object') ? parsed.extracted_terms : {}),
+      discrepancies: Array.isArray(parsed.discrepancies) ? parsed.discrepancies : [],
+      // Deterministic, not left to the model: true only when a real
+      // interview summary actually existed to compare against.
+      interview_terms_available: interviewTermsAvailable
+    };
+    status = 'done';
+  } catch (e) {
+    console.error('[contract-ai] review error for contract', contractId, ':', e && e.message);
+    reviewResult = {
+      overall: 'unreadable',
+      summary: 'AI review failed: ' + (e && e.message ? e.message : 'unknown error'),
+      extracted_terms: _contractAiBlankExtractedTerms(),
+      discrepancies: [],
+      interview_terms_available: interviewTermsAvailable
+    };
+    status = 'error';
+  }
+
+  await persist(reviewResult, status, termsContext);
+  return { ai_review_status: status, ai_review: reviewResult };
+}
+
 // ── Gmail integration (Phase 1b) ──
 const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
 // C2 (audit 2026-07-07): shared secret for the Gmail Pub/Sub push webhook.
@@ -37985,14 +38205,34 @@ async function handleApi(req, res, pathname) {
         contract_filename: sanitizeUserString(fzFilename, 240) || 'contract.pdf',
         contract_mime: fzMime,
         updated_at: fzNowIso
-        // ── Task 11 seam ────────────────────────────────────────────────────
-        // The AI contract review runs from HERE. ai_review_status stays
-        // 'not_run' (the migration default); Task 11 will flip it to 'running',
-        // invoke the model, then write ai_review + ai_review_status='done'.
-        // Deliberately NOT wired in Task 10 — no AI call happens on upload yet.
       }
     });
     if (!fzPatch || !fzPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the upload. Please try again.' }); return; }
+
+    // Task 11: AI contract review — compares the uploaded contract against
+    // the interview summary (supersedes) + advertised/offer terms. Runs
+    // best-effort and is fully guarded: a review failure must NOT fail the
+    // finalize response — the contract stays 'uploaded' either way, only
+    // ai_review_status lands on 'error' instead of 'done'.
+    try {
+      await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(fzContract.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { ai_review_status: 'running', updated_at: new Date().toISOString() }
+      });
+      await aiReviewCareerContract(Object.assign({}, fzContract, {
+        contract_bucket: SUPABASE_DOCUMENT_BUCKET,
+        contract_path: fzPath,
+        contract_mime: fzMime
+      }));
+    } catch (e) {
+      console.error('[contract-ai] review failed for contract', fzContract.id, ':', e && e.message);
+      try {
+        await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(fzContract.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { ai_review_status: 'error', updated_at: new Date().toISOString() }
+        });
+      } catch (e2) { /* best effort — never fail finalize over this */ }
+    }
 
     // CEO alert — "Contract uploaded for Dr X — review it in the GP Link dashboard".
     try {
@@ -38012,6 +38252,52 @@ async function handleApi(req, res, pathname) {
     } catch (e) { /* best-effort */ }
 
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // POST /api/ceo/contract/ai-check — CEO re-run of the Task 11 AI contract
+  // review (e.g. after a practice re-uploads a corrected file, or the first
+  // run landed on 'error' because Zoom/Anthropic was briefly unavailable).
+  // Only meaningful once a file actually exists on the row, so it's refused
+  // outside uploaded/changes_requested/sent_to_gp (never on awaiting_upload,
+  // practice_review, signed or void).
+  if (pathname === '/api/ceo/contract/ai-check' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const acCtx = requireCeoSession(req, res);
+    if (!acCtx) return;
+
+    let acBody;
+    try { acBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const acContractId = String((acBody && acBody.contractId) || '').trim();
+    if (!acContractId) { sendJson(res, 400, { ok: false, message: 'contractId is required.' }); return; }
+
+    const acContract = await getCareerContractById(acContractId);
+    if (!acContract) { sendJson(res, 404, { ok: false, message: 'Contract not found.' }); return; }
+
+    const AI_CHECK_ALLOWED_STATUSES = new Set(['uploaded', 'changes_requested', 'sent_to_gp']);
+    if (!AI_CHECK_ALLOWED_STATUSES.has(String(acContract.status))) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready for an AI review.' });
+      return;
+    }
+
+    await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(acContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { ai_review_status: 'running', updated_at: new Date().toISOString() }
+    });
+
+    let acResult;
+    try {
+      acResult = await aiReviewCareerContract(acContract);
+    } catch (e) {
+      console.error('[contract-ai] ai-check endpoint failed for contract', acContract.id, ':', e && e.message);
+      await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(acContract.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { ai_review_status: 'error', updated_at: new Date().toISOString() }
+      }).catch(() => {});
+      acResult = { ai_review_status: 'error', ai_review: null };
+    }
+
+    sendJson(res, 200, { ok: true, ai_review_status: acResult.ai_review_status, ai_review: acResult.ai_review });
     return;
   }
 
@@ -64949,6 +65235,7 @@ module.exports.__testUtils = {
   sendPostInterviewDecisionEmail,
   POST_INTERVIEW_TOKEN_PURPOSE,
   CONTRACT_UPLOAD_TOKEN_PURPOSE,
+  aiReviewCareerContract,
   recordServerError,
   recordCronRun,
   classifyClientErrorNoise,

@@ -664,6 +664,10 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
     process.env.ENFORCE_SAME_ORIGIN = 'false';
     process.env.DB_FILE_PATH = DB_FILE;
     process.env.OPENAI_API_KEY = '';
+    // No Anthropic key in this block — Task 11's review is expected to land
+    // on the deterministic "no key configured" stub (ai_review_status
+    // 'error') for the finalize test below, never on a real model call.
+    process.env.ANTHROPIC_API_KEY = '';
     process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
     process.env.RESEND_API_KEY = 'test-resend-key';
     process.env.REGISTRATION_HUB_EMAIL = HUB_EMAIL;
@@ -916,8 +920,13 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
     expect(c.contract_path).toBe(sign.body.path);
     expect(c.contract_filename).toBe('Employment-Contract.pdf');
     expect(c.contract_mime).toBe('application/pdf');
-    // AI review is Task 11's job — this endpoint must NOT have run it.
-    expect(c.ai_review_status == null || c.ai_review_status === 'not_run').toBe(true);
+    // Task 11: finalize now triggers the AI review synchronously. This block
+    // has no ANTHROPIC_API_KEY, so it lands on the deterministic "no key
+    // configured" stub — status 'error', never left at 'not_run' — and the
+    // finalize response itself still succeeds (the review is best-effort).
+    expect(c.ai_review_status).toBe('error');
+    expect(c.ai_review).toBeTruthy();
+    expect(c.ai_review.summary).toMatch(/no api key configured/i);
 
     const sent = resendCalls.slice(before);
     const ceo = sent.find((x) => Array.isArray(x.body.to) && x.body.to.includes(HUB_EMAIL) && /contract uploaded/i.test(x.body.subject || ''));
@@ -944,5 +953,420 @@ describe('practice offer decision + contract upload (Task 10, live-boot)', () =>
     const r = await apiGet('/api/practice/offer/context?token=' + encodeURIComponent(uploadToken));
     expect(r.status).toBe(200);
     expect(r.body.state).toBe('done');
+  });
+});
+
+// Task 11 (2026-07-22): AI contract review vs Zoom-summary terms. Once a
+// practice uploads a contract (Task 10's finalize), the server compares it
+// against (1) the Zoom interview summary — the SOURCE OF TRUTH, superseding
+// the advertised listing when they differ — and (2) the advertised/offer
+// terms, writing the verdict onto the career_contracts row (ai_review,
+// ai_review_status, terms_context) so both the CEO dashboard and a re-run
+// endpoint can read it back. Also covers the CEO re-run endpoint
+// POST /api/ceo/contract/ai-check.
+describe('aiReviewCareerContract — wiring (Task 11)', () => {
+  const SERVER_SRC = fs.readFileSync(SERVER_PATH, 'utf8');
+
+  it('defines aiReviewCareerContract(contractRow)', () => {
+    expect(SERVER_SRC).toMatch(/async function aiReviewCareerContract\(contractRow\)/);
+  });
+
+  it('the prompt states interview terms SUPERSEDE the advertised listing', () => {
+    expect(SERVER_SRC).toMatch(/THE INTERVIEW TERMS SUPERSEDE/);
+  });
+
+  it('is wired into the finalize seam (ai_review_status flips to running before the review runs)', () => {
+    const idx = SERVER_SRC.indexOf("ai_review_status: 'running'");
+    expect(idx).toBeGreaterThan(-1);
+    const afterSeam = SERVER_SRC.slice(idx, idx + 800);
+    expect(afterSeam).toMatch(/aiReviewCareerContract\(/);
+  });
+
+  it('defines the CEO re-run endpoint', () => {
+    expect(SERVER_SRC).toContain("pathname === '/api/ceo/contract/ai-check'");
+  });
+});
+
+describe('AI contract review vs Zoom-summary terms (Task 11, live-boot)', () => {
+  const RUN_ID = crypto.randomBytes(4).toString('hex');
+  const DB_FILE = path.join('/tmp', `gplink-t11-${RUN_ID}.json`);
+  const GP = { userId: 'u-gp-t11-1', email: 'gp-t11@gplink-test.local' };
+  const HUB_EMAIL = 'hello@mygplink-test.local';
+  const SUPER_HOST = 'ceo-t11.local';
+  const SUPER_EMAIL = 'super-t11@gplink-test.local';
+  const NOW = new Date().toISOString();
+
+  // APP_WITH_INTERVIEW has a completed interview call WITH a Zoom summary +
+  // an in-app offer — exercises the full comparison (interview supersedes).
+  // APP_NO_INTERVIEW has an offer but no interview summary — exercises the
+  // "compare vs advertised/offer only, interview_terms_available=false"
+  // branch, and proves that flag is NOT trusted from the model (the mock
+  // deliberately claims true for this one).
+  const APP_WITH_INTERVIEW = 'app-t11-iv';
+  const APP_NO_INTERVIEW = 'app-t11-noiv';
+
+  let server, port, sbServer, sbPort, realFetch, mod;
+  const resendCalls = [];
+  const anthropicCalls = [];
+  let anthropicNextVerdict = null;
+  const storage = new Map();
+
+  const DEFAULT_VERDICT = {
+    overall: 'aligned',
+    summary: 'The contract matches what was discussed in the interview.',
+    extracted_terms: { billing_split: '70/30', base_or_guarantee: null, sessions_per_week: '5', start_date: '2026-09-01', leave: null, restraint: null, other: [] },
+    discrepancies: [],
+    interview_terms_available: false // deliberately wrong on some calls — the code must not trust this from the model
+  };
+
+  const db = {
+    user_profiles: [
+      { user_id: GP.userId, email: GP.email, first_name: 'Nadia', last_name: 'Osei', registration_country: 'uk' }
+    ],
+    career_roles: [
+      {
+        id: 'role-t11-1', provider: 'internal_ats', title: 'General Practitioner — VR',
+        practice_name: 'Meadowbank Medical', practice_id: 'p-t11-1', billing_model: 'percentage_split',
+        is_active: true, job_status: 'open', updated_at: NOW,
+        source_payload: { gpLink: { publicIntro: 'A friendly practice in Meadowbank.', publicBenefits: ['70% billings', 'Mentoring'] } }
+      }
+    ],
+    gp_applications: [
+      { id: APP_WITH_INTERVIEW, user_id: GP.userId, career_role_id: 'role-t11-1', practice_id: 'p-t11-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@meadowbank-test.local', practice_contact_name: 'Meadowbank Reception', applied_at: NOW },
+      { id: APP_NO_INTERVIEW, user_id: GP.userId, career_role_id: 'role-t11-1', practice_id: 'p-t11-1', status: 'interview_completed', ats_stage: 'interview', practice_contact_email: 'reception@meadowbank-test.local', practice_contact_name: 'Meadowbank Reception', applied_at: NOW }
+    ],
+    scheduled_calls: [
+      {
+        id: 'call-t11-1', case_id: null, user_id: GP.userId, application_id: APP_WITH_INTERVIEW,
+        meeting_kind: 'interview', status: 'completed', scheduled_at: NOW,
+        meeting_summary: 'The practice offered a 70/30 billing split, 5 sessions per week, and a start date of 2026-09-01. No restraint of trade was discussed.'
+      }
+    ],
+    ats_offers: [
+      { id: 'offer-t11-1', application_id: APP_WITH_INTERVIEW, user_id: GP.userId, career_role_id: 'role-t11-1', billing_split: '70/30', sessions_per_week: '5', compensation_range: '$250,000 - $300,000', start_date: '2026-09-01', status: 'sent' },
+      { id: 'offer-t11-2', application_id: APP_NO_INTERVIEW, user_id: GP.userId, career_role_id: 'role-t11-1', billing_split: '65/35', sessions_per_week: '4', compensation_range: '$220,000 - $260,000', start_date: '2026-10-01', status: 'sent' }
+    ],
+    career_contracts: [
+      // Pre-seeded row in awaiting_upload — never had a file uploaded, so the
+      // AI review is not yet meaningful. Used to prove the ai-check re-run
+      // endpoint refuses it.
+      { id: 'contract-t11-awaiting', application_id: 'app-t11-awaiting-dummy', user_id: GP.userId, career_role_id: 'role-t11-1', version: 1, status: 'awaiting_upload', ai_review_status: 'not_run', created_at: NOW, updated_at: NOW }
+    ],
+    ats_stage_events: [],
+    user_state: [{ user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }]
+  };
+  function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+  function buildMatcher(params) {
+    const filters = [];
+    for (const [k, v] of params.entries()) {
+      if (['select', 'limit', 'order', 'on_conflict'].includes(k)) continue;
+      const mm = /^(eq|neq)\.(.*)$/s.exec(v);
+      if (mm) filters.push({ col: k, op: mm[1], val: mm[2] });
+    }
+    return (row) => filters.every((f) => {
+      const cell = row ? row[f.col] : undefined;
+      const eq = String(cell) === String(f.val);
+      return f.op === 'eq' ? eq : !eq;
+    });
+  }
+
+  function startEmulator() {
+    return new Promise((resolve) => {
+      sbServer = http.createServer(async (req, res) => {
+        const u = new URL(req.url, 'http://sb.local');
+        const sendJson = (status, payload) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(payload)); };
+        const readRaw = () => new Promise((r) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => r(Buffer.concat(c))); });
+
+        // ── Supabase Storage ──
+        if (u.pathname.startsWith('/storage/v1/')) {
+          let mm = u.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/(.+)$/);
+          if (mm && req.method === 'POST') { sendJson(200, { url: '/object/upload/sign/' + mm[1] + '?token=test-token' }); return; }
+          if (mm && req.method === 'PUT') { storage.set(decodeURIComponent(mm[1]), await readRaw()); sendJson(200, { Key: mm[1] }); return; }
+          mm = u.pathname.match(/^\/storage\/v1\/object\/(?!upload|sign|public)(.+)$/);
+          if (mm && req.method === 'GET') {
+            const buf = storage.get(decodeURIComponent(mm[1]));
+            if (!buf) { res.writeHead(404); res.end('not found'); return; }
+            res.writeHead(200, { 'Content-Type': 'application/pdf' }); res.end(buf); return;
+          }
+          sendJson(404, { message: 'storage not found' }); return;
+        }
+
+        // ── PostgREST ──
+        const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+        if (!m) { sendJson(404, { message: 'not found' }); return; }
+        const rows = tableOf(decodeURIComponent(m[1]));
+        const matches = buildMatcher(u.searchParams);
+        if (req.method === 'GET') {
+          let out = rows.filter(matches);
+          const limit = parseInt(u.searchParams.get('limit') || '', 10);
+          if (Number.isFinite(limit)) out = out.slice(0, limit);
+          sendJson(200, out); return;
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+          const saved = incoming.map((r) => {
+            const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+            rows.push(row); return row;
+          });
+          sendJson(201, saved); return;
+        }
+        if (req.method === 'PATCH') {
+          const patch = JSON.parse((await readRaw()).toString('utf8') || 'null');
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, patch || {}));
+          sendJson(200, matched); return;
+        }
+        sendJson(405, { message: 'method not allowed' });
+      });
+      sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+    });
+  }
+
+  function httpJson(method, p, body, extraHeaders) {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : null;
+      const headers = Object.assign({}, extraHeaders || {});
+      if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+      const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => { const raw = Buffer.concat(c).toString('utf8'); let parsed = null; try { parsed = JSON.parse(raw); } catch {} resolve({ status: res.statusCode, body: parsed }); });
+      });
+      r.on('error', reject); r.end(data);
+    });
+  }
+  const apiGet = (p) => httpJson('GET', p);
+  const apiPost = (p, body) => httpJson('POST', p, body);
+
+  function putSignedUpload(uploadUrl, buffer, mime) {
+    return new Promise((resolve, reject) => {
+      const target = new URL(uploadUrl);
+      const r = http.request({ host: target.hostname, port: target.port, path: target.pathname + target.search, method: 'PUT', headers: { 'Content-Type': mime, 'x-upsert': 'true', 'Content-Length': buffer.length } }, (res) => {
+        res.on('data', () => {}); res.on('end', () => resolve({ status: res.statusCode }));
+      });
+      r.on('error', reject); r.end(buffer);
+    });
+  }
+
+  function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+  function adminCookie() {
+    const payload = b64url(JSON.stringify({ userProfile: { email: SUPER_EMAIL, adminRole: 'super_admin' }, expiresAt: Date.now() + 3600000 }));
+    const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+    return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+  }
+  const ceoPost = (p, body, withCookie = true) => httpJson('POST', p, body, Object.assign({ Host: SUPER_HOST }, withCookie ? { Cookie: adminCookie() } : {}));
+
+  const appRow = (id) => db.gp_applications.find((a) => a.id === id);
+  const postInterviewToken = (applicationId) => mod.__testUtils.createSignedPurposeToken(mod.__testUtils.POST_INTERVIEW_TOKEN_PURPOSE, { applicationId }, 3600000);
+
+  // Runs a full extend_offer -> sign-upload -> PUT -> finalize sequence for
+  // the given application, returning the created contractId. This is what
+  // actually exercises the Task 11 finalize seam end to end.
+  async function uploadContractForApplication(applicationId, pdfText) {
+    const ext = await apiPost('/api/practice/offer/decision', { token: postInterviewToken(applicationId), action: 'extend_offer' });
+    if (!ext.body || !ext.body.ok) throw new Error('extend_offer failed: ' + JSON.stringify(ext.body));
+    const uploadToken = ext.body.uploadToken;
+    const sign = await apiPost('/api/practice/contract/sign-upload', { token: uploadToken, filename: 'Employment-Contract.pdf', mimeType: 'application/pdf' });
+    const pdf = Buffer.from('%PDF-1.4 ' + (pdfText || 'employment contract'), 'utf8');
+    const put = await putSignedUpload(sign.body.uploadUrl, pdf, 'application/pdf');
+    if (put.status !== 200) throw new Error('signed PUT failed: ' + put.status);
+    const fin = await apiPost('/api/practice/contract/finalize', { token: uploadToken, path: sign.body.path, filename: 'Employment-Contract.pdf', mimeType: 'application/pdf' });
+    if (!fin.body || !fin.body.ok) throw new Error('finalize failed: ' + JSON.stringify(fin.body));
+    return ext.body.contractId;
+  }
+
+  beforeAll(async () => {
+    await startEmulator();
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_DISABLED = 'false';
+    process.env.AUTH_SECRET = 'contracts-t11-secret-' + RUN_ID;
+    process.env.REQUIRE_SUPABASE_DB = 'false';
+    process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    process.env.SUPABASE_DOCUMENT_BUCKET = 'gp-link-documents';
+    process.env.ENFORCE_SAME_ORIGIN = 'false';
+    process.env.DB_FILE_PATH = DB_FILE;
+    process.env.OPENAI_API_KEY = '';
+    // Set for this block — the mocked Anthropic branch below intercepts every
+    // https://api.anthropic.com/v1/messages call, so no real network traffic
+    // ever happens regardless of this key's value.
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key-t11';
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    process.env.REGISTRATION_HUB_EMAIL = HUB_EMAIL;
+    process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+    process.env.SUPER_ADMIN_ALLOWED_HOSTS = SUPER_HOST;
+    process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
+    process.env.ADMIN_EMAILS = '';
+
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (url, opts) => {
+      const u = String(url && url.url ? url.url : url);
+      if (u.startsWith('https://api.resend.com/')) {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        resendCalls.push({ url: u, body: parsed });
+        return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+      }
+      if (u === 'https://api.anthropic.com/v1/messages') {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        anthropicCalls.push(parsed);
+        const verdict = anthropicNextVerdict || DEFAULT_VERDICT;
+        return Promise.resolve(new Response(JSON.stringify({
+          content: [{ type: 'text', text: JSON.stringify(verdict) }]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+
+    // Fresh module evaluation so SUPABASE_URL/AUTH_SECRET/SUPER_ADMIN_* etc.
+    // read THIS block's env, not a prior describe block's now-closed emulator.
+    vi.resetModules();
+    mod = await import('../server.js');
+    server = mod.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+  });
+
+  afterAll(async () => {
+    if (realFetch) globalThis.fetch = realFetch;
+    if (server) await new Promise((r) => server.close(r));
+    if (sbServer) await new Promise((r) => sbServer.close(r));
+    try { fs.unlinkSync(DB_FILE); } catch {}
+  });
+
+  it('finalize triggers the AI review: interview terms supersede the listing, ai_review_status ends "done", terms_context captures what was compared', async () => {
+    anthropicNextVerdict = {
+      overall: 'aligned',
+      summary: 'The contract matches the 70/30 split and start date discussed in the interview.',
+      extracted_terms: { billing_split: '70/30', base_or_guarantee: null, sessions_per_week: '5', start_date: '2026-09-01', leave: null, restraint: null, other: [] },
+      discrepancies: [],
+      interview_terms_available: false // deliberately wrong — a real interview summary exists, so the code must force this to true
+    };
+    const before = anthropicCalls.length;
+    const contractId = await uploadContractForApplication(APP_WITH_INTERVIEW, 'contract for Nadia, 70/30 split');
+
+    const c = db.career_contracts.find((x) => x.id === contractId);
+    expect(c.status).toBe('uploaded');
+    expect(c.ai_review_status).toBe('done');
+    expect(c.ai_review).toBeTruthy();
+    expect(['aligned', 'minor_gaps', 'major_discrepancies', 'unreadable']).toContain(c.ai_review.overall);
+    expect(c.ai_review.overall).toBe('aligned');
+    expect(typeof c.ai_review.summary).toBe('string');
+    expect(Array.isArray(c.ai_review.discrepancies)).toBe(true);
+    // Deterministic override: a real interview summary existed, so this must
+    // be true even though the mocked model claimed false above.
+    expect(c.ai_review.interview_terms_available).toBe(true);
+
+    // terms_context records exactly what was compared.
+    expect(c.terms_context).toBeTruthy();
+    expect(c.terms_context.interview_summary).toBe(db.scheduled_calls[0].meeting_summary);
+    expect(c.terms_context.offer_terms.billing_split).toBe('70/30');
+    expect(c.terms_context.offer_terms.sessions_per_week).toBe('5');
+    expect(c.terms_context.offer_terms.start_date).toBe('2026-09-01');
+    expect(c.terms_context.listing_terms.title).toBe('General Practitioner — VR');
+    expect(c.terms_context.listing_terms.publicIntro).toBe('A friendly practice in Meadowbank.');
+
+    // Exactly one Anthropic call happened, with the contract PDF as a base64
+    // document block and a prompt that names interview-summary precedence.
+    expect(anthropicCalls.length).toBe(before + 1);
+    const sent = anthropicCalls[anthropicCalls.length - 1];
+    expect(sent.model).toBeTruthy();
+    expect(sent.max_tokens).toBe(1500);
+    expect(sent.temperature).toBe(0);
+    const blocks = sent.messages[0].content;
+    const docBlockSent = blocks.find((b) => b.type === 'document');
+    expect(docBlockSent).toBeTruthy();
+    expect(docBlockSent.source.type).toBe('base64');
+    expect(docBlockSent.source.media_type).toBe('application/pdf');
+    const promptBlock = blocks.find((b) => b.type === 'text' && /SUPERSEDE/.test(b.text));
+    expect(promptBlock).toBeTruthy();
+    expect(promptBlock.text).toMatch(/ONLY JSON/);
+    const summaryBlock = blocks.find((b) => b.type === 'text' && /INTERVIEW SUMMARY/.test(b.text));
+    expect(summaryBlock.text).toContain('70/30 billing split');
+  });
+
+  it('finalize with no interview summary: interview_terms_available is forced false regardless of what the model claims', async () => {
+    anthropicNextVerdict = {
+      overall: 'minor_gaps',
+      summary: 'Compared against the advertised/offer terms only.',
+      extracted_terms: { billing_split: '65/35', base_or_guarantee: null, sessions_per_week: '4', start_date: '2026-10-01', leave: null, restraint: null, other: [] },
+      discrepancies: [{ field: 'sessions_per_week', contract_says: '3', expected: '4', source: 'offer_record', severity: 'warning' }],
+      interview_terms_available: true // deliberately wrong — no interview summary exists for this application
+    };
+    const contractId = await uploadContractForApplication(APP_NO_INTERVIEW, 'contract for Nadia, no interview on file');
+
+    const c = db.career_contracts.find((x) => x.id === contractId);
+    expect(c.ai_review_status).toBe('done');
+    expect(c.ai_review.interview_terms_available).toBe(false);
+    expect(c.terms_context.interview_summary).toBeNull();
+    expect(c.terms_context.offer_terms.billing_split).toBe('65/35');
+    expect(c.ai_review.discrepancies.length).toBeGreaterThan(0);
+    expect(c.ai_review.discrepancies[0].source).toBe('offer_record');
+  });
+
+  it('ai-check endpoint: 401 without a CEO session', async () => {
+    const contractId = db.career_contracts.find((x) => x.application_id === APP_WITH_INTERVIEW).id;
+    const r = await ceoPost('/api/ceo/contract/ai-check', { contractId }, false);
+    expect(r.status).toBe(401);
+  });
+
+  it('ai-check endpoint: 404 for an unknown contract id (valid CEO session)', async () => {
+    const r = await ceoPost('/api/ceo/contract/ai-check', { contractId: 'not-a-real-contract-id' });
+    expect(r.status).toBe(404);
+  });
+
+  it('ai-check endpoint: 409 for a contract not ready for review (awaiting_upload)', async () => {
+    const r = await ceoPost('/api/ceo/contract/ai-check', { contractId: 'contract-t11-awaiting' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('not_available');
+  });
+
+  it('ai-check endpoint: success path re-runs the review and returns { ok, ai_review_status, ai_review }', async () => {
+    const contractId = db.career_contracts.find((x) => x.application_id === APP_WITH_INTERVIEW).id;
+    anthropicNextVerdict = {
+      overall: 'major_discrepancies',
+      summary: 'Re-run found the contract omits the agreed relocation support.',
+      extracted_terms: { billing_split: '70/30', base_or_guarantee: null, sessions_per_week: '5', start_date: '2026-09-01', leave: null, restraint: null, other: [] },
+      discrepancies: [{ field: 'relocation', contract_says: 'not mentioned', expected: 'discussed in interview', source: 'interview_summary', severity: 'critical' }],
+      interview_terms_available: false
+    };
+    const before = anthropicCalls.length;
+    const r = await ceoPost('/api/ceo/contract/ai-check', { contractId });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.ai_review_status).toBe('done');
+    // Proves the review was actually re-invoked (not a cached read) — the
+    // verdict now differs from the original finalize-time review.
+    expect(r.body.ai_review.overall).toBe('major_discrepancies');
+    expect(anthropicCalls.length).toBe(before + 1);
+
+    const c = db.career_contracts.find((x) => x.id === contractId);
+    expect(c.ai_review.overall).toBe('major_discrepancies');
+    expect(c.ai_review_status).toBe('done');
+  });
+
+  it('aiReviewCareerContract directly: with no API key configured, PATCHes ai_review_status to "error" with the stub message', async () => {
+    db.career_contracts.push({
+      id: 'contract-t11-nokey', application_id: APP_WITH_INTERVIEW, user_id: GP.userId, career_role_id: 'role-t11-1',
+      version: 2, status: 'uploaded', contract_bucket: 'gp-link-documents', contract_path: 'contracts/nokey/v2/c.pdf',
+      contract_mime: 'application/pdf', ai_review_status: 'not_run', created_at: NOW, updated_at: NOW
+    });
+    const savedKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = '';
+    try {
+      const result = await mod.__testUtils.aiReviewCareerContract(db.career_contracts.find((x) => x.id === 'contract-t11-nokey'));
+      expect(result.ai_review_status).toBe('error');
+      expect(result.ai_review.summary).toMatch(/no api key configured/i);
+      expect(result.ai_review.interview_terms_available).toBe(false);
+
+      const c = db.career_contracts.find((x) => x.id === 'contract-t11-nokey');
+      expect(c.ai_review_status).toBe('error');
+      expect(c.ai_review.summary).toMatch(/no api key configured/i);
+    } finally {
+      process.env.ANTHROPIC_API_KEY = savedKey;
+    }
   });
 });
