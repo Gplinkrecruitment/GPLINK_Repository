@@ -107,7 +107,10 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('a still-shortlisted-but-expired match self-applied returns the same 410-equivalent expired hint as /match/respond', () => {
     const idx = serverSrc.indexOf("pathname === '/api/career/apply'");
-    const fnSrc = serverSrc.slice(idx, idx + 9000);
+    // Window widened from 9000 (career-withdraw-flow's previously_withdrawn
+    // guard, added ahead of this content in the same handler, pushed it
+    // further from idx) — same anchor, just more room.
+    const fnSrc = serverSrc.slice(idx, idx + 10000);
     expect(fnSrc).toContain('matchIsExpired');
     expect(fnSrc).toMatch(/sendJson\(res, 410, \{\s*ok: false, expired: true,/);
   });

@@ -80,6 +80,47 @@ describe('withdrawal — source & migration wiring', () => {
   });
 });
 
+// ── Re-apply after withdrawal must be blocked (server 409 + popup) ─────────
+// Owner rule: once a GP withdraws an application for a role, they can never
+// re-apply to it. Task 1 hid withdrawn roles from the Roles/Saved tabs; this
+// guards the server for any path that still reaches Apply (deep links,
+// cached pages, or a stale AI-match banner) and gives the GP an explanation
+// instead of a silent/generic failure.
+describe('apply endpoint rejects previously-withdrawn applications', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  it('server.js carries the previously_withdrawn 409 guard', () => {
+    expect(serverSrc).toMatch(/previously_withdrawn/);
+    expect(serverSrc).toContain("You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer.");
+  });
+
+  it('the guard sits at the TOP of the existing-application branch, before the shortlisted self-apply-as-accept path', () => {
+    const existingBranch = serverSrc.slice(serverSrc.indexOf('if (existingAppRow) {'), serverSrc.indexOf('if (existingAppRow) {') + 1200);
+    const withdrawnGuardIdx = existingBranch.indexOf('previously_withdrawn');
+    const shortlistedIdx = existingBranch.indexOf("ats_stage === 'shortlisted'");
+    expect(withdrawnGuardIdx).toBeGreaterThan(-1);
+    expect(shortlistedIdx).toBeGreaterThan(-1);
+    expect(withdrawnGuardIdx).toBeLessThan(shortlistedIdx);
+  });
+
+  it('the match/respond accept path guards the same way before reactivating a shortlisted-but-withdrawn row', () => {
+    const acceptCallIdx = serverSrc.indexOf('const mrAccept = await acceptShortlistedMatchRow(mrRow');
+    expect(acceptCallIdx).toBeGreaterThan(-1);
+    const before = serverSrc.slice(Math.max(0, acceptCallIdx - 900), acceptCallIdx);
+    expect(before).toMatch(/previously_withdrawn/);
+  });
+});
+
+describe('job page explains the block in a popup', () => {
+  const jobSrc = fs.readFileSync(path.join(ROOT, 'pages', 'job.html'), 'utf8');
+
+  it('job.html recognizes the previously_withdrawn code and has a modal to explain it', () => {
+    expect(jobSrc).toMatch(/previously_withdrawn/);
+    expect(jobSrc).toMatch(/showWithdrawnBlockModal/);
+    expect(jobSrc).toMatch(/id="withdrawnBlockOverlay"/);
+  });
+});
+
 // ── Client-side visibility: a withdrawn role must vanish from Roles/Saved ───
 // Owner rule (2026-07-21): once a GP withdraws, the role is gone from the
 // Roles and Saved tabs entirely — it lives ONLY in the Offers tab's
@@ -582,5 +623,60 @@ describe('DEFECT 5 — intent score falls as a GP withdraws more roles', () => {
     const penaltyRow = caseRow.intent_signals.breakdown.find((s) => s.penalty);
     expect(penaltyRow).toBeTruthy();
     expect(penaltyRow.points).toBe(-6);
+  });
+});
+
+// ── Re-apply after withdrawal is blocked — live 409 ─────────────────────────
+// Owner rule: once withdrawn, never again for that exact role. Task 1 hid
+// withdrawn roles from the Roles/Saved tabs; this proves the SERVER also
+// refuses, for any path that still reaches Apply (deep link, cached page, a
+// stale AI-match email/banner).
+describe('re-apply after withdrawal is blocked end-to-end', () => {
+  const ROLE_PUBLIC_ID = 'internal_ats:ats_wd';
+  const EXPECTED_MESSAGE = "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer.";
+
+  it('POST /api/career/apply 409s with the previously_withdrawn code + verbatim message', async () => {
+    // Clear the gates that would otherwise answer first: a signed CV on file
+    // and a DPA-qualifying role, so the existing-application branch is what
+    // actually answers this request.
+    db.user_documents.push({ id: 'doc-cv-gp', user_id: GP.userId, document_key: 'career_cv', status: 'approved', updated_at: NOW });
+    db.career_roles.find((r) => r.id === 'role-wd').dpa = true;
+
+    // app-submitted (GP.userId, role-wd) was withdrawn earlier in this file
+    // (DEFECT 2/3/4 block) and is the FIRST gp_applications row for this
+    // (user, role) pair in insertion order, so the server's limit=1
+    // existing-application lookup lands on it.
+    expect(db.gp_applications.find((a) => a.id === 'app-submitted').status).toBe('withdrawn');
+
+    const r = await gpPost('/api/career/apply', { roleId: ROLE_PUBLIC_ID });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('previously_withdrawn');
+    expect(r.body.message).toBe(EXPECTED_MESSAGE);
+
+    // Nothing was reactivated.
+    expect(db.gp_applications.find((a) => a.id === 'app-submitted').status).toBe('withdrawn');
+  });
+
+  it('POST /api/career/match/respond (accept) refuses to reactivate a withdrawn row AI-matching reopened to shortlisted', async () => {
+    // The one structural path that can hand acceptShortlistedMatchRow a
+    // withdrawn row: staff re-matching (POST /api/ats/matching/create's
+    // reopen branch) moves ats_stage back to 'shortlisted' WITHOUT touching
+    // status, so a withdrawn row can look "live" again by ats_stage alone.
+    // Simulated directly here rather than via the full admin endpoint — the
+    // guard must key off status, not ats_stage, and this isolates exactly
+    // that.
+    const row = db.gp_applications.find((a) => a.id === 'app-submitted');
+    row.ats_stage = 'shortlisted';
+    row.match_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const r = await gpPost('/api/career/match/respond', { applicationId: 'app-submitted', action: 'accept' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('previously_withdrawn');
+    expect(r.body.message).toBe(EXPECTED_MESSAGE);
+
+    // Still withdrawn — not silently flipped back to 'applied'.
+    expect(db.gp_applications.find((a) => a.id === 'app-submitted').status).toBe('withdrawn');
   });
 });

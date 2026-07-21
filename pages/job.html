@@ -1321,6 +1321,19 @@
     </div>
   </div>
 
+  <!-- Re-apply blocked: this GP already withdrew from this exact role, so
+       Apply must never silently succeed — mirrors the other confirm sheets
+       above (at-sheet-overlay/at-sheet) for a native look. -->
+  <div class="at-sheet-overlay" id="withdrawnBlockOverlay" hidden>
+    <div class="at-sheet">
+      <h2>Application withdrawn</h2>
+      <p id="withdrawnBlockMsg"></p>
+      <div class="at-sheet-actions">
+        <button class="at-sheet-primary" id="withdrawnBlockOk" type="button">OK, got it</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 (function () {
   "use strict";
@@ -2489,6 +2502,20 @@
   const applyConfirmBtnEl = document.getElementById("applyConfirmBtn");
   const applyConfirmCancelBtnEl = document.getElementById("applyConfirmCancelBtn");
 
+  /* ── Re-apply-blocked popup (previously withdrawn) ── */
+  const withdrawnBlockOverlayEl = document.getElementById("withdrawnBlockOverlay");
+  const withdrawnBlockMsgEl = document.getElementById("withdrawnBlockMsg");
+  const withdrawnBlockOkEl = document.getElementById("withdrawnBlockOk");
+
+  function showWithdrawnBlockModal(msg) {
+    withdrawnBlockMsgEl.textContent = msg || "You previously withdrew your application for this position.";
+    withdrawnBlockOverlayEl.hidden = false;
+  }
+
+  function closeWithdrawnBlockModal() {
+    withdrawnBlockOverlayEl.hidden = true;
+  }
+
   function openBookConfirm(slot) {
     offerPendingSlot = slot;
     bookTimeLabelEl.textContent = slotDayHeading(slot) + " at " + slotTimeLabel(slot);
@@ -2783,6 +2810,11 @@
         html: "Not available for your pathway<small>This role needs a different eligibility profile</small>",
         disabled: true
       },
+      previously_withdrawn: {
+        cls: "at-bapply at-bapply--muted",
+        html: "You can't reapply for this role<small>Message your Registration Support Officer if this was a mistake</small>",
+        disabled: true
+      },
       onboarding: {
         cls: "at-bapply",
         html: "Finish onboarding to apply<small>It only takes a few minutes</small>",
@@ -2917,6 +2949,16 @@
       paintApply();
       if (!opts.afterCvUpload) openCvModal();
       return "cv_required";
+    }
+    if (data && data.code === "previously_withdrawn") {
+      // Owner rule: a role this GP already withdrew from can never be
+      // re-applied to. Task 1 hides these from Roles/Saved, so reaching here
+      // means a deep link, a cached page, or a stale AI-match banner — the
+      // popup explains why instead of a silent/generic failure.
+      applyState = "previously_withdrawn";
+      paintApply();
+      showWithdrawnBlockModal(data.message);
+      return "previously_withdrawn";
     }
     if (data && data.code === "already_placed") {
       applyState = "already_placed";
@@ -3055,6 +3097,8 @@
   applyConfirmCancelBtnEl.addEventListener("click", closeApplyConfirm);
   applyConfirmOverlayEl.addEventListener("click", (event) => { if (event.target === applyConfirmOverlayEl) closeApplyConfirm(); });
   applyConfirmBtnEl.addEventListener("click", submitApply);
+  withdrawnBlockOkEl.addEventListener("click", closeWithdrawnBlockModal);
+  withdrawnBlockOverlayEl.addEventListener("click", (event) => { if (event.target === withdrawnBlockOverlayEl) closeWithdrawnBlockModal(); });
 
   saveBtnEl.addEventListener("click", () => {
     if (!currentRole) return;
@@ -3281,7 +3325,11 @@
         var applyData = await applyRes.json().catch(function () { return null; });
         var outcome = handleApplyOutcome(applyRes.status, applyData, { afterCvUpload: true });
 
-        if (outcome === "success" || outcome === "duplicate") {
+        if (outcome === "success" || outcome === "duplicate" || outcome === "previously_withdrawn") {
+          // previously_withdrawn: retrying can never succeed — the explanatory
+          // popup handleApplyOutcome already opened is the answer, so close
+          // the CV modal underneath it rather than leaving a stale "failed
+          // after upload" status behind it.
           closeCvModal();
         } else {
           cvUploadStatus.textContent = (applyData && applyData.message) || "Application failed after upload.";

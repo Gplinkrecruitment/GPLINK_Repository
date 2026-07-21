@@ -38590,6 +38590,21 @@ async function handleApi(req, res, pathname) {
     );
     const existingAppRow = (existingApp.ok && Array.isArray(existingApp.data) && existingApp.data[0]) ? existingApp.data[0] : null;
     if (existingAppRow) {
+      // Owner rule: once a GP withdraws from a role, they can never re-apply
+      // to it — checked FIRST, before the shortlisted self-apply-as-accept
+      // branch below, because AI-matching's reopen path (search
+      // 'ats_stage: 'shortlisted', ats_stage_updated_at: msNowIso' further
+      // down) can move a withdrawn row's ats_stage back to 'shortlisted'
+      // without touching status, which would otherwise let this fall through
+      // to acceptShortlistedMatchRow and silently reactivate it.
+      if (normalizeCareerApplicationStatusKey(existingAppRow.status) === 'withdrawn') {
+        sendJson(res, 409, {
+          ok: false,
+          code: 'previously_withdrawn',
+          message: "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer."
+        });
+        return;
+      }
       if (existingAppRow.ats_stage === 'shortlisted') {
         const applyGpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
         const matchIsExpired = !!(existingAppRow.match_expires_at && Date.parse(existingAppRow.match_expires_at) < Date.now());
@@ -39207,6 +39222,21 @@ async function handleApi(req, res, pathname) {
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
         }).catch(() => {});
       }
+      return;
+    }
+
+    // Owner rule: once a GP withdraws from a role, they can never re-apply to
+    // it — same guard as /api/career/apply's existing-application branch.
+    // Necessary here too: the AI-matching reopen path can move a withdrawn
+    // row's ats_stage back to 'shortlisted' without touching status (it only
+    // patches ats_stage/match_* fields), so this accept path could otherwise
+    // reactivate the SAME withdrawn row via acceptShortlistedMatchRow.
+    if (normalizeCareerApplicationStatusKey(mrRow.status) === 'withdrawn') {
+      sendJson(res, 409, {
+        ok: false,
+        code: 'previously_withdrawn',
+        message: "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer."
+      });
       return;
     }
 
