@@ -11612,8 +11612,24 @@
       return careerState.savedJobs.some((job) => job && job.id === roleId);
     }
 
+    const TERMINAL_APPLICATION_STATUS_KEYS = ["withdrawn", "not_proceeding", "offer_declined"];
+
+    function isActiveApplication(job) {
+      if (!job) return false;
+      const key = normalizeStatusKey(job.rawStatus || job.status);
+      return !TERMINAL_APPLICATION_STATUS_KEYS.includes(key);
+    }
+
     function isApplied(roleId) {
-      return careerState.applications.some((job) => job && job.roleId === roleId);
+      return careerState.applications.some((job) => job && job.roleId === roleId && isActiveApplication(job));
+    }
+
+    // A role the GP withdrew from must never resurface in Roles/Saved —
+    // it lives only in the Offers tab, marked WITHDRAWN (owner rule 2026-07-21).
+    function isWithdrawnRole(roleId) {
+      return careerState.applications.some(
+        (job) => job && job.roleId === roleId && normalizeStatusKey(job.rawStatus || job.status) === "withdrawn"
+      );
     }
 
     function toggleSavedJob(roleId) {
@@ -11640,7 +11656,10 @@
       // filterable data by design (buildRedactedRoleStub strips it all), so
       // they can never truthfully match a filter or a Saved Jobs view.
       const blurredRoles = roleData.filter((role) => role && role.blurred);
-      const qualifying = roleData.filter((role) => !(role && role.blurred));
+      // Withdrawn roles are dropped BEFORE qualifyingCount is derived below,
+      // so the empty-state check stays honest instead of counting a role the
+      // GP can no longer see.
+      const qualifying = roleData.filter((role) => !(role && role.blurred) && !isWithdrawnRole(role.id));
       const filteredQualifying = qualifying.filter((role) => {
         const matchesSaved = !careerState.showSavedOnly || isSaved(role.id);
         if (!matchesSaved) return false;
@@ -12679,9 +12698,12 @@
       const savedEmpty = document.getElementById("savedEmptyState");
       if (!savedGrid) return;
 
+      // Withdrawn roles stay in careerState.savedJobs (storage is untouched)
+      // but must not render — only the display list is filtered.
       const savedRoles = careerState.savedJobs
         .map(saved => findRole(saved.id) || saved)
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter((role) => !isWithdrawnRole(role.id));
 
       if (savedEmpty) {
         savedEmpty.innerHTML = buildAtlasEmptyHtml("saved");

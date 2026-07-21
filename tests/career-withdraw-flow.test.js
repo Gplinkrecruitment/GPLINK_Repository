@@ -80,6 +80,21 @@ describe('withdrawal — source & migration wiring', () => {
   });
 });
 
+// ── Client-side visibility: a withdrawn role must vanish from Roles/Saved ───
+// Owner rule (2026-07-21): once a GP withdraws, the role is gone from the
+// Roles and Saved tabs entirely — it lives ONLY in the Offers tab's
+// applications list, already ribboned WITHDRAWN.
+describe('withdrawn roles are hidden from Roles/Saved', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
+  it('isApplied ignores terminal applications', () => {
+    expect(src).toMatch(/TERMINAL_APPLICATION_STATUS_KEYS\s*=\s*\[\s*"withdrawn"/);
+    expect(src).toMatch(/function isActiveApplication\(/);
+  });
+  it('getFilteredRoles drops withdrawn roles', () => {
+    expect(src).toMatch(/isWithdrawnRole\(/);
+  });
+});
+
 // ── Live boot ──────────────────────────────────────────────────────────────
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-career-withdraw-${RUN_ID}.json`);
