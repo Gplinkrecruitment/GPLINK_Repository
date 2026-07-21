@@ -1939,6 +1939,118 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
     // Recomputed from the contract + sanitized filename, not the client `path`.
     expect(block).toMatch(/sanitizeStoragePathSegment\(fsFilename, 120\)/);
   });
+
+  // ── Review fix 3: the signed-PATCH is a compare-and-swap, not a blind write.
+  //    Two near-simultaneous finalize calls can both pass the sent_to_gp check
+  //    above before either has patched; without the `status=eq.sent_to_gp`
+  //    filter both PATCHes would succeed and placement + emails would fire
+  //    twice. Live-boot coverage of the actual 409 is below (APP_CAS); this
+  //    pins the CAS shape itself at the source. ──
+  it('finalize-signed PATCHes the contract as a compare-and-swap (status=eq.sent_to_gp, return=representation) and 409s on an empty result before touching placement', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/contract/finalize-signed'");
+    const endIdx = SERVER_SRC.indexOf('// POST /api/career/contract/request-changes', idx);
+    const block = SERVER_SRC.slice(idx, endIdx > idx ? endIdx : idx + 9000);
+    expect(block).toMatch(/'id=eq\.' \+ encodeURIComponent\(fsContract\.id\) \+ '&status=eq\.sent_to_gp'/);
+    expect(block).toMatch(/Prefer: 'return=representation'/);
+    const casIdx = block.search(/&status=eq\.sent_to_gp'/);
+    const emptyCheckIdx = block.indexOf('!Array.isArray(fsPatch.data) || !fsPatch.data.length', casIdx);
+    const notAvailableIdx = block.indexOf("code: 'not_available'", emptyCheckIdx);
+    const finalizeCallIdx = block.indexOf('finalizeInAppPlacement(fsApp');
+    expect(casIdx).toBeGreaterThan(-1);
+    expect(emptyCheckIdx).toBeGreaterThan(casIdx);
+    expect(notAvailableIdx).toBeGreaterThan(emptyCheckIdx);
+    // The lost-race 409 returns BEFORE placement/emails ever run.
+    expect(notAvailableIdx).toBeLessThan(finalizeCallIdx);
+  });
+
+  // ── Review fix 2(a): a silent placement failure previously had no
+  //    visibility anywhere. Same untestable-live-branch situation as the
+  //    placementSecured:false test above (finalizeInAppPlacement can't be made
+  //    to throw against a responsive emulator), so this is pinned at the
+  //    source too. ──
+  it('finalize-signed failure branch best-effort alerts the CEO to finish the placement manually', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/contract/finalize-signed'");
+    const endIdx = SERVER_SRC.indexOf('// POST /api/career/contract/request-changes', idx);
+    const block = SERVER_SRC.slice(idx, endIdx > idx ? endIdx : idx + 9000);
+    const failIdx = block.indexOf('if (!fsPlacementSecured)');
+    expect(failIdx).toBeGreaterThan(-1);
+    const failBlock = block.slice(failIdx);
+    expect(failBlock).toMatch(/needs manual placement/);
+    expect(failBlock).toMatch(/Mark placement secured/);
+    expect(failBlock).toMatch(/REGISTRATION_HUB_EMAIL/);
+    expect(failBlock).toMatch(/catch \(alertErr\)/);
+    // Best-effort: the alert failing must never turn the 200 response into an
+    // error — the try/catch sits entirely before the existing sendJson call.
+    const alertTryIdx = failBlock.indexOf('try {');
+    const alertCatchIdx = failBlock.indexOf('catch (alertErr)');
+    const sendJsonIdx = failBlock.indexOf('sendJson(res, 200, { ok: true, placementSecured: false');
+    expect(alertTryIdx).toBeGreaterThan(-1);
+    expect(alertTryIdx).toBeLessThan(alertCatchIdx);
+    expect(alertCatchIdx).toBeLessThan(sendJsonIdx);
+  });
+
+  // ── Review fix 2(b): GET /api/career/contract must tell the client whether
+  //    a 'signed' contract actually secured the placement. ──
+  it('GET /api/career/contract derives placementSecured from the application status', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/contract' && req.method === 'GET'");
+    const endIdx = SERVER_SRC.indexOf('// POST /api/career/contract/sign-upload', idx);
+    const block = SERVER_SRC.slice(idx, endIdx > idx ? endIdx : idx + 6000);
+    expect(block).toMatch(/placementSecured: isCareerPlacementSecuredStatus\(normalizeCareerApplicationStatusKey\(ccApp\.status\)\)/);
+  });
+
+  // ── Review fix 1: GET /api/career/applications and the singular GET
+  //    /api/career/application must both stamp contractStage from ONE batched
+  //    (list) / single (detail) career_contracts lookup, so the in-app CTA
+  //    reaches career.html and application-detail.html even when there is no
+  //    live ats_offers row (submit_to_gp never creates one). Live-boot
+  //    coverage of the actual field is below. ──
+  it('GET /api/career/applications batches ONE career_contracts lookup (not per-application) before the enrichment loop and stamps contractStage', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/applications' && req.method === 'GET'");
+    expect(idx).toBeGreaterThan(-1);
+    const endIdx = SERVER_SRC.indexOf('// ── Task 13: GP contract experience', idx);
+    const block = SERVER_SRC.slice(idx, endIdx > idx ? endIdx : idx + 40000);
+    expect(block).toMatch(/select=application_id,status,version&application_id=in\.\(/);
+    expect(block).toMatch(/status=in\.\(sent_to_gp,changes_requested,practice_review\)/);
+    expect(block).toMatch(/contractStage: \(localApp && localApp\.id/);
+    const mapBuiltIdx = block.indexOf('const contractStageMap = {};');
+    const loopIdx = block.indexOf('for (const entry of mergedApplications)');
+    expect(mapBuiltIdx).toBeGreaterThan(-1);
+    expect(loopIdx).toBeGreaterThan(mapBuiltIdx);
+  });
+
+  it('GET /api/career/application (singular) includes contractStage for application-detail.html', () => {
+    const idx = SERVER_SRC.indexOf("pathname === '/api/career/application' && req.method === 'GET'");
+    expect(idx).toBeGreaterThan(-1);
+    const endIdx = SERVER_SRC.indexOf("pathname === '/api/career/interview' && req.method === 'GET'", idx);
+    const block = SERVER_SRC.slice(idx, endIdx > idx ? endIdx : idx + 20000);
+    expect(block).toMatch(/detailContractStage/);
+    expect(block).toMatch(/contractStage: detailContractStage/);
+  });
+
+  it('career.html renders a CONTRACT ribbon + "Review contract" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+    expect(html).toMatch(/application\.contractStage === "sent_to_gp"/);
+    expect(html).toContain('<span class="at-rstatus at-rstatus--offer">CONTRACT</span>');
+    expect(html).toContain('Review contract');
+    // The field must survive BOTH client-side hops or it never reaches the
+    // ribbon: the list normalizer (mergeRemoteApplications -> app.contractStage)
+    // and the object normalizeCareerApplication actually returns.
+    expect(html).toContain('contractStage: app.contractStage || null');
+    expect(html).toContain('contractStage: source.contractStage || null');
+  });
+
+  it('application-detail.html shows the offer card with a "Review contract" label when contractStage is sent_to_gp', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
+    expect(html).toMatch(/isContractSent = app\.contractStage === 'sent_to_gp'/);
+    expect(html).toMatch(/showOfferCard = app\.offerPending === true \|\| isContractSent/);
+    expect(html).toContain("isContractSent ? 'Review contract' : 'Review Offer'");
+  });
+
+  it('offer-review.html only shows "Placement secured" + confetti when contract.placementSecured is true', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'pages/offer-review.html'), 'utf8');
+    expect(html).toMatch(/contract\.placementSecured === true/);
+    expect(html).toContain("showContractSecured('Contract signed', 'Signed — our team is finalising your placement.')");
+  });
 });
 
 describe('GP contract experience — live-boot (Task 13)', () => {
@@ -1958,6 +2070,13 @@ describe('GP contract experience — live-boot (Task 13)', () => {
   const APP_DRAFT = 'app-t13-draft';
   const APP_CHANGES = 'app-t13-changes';
   const APP_GP2 = 'app-t13-gp2';
+  // Contract already 'signed' but the application never made it to
+  // placement_secured — stands in for "someone else's finalize just won the
+  // race" (FIX 3's CAS) AND "the placement step failed after the signature
+  // committed" (FIX 2's GET placementSecured:false), without needing to force
+  // finalizeInAppPlacement to throw inside the emulator (it can't — see the
+  // source-assertion test above for why).
+  const APP_CAS = 'app-t13-cas';
 
   let server, port, sbServer, sbPort, realFetch, mod;
   const resendCalls = [];
@@ -1994,7 +2113,10 @@ describe('GP contract experience — live-boot (Task 13)', () => {
       { id: APP_SUCCESS, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
       { id: APP_DRAFT, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
       { id: APP_CHANGES, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
-      { id: APP_GP2, user_id: GP2.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW }
+      { id: APP_GP2, user_id: GP2.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW },
+      // Contract already signed, but the application status never advanced to
+      // placement_secured (status stays 'offer') — see APP_CAS comment above.
+      { id: APP_CAS, user_id: GP.userId, career_role_id: 'role-t13-1', practice_id: 'p-t13-1', provider_role_id: 'ats_t13_1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception', applied_at: NOW }
     ],
     career_contracts: [
       contractRow('c-t13-view', APP_VIEW, 'sent_to_gp', 1),
@@ -2006,7 +2128,12 @@ describe('GP contract experience — live-boot (Task 13)', () => {
       contractRow('c-t13-success', APP_SUCCESS, 'sent_to_gp', 1, { practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'Harbour Reception' }),
       contractRow('c-t13-draft', APP_DRAFT, 'sent_to_gp', 1),
       contractRow('c-t13-changes', APP_CHANGES, 'sent_to_gp', 1),
-      contractRow('c-t13-gp2', APP_GP2, 'sent_to_gp', 1, { user_id: GP2.userId })
+      contractRow('c-t13-gp2', APP_GP2, 'sent_to_gp', 1, { user_id: GP2.userId }),
+      contractRow('c-t13-cas', APP_CAS, 'signed', 1, {
+        signed_at: NOW, signed_bucket: 'gp-link-documents',
+        signed_path: 'contracts/' + APP_CAS + '/v1/signed/Already-Signed.pdf',
+        signed_filename: 'Already-Signed.pdf'
+      })
     ],
     ats_offers: [
       { id: 'offer-t13-draft', application_id: APP_DRAFT, user_id: GP.userId, career_role_id: 'role-t13-1', status: 'draft' }
@@ -2023,11 +2150,20 @@ describe('GP contract experience — live-boot (Task 13)', () => {
     const filters = [];
     for (const [k, v] of params.entries()) {
       if (['select', 'limit', 'order', 'on_conflict'].includes(k)) continue;
-      const mm = /^(eq|neq)\.(.*)$/s.exec(v);
+      // 'in' added for the review-fix batched contractStage lookup (FIX 1),
+      // which — unlike every other query in this file's emulators —
+      // filters on status via in.(...), not just eq./neq.. PostgREST's in.()
+      // value is a parenthesised, comma-separated, optionally quoted list.
+      const mm = /^(eq|neq|in)\.(.*)$/s.exec(v);
       if (mm) filters.push({ col: k, op: mm[1], val: mm[2] });
     }
     return (row) => filters.every((f) => {
       const cell = row ? row[f.col] : undefined;
+      if (f.op === 'in') {
+        const inner = f.val.replace(/^\(/, '').replace(/\)$/, '');
+        const options = inner ? inner.split(',').map((s) => s.replace(/^"|"$/g, '')) : [];
+        return options.indexOf(String(cell)) !== -1;
+      }
       const eq = String(cell) === String(f.val);
       return f.op === 'eq' ? eq : !eq;
     });
@@ -2292,6 +2428,30 @@ describe('GP contract experience — live-boot (Task 13)', () => {
     expect(replay.body.code).toBe('not_available');
   });
 
+  // ── Review fix 3 (CAS): APP_CAS's contract is seeded ALREADY 'signed' —
+  //    standing in for a concurrent finalize call that won the race a moment
+  //    before this one runs. Whether it's caught by the pre-check or the
+  //    PATCH-level compare-and-swap, the contract is identical: 409, and
+  //    placement/emails never run a second time. ──
+  it('finalize-signed refuses a contract that is already signed (lost-race stand-in): 409, no new placement, no new emails', async () => {
+    const placementsBefore = db.placements.length;
+    const offersBefore = db.ats_offers.length;
+    const resendBefore = resendCalls.length;
+
+    const fin = await gpPost('/api/career/contract/finalize-signed', { applicationId: APP_CAS, path: 'ignored', filename: 'signed.pdf', mimeType: 'application/pdf' }, GP);
+    expect(fin.status).toBe(409);
+    expect(fin.body.code).toBe('not_available');
+
+    // No side effects: no new placements/offers rows, no new emails, and the
+    // application status never advanced to placement_secured.
+    expect(db.placements.length).toBe(placementsBefore);
+    expect(db.ats_offers.length).toBe(offersBefore);
+    expect(resendCalls.length).toBe(resendBefore);
+    expect(appRow(APP_CAS).status).not.toBe('placement_secured');
+    // The contract itself is untouched (still the same signed_path it started with).
+    expect(contract('c-t13-cas').signed_path).toBe('contracts/' + APP_CAS + '/v1/signed/Already-Signed.pdf');
+  });
+
   it('finalize-signed draft-offer flip: a draft ats_offers row is flipped to sent, then finalize accepts it', async () => {
     const sign = await gpPost('/api/career/contract/sign-upload', { applicationId: APP_DRAFT, filename: 'draft-signed.pdf', mimeType: 'application/pdf' }, GP);
     const put = await putSignedUpload(sign.body.uploadUrl, Buffer.from('%PDF-1.4 signed', 'utf8'), 'application/pdf');
@@ -2345,10 +2505,42 @@ describe('GP contract experience — live-boot (Task 13)', () => {
     expect(r.body.contract.changeRequest).toBe('Please move the start date to 1 November.');
   });
 
-  it('GET shows the signed contract as status "signed" (secured state) after a successful sign', async () => {
+  it('GET shows the signed contract as status "signed" (secured state) after a successful sign, with placementSecured:true', async () => {
     const r = await gpGet('/api/career/contract?applicationId=' + APP_SUCCESS, GP);
     expect(r.status).toBe(200);
     expect(r.body.contract.status).toBe('signed');
     expect(r.body.contract.signedAt).toBeTruthy();
+    // Review fix 2(b): the application really did reach placement_secured
+    // (asserted earlier in the finalize-signed success test).
+    expect(r.body.contract.placementSecured).toBe(true);
+  });
+
+  // ── Review fix 2(b): APP_CAS's contract is 'signed' but its application
+  //    never advanced past 'offer' — exactly what finalize-signed's failure
+  //    branch leaves behind. GET must say placementSecured:false so
+  //    offer-review.html shows the honest "still finalising" copy instead of
+  //    a false "Placement secured 🎉".
+  it('GET reports placementSecured:false for a signed contract whose application never reached placement_secured', async () => {
+    const r = await gpGet('/api/career/contract?applicationId=' + APP_CAS, GP);
+    expect(r.status).toBe(200);
+    expect(r.body.contract.status).toBe('signed');
+    expect(r.body.contract.placementSecured).toBe(false);
+  });
+
+  // ── Review fix 1: the applications list must stamp contractStage from the
+  //    batched career_contracts lookup — the in-app path to the contract for
+  //    the Offers tab. ──
+  it('GET /api/career/applications returns contractStage:"sent_to_gp" for a live contract, and null when only an "uploaded" (pre-submit) contract exists', async () => {
+    const r = await gpGet('/api/career/applications', GP);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    const apps = r.body.applications;
+    const viewEntry = apps.find((a) => a.id === APP_VIEW);
+    expect(viewEntry).toBeTruthy();
+    expect(viewEntry.contractStage).toBe('sent_to_gp');
+
+    const uploadedEntry = apps.find((a) => a.id === APP_UPLOADED);
+    expect(uploadedEntry).toBeTruthy();
+    expect(uploadedEntry.contractStage).toBeNull();
   });
 });

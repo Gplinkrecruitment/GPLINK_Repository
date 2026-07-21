@@ -799,7 +799,7 @@
         </div>
         <a href="#" class="offer-review-link offer-review-btn" id="offerReviewLink">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><polyline points="20 6 9 17 4 12"/></svg>
-          Review Offer
+          <span id="offerReviewLinkText">Review Offer</span>
         </a>
       </div>
 
@@ -1197,6 +1197,7 @@
             entry.statusTone = "review";
             entry.tone = "review";
             entry.offerPending = false;
+            entry.contractStage = null;
             entry.isPlacementSecured = false;
             changed = true;
           }
@@ -1382,11 +1383,17 @@
         }
 
         // Offer card — ONLY when the server says a live in-app offer is
-        // waiting (offerPending). An offer-ish raw status alone (Zoho-managed
-        // offer) must NOT link to offer-review.html: /api/career/my-offer has
-        // no record for it and the doctor would land on an empty page — the
-        // server sends "consultant will be in touch" statusLabel copy instead.
-        var showOfferCard = app.offerPending === true;
+        // waiting (offerPending) OR a contract is out for signature
+        // (contractStage === 'sent_to_gp'). An offer-ish raw status alone
+        // (Zoho-managed offer) must NOT link to offer-review.html:
+        // /api/career/my-offer has no record for it and the doctor would land
+        // on an empty page — the server sends "consultant will be in touch"
+        // statusLabel copy instead. contractStage 'sent_to_gp' is added
+        // because the CEO's submit-to-gp action only flips
+        // gp_applications.status to 'offer' — it never creates an ats_offers
+        // row — so offerPending alone silently missed this state.
+        var isContractSent = app.contractStage === 'sent_to_gp';
+        var showOfferCard = app.offerPending === true || isContractSent;
         var offerCard = document.getElementById('offerCard');
         if (offerCard) {
           offerCard.style.display = showOfferCard ? 'block' : 'none';
@@ -1394,6 +1401,10 @@
             var offerLink = document.getElementById('offerReviewLink');
             if (offerLink) {
               offerLink.href = 'offer-review.html?applicationId=' + encodeURIComponent(app.id || appId);
+            }
+            var offerLinkText = document.getElementById('offerReviewLinkText');
+            if (offerLinkText) {
+              offerLinkText.textContent = isContractSent ? 'Review contract' : 'Review Offer';
             }
           }
         }

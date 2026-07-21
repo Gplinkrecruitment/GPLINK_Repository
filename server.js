@@ -41090,6 +41090,38 @@ async function handleApi(req, res, pathname) {
       }
     } catch (revealErr) { /* masked by default */ }
 
+    // Task 13 fix: batch-load each application's latest GP-visible contract
+    // status ONCE (same shape as revealOfferMap above) so the loop below can
+    // stamp contractStage without an N+1 career_contracts query. This is what
+    // lets the Offers tab / application-detail show "Review contract" the
+    // moment a contract is out — submit_to_gp only flips gp_applications.status
+    // to 'offer', it never creates a live ats_offers row, so offerPending alone
+    // (the old CTA gate) silently missed this state entirely.
+    const contractStageMap = {};
+    try {
+      const contractAppIds = mergedApplications
+        .map((entry) => (entry && entry.localApp && entry.localApp.id !== undefined && entry.localApp.id !== null) ? String(entry.localApp.id) : '')
+        .filter(Boolean);
+      if (contractAppIds.length && isSupabaseDbConfigured()) {
+        const contractVersionMap = {};
+        for (let cai = 0; cai < contractAppIds.length; cai += 200) {
+          const contractChunk = contractAppIds.slice(cai, cai + 200);
+          const contractRes = await supabaseDbRequest('career_contracts',
+            'select=application_id,status,version&application_id=in.(' + encodeURIComponent(_atsInList(contractChunk)) + ')&status=in.(sent_to_gp,changes_requested,practice_review)&limit=2000');
+          ((contractRes.ok && contractRes.data) || []).forEach((row) => {
+            const key = String(row.application_id);
+            const version = Number(row.version) || 0;
+            // Only the non-void status filter above can match per application,
+            // so the highest version among them is the live row.
+            if (!contractVersionMap[key] || version > contractVersionMap[key].version) {
+              contractVersionMap[key] = { version, status: String(row.status) };
+            }
+          });
+        }
+        Object.keys(contractVersionMap).forEach((key) => { contractStageMap[key] = contractVersionMap[key].status; });
+      }
+    } catch (contractStageErr) { /* no in-app contract CTA rather than break the list */ }
+
     const enriched = [];
     for (const entry of mergedApplications) {
       const localApp = entry && entry.localApp ? entry.localApp : null;
@@ -41317,6 +41349,11 @@ async function handleApi(req, res, pathname) {
         offerPending: internalPresentation
           ? internalPresentation.offerPending
           : zohoOfferPending,
+        // In-app path to a contract that's out for signature — see
+        // contractStageMap above. null when there is none (the common case).
+        contractStage: (localApp && localApp.id !== undefined && localApp.id !== null)
+          ? (contractStageMap[String(localApp.id)] || null)
+          : null,
         appliedAt: (localApp && localApp.applied_at)
           || getZohoField(liveRecord, ['Created_Time', 'Modified_Time', 'Updated_On'])
           || new Date().toISOString(),
@@ -41457,7 +41494,13 @@ async function handleApi(req, res, pathname) {
         changeRequest: ccContract.change_request || null,
         changeResponse: ccContract.change_response || null,
         sentToGpAt: ccContract.sent_to_gp_at || null,
-        signedAt: ccContract.signed_at || null
+        signedAt: ccContract.signed_at || null,
+        // A 'signed' contract doesn't always mean the placement went through —
+        // finalize-signed commits the signature even when finalizeInAppPlacement
+        // throws (see that handler). offer-review.html uses this to decide
+        // whether "Placement secured 🎉" is honest or whether it should show
+        // the "still finalising" copy instead.
+        placementSecured: isCareerPlacementSecuredStatus(normalizeCareerApplicationStatusKey(ccApp.status))
       }
     });
     return;
@@ -41551,19 +41594,34 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Compare-and-swap: the `&status=eq.sent_to_gp` filter + return=representation
+    // mirrors claimFixProposalForExecution's atomic claim. Two near-simultaneous
+    // finalize calls (double-tap, two tabs) can both pass the sent_to_gp check
+    // above before either has patched — without the filter both PATCHes would
+    // blindly succeed and placement + the signed-copy emails would fire twice.
+    // Only the winner's PATCH matches a row; the loser gets back an empty array.
     const fsNowIso = new Date().toISOString();
-    const fsPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(fsContract.id), {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' },
-      body: {
-        status: 'signed',
-        signed_at: fsNowIso,
-        signed_bucket: SUPABASE_DOCUMENT_BUCKET,
-        signed_path: fsPath,
-        signed_filename: sanitizeUserString(fsFilename, 240) || 'signed-contract.pdf',
-        updated_at: fsNowIso
-      }
-    });
+    const fsPatch = await supabaseDbRequest('career_contracts',
+      'id=eq.' + encodeURIComponent(fsContract.id) + '&status=eq.sent_to_gp', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: {
+          status: 'signed',
+          signed_at: fsNowIso,
+          signed_bucket: SUPABASE_DOCUMENT_BUCKET,
+          signed_path: fsPath,
+          signed_filename: sanitizeUserString(fsFilename, 240) || 'signed-contract.pdf',
+          updated_at: fsNowIso
+        }
+      });
     if (!fsPatch || !fsPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the signed contract.' }); return; }
+    if (!Array.isArray(fsPatch.data) || !fsPatch.data.length) {
+      // Lost the race — someone else's finalize already flipped this contract
+      // to signed between our checks above and this PATCH. Refuse WITHOUT
+      // running placement or emails a second time; the winner's request
+      // already did both.
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
+      return;
+    }
 
     // Placement. finalizeInAppPlacement expects a LIVE offer row (its
     // sent→accepted transition). Helen's real offer row is 'draft' → flip it to
@@ -41591,6 +41649,29 @@ async function handleApi(req, res, pathname) {
     }
 
     if (!fsPlacementSecured) {
+      // The signature is committed either way (see the comment above the
+      // catch), but a silent placement failure previously had NO visibility
+      // anywhere — a signed contract could sit unplaced indefinitely with no
+      // alert to anyone. Best-effort CEO alert so a human finishes it via the
+      // candidate drawer's "Mark placement secured" action; an email outage
+      // must never turn the already-committed signed status into an error.
+      try {
+        const fsFailDrName = await contractGpDisplayName(fsUserId);
+        const fsFailSafeDr = fsFailDrName.replace(/[<>]/g, '');
+        const fsFailEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        await sendEmail({
+          to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+          subject: 'Signed contract needs manual placement — ' + fsFailSafeDr,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+          html: buildCareerEmailHtml({
+            title: 'A signed contract needs manual placement',
+            body: fsFailEsc(fsFailSafeDr) + ' has signed their employment contract, but the automatic placement step failed. Please finish this from the candidate drawer using "Mark placement secured".',
+            ctaText: 'Open the dashboard',
+            ctaUrl: APP_BASE_URL + '/pages/admin.html'
+          })
+        });
+      } catch (alertErr) { console.warn('[contract-signed] failure-branch CEO alert failed (ignored):', alertErr && alertErr.message); }
+
       sendJson(res, 200, { ok: true, placementSecured: false, message: 'Signed — our team is finalising your placement.' });
       return;
     }
@@ -41927,12 +42008,27 @@ async function handleApi(req, res, pathname) {
       if (!detailZohoOfferPending) detailZohoOfferLabel = 'Offer stage — your consultant will be in touch with the details';
     }
 
+    // Task 13 fix: mirrors the list endpoint's contractStageMap (single-row
+    // version — no batching needed here) so the detail page's offer card
+    // reacts to a live in-app contract even when there's no live ats_offers
+    // row (submit_to_gp only flips gp_applications.status, it never creates
+    // one).
+    let detailContractStage = null;
+    try {
+      const detailContract = await getLatestLiveCareerContractForApplication(appRow.id);
+      const DETAIL_CONTRACT_GP_VISIBLE = new Set(['sent_to_gp', 'changes_requested', 'practice_review']);
+      if (detailContract && DETAIL_CONTRACT_GP_VISIBLE.has(String(detailContract.status))) {
+        detailContractStage = String(detailContract.status);
+      }
+    } catch (detailContractErr) { detailContractStage = null; }
+
     const enrichedApp = {
       id: appRow.id,
       status,
       offerPending: detailPresentation
         ? detailPresentation.offerPending
         : detailZohoOfferPending,
+      contractStage: detailContractStage,
       appliedAt: appRow.applied_at || new Date().toISOString(),
       role: roleClient,
       placement,

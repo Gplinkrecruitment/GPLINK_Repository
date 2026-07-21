@@ -8947,6 +8947,11 @@
         // offer exists (offer-review.html can't render Zoho offers, so an
         // offer-ish raw status alone must NOT produce a "Review Offer" CTA).
         offerPending: source.offerPending === true,
+        // In-app contract out for signature (Task 13 fix) — 'sent_to_gp' /
+        // 'changes_requested' / 'practice_review', or null. Distinct from
+        // offerPending: a contract can be live with NO ats_offers row at all
+        // (the CEO's submit-to-gp action only flips gp_applications.status).
+        contractStage: source.contractStage || null,
         isPlacementSecured: meta.isPlacementSecured || source.isPlacementSecured === true,
         meta: Array.isArray(source.meta) ? source.meta : [],
         placement: source.placement && typeof source.placement === "object" ? source.placement : null
@@ -11788,6 +11793,7 @@
         statusLabel: app.statusLabel || "",
         statusTone: app.statusTone || "",
         offerPending: app.offerPending === true,
+        contractStage: app.contractStage || null,
         placement: app.placement,
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
@@ -12386,6 +12392,14 @@
       // practice, so the copy must not say "before it reaches the practice".
       const isSubmittedToPractice = actionStatusKey === "submitted";
       const isPracticeReviewing = actionStatusKey === "reviewing";
+      // In-app contract out for signature (Task 13 fix). The CEO's submit-
+      // to-gp action only flips gp_applications.status to 'offer' — it
+      // never creates an ats_offers row — so offerPending alone (isOffer
+      // above) silently missed this state and the row rendered as a generic
+      // "UNDER REVIEW".
+      const isContractSent = application.contractStage === "sent_to_gp";
+      const isContractChangesRequested = application.contractStage === "changes_requested";
+      const isContractPracticeReview = application.contractStage === "practice_review";
 
       let ribbon = "";
       if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
@@ -12393,6 +12407,9 @@
       else if (isNotProceeding) ribbon = '<span class="at-rstatus at-rstatus--muted">NOT PROCEEDING</span>';
       else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
       else if (isOfferDeclined) ribbon = '<span class="at-rstatus at-rstatus--muted">OFFER DECLINED</span>';
+      else if (isContractSent) ribbon = '<span class="at-rstatus at-rstatus--offer">CONTRACT</span>';
+      else if (isContractChangesRequested) ribbon = '<span class="at-rstatus at-rstatus--offer">CONTRACT</span>';
+      else if (isContractPracticeReview) ribbon = '<span class="at-rstatus at-rstatus--offer">CONTRACT</span>';
       else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
       // Interview stage is post-acceptance — an "UNDER REVIEW" ribbon here
       // contradicted the "Interview stage" pill + the unlocked identity. Give it
@@ -12412,6 +12429,12 @@
         metaLine = "You withdrew this application.";
       } else if (isOfferDeclined) {
         metaLine = "You declined this offer.";
+      } else if (isContractSent) {
+        metaLine = "Your contract is ready to review and sign.";
+      } else if (isContractChangesRequested) {
+        metaLine = "We're checking your requested contract changes.";
+      } else if (isContractPracticeReview) {
+        metaLine = "The practice is considering your requested change.";
       } else if (isOffer) {
         metaLine = "The practice wants to interview you \u2014 confirm your interview time.";
       } else if (isInterview) {
@@ -12425,7 +12448,11 @@
       }
 
       let statusAction = "";
-      if (isOffer) {
+      if (isContractSent) {
+        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review contract \u2192</a>';
+      } else if (isContractChangesRequested || isContractPracticeReview) {
+        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">View status \u2192</a>';
+      } else if (isOffer) {
         statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review invitation \u2192</a>';
       } else if (isInterview) {
         // ONE short CTA \u2014 the foot is a single non-wrapping flex row, so a

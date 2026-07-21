@@ -1492,8 +1492,17 @@
       setText('contractIntro', 'The practice is considering your requested change. Your GP Link team will be in touch with the outcome.');
       if (contract.changeRequest && reqText) { reqText.textContent = contract.changeRequest; if (reqBlock) reqBlock.hidden = false; }
     } else if (status === 'signed') {
-      showContractSecured('Placement secured 🎉', 'Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
-      launchConfetti();
+      // A 'signed' contract does not always mean the placement went through —
+      // finalize-signed commits the signature even when the automatic
+      // placement step fails (see server.js). Only celebrate when the server
+      // confirms placementSecured; otherwise the honest "still finalising"
+      // copy (same text finalize-signed itself returns on that failure path).
+      if (contract.placementSecured === true) {
+        showContractSecured('Placement secured 🎉', 'Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
+        launchConfetti();
+      } else {
+        showContractSecured('Contract signed', 'Signed — our team is finalising your placement.');
+      }
     }
   }
 
