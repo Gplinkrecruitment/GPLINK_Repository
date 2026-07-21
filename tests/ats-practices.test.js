@@ -84,6 +84,13 @@ describe('deriveAtsStage truth table', () => {
   it("status interviewing => 'interview'", () => {
     expect(M.deriveAtsStage({ status: 'interviewing' }, false)).toBe('interview');
   });
+  // Task 15: 'interview_completed' (Task 9's post-interview status) must still
+  // bucket into the 'interview' kanban lane — the interview isn't over from a
+  // pipeline standpoint until the practice decides, so it must not fall back
+  // to 'applied'.
+  it("status interview_completed => 'interview'", () => {
+    expect(M.deriveAtsStage({ status: 'interview_completed' }, false)).toBe('interview');
+  });
   it("hasInterview === true promotes to 'interview'", () => {
     expect(M.deriveAtsStage({ status: 'applied' }, true)).toBe('interview');
   });

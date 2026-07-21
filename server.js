@@ -18287,7 +18287,11 @@ function isCareerInterviewStatus(value) {
   const normalized = normalizeCareerApplicationStatusKey(value);
   return normalized === 'interview'
     || normalized === 'interview_scheduled'
-    || normalized === 'interview_confirmed';
+    || normalized === 'interview_confirmed'
+    // Task 15: the interview happened and Task 9's post-interview email
+    // fired — the application is awaiting the practice's decision, still
+    // firmly in the interview stage of the pipeline.
+    || normalized === 'interview_completed';
 }
 
 // Task 5 (2026-07-21): 'offer_accepted' was REMOVED. Accepting an offer now
@@ -18368,6 +18372,14 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
       return { status: 'offer_declined', statusLabel: 'You declined this offer', statusTone: 'review', offerPending: false };
     }
     return { status: 'offer', statusLabel: 'The practice is preparing an offer', statusTone: 'offer', offerPending: false };
+  }
+  // Task 15: the interview concluded (Task 9 stamped interview_completed +
+  // fired the practice-decision email) but the practice hasn't extended an
+  // offer or passed yet — checked BEFORE the generic 'interview' stage
+  // branch below since ats_stage stays 'interview' for this row too
+  // (deriveAtsStage maps interview_completed -> 'interview').
+  if (storedStatus === 'interview_completed') {
+    return { status: 'interview_completed', statusLabel: 'Interview done — awaiting the practice\'s decision', statusTone: 'review', offerPending: false };
   }
   if (stage === 'interview') {
     return { status: 'interview', statusLabel: 'Interview stage', statusTone: 'interview', offerPending: false };
@@ -35319,6 +35331,53 @@ async function handleApi(req, res, pathname) {
       let noShows = 0, attended = 0, skipped = 0;
       for (const call of calls) {
         if (!isNoShowCandidate(call, nowMs, GRACE_MIN)) { skipped++; continue; }
+
+        // Task 15: Zoom-unconfigured (or legacy zoomless) fallback — keyed on
+        // the CALL's own zoom_meeting_id, NOT global isZoomConfigured(), since
+        // a zoomless row can exist even when Zoom IS configured today (older
+        // bookings made before credentials were added). fetchZoomPastMeeting-
+        // Participants already returns null for a missing meetingId, which
+        // the branch below used to fall into ("skipped" — never retried on
+        // its own) — meaning the meeting.ended webhook can never fire AND
+        // this cron's Zoom-attendance check can never resolve either, so the
+        // interview would sit 'booked' forever and the practice would never
+        // get Task 9's decision email. Attendance is unknowable without Zoom
+        // (never a no_show call), so once enough time has passed that the
+        // interview must be over — checked BEFORE any Zoom-API attendance
+        // attempt so a real Zoom call is never short-circuited here. Uses a
+        // shorter 15-min buffer than GRACE_MIN (60): there's no Zoom
+        // attendance record to "settle" for, so there's nothing to wait for.
+        const hasZoomMeetingId = call.zoom_meeting_id != null && String(call.zoom_meeting_id).trim() !== '';
+        if (!hasZoomMeetingId) {
+          const noZoomStartMs = Date.parse(call.scheduled_at);
+          const noZoomDurationMin = Number(call.duration_minutes || 45);
+          const noZoomDueMs = Number.isFinite(noZoomStartMs) ? (noZoomStartMs + (noZoomDurationMin + 15) * 60000) : null;
+          if (noZoomDueMs === null || nowMs < noZoomDueMs) { skipped++; continue; } // not due yet — retry next run
+          const noZoomNowIso = new Date().toISOString();
+          // No summary_status flip to 'pending': there is no Zoom recording to
+          // fetch for a zoomless call, so leave it at its 'not_requested'
+          // default rather than feeding the call-summary-retry cron a row it
+          // can never resolve (fetchAndSaveZoomSummary bails without a
+          // meeting id, but never advances summary_fetch_attempts, so it
+          // would otherwise occupy one of that cron's 5 slots on every pass).
+          await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'completed', completed_at: noZoomNowIso, updated_at: noZoomNowIso } });
+          const noZoomTaskId = getScheduledCallRegistrationTaskId(call);
+          if (noZoomTaskId) await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(noZoomTaskId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: mapCallStatusToTaskStatus('completed'), updated_at: noZoomNowIso } });
+          // Task 9: same instant post-interview email as the Zoom webhook /
+          // attended-path below — sendPostInterviewDecisionEmail is
+          // idempotent (write-then-send stamp), so this can never double-fire
+          // against the retry sweep further down.
+          if (call.meeting_kind === 'interview' && call.application_id) {
+            try {
+              await sendPostInterviewDecisionEmail(call.application_id);
+            } catch (e) {
+              console.error('[post-interview] detect-no-shows (no-zoom) send failed:', e && e.message);
+            }
+          }
+          attended++;
+          continue;
+        }
+
         const participants = await fetchZoomPastMeetingParticipants(call.zoom_meeting_id);
         if (participants === null) { skipped++; continue; } // couldn't determine attendance — retry next run
         // Resolve the host (assigned RSO) robustly so it's excluded from the attendee check even if

@@ -3122,3 +3122,301 @@ describe('Task 14: change-request loop — live-boot', () => {
     expect(resendCalls.length).toBe(before2);
   });
 });
+
+describe('interview_completed — status plumbing (Task 15, source-assertion)', () => {
+  const SERVER_SRC = fs.readFileSync(SERVER_PATH, 'utf8');
+  const APP_DETAIL_SRC = fs.readFileSync(path.join(ROOT, 'pages', 'application-detail.html'), 'utf8');
+
+  it('isCareerInterviewStatus recognizes interview_completed', () => {
+    const start = SERVER_SRC.indexOf('function isCareerInterviewStatus');
+    const fn = SERVER_SRC.slice(start, start + 700);
+    expect(fn).toContain("normalized === 'interview_completed'");
+  });
+
+  it('buildInternalCareerStatusPresentation labels interview_completed as awaiting the practice\'s decision, tone review', () => {
+    expect(SERVER_SRC).toContain("storedStatus === 'interview_completed'");
+    expect(SERVER_SRC).toContain('Interview done — awaiting the practice');
+    // Same return statement carries both the label and the review tone.
+    expect(SERVER_SRC).toMatch(/storedStatus === 'interview_completed'\)[\s\S]{0,20}return[\s\S]{0,220}statusTone: 'review'/);
+  });
+
+  it('application-detail.html timeline maps carry interview_completed at the interview step (index 2) with its own label', () => {
+    expect(APP_DETAIL_SRC).toMatch(/interview:\s*2,\s*interview_scheduled:\s*2,\s*shortlisted:\s*2,\s*interview_completed:\s*2/);
+    expect(APP_DETAIL_SRC).toContain('interview_completed: "Interview complete"');
+  });
+});
+
+// Task 15 (2026-07-22): 'interview_completed' status plumbing + the
+// Zoom-unconfigured fallback in the detect-no-shows cron. Prod has NO Zoom
+// credentials today, so every interview booking's zoom_meeting_id is ''.
+// Without a fix: the meeting.ended webhook can never fire (Zoom never calls
+// it), AND this cron's own Zoom-attendance check
+// (fetchZoomPastMeetingParticipants) returns null for a missing meeting id
+// — so the call is just "skipped" every pass, forever. The interview would
+// never complete and the practice would never get Task 9's post-interview
+// decision email. Fix: key completion on the CALL's own (missing)
+// zoom_meeting_id, not global Zoom configuration — once
+// scheduled_at + duration + a 15-min buffer has passed, mark the call
+// completed (attendance is unknowable without Zoom, so NEVER a no_show) and
+// fire the same idempotent sendPostInterviewDecisionEmail helper Task 9
+// wired into the Zoom-webhook and Zoom-attended paths.
+describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
+  const RUN_ID = crypto.randomBytes(4).toString('hex');
+  const DB_FILE = path.join('/tmp', `gplink-t15-nozoom-${RUN_ID}.json`);
+  const CRON_SECRET = 't15-nozoom-cron-secret-' + RUN_ID;
+  const GP = { userId: 'u-gp-t15-1', email: 't15-gp@gplink-test.local' };
+  const NOW = new Date().toISOString();
+  const hoursAgoIso = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+  const hoursFromNowIso = (h) => new Date(Date.now() + h * 3600 * 1000).toISOString();
+
+  const APP_PAST = 'app-t15-past';
+  const APP_FUTURE = 'app-t15-future';
+  const CALL_PAST = 'call-t15-past';
+  const CALL_FUTURE = 'call-t15-future';
+
+  let server, port;
+  let sbServer, sbPort;
+  let realFetch;
+  let mod;
+  const resendCalls = [];
+
+  const db = {
+    user_profiles: [
+      { user_id: GP.userId, email: GP.email, first_name: 'Zoomless', last_name: 'Candidate', registration_country: 'uk' }
+    ],
+    practices: [
+      { id: 'p-t15-1', name: 'Southbank Family Clinic', source: 'internal_ats', contact_name: 'Southbank Reception', contact_email: 'reception@southbank-t15-test.local', is_active: true, created_at: NOW }
+    ],
+    career_roles: [
+      { id: 'role-t15-1', provider: 'internal_ats', provider_role_id: 'ats_t15_1', title: 'General Practitioner — VR', practice_name: 'Southbank Family Clinic', practice_id: 'p-t15-1', location_city: 'Perth', location_state: 'WA', is_active: true, job_status: 'open', updated_at: NOW }
+    ],
+    gp_applications: [
+      { id: APP_PAST, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW },
+      { id: APP_FUTURE, user_id: GP.userId, career_role_id: 'role-t15-1', practice_id: 'p-t15-1', provider_role_id: 'ats_t15_1', status: 'interview', ats_stage: 'interview', applied_at: NOW }
+    ],
+    scheduled_calls: [
+      // Zoom never configured at booking time -> zoom_meeting_id ''. Scheduled
+      // 2h ago, 45-min duration: well past scheduled_at + 45 + 15min buffer.
+      { id: CALL_PAST, case_id: null, user_id: GP.userId, application_id: APP_PAST, meeting_kind: 'interview', status: 'booked', zoom_meeting_id: '', scheduled_at: hoursAgoIso(2), duration_minutes: 45, stage: null, summary_status: 'not_requested' },
+      // Also zoomless, but scheduled in the FUTURE — must stay completely
+      // untouched (the outer cron query only ever selects scheduled_at in
+      // the past, so this also proves the query itself never misfires here).
+      { id: CALL_FUTURE, case_id: null, user_id: GP.userId, application_id: APP_FUTURE, meeting_kind: 'interview', status: 'booked', zoom_meeting_id: '', scheduled_at: hoursFromNowIso(1), duration_minutes: 45, stage: null, summary_status: 'not_requested' }
+    ],
+    webhook_events: [],
+    registration_tasks: []
+  };
+  function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+  const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
+  function buildMatcher(searchParams) {
+    const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
+    const filters = [];
+    for (const [key, raw] of searchParams.entries()) {
+      if (reserved.has(key)) continue;
+      const dot = raw.indexOf('.');
+      const op = dot > 0 ? raw.slice(0, dot) : '';
+      if (!FILTER_OPS.includes(op)) continue;
+      const val = raw.slice(dot + 1);
+      filters.push({ col: key, op, val });
+    }
+    return (row) => filters.every(({ col, op, val }) => {
+      const cell = row ? row[col] : undefined;
+      if (op === 'eq') return String(cell) === val;
+      if (op === 'neq') return String(cell) !== val;
+      if (op === 'is') return val === 'null' ? (cell === null || cell === undefined) : String(cell) === val;
+      if (op === 'in') {
+        return val.replace(/^\(/, '').replace(/\)$/, '').split(',')
+          .map((s) => s.trim().replace(/^"/, '').replace(/"$/, ''))
+          .includes(String(cell));
+      }
+      if (op === 'lt') return cell != null && String(cell) < val;
+      if (op === 'gt') return cell != null && String(cell) > val;
+      return true;
+    });
+  }
+
+  function readBody(req) {
+    return new Promise((resolve) => {
+      const chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null')); }
+        catch { resolve(null); }
+      });
+    });
+  }
+
+  function startSupabaseEmulator() {
+    return new Promise((resolve) => {
+      sbServer = http.createServer(async (req, res) => {
+        const u = new URL(req.url, 'http://sb.local');
+        const send = (status, payload) => {
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(payload));
+        };
+        const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
+        if (!m) { send(404, { message: 'not found' }); return; }
+        const table = decodeURIComponent(m[1]);
+        const rows = tableOf(table);
+        const matches = buildMatcher(u.searchParams);
+        if (req.method === 'GET') {
+          let out = rows.filter(matches);
+          const limit = parseInt(u.searchParams.get('limit') || '', 10);
+          if (Number.isFinite(limit)) out = out.slice(0, limit);
+          send(200, out);
+          return;
+        }
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+          const saved = incoming.map((r) => {
+            const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
+            rows.push(row);
+            return row;
+          });
+          send(201, saved);
+          return;
+        }
+        if (req.method === 'PATCH') {
+          const patch = await readBody(req);
+          const matched = rows.filter(matches);
+          matched.forEach((row) => Object.assign(row, patch || {}));
+          send(200, matched);
+          return;
+        }
+        send(405, { message: 'method not allowed' });
+      });
+      sbServer.listen(0, '127.0.0.1', () => { sbPort = sbServer.address().port; resolve(); });
+    });
+  }
+
+  function getCron(cronPath, headers) {
+    return new Promise((resolve, reject) => {
+      const r = http.request({
+        host: '127.0.0.1', port, path: cronPath, method: 'GET', headers: headers || {}
+      }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => {
+          const raw = Buffer.concat(c).toString('utf8');
+          let parsed = null; try { parsed = JSON.parse(raw); } catch {}
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+      r.on('error', reject); r.end();
+    });
+  }
+
+  const appRow = (id) => db.gp_applications.find((a) => a.id === id);
+  const callRow = (id) => db.scheduled_calls.find((c) => c.id === id);
+
+  beforeAll(async () => {
+    await startSupabaseEmulator();
+
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_DISABLED = 'false';
+    process.env.AUTH_SECRET = 't15-nozoom-secret-' + RUN_ID;
+    process.env.REQUIRE_SUPABASE_DB = 'false';
+    process.env.SUPABASE_URL = `http://127.0.0.1:${sbPort}`;
+    process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    process.env.ENFORCE_SAME_ORIGIN = 'false';
+    process.env.DB_FILE_PATH = DB_FILE;
+    process.env.OPENAI_API_KEY = '';
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
+    process.env.RESEND_API_KEY = 'test-resend-key';
+    process.env.REGISTRATION_HUB_EMAIL = 'hello@mygplink-test.local';
+    process.env.APP_BASE_URL = 'https://app.mygplink.com.au';
+    // Deliberately NOT setting ZOOM_CLIENT_ID/SECRET/ACCOUNT_ID — proves the
+    // fallback fires from prod's actual Zoom-unconfigured state, not a mock.
+    // CRON_SECRET is read once into a module-level const at require time, so
+    // it must be set before import('../server.js') below.
+    process.env.CRON_SECRET = CRON_SECRET;
+
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (url, opts) => {
+      const u = String(url && url.url ? url.url : url);
+      if (u.startsWith('https://api.resend.com/')) {
+        let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+        resendCalls.push({ url: u, body: parsed });
+        return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
+      }
+      if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
+      // Any other outbound call (e.g. a stray Zoom API request) gets a benign
+      // empty 200 rather than a network error — if the no-zoom branch is
+      // mis-ordered and DOES reach fetchZoomPastMeetingParticipants, that
+      // helper already short-circuits on a missing meetingId before ever
+      // reaching fetch(), so this stub should never actually be exercised
+      // for this suite's calls.
+      return Promise.resolve(new Response('{}', { status: 200 }));
+    };
+
+    vi.resetModules();
+    mod = await import('../server.js');
+    server = mod.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
+  });
+
+  afterAll(async () => {
+    if (realFetch) globalThis.fetch = realFetch;
+    if (server) await new Promise((r) => server.close(r));
+    if (sbServer) await new Promise((r) => sbServer.close(r));
+    try { fs.unlinkSync(DB_FILE); } catch {}
+  });
+
+  it('a booked interview call with no zoom_meeting_id, past scheduled_at+duration+15min, completes via the time-based fallback (never no_show) and fires the practice decision email', async () => {
+    const before = resendCalls.length;
+    const r = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const call = callRow(CALL_PAST);
+    expect(call.status).toBe('completed');
+    expect(call.completed_at).toBeTruthy();
+    // Attendance is unknowable without Zoom — this must NEVER be classified
+    // as a no-show (which would fire the 2-strike re-invite machinery).
+    expect(call.no_show_at == null).toBe(true);
+
+    const app = appRow(APP_PAST);
+    expect(app.status).toBe('interview_completed');
+    expect(app.interview_completed_at).toBeTruthy();
+    expect(app.post_interview_email_sent_at).toBeTruthy();
+
+    expect(resendCalls.length).toBe(before + 1);
+    const sent = resendCalls[resendCalls.length - 1].body;
+    expect(sent.to).toEqual(['reception@southbank-t15-test.local']);
+    expect(sent.subject).toBe('How did the interview with Dr Candidate go?');
+    expect(sent.html).toContain('intent=offer');
+    expect(sent.html).toContain('intent=decline');
+  });
+
+  // Reuses the SAME cron pass triggered by the previous test (this file's
+  // other live-boot blocks rely on this same sequential-shared-db pattern,
+  // e.g. the Task 9 idempotency test above reads state the meeting.ended
+  // test mutated) — proves the future-scheduled zoomless call was never
+  // touched by that pass at all.
+  it('a zoomless call scheduled in the future is left completely untouched by that same cron pass', () => {
+    const call = callRow(CALL_FUTURE);
+    expect(call.status).toBe('booked');
+    expect(call.completed_at == null).toBe(true);
+    expect(call.no_show_at == null).toBe(true);
+
+    const app = appRow(APP_FUTURE);
+    expect(app.status).toBe('interview');
+    expect(app.post_interview_email_sent_at == null).toBe(true);
+  });
+
+  it('a second cron pass does not double-complete the already-completed call or double-send the email (idempotent via the post_interview_email_sent_at stamp)', async () => {
+    const before = resendCalls.length;
+    const completedAtBefore = callRow(CALL_PAST).completed_at;
+
+    const r = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
+    expect(r.status).toBe(200);
+
+    // The call is no longer status='booked', so the main loop's own query
+    // excludes it outright on the second pass.
+    expect(callRow(CALL_PAST).completed_at).toBe(completedAtBefore);
+    expect(resendCalls.length).toBe(before);
+  });
+});

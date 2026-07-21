@@ -8866,6 +8866,12 @@
       if (["interview", "interview_scheduled", "shortlisted"].includes(key)) {
         return { label: "Interview Scheduled", tone: "interview", isPlacementSecured: false };
       }
+      // Task 15: the interview happened and the practice-decision email
+      // already fired — distinct from "Interview Scheduled" (still ahead)
+      // and must never fall back to the generic "Under Review" copy below.
+      if (key === "interview_completed") {
+        return { label: "Interview done — awaiting the practice's decision", tone: "review", isPlacementSecured: false };
+      }
       if (["offer", "offer_pending", "offered"].includes(key)) {
         return { label: "Offer Pending", tone: "offer", isPlacementSecured: false };
       }
@@ -8909,7 +8915,7 @@
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return false;
       return application.offerPending === true
         || application.revealed === true
-        || ["offer", "offer_pending", "offered", "interview", "interview_scheduled", "shortlisted", "finalising_placement"].includes(key);
+        || ["offer", "offer_pending", "offered", "interview", "interview_scheduled", "shortlisted", "interview_completed", "finalising_placement"].includes(key);
     }
 
     // Human "Next step" line by status — the detail page reads this off the
@@ -8922,6 +8928,7 @@
       if (key === "finalising_placement") return "Finalising your placement";
       if (["offer", "offer_pending", "offered"].includes(key)) return "Review your offer";
       if (["interview", "interview_scheduled", "shortlisted"].includes(key)) return "Confirm your interview time";
+      if (key === "interview_completed") return "Awaiting the practice's decision";
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "—";
       return "GP Link screening";
     }
@@ -12378,6 +12385,13 @@
       const actionStatusKey = normalizeStatusKey(application.rawStatus);
       const isOffer = application.offerPending === true;
       const isInterview = actionStatusKey === "interview" || actionStatusKey === "interview_scheduled";
+      // Task 15: the interview already happened and Task 9's decision email
+      // already went to the practice — a DISTINCT state from isInterview
+      // (still ahead). Without this branch interview_completed matched none
+      // of the isX flags below and fell through to the generic "UNDER
+      // REVIEW" ribbon + "before it reaches the practice" copy, wrong once
+      // the interview is behind the GP.
+      const isInterviewDone = actionStatusKey === "interview_completed";
       const tone = isOffer ? "offer" : (application.tone || "review");
 
       // Terminal outcomes (G4) + the offer-accepted interim (G5) each carry
@@ -12413,8 +12427,10 @@
       else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
       // Interview stage is post-acceptance — an "UNDER REVIEW" ribbon here
       // contradicted the "Interview stage" pill + the unlocked identity. Give it
-      // its own positive-accent ribbon.
-      else if (isInterview) ribbon = '<span class="at-rstatus at-rstatus--offer">INTERVIEW</span>';
+      // its own positive-accent ribbon. interview_completed keeps the SAME
+      // ribbon text — from the GP's perspective it's still "the interview
+      // stage" of the pipeline, just awaiting the practice's decision now.
+      else if (isInterview || isInterviewDone) ribbon = '<span class="at-rstatus at-rstatus--offer">INTERVIEW</span>';
       else if (isSubmittedToPractice) ribbon = '<span class="at-rstatus at-rstatus--applied">SUBMITTED</span>';
       else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
@@ -12437,6 +12453,8 @@
         metaLine = "The practice is considering your requested change.";
       } else if (isOffer) {
         metaLine = "The practice wants to interview you \u2014 confirm your interview time.";
+      } else if (isInterviewDone) {
+        metaLine = "Interview done \u2014 the practice is deciding. We'll let you know the moment they respond.";
       } else if (isInterview) {
         metaLine = "Interview scheduled \u2014 your Registration Support Officer will join you, so you're never in the room alone.";
       } else if (isSubmittedToPractice) {
