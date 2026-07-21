@@ -1,5 +1,5 @@
 /* ==========================================================================
-   GP Link marketing site — shared design system
+   GP Link marketing site: shared design system
    Ported from the approved design preview:
    docs/mockups/marketing-homepage-prototype.html
    Every public page (Tasks 7-12) includes this stylesheet, then adds its
@@ -45,7 +45,7 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
-/* Soft page entrance — opacity only (a transform on <body> would break the
+/* Soft page entrance, opacity only (a transform on <body> would break the
    fixed header), paired with each page's own hero stage animation. */
 @media (prefers-reduced-motion: no-preference) {
   body { animation: gpPageIn .5s ease-out; }
@@ -159,7 +159,7 @@ img { max-width: 100%; display: block; }
 .site-menu-btn:hover { background: var(--teal-soft); border-color: var(--teal); }
 .site-menu-btn[aria-expanded="true"] { background: var(--teal-soft); border-color: var(--teal); color: var(--teal); }
 
-/* mobile dropdown panel — the prototype has no mobile menu; this extends
+/* mobile dropdown panel; the prototype has no mobile menu, this extends
    the same frosted chrome consistently for narrow viewports */
 .site-mobile-menu {
   display: none;
@@ -239,7 +239,7 @@ h2.sec-title {
   transform: translateY(34px);
   transition: opacity .8s var(--ease-out), transform .8s var(--ease-out), filter .8s var(--ease-out);
 }
-/* Directional / scale / blur variants — combine with .reveal */
+/* Directional / scale / blur variants, combine with .reveal */
 .reveal.rv-left { transform: translateX(-44px); }
 .reveal.rv-right { transform: translateX(44px); }
 .reveal.rv-scale { transform: scale(.92) translateY(18px); }
@@ -258,7 +258,7 @@ h2.sec-title {
 .reveal.dl3 { transition-delay: .24s; }
 .reveal.dl4 { transition-delay: .32s; }
 
-/* Image unmask — the picture scales down while its frame opens up.
+/* Image unmask: the picture scales down while its frame opens up.
    JS toggles .in with the same IntersectionObserver as .reveal. */
 .img-reveal {
   clip-path: inset(10% 10% 10% 10% round 26px);
@@ -267,7 +267,7 @@ h2.sec-title {
 }
 .img-reveal.in { clip-path: inset(0 0 0 0 round 0px); transform: none; }
 
-/* Split-headline word rise — js/site.js wraps [data-split] words in spans */
+/* Split-headline word rise: js/site.js wraps [data-split] words in spans */
 .split-words .w { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .08em; margin-bottom: -.08em; }
 .split-words .w > span {
   display: inline-block;
@@ -277,7 +277,7 @@ h2.sec-title {
 }
 @keyframes gpWordUp { to { transform: none; } }
 
-/* Parallax hook — js/site.js drives translate3d; keep layout-stable */
+/* Parallax hook: js/site.js drives translate3d, keep layout-stable */
 [data-parallax] { will-change: transform; }
 
 /* ---------- page-transition veil + scroll progress ---------- */

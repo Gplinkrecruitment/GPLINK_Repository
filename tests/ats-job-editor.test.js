@@ -109,6 +109,7 @@ describe('PATCH /api/ats/job — full intake-field parity', () => {
     const r = await req('PATCH', '/api/ats/job?id=je1', {
       host: SUPER_HOST, cookie: superCookie(),
       body: {
+        practice_name: 'Rangeville Family Practice', website: 'https://rangeville.example',
         billing_style: 'bulk', dpa: true, suburb: 'Rangeville', nearest_city: 'Toowoomba',
         state: 'qld', address: '12 Main Street, Rangeville', mmm: 'MM5', earnings_text: '$400k+ estimated',
         ownership: 'Privately owned', visa_sponsorship: true, role_summary: 'Updated role summary',
@@ -258,6 +259,7 @@ describe('partial validation — same rules as the intake form', () => {
 
 describe('POST /api/ats/jobs — full manual creation via intake', () => {
   const FULL_INTAKE = {
+    practice_name: 'Wilsonton Family Practice', website: 'https://wilsonton.example',
     billing_style: 'mixed', dpa: true, mmm: 'MM4', visa_sponsorship: true,
     ownership: 'Family owned', years_operating: '8', nursing_on_site: true, gp_count: '4',
     percentage_split: '65%', incentives: 'Sign-on bonus', earnings_text: '$350k+ estimated',

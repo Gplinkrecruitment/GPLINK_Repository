@@ -67,6 +67,7 @@ function findPracticeByEmail(email) {
 function validIntakePayload(token) {
   return {
     token,
+    practice_name: 'Bayside Family Practice',
     billing_style: 'mixed',
     dpa: 'yes',
     percentage_split: '70/30',
@@ -76,7 +77,8 @@ function validIntakePayload(token) {
     address: '1 Smith St, Fitzroy VIC 3065',
     urgency: 'asap',
     employment_type: 'either',
-    gps_needed: '1'
+    gps_needed: '1',
+    website: 'https://baysidefp.com.au'
   };
 }
 
@@ -108,6 +110,7 @@ async function createProspectivePractice(label) {
 function validClinicPayload(overrides) {
   return Object.assign(
     {
+      practice_name: 'Bayside Family Practice',
       billing_style: 'mixed',
       dpa: 'yes',
       percentage_split: '70/30',
@@ -117,7 +120,8 @@ function validClinicPayload(overrides) {
       address: '1 Smith St, Fitzroy VIC 3065',
       urgency: 'asap',
       employment_type: 'either',
-      gps_needed: '1'
+      gps_needed: '1',
+      website: 'https://baysidefp.com.au'
     },
     overrides || {}
   );
@@ -430,7 +434,7 @@ describe('POST /api/practice-intake — Task 7: derived columns + DPA mismatch +
 
   it('still accepts a legacy single-practice payload with no practices array', async () => {
     // In-flight intake links predate this change and must not break.
-    const saved = await submitIntake({ address: '99 Legacy Rd, Fitzroy VIC 3065', billing_style: 'mixed', dpa: true });
+    const saved = await submitIntake({ address: '99 Legacy Rd, Fitzroy VIC 3065', billing_style: 'mixed', dpa: true, practice_name: 'Legacy Clinic', website: 'https://legacyclinic.com.au' });
     expect(saved.practices).toHaveLength(1);
     expect(saved.practices[0].group_id).toBeTruthy();
   });

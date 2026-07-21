@@ -1,4 +1,4 @@
-/* GP Link — practice lead flow (marketing site).
+/* GP Link practice lead flow (marketing site).
  *
  * A four-step guided flow that drops a practice into the SAME pipeline a
  * Facebook lead enters: prospect created, intake link emailed immediately.
@@ -141,7 +141,7 @@
     setError("");
   });
 
-  // Chips are buttons in a radiogroup — support arrow keys like real radios.
+  // Chips are buttons in a radiogroup; support arrow keys like real radios.
   root.addEventListener("keydown", function (ev) {
     if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") return;
     var chip = ev.target.closest ? ev.target.closest("[data-pf-choice]") : null;
@@ -177,7 +177,7 @@
       dpaPanel.classList.add("is-yes");
       dpaPanel.innerHTML =
         '<span class="pf-dpa-tick" aria-hidden="true">✓</span>' +
-        '<div><b>Good news — you\'re in a Distribution Priority Area.</b>' +
+        '<div><b>Good news, you\'re in a Distribution Priority Area.</b>' +
         '<p>That means your practice can recruit overseas-trained GPs' +
         (payload && payload.mmm ? ' (' + payload.mmm + ')' : '') + '. We\'ll confirm the detail with you.</p></div>';
       return;
@@ -188,7 +188,7 @@
     dpaPanel.classList.add("is-neutral");
     dpaPanel.innerHTML =
       '<span class="pf-dpa-tick" aria-hidden="true">→</span>' +
-      '<div><b>Got it — we\'ll confirm your options.</b>' +
+      '<div><b>Got it, we\'ll confirm your options.</b>' +
       '<p>Placement rules vary by area, so one of our team will talk you through what applies to your practice.</p></div>';
   }
 
@@ -229,7 +229,7 @@
           state.longitude = typeof json.longitude === "number" ? json.longitude : null;
           renderDpa("neutral", json);
         } else {
-          // Unknown stays unknown — never recorded as "not a DPA".
+          // Unknown stays unknown; never recorded as "not a DPA".
           state.dpa = null;
           renderDpa("neutral", json);
         }
@@ -276,11 +276,11 @@
     }
     if (n === 3) {
       if (!state.contact_name) return "Please tell us your name.";
-      if (!plausibleEmail(state.contact_email)) return "Please enter a valid email address — it's where your link goes.";
+      if (!plausibleEmail(state.contact_email)) return "Please enter a valid email address. It's where your link goes.";
       // Mirrors the server rule (digit count only) so a real number in any
       // format passes and the visitor gets a helpful message, not a 400.
       if (!state.contact_phone) return "Please add a phone number so we can call you back.";
-      if (!plausiblePhone(state.contact_phone)) return "That phone number looks too short — please check it.";
+      if (!plausiblePhone(state.contact_phone)) return "That phone number looks too short. Please check it.";
       return "";
     }
     return "";
