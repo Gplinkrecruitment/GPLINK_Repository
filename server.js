@@ -43753,8 +43753,10 @@ async function handleApi(req, res, pathname) {
     try { ewBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const ewCountry = sanitizeUserString(ewBody && ewBody.country, 120).trim();
     const ewName = sanitizeUserString(ewBody && ewBody.name, 160).trim();
-    let ewEmail = sanitizeUserString(ewBody && ewBody.email, 254).trim().toLowerCase();
-    if (!ewEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ewEmail)) ewEmail = sessionEmail.toLowerCase();
+    // The form still posts an email field, but it is IGNORED: the lead and the
+    // user_state record are always keyed to the signed-in session email, so a
+    // GP cannot waitlist (or clobber the lead of) an arbitrary address.
+    const ewEmail = sessionEmail.toLowerCase();
     if (!ewCountry) { sendJson(res, 400, { ok: false, message: 'Please tell us which country you trained in.' }); return; }
 
     const ewNowIso = new Date().toISOString();

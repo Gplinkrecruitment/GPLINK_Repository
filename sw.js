@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260720b";
+  var VERSION = "20260722a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -33,16 +33,16 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20260712e",
+    "/js/app-shell.js?v=20260722a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/auth-guard.js?v=20260706a",
     "/js/state-sync.js?v=20260711a",
-    "/js/bypass-config.js?v=20260702a",
+    "/js/bypass-config.js?v=20260722a",
     "/js/updates-sync.js?v=20260707b",
     "/js/qualification-scan.js?v=20260715a",
     "/js/qualification-camera.js?v=20260614a",
     "/js/account-dropdown.js?v=20260527a",
-    "/js/onboarding.js?v=20260720a",
+    "/js/onboarding.js?v=20260722a",
     "/js/error-reporter.js?v=20260720a",
     "/js/web-push.js?v=20260707a",
     "/js/gp-cache.js?v=20260707a",

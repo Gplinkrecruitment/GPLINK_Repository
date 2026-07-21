@@ -809,23 +809,80 @@
     var medDoc = state.qualDocs[medDegreeKey.key];
     if (!medDoc) return;
 
+    // The pairwise status checks run exactly as before, but the account-name
+    // update is HOISTED out of them: each pair only reports whether it wants
+    // the account set to the current legal name, and at most ONE update call
+    // fires per run, with a single name chosen across ALL specialist docs.
+    // (Previously each CASE-1 pair fired its own POST /api/account/update-name,
+    // so two pairs — e.g. UK MRCGP + CCT — could race with different names.)
+    var docsWantingUpdate = [];
     specialistDocs.forEach(function (specialistKey) {
       var specDoc = state.qualDocs[specialistKey.key];
-      if (specDoc) crossDocNameCheckPair(specDoc, medDoc);
+      if (specDoc && crossDocNameCheckPair(specDoc, medDoc)) docsWantingUpdate.push(specDoc);
+    });
+    if (!docsWantingUpdate.length) return;
+
+    var currentLegalName = pickCurrentLegalNameAcrossDocs(specialistDocs, medDoc);
+    if (!currentLegalName) return;
+    applyAccountNameOnce(currentLegalName, docsWantingUpdate.concat([medDoc]));
+  }
+
+  // Hoisted from crossDocNameCheckPair: update the account to the current legal
+  // name (no-op if it already matches). This corrects a GP whose account was
+  // created in a former/older name so it reflects their legal name. Called at
+  // most once per crossDocNameCheck run; on failure every involved document
+  // carries the notice, matching the old per-pair tagging.
+  function applyAccountNameOnce(currentLegalName, involvedDocs) {
+    if (getNameMatchLevel(currentLegalName, getProfileName()) === "exact") return; // already correct
+    autoUpdateAccountName(currentLegalName).then(function (updated) {
+      if (!updated) {
+        var m = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
+        involvedDocs.forEach(function (doc) {
+          doc.scanResult = doc.scanResult || {};
+          doc.scanResult.issues = appendIssueOnce(doc.scanResult.issues, m);
+        });
+      }
+      saveState();
+      renderQualDocSlots();
     });
   }
 
+  // Single current legal name across ALL specialist documents: the most
+  // recently dated specialist doc wins (unreadable dates lose to readable
+  // ones; a tie keeps the FIRST specialist doc), then the existing
+  // spec-vs-med-degree rule (pickCurrentLegalName) decides whether the
+  // medical degree's name is, unusually, the more recent one.
+  function pickCurrentLegalNameAcrossDocs(specialistKeys, medDoc) {
+    var bestDoc = null;
+    var bestName = null;
+    var bestDate = null;
+    specialistKeys.forEach(function (k) {
+      var d = state.qualDocs && state.qualDocs[k.key];
+      var name = d && d.scanResult && d.scanResult.nameFound;
+      if (!name) return;
+      var date = parseQualDate(d.scanResult.dateFound);
+      if (!bestDoc) { bestDoc = d; bestName = name; bestDate = date; return; }
+      if (date != null && (bestDate == null || date > bestDate)) { bestDoc = d; bestName = name; bestDate = date; }
+    });
+    if (!bestDoc) return null;
+    var medName = medDoc && medDoc.scanResult && medDoc.scanResult.nameFound;
+    if (!medName) return bestName;
+    return pickCurrentLegalName(bestDoc, medDoc, bestName, medName);
+  }
+
   // The original single-pair check: one specialist certificate vs the primary medical
-  // degree. Statuses on BOTH documents may be updated by each pass.
+  // degree. Statuses on BOTH documents may be updated by each pass. Returns true when
+  // the pair wants the account name set to the current legal name (CASE 1) — the
+  // caller applies that at most once per run, never from inside a pair.
   function crossDocNameCheckPair(specDoc, medDoc) {
     // Both need to be verified or verified_name_pending
     var specOk = specDoc.status === "verified" || specDoc.status === "verified_name_pending";
     var medOk = medDoc.status === "verified" || medDoc.status === "verified_name_pending";
-    if (!specOk || !medOk) return;
+    if (!specOk || !medOk) return false;
 
     var specName = specDoc.scanResult && specDoc.scanResult.nameFound;
     var medName = medDoc.scanResult && medDoc.scanResult.nameFound;
-    if (!specName || !medName) return;
+    if (!specName || !medName) return false;
 
     var profileName = getProfileName();
     var isMatch = function (level) { return level === "exact" || level === "fuzzy"; };
@@ -839,37 +896,20 @@
     // only when both are clearly readable and (unusually) put the medical degree later.
     var currentLegalName = pickCurrentLegalName(specDoc, medDoc, specName, medName);
 
-    // Update the account to the current legal name (no-op if it already matches). This corrects a
-    // GP whose account was created in a former/older name so it reflects their legal name.
-    var applyAccountName = function () {
-      if (getNameMatchLevel(currentLegalName, profileName) === "exact") return; // already correct
-      autoUpdateAccountName(currentLegalName).then(function (updated) {
-        if (!updated) {
-          var m = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
-          specDoc.scanResult = specDoc.scanResult || {};
-          medDoc.scanResult = medDoc.scanResult || {};
-          specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, m);
-          medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, m);
-        }
-        saveState();
-        renderQualDocSlots();
-      });
-    };
-
     // CASE 1 — at least one qualification matches the account name. This is the normal case,
     // INCLUDING a genuine name change: the two certificates may carry DIFFERENT names (the older
     // one in a former/maiden name) and that is fine. Accept both — the certificate carrying the
     // current legal name is "verified", the other is a recorded NAME CHANGE (never rejected,
     // never manual review). The per-document scan already flagged the name change to the server
-    // and the AMC step asks the GP for proof. Then set the account to the current legal name.
+    // and the AMC step asks the GP for proof. The caller then sets the account to the
+    // current legal name (once, across all pairs).
     if (specMatchesAccount || medMatchesAccount) {
       var specIsCurrent = isMatch(getNameMatchLevel(specName, currentLegalName));
       var medIsCurrent = isMatch(getNameMatchLevel(medName, currentLegalName));
       specDoc.status = specIsCurrent ? "verified" : "verified_name_pending";
       medDoc.status = medIsCurrent ? "verified" : "verified_name_pending";
       if (!specIsCurrent || !medIsCurrent) state.accountReviewFlag = true;
-      applyAccountName();
-      return;
+      return true;
     }
 
     // CASE 2 — NEITHER certificate matches the account name, but the two AGREE with each other:
@@ -881,7 +921,7 @@
       specDoc.status = "verified_name_pending";
       medDoc.status = "verified_name_pending";
       state.accountReviewFlag = true;
-      return;
+      return false;
     }
 
     // CASE 3 — neither certificate matches the account AND the two disagree with each other:
@@ -895,6 +935,7 @@
     specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
     medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
     state.accountReviewFlag = true;
+    return false;
   }
 
   // The GP's current legal name = the name on their MOST RECENT qualification. The specialist
@@ -1925,7 +1966,25 @@
     if (navInProgress) return;
     triggerButtonHaptic(14);
     if (!validateStep(currentStep)) return;
-    if (currentStep === TOTAL_STEPS - 1) { submitOnboarding(); return; }
+    if (currentStep === TOTAL_STEPS - 1) {
+      // Final gate: a GP resumed past step 1 (saved currentStep or ?step deep
+      // link) may be missing a document added since (e.g. UK CCT) —
+      // validateStep only checks the CURRENT step, so re-check the docs here.
+      if (!canBypassOnboardingValidation() && !allDocsComplete()) {
+        const docs = COUNTRY_DOCS[state.country] || [];
+        // Same status allow-list as allDocsComplete.
+        const firstIncomplete = docs.find((doc) => {
+          const d = state.qualDocs && state.qualDocs[doc.key];
+          return !(d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested" || d.status === "approved" || d.status === "under_review"));
+        });
+        goToStep(1);
+        showError("qualDocsError", "Please upload and verify all required documents before finishing setup.");
+        if (firstIncomplete) highlightQualSlot(firstIncomplete.key);
+        return;
+      }
+      submitOnboarding();
+      return;
+    }
     navInProgress = true;
     goToStep(currentStep + 1);
     requestAnimationFrame(() => { navInProgress = false; });

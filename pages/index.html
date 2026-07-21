@@ -1032,8 +1032,11 @@
       var flagComplete = false;
       try { flagComplete = localStorage.getItem("gp_onboarding_complete") === "true"; } catch (e) {}
       if (flagComplete) {
-        // Gate class won't normally be set in this case, but clear defensively.
-        document.documentElement.classList.remove("gp-onboarding-gate");
+        // Gate class won't normally be set in this case, but clear defensively
+        // AND tell the shell to restore its preemptively hidden nav chrome —
+        // state-sync may have hydrated the flag after the shell hid it.
+        // Posting when chrome isn't hidden is harmless.
+        releaseGate();
         return;
       }
       // localStorage may not be hydrated yet — check server before redirecting.
