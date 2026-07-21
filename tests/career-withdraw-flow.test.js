@@ -91,7 +91,8 @@ describe('withdrawn roles are hidden from Roles/Saved', () => {
     expect(src).toMatch(/function isActiveApplication\(/);
   });
   it('getFilteredRoles drops withdrawn roles', () => {
-    expect(src).toMatch(/isWithdrawnRole\(/);
+    expect(src).toMatch(/qualifying\s*=[\s\S]{0,200}?!isWithdrawnRole\(/);
+    expect(src).toMatch(/\.filter\(\(role\) => !isWithdrawnRole\(role\.id\)\)/);
   });
 });
 

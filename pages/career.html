@@ -11478,8 +11478,9 @@
         });
       }
       if (savedTabBadgeEl) {
-        savedTabBadgeEl.hidden = careerState.savedJobs.length === 0;
-        savedTabBadgeEl.textContent = String(careerState.savedJobs.length);
+        const visibleSavedCount = careerState.savedJobs.filter((job) => job && !isWithdrawnRole(job.id)).length;
+        savedTabBadgeEl.hidden = visibleSavedCount === 0;
+        savedTabBadgeEl.textContent = String(visibleSavedCount);
       }
       if (offersTabBadgeEl) {
         // The "Offers" badge counts genuine OFFERS only — not every application.
