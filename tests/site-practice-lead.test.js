@@ -3,6 +3,7 @@ import {
   normalizeWebsitePracticeLead,
   buildPracticeProspectRow,
   normalizeFacebookLeadPayload,
+  practiceBlocksNewLead,
 } from '../lib/practice-pipeline.js';
 
 function validWebsiteLead(overrides) {
@@ -72,10 +73,51 @@ describe('normalizeWebsitePracticeLead', () => {
     expect(normalizeWebsitePracticeLead(validWebsiteLead({ dpa: 'yes' })).dpa).toBeUndefined();
   });
 
+  it('requires a phone number', () => {
+    expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_phone: '' }))).toBeNull();
+    expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_phone: '   ' }))).toBeNull();
+  });
+
+  it('rejects a phone number too short to be real, and keeps international ones', () => {
+    expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_phone: '12345' }))).toBeNull();
+    expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_phone: 'call me' }))).toBeNull();
+    expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_phone: '+61 406 281 243' })).contact_phone)
+      .toBe('+61 406 281 243');
+    expect(normalizeWebsitePracticeLead(validWebsiteLead({ contact_phone: '(02) 4365 1234' })).contact_phone)
+      .toBe('(02) 4365 1234');
+  });
+
   it('ignores coordinates that are not inside Australia', () => {
     const lead = normalizeWebsitePracticeLead(validWebsiteLead({ latitude: 51.5, longitude: -0.12 }));
     expect(lead.latitude).toBeUndefined();
     expect(lead.longitude).toBeUndefined();
+  });
+});
+
+describe('practiceBlocksNewLead — which existing practices suppress a new lead', () => {
+  // REGRESSION (2026-07-22): a real submission for "test practice" was
+  // silently swallowed because it name-matched an ARCHIVED row called
+  // "Test Practice". Nothing was created, nothing was emailed, and the
+  // visitor was still told to check their inbox.
+  it('ignores archived and declined practices', () => {
+    expect(practiceBlocksNewLead({ stage: 'archived' })).toBe(false);
+    expect(practiceBlocksNewLead({ stage: 'declined' })).toBe(false);
+    expect(practiceBlocksNewLead({ stage: 'ARCHIVED' })).toBe(false);
+  });
+
+  it('still blocks on a live prospect or an active client', () => {
+    expect(practiceBlocksNewLead({ stage: 'prospective' })).toBe(true);
+    expect(practiceBlocksNewLead({ stage: 'active' })).toBe(true);
+  });
+
+  it('treats a missing stage as live, matching the read-side normalization', () => {
+    expect(practiceBlocksNewLead({})).toBe(true);
+    expect(practiceBlocksNewLead({ stage: '' })).toBe(true);
+  });
+
+  it('is false for nothing at all', () => {
+    expect(practiceBlocksNewLead(null)).toBe(false);
+    expect(practiceBlocksNewLead(undefined)).toBe(false);
   });
 });
 

@@ -64,6 +64,10 @@
     return /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(String(value || "").trim());
   }
 
+  function plausiblePhone(value) {
+    return String(value || "").replace(/\D/g, "").length >= 8;
+  }
+
   function updateRail() {
     if (!railEl) return;
     var segs = railEl.querySelectorAll("[data-pf-seg]");
@@ -273,6 +277,10 @@
     if (n === 3) {
       if (!state.contact_name) return "Please tell us your name.";
       if (!plausibleEmail(state.contact_email)) return "Please enter a valid email address — it's where your link goes.";
+      // Mirrors the server rule (digit count only) so a real number in any
+      // format passes and the visitor gets a helpful message, not a 400.
+      if (!state.contact_phone) return "Please add a phone number so we can call you back.";
+      if (!plausiblePhone(state.contact_phone)) return "That phone number looks too short — please check it.";
       return "";
     }
     return "";

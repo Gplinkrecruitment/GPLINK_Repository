@@ -28572,32 +28572,56 @@ function normalizePracticeNameForMatch(name) {
 async function findExistingPracticeForLead(email, name) {
   var cleanEmail = String(email || '').trim().toLowerCase();
   var cleanName = normalizePracticeNameForMatch(name);
+  var blocks = practicePipeline.practiceBlocksNewLead;
+
+  // Archived/declined rows are history, not clients — they must never
+  // suppress a fresh lead. Several candidates are fetched rather than one,
+  // so a dead row can't hide a live one behind `limit=1`.
+  function pickLive(rows, predicate) {
+    return (Array.isArray(rows) ? rows : []).find(function (p) {
+      return p && blocks(p) && predicate(p);
+    }) || null;
+  }
 
   if (isSupabaseDbConfigured()) {
     if (cleanEmail) {
       var byEmail = await supabaseDbRequest(
         'practices',
-        'select=id,name,stage,contact_email&contact_email=ilike.' + encodeURIComponent(cleanEmail) + '&limit=1'
+        'select=id,name,stage,contact_email,agreement_status,intake_token,metadata&contact_email=ilike.'
+          + encodeURIComponent(cleanEmail) + '&limit=20'
       );
-      if (byEmail.ok && Array.isArray(byEmail.data) && byEmail.data[0]) return byEmail.data[0];
+      if (byEmail.ok) {
+        var emailHit = pickLive(byEmail.data, function () { return true; });
+        if (emailHit) return { practice: emailHit, matchedBy: 'email' };
+      }
     }
     if (cleanName) {
-      var all = await supabaseDbRequest('practices', 'select=id,name,stage,contact_email&limit=2000');
-      if (all.ok && Array.isArray(all.data)) {
-        var hit = all.data.find(function (p) {
-          return normalizePracticeNameForMatch(p && p.name) === cleanName;
+      var all = await supabaseDbRequest(
+        'practices',
+        'select=id,name,stage,contact_email,agreement_status,intake_token,metadata&limit=2000'
+      );
+      if (all.ok) {
+        var nameHit = pickLive(all.data, function (p) {
+          return normalizePracticeNameForMatch(p.name) === cleanName;
         });
-        if (hit) return hit;
+        if (nameHit) return { practice: nameHit, matchedBy: 'name' };
       }
     }
     return null;
   }
 
-  return (dbState.atsPractices || []).find(function (p) {
-    if (!p) return false;
-    if (cleanEmail && String(p.contact_email || '').trim().toLowerCase() === cleanEmail) return true;
-    return !!cleanName && normalizePracticeNameForMatch(p.name) === cleanName;
-  }) || null;
+  var localRows = dbState.atsPractices || [];
+  var localEmail = cleanEmail && pickLive(localRows, function (p) {
+    return String(p.contact_email || '').trim().toLowerCase() === cleanEmail;
+  });
+  if (localEmail) return { practice: localEmail, matchedBy: 'email' };
+
+  var localName = cleanName && pickLive(localRows, function (p) {
+    return normalizePracticeNameForMatch(p.name) === cleanName;
+  });
+  if (localName) return { practice: localName, matchedBy: 'name' };
+
+  return null;
 }
 
 /**
@@ -37556,7 +37580,10 @@ async function handleApi(req, res, pathname) {
 
     const plLead = practicePipeline.normalizeWebsitePracticeLead(plBody);
     if (!plLead) {
-      sendJson(res, 400, { ok: false, error: 'Please give us your practice name and a valid email address.' });
+      sendJson(res, 400, {
+        ok: false,
+        error: 'Please give us your practice name, a valid email address and a phone number.'
+      });
       return;
     }
 
@@ -37601,7 +37628,30 @@ async function handleApi(req, res, pathname) {
     // let anyone probe this form to discover who our clients are.
     const plExisting = await findExistingPracticeForLead(plLead.contact_email, plLead.practice_name);
     if (plExisting) {
-      console.log('[practice-lead] duplicate suppressed, existing practice', plExisting.id);
+      const plDup = plExisting.practice;
+      let plResent = false;
+
+      // The screen promises "check your inbox", so a suppressed submission
+      // must still put something there. Only an EMAIL match qualifies: on a
+      // name-only match the submitter is a stranger to that practice, and
+      // mailing them its intake link would hand over someone else's private
+      // door. Throttled to once an hour so this can't be used as a cannon.
+      if (plExisting.matchedBy === 'email' && String(plDup.agreement_status || '') !== 'signed') {
+        const plLastSent = plDup.metadata && plDup.metadata.intake_email_last_sent_at;
+        const plSentRecently = plLastSent
+          && (Date.now() - new Date(plLastSent).getTime()) < 60 * 60 * 1000;
+        if (!plSentRecently) {
+          try {
+            const plAgain = await sendPracticeIntakeEmail(plDup);
+            plResent = !(plAgain && plAgain.ok === false);
+          } catch (e) {
+            console.error('[practice-lead] duplicate resend failed:', e && e.message);
+          }
+        }
+      }
+
+      console.log('[practice-lead] duplicate by ' + plExisting.matchedBy
+        + ' → practice ' + plDup.id + ', intake email resent=' + plResent);
       await maybeNotifySiteEnquiry(plEnquiryRow);
       sendJson(res, 200, { ok: true });
       return;
