@@ -14,9 +14,11 @@ var BYPASS_LOCK_EMAILS = {
 };
 
 (function () {
+  // Two temporary tester digests are currently active (both expire 2026-09-30).
   // { "<sha256 hex of lowercase email>": "<expiry ISO timestamp>" }
   var TEMPORARY_BYPASS_LOCK_DIGESTS = {
-    "f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59.000Z"
+    "f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59.000Z",
+    "0ddbcc0ad55d9abd429a176c9e1f53e514c1551cce517c4768ff3c0c43bbecf6": "2026-09-30T23:59:59.000Z"
   };
   var DIGEST_MATCH_CACHE_KEY = "gp_bypass_digest_match";
 
@@ -73,8 +75,16 @@ var BYPASS_LOCK_EMAILS = {
     var bypassActive = !!BYPASS_LOCK_EMAILS[email];
     try {
       if (bypassActive) {
-        var previous = localStorage.getItem(introSeenKey);
-        localStorage.setItem(markerKey, JSON.stringify({ email: email, previous: previous, expiresAt: expiresAt }));
+        // Don't overwrite an existing marker for the same email — repeated
+        // activations (gpRefreshBypassDigestMatch is safe to call many times)
+        // would otherwise capture "1" as the pre-bypass value to restore.
+        var existingRaw = localStorage.getItem(markerKey);
+        var existing = null;
+        try { existing = existingRaw ? JSON.parse(existingRaw) : null; } catch (parseErr) {}
+        if (!existing || existing.email !== email) {
+          var previous = localStorage.getItem(introSeenKey);
+          localStorage.setItem(markerKey, JSON.stringify({ email: email, previous: previous, expiresAt: expiresAt }));
+        }
         localStorage.setItem(introSeenKey, "1");
         return;
       }
@@ -89,27 +99,39 @@ var BYPASS_LOCK_EMAILS = {
     } catch (e) {}
   }
 
-  var currentEmail = getCurrentBypassEmail();
-  if (!currentEmail) return;
+  // Runs the digest comparison for the given email (or the current cached one)
+  // and activates the temporary bypass on a match. Idempotent — safe to call
+  // repeatedly; re-activation just redefines the same expiring getter.
+  function refreshBypassDigestMatch(emailOverride) {
+    var currentEmail = String(emailOverride || "").trim().toLowerCase() || getCurrentBypassEmail();
+    if (!currentEmail) return;
 
-  // Sync fast-path: a previous load on this device already matched the digest.
-  try {
-    var cachedRaw = localStorage.getItem(DIGEST_MATCH_CACHE_KEY);
-    if (cachedRaw) {
-      var cached = JSON.parse(cachedRaw);
-      if (cached && cached.email === currentEmail &&
-          Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_DIGESTS, cached.digest)) {
-        activateTemporaryBypass(currentEmail, TEMPORARY_BYPASS_LOCK_DIGESTS[cached.digest]);
-        return;
+    // Sync fast-path: a previous load on this device already matched the digest.
+    try {
+      var cachedRaw = localStorage.getItem(DIGEST_MATCH_CACHE_KEY);
+      if (cachedRaw) {
+        var cached = JSON.parse(cachedRaw);
+        if (cached && cached.email === currentEmail &&
+            Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_DIGESTS, cached.digest)) {
+          activateTemporaryBypass(currentEmail, TEMPORARY_BYPASS_LOCK_DIGESTS[cached.digest]);
+          return;
+        }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
 
-  // Async path: hash the current email and compare against the digest map.
-  sha256Hex(currentEmail).then(function (digest) {
-    if (!digest || !Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_DIGESTS, digest)) return;
-    var expiresAt = TEMPORARY_BYPASS_LOCK_DIGESTS[digest];
-    try { localStorage.setItem(DIGEST_MATCH_CACHE_KEY, JSON.stringify({ email: currentEmail, digest: digest, expiresAt: expiresAt })); } catch (e) {}
-    activateTemporaryBypass(currentEmail, expiresAt);
-  }).catch(function () {});
+    // Async path: hash the current email and compare against the digest map.
+    sha256Hex(currentEmail).then(function (digest) {
+      if (!digest || !Object.prototype.hasOwnProperty.call(TEMPORARY_BYPASS_LOCK_DIGESTS, digest)) return;
+      var expiresAt = TEMPORARY_BYPASS_LOCK_DIGESTS[digest];
+      try { localStorage.setItem(DIGEST_MATCH_CACHE_KEY, JSON.stringify({ email: currentEmail, digest: digest, expiresAt: expiresAt })); } catch (e) {}
+      activateTemporaryBypass(currentEmail, expiresAt);
+    }).catch(function () {});
+  }
+
+  // Exposed so pages can re-run the match once their own /api/auth/session fetch
+  // resolves — on a brand-new browser the profile caches are empty when this
+  // script first runs, so the self-invoke below may find no email yet.
+  try { window.gpRefreshBypassDigestMatch = refreshBypassDigestMatch; } catch (e) {}
+
+  refreshBypassDigestMatch();
 })();

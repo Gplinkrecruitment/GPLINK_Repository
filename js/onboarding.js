@@ -30,9 +30,81 @@
     { code: "NZ", name: "New Zealand", flag: "\u{1F1F3}\u{1F1FF}" },
   ];
 
+  // Every country a GP could plausibly have trained in (UN members + common
+  // others), alphabetical by name. Selecting one of these that is NOT in
+  // COUNTRIES routes to the eligibility waitlist with the exact name pre-filled
+  // — the GP never types their country freehand, so no misspellings reach the
+  // waitlist. Flag emoji are derived from the ISO alpha-2 code (regional
+  // indicator pair), which cannot drift out of sync with the code.
+  const ALL_COUNTRIES = [
+    ["AF", "Afghanistan"], ["AL", "Albania"], ["DZ", "Algeria"], ["AD", "Andorra"],
+    ["AO", "Angola"], ["AG", "Antigua and Barbuda"], ["AR", "Argentina"], ["AM", "Armenia"],
+    ["AU", "Australia"], ["AT", "Austria"], ["AZ", "Azerbaijan"], ["BS", "Bahamas"],
+    ["BH", "Bahrain"], ["BD", "Bangladesh"], ["BB", "Barbados"], ["BY", "Belarus"],
+    ["BE", "Belgium"], ["BZ", "Belize"], ["BJ", "Benin"], ["BT", "Bhutan"],
+    ["BO", "Bolivia"], ["BA", "Bosnia and Herzegovina"], ["BW", "Botswana"], ["BR", "Brazil"],
+    ["BN", "Brunei"], ["BG", "Bulgaria"], ["BF", "Burkina Faso"], ["BI", "Burundi"],
+    ["KH", "Cambodia"], ["CM", "Cameroon"], ["CA", "Canada"], ["CV", "Cape Verde"],
+    ["CF", "Central African Republic"], ["TD", "Chad"], ["CL", "Chile"], ["CN", "China"],
+    ["CO", "Colombia"], ["KM", "Comoros"], ["CR", "Costa Rica"], ["HR", "Croatia"],
+    ["CU", "Cuba"], ["CY", "Cyprus"], ["CZ", "Czech Republic"],
+    ["CD", "Democratic Republic of the Congo"], ["DK", "Denmark"], ["DJ", "Djibouti"],
+    ["DM", "Dominica"], ["DO", "Dominican Republic"], ["EC", "Ecuador"], ["EG", "Egypt"],
+    ["SV", "El Salvador"], ["GQ", "Equatorial Guinea"], ["ER", "Eritrea"], ["EE", "Estonia"],
+    ["SZ", "Eswatini"], ["ET", "Ethiopia"], ["FJ", "Fiji"], ["FI", "Finland"],
+    ["FR", "France"], ["GA", "Gabon"], ["GM", "Gambia"], ["GE", "Georgia"],
+    ["DE", "Germany"], ["GH", "Ghana"], ["GR", "Greece"], ["GD", "Grenada"],
+    ["GT", "Guatemala"], ["GN", "Guinea"], ["GW", "Guinea-Bissau"], ["GY", "Guyana"],
+    ["HT", "Haiti"], ["HN", "Honduras"], ["HK", "Hong Kong"], ["HU", "Hungary"],
+    ["IS", "Iceland"], ["IN", "India"], ["ID", "Indonesia"], ["IR", "Iran"],
+    ["IQ", "Iraq"], ["IE", "Ireland"], ["IL", "Israel"], ["IT", "Italy"],
+    ["CI", "Ivory Coast"], ["JM", "Jamaica"], ["JP", "Japan"], ["JO", "Jordan"],
+    ["KZ", "Kazakhstan"], ["KE", "Kenya"], ["KI", "Kiribati"], ["XK", "Kosovo"],
+    ["KW", "Kuwait"], ["KG", "Kyrgyzstan"], ["LA", "Laos"], ["LV", "Latvia"],
+    ["LB", "Lebanon"], ["LS", "Lesotho"], ["LR", "Liberia"], ["LY", "Libya"],
+    ["LI", "Liechtenstein"], ["LT", "Lithuania"], ["LU", "Luxembourg"], ["MO", "Macau"],
+    ["MG", "Madagascar"], ["MW", "Malawi"], ["MY", "Malaysia"], ["MV", "Maldives"],
+    ["ML", "Mali"], ["MT", "Malta"], ["MH", "Marshall Islands"], ["MR", "Mauritania"],
+    ["MU", "Mauritius"], ["MX", "Mexico"], ["FM", "Micronesia"], ["MD", "Moldova"],
+    ["MC", "Monaco"], ["MN", "Mongolia"], ["ME", "Montenegro"], ["MA", "Morocco"],
+    ["MZ", "Mozambique"], ["MM", "Myanmar"], ["NA", "Namibia"], ["NR", "Nauru"],
+    ["NP", "Nepal"], ["NL", "Netherlands"], ["NZ", "New Zealand"], ["NI", "Nicaragua"],
+    ["NE", "Niger"], ["NG", "Nigeria"], ["KP", "North Korea"], ["MK", "North Macedonia"],
+    ["NO", "Norway"], ["OM", "Oman"], ["PK", "Pakistan"], ["PW", "Palau"],
+    ["PS", "Palestine"], ["PA", "Panama"], ["PG", "Papua New Guinea"], ["PY", "Paraguay"],
+    ["PE", "Peru"], ["PH", "Philippines"], ["PL", "Poland"], ["PT", "Portugal"],
+    ["QA", "Qatar"], ["CG", "Republic of the Congo"], ["RO", "Romania"], ["RU", "Russia"],
+    ["RW", "Rwanda"], ["KN", "Saint Kitts and Nevis"], ["LC", "Saint Lucia"],
+    ["VC", "Saint Vincent and the Grenadines"], ["WS", "Samoa"], ["SM", "San Marino"],
+    ["ST", "Sao Tome and Principe"], ["SA", "Saudi Arabia"], ["SN", "Senegal"],
+    ["RS", "Serbia"], ["SC", "Seychelles"], ["SL", "Sierra Leone"], ["SG", "Singapore"],
+    ["SK", "Slovakia"], ["SI", "Slovenia"], ["SB", "Solomon Islands"], ["SO", "Somalia"],
+    ["ZA", "South Africa"], ["KR", "South Korea"], ["SS", "South Sudan"], ["ES", "Spain"],
+    ["LK", "Sri Lanka"], ["SD", "Sudan"], ["SR", "Suriname"], ["SE", "Sweden"],
+    ["CH", "Switzerland"], ["SY", "Syria"], ["TW", "Taiwan"], ["TJ", "Tajikistan"],
+    ["TZ", "Tanzania"], ["TH", "Thailand"], ["TL", "Timor-Leste"], ["TG", "Togo"],
+    ["TO", "Tonga"], ["TT", "Trinidad and Tobago"], ["TN", "Tunisia"], ["TR", "Turkey"],
+    ["TM", "Turkmenistan"], ["TV", "Tuvalu"], ["UG", "Uganda"], ["UA", "Ukraine"],
+    ["AE", "United Arab Emirates"], ["GB", "United Kingdom"], ["US", "United States"],
+    ["UY", "Uruguay"], ["UZ", "Uzbekistan"], ["VU", "Vanuatu"], ["VA", "Vatican City"],
+    ["VE", "Venezuela"], ["VN", "Vietnam"], ["YE", "Yemen"], ["ZM", "Zambia"],
+    ["ZW", "Zimbabwe"],
+  ].map(function (pair) {
+    var code = pair[0];
+    return {
+      code: code,
+      name: pair[1],
+      flag: String.fromCodePoint(0x1f1e6 + code.charCodeAt(0) - 65, 0x1f1e6 + code.charCodeAt(1) - 65),
+    };
+  });
+
+  const SUPPORTED_COUNTRY_CODES = {};
+  COUNTRIES.forEach(function (c) { SUPPORTED_COUNTRY_CODES[c.code] = true; });
+
   const COUNTRY_DOCS = {
     GB: [
       { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
+      { key: "cct_cert", label: "CCT Certificate", type: "CCT Certificate" },
       { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
     ],
     IE: [
@@ -126,32 +198,39 @@
   const countrySearch = document.getElementById("countrySearch");
   const countryList = document.getElementById("countryList");
 
+  function countryRowHtml(c) {
+    var cls = state.country === c.code ? ' class="selected"' : "";
+    return '<li data-code="' + c.code + '"' + cls + '><span class="country-flag">' + c.flag + "</span> " + escHtml(c.name) + "</li>";
+  }
+
+  // The full list is ~200 rows and re-renders on every keystroke, so this
+  // builds one HTML string and assigns innerHTML once; clicks are handled by a
+  // single delegated listener on the UL (below) — no per-row listeners.
   function renderCountryList(filter) {
     const q = (filter || "").toLowerCase().trim();
-    const filtered = q
-      ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q))
-      : COUNTRIES;
-    countryList.innerHTML = "";
-    filtered.forEach((c) => {
-      const li = document.createElement("li");
-      li.dataset.code = c.code;
-      li.innerHTML = `<span class="country-flag">${c.flag}</span> ${c.name}`;
-      if (state.country === c.code) li.classList.add("selected");
-      li.addEventListener("click", () => selectCountry(c));
-      countryList.appendChild(li);
-    });
+    // Supported countries always come first; the rest of the world follows
+    // alphabetically. With a filter, substring-match across ALL countries.
+    const supported = q ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q)) : COUNTRIES;
+    const others = ALL_COUNTRIES.filter((c) => !SUPPORTED_COUNTRY_CODES[c.code] && (!q || c.name.toLowerCase().includes(q)));
+    let html = "";
+    if (supported.length) {
+      if (!q) html += '<li class="country-group-label">Supported today</li>';
+      html += supported.map(countryRowHtml).join("");
+    }
+    if (others.length) {
+      if (!q) html += '<li class="country-group-label">All countries</li>';
+      html += others.map(countryRowHtml).join("");
+    }
     // Always-visible off-ramp: a GP trained anywhere else is NOT eligible yet —
     // route them to the "Not yet eligible" waitlist instead of a dead end.
-    const liOther = document.createElement("li");
-    liOther.className = "country-not-listed";
-    liOther.id = "countryNotListed";
-    liOther.innerHTML = '<span class="country-flag">\u{1F30E}</span> My country isn’t listed';
-    liOther.addEventListener("click", () => openEligibilityOfframp(countrySearch.value || ""));
-    countryList.appendChild(liOther);
+    html += '<li class="country-not-listed" id="countryNotListed"><span class="country-flag">\u{1F30E}</span> My country isn’t listed</li>';
+    countryList.innerHTML = html;
   }
 
   function selectCountry(c) {
     state.country = c.code;
+    // A confirmed supported pick supersedes any earlier unsupported attempt.
+    if (state.attemptedCountry) delete state.attemptedCountry;
     countrySearch.value = c.name;
     renderCountryList("");
     hideError("countryError");
@@ -163,6 +242,32 @@
     saveState();
     renderQualDocSlots();
   }
+
+  // Unsupported country picked from the dropdown: do NOT set state.country —
+  // instead remember the attempt on the wizard blob (so we know what they
+  // wanted even if they abandon the waitlist form) and route to the off-ramp
+  // with the exact country name locked in (the anti-typo goal).
+  function selectUnsupportedCountry(c) {
+    countrySearch.value = c.name;
+    state.attemptedCountry = c.name;
+    saveState();
+    openEligibilityOfframp(c.name, { locked: true });
+  }
+
+  countryList.addEventListener("click", (e) => {
+    const li = e.target && e.target.closest ? e.target.closest("li") : null;
+    if (!li || !countryList.contains(li) || li.classList.contains("country-group-label")) return;
+    if (li.classList.contains("country-not-listed")) {
+      openEligibilityOfframp(countrySearch.value || "");
+      return;
+    }
+    const code = li.getAttribute("data-code");
+    if (!code) return;
+    const sup = COUNTRIES.find((c) => c.code === code);
+    if (sup) { selectCountry(sup); return; }
+    const other = ALL_COUNTRIES.find((c) => c.code === code);
+    if (other) selectUnsupportedCountry(other);
+  });
 
   countrySearch.addEventListener("input", () => renderCountryList(countrySearch.value));
   countrySearch.addEventListener("focus", () => renderCountryList(countrySearch.value));
@@ -199,22 +304,84 @@
     if (screen) screen.classList.remove("show", "waitlist-submitted");
   }
 
-  function openEligibilityOfframp(countryGuess) {
+  // Cached copy of the session profile written by auth-guard.js (sessionStorage)
+  // — same fallback chain bypass-config.js uses. Covers the race where the GP
+  // reaches the off-ramp before this page's /api/auth/session fetch resolves.
+  function readCachedSessionProfile() {
+    var raw = null;
+    try { raw = sessionStorage.getItem("gp_session_profile_cache"); } catch (e) {}
+    if (!raw) { try { raw = localStorage.getItem("gp_session_profile_cache"); } catch (e) {} }
+    if (!raw) return null;
+    try {
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (e) { return null; }
+  }
+
+  function getAccountEmail() {
+    try {
+      if (window.gpSessionProfile && window.gpSessionProfile.email) return String(window.gpSessionProfile.email).trim();
+    } catch (e) {}
+    var cached = readCachedSessionProfile();
+    if (cached && cached.email) return String(cached.email).trim();
+    try { return String(localStorage.getItem("gp_state_owner") || "").trim(); } catch (e) {}
+    return "";
+  }
+
+  function lockWaitlistInput(input, value) {
+    input.value = value;
+    input.readOnly = true;
+    input.classList.add("input-locked");
+  }
+
+  function unlockWaitlistInput(input) {
+    input.readOnly = false;
+    input.classList.remove("input-locked");
+  }
+
+  // Email always comes from the signed-in account (readonly — it's where we'll
+  // notify them); name prefills from the account profile when we have it.
+  // Re-runs when /api/auth/session resolves (see init) in case the off-ramp
+  // opened before the profile arrived. Readonly (NOT disabled) inputs still
+  // submit their values through the existing handler.
+  function applyWaitlistAccountPrefill() {
+    var emailInput = document.getElementById("waitlistEmail");
+    var nameInput = document.getElementById("waitlistName");
+    var email = getAccountEmail();
+    if (emailInput && email) {
+      lockWaitlistInput(emailInput, email);
+      var hint = document.getElementById("waitlistEmailHint");
+      if (hint) hint.style.display = "block";
+    }
+    var name = getProfileName();
+    // Never clobber a name the GP typed into a still-editable field.
+    if (nameInput && name && (nameInput.readOnly || !nameInput.value.trim())) {
+      lockWaitlistInput(nameInput, name);
+    }
+  }
+
+  function openEligibilityOfframp(countryGuess, opts) {
     const rec = getWaitlistRecord();
     if (rec) { showEligibilityScreen(true); return; }
+    const locked = !!(opts && opts.locked);
     const countryInput = document.getElementById("waitlistCountry");
-    const emailInput = document.getElementById("waitlistEmail");
-    const nameInput = document.getElementById("waitlistName");
-    const profile = window.gpSessionProfile || {};
     const typed = String(countryGuess || "").trim();
-    if (countryInput && !countryInput.value && typed && !COUNTRIES.some((c) => c.name.toLowerCase() === typed.toLowerCase())) {
-      countryInput.value = typed;
+    if (countryInput) {
+      if (locked && typed) {
+        // Opened by picking a country from the dropdown: lock the exact name in.
+        lockWaitlistInput(countryInput, typed);
+      } else {
+        // Opened via "My country isn’t listed": free text stays editable. A
+        // value we locked in on an earlier dropdown pick is stale here — clear
+        // it so the GP's typed guess (below) can take its place.
+        if (countryInput.classList.contains("input-locked")) countryInput.value = "";
+        unlockWaitlistInput(countryInput);
+        if (!countryInput.value && typed && !COUNTRIES.some((c) => c.name.toLowerCase() === typed.toLowerCase())) {
+          countryInput.value = typed;
+        }
+      }
     }
-    if (emailInput && !emailInput.value && profile.email) emailInput.value = profile.email;
-    if (nameInput && !nameInput.value) {
-      const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
-      if (fullName) nameInput.value = fullName;
-    }
+    applyWaitlistAccountPrefill();
     showEligibilityScreen(false);
   }
 
@@ -274,6 +441,13 @@
       credentials: "same-origin",
       body: JSON.stringify({ state: { gp_eligibility_waitlist: null } }),
     }).catch(() => { /* best effort */ });
+    // Don't leave an abandoned unsupported pick sitting in the search box —
+    // restore it to the confirmed supported country (if any) or clear it.
+    const sel = COUNTRIES.find((c) => c.code === state.country);
+    if (countrySearch) {
+      countrySearch.value = sel ? sel.name : "";
+      renderCountryList("");
+    }
     hideEligibilityScreen();
   }
   const waitlistBackBtn = document.getElementById("waitlistBackBtn");
@@ -287,11 +461,13 @@
   let unlimitedRetries = false; // set by server response for whitelisted accounts
 
   function getProfileName() {
-    // Try to get name from session profile
-    if (window.gpSessionProfile) {
-      if (window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
-      if (window.gpSessionProfile.name) return window.gpSessionProfile.name;
-      var fn = (window.gpSessionProfile.firstName || window.gpSessionProfile.first_name || "") + " " + (window.gpSessionProfile.lastName || window.gpSessionProfile.last_name || "");
+    // Try to get name from the session profile; fall back to the cached copy
+    // (auth-guard writes it) when /api/auth/session hasn't resolved yet.
+    var profile = window.gpSessionProfile || readCachedSessionProfile();
+    if (profile) {
+      if (profile.full_name) return profile.full_name;
+      if (profile.name) return profile.name;
+      var fn = (profile.firstName || profile.first_name || "") + " " + (profile.lastName || profile.last_name || "");
       if (fn.trim()) return fn.trim();
     }
     return "";
@@ -372,11 +548,15 @@
   }
 
   function canBypassOnboardingValidation() {
-    // The temporary tester bypass expired on 2026-06-10, so this already always
-    // returned false; the plaintext email has been removed from client code.
-    // If a new temporary bypass is ever needed, add a SHA-256 digest entry in
-    // js/bypass-config.js instead of embedding an email address here.
-    return false;
+    // Digest-gated temporary tester mechanism (js/bypass-config.js): tester
+    // emails ship only as SHA-256 digests mapped to expiry timestamps; on a
+    // match bypass-config defines the plaintext key on window.BYPASS_LOCK_EMAILS
+    // with a getter that returns false once the entry expires — so bypasses
+    // expire automatically with no code change here. No plaintext tester email
+    // is ever embedded in this file.
+    var email = String(getAccountEmail() || "").trim().toLowerCase();
+    if (!email) return false;
+    return !!(window.BYPASS_LOCK_EMAILS && window.BYPASS_LOCK_EMAILS[email]);
   }
 
   function renderQualDocSlots() {
@@ -616,25 +796,93 @@
     });
   }
 
-  // After both docs are scanned, confirm the names align with each other and with the account.
+  // After docs are scanned, confirm the names align with each other and with the account.
+  // Countries can require more than one specialist document (UK: MRCGP + CCT), so each
+  // non-degree document is checked pairwise against the primary medical degree with the
+  // same logic that always applied to the single specialist certificate.
   function crossDocNameCheck() {
     var docs = COUNTRY_DOCS[state.country] || [];
-    var specialistKey = docs.find(function (d) { return d.key !== "primary_med_degree"; });
+    var specialistDocs = docs.filter(function (d) { return d.key !== "primary_med_degree"; });
     var medDegreeKey = docs.find(function (d) { return d.key === "primary_med_degree"; });
-    if (!specialistKey || !medDegreeKey) return;
+    if (!specialistDocs.length || !medDegreeKey) return;
 
-    var specDoc = state.qualDocs[specialistKey.key];
     var medDoc = state.qualDocs[medDegreeKey.key];
-    if (!specDoc || !medDoc) return;
+    if (!medDoc) return;
 
+    // The pairwise status checks run exactly as before, but the account-name
+    // update is HOISTED out of them: each pair only reports whether it wants
+    // the account set to the current legal name, and at most ONE update call
+    // fires per run, with a single name chosen across ALL specialist docs.
+    // (Previously each CASE-1 pair fired its own POST /api/account/update-name,
+    // so two pairs — e.g. UK MRCGP + CCT — could race with different names.)
+    var docsWantingUpdate = [];
+    specialistDocs.forEach(function (specialistKey) {
+      var specDoc = state.qualDocs[specialistKey.key];
+      if (specDoc && crossDocNameCheckPair(specDoc, medDoc)) docsWantingUpdate.push(specDoc);
+    });
+    if (!docsWantingUpdate.length) return;
+
+    var currentLegalName = pickCurrentLegalNameAcrossDocs(specialistDocs, medDoc);
+    if (!currentLegalName) return;
+    applyAccountNameOnce(currentLegalName, docsWantingUpdate.concat([medDoc]));
+  }
+
+  // Hoisted from crossDocNameCheckPair: update the account to the current legal
+  // name (no-op if it already matches). This corrects a GP whose account was
+  // created in a former/older name so it reflects their legal name. Called at
+  // most once per crossDocNameCheck run; on failure every involved document
+  // carries the notice, matching the old per-pair tagging.
+  function applyAccountNameOnce(currentLegalName, involvedDocs) {
+    if (getNameMatchLevel(currentLegalName, getProfileName()) === "exact") return; // already correct
+    autoUpdateAccountName(currentLegalName).then(function (updated) {
+      if (!updated) {
+        var m = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
+        involvedDocs.forEach(function (doc) {
+          doc.scanResult = doc.scanResult || {};
+          doc.scanResult.issues = appendIssueOnce(doc.scanResult.issues, m);
+        });
+      }
+      saveState();
+      renderQualDocSlots();
+    });
+  }
+
+  // Single current legal name across ALL specialist documents: the most
+  // recently dated specialist doc wins (unreadable dates lose to readable
+  // ones; a tie keeps the FIRST specialist doc), then the existing
+  // spec-vs-med-degree rule (pickCurrentLegalName) decides whether the
+  // medical degree's name is, unusually, the more recent one.
+  function pickCurrentLegalNameAcrossDocs(specialistKeys, medDoc) {
+    var bestDoc = null;
+    var bestName = null;
+    var bestDate = null;
+    specialistKeys.forEach(function (k) {
+      var d = state.qualDocs && state.qualDocs[k.key];
+      var name = d && d.scanResult && d.scanResult.nameFound;
+      if (!name) return;
+      var date = parseQualDate(d.scanResult.dateFound);
+      if (!bestDoc) { bestDoc = d; bestName = name; bestDate = date; return; }
+      if (date != null && (bestDate == null || date > bestDate)) { bestDoc = d; bestName = name; bestDate = date; }
+    });
+    if (!bestDoc) return null;
+    var medName = medDoc && medDoc.scanResult && medDoc.scanResult.nameFound;
+    if (!medName) return bestName;
+    return pickCurrentLegalName(bestDoc, medDoc, bestName, medName);
+  }
+
+  // The original single-pair check: one specialist certificate vs the primary medical
+  // degree. Statuses on BOTH documents may be updated by each pass. Returns true when
+  // the pair wants the account name set to the current legal name (CASE 1) — the
+  // caller applies that at most once per run, never from inside a pair.
+  function crossDocNameCheckPair(specDoc, medDoc) {
     // Both need to be verified or verified_name_pending
     var specOk = specDoc.status === "verified" || specDoc.status === "verified_name_pending";
     var medOk = medDoc.status === "verified" || medDoc.status === "verified_name_pending";
-    if (!specOk || !medOk) return;
+    if (!specOk || !medOk) return false;
 
     var specName = specDoc.scanResult && specDoc.scanResult.nameFound;
     var medName = medDoc.scanResult && medDoc.scanResult.nameFound;
-    if (!specName || !medName) return;
+    if (!specName || !medName) return false;
 
     var profileName = getProfileName();
     var isMatch = function (level) { return level === "exact" || level === "fuzzy"; };
@@ -648,37 +896,20 @@
     // only when both are clearly readable and (unusually) put the medical degree later.
     var currentLegalName = pickCurrentLegalName(specDoc, medDoc, specName, medName);
 
-    // Update the account to the current legal name (no-op if it already matches). This corrects a
-    // GP whose account was created in a former/older name so it reflects their legal name.
-    var applyAccountName = function () {
-      if (getNameMatchLevel(currentLegalName, profileName) === "exact") return; // already correct
-      autoUpdateAccountName(currentLegalName).then(function (updated) {
-        if (!updated) {
-          var m = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
-          specDoc.scanResult = specDoc.scanResult || {};
-          medDoc.scanResult = medDoc.scanResult || {};
-          specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, m);
-          medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, m);
-        }
-        saveState();
-        renderQualDocSlots();
-      });
-    };
-
     // CASE 1 — at least one qualification matches the account name. This is the normal case,
     // INCLUDING a genuine name change: the two certificates may carry DIFFERENT names (the older
     // one in a former/maiden name) and that is fine. Accept both — the certificate carrying the
     // current legal name is "verified", the other is a recorded NAME CHANGE (never rejected,
     // never manual review). The per-document scan already flagged the name change to the server
-    // and the AMC step asks the GP for proof. Then set the account to the current legal name.
+    // and the AMC step asks the GP for proof. The caller then sets the account to the
+    // current legal name (once, across all pairs).
     if (specMatchesAccount || medMatchesAccount) {
       var specIsCurrent = isMatch(getNameMatchLevel(specName, currentLegalName));
       var medIsCurrent = isMatch(getNameMatchLevel(medName, currentLegalName));
       specDoc.status = specIsCurrent ? "verified" : "verified_name_pending";
       medDoc.status = medIsCurrent ? "verified" : "verified_name_pending";
       if (!specIsCurrent || !medIsCurrent) state.accountReviewFlag = true;
-      applyAccountName();
-      return;
+      return true;
     }
 
     // CASE 2 — NEITHER certificate matches the account name, but the two AGREE with each other:
@@ -690,7 +921,7 @@
       specDoc.status = "verified_name_pending";
       medDoc.status = "verified_name_pending";
       state.accountReviewFlag = true;
-      return;
+      return false;
     }
 
     // CASE 3 — neither certificate matches the account AND the two disagree with each other:
@@ -704,6 +935,7 @@
     specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
     medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
     state.accountReviewFlag = true;
+    return false;
   }
 
   // The GP's current legal name = the name on their MOST RECENT qualification. The specialist
@@ -1066,6 +1298,7 @@
 
   function getOnboardingDocumentStorageKey(docKey) {
     if (docKey === "primary_med_degree") return "onboarding_primary_med_degree";
+    if (docKey === "cct_cert") return "onboarding_cct_certificate";
     return "onboarding_specialist_qualification";
   }
 
@@ -1075,7 +1308,10 @@
     if (storageKey === "onboarding_primary_med_degree") {
       return (docs.find(function (d) { return d.key === "primary_med_degree"; }) || {}).key || "primary_med_degree";
     }
-    var specialist = docs.find(function (d) { return d.key !== "primary_med_degree"; });
+    if (storageKey === "onboarding_cct_certificate") {
+      return (docs.find(function (d) { return d.key === "cct_cert"; }) || {}).key || null;
+    }
+    var specialist = docs.find(function (d) { return d.key !== "primary_med_degree" && d.key !== "cct_cert"; });
     return specialist ? specialist.key : null;
   }
 
@@ -1086,6 +1322,9 @@
     if (docs.some(function (d) { return d.key === raw; })) return raw;
     if (raw === "primary_medical_degree" || raw === "onboarding_primary_med_degree") {
       return getWizardKeyForStorageKey("onboarding_primary_med_degree", country);
+    }
+    if (raw === "cct_certificate" || raw === "onboarding_cct_certificate") {
+      return getWizardKeyForStorageKey("onboarding_cct_certificate", country);
     }
     if (raw === "specialist_qualification" || raw === "onboarding_specialist_qualification") {
       return getWizardKeyForStorageKey("onboarding_specialist_qualification", country);
@@ -1584,60 +1823,83 @@
     ).join("");
   }
 
-  // ── Button morph (translate + width/padding/font-size) ──
-  // Animates position with translateX and size with real property transitions.
-  // No scaleX/scaleY — avoids text and border-radius distortion.
+  // ── Button morph (WAAPI FLIP: transform + width only) ──
+  // Font-size and padding switch instantly with the class toggle (no per-frame
+  // text reflow) — the label crossfade masks it. The Web Animations API leaves
+  // no inline styles behind, so an interrupted morph can never strand the
+  // button at a wrong size; cancelling always lands on the final class layout.
   var btnRow = nextBtn.parentElement;
-  var flipEase = "cubic-bezier(0.22, 1, 0.36, 1)";
-  var flipDur = "0.55s";
+  var nextBtnLabel = document.getElementById("nextBtnLabel");
+  var morphAnim = null;
 
   function flipNextBtn(applyLayoutChange) {
-    var cs = getComputedStyle(nextBtn);
+    // Capture the CURRENT visual rect (includes any in-flight morph) first.
     var firstRect = nextBtn.getBoundingClientRect();
-    var firstWidth = firstRect.width;
-    var firstPadding = cs.padding;
-    var firstFontSize = cs.fontSize;
+
+    if (morphAnim) {
+      try { morphAnim.cancel(); } catch (e) { /* ignore */ }
+      morphAnim = null;
+    }
 
     nextBtn.classList.add("flipping");
     applyLayoutChange();
-    void nextBtn.offsetWidth;
+
+    if (typeof nextBtn.animate !== "function") {
+      // No WAAPI support: apply the layout change without animating.
+      nextBtn.classList.remove("flipping");
+      return;
+    }
 
     var lastRect = nextBtn.getBoundingClientRect();
-    var lastWidth = lastRect.width;
     var dx = firstRect.left + firstRect.width / 2 - (lastRect.left + lastRect.width / 2);
 
-    // Snap to old state
-    nextBtn.style.transition = "none";
-    nextBtn.style.transform = "translateX(" + dx + "px)";
-    nextBtn.style.width = firstWidth + "px";
-    nextBtn.style.minWidth = "0";
-    nextBtn.style.padding = firstPadding;
-    nextBtn.style.fontSize = firstFontSize;
-
-    void nextBtn.offsetWidth;
-
-    // Animate to new state
-    nextBtn.style.transition = [
-      "transform " + flipDur + " " + flipEase,
-      "width " + flipDur + " " + flipEase,
-      "padding " + flipDur + " " + flipEase,
-      "font-size " + flipDur + " " + flipEase
-    ].join(", ");
-    nextBtn.style.transform = "translateX(0)";
-    nextBtn.style.width = lastWidth + "px";
-    nextBtn.style.padding = "";
-    nextBtn.style.fontSize = "";
+    var anim = nextBtn.animate(
+      [
+        { transform: "translateX(" + dx + "px)", width: firstRect.width + "px", minWidth: "0" },
+        { transform: "translateX(0)", width: lastRect.width + "px", minWidth: "0" }
+      ],
+      { duration: 550, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+    );
+    var done = function () {
+      // Identity check: a cancelled morph must not clobber a newer one.
+      if (morphAnim === anim) {
+        morphAnim = null;
+        nextBtn.classList.remove("flipping");
+      }
+    };
+    anim.onfinish = done;
+    anim.oncancel = done;
+    morphAnim = anim;
   }
 
-  nextBtn.addEventListener("transitionend", function (e) {
-    if (e.propertyName === "transform") {
-      nextBtn.style.transition = "";
-      nextBtn.style.transform = "";
-      nextBtn.style.width = "";
-      nextBtn.style.minWidth = "";
-      nextBtn.classList.remove("flipping");
+  // ── Button label (crossfade, race-free) ────
+  var labelTimers = [];
+  function clearLabelTimers() {
+    while (labelTimers.length) clearTimeout(labelTimers.pop());
+  }
+  function setNextBtnLabel(newLabel, isSubmit, fade) {
+    clearLabelTimers();
+    if (nextBtnLabel.textContent === newLabel) {
+      nextBtnLabel.style.opacity = "";
+      nextBtn.classList.toggle("submit", isSubmit);
+      return;
     }
-  });
+    if (!fade) {
+      nextBtnLabel.style.opacity = "";
+      nextBtnLabel.textContent = newLabel;
+      nextBtn.classList.toggle("submit", isSubmit);
+      return;
+    }
+    // Fade out (~120ms CSS transition), swap, fade back in — well inside the
+    // 550ms morph. Timers are managed so a rapid re-nav can never strand the
+    // label hidden or on the wrong text.
+    nextBtnLabel.style.opacity = "0";
+    labelTimers.push(setTimeout(function () {
+      nextBtnLabel.textContent = newLabel;
+      nextBtn.classList.toggle("submit", isSubmit);
+      nextBtnLabel.style.opacity = "";
+    }, 140));
+  }
 
   // ── Navigation ─────────────────────────────
   function goToStep(step) {
@@ -1684,18 +1946,10 @@
       skipBtn.classList.add("invisible");
     }
 
-    // Button label — swap text mid-slide so it changes during the motion
+    // Button label — crossfade while morphing, instant swap otherwise
     var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
     var isSubmit = step === TOTAL_STEPS - 1;
-    if (nextBtn.textContent !== newLabel) {
-      var delay = needsFlip ? 300 : 0;
-      setTimeout(function () {
-        nextBtn.textContent = newLabel;
-        nextBtn.classList.toggle("submit", isSubmit);
-      }, delay);
-    } else {
-      nextBtn.classList.toggle("submit", isSubmit);
-    }
+    setNextBtnLabel(newLabel, isSubmit, needsFlip);
 
     if (step === 3) {
       buildReview();
@@ -1712,7 +1966,25 @@
     if (navInProgress) return;
     triggerButtonHaptic(14);
     if (!validateStep(currentStep)) return;
-    if (currentStep === TOTAL_STEPS - 1) { submitOnboarding(); return; }
+    if (currentStep === TOTAL_STEPS - 1) {
+      // Final gate: a GP resumed past step 1 (saved currentStep or ?step deep
+      // link) may be missing a document added since (e.g. UK CCT) —
+      // validateStep only checks the CURRENT step, so re-check the docs here.
+      if (!canBypassOnboardingValidation() && !allDocsComplete()) {
+        const docs = COUNTRY_DOCS[state.country] || [];
+        // Same status allow-list as allDocsComplete.
+        const firstIncomplete = docs.find((doc) => {
+          const d = state.qualDocs && state.qualDocs[doc.key];
+          return !(d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested" || d.status === "approved" || d.status === "under_review"));
+        });
+        goToStep(1);
+        showError("qualDocsError", "Please upload and verify all required documents before finishing setup.");
+        if (firstIncomplete) highlightQualSlot(firstIncomplete.key);
+        return;
+      }
+      submitOnboarding();
+      return;
+    }
     navInProgress = true;
     goToStep(currentStep + 1);
     requestAnimationFrame(() => { navInProgress = false; });
@@ -1798,7 +2070,20 @@
         return;
       }
       // Store profile for name matching
-      if (data.profile) window.gpSessionProfile = data.profile;
+      if (data.profile) {
+        window.gpSessionProfile = data.profile;
+        // Re-run the temporary-bypass digest match now that we know the email.
+        // On a brand-new browser bypass-config.js ran before any profile cache
+        // existed, so its self-invoke found no email and matched nothing.
+        window.gpRefreshBypassDigestMatch && window.gpRefreshBypassDigestMatch(String((data.profile && data.profile.email) || "").trim().toLowerCase());
+        // The GP may have opened the eligibility off-ramp before this fetch
+        // resolved (its form is reachable synchronously from the country list).
+        // Re-apply the account email/name prefill now that the profile exists.
+        var offrampScreen = document.getElementById("notEligibleScreen");
+        if (offrampScreen && offrampScreen.classList.contains("show") && !offrampScreen.classList.contains("waitlist-submitted")) {
+          applyWaitlistAccountPrefill();
+        }
+      }
 
       // Already on the eligibility waitlist (country not supported yet)?
       // Show the "we'll be in touch" state instead of the wizard trap.

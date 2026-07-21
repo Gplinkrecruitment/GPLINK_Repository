@@ -2,9 +2,11 @@
 //
 // Onboarding only supports GB/IE/NZ. Any other GP could sign up but was then
 // trapped forever on onboarding step 1 (index.html kept bouncing them back).
-// POST /api/eligibility-waitlist captures {email, country, name?} into
+// POST /api/eligibility-waitlist captures {country, name?} into
 // candidate_leads (source='eligibility_waitlist') and flags the GP's
 // user_state so returning visits show the "we'll be in touch" state.
+// The posted email field is IGNORED — the lead is always keyed to the
+// signed-in session email so a GP can't waitlist an arbitrary address.
 //
 // Boots the REAL server in LOCAL-JSON mode (SUPABASE_URL='') so the stored
 // lead can be asserted straight out of the DB file. Also pins the static
@@ -97,7 +99,8 @@ describe('POST /api/eligibility-waitlist', () => {
 
     const leads = waitlistLeads();
     expect(leads.length).toBe(1);
-    expect(leads[0].email).toBe('dr.patel@example.test');
+    // Posted email is ignored — the lead is keyed to the SESSION email.
+    expect(leads[0].email).toBe(GP_EMAIL);
     expect(leads[0].country).toBe('India');
     expect(leads[0].name).toBe('Dr Asha Patel');
     expect(leads[0].unsubscribed).toBe(false);
@@ -108,7 +111,7 @@ describe('POST /api/eligibility-waitlist', () => {
     expect(String(st.gp_eligibility_waitlist || '')).toContain('India');
   });
 
-  it('is idempotent per email — a second post updates, never duplicates', async () => {
+  it('is idempotent per session email — a second post updates, never duplicates', async () => {
     const r = await req('POST', '/api/eligibility-waitlist', {
       cookie: userCookie(GP_EMAIL),
       body: { email: 'dr.patel@example.test', country: 'Pakistan' }
@@ -121,15 +124,17 @@ describe('POST /api/eligibility-waitlist', () => {
     expect(leads[0].country).toBe('Pakistan'); // refreshed, not duplicated
   });
 
-  it('falls back to the session email when the posted email is invalid', async () => {
+  it('always uses the session email — even a valid posted email is ignored', async () => {
     const r = await req('POST', '/api/eligibility-waitlist', {
       cookie: userCookie('fallback-gp@gplink-test.local'),
-      body: { email: 'not-an-email', country: 'Nigeria' }
+      body: { email: 'someone-else@example.test', country: 'Nigeria' }
     });
     expect(r.status).toBe(200);
     const lead = waitlistLeads().find((l) => l.email === 'fallback-gp@gplink-test.local');
     expect(lead).toBeTruthy();
     expect(lead.country).toBe('Nigeria');
+    // No lead was created for the address typed into the form.
+    expect(waitlistLeads().find((l) => l.email === 'someone-else@example.test')).toBeFalsy();
   });
 
   it('rate-limits repeated posts from the same session', async () => {
