@@ -8,6 +8,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+  <!-- Preload step-0 imagery so the marquee + hero have their real sizes from the first frame -->
+  <link rel="preload" as="image" href="../media/images/onboarding-welcome.png" />
+  <link rel="preload" as="image" href="../media/images/logo-ama.png" />
+  <link rel="preload" as="image" href="../media/images/logo-ecfmg.png" />
+  <link rel="preload" as="image" href="../media/images/logo-amc.png" />
+  <link rel="preload" as="image" href="../media/images/logo-ahpra.png" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -335,6 +341,28 @@
       color: var(--gp-blue-ink);
     }
     .country-list li .country-flag { font-size: 20px; }
+    .country-list li.country-group-label {
+      padding: 8px 14px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--gp-faint);
+      cursor: default;
+      pointer-events: none;
+    }
+    /* Other-country search mode: "← Back" returns to the supported-only view;
+       the hint row is informational only (never clickable). */
+    .country-list li.country-back-row {
+      color: var(--gp-blue-ink);
+      font-weight: 600;
+      border-bottom: 1px solid var(--gp-border-strong);
+    }
+    .country-list li.country-hint-row {
+      color: var(--gp-faint);
+      cursor: default;
+      pointer-events: none;
+    }
 
     /* ── QUAL DOC VERIFICATION CARDS ────────── */
     .qual-doc-slot {
@@ -848,10 +876,12 @@
       padding: 14px 36px;
       border-radius: var(--gp-r-md);
       cursor: pointer;
-      /* ONLY animate box-shadow (+ hover lift). Step position is handled by FLIP inline transform/transition. */
+      /* ONLY animate box-shadow (+ hover lift). The step 0↔1 morph runs via the
+         Web Animations API in onboarding.js, which overrides this transition. */
       transition: box-shadow var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease);
       min-width: 120px;
       text-align: center;
+      white-space: nowrap;
       box-shadow: 0 8px 20px -10px rgba(29, 78, 216, 0.55);
       position: relative;
       overflow: visible;
@@ -862,6 +892,11 @@
       min-width: 90%;
       padding: 20px 48px;
       font-size: 18px;
+    }
+    /* Label span crossfades during the morph (font-size/padding switch instantly) */
+    #nextBtnLabel {
+      display: inline-block;
+      transition: opacity 0.12s ease;
     }
     .btn-next::before,
     .btn-next::after {
@@ -997,6 +1032,17 @@
       text-align: left;
     }
     .waitlist-form .btn-next { width: 100%; margin-top: 4px; }
+    /* Prefilled-from-account (or dropdown-selected) fields: readonly, visually
+       locked. Readonly inputs still submit their values (unlike disabled). */
+    .waitlist-form input.input-locked {
+      background: var(--gp-canvas);
+      color: var(--gp-muted);
+      cursor: default;
+    }
+    .waitlist-form input.input-locked:focus {
+      border-color: var(--gp-border-strong);
+      box-shadow: none;
+    }
     .waitlist-error { display: none; color: var(--red); font-size: 13px; }
     .waitlist-error.show { display: block; }
     .waitlist-back {
@@ -1037,13 +1083,19 @@
     .marquee-track {
       display: flex;
       align-items: center;
-      gap: 48px;
       width: max-content;
       animation: marquee-scroll 22s linear infinite;
+      will-change: transform;
+      transform: translateZ(0);
     }
+    /* Spacing lives on each item (NOT flex gap): with a gap there are only
+       n-1 inter-item gaps, so the -50% keyframe lands half a gap off and the
+       loop visibly jumps every cycle. With margin-right each item is exactly
+       (image + 48px), the track is two identical halves, and -50% is seamless. */
     .marquee-track img {
       height: 100px;
       width: auto;
+      margin-right: 48px;
       opacity: 0.7;
       filter: grayscale(10%);
       flex-shrink: 0;
@@ -1052,6 +1104,9 @@
     @keyframes marquee-scroll {
       0% { transform: translateX(0); }
       100% { transform: translateX(-50%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .marquee-track { animation: none; }
     }
 
     /* ── VERIFY-EMAIL BANNER ──────────────────────
@@ -1147,7 +1202,7 @@ if (window.parent && window.parent !== window) {
     <div class="waitlist-capture" id="waitlistCapture">
       <div class="not-eligible-globe" aria-hidden="true">&#127758;</div>
       <h1>Not yet eligible</h1>
-      <p>GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; leave your details and we'll let you know the moment yours is supported.</p>
+      <p>GP Link currently supports GPs who trained in the United Kingdom, Ireland or New Zealand. We're working on more countries &mdash; confirm your details below and we'll let you know the moment yours is supported.</p>
       <form class="waitlist-form" id="waitlistForm" novalidate>
         <div>
           <label class="field-label" for="waitlistCountry">Country where you trained</label>
@@ -1155,7 +1210,8 @@ if (window.parent && window.parent !== window) {
         </div>
         <div>
           <label class="field-label" for="waitlistEmail">Email</label>
-          <input type="text" id="waitlistEmail" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+          <input type="text" id="waitlistEmail" placeholder="you@example.com" autocomplete="email" inputmode="email" aria-describedby="waitlistEmailHint" />
+          <p class="field-hint" id="waitlistEmailHint" style="display:none;">We'll email you at the address on your GP Link account.</p>
         </div>
         <div>
           <label class="field-label" for="waitlistName">Name (optional)</label>
@@ -1200,7 +1256,7 @@ if (window.parent && window.parent !== window) {
       <!-- STEP 0: Welcome / Intro -->
       <div class="slide active" data-slide="0">
         <div class="slide-illustration gp-reveal gp-reveal-1">
-          <img src="../media/images/onboarding-welcome.png" alt="Doctor with Australia" style="width:220px;height:auto;" />
+          <img src="../media/images/onboarding-welcome.png" alt="Doctor with Australia" width="2000" height="1933" decoding="async" style="width:220px;height:auto;" />
         </div>
         <div class="slide-content gp-reveal gp-reveal-2" style="text-align:center;">
           <h1>Your fastest pathway to practising in Australia</h1>
@@ -1210,14 +1266,14 @@ if (window.parent && window.parent !== window) {
             <div class="partners-label">We work with</div>
             <div class="marquee-wrap">
               <div class="marquee-track">
-                <img src="../media/images/logo-ama.png" alt="AMA" />
-                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" />
-                <img src="../media/images/logo-amc.png" alt="AMC" />
-                <img src="../media/images/logo-ahpra.png" alt="AHPRA" />
-                <img src="../media/images/logo-ama.png" alt="AMA" />
-                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" />
-                <img src="../media/images/logo-amc.png" alt="AMC" />
-                <img src="../media/images/logo-ahpra.png" alt="AHPRA" />
+                <img src="../media/images/logo-ama.png" alt="AMA" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-amc.png" alt="AMC" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-ahpra.png" alt="AHPRA" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-ama.png" alt="AMA" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-amc.png" alt="AMC" width="1080" height="492" decoding="async" />
+                <img src="../media/images/logo-ahpra.png" alt="AHPRA" width="1080" height="492" decoding="async" />
               </div>
             </div>
           </div>
@@ -1445,13 +1501,14 @@ if (window.parent && window.parent !== window) {
       <div class="btn-row intro-center">
         <button class="back-btn" id="backBtn" aria-label="Go to previous step">Previous</button>
         <button class="btn-skip invisible" id="skipBtn">SKIP</button>
-        <button class="btn-next intro-size" id="nextBtn">Get Started</button>
+        <button class="btn-next intro-size" id="nextBtn"><span id="nextBtnLabel">Get Started</span></button>
       </div>
     </div>
   </div>
 
+  <script src="/js/bypass-config.js?v=20260722b"></script>
   <script src="../js/qualification-camera.js?v=20260614a"></script>
-  <script src="../js/onboarding.js?v=20260720a"></script>
+  <script src="../js/onboarding.js?v=20260722b"></script>
   <script>
   // ── Verify-email banner ──────────────────────────────────────────────
   // Self-contained on purpose: it only reads /api/auth/email-verification and

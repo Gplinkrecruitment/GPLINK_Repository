@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>MyIntealth - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
-  <script src="/js/bypass-config.js?v=20260702a"></script>
+  <script src="/js/bypass-config.js?v=20260722b"></script>
   <script src="/js/auth-guard.js?v=20260706a" defer></script>
   <script src="/js/state-sync.js?v=20260711a" defer></script>
   <script src="/js/updates-sync.js?v=20260707b" defer></script>
@@ -1180,7 +1180,7 @@
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://applicant.myintealth.app/s/";
-    const ONBOARDING_DOWNLOAD_KEYS = ["onboarding_specialist_qualification", "onboarding_primary_med_degree"];
+    const ONBOARDING_DOWNLOAD_KEYS = ["onboarding_specialist_qualification", "onboarding_cct_certificate", "onboarding_primary_med_degree"];
 
     // Internal stages (keep waiting_verification in completed state for backward compat only)
     const STAGES = ["create_account", "account_establishment", "upload_qualifications", "verification_issued"];

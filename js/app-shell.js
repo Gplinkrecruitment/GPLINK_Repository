@@ -1239,6 +1239,24 @@
 
   var chromeHidden = false;
 
+  // Preemptive boot hide: a user without the onboarding-complete flag is
+  // about to see index.html's onboarding gateway (spinner → redirect), so
+  // hide the nav chrome up front instead of letting it flash. It is a guess,
+  // resolved one of three ways: index.html posts gp-shell-show-chrome once
+  // the server confirms completion (or on error), onboarding keeps chrome
+  // hidden via its own gp-shell-hide-chrome, or navigating to any other
+  // route clears the guess in navigateTo (deep links must not strand a
+  // hidden nav).
+  var chromePreemptiveHide = false;
+  try {
+    if (localStorage.getItem("gp_onboarding_complete") !== "true") {
+      chromeHidden = true;
+      chromePreemptiveHide = true;
+      if (mobileNavEl) mobileNavEl.style.display = "none";
+      if (desktopHostEl) desktopHostEl.style.display = "none";
+    }
+  } catch (e) { /* localStorage unavailable — leave chrome visible */ }
+
   function navigateTo(input, options) {
     var routeUrl = resolveRouteUrlForNavigation(input);
     var opts = options || {};
@@ -1260,14 +1278,30 @@
     var isOnboarding = route && route.indexOf("/pages/onboarding") === 0;
     if (isOnboarding) {
       chromeHidden = true;
+      chromePreemptiveHide = false;
       if (mobileNavEl) mobileNavEl.style.display = "none";
       if (desktopHostEl) desktopHostEl.style.display = "none";
+    }
+
+    // The preemptive boot hide (see chromePreemptiveHide) only applies while
+    // heading to index — which resolves it via gp-shell-show-chrome — or to
+    // onboarding itself. Any other route (e.g. a deep link on a fresh
+    // device) means the guess was wrong: restore chrome immediately so the
+    // nav can't get stuck hidden on a page that never posts show-chrome.
+    var isIndexRoute = !!route && (route === "/pages/index" ||
+      route.indexOf("/pages/index?") === 0 || route.indexOf("/pages/index#") === 0);
+    if (chromePreemptiveHide && !isOnboarding && !isIndexRoute) {
+      chromePreemptiveHide = false;
+      chromeHidden = false;
+      if (mobileNavEl) mobileNavEl.style.display = "";
+      if (desktopHostEl) desktopHostEl.style.display = "";
     }
 
     // Restore chrome if a child page hid it — but only when navigating
     // away from the page that hid it
     if (chromeHidden && !isOnboarding && currentRoute && route !== currentRoute) {
       chromeHidden = false;
+      chromePreemptiveHide = false;
       if (mobileNavEl) mobileNavEl.style.display = "";
       if (desktopHostEl) desktopHostEl.style.display = "";
     }
@@ -1692,12 +1726,14 @@
     // Child pages can hide/show the shell chrome (nav bars)
     if (event.data.type === "gp-shell-hide-chrome") {
       chromeHidden = true;
+      chromePreemptiveHide = false; // explicit hide supersedes the boot guess
       if (mobileNavEl) mobileNavEl.style.display = "none";
       if (desktopHostEl) desktopHostEl.style.display = "none";
       return;
     }
     if (event.data.type === "gp-shell-show-chrome") {
       chromeHidden = false;
+      chromePreemptiveHide = false;
       if (mobileNavEl) mobileNavEl.style.display = "";
       if (desktopHostEl) desktopHostEl.style.display = "";
       return;

@@ -3,16 +3,36 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" /><title>Dashboard - GP Link</title>
+  <script>try{if(localStorage.getItem("gp_onboarding_complete")!=="true"){document.documentElement.classList.add("gp-onboarding-gate");}}catch(e){}</script>
+  <style>
+    /* Pre-paint onboarding gate: shows a clean spinner instead of flashing the
+       dashboard while the end-of-body checkOnboarding script asks the server.
+       Hardcoded hex on purpose (#f4f6fb = --gp-canvas, #2563eb = --gp-blue,
+       #d6e2fb = --gp-blue-border) — external token CSS has not loaded yet. */
+    html.gp-onboarding-gate body { visibility: hidden; }
+    html.gp-onboarding-gate::before {
+      content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 2147483646; background: #f4f6fb;
+    }
+    html.gp-onboarding-gate::after {
+      content: ""; position: fixed; top: 50%; left: 50%;
+      width: 40px; height: 40px; margin: -20px 0 0 -20px;
+      border: 3px solid #d6e2fb; border-top-color: #2563eb; border-radius: 50%;
+      z-index: 2147483647;
+      animation: gp-onboarding-gate-spin 0.8s linear infinite;
+    }
+    @keyframes gp-onboarding-gate-spin { to { transform: rotate(360deg); } }
+  </style>
   <script src="../js/native-bridge.js?v=20260707a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
-  <script src="../js/bypass-config.js?v=20260702a"></script>
-  <script src="../js/journey-stages.js?v=20260711a"></script>
+  <script src="../js/bypass-config.js?v=20260722b"></script>
+  <script src="../js/journey-stages.js?v=20260722c"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
-  <script src="/js/gp-coach.js?v=20260711a" defer></script>
-  <script src="/js/gp-walkthrough-state.js?v=20260711a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260711b" defer></script>
+  <script src="/js/gp-coach.js?v=20260722d" defer></script>
+  <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
   <script src="../js/updates-sync.js?v=20260707b" defer></script>
   <script src="/js/career-home-card.js?v=20260709a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
@@ -994,24 +1014,53 @@
   </div>
 
   <script>
-    // Redirect new users to onboarding if they haven't completed setup
+    // Redirect new users to onboarding if they haven't completed setup.
+    // The matching pre-paint gate (html.gp-onboarding-gate: hidden body +
+    // canvas background + spinner) is added at the very top of <head> before
+    // any CSS loads, so the dashboard never flashes while we check.
     (function checkOnboarding() {
-      if (localStorage.getItem("gp_onboarding_complete") === "true") return;
-      // Hide page content while checking — prevents flash of dashboard before onboarding
-      document.documentElement.style.visibility = "hidden";
-      // localStorage may not be hydrated yet — check server before redirecting
-      fetch("/api/state", { credentials: "same-origin" })
+      function releaseGate() {
+        document.documentElement.classList.remove("gp-onboarding-gate");
+        // The app shell preemptively hides its nav chrome for users without
+        // the completion flag — tell it to bring the nav back.
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: "gp-shell-show-chrome" }, window.location.origin);
+          }
+        } catch (e) { /* no parent shell to notify */ }
+      }
+      var flagComplete = false;
+      try { flagComplete = localStorage.getItem("gp_onboarding_complete") === "true"; } catch (e) {}
+      if (flagComplete) {
+        // Gate class won't normally be set in this case, but clear defensively
+        // AND tell the shell to restore its preemptively hidden nav chrome —
+        // state-sync may have hydrated the flag after the shell hid it.
+        // Posting when chrome isn't hidden is harmless.
+        releaseGate();
+        return;
+      }
+      // localStorage may not be hydrated yet — check server before redirecting.
+      // ~8s timeout so a hung request can't strand the spinner forever.
+      var controller = typeof AbortController === "function" ? new AbortController() : null;
+      var timer = controller ? setTimeout(function () { controller.abort(); }, 8000) : null;
+      fetch("/api/state", { credentials: "same-origin", signal: controller ? controller.signal : undefined })
         .then(function (r) { return r.json(); })
         .then(function (d) {
+          if (timer) clearTimeout(timer);
           var s = d && d.state && typeof d.state === 'object' ? d.state : {};
           if (s.gp_onboarding_complete) {
-            localStorage.setItem("gp_onboarding_complete", "true");
-            document.documentElement.style.visibility = "";
+            try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) {}
+            releaseGate();
           } else {
+            // Leave the gate up — the spinner holds until onboarding paints,
+            // which is the intended "gateway loading" look.
             window.location.replace("onboarding");
           }
         })
-        .catch(function () { document.documentElement.style.visibility = ""; });
+        .catch(function () {
+          if (timer) clearTimeout(timer);
+          releaseGate(); // fail open — never trap the user on a spinner
+        });
     })();
     // Canonical GP journey stages (js/journey-stages.js). Commencement is
     // currently VAULTED there, so the GP sees 6 stages and a GP through PBS &
@@ -1514,7 +1563,13 @@
     }
 
     function hasCareerSecured() {
+      // Logic lives in js/journey-stages.js (GPJourneyStages.hasCareerSecured) so
+      // the app-shell walkthrough reads the exact same placement signal.
       var careerState = parseStorage(CAREER_STATE_KEY);
+      if (window.GPJourneyStages && window.GPJourneyStages.hasCareerSecured) {
+        return window.GPJourneyStages.hasCareerSecured(careerState);
+      }
+      // Fallback (journey-stages.js failed to load): same checks, inlined.
       if (!careerState) return false;
       if (careerState.career_secured === true || careerState.secured === true) return true;
       var applications = Array.isArray(careerState.applications) ? careerState.applications : [];
@@ -1535,7 +1590,9 @@
       const docs = parseStorage(DOC_KEY);
       const prepared = parseStorage(PREPARED_DOCS_KEY);
 
-      var epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      var epicDone = window.GPJourneyStages && window.GPJourneyStages.isEpicDone
+        ? window.GPJourneyStages.isEpicDone(epic)
+        : !!(epic && epic.completed && epic.completed.verification_issued === true);
       const epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
       var epicCurrentLabel = epicStageLabels[epicStage] || epicStageLabels.create_account;
 
@@ -1704,6 +1761,7 @@
 
         const el = document.createElement("div");
         el.className = `journey-step ${stateClass} ${isOpen ? "open" : ""}`.trim();
+        el.setAttribute("data-journey-step", step.key); // stable hook for the walkthrough pointer
 
         const pillClass = step.done ? "done" : step.locked ? "locked" : "current";
         const pillText = step.done ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";

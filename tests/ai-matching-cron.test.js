@@ -360,7 +360,7 @@ describe('GET /api/cron/match-lifecycle — reminder pass + isolation + idempote
     const reminderEmail = resendCalls[0].body;
     // Task 2 (2026-07-11 nudges plan) verbatim subject: names the practice,
     // not the city.
-    expect(reminderEmail.subject).toBe('24 hours left — Coral Coast Family Practice is holding your spot');
+    expect(reminderEmail.subject).toBe('24 hours left, Coral Coast Family Practice is holding your spot');
     expect(reminderEmail.to).toEqual([REMIND_GP.email]);
   });
 

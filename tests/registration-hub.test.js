@@ -4,8 +4,8 @@ const { buildSenderDisplayName, resolveSender, isHubInbox } = pkg;
 
 describe('buildSenderDisplayName', () => {
   it('appends the GP Link suffix when a name is given', () => {
-    expect(buildSenderDisplayName('Hazel')).toBe('Hazel — GP Link');
-    expect(buildSenderDisplayName('  Smith Miller ')).toBe('Smith Miller — GP Link');
+    expect(buildSenderDisplayName('Hazel')).toBe('Hazel, GP Link');
+    expect(buildSenderDisplayName('  Smith Miller ')).toBe('Smith Miller, GP Link');
   });
   it('falls back to the generic name when empty/null', () => {
     expect(buildSenderDisplayName('')).toBe('GP Link Registration');
@@ -24,7 +24,7 @@ describe('resolveSender', () => {
   });
   it('hub ON → hub mailbox + RSO display name', () => {
     expect(resolveSender({ hubEmail: 'registration@mygplink.com.au', rsoEmail: 'hazel@mygplink.com.au', rsoName: 'Hazel', fallback: 'hazel@mygplink.com.au' }))
-      .toEqual({ from: 'registration@mygplink.com.au', fromName: 'Hazel — GP Link' });
+      .toEqual({ from: 'registration@mygplink.com.au', fromName: 'Hazel, GP Link' });
   });
   it('hub ON + no RSO name → hub mailbox + generic name', () => {
     expect(resolveSender({ hubEmail: 'registration@mygplink.com.au', rsoEmail: '', rsoName: '', fallback: 'hazel@mygplink.com.au' }))

@@ -116,12 +116,42 @@
     return null;
   }
 
+  // Pure "has this GP secured a placement?" check over a parsed gp_career_state
+  // blob (localStorage key "gp_career_state", synced via state-sync). Single
+  // source of truth shared by pages/index.html (journey snapshot) and
+  // js/gp-walkthrough-shell.js (post-tour "start here" pointer branch).
+  function hasCareerSecured(careerState) {
+    if (!careerState || typeof careerState !== "object") return false;
+    if (careerState.career_secured === true || careerState.secured === true) return true;
+    var applications = Array.isArray(careerState.applications) ? careerState.applications : [];
+    for (var i = 0; i < applications.length; i++) {
+      var app = applications[i];
+      if (!app || typeof app !== "object") continue;
+      if (app.isPlacementSecured === true) return true;
+      var status = String(app.rawStatus || app.status || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      if (status === "secured" || status === "placement_secured" || status === "practice_secured") return true;
+    }
+    return false;
+  }
+
+  // Pure MyIntealth/EPIC completion check over a parsed gp_epic_progress blob —
+  // the same base signal pages/index.html derives epicDone from. Fail-closed:
+  // anything malformed reads as "not done". (The dashboard can additionally
+  // force epicDone via the admin stage override; consumers that need that
+  // nuance should also check the RENDERED journey row state.)
+  function isEpicDone(epicProgress) {
+    return !!(epicProgress && typeof epicProgress === "object"
+      && epicProgress.completed && epicProgress.completed.verification_issued === true);
+  }
+
   window.GPJourneyStages = {
     STAGES: VISIBLE_STAGES,
     ALL_STAGES: STAGES,
     VAULTED: VAULTED,
     LOCK_COPY: LOCK_COPY,
     getStageStates: getStageStates,
-    findStage: findStage
+    findStage: findStage,
+    hasCareerSecured: hasCareerSecured,
+    isEpicDone: isEpicDone
   };
 })();

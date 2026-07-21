@@ -1739,9 +1739,9 @@ async function notifyGpDocumentDelivered(userId, docKey, fileName) {
     var label = _deliveredDocLabel(docKey, fileName);
     var deepLink = APP_BASE_URL + '/pages/ahpra.html?doc=' + encodeURIComponent(String(docKey || ''));
     await sendGpNotificationEmail(userId,
-      label + ' added to your documents — GP Link',
+      label + ' added to your documents, GP Link',
       'A new document is ready, {{name}}',
-      'Your ' + label + ' has been added to your GP Link account by our team. You can view and download it any time from your documents — just tap the button below and it will take you straight there.',
+      'Your ' + label + ' has been added to your GP Link account by our team. You can view and download it any time from your documents, just tap the button below and it will take you straight there.',
       'Open Document',
       deepLink,
       'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
@@ -6583,6 +6583,7 @@ const INSTITUTION_DOCUMENT_KEYS = new Set(
 const OFFER_DOCUMENT_KEYS = new Set(['offer_contract']);
 const ONBOARDING_DOCUMENT_KEYS = new Set([
   'onboarding_specialist_qualification',
+  'onboarding_cct_certificate',
   'onboarding_primary_med_degree'
 ]);
 const ACCOUNT_CAREER_DOCUMENT_COUNTRY = 'AU';
@@ -8281,13 +8282,13 @@ async function sendOwnerDigestEmail(opts) {
 
   var odSendRes = await sendEmail({
     to: GP_OWNER_EMAIL,
-    subject: 'GP Link weekly digest — week of ' + weekKey,
+    subject: 'GP Link weekly digest, week of ' + weekKey,
     html: buildCareerEmailHtml({
       title: 'Your weekly GP Link digest',
       bodyHtml: odBodyHtml,
       ctaText: 'View full dashboard',
       ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
-      footer: 'Operational metrics only — financials live in Xero. Sent automatically once a week; use the dashboard&rsquo;s &ldquo;Send me the digest now&rdquo; button for an on-demand copy.'
+      footer: 'Operational metrics only, financials live in Xero. Sent automatically once a week; use the dashboard&rsquo;s &ldquo;Send me the digest now&rdquo; button for an on-demand copy.'
     }),
     category: 'transactional'
   });
@@ -8534,7 +8535,7 @@ async function sendErrorDigestEmail(opts) {
       bodyHtml: edBodyHtml,
       ctaText: 'Open the Technical tab',
       ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
-      footer: 'Sent once a day, and only when there is something to report. Full detail — including the technical stack traces and the resolve/ignore buttons — lives in the CEO dashboard’s Technical tab.'
+      footer: 'Sent once a day, and only when there is something to report. Full detail, including the technical stack traces and the resolve/ignore buttons, lives in the CEO dashboard’s Technical tab.'
     }),
     category: 'transactional'
   });
@@ -8949,7 +8950,7 @@ async function sendErrorFixProposalEmail(opts) {
 
   const sendRes = await sendEmail({
     to: GP_OWNER_EMAIL,
-    subject: 'GP Link — ' + ids.length + ' fix' + (ids.length === 1 ? '' : 'es') + ' ready for your approval',
+    subject: 'GP Link, ' + ids.length + ' fix' + (ids.length === 1 ? '' : 'es') + ' ready for your approval',
     html: buildCareerEmailHtml({
       title: ids.length === 1 ? 'A fix is ready for your approval' : ids.length + ' fixes are ready for your approval',
       bodyHtml: bodyHtml,
@@ -10274,8 +10275,8 @@ async function sendPepWaitlistConfirmation(row) {
         html: '<p>Hi ' + escHtml(firstName) + ',</p>'
           + '<p>Thanks for your interest. Because your qualification predates the expedited specialist pathway cutoff, you qualify for the <strong>PEP (Substantially Comparable) pathway</strong>.</p>'
           + '<p>We currently only facilitate the Expedited Specialist Pathway, but we\'re opening the app to the PEP pathway <strong>within the next 30 days</strong>. You\'re now on the waitlist and we\'ll message you the moment it\'s available.</p>'
-          + '<p>— The GP Link Team</p>',
-        text: 'Hi ' + firstName + ', you\'re on the GP Link PEP (Substantially Comparable) pathway waitlist. We\'re opening this pathway within the next 30 days and will contact you the moment it\'s available. — GP Link'
+          + '<p>, The GP Link Team</p>',
+        text: 'Hi ' + firstName + ', you\'re on the GP Link PEP (Substantially Comparable) pathway waitlist. We\'re opening this pathway within the next 30 days and will contact you the moment it\'s available. | GP Link'
       });
     } catch (e) { console.error('[PEP] Email confirm failed:', e.message); }
   }
@@ -10296,9 +10297,9 @@ async function sendPepLaunchBroadcast(row) {
         to: row.email,
         subject: 'The PEP pathway is now open',
         html: '<p>Hi ' + escHtml(firstName) + ',</p>'
-          + '<p>Great news — the <strong>PEP (Substantially Comparable) pathway</strong> is now open on GP Link. You can sign in and continue your application.</p>'
-          + '<p><a href="https://app.mygplink.com.au">Open GP Link</a></p><p>— The GP Link Team</p>',
-        text: 'Hi ' + firstName + ', the GP Link PEP pathway is now open. Sign in to continue: https://app.mygplink.com.au — GP Link'
+          + '<p>Great news, the <strong>PEP (Substantially Comparable) pathway</strong> is now open on GP Link. You can sign in and continue your application.</p>'
+          + '<p><a href="https://app.mygplink.com.au">Open GP Link</a></p><p>, The GP Link Team</p>',
+        text: 'Hi ' + firstName + ', the GP Link PEP pathway is now open. Sign in to continue: https://app.mygplink.com.au, GP Link'
       });
     } catch (e) { console.error('[PEP] launch email failed:', e.message); }
   }
@@ -10709,7 +10710,7 @@ async function sendOnboardingNudgeEmail(row, stepIndex, stepsLeft) {
     text: copy.body + '\n\nContinue: ' + ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
     // List-Unsubscribe-Post (RFC 8058) tells Gmail/Yahoo's native "Unsubscribe"
     // affordance to POST to the List-Unsubscribe URL instead of just showing a
-    // link — handled by the POST branch on /api/onboarding-reminders/unsubscribe,
+    // link, handled by the POST branch on /api/onboarding-reminders/unsubscribe,
     // which reads u/t from the URL's own query params.
     headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
   });
@@ -12903,7 +12904,9 @@ function getSessionEmail(session) {
 }
 
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
-  'smithmiller1234@gmail.com': '2026-09-30T23:59:59.000Z'
+  'smithmiller1234@gmail.com': '2026-09-30T23:59:59.000Z',
+  'khaleedmahmoudcrypto1211@gmail.com.au': '2026-09-30T23:59:59.000Z',
+  'khaleedmahmoudcrypto1211@gmail.com': '2026-09-30T23:59:59.000Z'
 };
 
 function isBypassLockEmail(email) {
@@ -20299,7 +20302,7 @@ async function handleScheduledCallFailure(call, kind, opts) {
     if (gpPhone) await sendDoubleTickZoomCallInvite(gpPhone, gpFirstName, call.stage, patch.calendly_booking_url);
     if (gpEmail) await sendEmail(Object.assign({
       to: gpEmail,
-      subject: 'Please re-book your ' + stageDisplay + ' Zoom call — GP Link',
+      subject: 'Please re-book your ' + stageDisplay + ' Zoom call, GP Link',
       html: buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, patch.calendly_booking_url, call.meeting_reason)
     }, buildRsoEmailFromOpts(rso)));
   }
@@ -21960,7 +21963,7 @@ async function sendConsultMagicLinkEmail(row) {
     'Your details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.';
   return sendEmail({
     to: row.email,
-    subject: 'Ready when you are — book your free GP Link call',
+    subject: 'Ready when you are, book your free GP Link call',
     html: buildCareerEmailHtml({
       title: 'Your free call is ready to book',
       body,
@@ -22264,7 +22267,7 @@ async function maybeNotifySiteEnquiry(row) {
     const safeMessage = escapeHtml(row.message);
     await sendEmail({
       to: notifyTo,
-      subject: `New ${row.kind} enquiry — ${row.name}`,
+      subject: `New ${row.kind} enquiry, ${row.name}`,
       html: `<p>New website enquiry (<strong>${safeKind}</strong>) from ${safeName} &lt;${safeEmail}&gt;.</p>` +
         (row.practice_name ? `<p>Practice: ${safePracticeName}</p>` : '') +
         (row.phone ? `<p>Phone: ${safePhone}</p>` : '') +
@@ -26104,7 +26107,8 @@ var QUALIFICATION_DOC_KEYS = new Set([
   // receives onboarding qualification uploads under these keys, so they must take
   // the qualification branch — otherwise a flagged onboarding cert would also get
   // a generic doc_review task (a cross-type duplicate of the flagged_doc task).
-  'onboarding_primary_med_degree', 'onboarding_specialist_qualification'
+  'onboarding_primary_med_degree', 'onboarding_specialist_qualification',
+  'onboarding_cct_certificate'
 ]);
 
 function getDocumentLabelForKey(key) {
@@ -26134,6 +26138,8 @@ function getDocumentLabelForKey(key) {
     confirmation_of_training: 'Confirmation of Training',
     specialist_qualification: 'Specialist Qualification',
     onboarding_specialist_qualification: 'Specialist Qualification',
+    cct_certificate: 'CCT Certificate',
+    onboarding_cct_certificate: 'CCT Certificate',
     onboarding_primary_med_degree: 'Primary Medical Degree'
   };
   return labels[normalizedKey] || '';
@@ -26160,7 +26166,12 @@ function canonicalQualKey(key) {
     micgp_cert: 'specialist_qualification',
     frnzcgp_cert: 'specialist_qualification',
     cscst_cert: 'specialist_qualification',
-    onboarding_specialist_qualification: 'specialist_qualification'
+    onboarding_specialist_qualification: 'specialist_qualification',
+    // UK CCT: its own canonical key (NOT specialist_qualification — the UK collects
+    // BOTH an MRCGP and a CCT during onboarding, and collapsing them would make one
+    // overwrite/dedupe the other in review + My Documents).
+    cct_cert: 'cct_certificate',
+    onboarding_cct_certificate: 'cct_certificate'
   };
   return map[k] || key;
 }
@@ -26169,7 +26180,8 @@ function canonicalQualKey(key) {
 var ONBOARDING_QUAL_KEYS = new Set([
   'primary_med_degree', 'onboarding_primary_med_degree', 'primary_medical_degree',
   'mrcgp_cert', 'micgp_cert', 'frnzcgp_cert', 'cscst_cert',
-  'onboarding_specialist_qualification', 'specialist_qualification'
+  'onboarding_specialist_qualification', 'specialist_qualification',
+  'cct_cert', 'onboarding_cct_certificate', 'cct_certificate'
 ]);
 
 // Recognises any qualification document key across all capture-flow spellings.
@@ -26188,6 +26200,7 @@ function isQualificationDocKey(key) {
 var CERTIFICATION_REQUIRED_DOC_KEYS = new Set([
   'primary_medical_degree', 'onboarding_primary_med_degree',
   'specialist_qualification', 'onboarding_specialist_qualification',
+  'cct_certificate', 'onboarding_cct_certificate',
   'mrcgp', 'mrcgp_certified', 'cct', 'cct_certified',
   'micgp', 'micgp_certified', 'cscst', 'cscst_certified', 'frnzcgp', 'frnzcgp_certified'
 ]);
@@ -26676,7 +26689,7 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
         // create a "Review uploaded …" doc_review task. (Non-onboarding prepared-doc
         // uploads fall through to the existing doc_review pipeline so the RSO still
         // reviews those.)
-        if (documentKey === 'onboarding_primary_med_degree' || documentKey === 'onboarding_specialist_qualification') {
+        if (documentKey === 'onboarding_primary_med_degree' || documentKey === 'onboarding_specialist_qualification' || documentKey === 'onboarding_cct_certificate') {
           await autoCloseDocReviewTask(userId, documentKey);
           return;
         }
@@ -28250,9 +28263,9 @@ async function sendWelcomeEmail(userId) {
 // 2. Onboarding Complete
 async function sendOnboardingCompleteEmail(userId) {
   await sendGpNotificationEmail(userId,
-    'Profile Complete — GP Link',
+    'Profile Complete, GP Link',
     'Your profile is complete, {{name}}!',
-    'Great work! Your GP Link profile is now set up. The next step is MyIntealth — this is where your qualification verification begins.\n\nHead to your dashboard to get started.',
+    'Great work! Your GP Link profile is now set up. The next step is MyIntealth, this is where your qualification verification begins.\n\nHead to your dashboard to get started.',
     'Start MyIntealth',
     APP_BASE_URL + '/pages/myinthealth.html',
     ''
@@ -28262,7 +28275,7 @@ async function sendOnboardingCompleteEmail(userId) {
 // 3. MyIntealth Complete — AMC Next
 async function sendMyintealthCompleteEmail(userId) {
   await sendGpNotificationEmail(userId,
-    'MyIntealth Complete — GP Link',
+    'MyIntealth Complete, GP Link',
     'MyIntealth is done, {{name}}!',
     'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.',
     'Start AMC',
@@ -28282,10 +28295,10 @@ async function sendAmcCompleteEmail(userId, careerSecured) {
     // GP already has a secured placement — don't mention browsing positions
     await sendEmail({
       to: gp.email,
-      subject: 'AMC Complete — GP Link',
+      subject: 'AMC Complete, GP Link',
       html: buildCareerEmailHtml({
         title: 'AMC verification complete, ' + name + '!',
-        body: 'Your AMC qualifications have been verified — fantastic progress! Your placement is secured and your qualifications are now formally recognised for practise in Australia.\n\nHead to your dashboard to continue with the next steps in your registration journey.',
+        body: 'Your AMC qualifications have been verified, fantastic progress! Your placement is secured and your qualifications are now formally recognised for practise in Australia.\n\nHead to your dashboard to continue with the next steps in your registration journey.',
         ctaText: 'View Dashboard',
         ctaUrl: APP_BASE_URL + '/pages/index.html',
         footer: ''
@@ -28295,10 +28308,10 @@ async function sendAmcCompleteEmail(userId, careerSecured) {
     // GP has NOT secured a placement — include career browsing + consultation booking
     await sendEmail({
       to: gp.email,
-      subject: 'AMC Complete — GP Link',
+      subject: 'AMC Complete, GP Link',
       html: buildCareerEmailHtml({
         title: 'AMC verification complete, ' + name + '!',
-        body: 'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.\n\nWant help finding the right practice? Book a free consultation to discuss your preferences with our team.',
+        body: 'Your AMC qualifications have been verified, fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.\n\nWant help finding the right practice? Book a free consultation to discuss your preferences with our team.',
         ctaText: 'Browse Positions',
         ctaUrl: APP_BASE_URL + '/pages/career.html',
         secondaryCtaText: 'Book a Consultation',
@@ -28312,9 +28325,9 @@ async function sendAmcCompleteEmail(userId, careerSecured) {
 // 5. AHPRA Complete
 async function sendAhpraCompleteEmail(userId) {
   await sendGpNotificationEmail(userId,
-    'AHPRA Complete — GP Link',
+    'AHPRA Complete, GP Link',
     'AHPRA registration complete, {{name}}!',
-    'Your AHPRA registration has been processed — you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.',
+    'Your AHPRA registration has been processed, you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.',
     'View Dashboard',
     APP_BASE_URL + '/pages/index.html',
     ''
@@ -28326,12 +28339,12 @@ async function sendStalledReminderEmail(userId, stage) {
   const stageLabels = { myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS' };
   const label = stageLabels[stage] || 'your current step';
   await sendGpNotificationEmail(userId,
-    'Need a hand? — GP Link',
+    'Need a hand? | GP Link',
     'How are you going, {{name}}?',
-    'We noticed you haven\'t made progress on ' + label + ' recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.',
+    'We noticed you haven\'t made progress on ' + label + ' recently. No rush, but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.',
     'Continue ' + label,
     APP_BASE_URL + '/pages/index.html',
-    'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.'
+    'If you\'re waiting on something external (like a verification), no action needed, we\'ll follow up when there\'s an update.'
   );
 }
 
@@ -28364,9 +28377,9 @@ async function sendChaseReminderEmail(opts) {
 // 7. Document Approved
 async function sendDocumentApprovedEmail(userId, docLabel) {
   await sendGpNotificationEmail(userId,
-    'Document Approved — GP Link',
+    'Document Approved, GP Link',
     'Your document has been approved!',
-    'Good news, {{name}} — your ' + (docLabel || 'document') + ' has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.',
+    'Good news, {{name}}, your ' + (docLabel || 'document') + ' has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.',
     'View Dashboard',
     APP_BASE_URL + '/pages/index.html',
     ''
@@ -28377,7 +28390,7 @@ async function sendDocumentApprovedEmail(userId, docLabel) {
 async function sendDocumentRevisionEmail(userId, docLabel, practiceName) {
   const practiceNote = practiceName ? ' from ' + practiceName : '';
   await sendGpNotificationEmail(userId,
-    'Revision Needed — GP Link',
+    'Revision Needed, GP Link',
     'A document needs your attention',
     '{{name}}, the ' + (docLabel || 'document') + practiceNote + ' requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.',
     'View Details',
@@ -28389,9 +28402,9 @@ async function sendDocumentRevisionEmail(userId, docLabel, practiceName) {
 // 9. AHPRA Unlocked — Career secured + AMC done
 async function sendAhpraUnlockedEmail(userId) {
   await sendGpNotificationEmail(userId,
-    'AHPRA Registration Unlocked — GP Link',
+    'AHPRA Registration Unlocked, GP Link',
     'Your AHPRA step is now available, {{name}}!',
-    'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.',
+    'Great news, your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.',
     'Start AHPRA',
     APP_BASE_URL + '/pages/ahpra.html',
     'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
@@ -28432,9 +28445,9 @@ async function sendInterviewReminderEmail(userId, opts) {
   detail += 'Format: ' + (formatLabels[format] || format || 'TBC') + '<br>';
   if (zoomJoinUrl) detail += '<br>Your Zoom meeting link is included in the button below.';
   await sendGpNotificationEmail(userId,
-    'Interview ' + (whenPhrase === 'tomorrow' ? 'Tomorrow' : 'Reminder') + ' — GP Link',
+    'Interview ' + (whenPhrase === 'tomorrow' ? 'Tomorrow' : 'Reminder') + ', GP Link',
     'Interview reminder, {{name}}',
-    'Just a friendly reminder — you have an interview ' + whenPhrase + '.' + detail,
+    'Just a friendly reminder, you have an interview ' + whenPhrase + '.' + detail,
     zoomJoinUrl ? 'Join Video Interview' : 'Open GP Link',
     zoomJoinUrl || appLink,
     'Make sure you\'re in a quiet place with stable internet. Good luck!'
@@ -28444,7 +28457,7 @@ async function sendInterviewReminderEmail(userId, opts) {
 // 11. Support Ticket Reply — VA replied to GP's ticket
 async function sendTicketReplyEmail(userId, ticketTitle) {
   await sendGpNotificationEmail(userId,
-    'New Reply — GP Link',
+    'New Reply, GP Link',
     'You have a new reply, {{name}}',
     'Your support team has replied to your request' + (ticketTitle ? ': "' + ticketTitle + '"' : '') + '.\n\nCheck your messages to read the full response and continue the conversation.',
     'View Messages',
@@ -28456,7 +28469,7 @@ async function sendTicketReplyEmail(userId, ticketTitle) {
 // 12. Account Activated — after review
 async function sendAccountActivatedEmail(userId) {
   await sendGpNotificationEmail(userId,
-    'Account Activated — GP Link',
+    'Account Activated, GP Link',
     'Your account is ready, {{name}}!',
     'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.',
     'Go to Dashboard',
@@ -28469,9 +28482,9 @@ async function sendAccountActivatedEmail(userId) {
 async function sendPracticePackEmail(userId, practiceName) {
   const practiceNote = practiceName ? ' at ' + practiceName : '';
   await sendGpNotificationEmail(userId,
-    'Documents Needed — GP Link',
+    'Documents Needed, GP Link',
     'Time to prepare your practice pack, {{name}}',
-    'Now that your placement' + practiceNote + ' is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.',
+    'Now that your placement' + practiceNote + ' is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice, we\'ll keep you updated as each one progresses.',
     'View Documents',
     APP_BASE_URL + '/pages/my-documents.html',
     'If you have questions about any document, message us on WhatsApp at +61 494 391 968.'
@@ -28835,6 +28848,114 @@ async function atsUpdatePracticeRow(id, patch) {
   var p = (dbState.atsPractices || []).find(function (x) { return String(x.id) === String(id); });
   if (!p) return null;
   Object.assign(p, patch); saveDbState(); return p;
+}
+
+// Normalizes a practice name for duplicate matching: case, surrounding
+// whitespace and internal runs of spaces/punctuation are all noise when
+// deciding "have we already got these people?".
+function normalizePracticeNameForMatch(name) {
+  return String(name == null ? '' : name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Duplicate suppression for the website practice flow.
+ *
+ * A practice already in the system must not create a second prospect row or
+ * be sent a second intake email. Matches on contact email first, then on a
+ * normalized practice name — one practice submitting the form twice is far
+ * more likely than two unrelated clinics sharing an exact name.
+ *
+ * Names are compared in JS rather than in the query because a practice name
+ * can contain commas and parentheses, which are PostgREST filter syntax.
+ */
+async function findExistingPracticeForLead(email, name) {
+  var cleanEmail = String(email || '').trim().toLowerCase();
+  var cleanName = normalizePracticeNameForMatch(name);
+  var blocks = practicePipeline.practiceBlocksNewLead;
+
+  // Archived/declined rows are history, not clients — they must never
+  // suppress a fresh lead. Several candidates are fetched rather than one,
+  // so a dead row can't hide a live one behind `limit=1`.
+  function pickLive(rows, predicate) {
+    return (Array.isArray(rows) ? rows : []).find(function (p) {
+      return p && blocks(p) && predicate(p);
+    }) || null;
+  }
+
+  if (isSupabaseDbConfigured()) {
+    if (cleanEmail) {
+      var byEmail = await supabaseDbRequest(
+        'practices',
+        'select=id,name,stage,contact_email,agreement_status,intake_token,metadata&contact_email=ilike.'
+          + encodeURIComponent(cleanEmail) + '&limit=20'
+      );
+      if (byEmail.ok) {
+        var emailHit = pickLive(byEmail.data, function () { return true; });
+        if (emailHit) return { practice: emailHit, matchedBy: 'email' };
+      }
+    }
+    if (cleanName) {
+      var all = await supabaseDbRequest(
+        'practices',
+        'select=id,name,stage,contact_email,agreement_status,intake_token,metadata&limit=2000'
+      );
+      if (all.ok) {
+        var nameHit = pickLive(all.data, function (p) {
+          return normalizePracticeNameForMatch(p.name) === cleanName;
+        });
+        if (nameHit) return { practice: nameHit, matchedBy: 'name' };
+      }
+    }
+    return null;
+  }
+
+  var localRows = dbState.atsPractices || [];
+  var localEmail = cleanEmail && pickLive(localRows, function (p) {
+    return String(p.contact_email || '').trim().toLowerCase() === cleanEmail;
+  });
+  if (localEmail) return { practice: localEmail, matchedBy: 'email' };
+
+  var localName = cleanName && pickLive(localRows, function (p) {
+    return normalizePracticeNameForMatch(p.name) === cleanName;
+  });
+  if (localName) return { practice: localName, matchedBy: 'name' };
+
+  return null;
+}
+
+/**
+ * Optional Cloudflare Turnstile verification.
+ *
+ * Deliberately inert until TURNSTILE_SECRET_KEY is configured, so the captcha
+ * can be switched on later purely through environment variables with no code
+ * change. When it IS configured, a missing or rejected token fails closed.
+ */
+async function verifyTurnstileToken(token, ip) {
+  var secret = String(process.env.TURNSTILE_SECRET_KEY || '').trim();
+  if (!secret) return { ok: true, skipped: true };
+  if (!token) return { ok: false, reason: 'missing_token' };
+  try {
+    var params = new URLSearchParams();
+    params.set('secret', secret);
+    params.set('response', String(token));
+    if (ip) params.set('remoteip', String(ip));
+    var r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    var json = await r.json().catch(function () { return null; });
+    if (json && json.success === true) return { ok: true };
+    return { ok: false, reason: 'rejected' };
+  } catch (e) {
+    // A Cloudflare outage must not silently disable the captcha we were
+    // explicitly asked to enforce.
+    console.error('[turnstile] verification error:', e && e.message);
+    return { ok: false, reason: 'verify_error' };
+  }
 }
 
 // ---- Practice groups (Task 7: corporate-group intake) ---------------------
@@ -29747,10 +29868,10 @@ async function sendMatchEmail(applicationRow, opts) {
     // cron's new pass between the 24h reminder and expiry.
     var finalCall = o.finalCall === true;
     var subject = finalCall
-      ? 'Final call — your match expires at ' + _matchFinalCallTimeLabel(applicationRow.match_expires_at)
+      ? 'Final call, your match expires at ' + _matchFinalCallTimeLabel(applicationRow.match_expires_at)
       : (reminder
-        ? '24 hours left — ' + (practiceName || 'the practice') + ' is holding your spot'
-        : "You've been personally matched — " + practiceName + (subjectLoc ? ', ' + subjectLoc : ''));
+        ? '24 hours left, ' + (practiceName || 'the practice') + ' is holding your spot'
+        : "You've been personally matched, " + practiceName + (subjectLoc ? ', ' + subjectLoc : ''));
     var html = buildMatchEmailHtml(applicationRow, job, practice, { gpLastName: gp.lastName, reminder: reminder, finalCall: finalCall });
     return await sendEmail({ to: gp.email, subject: subject, html: html, from: fromOpts.from, replyTo: fromOpts.replyTo });
   } catch (e) {
@@ -30500,7 +30621,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
   if (isEmailConfigured()) {
     sendEmail({
       to: email,
-      subject: 'Application Submitted — GP Link',
+      subject: 'Application Submitted, GP Link',
       html: buildCareerEmailHtml({
         title: 'Application Submitted',
         body: 'Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.',
@@ -30517,7 +30638,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
       var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(caseId || ''));
       sendEmail({
         to: 'hello@mygplink.com.au',
-        subject: gpDisplayName + ' applied to ' + opsJobTitle + ' — ' + opsPracticeName,
+        subject: gpDisplayName + ' applied to ' + opsJobTitle + ', ' + opsPracticeName,
         text: gpDisplayName + ' applied to "' + opsJobTitle + '" at ' + opsPracticeName + '.'
           + '\n\nHas CV: yes'
           + '\nOpen the candidate: ' + opsDeepLink,
@@ -31229,7 +31350,7 @@ async function notifyGpOfAtsStageChange(appRow, fromStage, toStage) {
   if (toStage === 'interview') {
     copy = {
       type: 'success',
-      subject: 'Interview stage — GP Link',
+      subject: 'Interview stage, GP Link',
       title: 'You\'re through to interview!',
       body: 'Great news — your application for ' + roleLabel + ' has moved to the interview stage. We\'ll be in touch shortly to arrange a time.'
     };
@@ -31240,21 +31361,21 @@ async function notifyGpOfAtsStageChange(appRow, fromStage, toStage) {
     // email (notifyGpOfferSent) is the one that deep-links to the offer.
     copy = {
       type: 'success',
-      subject: 'You have an offer — GP Link',
+      subject: 'You have an offer, GP Link',
       title: 'You have an offer!',
       body: 'Wonderful news — ' + (practiceLabel || 'the practice') + ' would like to offer you ' + (jobLabel ? 'the ' + jobLabel + ' role' : 'the role') + '. Your consultant will walk you through the details.'
     };
   } else if (toStage === 'hired') {
     copy = {
       type: 'success',
-      subject: 'Congratulations — you\'re hired! — GP Link',
+      subject: 'Congratulations, you\'re hired! | GP Link',
       title: 'Congratulations!',
       body: 'You\'ve been hired for ' + roleLabel + '. We\'re thrilled for you — we\'ll guide you through everything that happens next.'
     };
   } else {
     copy = {
       type: 'info',
-      subject: 'An update on your application — GP Link',
+      subject: 'An update on your application, GP Link',
       title: 'An update on your application',
       body: 'This one didn\'t work out — we\'re already looking at other options for you. Your application for ' + roleLabel + ' won\'t be moving forward, but new roles come up all the time and we\'ll keep you posted.'
     };
@@ -31299,7 +31420,7 @@ async function notifyGpOfferSent(userId, applicationId, jobLabel, practiceLabel)
       data: { type: 'career', action: 'offer_sent', url: offerPath }
     }).catch(function (e) { console.error('[ats offer] push failed for', userId, ':', e && e.message); }),
     sendGpNotificationEmail(userId,
-      'You have an offer to review 🎉 — GP Link',
+      'You have an offer to review 🎉, GP Link',
       'You have an offer, {{name}}!',
       offerBody,
       'Review Your Offer',
@@ -31367,7 +31488,7 @@ async function notifyGpOfSelfAcceptedPlacement(userId, applicationId, practiceNa
       data: { type: 'career', action: 'placement_secured', url: nextPath }
     }).catch(function (e) { console.error('[offer-accept] push failed for', userId, ':', e && e.message); }),
     sendGpNotificationEmail(userId,
-      'Your placement is secured 🎉 — GP Link',
+      'Your placement is secured 🎉, GP Link',
       title,
       body,
       ctaText,
@@ -31607,7 +31728,7 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
           + 'If you have any questions in the meantime, just reply to this email.\n\nKind regards,\nGP Link Recruitment Team';
         await sendEmail({
           to: pcPracticeEmail,
-          subject: 'Placement confirmed — ' + pcDrName,
+          subject: 'Placement confirmed, ' + pcDrName,
           html: buildCareerEmailHtml({
             title: 'Placement confirmed',
             body: pcBodyHtml,
@@ -33444,7 +33565,7 @@ async function handleApi(req, res, pathname) {
         // everything else falls back to inferStageFromDocKey (AHPRA for quals).
         var rdtStage = (/^onboarding_/.test(String(rdtKey)) ||
           rdtKey === 'primary_med_degree' || rdtKey === 'mrcgp_cert' || rdtKey === 'micgp_cert' ||
-          rdtKey === 'frnzcgp_cert' || rdtKey === 'cscst_cert')
+          rdtKey === 'frnzcgp_cert' || rdtKey === 'cscst_cert' || rdtKey === 'cct_cert')
           ? 'onboarding'
           : inferStageFromDocKey(rdtKey);
         try {
@@ -33778,7 +33899,7 @@ async function handleApi(req, res, pathname) {
                 }
                 await sendEmail({
                   to: irScPrEmail,
-                  subject: 'Interview reminder — ' + irScGpName + ' ' + irScPhrase,
+                  subject: 'Interview reminder, ' + irScGpName + ' ' + irScPhrase,
                   text: 'A friendly reminder: your interview with ' + irScGpName + ' is ' + irScPhrase + '.\n\n'
                     + 'When: ' + irScPrWhen + '\n'
                     + (irScJoin ? 'Join the meeting: ' + irScJoin + '\n' : '')
@@ -33814,7 +33935,7 @@ async function handleApi(req, res, pathname) {
               if (irScRsoEmail && isEmailConfigured()) {
                 await sendEmail({
                   to: irScRsoEmail,
-                  subject: 'Interview reminder — ' + irScRsoGpName + ' ' + irScPhrase,
+                  subject: 'Interview reminder, ' + irScRsoGpName + ' ' + irScPhrase,
                   text: irScRsoGpName + '’s interview with ' + (irScPractice || 'the practice') + ' is ' + irScPhrase + '.\n\nWhen: ' + irScRsoWhen + '\n' + (irScJoin ? 'Join the meeting: ' + irScJoin + '\n' : '') + '\nPlease join to support them.',
                   from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
                 });
@@ -34558,7 +34679,7 @@ async function handleApi(req, res, pathname) {
           try {
             await sendEmail({
               to: GP_OWNER_EMAIL,
-              subject: mlExpiredList.length + ' match' + (mlExpiredList.length === 1 ? '' : 'es') + ' expired — no GP response',
+              subject: mlExpiredList.length + ' match' + (mlExpiredList.length === 1 ? '' : 'es') + ' expired, no GP response',
               text: 'The following matched GPs did not respond within the 5-day window and have been returned to the team:\n\n' + mlSummaryLines,
               from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
             });
@@ -34704,9 +34825,9 @@ async function handleApi(req, res, pathname) {
             if (wsProf && wsProf.email && isEmailConfigured()) {
               await sendEmail({
                 to: wsProf.email,
-                subject: 'GP Link — ' + wsNudgeTitle,
+                subject: 'GP Link, ' + wsNudgeTitle,
                 // Registration-critical reminder: an expired document stalls
-                // the GP's registration, so this must ALWAYS reach them — even
+                // the GP's registration, so this must ALWAYS reach them, even
                 // if they unsubscribed from marketing mail. 'transactional'
                 // bypasses the email_suppression gate (only 'marketing'
                 // consults it).
@@ -34813,9 +34934,9 @@ async function handleApi(req, res, pathname) {
             await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdApp.id), { method: 'PATCH', body: { practice_chase_flagged_at: new Date().toISOString() } });
             await sendEmail({
               to: GP_OWNER_EMAIL,
-              subject: 'Chase needed: ' + pdLab7.gpName + ' at ' + pdLab7.practiceLabel + ' — no reply in ' + pdDays + ' days',
-              html: buildCareerEmailHtml({ title: 'Time to chase a practice', bodyHtml: '<p>' + String(pdLab7.gpName).replace(/</g, '&lt;') + ' was submitted to <b>' + String(pdLab7.practiceLabel).replace(/</g, '&lt;') + '</b> for the ' + String(pdLab7.roleLabel).replace(/</g, '&lt;') + ' ' + pdDays + ' days ago and they still haven’t accepted or declined. Two reminders have gone out — worth a personal call now.</p>' }),
-              text: pdLab7.gpName + ' was submitted to ' + pdLab7.practiceLabel + ' for the ' + pdLab7.roleLabel + ' ' + pdDays + ' days ago and the practice still hasn’t accepted or declined. Two reminders have been sent — worth a personal call now.',
+              subject: 'Chase needed: ' + pdLab7.gpName + ' at ' + pdLab7.practiceLabel + ', no reply in ' + pdDays + ' days',
+              html: buildCareerEmailHtml({ title: 'Time to chase a practice', bodyHtml: '<p>' + String(pdLab7.gpName).replace(/</g, '&lt;') + ' was submitted to <b>' + String(pdLab7.practiceLabel).replace(/</g, '&lt;') + '</b> for the ' + String(pdLab7.roleLabel).replace(/</g, '&lt;') + ' ' + pdDays + ' days ago and they still haven’t accepted or declined. Two reminders have gone out, worth a personal call now.</p>' }),
+              text: pdLab7.gpName + ' was submitted to ' + pdLab7.practiceLabel + ' for the ' + pdLab7.roleLabel + ' ' + pdDays + ' days ago and the practice still hasn’t accepted or declined. Two reminders have been sent, worth a personal call now.',
               from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
             });
             pdChase++;
@@ -36323,7 +36444,7 @@ async function handleApi(req, res, pathname) {
       html: buildCareerEmailHtml({
         title: 'Confirm your new email address',
         body: 'A request was made to change the GP Link login email for ' + email + ' to this address. '
-          + 'If that was you, confirm below within 1 hour. If not, you can safely ignore this email — nothing will change.',
+          + 'If that was you, confirm below within 1 hour. If not, you can safely ignore this email, nothing will change.',
         ctaText: 'Confirm email change',
         ctaUrl: confirmUrl,
         footer: 'This link expires in 1 hour and can only be used once.'
@@ -36857,6 +36978,68 @@ async function handleApi(req, res, pathname) {
   // (?token=…) with no account/login. GET loads whatever they've saved so
   // far (resumable form); POST validates + saves. Never returns internal ids
   // or any other practice's data — only the four whitelisted display fields.
+  // ── Intro video upload (token-authed, no session) ────────────────────────
+  // Returns a short-lived URL the BROWSER uploads straight to storage with.
+  // The file never passes through this function on purpose: Vercel caps a
+  // request body at 4.5MB, so routing a video through the server would fail
+  // for anything longer than a few seconds.
+  if (pathname === '/api/practice-intake/video-upload-url' && req.method === 'POST') {
+    const vuIp = getClientIp(req);
+    const vuAllowed = await checkRateLimitWindow('practice_video:' + vuIp, 20, 60 * 60 * 1000);
+    if (!vuAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    let vuBody;
+    try { vuBody = await readJsonBody(req); }
+    catch { sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' }); return; }
+
+    const vuToken = String((vuBody && vuBody.token) || '').trim();
+    if (vuToken.length < 16) { sendJson(res, 404, { ok: false }); return; }
+    const vuPractice = await findPracticeByIntakeToken(vuToken);
+    if (!vuPractice) { sendJson(res, 404, { ok: false }); return; }
+
+    const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v', 'video/mpeg', 'video/3gpp'];
+    const VIDEO_MAX_BYTES = 50 * 1024 * 1024; // matches the storage bucket cap
+
+    const vuType = String((vuBody && vuBody.contentType) || '').trim().toLowerCase();
+    if (VIDEO_TYPES.indexOf(vuType) === -1) {
+      sendJson(res, 400, { ok: false, error: 'That file type is not supported. Please upload an MP4, MOV or WebM video.' });
+      return;
+    }
+    const vuSize = Number(vuBody && vuBody.sizeBytes);
+    if (!Number.isFinite(vuSize) || vuSize <= 0) {
+      sendJson(res, 400, { ok: false, error: 'We could not read that file size.' });
+      return;
+    }
+    if (vuSize > VIDEO_MAX_BYTES) {
+      sendJson(res, 413, {
+        ok: false,
+        error: 'That video is larger than 50MB. Upload it to YouTube (unlisted is fine) and paste the link instead.',
+        maxBytes: VIDEO_MAX_BYTES
+      });
+      return;
+    }
+
+    // Never trust the supplied name for the stored path: derive a safe one and
+    // key it by practice id so two practices can never collide.
+    const vuExtRaw = String((vuBody && vuBody.filename) || '').toLowerCase().match(/\.([a-z0-9]{2,5})$/);
+    const vuExt = vuExtRaw ? vuExtRaw[1] : (vuType === 'video/quicktime' ? 'mov' : 'mp4');
+    const vuPath = String(vuPractice.id) + '/intro-' + Date.now() + '.' + vuExt;
+
+    const vuSigned = await supabaseStorageCreateSignedUploadUrl('practice-intro-videos', vuPath, { upsert: true });
+    if (!vuSigned) {
+      console.error('[practice-intake] could not sign a video upload URL');
+      sendJson(res, 503, { ok: false, error: 'Video uploads are unavailable right now. Please paste a link instead.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      uploadUrl: vuSigned,
+      publicUrl: SUPABASE_URL + '/storage/v1/object/public/practice-intro-videos/' + encodeSupabaseObjectPath(vuPath),
+      maxBytes: VIDEO_MAX_BYTES
+    });
+    return;
+  }
   if (pathname === '/api/practice-intake' && req.method === 'GET') {
     const ip = getClientIp(req);
     const allowed = await checkRateLimitWindow('practice_intake:' + ip, 30, 60 * 60 * 1000);
@@ -37044,6 +37227,11 @@ async function handleApi(req, res, pathname) {
       // never copy the group's value down, so a later group-level edit
       // never leaves a stale copy on a clinic that never overrode it.
       const clinicPatch = {
+        // The name the practice confirms on the form is FINAL. The lead only
+        // ever carried a guess (whatever was typed into a Facebook or website
+        // form), so this overwrites it on the practices row itself — not just
+        // inside metadata — which is what every downstream read uses.
+        name: value.practice_name,
         billing_style: value.billing_style,
         dpa: value.dpa,
         nearest_city: nearestCityName,
@@ -37327,10 +37515,10 @@ async function handleApi(req, res, pathname) {
     await sendEmail({
       to: confirmationRecipients,
       from: { email: GP_OWNER_EMAIL, name: 'GP Link' },
-      subject: 'Your signed GP Link agreement — welcome aboard',
+      subject: 'Your signed GP Link agreement, welcome aboard',
       html: buildCareerEmailHtml({
         title: 'Agreement signed ✔',
-        body: 'Thanks for signing — here’s what happens next: our team reviews your job listing and it goes live to matched GPs. Your GP search has started — remember our 30-day sourcing promise.',
+        body: 'Thanks for signing, here’s what happens next: our team reviews your job listing and it goes live to matched GPs. Your GP search has started, remember our 30-day sourcing promise.',
         // D2: bookmarkable read-only status page, authed by the same intake
         // token this signing request just used (so it's guaranteed to exist).
         ctaText: 'Track your listing',
@@ -37343,7 +37531,7 @@ async function handleApi(req, res, pathname) {
     await sendEmail({
       to: GP_OWNER_EMAIL,
       from: { email: GP_OWNER_EMAIL, name: 'GP Link' },
-      subject: 'New signed practice: ' + (practice.name || '') + ' — job pending approval',
+      subject: 'New signed practice: ' + (practice.name || '') + ', job pending approval',
       html: buildCareerEmailHtml({
         title: 'New signed practice',
         body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval). Signed by ' + signedName + ' (' + signerJobTitle + ') for ' + legalEntityName + ' (' + abnAcnLabel + ').',
@@ -37611,7 +37799,7 @@ async function handleApi(req, res, pathname) {
     } catch (rsoErr) { prRsoEmail = ''; }
     const prNotify = ({
       accept: {
-        subject: 'Practice ACCEPTED ' + prGpName + ' for ' + prRoleLabel + ' — reveal identity & send offer',
+        subject: 'Practice ACCEPTED ' + prGpName + ' for ' + prRoleLabel + ', reveal identity & send offer',
         line: prPracticeLabel + ' clicked “Accept this candidate” for ' + prGpName + ' (' + prRoleLabel + '). '
           + 'Nothing has been revealed or offered automatically — a team member needs to review and run the formal accept (reveal identity + send the offer) from the dashboard.'
       },
@@ -37621,7 +37809,7 @@ async function handleApi(req, res, pathname) {
           + 'The kanban card has been moved to Not proceeding. Please follow up with the doctor about next options.'
       },
       request_interview: {
-        subject: 'Practice requested an interview with ' + prGpName + ' for ' + prRoleLabel + ' — arrange a time',
+        subject: 'Practice requested an interview with ' + prGpName + ' for ' + prRoleLabel + ', arrange a time',
         line: prPracticeLabel + ' clicked “Request an interview” for ' + prGpName + ' (' + prRoleLabel + '). '
           + 'Please coordinate a time with the practice and the doctor.'
       }
@@ -37869,7 +38057,7 @@ async function handleApi(req, res, pathname) {
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           html: buildCareerEmailHtml({
             title: esc(practiceName) + ' would like to interview you!',
-            body: 'Great news — ' + esc(practiceName) + ' has approved your application for ' + esc(roleTitle) + '. As soon as they confirm their available times you\'ll be able to pick your interview slot in the app.',
+            body: 'Great news, ' + esc(practiceName) + ' has approved your application for ' + esc(roleTitle) + '. As soon as they confirm their available times you\'ll be able to pick your interview slot in the app.',
             ctaText: 'View my application',
             ctaUrl: APP_BASE_URL + '/pages/career.html#applications'
           })
@@ -37878,7 +38066,7 @@ async function handleApi(req, res, pathname) {
 
       sendEmail({
         to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
-        subject: 'Practice approved ' + gpName + ' — awaiting their interview times',
+        subject: 'Practice approved ' + gpName + ', awaiting their interview times',
         from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
         html: buildCareerEmailHtml({
           title: 'Practice approved a candidate',
@@ -38032,7 +38220,7 @@ async function handleApi(req, res, pathname) {
           sendGpNotificationEmail(gpUserId,
             'Your interview slots are ready',
             'Your interview times are ready, {{name}}',
-            'The practice has shared when they can meet. Tap below to choose the time that suits you — your Registration Support Officer joins you, so you are never in the room alone.',
+            'The practice has shared when they can meet. Tap below to choose the time that suits you, your Registration Support Officer joins you, so you are never in the room alone.',
             'Choose your interview time',
             secureUrl,
             'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
@@ -39060,6 +39248,195 @@ async function handleApi(req, res, pathname) {
     await maybeNotifySiteEnquiry(row);
 
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── DPA eligibility for the site's practice flow (public, no session) ────
+  // Geocodes a suburb with the existing keyless geocoder, then asks our own
+  // DPA lookup. Nothing is guessed: an area we cannot locate, or a lookup
+  // that fails, returns dpa:null and the form stays encouraging rather than
+  // telling a real practice it does not qualify.
+  if (pathname === '/api/public/practice-dpa' && req.method === 'GET') {
+    const dpaIp = getClientIp(req);
+    const dpaAllowed = await checkRateLimitWindow('practice_dpa:' + dpaIp, 40, 60 * 60 * 1000);
+    if (!dpaAllowed) {
+      sendJson(res, 429, { ok: false, error: 'Too many lookups. Please try again shortly.' });
+      return;
+    }
+
+    const dpaSuburb = String(url.searchParams.get('suburb') || '').trim();
+    const dpaState = String(url.searchParams.get('state') || '').trim();
+    if (!dpaSuburb) {
+      sendJson(res, 400, { ok: false, error: 'suburb is required' });
+      return;
+    }
+
+    try {
+      const coords = await fetchCareerSuburbCoordinates({ suburb: dpaSuburb, state: dpaState });
+      if (!coords) {
+        sendJson(res, 200, { ok: true, dpa: null, reason: 'not_located' });
+        return;
+      }
+      const dpaResult = await lookupDpa(coords.latitude, coords.longitude);
+      sendJson(res, 200, {
+        ok: true,
+        dpa: dpaResult.dpa,
+        mmm: dpaResult.mmm || null,
+        latitude: coords.latitude,
+        longitude: coords.longitude
+      });
+    } catch (err) {
+      console.warn('[practice-dpa] lookup unavailable:', err && err.message);
+      sendJson(res, 200, { ok: true, dpa: null, reason: 'lookup_unavailable' });
+    }
+    return;
+  }
+
+  // ── Practice lead from our own website (public, no session) ──────────────
+  // The site's front door into the practice pipeline, mirroring the Facebook
+  // Lead Ads webhook: it creates a prospective practice AND emails the intake
+  // link straight away, so a practice that finds us on our own site gets the
+  // same instant response as one that finds us through an ad.
+  if (pathname === '/api/public/practice-lead' && req.method === 'POST') {
+    let plBody;
+    try {
+      plBody = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid JSON body.' });
+      return;
+    }
+
+    // Spam layer 1 — hidden trap field. Named `company_url`, NOT `website`,
+    // because this form has a real website input: reusing the old trap name
+    // would silently discard every practice that fills its website in.
+    if (String((plBody && plBody.company_url) || '').trim()) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // Spam layer 2 — no human completes four steps in under three seconds.
+    const plElapsed = Number(plBody && plBody.elapsed_ms);
+    if (Number.isFinite(plElapsed) && plElapsed >= 0 && plElapsed < 3000) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const plIp = getClientIp(req);
+
+    // Spam layer 3 — optional captcha; inert until TURNSTILE_SECRET_KEY is set.
+    const plTurnstile = await verifyTurnstileToken(plBody && plBody.turnstile_token, plIp);
+    if (!plTurnstile.ok) {
+      sendJson(res, 400, { ok: false, error: 'We could not verify that submission. Please try again.' });
+      return;
+    }
+
+    const plLead = practicePipeline.normalizeWebsitePracticeLead(plBody);
+    if (!plLead) {
+      sendJson(res, 400, {
+        ok: false,
+        error: 'Please give us your practice name, a valid email address and a phone number.'
+      });
+      return;
+    }
+
+    // Spam layer 4 — per-IP ceiling.
+    const plAllowed = await checkRateLimitWindow('practice_lead:' + plIp, 10, 60 * 60 * 1000);
+    if (!plAllowed) {
+      sendJson(res, 429, { ok: false, error: 'Too many submissions from this address. Please try again later.' });
+      return;
+    }
+
+    const plSummary = [
+      plLead.gps_needed ? 'Needs ' + plLead.gps_needed + ' GP(s)' : '',
+      plLead.urgency ? 'timing: ' + plLead.urgency : '',
+      plLead.employment_type ? 'basis: ' + plLead.employment_type : '',
+      plLead.suburb ? 'at ' + [plLead.suburb, plLead.state, plLead.postcode].filter(Boolean).join(' ') : '',
+      typeof plLead.dpa === 'boolean' ? 'DPA: ' + (plLead.dpa ? 'yes' : 'no') : 'DPA: unknown'
+    ].filter(Boolean).join(' · ');
+
+    const plEnquiryRow = {
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      kind: 'practice',
+      name: plLead.contact_name || plLead.practice_name,
+      email: plLead.contact_email,
+      phone: plLead.contact_phone || null,
+      practice_name: plLead.practice_name,
+      state: plLead.state || null,
+      message: plSummary,
+      status: 'new',
+      metadata: {
+        source: 'marketing-site-practice-flow',
+        ip: plIp || null,
+        user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+        lead: plLead
+      }
+    };
+    // Recorded even for duplicates, so repeat interest is still visible.
+    await insertSiteEnquiryRow(plEnquiryRow);
+
+    // Spam layer 5 / duplicate suppression. The response below is IDENTICAL
+    // to the success case on purpose — replying "already registered" would
+    // let anyone probe this form to discover who our clients are.
+    const plExisting = await findExistingPracticeForLead(plLead.contact_email, plLead.practice_name);
+    if (plExisting) {
+      const plDup = plExisting.practice;
+      let plResent = false;
+
+      // The screen promises "check your inbox", so a suppressed submission
+      // must still put something there. Only an EMAIL match qualifies: on a
+      // name-only match the submitter is a stranger to that practice, and
+      // mailing them its intake link would hand over someone else's private
+      // door. Throttled to once an hour so this can't be used as a cannon.
+      if (plExisting.matchedBy === 'email' && String(plDup.agreement_status || '') !== 'signed') {
+        const plLastSent = plDup.metadata && plDup.metadata.intake_email_last_sent_at;
+        const plSentRecently = plLastSent
+          && (Date.now() - new Date(plLastSent).getTime()) < 60 * 60 * 1000;
+        if (!plSentRecently) {
+          try {
+            const plAgain = await sendPracticeIntakeEmail(plDup);
+            plResent = !(plAgain && plAgain.ok === false);
+          } catch (e) {
+            console.error('[practice-lead] duplicate resend failed:', e && e.message);
+          }
+        }
+      }
+
+      console.log('[practice-lead] duplicate by ' + plExisting.matchedBy
+        + ' → practice ' + plDup.id + ', intake email resent=' + plResent);
+      await maybeNotifySiteEnquiry(plEnquiryRow);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const plRow = practicePipeline.buildPracticeProspectRow(plLead, {
+      source: 'website_lead',
+      createdBy: 'site_practice_lead',
+      intakeToken: practicePipeline.generateIntakeToken(),
+      metadata: { website_lead: plLead, ip: plIp || null }
+    });
+
+    const plCreated = await atsInsertPracticeRow(plRow);
+    if (!plCreated) {
+      console.error('[practice-lead] could not insert practice row');
+      sendJson(res, 500, { ok: false, error: 'Something went wrong saving that. Please try again.' });
+      return;
+    }
+
+    // Awaited before responding: on Vercel the function can be killed the
+    // instant res.end() runs, so a fire-and-forget send may never complete.
+    // Still best-effort — a failed email must not fail the submission, since
+    // the prospect now exists and can be re-sent from the dashboard.
+    let plEmailed = false;
+    try {
+      const plSend = await sendPracticeIntakeEmail(plCreated);
+      plEmailed = !(plSend && plSend.ok === false);
+    } catch (e) {
+      console.error('[practice-lead] intake email send failed:', e && e.message);
+    }
+
+    await maybeNotifySiteEnquiry(plEnquiryRow);
+    sendJson(res, 200, { ok: true, emailed: plEmailed });
     return;
   }
 
@@ -40293,7 +40670,7 @@ async function handleApi(req, res, pathname) {
             const expJobTitle = String(existingAppRow.job_title || roleRow.title || 'a role').trim();
             sendEmail({
               to: 'hello@mygplink.com.au',
-              subject: 'GP clicked expired match — still interested: ' + applyGpDisplayName + ', ' + expJobTitle,
+              subject: 'GP clicked expired match, still interested: ' + applyGpDisplayName + ', ' + expJobTitle,
               text: applyGpDisplayName + ' tried to apply for an expired match ("' + expJobTitle + '") and is still interested. Application: ' + existingAppRow.id,
               from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
             }).catch(() => {});
@@ -40691,7 +41068,7 @@ async function handleApi(req, res, pathname) {
       if (isEmailConfigured()) {
         sendEmail({
           to: 'hello@mygplink.com.au',
-          subject: 'GP clicked expired match — still interested: ' + siGpDisplayName + ', ' + siJobTitle,
+          subject: 'GP clicked expired match, still interested: ' + siGpDisplayName + ', ' + siJobTitle,
           text: siGpDisplayName + ' clicked to respond to an expired match for "' + siJobTitle + '" and is still interested. Application: ' + siRow.id,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
         }).catch(() => {});
@@ -40773,9 +41150,9 @@ async function handleApi(req, res, pathname) {
     if (isEmailConfigured()) {
       sendEmail({
         to: GP_OWNER_EMAIL,
-        subject: 'GP asked for more time — ' + nmtGpDisplayName + ' × ' + nmtPracticeName,
+        subject: 'GP asked for more time, ' + nmtGpDisplayName + ' × ' + nmtPracticeName,
         text: nmtGpDisplayName + ' asked for more time to decide on "' + nmtJobTitle + '" at ' + nmtPracticeName +
-          ' — match expires ' + nmtExpiresAt + '. Open the Matching board and hit Extend 5 days if you agree. Application: ' + nmtRow.id,
+          ', match expires ' + nmtExpiresAt + '. Open the Matching board and hit Extend 5 days if you agree. Application: ' + nmtRow.id,
         from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
       }).catch(() => {});
     }
@@ -40857,7 +41234,7 @@ async function handleApi(req, res, pathname) {
         const mrExpJobTitle = String(mrRow.job_title || 'a role').trim();
         sendEmail({
           to: 'hello@mygplink.com.au',
-          subject: 'GP clicked expired match — still interested: ' + mrGpDisplayName + ', ' + mrExpJobTitle,
+          subject: 'GP clicked expired match, still interested: ' + mrGpDisplayName + ', ' + mrExpJobTitle,
           text: mrGpDisplayName + ' clicked to respond to an expired match for "' + mrExpJobTitle + '" and is still interested. Application: ' + mrRow.id,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
         }).catch(() => {});
@@ -41685,14 +42062,14 @@ async function handleApi(req, res, pathname) {
             if (isEmailConfigured()) {
               const gpEmail = email; // already available in scope
               const practiceLabel2 = (appRevealed && roleRow && roleRow.practice_name) ? roleRow.practice_name : 'your application';
-              let emailSubject = 'Application Update — GP Link';
+              let emailSubject = 'Application Update, GP Link';
               let emailTitle = 'Application Update';
               let emailBody = 'Your application status has been updated.';
               let emailCta = { text: 'View Application', url: APP_BASE_URL + '/pages/career.html#applications' };
               let emailFooter = 'You\'re receiving this because you have an active application on GP Link.';
 
               if (statusLabel === 'interview_scheduled' || statusLabel === 'interview') {
-                emailSubject = 'Interview Scheduled — GP Link';
+                emailSubject = 'Interview Scheduled, GP Link';
                 emailTitle = 'Interview Scheduled';
                 // Check for interview with Zoom link
                 let interviewDetail = '';
@@ -41714,11 +42091,11 @@ async function handleApi(req, res, pathname) {
                 } catch {}
                 emailBody = 'Great news! An interview has been scheduled for ' + practiceLabel2 + '.' + interviewDetail;
               } else if (statusLabel === 'offer' || statusLabel === 'offer_pending' || statusLabel === 'offered') {
-                emailSubject = 'Offer Pending — GP Link';
+                emailSubject = 'Offer Pending, GP Link';
                 emailTitle = 'Offer Pending';
                 emailBody = 'Exciting news! An offer is pending for ' + practiceLabel2 + '. Our team will be in touch with the details.';
               } else if (isCareerPlacementSecuredStatus(statusLabel)) {
-                emailSubject = 'Placement Secured! — GP Link';
+                emailSubject = 'Placement Secured! | GP Link';
                 emailTitle = 'Congratulations!';
                 emailBody = 'Your placement at ' + practiceLabel2 + ' has been secured. Visit your dashboard to see your placement details, start date, and next steps.';
                 emailCta = { text: 'View Your Placement', url: APP_BASE_URL + '/pages/career.html#secured' };
@@ -42712,7 +43089,7 @@ async function handleApi(req, res, pathname) {
         ];
         const wdSendResult = await sendEmail({
           to: wdContactEmail,
-          subject: wdDisplayName + ' has withdrawn — ' + wdRoleTitle,
+          subject: wdDisplayName + ' has withdrawn, ' + wdRoleTitle,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           html: buildCareerEmailHtml({
             title: 'Candidate withdrawn',
@@ -42732,7 +43109,7 @@ async function handleApi(req, res, pathname) {
         // handlers use (registration hub mailbox, buildCareerEmailHtml).
         sendEmail({
           to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
-          subject: 'GP withdrew after submission: ' + (wdFullName || wdDisplayName) + ' — ' + wdRoleTitle,
+          subject: 'GP withdrew after submission: ' + (wdFullName || wdDisplayName) + ', ' + wdRoleTitle,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           html: buildCareerEmailHtml({
             title: 'Candidate withdrew after being submitted',
@@ -45146,7 +45523,7 @@ async function handleApi(req, res, pathname) {
       // Send the invite "from" the assigned RSO (From when @mygplink, else Reply-To).
       emailResult = await sendEmail(Object.assign({
         to: gpEmail,
-        subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage — GP Link",
+        subject: "Let's set up a quick call to guide you through your " + stageDisplay + " stage, GP Link",
         html: emailHtml,
         text: 'Hi ' + gpFirstName + ', your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage.' + (meetingReason ? ' Reason: ' + meetingReason + '.' : '') + ' Please book a time: ' + bookingUrl
       }, buildRsoEmailFromOpts(assignedRso)));
@@ -45546,7 +45923,7 @@ async function handleApi(req, res, pathname) {
       const emailHtml = buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, call.meeting_reason);
       emailResult = await sendEmail(Object.assign({
         to: gpEmail,
-        subject: 'Zoom Assistance Call — ' + stageDisplay + ' Stage (Reminder)',
+        subject: 'Zoom Assistance Call, ' + stageDisplay + ' Stage (Reminder)',
         html: emailHtml,
         text: 'Hi ' + gpFirstName + ', a reminder that your GP Link registration support officer has scheduled a Zoom assistance call to help you with your ' + stageDisplay + ' stage. Please book a time: ' + bookingUrl
       }, buildRsoEmailFromOpts(resendRso)));
@@ -45734,7 +46111,7 @@ async function handleApi(req, res, pathname) {
 
           sendEmail({
             to: gpEmail,
-            subject: 'Interview Scheduled — GP Link',
+            subject: 'Interview Scheduled, GP Link',
             html: buildCareerEmailHtml({
               title: 'Interview Scheduled',
               body: 'An interview has been scheduled for your GP Link application.<br><br>' + interviewDetail + (zoomJoinUrl ? '<br>Your Zoom meeting link is included in the button below.' : ''),
@@ -45845,8 +46222,10 @@ async function handleApi(req, res, pathname) {
     try { ewBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const ewCountry = sanitizeUserString(ewBody && ewBody.country, 120).trim();
     const ewName = sanitizeUserString(ewBody && ewBody.name, 160).trim();
-    let ewEmail = sanitizeUserString(ewBody && ewBody.email, 254).trim().toLowerCase();
-    if (!ewEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ewEmail)) ewEmail = sessionEmail.toLowerCase();
+    // The form still posts an email field, but it is IGNORED: the lead and the
+    // user_state record are always keyed to the signed-in session email, so a
+    // GP cannot waitlist (or clobber the lead of) an arbitrary address.
+    const ewEmail = sessionEmail.toLowerCase();
     if (!ewCountry) { sendJson(res, 400, { ok: false, message: 'Please tell us which country you trained in.' }); return; }
 
     const ewNowIso = new Date().toISOString();
@@ -47823,12 +48202,12 @@ Return ONLY valid JSON with no markdown formatting:
       const swCtaUrl = APP_BASE_URL + '/api/auth/welcome-setup?token=' + encodeURIComponent(swToken);
       const swHtml = buildCareerEmailHtml({
         title: 'Welcome to GP Link',
-        body: swGreet + ' GP Link account is ready. Set your password below to log in — from your dashboard you can finish your quick onboarding, track every step of your AHPRA registration,' + swPlacement + '. We look forward to supporting you all the way to your start date.',
+        body: swGreet + ' GP Link account is ready. Set your password below to log in, from your dashboard you can finish your quick onboarding, track every step of your AHPRA registration,' + swPlacement + '. We look forward to supporting you all the way to your start date.',
         ctaText: 'Set your password',
         ctaUrl: swCtaUrl,
         footer: 'This link is valid for 24 hours. If it expires, use "Forgot password" on the sign-in page at app.mygplink.com.au. If you weren\'t expecting this email, you can safely ignore it.'
       });
-      const swResult = await sendEmail({ to: swEmail, subject: 'Welcome to GP Link — set your password', html: swHtml });
+      const swResult = await sendEmail({ to: swEmail, subject: 'Welcome to GP Link, set your password', html: swHtml });
       if (swResult && swResult.ok) {
         sendJson(res, 200, { ok: true, sent: true, to: swEmail });
       } else {
@@ -53875,7 +54254,7 @@ Return ONLY valid JSON with no markdown formatting:
       const nudgeReplyUrl = APP_BASE_URL + '/pages/messages.html#chat-' + encodeURIComponent(nudge.id);
       const emailResult = await sendEmail({
         to: gpEmail,
-        subject: 'GP Link — ' + title,
+        subject: 'GP Link, ' + title,
         // Nudge = marketing-class mail; suppressed (bounced) recipients are
         // skipped and the nudge simply records no 'email' channel.
         category: 'marketing',
@@ -54011,7 +54390,7 @@ Return ONLY valid JSON with no markdown formatting:
       const chatReplyUrl = APP_BASE_URL + '/pages/messages.html#chat-' + encodeURIComponent(chatId);
       await sendEmail({
         to: gpProf.email,
-        subject: 'GP Link — New message from your registration team',
+        subject: 'GP Link, New message from your registration team',
         html: buildCareerEmailHtml({
           title: 'New message about: ' + (chat.title || 'Your registration'),
           body: replyMessage,
@@ -54123,24 +54502,24 @@ Return ONLY valid JSON with no markdown formatting:
     const templates = [
       { name: 'Welcome', subject: 'Welcome to GP Link', title: 'Welcome to GP Link, Dr Sarah!', body: 'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Our support team is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.', ctaText: 'Get Started', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
       { name: 'Email Verification', subject: 'Verify your GP Link account', title: 'Verify your email', body: 'Thanks for signing up to GP Link! Please click the button below to verify your email address and activate your account.', ctaText: 'Verify Email', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t create a GP Link account, you can safely ignore this email. This link expires in 24 hours.' },
-      { name: 'Onboarding Complete', subject: 'Profile Complete — GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. The next step is MyIntealth — this is where your qualification verification begins.\n\nHead to your dashboard to get started.', ctaText: 'Start MyIntealth', ctaUrl: APP_BASE_URL + '/pages/myinthealth.html', footer: '' },
-      { name: 'MyIntealth Complete', subject: 'MyIntealth Complete — GP Link', title: 'MyIntealth is done, Dr Sarah!', body: 'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.', ctaText: 'Start AMC', ctaUrl: APP_BASE_URL + '/pages/amc.html', footer: '' },
-      { name: 'AMC Complete', subject: 'AMC Complete — GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: APP_BASE_URL + '/pages/career.html', footer: '' },
-      { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked — GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: APP_BASE_URL + '/pages/ahpra.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
-      { name: 'AHPRA Complete', subject: 'AHPRA Complete — GP Link', title: 'AHPRA registration complete, Dr Sarah!', body: 'Your AHPRA registration has been processed — you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
-      { name: 'Application Submitted', subject: 'Application Submitted — GP Link', title: 'Application Submitted', body: 'Your application for the Greenfield Medical Centre — Melbourne role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.', ctaText: 'View Your Applications', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
-      { name: 'Interview Scheduled', subject: 'Interview Scheduled — GP Link', title: 'Interview Scheduled', body: 'Great news! An interview has been scheduled for Greenfield Medical Centre — Melbourne.<br><br><strong>Interview Details:</strong><br>Date: Monday, 19 May 2026<br>Time: 10:00 AM<br>Duration: 30 minutes<br>Interviewer: Dr James Chen<br>Format: Video Call (Zoom)', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
-      { name: 'Interview Reminder', subject: 'Interview Tomorrow — GP Link', title: 'Interview reminder, Dr Sarah', body: 'Just a friendly reminder — you have an interview scheduled for tomorrow.<br><br><strong>Interview Details:</strong><br>Practice: Greenfield Medical Centre — Melbourne<br>Date: Tuesday, 20 May 2026<br>Time: 10:00 AM<br>Format: Video Call (Zoom)<br><br>Your Zoom meeting link is included in the button below.', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'Make sure you\'re in a quiet place with stable internet. Good luck!' },
-      { name: 'Offer Pending', subject: 'Offer Pending — GP Link', title: 'Offer Pending', body: 'Exciting news! An offer is pending for Greenfield Medical Centre — Melbourne. Our team will be in touch with the details.', ctaText: 'View Application', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
-      { name: 'Placement Secured', subject: 'Placement Secured! — GP Link', title: 'Congratulations!', body: 'Your placement at Greenfield Medical Centre — Melbourne has been secured. Visit your dashboard to see your placement details, start date, and next steps.', ctaText: 'View Your Placement', ctaUrl: APP_BASE_URL + '/pages/career.html#secured', footer: '' },
-      { name: 'Practice Pack Docs Needed', subject: 'Documents Needed — GP Link', title: 'Time to prepare your practice pack, Dr Sarah', body: 'Now that your placement at Greenfield Medical Centre is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.', ctaText: 'View Documents', ctaUrl: APP_BASE_URL + '/pages/my-documents.html', footer: 'If you have questions about any document, message us on WhatsApp at +61 494 391 968.' },
-      { name: 'Stalled Reminder', subject: 'Need a hand? — GP Link', title: 'How are you going, Dr Sarah?', body: 'We noticed you haven\'t made progress on AMC recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.', ctaText: 'Continue AMC', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.' },
-      { name: 'Document Approved', subject: 'Document Approved — GP Link', title: 'Your document has been approved!', body: 'Good news, Dr Sarah — your MRCGP Certificate has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
-      { name: 'Document Revision', subject: 'Revision Needed — GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you have questions about what\'s needed, message us on WhatsApp at +61 494 391 968.' },
-      { name: 'Support Ticket Reply', subject: 'New Reply — GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: APP_BASE_URL + '/pages/messages.html', footer: 'Need more help? Reply directly in the app or message us on WhatsApp at +61 494 391 968.' },
-      { name: 'Account Activated', subject: 'Account Activated — GP Link', title: 'Your account is ready, Dr Sarah!', body: 'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.', ctaText: 'Go to Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
+      { name: 'Onboarding Complete', subject: 'Profile Complete, GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. The next step is MyIntealth, this is where your qualification verification begins.\n\nHead to your dashboard to get started.', ctaText: 'Start MyIntealth', ctaUrl: APP_BASE_URL + '/pages/myinthealth.html', footer: '' },
+      { name: 'MyIntealth Complete', subject: 'MyIntealth Complete, GP Link', title: 'MyIntealth is done, Dr Sarah!', body: 'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.', ctaText: 'Start AMC', ctaUrl: APP_BASE_URL + '/pages/amc.html', footer: '' },
+      { name: 'AMC Complete', subject: 'AMC Complete, GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified, fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: APP_BASE_URL + '/pages/career.html', footer: '' },
+      { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked, GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news, your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: APP_BASE_URL + '/pages/ahpra.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
+      { name: 'AHPRA Complete', subject: 'AHPRA Complete, GP Link', title: 'AHPRA registration complete, Dr Sarah!', body: 'Your AHPRA registration has been processed, you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
+      { name: 'Application Submitted', subject: 'Application Submitted, GP Link', title: 'Application Submitted', body: 'Your application for the Greenfield Medical Centre, Melbourne role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.', ctaText: 'View Your Applications', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
+      { name: 'Interview Scheduled', subject: 'Interview Scheduled, GP Link', title: 'Interview Scheduled', body: 'Great news! An interview has been scheduled for Greenfield Medical Centre, Melbourne.<br><br><strong>Interview Details:</strong><br>Date: Monday, 19 May 2026<br>Time: 10:00 AM<br>Duration: 30 minutes<br>Interviewer: Dr James Chen<br>Format: Video Call (Zoom)', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
+      { name: 'Interview Reminder', subject: 'Interview Tomorrow, GP Link', title: 'Interview reminder, Dr Sarah', body: 'Just a friendly reminder, you have an interview scheduled for tomorrow.<br><br><strong>Interview Details:</strong><br>Practice: Greenfield Medical Centre, Melbourne<br>Date: Tuesday, 20 May 2026<br>Time: 10:00 AM<br>Format: Video Call (Zoom)<br><br>Your Zoom meeting link is included in the button below.', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'Make sure you\'re in a quiet place with stable internet. Good luck!' },
+      { name: 'Offer Pending', subject: 'Offer Pending, GP Link', title: 'Offer Pending', body: 'Exciting news! An offer is pending for Greenfield Medical Centre, Melbourne. Our team will be in touch with the details.', ctaText: 'View Application', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
+      { name: 'Placement Secured', subject: 'Placement Secured! | GP Link', title: 'Congratulations!', body: 'Your placement at Greenfield Medical Centre, Melbourne has been secured. Visit your dashboard to see your placement details, start date, and next steps.', ctaText: 'View Your Placement', ctaUrl: APP_BASE_URL + '/pages/career.html#secured', footer: '' },
+      { name: 'Practice Pack Docs Needed', subject: 'Documents Needed, GP Link', title: 'Time to prepare your practice pack, Dr Sarah', body: 'Now that your placement at Greenfield Medical Centre is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice, we\'ll keep you updated as each one progresses.', ctaText: 'View Documents', ctaUrl: APP_BASE_URL + '/pages/my-documents.html', footer: 'If you have questions about any document, message us on WhatsApp at +61 494 391 968.' },
+      { name: 'Stalled Reminder', subject: 'Need a hand? | GP Link', title: 'How are you going, Dr Sarah?', body: 'We noticed you haven\'t made progress on AMC recently. No rush, but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.', ctaText: 'Continue AMC', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you\'re waiting on something external (like a verification), no action needed, we\'ll follow up when there\'s an update.' },
+      { name: 'Document Approved', subject: 'Document Approved, GP Link', title: 'Your document has been approved!', body: 'Good news, Dr Sarah, your MRCGP Certificate has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
+      { name: 'Document Revision', subject: 'Revision Needed, GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you have questions about what\'s needed, message us on WhatsApp at +61 494 391 968.' },
+      { name: 'Support Ticket Reply', subject: 'New Reply, GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: APP_BASE_URL + '/pages/messages.html', footer: 'Need more help? Reply directly in the app or message us on WhatsApp at +61 494 391 968.' },
+      { name: 'Account Activated', subject: 'Account Activated, GP Link', title: 'Your account is ready, Dr Sarah!', body: 'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.', ctaText: 'Go to Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
       { name: 'Password Reset', subject: 'Reset your GP Link password', title: 'Reset your password', body: 'We received a request to reset your GP Link password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.' },
-      { name: 'Candidate Hired', subject: 'Congratulations on Your Placement! — GP Link', title: 'Congratulations, Dr Sarah!', body: 'We\'re thrilled to let you know that your placement at Greenfield Medical Centre in Melbourne has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\nTo get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.\n\nOur support team is ready to help you with anything you need along the way.', ctaText: 'Sign Up to GP Link', ctaUrl: APP_BASE_URL + '/pages/signin.html', footer: 'Questions about getting started? Reply to this email or reach out to us via WhatsApp at +61 494 391 968.' }
+      { name: 'Candidate Hired', subject: 'Congratulations on Your Placement! | GP Link', title: 'Congratulations, Dr Sarah!', body: 'We\'re thrilled to let you know that your placement at Greenfield Medical Centre in Melbourne has been confirmed. This is a huge milestone in your journey to practising medicine in Australia, well done!\n\nTo get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step, from qualification verification through to AHPRA registration and your practice pack.\n\nOur support team is ready to help you with anything you need along the way.', ctaText: 'Sign Up to GP Link', ctaUrl: APP_BASE_URL + '/pages/signin.html', footer: 'Questions about getting started? Reply to this email or reach out to us via WhatsApp at +61 494 391 968.' }
     ];
 
     var epResults = [];
@@ -54378,12 +54757,12 @@ Return ONLY valid JSON with no markdown formatting:
       fromName: _siSppaCand.fromName,
       threadId: task.gmail_thread_id || undefined,
       to: candidateEmail,
-      subject: 'SPPA-00 Supervised Practice Plan — Please Complete Section A and Sign',
+      subject: 'SPPA-00 Supervised Practice Plan, Please Complete Section A and Sign',
       bodyHtml: '<p>Dear ' + (candidateName || 'Doctor') + ',</p>' +
         '<p>Please find attached your Supervised Practice Plan Agreement (SPPA-00).</p>' +
         '<p>Could you please:</p>' +
         '<ol>' +
-        '<li>Complete <b>Section A</b> (Question 1 — your personal details)</li>' +
+        '<li>Complete <b>Section A</b> (Question 1, your personal details)</li>' +
         '<li>Sign <b>Section I</b> (Supervisee\'s declaration)</li>' +
         '</ol>' +
         '<p>Once completed, please reply to this email with the signed document attached.</p>' +
@@ -54532,7 +54911,7 @@ Return ONLY valid JSON with no markdown formatting:
       fromName: _siSppaPrac.fromName,
       threadId: task.gmail_thread_id || undefined,
       to: practiceEmail,
-      subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ' — Please Complete and Sign',
+      subject: 'SPPA-00 Supervised Practice Plan for ' + candidateName + ', Please Complete and Sign',
       bodyHtml: '<p>Dear ' + practiceName + ',</p>' +
         '<p>Please find attached the Supervised Practice Plan Agreement (SPPA-00) for ' + candidateName + '.</p>' +
         '<p>The candidate has completed their section. Could you please:</p>' +
@@ -56126,8 +56505,10 @@ Return ONLY valid JSON with no markdown formatting:
         const ONBOARDING_KEY_FOR_QUAL = {
           primary_medical_degree: 'onboarding_primary_med_degree',
           specialist_qualification: 'onboarding_specialist_qualification',
+          cct_certificate: 'onboarding_cct_certificate',
           onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-          onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+          onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+          onboarding_cct_certificate: 'onboarding_cct_certificate'
         };
         const onboardKey = ONBOARDING_KEY_FOR_QUAL[task.related_document_key];
         if (onboardKey) {
@@ -56193,8 +56574,10 @@ Return ONLY valid JSON with no markdown formatting:
       const ONBOARDING_KEY_FOR_SCAN = {
         primary_medical_degree: 'onboarding_primary_med_degree',
         specialist_qualification: 'onboarding_specialist_qualification',
+        cct_certificate: 'onboarding_cct_certificate',
         onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-        onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+        onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+        onboarding_cct_certificate: 'onboarding_cct_certificate'
       };
       const scObKey = ONBOARDING_KEY_FOR_SCAN[scanDocKey];
       if (scObKey) {
@@ -56316,7 +56699,8 @@ Return ONLY valid JSON with no markdown formatting:
       // Locate the GP's stored file (original onboarding upload) to attach to the record.
       const ONBOARDING_KEY_FOR_QUAL = {
         primary_medical_degree: 'onboarding_primary_med_degree',
-        specialist_qualification: 'onboarding_specialist_qualification'
+        specialist_qualification: 'onboarding_specialist_qualification',
+        cct_certificate: 'onboarding_cct_certificate'
       };
       let rfFileUrl = '';
       const rfObKey = ONBOARDING_KEY_FOR_QUAL[rfTask.related_document_key];
@@ -56445,9 +56829,9 @@ Return ONLY valid JSON with no markdown formatting:
       var rfSent;
       if (rfDecision === 'approve') {
         rfSent = await sendGpNotificationEmail(rfUserId,
-          'Document Verified — GP Link',
+          'Document Verified, GP Link',
           'Your ' + rfDocLabel + ' has been verified, {{name}}',
-          'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified — no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
+          'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified, no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
           'View Dashboard', APP_BASE_URL + '/pages/index.html', '', rfMailOpts);
       } else {
         // Deep-link straight to the document's re-upload surface. Onboarding-origin
@@ -56465,7 +56849,7 @@ Return ONLY valid JSON with no markdown formatting:
         // message, and the wrapper turned it into one boilerplate-sandwiched paragraph.
         // The generic sentence only appears as a fallback when no note was typed.
         rfSent = await sendGpNotificationEmail(rfUserId,
-          'Action needed: re-upload your ' + rfDocLabel + ' — GP Link',
+          'Action needed: re-upload your ' + rfDocLabel + ', GP Link',
           'Please re-upload your ' + rfDocLabel + ', {{name}}',
           rfNote || ('Our team reviewed your ' + rfDocLabel + ' and it needs to be re-uploaded before we can continue your registration.\n\nPlease upload a corrected document and we’ll review it again.'),
           'Re-upload Document', rfReuploadUrl, '', rfMailOpts);
@@ -56556,8 +56940,10 @@ Return ONLY valid JSON with no markdown formatting:
     const GDP_ONBOARDING = {
       primary_medical_degree: 'onboarding_primary_med_degree',
       specialist_qualification: 'onboarding_specialist_qualification',
+      cct_certificate: 'onboarding_cct_certificate',
       onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-      onboarding_specialist_qualification: 'onboarding_specialist_qualification'
+      onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+      onboarding_cct_certificate: 'onboarding_cct_certificate'
     };
     const gdpObKey = GDP_ONBOARDING[gdpKey];
     if (gdpObKey) {
@@ -56635,7 +57021,7 @@ Return ONLY valid JSON with no markdown formatting:
     var docKey = task.related_document_key;
     var docLabel = docKey === 'offer_contract' ? 'Offer/Contract' : docKey === 'supervisor_cv' ? 'Supervisor CV' : (docKey || 'Document');
     var practiceName = placement.practiceName || 'the practice';
-    var emailSubject = 'Re: ' + docLabel + ' Required — ' + gpName + ' at ' + practiceName;
+    var emailSubject = 'Re: ' + docLabel + ' Required, ' + gpName + ' at ' + practiceName;
 
     // Build RFC 2822 email with attachment (threaded as reply when possible).
     // Under the registration hub the case sends FROM the hub mailbox (registration@) and the
@@ -59541,7 +59927,8 @@ Return ONLY valid JSON with no markdown formatting:
     // lives on the onboarding_* row; otherwise on the key itself.
     const RDR_ONBOARDING_KEY = {
       primary_medical_degree: 'onboarding_primary_med_degree',
-      specialist_qualification: 'onboarding_specialist_qualification'
+      specialist_qualification: 'onboarding_specialist_qualification',
+      cct_certificate: 'onboarding_cct_certificate'
     };
     const rdrObKey = RDR_ONBOARDING_KEY[rdrKey] || '';
     let rdrRow = null;
@@ -59570,7 +59957,7 @@ Return ONLY valid JSON with no markdown formatting:
     const rdrName = rdrGp.firstName || 'there';
     const rdrResult = await sendEmail({
       to: rdrGp.email,
-      subject: 'Action needed: re-upload your ' + rdrDocLabel + ' — GP Link',
+      subject: 'Action needed: re-upload your ' + rdrDocLabel + ', GP Link',
       html: buildCareerEmailHtml({
         title: 'Please re-upload your ' + rdrDocLabel + ', ' + rdrName,
         // Same shape as the live rejection email: the body is the reviewer's stored
@@ -61322,7 +61709,7 @@ Return ONLY valid JSON with no markdown formatting:
             channel: 'internal',
             sender: ceoCtx.email,
             recipient: escRsoEmail || null,
-            subject: 'CEO response — action required: ' + (escTask.title || 'Escalation'),
+            subject: 'CEO response, action required: ' + (escTask.title || 'Escalation'),
             body_text: escNote
           }]
         });
@@ -61949,10 +62336,10 @@ Return ONLY valid JSON with no markdown formatting:
             subject: "You've been invited to the GP Link ATS",
             html: buildCareerEmailHtml({
               title: "You've been invited to the GP Link ATS",
-              body: 'Hi ' + taEsc(taName || 'there') + ', you\'ve been given consultant access to the GP Link recruitment dashboard — candidates, jobs, practices and interviews in one place. Click the button below to set your password and get started.',
+              body: 'Hi ' + taEsc(taName || 'there') + ', you\'ve been given consultant access to the GP Link recruitment dashboard, candidates, jobs, practices and interviews in one place. Click the button below to set your password and get started.',
               ctaText: 'Set your password',
               ctaUrl: taInviteLink,
-              footer: 'After setting your password, sign in any time at ' + taEsc(taSigninUrl) + '. This link expires in 1 hour — if it does, use "Forgot password" on the sign-in page.'
+              footer: 'After setting your password, sign in any time at ' + taEsc(taSigninUrl) + '. This link expires in 1 hour, if it does, use "Forgot password" on the sign-in page.'
             })
           });
           taInviteSent = !!(taSend && taSend.ok);
@@ -62397,7 +62784,7 @@ Return ONLY valid JSON with no markdown formatting:
             + 'Kind regards,\nGP Link Recruitment Team';
           await sendEmail({
             to: ajContactEmail,
-            subject: 'Your job is live on GP Link — ' + ajRoleLabel,
+            subject: 'Your job is live on GP Link, ' + ajRoleLabel,
             html: buildCareerEmailHtml({
               title: 'Your job is live',
               body: ajBodyHtml,
@@ -63912,7 +64299,7 @@ Return ONLY valid JSON with no markdown formatting:
           await sendEmail({
             to: cxGpEmail,
             subject: 'Your interview has been cancelled',
-            text: 'Hi ' + cxGpName + ', your interview with ' + cxPracticeName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch shortly to arrange a new time — or you can pick a new slot in the app.',
+            text: 'Hi ' + cxGpName + ', your interview with ' + cxPracticeName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch shortly to arrange a new time, or you can pick a new slot in the app.',
             from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
             attachments: cxIcsAttachment ? [cxIcsAttachment] : undefined
           });
@@ -63920,7 +64307,7 @@ Return ONLY valid JSON with no markdown formatting:
         if (cxPracticeEmail && isEmailConfigured()) {
           await sendEmail({
             to: cxPracticeEmail,
-            subject: 'Interview cancelled — ' + cxGpName,
+            subject: 'Interview cancelled, ' + cxGpName,
             text: 'The interview with ' + cxGpName + ' has been cancelled.' + cxReasonLine + ' We\'ll be in touch to rearrange.',
             from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
             attachments: cxIcsAttachment ? [cxIcsAttachment] : undefined
@@ -66018,7 +66405,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       if (appCtx.practiceEmail && isEmailConfigured()) {
         await sendEmail({
           to: appCtx.practiceEmail,
-          subject: 'Interview confirmed — ' + appCtx.gpName,
+          subject: 'Interview confirmed, ' + appCtx.gpName,
           html: buildCareerEmailHtml({
             title: 'Interview confirmed',
             body: _esc(appCtx.gpName || 'The doctor') + ' has confirmed the interview for <strong>' + _esc(practiceWhen) + '</strong>.' + (joinUrl ? ' At the scheduled time, join the video call with the button below.' : ' The video link will be shared before the interview.'),
@@ -66060,14 +66447,14 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       if (bookRsoEmail && !bookRsoIsHello && isEmailConfigured()) {
         await sendEmail({
           to: bookRsoEmail,
-          subject: 'Interview to support — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'a practice'),
+          subject: 'Interview to support, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'a practice'),
           html: buildCareerEmailHtml({
             title: 'You’re supporting an interview',
             body: 'Hi ' + _esc(rsoFirst) + ', ' + _esc(appCtx.gpName || 'your doctor') + ' has an interview with ' + _esc(appCtx.practiceName || 'the practice') + ' on <strong>' + _esc(practiceWhen) + '</strong>. Please join so they’re never in the room alone.' + (joinUrl ? ' Join with the button below.' : ' The video link will be shared before the interview.'),
             ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
             ctaUrl: joinUrl || (APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
             secondaryCtaText: 'Add to Calendar',
-            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
+            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
             footer: 'You’re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '’s Registration Support Officer.'
           }),
           text: appCtx.gpName + ' has an interview with ' + (appCtx.practiceName || 'the practice') + ' on ' + practiceWhen + '.' + (joinUrl ? ' Join: ' + joinUrl : ''),
@@ -66082,8 +66469,8 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String((appCtx.caseId != null ? appCtx.caseId : (appCtx.app && appCtx.app.id)) || ''));
           await sendEmail({
             to: 'hello@mygplink.com.au',
-            subject: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' — ' + timeLabel,
-            text: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' for ' + timeLabel + '.\n\nMeeting: ' + (joinUrl || '(no link — set INTERVIEW_MEETING_URL or configure the Zoom API)') + '\nSupport officer: ' + (bookRso.name || 'GP Link') + ' <' + bookRsoEmail + '>\nOpen the candidate: ' + opsDeepLink,
+            subject: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ', ' + timeLabel,
+            text: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ' for ' + timeLabel + '.\n\nMeeting: ' + (joinUrl || '(no link, set INTERVIEW_MEETING_URL or configure the Zoom API)') + '\nSupport officer: ' + (bookRso.name || 'GP Link') + ' <' + bookRsoEmail + '>\nOpen the candidate: ' + opsDeepLink,
             from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
           });
         }
@@ -66185,7 +66572,7 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
             sendGpNotificationEmail(gpUserId,
               'Your interview slots are ready',
               'Your interview times are ready, {{name}}',
-              'The practice has shared when they can meet. Tap below to choose the time that suits you — your Registration Support Officer joins you, so you are never in the room alone.',
+              'The practice has shared when they can meet. Tap below to choose the time that suits you, your Registration Support Officer joins you, so you are never in the room alone.',
               'Choose your interview time',
               secureUrl,
               'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'

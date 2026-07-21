@@ -47,6 +47,11 @@ const db = {
       title: 'Review flagged qualification: Primary Medical Degree', created_at: NOW
     },
     {
+      id: 't-ob-flag-cct', case_id: 'case-ob-1', task_type: 'flagged_doc', status: 'open',
+      related_stage: 'onboarding', related_document_key: 'cct_certificate',
+      title: 'Review flagged qualification: CCT Certificate', created_at: NOW
+    },
+    {
       id: 't-ahpra-flag-1', case_id: 'case-ob-1', task_type: 'flagged_doc', status: 'open',
       related_stage: 'ahpra', related_document_key: 'cscst_certified',
       title: 'Review flagged qualification: CSCST Certificate', created_at: NOW
@@ -62,6 +67,11 @@ const db = {
       id: 'd-ob-degree', user_id: GP.userId, document_key: 'onboarding_primary_med_degree',
       country_code: 'uk', status: 'under_review', file_name: 'degree.jpg',
       file_url: 'users/u-ob-1/onboarding/uk/onboarding_primary_med_degree', updated_at: NOW
+    },
+    {
+      id: 'd-ob-cct', user_id: GP.userId, document_key: 'onboarding_cct_certificate',
+      country_code: 'uk', status: 'under_review', file_name: 'cct.jpg',
+      file_url: 'users/u-ob-1/onboarding/uk/onboarding_cct_certificate', updated_at: NOW
     }
   ],
   user_state: [
@@ -300,6 +310,33 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(obDegreeRow.rejection_reason).toBe('');
   });
 
+  it('CCT (uk third doc): reject mirrors onto onboarding_cct_certificate + deep-links with cct_certificate', async () => {
+    const r = await postJson('/api/admin/va/task/review-flagged-doc',
+      { task_id: 't-ob-flag-cct', decision: 'reject', note: 'CCT unreadable — please re-upload.' }, adminCookie());
+    expect(r.status).toBe(200);
+
+    // Mirror/canonical mapping: the canonical cct_certificate row is written
+    // AND the onboarding-namespace row the wizard reads back is mirrored —
+    // same behaviour already pinned above for the two older onboarding keys.
+    const obCctRow = db.user_documents.find((d) => d.document_key === 'onboarding_cct_certificate');
+    expect(obCctRow.status).toBe('rejected');
+    expect(obCctRow.rejection_reason).toBe('CCT unreadable — please re-upload.');
+    const canonCct = db.user_documents.find((d) => d.document_key === 'cct_certificate');
+    expect(canonCct).toBeTruthy();
+    expect(canonCct.status).toBe('rejected');
+
+    // Rejection bell alert deep-links into the onboarding wizard keyed by the
+    // canonical cct_certificate (resolveReuploadParamKey maps it client-side).
+    const st = db.user_state.find((s) => s.user_id === GP.userId);
+    const alert = (st.state.gp_link_updates || []).find((a) => a.target === '/pages/onboarding.html?reupload=cct_certificate');
+    expect(alert).toBeTruthy();
+
+    // Round-trips to the wizard read-back endpoint like the other two keys.
+    const rt = await getJson('/api/onboarding-documents?country=uk', gpCookie());
+    expect(rt.status).toBe(200);
+    expect(rt.body.docs.onboarding_cct_certificate.status).toBe('rejected');
+  });
+
   it('a NON-onboarding rejection still deep-links to my-documents (regression)', async () => {
     const r = await postJson('/api/admin/va/task/review-flagged-doc',
       { task_id: 't-ahpra-flag-1', decision: 'reject', note: 'Needs a certified copy.' }, adminCookie());
@@ -442,13 +479,16 @@ describe('onboarding wizard client wiring (source-level)', () => {
   it('handles the ?reupload deep link for canonical keys', () => {
     expect(src).toContain('resolveReuploadParamKey');
     expect(src).toContain('specialist_qualification');
+    // CCT: canonical + onboarding-namespace keys both resolve to the wizard slot.
+    expect(src).toContain('"cct_certificate"');
+    expect(src).toContain('"onboarding_cct_certificate"');
   });
   it('preserves the destination through the signin bounce', () => {
     expect(src).toMatch(/\/pages\/signin"?\s*\+\s*\(/);
     expect(src).toContain('encodeURIComponent(dest)');
   });
   it('cache buster bumped', () => {
-    expect(html).toMatch(/onboarding\.js\?v=20260720a/);
+    expect(html).toMatch(/onboarding\.js\?v=20260722b/);
   });
   it('rejected docs do not count as complete', () => {
     const fn = src.slice(src.indexOf('function allDocsComplete'), src.indexOf('}', src.indexOf('function allDocsComplete')) + 1);

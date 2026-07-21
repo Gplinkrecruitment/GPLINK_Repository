@@ -454,7 +454,7 @@ describe('GET /api/cron/match-lifecycle — 24h copy upgrade + 2h final-call nud
     // ── 24h reminder pass: app-remind24-1 ──────────────────────────────────
     const reminderCall = resendCalls.find((c) => (c.body.to || []).includes(REMIND24_GP.email));
     expect(reminderCall).toBeTruthy();
-    expect(reminderCall.body.subject).toBe('24 hours left — Coral Coast Family Practice is holding your spot');
+    expect(reminderCall.body.subject).toBe('24 hours left, Coral Coast Family Practice is holding your spot');
     expect(reminderCall.body.html).toContain('Review &amp; accept my match');
     expect(reminderCall.body.html).toContain('Not the right fit? Tell us why');
     expect(reminderCall.body.html).toContain('98%');
@@ -466,7 +466,7 @@ describe('GET /api/cron/match-lifecycle — 24h copy upgrade + 2h final-call nud
     // ── 2h final-call pass: app-final-1 ────────────────────────────────────
     const finalCall = resendCalls.find((c) => (c.body.to || []).includes(FINAL_GP.email));
     expect(finalCall).toBeTruthy();
-    expect(finalCall.body.subject).toMatch(/^Final call — your match expires at \d{1,2}:\d{2} (am|pm) (today|tomorrow)$/);
+    expect(finalCall.body.subject).toMatch(/^Final call, your match expires at \d{1,2}:\d{2} (am|pm) (today|tomorrow)$/);
     expect(finalCall.body.html).toContain('Accept before it expires');
     // Assert on a distinctive substring rather than the exact HTML-escaping
     // of the apostrophe in "I'm interested — I need more time" (the builder
@@ -573,7 +573,7 @@ describe('POST /api/ats/matching/shortlist — REOPEN clears stale nudge stamps 
 describe('POST /api/career/match/need-more-time (Task 3, 2026-07-11 nudges plan)', () => {
   it('live + unstamped: notes the request, stamps the column, and sends exactly one verbatim ops email; a second call is idempotent', async () => {
     resendCalls.length = 0;
-    const expectedSubject = 'GP asked for more time — Amara Chen × Coral Coast Family Practice';
+    const expectedSubject = 'GP asked for more time, Amara Chen × Coral Coast Family Practice';
 
     const before = db.gp_applications.find((a) => a.id === 'app-needtime-live-1');
     expect(before.match_more_time_requested_at).toBeNull();
