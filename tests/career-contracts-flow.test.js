@@ -2711,6 +2711,7 @@ describe('Task 14: change-request loop — live-boot', () => {
   const APP_REVIEW_APPROVE = 'app-t14-review-approve';
   const APP_REVIEW_DECLINE = 'app-t14-review-decline';
   const APP_REVIEW_WITHDRAWN = 'app-t14-review-withdrawn';
+  const APP_CHD_WITHDRAWN = 'app-t14-chd-withdrawn';
 
   let server, port, sbServer, sbPort, realFetch, mod;
   const resendCalls = [];
@@ -2729,7 +2730,8 @@ describe('Task 14: change-request loop — live-boot', () => {
       { id: APP_WRONGSTATUS, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
       { id: APP_REVIEW_APPROVE, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
       { id: APP_REVIEW_DECLINE, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'offer', ats_stage: 'offer', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
-      { id: APP_REVIEW_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'withdrawn', ats_stage: 'not_proceeding', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW }
+      { id: APP_REVIEW_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'withdrawn', ats_stage: 'not_proceeding', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW },
+      { id: APP_CHD_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', practice_id: 'p-t14-1', status: 'withdrawn', ats_stage: 'not_proceeding', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', applied_at: NOW }
     ],
     career_contracts: [
       { id: 'contract-t14-release', application_id: APP_RELEASE, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'changes_requested', change_request: 'Please increase sessions to 4 per week.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
@@ -2737,7 +2739,8 @@ describe('Task 14: change-request loop — live-boot', () => {
       { id: 'contract-t14-wrongstatus', application_id: APP_WRONGSTATUS, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'uploaded', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
       { id: 'contract-t14-review-approve', application_id: APP_REVIEW_APPROVE, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Please move the start date to 1 December.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
       { id: 'contract-t14-review-decline', application_id: APP_REVIEW_DECLINE, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Please add two extra leave days.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
-      { id: 'contract-t14-review-withdrawn', application_id: APP_REVIEW_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Not relevant — the doctor withdrew.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW }
+      { id: 'contract-t14-review-withdrawn', application_id: APP_REVIEW_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'practice_review', change_request: 'Not relevant — the doctor withdrew.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW },
+      { id: 'contract-t14-chd-withdrawn', application_id: APP_CHD_WITHDRAWN, user_id: GP.userId, career_role_id: 'role-t14-1', version: 1, status: 'changes_requested', change_request: 'Please adjust the contract terms.', practice_contact_email: PRACTICE_EMAIL, practice_contact_name: 'T14 Reception', created_at: NOW, updated_at: NOW }
     ],
     user_state: [
       { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
@@ -2919,6 +2922,26 @@ describe('Task 14: change-request loop — live-boot', () => {
     const r2 = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-wrongstatus', action: 'decline_change' });
     expect(r2.status).toBe(409);
     expect(contract('contract-t14-wrongstatus').status).toBe('uploaded');
+  });
+
+  it('POST /api/ceo/contract/change-decision: 409 application_terminal when the application is withdrawn — contract stays "changes_requested", no practice email', async () => {
+    const before = resendCalls.length;
+    const r = await ceoPost('/api/ceo/contract/change-decision', { contractId: 'contract-t14-chd-withdrawn', action: 'release_to_practice' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('application_terminal');
+
+    // The app-status check runs BEFORE the contract PATCH, so the contract
+    // must be untouched — never flipped to practice_review for a dead application.
+    const c = contract('contract-t14-chd-withdrawn');
+    expect(c.status).toBe('changes_requested');
+
+    // The application must stay withdrawn — never resurrected.
+    const app = db.gp_applications.find((x) => x.id === APP_CHD_WITHDRAWN);
+    expect(app.status).toBe('withdrawn');
+
+    // No practice email fired.
+    expect(resendCalls.length).toBe(before);
   });
 
   it('release_to_practice: moves the contract to practice_review, stamps the CEO note, and emails the practice BOTH consent links off the SAME token', async () => {

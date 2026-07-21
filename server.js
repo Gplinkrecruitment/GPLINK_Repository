@@ -38829,6 +38829,22 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    const chdAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(chdContract.application_id) + '&limit=1');
+    const chdApp = (chdAppRes.ok && Array.isArray(chdAppRes.data) && chdAppRes.data[0]) ? chdAppRes.data[0] : null;
+
+    // Terminal-application guard — runs BEFORE the contract PATCH so nothing
+    // is half-written. If the GP withdrew, the practice already marked the
+    // application not_proceeding, or it's already secured through another
+    // path after the change was requested, the action must never resurrect it
+    // to practice_review and email out a consent request for a dead application.
+    if (chdApp) {
+      const chdAppStatusKey = normalizeCareerApplicationStatusKey(chdApp.status);
+      if (chdAppStatusKey === 'withdrawn' || chdAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(chdAppStatusKey)) {
+        sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active.' });
+        return;
+      }
+    }
+
     const chdEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     if (chdAction === 'release_to_practice') {
