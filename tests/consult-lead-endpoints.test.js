@@ -4,14 +4,14 @@ import crypto from 'crypto';
 import fs from 'fs';
 
 // Coverage for the Meta-ads GP consult funnel's public (no-session) endpoints:
-//   POST /api/public/consult-lead       , site-form submission (screens + stores)
-//   GET  /api/public/consult-lead?token=, lookup by token (used by post-call/nudge pages)
-//   POST /api/public/consult-lead/match , email match against a recent FB-webhook lead
-//   POST /api/public/consult-lead/booked, flips call_booked once a call is scheduled
+//   POST /api/public/consult-lead        — site-form submission (screens + stores)
+//   GET  /api/public/consult-lead?token= — lookup by token (used by post-call/nudge pages)
+//   POST /api/public/consult-lead/match  — email match against a recent FB-webhook lead
+//   POST /api/public/consult-lead/booked — flips call_booked once a call is scheduled
 // and the GET /start route registration (page file itself lands in Task 5).
 // Rows live in site_enquiries (Supabase) / dbState.siteEnquiries (local JSON-db
 // fallback, exercised here since Supabase is left unconfigured in this test
-// boot, same pattern as tests/site-enquiry.test.js).
+// boot — same pattern as tests/site-enquiry.test.js).
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = `/tmp/gplink-consult-lead-${RUN_ID}.json`;

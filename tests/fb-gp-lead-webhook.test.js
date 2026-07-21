@@ -13,11 +13,11 @@ import fs from 'fs';
 // Note on duplicate-delivery coverage: checkAndRecordWebhookEvent is
 // Supabase-backed (see server.js ~1628) and calls supabaseDbRequest, which
 // short-circuits to `{ ok: false, status: 503 }` whenever Supabase isn't
-// configured (isSupabaseDbConfigured() false, this test boots with
+// configured (isSupabaseDbConfigured() false — this test boots with
 // SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY unset, same as the other consult-lead
 // test files). With `existing.ok` false and `inserted.ok` false/non-409,
 // checkAndRecordWebhookEvent always returns false in this local-JSON test
-// mode, i.e. the dedupe branch is unreachable here, so no duplicate-delivery
+// mode, i.e. the dedupe branch is unreachable here — so no duplicate-delivery
 // test is included; that path can only be exercised against real Supabase.
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
@@ -57,7 +57,7 @@ function readDb() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch { return {}; }
 }
 
-// Copied from tests/consult-lead.test.js, implementers may read tasks out of
+// Copied from tests/consult-lead.test.js — implementers may read tasks out of
 // order, and the brief calls for copying the fixture rather than importing
 // across test files.
 function nativeFbBody(overrides = {}) {
@@ -113,7 +113,7 @@ beforeEach(() => {
 
 const WH = '/api/webhooks/facebook-lead?secret=test-fb-secret';
 
-describe('facebook-lead webhook, GP form branch', () => {
+describe('facebook-lead webhook — GP form branch', () => {
   it('routes an allow-listed GP form to site_enquiries (not practices)', async () => {
     const res = await post(WH, nativeFbBody());
     expect(res.status).toBe(200);
@@ -145,7 +145,7 @@ describe('facebook-lead webhook, GP form branch', () => {
   it('a form NOT in the allow-list falls through to the practice path', async () => {
     const body = nativeFbBody();
     body.entry[0].changes[0].value.form_id = 'F-UNKNOWN';
-    // practice normalizer requires practice_name or contact_email, email is present, so it creates a practice
+    // practice normalizer requires practice_name or contact_email — email is present, so it creates a practice
     const res = await post(WH, body);
     expect(res.status).toBe(200);
     expect(res.json.kind).toBeUndefined();

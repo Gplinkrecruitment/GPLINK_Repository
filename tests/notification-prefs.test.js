@@ -1,11 +1,11 @@
-// Phase 6 F4 (audit G6), per-GP notification preferences.
+// Phase 6 F4 (audit G6) — per-GP notification preferences.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. GET/POST /api/account/notification-preferences are auth-gated, default
 //      to everything ON, and persist toggles per user.
 //   2. The onboarding-nudge cron SKIPS a GP who opted out of email nudges
-//      (silently, no error spam) while still nudging an opted-in GP.
-//   3. CRITICAL: a TRANSACTIONAL email (password reset, security mail) is
+//      (silently — no error spam) while still nudging an opted-in GP.
+//   3. CRITICAL: a TRANSACTIONAL email (password reset — security mail) is
 //      NOT gated by preferences: it still sends to a fully opted-out GP.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';

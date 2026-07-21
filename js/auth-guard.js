@@ -51,8 +51,8 @@
   }
 
   // PEP gate: a GP whose qualification predates the expedited-specialist cutoff is
-  // held on the PEP (Substantially Comparable) waitlist and must not see the app,
-  // only the PEP pathway page, until that pathway launches. This is a HARD redirect
+  // held on the PEP (Substantially Comparable) waitlist and must not see the app —
+  // only the PEP pathway page — until that pathway launches. This is a HARD redirect
   // (unlike under_review, which is a soft overlay). Returns true if it redirected.
   function applyPepGate(status) {
     var isFullAccess = FULL_ACCESS_EMAILS[getBypassEmail()];
@@ -282,7 +282,7 @@
       "body.gp-restricted *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;}";
     document.head.appendChild(styleEl);
 
-    // Add restricted class to body, blocks all selection/copy globally
+    // Add restricted class to body — blocks all selection/copy globally
     document.body.classList.add("gp-restricted");
 
     // Block copy/cut/selectall at document level
@@ -294,7 +294,7 @@
     // Also block context menu (long-press copy on mobile)
     document.addEventListener("contextmenu", function (e) { e.preventDefault(); }, true);
 
-    // Create review popup modal, NO backdrop dismiss, only OK button closes it
+    // Create review popup modal — NO backdrop dismiss, only OK button closes it
     var popup = document.createElement("div");
     popup.id = "gpReviewPopup";
     popup.style.cssText = "position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);padding:20px;";
@@ -314,7 +314,7 @@
       popup.style.display = "none";
     }
 
-    // Only the OK button closes the popup, no backdrop dismiss
+    // Only the OK button closes the popup — no backdrop dismiss
     var okBtn = popup.querySelector(".gp-popup-ok-btn");
     okBtn.addEventListener("click", function (e) {
       e.stopPropagation();

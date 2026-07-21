@@ -58,15 +58,15 @@ beforeAll(async () => {
   // Seed the local-JSON DB before the server loads it.
   execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'seed-ats-dev.js')], { env: { ...process.env, DB_FILE_PATH: DB_FILE } });
   // Task 9 (practice-client pipeline): inject two pending-approval jobs (the
-  // shape createPendingJobFromIntake writes, is_active:false until approved)
+  // shape createPendingJobFromIntake writes — is_active:false until approved)
   // plus one job that already carries an https header image, so the approval
   // gate + reuse_url validation can be exercised hermetically.
   const seeded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   seeded.atsJobs = seeded.atsJobs || [];
   seeded.atsJobs.push(
-    { id: 'jp1', provider: 'internal_ats', title: 'GP, Rangeville', masked_title: 'GP | Suburb of Toowoomba | Mixed billing', practice_name: 'Pipeline Practice One', practice_id: 'p1', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Rangeville', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 'jp2', provider: 'internal_ats', title: 'GP, Newtown', masked_title: 'GP | Suburb of Toowoomba | Private billing', practice_name: 'Pipeline Practice Two', practice_id: 'p2', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Newtown', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 'jh1', provider: 'internal_ats', title: 'GP, Kearneys Spring', masked_title: '', practice_name: 'Pipeline Practice Three', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Kearneys Spring', is_active: true, job_status: 'open', approval_status: 'approved', header_image_url: 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+    { id: 'jp1', provider: 'internal_ats', title: 'GP — Rangeville', masked_title: 'GP | Suburb of Toowoomba | Mixed billing', practice_name: 'Pipeline Practice One', practice_id: 'p1', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Rangeville', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'jp2', provider: 'internal_ats', title: 'GP — Newtown', masked_title: 'GP | Suburb of Toowoomba | Private billing', practice_name: 'Pipeline Practice Two', practice_id: 'p2', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Newtown', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'jh1', provider: 'internal_ats', title: 'GP — Kearneys Spring', masked_title: '', practice_name: 'Pipeline Practice Three', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Kearneys Spring', is_active: true, job_status: 'open', approval_status: 'approved', header_image_url: 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
   );
   fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
 
@@ -107,7 +107,7 @@ describe('ATS jobs', () => {
   it('surfaces pending-approval jobs at the TOP so a signed practice is not buried', async () => {
     // A freshly-signed practice's job lands as approval_status:'pending'. If it
     // sorts below every open job, the CEO cannot find the one job that needs
-    // action, exactly the bug reported for Erina Medical Centre.
+    // action — exactly the bug reported for Erina Medical Centre.
     const r = await req('GET', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie() });
     const b = parse(r.raw);
     const pendingIds = b.jobs.filter((j) => j.approval_status === 'pending').map((j) => j.id);
@@ -124,11 +124,11 @@ describe('ATS jobs', () => {
     expect([302, 401, 403, 404]).toContain(r.status);
   });
   it('creates a native job', async () => {
-    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP, Test Role', practice_id: 'p1', city: 'Cairns', state: 'QLD', type: 'Locum', billing: 'Mixed billing' } });
+    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP — Test Role', practice_id: 'p1', city: 'Cairns', state: 'QLD', type: 'Locum', billing: 'Mixed billing' } });
     expect(r.status).toBe(200);
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
-    expect(b.job.title).toBe('GP, Test Role');
+    expect(b.job.title).toBe('GP — Test Role');
     expect(b.job.practice_name).toBe('Greenslopes Family Medical');
   });
 });
@@ -174,7 +174,7 @@ describe('ATS practices', () => {
     const r = await req('GET', '/api/ats/practice?id=' + encodeURIComponent(greenslopes.id), { host: SUPER_HOST, cookie: superCookie() });
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
-    expect(b.jobs.some((j) => j.title === 'General Practitioner, VR')).toBe(true);
+    expect(b.jobs.some((j) => j.title === 'General Practitioner — VR')).toBe(true);
     expect(b.candidates.length).toBeGreaterThanOrEqual(1);
   });
   it('derives a practice from job data even with no practices-table row', async () => {
@@ -194,7 +194,7 @@ describe('ATS practices', () => {
   });
   it('a manually created practice defaults to stage prospective', async () => {
     // Regression: POST /api/ats/practices stored no stage at all, and the list
-    // API normalizes a missing stage to 'active', so an unsigned, never-
+    // API normalizes a missing stage to 'active' — so an unsigned, never-
     // intaked practice rendered as an active "Mainstream Practice" client.
     const name = 'Fresh Prospect Clinic ' + RUN_ID;
     const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name, city: 'Cairns', state: 'QLD' } });
@@ -211,7 +211,7 @@ describe('ATS practices', () => {
     const bad = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name: 'Bad Stage Clinic ' + RUN_ID, stage: 'banana' } });
     expect(bad.status).toBe(400);
   });
-  it('renaming a practice carries its jobs with it, no orphaned old-name card', async () => {
+  it('renaming a practice carries its jobs with it — no orphaned old-name card', async () => {
     // Regression: the directory groups jobs by practice_name. Renaming the row
     // used to leave the jobs grouped under the OLD name as a duplicate card,
     // while the renamed row showed zero jobs (agreement/contract detached).
@@ -219,7 +219,7 @@ describe('ATS practices', () => {
     const newName = 'Renamed Cascade ' + RUN_ID;
     const c = await req('POST', '/api/ats/practices', { host: SUPER_HOST, cookie: superCookie(), body: { name: oldName, city: 'Perth', state: 'WA' } });
     const created = parse(c.raw).practice;
-    const j = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP, Rename Test ' + RUN_ID, practice_id: created.id, city: 'Perth', state: 'WA', type: 'Locum', billing: 'Mixed billing' } });
+    const j = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP — Rename Test ' + RUN_ID, practice_id: created.id, city: 'Perth', state: 'WA', type: 'Locum', billing: 'Mixed billing' } });
     expect(parse(j.raw).job.practice_name).toBe(oldName);
 
     // Before rename: one card under the old name with the job.
@@ -341,7 +341,7 @@ describe('pipeline summary + movement', () => {
   });
 });
 
-describe('Job approval, mandatory suburb header photo (Task 9)', () => {
+describe('Job approval — mandatory suburb header photo (Task 9)', () => {
   const ONE_PX_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
   const SVG_DATA_URL = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>').toString('base64');
   const EXISTING_HTTPS = 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png'; // jh1's header, injected in beforeAll
@@ -401,12 +401,12 @@ describe('Job approval, mandatory suburb header photo (Task 9)', () => {
     });
     expect(liveMail).toBeTruthy();
     expect(String(liveMail.body.subject)).toContain('Your job is live');
-    expect(String(liveMail.body.subject)).toContain('GP, Rangeville');
+    expect(String(liveMail.body.subject)).toContain('GP — Rangeville');
     expect(String(liveMail.body.html)).toContain('now live to eligible doctors');
     expect(String(liveMail.body.html)).toContain('What happens next');
     // D2: the job-live email links the bookmarkable practice status page,
     // authed by the practice's intake token (generated + persisted on the
-    // fly here, the dev-seeded p1 row has no token of its own).
+    // fly here — the dev-seeded p1 row has no token of its own).
     expect(String(liveMail.body.html)).toContain('Track your listing');
     expect(String(liveMail.body.html)).toContain('/pages/practice-status?token=');
     expect(String(liveMail.body.text)).toContain('/pages/practice-status?token=');
@@ -465,7 +465,7 @@ describe('Job approval, mandatory suburb header photo (Task 9)', () => {
     const raw = parse((await req('GET', '/api/ats/job?id=jp2', { host: SUPER_HOST, cookie: superCookie() })).raw).raw;
     expect(raw.is_active).toBe(false);
     expect(raw.approval_status).toBe('rejected');
-    // D1a: the "job is live" email is approve-only, a rejection sends nothing.
+    // D1a: the "job is live" email is approve-only — a rejection sends nothing.
     expect(resendCalls.length).toBe(beforeEmails);
   });
 

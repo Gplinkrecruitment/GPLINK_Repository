@@ -68,7 +68,7 @@
         min-height: 80px;
       }
 
-      /* Progress line, --rs-line-top is computed from actual circle positions */
+      /* Progress line — --rs-line-top is computed from actual circle positions */
       .registration-stepper-line {
         position: absolute;
         left: var(--rs-line-start, 0px);

@@ -178,7 +178,7 @@ describe('scheduled-calls helpers', () => {
     }
 
     // The three fields that make the meeting visible and correct in the CEO tab.
-    it('is CEO-hosted, host_kind MUST be ceo or /api/ceo/meetings never returns it', () => {
+    it('is CEO-hosted — host_kind MUST be ceo or /api/ceo/meetings never returns it', () => {
       expect(build().host_kind).toBe('ceo');
     });
 
@@ -190,7 +190,7 @@ describe('scheduled-calls helpers', () => {
       expect(build().status).toBe('booked');
     });
 
-    it('carries a correlation_token, the column is NOT NULL UNIQUE', () => {
+    it('carries a correlation_token — the column is NOT NULL UNIQUE', () => {
       const row = build();
       expect(row.correlation_token).toMatch(/^[a-f0-9]{32}$/);
       expect(buildScheduledCallFromCalendly({
@@ -241,7 +241,7 @@ describe('scheduled-calls helpers', () => {
       expect(bare).not.toHaveProperty('invitee_notes');
     });
 
-    it('is pure, same input, identical row (no clock read inside)', () => {
+    it('is pure — same input, identical row (no clock read inside)', () => {
       const token = generateCorrelationToken();
       const a = buildScheduledCallFromCalendly({ correlationToken: token, nowIso: NOW, inviteeEmail: 'a@b.com' });
       const b = buildScheduledCallFromCalendly({ correlationToken: token, nowIso: NOW, inviteeEmail: 'a@b.com' });
@@ -432,7 +432,7 @@ describe('scheduled-calls helpers', () => {
     });
     it('is NOT a candidate before end + grace', () => {
       const { isNoShowCandidate } = require('../server-test-helpers.js');
-      // started 11:50, ends 12:20, still in progress
+      // started 11:50, ends 12:20 — still in progress
       expect(isNoShowCandidate({ ...base, scheduled_at: '2026-06-19T11:50:00.000Z' }, now, 15)).toBe(false);
     });
     it('ignores calls that are not booked, or already completed / flagged', () => {

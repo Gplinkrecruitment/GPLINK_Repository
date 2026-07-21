@@ -72,7 +72,7 @@ beforeAll(async () => {
   const seeded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   seeded.atsJobs = seeded.atsJobs || [];
   seeded.atsJobs.push({
-    id: 'jp1', provider: 'internal_ats', title: 'GP, Rangeville',
+    id: 'jp1', provider: 'internal_ats', title: 'GP — Rangeville',
     practice_name: 'Pipeline Practice One', practice_id: 'p1',
     address: '12 Example Street, Rangeville QLD 4350',
     location_city: 'Toowoomba', location_state: 'QLD',

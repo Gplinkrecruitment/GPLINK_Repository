@@ -1,9 +1,9 @@
-// Phase 6 H1 (audit B2), weekly owner digest email:
+// Phase 6 H1 (audit B2) — weekly owner digest email:
 //  1. GET /api/cron/owner-digest is cron-secret-gated (401 without Bearer);
 //  2. an authorized run composes the operational KPIs + week-over-week movement
 //     from the SAME trend series the dashboard uses and emails GP_OWNER_EMAIL
 //     (hello@mygplink.com.au) via Resend (captured);
-//  3. the send is TRANSACTIONAL, no List-Unsubscribe headers, never suppressed;
+//  3. the send is TRANSACTIONAL — no List-Unsubscribe headers, never suppressed;
 //  4. the cron heartbeat (runtime_kv cron_last_run_owner-digest) is recorded;
 //  5. idempotent per week: a second cron run the same week skips (no 2nd email);
 //  6. POST /api/ceo/owner-digest/send ("Send me the digest now") is super-admin
@@ -33,7 +33,7 @@ const thisWeekIso = new Date(NOW).toISOString();
 const lastWeekIso = new Date(NOW - 7 * DAY).toISOString();
 
 // Fixture rows served for every read of the given table (PostgREST filters are
-// NOT applied by the fake, the server buckets/filters in JS, which is what we
+// NOT applied by the fake — the server buckets/filters in JS, which is what we
 // are testing). registration_cases distinguishes the trends' completions query
 // (stage=eq.complete) from the full-case reads via the querystring.
 const FIXTURE = {
@@ -188,11 +188,11 @@ describe('weekly owner digest cron', () => {
     expect(html).toContain('Where things stand');
     expect(html).toContain('View full dashboard');
     expect(html).toContain('/pages/ceo-dashboard');
-    // Operational only, no money figures (Xero owns revenue).
+    // Operational only — no money figures (Xero owns revenue).
     expect(html).not.toMatch(/revenue|\$\d/i);
   });
 
-  it('the send is transactional, no List-Unsubscribe headers', () => {
+  it('the send is transactional — no List-Unsubscribe headers', () => {
     const payload = resendCalls[0].body;
     expect(JSON.stringify(payload)).not.toContain('List-Unsubscribe');
   });

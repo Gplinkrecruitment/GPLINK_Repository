@@ -1,11 +1,11 @@
-// Phase 6 C2, observability (audit S2/S4).
+// Phase 6 C2 — observability (audit S2/S4).
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
 // tests/ats-offer-flow.test.js and verifies:
 //  1. recordServerError writes a source='server' client_errors row and DEDUPES
 //     a repeat of the same signature (occurrence_count increments, one row).
 //  2. A route that throws (bad %-escape in a path segment → URIError inside
-//     the handler) returns a GENERIC 500, no err.message / stack in the body,
+//     the handler) returns a GENERIC 500 — no err.message / stack in the body —
 //     AND records a server error row.
 //  3. recordCronRun writes the runtime_kv 'cron_last_run_<name>' heartbeat key,
 //     both directly and end-to-end via a real /api/cron/* invocation. An
@@ -293,7 +293,7 @@ describe('cron heartbeat (S4)', () => {
   it('a real cron invocation records an ok heartbeat end-to-end', async () => {
     const r = await httpReq('GET', '/api/cron/detect-no-shows', { bearer: CRON_SECRET });
     expect(r.status).toBe(200);
-    // The heartbeat write happens just after the response is sent, poll briefly.
+    // The heartbeat write happens just after the response is sent — poll briefly.
     const v = await waitFor(() => kvValue('detect-no-shows'));
     expect(v).toBeTruthy();
     expect(v.status).toBe('ok');

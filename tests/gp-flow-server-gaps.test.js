@@ -1,4 +1,4 @@
-// Phase 5 Task 2, GP-journey gaps G2 / G6 / G8.
+// Phase 5 Task 2 — GP-journey gaps G2 / G6 / G8.
 //
 // Reuses the in-memory PostgREST emulator + fetch-mocking harness shared by
 // tests/career-interview-booking.test.js and tests/ats-placement-accept.test.js
@@ -7,14 +7,14 @@
 // is stubbed empty so downstream enrichment degrades offline.
 //
 // Covers:
-//  G6, POST /api/career/offer/accept congratulates the GP on their own
+//  G6 — POST /api/career/offer/accept congratulates the GP on their own
 //       acceptance ("Your placement is secured") exactly once, and NOT again on
 //       an idempotent repeat accept.
-//  G8, GET /api/cron/interview-reminders scans scheduled_calls booked
+//  G8 — GET /api/cron/interview-reminders scans scheduled_calls booked
 //       interviews and sends a 1h + a 24h reminder, each exactly once (dedupe
 //       via notification_channels), skips a cancelled interview, and skips a
 //       past one.
-//  G2, career.html static pins (securedInterview* ids, my-interviews fetch,
+//  G2 — career.html static pins (securedInterview* ids, my-interviews fetch,
 //       https-only Zoom guard, no bare "RSO").
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
@@ -47,7 +47,7 @@ const db = {
   ],
   career_roles: [
     {
-      id: 'role-gap-1', provider: 'internal_ats', provider_role_id: 'ats_gap_r1', title: 'General Practitioner, VR',
+      id: 'role-gap-1', provider: 'internal_ats', provider_role_id: 'ats_gap_r1', title: 'General Practitioner — VR',
       practice_name: 'Greenslopes Family Medical', masked_title: 'Confidential practice', practice_id: 'p-gap-1',
       location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW
     }
@@ -62,7 +62,7 @@ const db = {
   ats_offers: [
     {
       id: 'offer-gap-1', application_id: 'app-gap-1', status: 'sent', sent_by: CONSULTANT,
-      practice_name: 'Greenslopes Family Medical', job_title: 'General Practitioner, VR',
+      practice_name: 'Greenslopes Family Medical', job_title: 'General Practitioner — VR',
       billing_split: '70 / 30', sessions_per_week: '8', start_date: '2026-09-01', created_at: NOW, updated_at: NOW
     }
   ],
@@ -201,7 +201,7 @@ const gpPost = (p, body) => httpReq('POST', p, { cookie: userCookie(GP.email, GP
 const cronGet = (p) => httpReq('GET', p, { headers: { Authorization: 'Bearer ' + CRON_SECRET } });
 
 // Reminder emails to the GP, by lead-time (subject carries "Tomorrow" for 24h,
-// "Reminder" for the 2h nudge, see sendInterviewReminderEmail).
+// "Reminder" for the 2h nudge — see sendInterviewReminderEmail).
 const gpEmails = (matcher) => resendCalls.filter((c) => {
   const to = c.body && c.body.to;
   const toGp = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes(GP.email));
@@ -273,7 +273,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('G6, GP congratulated on in-app self-accept', () => {
+describe('G6 — GP congratulated on in-app self-accept', () => {
   it('accepts the offer, secures the placement, and emails the GP once', async () => {
     const before = secured().length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-gap-1' });
@@ -287,7 +287,7 @@ describe('G6, GP congratulated on in-app self-accept', () => {
     // Real practice name is fine post-accept (identity is revealed).
     expect(String(email.body.subject)).toMatch(/placement is secured/i);
 
-    // D1a: the practice gets exactly one placement confirmation too, real
+    // D1a: the practice gets exactly one placement confirmation too — real
     // doctor name (identity revealed at placement) + the commencement date.
     expect(practiceConfirm().length).toBe(1);
     const pMail = practiceConfirm()[0];
@@ -309,7 +309,7 @@ describe('G6, GP congratulated on in-app self-accept', () => {
   });
 });
 
-describe('G8, interview reminder cron (scheduled_calls)', () => {
+describe('G8 — interview reminder cron (scheduled_calls)', () => {
   const H = 60 * 60 * 1000;
   function seedInterview(overrides) {
     const row = Object.assign({
@@ -376,7 +376,7 @@ describe('G8, interview reminder cron (scheduled_calls)', () => {
     expect(db.scheduled_calls.find((c) => c.id === rowPast.id).notification_channels).toBeNull();
   });
 
-  it('is idempotent, a second cron run sends no duplicate reminders', async () => {
+  it('is idempotent — a second cron run sends no duplicate reminders', async () => {
     const before2 = remind2h().length;
     const before24 = remind24h().length;
     const beforeP2 = practiceRemind2h().length;
@@ -395,7 +395,7 @@ describe('G8, interview reminder cron (scheduled_calls)', () => {
   });
 });
 
-describe('G2, career.html static pins', () => {
+describe('G2 — career.html static pins', () => {
   const html = fs.readFileSync(path.join(process.cwd(), 'pages', 'career.html'), 'utf8');
 
   it('has the securedInterview* card markers', () => {

@@ -1,11 +1,11 @@
 // Owner rule (2026-07-15): the dashboard "Recent Updates" feed must NEVER show an
 // action card. Anything that needs the GP to do something belongs in the bell panel
-// (js/updates-sync.js, "Actions" filter) and on the stage card it relates to, the
+// (js/updates-sync.js, "Actions" filter) and on the stage card it relates to — the
 // feed is a read-only news list of things that already happened.
 //
 // pages/index.html is a static file served verbatim, so its inline renderUpdatesFeed()
 // is the exact code the browser runs. This test extracts that function from disk and
-// executes it against a DOM stub, so it proves rendered output, not just source text.
+// executes it against a DOM stub, so it proves rendered output — not just source text.
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -72,7 +72,7 @@ function renderFeedWith({ updates = [], supportCases = [] }) {
     () => {},                                               // updateActionCount (no-op in the page too)
     [],                                                     // liveAppCards
     true,                                                   // liveAppsLoaded
-    // Same escaper the real page defines top-level (2026-07-20 audit fix),
+    // Same escaper the real page defines top-level (2026-07-20 audit fix) —
     // renderUpdatesFeed() now depends on it for every server-sourced string.
     (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
   )();
@@ -101,7 +101,7 @@ describe('dashboard Recent Updates never renders an action card', () => {
     const rendered = renderFeedWith({ updates: [ACTION_UPDATE] });
     expect(rendered).not.toContain('Specialist Qualification needs attention');
     expect(rendered).not.toContain('update-badge action');
-    expect(rendered).toBe(''); // nothing left to show, the empty-state copy takes over
+    expect(rendered).toBe(''); // nothing left to show — the empty-state copy takes over
   });
 
   it('still renders non-action updates alongside a suppressed action update', () => {

@@ -1,5 +1,5 @@
 /* ============================================================================
- * ceo-ats.css, in-app ATS (Candidates / Jobs / Practices) styling.
+ * ceo-ats.css — in-app ATS (Candidates / Jobs / Practices) styling.
  * Every class is `ats-`-prefixed and tokens are self-contained, so nothing
  * here can leak into or collide with the existing CEO dashboard styles.
  * Loaded AFTER the page's inline <style> so the .ceo-topnav sticky override wins.
@@ -28,7 +28,7 @@
 }
 
 /* ---------- Master tabs ---------- */
-/* overflow-x:auto, 9 tabs are wider than a phone screen; without it they
+/* overflow-x:auto — 9 tabs are wider than a phone screen; without it they
    forced document-level horizontal scroll on every CEO tab at 375px. The bar
    itself scrolls instead; at desktop widths nothing overflows so it is a
    no-op. flex-shrink:0 + white-space:nowrap keep each tab at its intrinsic
@@ -435,14 +435,14 @@
 }
 
 /* ============================================================================
- * AI Matching (Task 3), kanban Shortlist-card status line + the Matching tab.
+ * AI Matching (Task 3) — kanban Shortlist-card status line + the Matching tab.
  * ========================================================================== */
 .ats-match-status { font-size:10.5px; font-weight:600; color:var(--ats-dim); margin-top:6px; }
 .ats-match-status.ats-match-amber { color:var(--ats-amber); }
 .ats-match-status.ats-match-expired { color:var(--ats-red); }
 
 /* ============================================================================
- * Matching board (Task 5, 2026-07-11 matching-board/nudges plan), funnel-
+ * Matching board (Task 5, 2026-07-11 matching-board/nudges plan) — funnel-
  * board UI replacing the old job/GP picker (whose .ats-match-direction /
  * .ats-match-picker / .ats-match-toolbar / .ats-match-list / .ats-match-row /
  * .ats-match-score / .ats-match-body / .ats-match-name / .ats-match-sub /
@@ -473,7 +473,7 @@
 .ats-mb-chip.won { border-color:var(--ats-border); }
 .ats-mb-chip.won.on { color:var(--ats-green); background:var(--ats-green-dim); border-color:var(--ats-green); }
 /* .ats-scope select.<class> (not bare .<class>) so these out-specific the
- * generic `.ats-scope select { width:100% }` rule above, same pattern as
+ * generic `.ats-scope select { width:100% }` rule above — same pattern as
  * .ats-scope select.ats-app-stage. */
 .ats-scope select.ats-mb-state-select, .ats-scope select.ats-mb-sort-select { width:auto; font-size:12px; background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:999px; padding:6px 10px; color:var(--ats-text); font-family:inherit; }
 .ats-mb-search { flex:1; min-width:140px; max-width:260px; background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:10px; padding:7px 12px; font-size:12px; color:var(--ats-text); font-family:inherit; }
@@ -498,7 +498,7 @@
 .ats-mb-row.green { border-left-color:var(--ats-green); }
 .ats-mb-row.filled { border-left-color:var(--ats-green); background:rgba(52,211,153,0.04); cursor:default; }
 
-/* Owner call 2026-07-12: no photo/gradient backdrop, the practice side is a
+/* Owner call 2026-07-12: no photo/gradient backdrop — the practice side is a
  * plain glassy panel in the same colour as the GP/track side of the row. */
 .ats-mb-left { width:250px; flex:none; position:relative; background:var(--ats-panel); }
 .ats-mb-corp { display:inline-flex; align-items:center; gap:5px; width:fit-content; margin:1px 0; padding:3px 9px; border-radius:999px; background:rgba(255,255,255,0.05); border:1px solid var(--ats-border); color:var(--ats-dim); font:inherit; font-size:10px; font-weight:600; line-height:1.3; cursor:pointer; transition:all .15s; }

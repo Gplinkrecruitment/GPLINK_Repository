@@ -6,7 +6,7 @@
 // Root cause (reproduced in headless Chrome): renderSecuredPlacement() clears
 // the gate + its scroll lock as a "placed GPs must never be trapped" measure,
 // but getSecuredPlacementUiState() answers "ready" for EVERY GP who is not on
-// the secured view, so every renderPage() call also cleared the gate for the
+// the secured view — so every renderPage() call also cleared the gate for the
 // browse-view GPs the gate exists for. Any late re-render after the gate
 // opened dismissed it for the whole session (careerGateState.checked blocks
 // re-opening). In production the trigger is the `storage` event: the app-shell
@@ -15,7 +15,7 @@
 // looked scroll-triggered on Helen's phone.
 //
 // The invariant pinned here: inside renderSecuredPlacement, the gate close and
-// scroll-lock clear run ONLY under a shouldLockCareerToSecuredView() guard,
+// scroll-lock clear run ONLY under a shouldLockCareerToSecuredView() guard —
 // i.e. only for genuinely placed GPs.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -75,7 +75,7 @@ describe('careers CV gate cannot be dismissed by a re-render', () => {
     // A non-dismissible modal stays non-dismissible only while nobody adds a
     // new closeCareerGateModal() call without thinking. Pin the call sites:
     //   1. the function definition,
-    //   2. the CTA click handler (which requires !disabled, CV verified),
+    //   2. the CTA click handler (which requires !disabled — CV verified),
     //   3. the shouldLockCareerToSecuredView()-guarded clear above.
     // 4 name matches = 3 sites: the guarded clear spends two on one line
     // (`typeof closeCareerGateModal === "function"` + the call itself).

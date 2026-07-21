@@ -1,4 +1,4 @@
-// Task D, Zoho-free submit-to-practice + pipeline ops parity.
+// Task D — Zoho-free submit-to-practice + pipeline ops parity.
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
 // tests/ats-offer-flow.test.js. Outbound email (Resend), Web Push (J1 hook) and Zoho
@@ -19,7 +19,7 @@
 //  4. 422 no_practice_contact when no contact email is resolvable anywhere.
 //  5. Zoho branch preserved: app WITH zoho ids + a connection row routes to the
 //     Zoho branch (token endpoint hit) and keeps the historical 503 when the
-//     connection can't refresh, the in-app email branch does NOT fire.
+//     connection can't refresh — the in-app email branch does NOT fire.
 //  6. Kanban PATCH not_proceeding: sets client_rejected ONLY when the card was
 //     previously submitted_to_practice; any other prior status is untouched.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -49,7 +49,7 @@ const fcmCalls = [];
 const zohoTokenCalls = [];
 
 // When true the emulator answers every integration_connections read with a
-// PostgREST 500, the transient-DB-blip case the branch decision must treat
+// PostgREST 500 — the transient-DB-blip case the branch decision must treat
 // as "can't confirm" (503), NEVER as "Zoho disconnected" (F5).
 let simulateConnReadFailure = false;
 
@@ -71,7 +71,7 @@ const db = {
   notification_preferences: [],
   registration_cases: [
     // case-1 carries a cached AI handover summary (D1a): the intro email must
-    // include ONLY overview + key_history, never the internal concerns or
+    // include ONLY overview + key_history — never the internal concerns or
     // action_items.
     {
       id: 'case-1', user_id: GP.userId, status: 'active', stage: 'career', assigned_rso: null, assigned_va: null,
@@ -96,8 +96,8 @@ const db = {
     { id: 'p2', name: 'Riverside Medical', source: 'internal_ats', contact_name: '', contact_email: '', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
-    { id: 'role-2', provider: 'internal_ats', provider_role_id: 'ats_r2', title: 'GP, After Hours', practice_name: 'Riverside Medical', practice_id: 'p2', location_city: 'Cairns', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW },
+    { id: 'role-2', provider: 'internal_ats', provider_role_id: 'ats_r2', title: 'GP — After Hours', practice_name: 'Riverside Medical', practice_id: 'p2', location_city: 'Cairns', location_state: 'QLD', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     // Internal app, GP with CV + linked VA task → happy path.
@@ -118,7 +118,7 @@ const db = {
   ats_stage_events: [],
   user_documents: [
     // Task 6 (2026-07-06 plan): the legacy cv_signed_dated fallback now
-    // requires status='uploaded', this is the bug fix (a rejected doc filed
+    // requires status='uploaded' — this is the bug fix (a rejected doc filed
     // under this key could otherwise still be the most-recently-updated row
     // and get emailed out as the candidate's "CV"). This GP has no career_cv
     // row, so this uploaded legacy doc is what the fallback picks up.
@@ -298,7 +298,7 @@ beforeAll(async () => {
   process.env.ADMIN_ALLOWED_HOSTS = 'admin-submit.local';
   process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
   process.env.ADMIN_EMAILS = '';
-  // Real email + push config so the notification legs actually run, the
+  // Real email + push config so the notification legs actually run — the
   // wrapped fetch + web-push test hook below capture them instead of
   // hitting the network.
   process.env.RESEND_API_KEY = 'test-resend-key';
@@ -383,7 +383,7 @@ describe('affordance flags (admin panel + CEO drawer payloads)', () => {
   });
 });
 
-describe('POST submit-to-practice, in-app branch (no Zoho)', () => {
+describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
   it('emails the practice once (CV attached) and mirrors every Zoho-branch side effect', async () => {
     const beforeEmails = resendCalls.length;
     const beforeFcm = fcmCalls.length;
@@ -393,13 +393,13 @@ describe('POST submit-to-practice, in-app branch (no Zoho)', () => {
     expect(r.body.ok).toBe(true);
     expect(r.body.submission_mode).toBe('in_app_email');
 
-    // Exactly ONE outbound email, the practice introduction.
+    // Exactly ONE outbound email — the practice introduction.
     const sends = resendCalls.slice(beforeEmails);
     expect(sends.length).toBe(1);
     const email = sends[0].body;
     expect(email.to).toContain('anna@greenslopes-test.local');
     expect(String(email.subject)).toContain('Test Doctor');
-    expect(String(email.subject)).toContain('General Practitioner, VR');
+    expect(String(email.subject)).toContain('General Practitioner — VR');
     expect(String(email.from)).toContain('GP Link');
     expect(String(email.html)).toContain('Test Doctor');
     expect(String(email.html)).toContain('United Kingdom'); // registration country fact
@@ -414,7 +414,7 @@ describe('POST submit-to-practice, in-app branch (no Zoho)', () => {
     // Task 6 (2026-07-06 plan) replaced the old D1a "Candidate overview" /
     // "Key history" section (sourced from the cached ai_handover_summary)
     // with the new profile-driven intro + AI recommendation + approve/
-    // turn-down buttons, see docs/mockups/career-cv-gate-practice-email.html
+    // turn-down buttons — see docs/mockups/career-cv-gate-practice-email.html
     // Section 2, which has no such section. The seeded ai_handover_summary on
     // case-1 (including its INTERNAL-ONLY concerns/action_items) is simply
     // never read by this endpoint any more, so it can never leak either.
@@ -527,7 +527,7 @@ describe('POST submit-to-practice, in-app branch (no Zoho)', () => {
   });
 });
 
-// Zoho Recruit is decommissioned, the old Zoho submit branch (and its
+// Zoho Recruit is decommissioned — the old Zoho submit branch (and its
 // connection-read 503 guard, F5) is gone. Every application, including legacy
 // ones that still carry zoho ids, now takes the in-app email branch.
 describe('legacy Zoho-id applications now submit in-app (post-decommission)', () => {

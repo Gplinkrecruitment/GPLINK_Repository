@@ -41,7 +41,7 @@ describe('interview-scheduler', () => {
     const out = s.computeInterviewSlots(base());
     out.slots.forEach(function (sl) {
       const label = sl.local.gp.label; // London local
-      // 08:00Z in July (BST, UTC+1) = 09:00 London, fine; assert hour 6..23 in London
+      // 08:00Z in July (BST, UTC+1) = 09:00 London — fine; assert hour 6..23 in London
       const lonHour = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Europe/London' }).format(new Date(sl.startUtc)));
       expect(lonHour).toBeGreaterThanOrEqual(6);
       expect(lonHour).toBeLessThan(23);
@@ -108,7 +108,7 @@ describe('interview-scheduler', () => {
     });
   });
 
-  it('falls back to the party tz when an override tz is invalid, a bad string never blanks the slots', () => {
+  it('falls back to the party tz when an override tz is invalid — a bad string never blanks the slots', () => {
     const p = { tz: 'Australia/Sydney', weekday: [0, 0], weekend: [0, 0], overrides: [{ date: '2026-07-06', fromMin: 1080, toMin: 1200, tz: 'Mars/OlympusMons' }] };
     const out = s.computeInterviewSlots(base({ practice: p, maxSlots: 50 }));
     expect(out.slots.length).toBeGreaterThan(0);

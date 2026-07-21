@@ -1,5 +1,5 @@
 /* ============================================================================
- * ceo-ats-candidates.js, Candidates tab for the in-app ATS.
+ * ceo-ats-candidates.js — Candidates tab for the in-app ATS.
  * Classic <script> (no module). Loaded by pages/ceo-dashboard.html AFTER the
  * page inline script and AFTER /js/ceo-ats-shared.js (window.ATS).
  * Ports pages/ceo-dashboard-prototype.html renderCandidates()/openCandidate()
@@ -44,7 +44,7 @@
     hired: { l: 'Hired', c: 'var(--ats-green)' },
     not_proceeding: { l: 'Not proceeding', c: 'var(--ats-red)' }
   };
-  function atsStageMeta(s) { return ATS_STAGE[s] || { l: s ? String(s) : '-', c: 'var(--ats-muted)' }; }
+  function atsStageMeta(s) { return ATS_STAGE[s] || { l: s ? String(s) : '—', c: 'var(--ats-muted)' }; }
 
   // Selectable ATS pipeline stages for the per-application <select> (value, label).
   var ATS_STAGE_OPTS = [
@@ -54,11 +54,11 @@
   ];
   function stageOptLabel(s) {
     for (var i = 0; i < ATS_STAGE_OPTS.length; i++) { if (ATS_STAGE_OPTS[i][0] === s) return ATS_STAGE_OPTS[i][1]; }
-    return s ? String(s) : '-';
+    return s ? String(s) : '—';
   }
 
   // AI Matching (Task 7 review fix, spec §9): late-withdrawal reason capture
-  // on THIS surface too, the candidate drawer's per-application stage
+  // on THIS surface too — the candidate drawer's per-application stage
   // <select> can move a card to not_proceeding just like the Jobs board, and
   // without the same prompt Task 8's strike data would systematically miss
   // withdrawals made from here. Same reason values, same PATCH `reason`
@@ -78,7 +78,7 @@
     return fromIdx !== -1 && fromStageKey !== 'not_proceeding' && fromIdx >= submittedIdx;
   }
   // onProceed(reason) fires only on the confirm button (reason may be ''
-  // when skipped); Cancel/close calls onCancel, the caller reverts the
+  // when skipped); Cancel/close calls onCancel — the caller reverts the
   // select and never PATCHes.
   function openWithdrawReasonPrompt(onProceed, onCancel) {
     ATS.setOverlay(
@@ -86,8 +86,8 @@
         '<div class="ats-modal" style="max-width:420px">' +
           '<div class="ats-modal-head"><h3>Why is this application not proceeding?</h3><button class="ats-drawer-close" id="ats-withdraw-close">×</button></div>' +
           '<div class="ats-modal-body">' +
-            '<label>Reason (optional, helps track patterns)</label>' +
-            '<select id="ats-withdraw-reason"><option value="">No reason (skip)</option>' +
+            '<label>Reason (optional — helps track patterns)</label>' +
+            '<select id="ats-withdraw-reason"><option value="">— No reason (skip) —</option>' +
               WITHDRAW_REASONS.map(function (r) { return '<option value="' + r.value + '">' + ATS.esc(r.label) + '</option>'; }).join('') +
             '</select>' +
           '</div>' +
@@ -176,7 +176,7 @@
     return '' +
       '<div class="ats-section-head"><div>' +
         '<h2>Candidates</h2>' +
-        '<p>Every GP on file, profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>' +
+        '<p>Every GP on file — profile, onboarding, AI call summaries &amp; pipeline position, ranked by intent.</p>' +
       '</div></div>' +
       '<div class="ats-attention-strip" id="ats-attention-strip">' + attentionStripInner() + '</div>' +
       '<div class="ats-pipeline-widget" id="ats-pipeline-widget">' + pipelineWidgetInner() + '</div>' +
@@ -396,14 +396,14 @@
     if (!window.confirm('Submit this candidate to the practice? They’ll be introduced by email with the candidate’s CV.')) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
     ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
-      if (res && res.ok) { ATS.toast('Submitted, the practice has been introduced to this candidate.'); afterQueueAction(); }
+      if (res && res.ok) { ATS.toast('Submitted — the practice has been introduced to this candidate.'); afterQueueAction(); }
       else { ATS.toast((res && (res.error || res.message)) || 'Could not submit to the practice.'); if (btn) { btn.disabled = false; btn.textContent = 'Submit to practice'; } }
     });
   }
 
   function withdrawNewApplication(appId, btn) {
     if (!appId) return;
-    // Reuse the same optional-reason prompt as the kanban/drawer withdraw, it
+    // Reuse the same optional-reason prompt as the kanban/drawer withdraw — it
     // doubles as a confirmation so the queue button can't withdraw by accident.
     openWithdrawReasonPrompt(function (reason) {
       if (btn) { btn.disabled = true; btn.textContent = 'Withdrawing…'; }
@@ -413,7 +413,7 @@
         if (res && res.ok) { ATS.toast('Application withdrawn.'); afterQueueAction(); }
         else { ATS.toast((res && (res.error || res.message)) || 'Could not withdraw the application.'); if (btn) { btn.disabled = false; btn.textContent = 'Withdraw'; } }
       });
-    }, function () { /* cancelled, leave the row as-is */ });
+    }, function () { /* cancelled — leave the row as-is */ });
   }
 
   /* ---- "Waiting on practice" tracker (behind the tile) ---- */
@@ -430,8 +430,8 @@
     var chase = !!a.chase && !declined;
     var meta = [];
     meta.push((a.days_waiting || 0) + 'd waiting');
-    if (declined) { meta.push('practice declined' + (a.decline_reason ? ', “' + ATS.esc(a.decline_reason) + '”' : '') + ' · your follow-up'); }
-    else if (chase) { meta.push('<span style="color:var(--ats-amber)">⚠ no reply after 7 days, chase personally</span>'); }
+    if (declined) { meta.push('practice declined' + (a.decline_reason ? ' — “' + ATS.esc(a.decline_reason) + '”' : '') + ' · your follow-up'); }
+    else if (chase) { meta.push('<span style="color:var(--ats-amber)">⚠ no reply after 7 days — chase personally</span>'); }
     else { meta.push((a.reminder_count || 0) + ' reminder' + ((a.reminder_count === 1) ? '' : 's') + ' sent'); }
     if (a.role_location) meta.push(ATS.esc(a.role_location));
     var rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid ' +
@@ -491,7 +491,7 @@
       var body = { stage: 'not_proceeding' };
       if (reason) body.reason = reason;
       ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
-        if (res && res.ok) { ATS.toast(verb + ', removed from the tracker.'); afterWaitingAction(); }
+        if (res && res.ok) { ATS.toast(verb + ' — removed from the tracker.'); afterWaitingAction(); }
         else { ATS.toast((res && (res.error || res.message)) || 'Could not update the application.'); }
       });
     }, function () { /* cancelled */ });
@@ -520,7 +520,7 @@
         '<span class="ats-attn-hint" style="font-size:10px;color:var(--ats-dim)">' + ATS.esc(it.hint) + '</span>' +
       '</button>';
     }).join('');
-    // "Waiting on practice" is a tracker entry point, not an alert, it opens
+    // "Waiting on practice" is a tracker entry point, not an alert — it opens
     // the decision tracker and is amber ONLY when some are past day 7 (to chase).
     // It's kept out of the "needs attention" total above (waiting with reminders
     // still running is normal, not an alert).
@@ -612,12 +612,12 @@
     var regPill = c.blocked
       ? '<span class="ats-pill red">' + ATS.esc(c.reg_stage_label || '') + ' · blocked ' + (c.blocked_days || 0) + 'd</span>'
       : '<span class="ats-pill blue">' + ATS.esc(c.reg_stage_label || '') + '</span>';
-    // AI Matching (Task 7): "high application velocity" chip, 5+ applies in
+    // AI Matching (Task 7): "high application velocity" chip — 5+ applies in
     // 24h, still within its 7-day display window (spec §9). Team-only signal.
     var velocityChip = c.high_velocity
       ? ' <span class="ats-pill amber" title="5 or more applications in the last 24 hours">High application velocity</span>'
       : '';
-    // AI Matching (Task 8): "CAREER LOCKED" chip, 3-strike career lock.
+    // AI Matching (Task 8): "CAREER LOCKED" chip — 3-strike career lock.
     var careerLockChip = c.career_locked
       ? ' <span class="ats-pill red" title="Career page paused after 3 strikes">CAREER LOCKED</span>'
       : '';
@@ -666,15 +666,15 @@
       if (d && d.ok && d.candidate) { render(d); return; }
       // Some deep-links (the Matching tab's results only carry the GP's
       // user_id, not their registration_cases.id) pass a user_id here instead
-      // of a case_id, retry once treating it as a user_id before giving up.
+      // of a case_id — retry once treating it as a user_id before giving up.
       ATS.api('/api/ceo/candidate?user_id=' + encodeURIComponent(caseId)).then(render);
     });
   };
 
   function detailHtml(c) {
     var ob = c.onboarding || {};
-    var specialty = ob.specialty || '-';
-    var subHtml = ATS.countryLabel(c.country) + ' · ' + ATS.esc(specialty) + ' · joined ' + ATS.esc(c.joined || '-') +
+    var specialty = ob.specialty || '—';
+    var subHtml = ATS.countryLabel(c.country) + ' · ' + ATS.esc(specialty) + ' · joined ' + ATS.esc(c.joined || '—') +
       (c.account_status === 'under_review' ? ' · <span class="ats-pill amber">Under review</span>' : '');
 
     return '' +
@@ -686,7 +686,7 @@
         '</div>' +
         // Consultants are ATS-only: the RSO file lives on admin.html (closed to
         // them) and "Schedule call" posts to /api/admin/calls/schedule (a
-        // registration-side RSO route we deliberately did NOT open), hide both.
+        // registration-side RSO route we deliberately did NOT open) — hide both.
         '<div style="display:flex;gap:9px">' +
           (ATS.isConsultant && ATS.isConsultant() ? '' :
             '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="ats-cand-rsofile">Open RSO file</button>' +
@@ -700,7 +700,7 @@
         '</div>' +
         '<div>' +
           // AI Matching (Task 8): only rendered when this GP has ever been
-          // career-locked (c.career_lock is null otherwise), no empty card.
+          // career-locked (c.career_lock is null otherwise) — no empty card.
           (c.career_lock ? '<div class="ats-card" style="margin-bottom:16px">' + strikesCardInner(c) + '</div>' : '') +
           '<div class="ats-card" style="margin-bottom:16px">' + pipelineCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + applicationsCardInner(c) + '</div>' +
@@ -715,13 +715,13 @@
 
   function profileCardInner(c) {
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> Profile</div>' +
-      field('Email', ATS.esc(c.email || '-')) +
-      field('Phone', ATS.esc(c.phone || '-')) +
-      field('Registration country', ATS.esc(c.country || '-')) +
-      field('Registration no.', ATS.esc(c.reg || '-')) +
+      field('Email', ATS.esc(c.email || '—')) +
+      field('Phone', ATS.esc(c.phone || '—')) +
+      field('Registration country', ATS.esc(c.country || '—')) +
+      field('Registration no.', ATS.esc(c.reg || '—')) +
       field('Account status', statusPill(c.account_status)) +
-      field('Assigned RSO', ATS.esc(c.rso || '-')) +
-      // Legacy imported-candidate id, only shown when one actually exists.
+      field('Assigned RSO', ATS.esc(c.rso || '—')) +
+      // Legacy imported-candidate id — only shown when one actually exists.
       (c.zoho ? field('Legacy candidate ID', ATS.esc(c.zoho)) : '');
   }
 
@@ -733,14 +733,14 @@
     var pillMod = bl === 'hot' ? 'red' : bl === 'warm' ? 'amber' : 'muted';
     var signals = it.signals || [];
     return '<div class="ats-card-title"><span class="ats-dot" style="background:' + dotColor + '"></span> Intent calculator</div>' +
-      '<div class="ats-intent-big"><span class="ib-score ats-band-' + bl + '">' + (it.score == null ? '-' : it.score) + '</span>' +
+      '<div class="ats-intent-big"><span class="ib-score ats-band-' + bl + '">' + (it.score == null ? '—' : it.score) + '</span>' +
         '<span class="ib-max">/ 100</span>' +
         '<span class="ats-pill ' + pillMod + '" style="margin-left:auto;font-size:12px">' + (bandTxt === 'Hot' ? '🔥 ' : '') + ATS.esc(bandTxt) + '</span></div>' +
       '<div style="margin-top:14px">' + signals.map(signalRow).join('') + '</div>' +
-      '<div class="ats-confirm-note">Signals &amp; weights are a first proposal, tell me what to change.</div>';
+      '<div class="ats-confirm-note">Signals &amp; weights are a first proposal — tell me what to change.</div>';
   }
   // Intent signals. The scorer may append a PENALTY signal (negative points,
-  // e.g. withdrawn applications), those have no meaningful 0..1 magnitude, so
+  // e.g. withdrawn applications) — those have no meaningful 0..1 magnitude, so
   // a progress bar would render as a 0-width stub and the points would read
   // "+-6". Penalty rows keep the 3-column grid (so labels stay aligned) but
   // drop the fill and show a real minus sign in the warning colour.
@@ -785,7 +785,7 @@
     var apps = c.apps || [];
     var appsHtml = apps.length ? apps.map(function (a) {
       var meta = atsStageMeta(a.ats_stage);
-      // data-stage-was: the stage at render time, the withdraw-reason prompt
+      // data-stage-was: the stage at render time — the withdraw-reason prompt
       // (Task 7) needs the FROM stage to know a not_proceeding move is a
       // post-submission withdrawal, and Cancel needs it to revert the select.
       var stageSel = '<select class="ats-app-stage" data-app-id="' + ATS.escAttr(a.id) + '" data-stage-was="' + ATS.escAttr(a.ats_stage || '') + '">' +
@@ -807,13 +807,13 @@
         if (ivJoinUrl.indexOf('https://') === 0) {
           interviewHtml += '<div class="ats-app-interview-join">🔗 <a href="' + ATS.escAttr(ivJoinUrl) + '" target="_blank" rel="noopener">Join meeting link</a></div>';
         } else {
-          interviewHtml += '<div class="ats-app-interview-join ats-app-interview-join-muted">No meeting link yet, set INTERVIEW_MEETING_URL or connect Zoom</div>';
+          interviewHtml += '<div class="ats-app-interview-join ats-app-interview-join-muted">No meeting link yet — set INTERVIEW_MEETING_URL or connect Zoom</div>';
         }
         if (a.interview.summary) {
           interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
         }
       } else {
-        // Awaiting GP slot pick, placeholder filled by atsRenderSlotPicker in wireDetailEvents.
+        // Awaiting GP slot pick — placeholder filled by atsRenderSlotPicker in wireDetailEvents.
         interviewHtml = '<div class="ats-app-slot-pick" data-slot-pick-id="' + ATS.escAttr(String(a.id)) + '"></div>';
       }
 
@@ -823,12 +823,12 @@
       return '<div class="ats-app-card">' +
         '<div class="ats-app-card-top">' +
           '<div>' +
-            '<div class="ats-app-job-title">' + ATS.esc(a.job_title || '-') + '</div>' +
+            '<div class="ats-app-job-title">' + ATS.esc(a.job_title || '—') + '</div>' +
             '<div class="ats-app-practice">' + ATS.esc(a.practice_name || '') + '</div>' +
           '</div>' +
           '<div class="ats-app-right">' +
             sourceChip +
-            // Withdrawal badge sits FIRST so it reads before the pipeline pill,
+            // Withdrawal badge sits FIRST so it reads before the pipeline pill —
             // "Not proceeding" alone never told staff who ended it.
             withdrawnBadgeHtml(a) +
             '<span class="ats-pill" style="background:rgba(255,255,255,0.06);color:' + meta.c + '">' + ATS.esc(meta.l) + '</span>' +
@@ -878,12 +878,12 @@
    * practice_submission_status stays whatever it was (usually
    * 'submitted_to_practice' forever), so without this the drawer kept showing
    * "Submitted to practice" + a live "Practice accepted" button for someone who
-   * is no longer in play. Withdrawal is checked ONLY off `status`, other
+   * is no longer in play. Withdrawal is checked ONLY off `status` — other
    * terminal states (not_proceeding, client_rejected) must keep their actions. */
   function isWithdrawn(a) {
     return String((a && a.status) || '').toLowerCase() === 'withdrawn';
   }
-  // True once the application had actually gone out to the practice, used to
+  // True once the application had actually gone out to the practice — used to
   // preserve that history in the withdrawn line instead of dropping it.
   function hadReachedPractice(a) {
     return !!SUBMISSION_STATUS_LABELS[(a && a.practice_submission_status) || ''];
@@ -901,13 +901,13 @@
     // history, and render NO action (the button branches below are skipped).
     if (isWithdrawn(a)) {
       return '<span style="color:var(--ats-red)">' +
-        (hadReachedPractice(a) ? 'Candidate withdrew, had been submitted to the practice' : 'Candidate withdrew') +
+        (hadReachedPractice(a) ? 'Candidate withdrew — had been submitted to the practice' : 'Candidate withdrew') +
         '</span>';
     }
     if (SUBMISSION_STATUS_LABELS[st]) {
       return '<span>' + ATS.esc(SUBMISSION_STATUS_LABELS[st]) + '</span>';
     }
-    // pending_va_submission (or unknown), offer the action while the card is
+    // pending_va_submission (or unknown) — offer the action while the card is
     // still in an early lane; otherwise just show the neutral state.
     if (st && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1) {
       return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-submit-practice" data-app-id="' + ATS.escAttr(String(a.id)) + '">Submit to practice</button>';
@@ -918,10 +918,10 @@
   // "Practice accepted" (Task 12): reveals the real practice identity to the
   // GP, records an in-app offer and congratulates them by email. Hidden once
   // the practice has already approved/reached interview-ready, or the offer
-  // itself is already accepted, nothing left for this button to do.
+  // itself is already accepted — nothing left for this button to do.
   // A8a: record a placement the GP accepted verbally (they can't self-click the
   // in-app accept). Shown at offer/hired stage while an offer is still on the
-  // table (status 'sent'), an already-accepted offer is secured via the GP
+  // table (status 'sent') — an already-accepted offer is secured via the GP
   // path, so nothing is left to do here. Confirms, with an optional start date.
   var PLACEMENT_ELIGIBLE_STAGES = ['offer', 'hired'];
   function markPlacementLineHtml(a) {
@@ -967,7 +967,7 @@
     var confirmBtn = box.querySelector('.ats-placement-confirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Recording…'; }
 
-    // AI Matching (Task 6): a placement fills the job, same redirect confirm
+    // AI Matching (Task 6): a placement fills the job — same redirect confirm
     // as marking a card Hired on the kanban. The count of OTHER live
     // applications on this job comes from the job's pipeline; redirect_others
     // is only added when the dialog was actually shown (OK → true, Cancel →
@@ -982,7 +982,7 @@
         if (res && res.ok) {
           var redirectedNote = (typeof res.redirected === 'number' && res.redirected > 0)
             ? ' · ' + res.redirected + ' other GP(s) redirected' : '';
-          ATS.toast('Placement secured, the doctor has been notified.' + redirectedNote);
+          ATS.toast('Placement secured — the doctor has been notified.' + redirectedNote);
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
           window.atsOpenCandidate(c.case_id);
         } else {
@@ -1005,14 +1005,14 @@
         });
       });
       if (n <= 0) { submitPlacement(); return; }
-      submitPlacement(window.confirm(n + ' other GPs are still active on this job, send them the redirect email?'));
+      submitPlacement(window.confirm(n + ' other GPs are still active on this job — send them the redirect email?'));
     }).catch(function () { submitPlacement(); });
   }
 
   function acceptApplicationLineHtml(a) {
     var st = a.practice_submission_status || '';
     var offerStatus = (a.offer && a.offer.status) || 'not_started';
-    // Never let staff "accept" a candidate who has withdrawn, accepting
+    // Never let staff "accept" a candidate who has withdrawn — accepting
     // reveals the practice identity and emails the GP a congratulations.
     if (isWithdrawn(a)) return '';
     if (st === 'client_approved' || st === 'interview_ready' || offerStatus === 'accepted') return '';
@@ -1023,7 +1023,7 @@
     if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
     ATS.api('/api/ats/application/accept?id=' + encodeURIComponent(appId), { method: 'POST' }).then(function (res) {
       if (res && res.ok) {
-        ATS.toast(res.already ? 'Already accepted, nothing to change.' : 'Practice acceptance recorded, the GP has been notified.');
+        ATS.toast(res.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
         window.atsOpenCandidate(c.case_id);
       } else {
@@ -1032,14 +1032,14 @@
     });
   }
 
-  // AI Matching (Task 8): one-click Release (waitlist-release pattern), the
+  // AI Matching (Task 8): one-click Release (waitlist-release pattern) — the
   // GP becomes matchable again immediately (atsBuildGpMatchInputs reads the
   // real career_lock.released_at on its next pool build).
   function releaseCareerLock(c) {
     if (!window.confirm('Release ' + (c.name || 'this GP') + '’s career page? They’ll be matchable and able to apply again immediately.')) return;
     ATS.api('/api/ats/career-lock/release', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
       if (res && res.ok) {
-        ATS.toast('Career page released, matchable again.');
+        ATS.toast('Career page released — matchable again.');
         window.atsOpenCandidate(c.case_id);
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not release the career page.');
@@ -1047,7 +1047,7 @@
     });
   }
 
-  // Optional, independent of Release, recomputes intent fresh (no halving),
+  // Optional, independent of Release — recomputes intent fresh (no halving),
   // same math as the CEO's own "Recompute intent" action.
   function restoreCareerLockIntent(c) {
     ATS.api('/api/ats/career-lock/restore-intent', { method: 'POST', body: { user_id: c.user_id } }).then(function (res) {
@@ -1065,7 +1065,7 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
     ATS.api('/api/admin/career/application/submit-to-practice', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
       if (res && res.ok) {
-        ATS.toast('Submitted, the practice has been introduced to this candidate.');
+        ATS.toast('Submitted — the practice has been introduced to this candidate.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
         window.atsOpenCandidate(c.case_id); // reload so the practice line + stage refresh
       } else {
@@ -1113,11 +1113,11 @@
     // re-send affordance (GAP A5); a withdrawn offer is a quiet dim note.
     var priorNote = '';
     if (status === 'declined') {
-      priorNote = '<span class="ats-pill amber" data-offer-declined="1" style="margin-right:10px">Declined, action needed</span>';
+      priorNote = '<span class="ats-pill amber" data-offer-declined="1" style="margin-right:10px">Declined — action needed</span>';
     } else if (status === 'withdrawn') {
       priorNote = '<span style="color:var(--ats-dim);margin-right:10px">' + ATS.esc(offer.label || '') + '</span>';
     }
-    if (!canSend) return priorNote || '<span>' + ATS.esc(offer.label || '-') + '</span>';
+    if (!canSend) return priorNote || '<span>' + ATS.esc(offer.label || '—') + '</span>';
     return priorNote +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-offer-send" data-app-id="' + ATS.escAttr(String(a.id)) + '">Send offer</button>';
   }
@@ -1159,7 +1159,7 @@
   function closeOfferForm(appId) {
     var box = offerBoxFor(appId);
     var app = appFromCurrent(appId);
-    if (box) box.innerHTML = app ? offerLineHtml(app) : '-';
+    if (box) box.innerHTML = app ? offerLineHtml(app) : '—';
   }
 
   function submitOffer(appId, c) {
@@ -1184,7 +1184,7 @@
       if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
       ATS.api('/api/ats/offer', { method: 'POST', body: body }).then(function (res) {
         if (res && res.ok) {
-          ATS.toast('Offer sent, the doctor has been notified.');
+          ATS.toast('Offer sent — the doctor has been notified.');
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
           window.atsOpenCandidate(c.case_id); // reload so the offer state + stage pill refresh
         } else {
@@ -1196,7 +1196,7 @@
 
     if (file) {
       if (file.size > OFFER_FILE_MAX_BYTES) {
-        ATS.toast('That contract is too large, please attach a file under 8 MB.');
+        ATS.toast('That contract is too large — please attach a file under 8 MB.');
         return;
       }
       var reader = new FileReader();
@@ -1213,7 +1213,7 @@
   }
 
   function withdrawOffer(appId, c) {
-    if (!window.confirm('Withdraw this offer? The doctor won\'t be notified, the card quietly moves back to Reviewing.')) return;
+    if (!window.confirm('Withdraw this offer? The doctor won\'t be notified — the card quietly moves back to Reviewing.')) return;
     ATS.api('/api/ats/offer', { method: 'PATCH', body: { application_id: String(appId), action: 'withdraw' } }).then(function (res) {
       if (res && res.ok) {
         ATS.toast('Offer withdrawn.');
@@ -1226,9 +1226,9 @@
   }
 
   // Expose globally so GP-facing pages can reuse the slot picker.
-  // applicationId , the gp_applications.id (or ATS application id)
-  // containerEl   , the DOM element to fill with the slot UI
-  // caseId        , (optional) used to refresh the candidate detail after booking
+  // applicationId  — the gp_applications.id (or ATS application id)
+  // containerEl    — the DOM element to fill with the slot UI
+  // caseId         — (optional) used to refresh the candidate detail after booking
   window.atsRenderSlotPicker = function (applicationId, containerEl, caseId) {
     if (!containerEl) return;
     containerEl.innerHTML = '<span style="font-size:12px;color:var(--ats-dim)">Loading available slots…</span>';
@@ -1253,7 +1253,7 @@
           defBtn.disabled = true; defBtn.textContent = 'Applying…';
           ATS.api('/api/ats/interview/use-default-times', { method: 'POST', body: { applicationId: String(applicationId) } }).then(function (r) {
             if (r && r.ok) {
-              ATS.toast('Standard times applied, pick a slot below.');
+              ATS.toast('Standard times applied — pick a slot below.');
               window.atsRenderSlotPicker(applicationId, containerEl, caseId);
             } else {
               ATS.toast((r && (r.error || r.message)) || 'Could not apply standard times.');
@@ -1269,7 +1269,7 @@
         // windows produced no overlap, the operator can force GP Link's standard
         // evening/weekend times so a slot can still be booked.
         containerEl.innerHTML =
-          '<span class="ats-app-interview-pending">No mutually available times in the next 2 weeks, we\'ll widen the search.</span>' +
+          '<span class="ats-app-interview-pending">No mutually available times in the next 2 weeks — we\'ll widen the search.</span>' +
           '<div class="ats-slot-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
             '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-use-default" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Use standard times</button>' +
           '</div>';
@@ -1278,7 +1278,7 @@
           emptyDefBtn.disabled = true; emptyDefBtn.textContent = 'Applying…';
           ATS.api('/api/ats/interview/use-default-times', { method: 'POST', body: { applicationId: String(applicationId) } }).then(function (r) {
             if (r && r.ok) {
-              ATS.toast('Standard times applied, pick a slot below.');
+              ATS.toast('Standard times applied — pick a slot below.');
               window.atsRenderSlotPicker(applicationId, containerEl, caseId);
             } else {
               ATS.toast((r && (r.error || r.message)) || 'Could not apply standard times.');
@@ -1310,7 +1310,7 @@
             if (caseId) window.atsOpenCandidate(caseId);
           } else {
             // AI Matching (Task 7): prefer the human message over a raw error
-            // code, interview_cap's 409 carries both an `error` code AND a
+            // code — interview_cap's 409 carries both an `error` code AND a
             // friendly `message` ("This GP has used all 3 interviews this
             // month (resets …)"); showing `error` first would toast the bare
             // code string instead.
@@ -1359,12 +1359,12 @@
         if (r && r.ok) {
           close();
           if (r.status === 'received' && r.windows_count) {
-            ATS.toast('Availability read, ' + r.windows_count + ' window' + (r.windows_count === 1 ? '' : 's') + ' found.');
+            ATS.toast('Availability read — ' + r.windows_count + ' window' + (r.windows_count === 1 ? '' : 's') + ' found.');
           } else {
-            // Folded T3: the parser found no usable times, the card stays on
+            // Folded T3: the parser found no usable times — the card stays on
             // 'requested' so its actions remain. Point the operator at the
             // standard-times escape hatch.
-            ATS.toast('We couldn\'t read any interview times from that reply, try "Use standard times" instead.');
+            ATS.toast('We couldn\'t read any interview times from that reply — try "Use standard times" instead.');
           }
           if (containerEl) window.atsRenderSlotPicker(applicationId, containerEl, caseId);
           else if (caseId) window.atsOpenCandidate(caseId);
@@ -1382,7 +1382,7 @@
     if (!window.confirm('Cancel this booked interview? The doctor and practice will be told, and you\'ll be able to book a new time straight away.')) return;
     ATS.api('/api/ats/interview/cancel', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
       if (res && res.ok) {
-        ATS.toast('Interview cancelled, pick a new time to rebook.');
+        ATS.toast('Interview cancelled — pick a new time to rebook.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
         if (c && c.case_id) window.atsOpenCandidate(c.case_id);
       } else {
@@ -1398,11 +1398,11 @@
       : '<span class="ats-pill amber" style="margin-left:auto">' + Math.round((ob.fieldsFilled || 0) * 100) + '% complete</span>';
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-amber)"></span> Onboarding information ' + pill + '</div>' +
       '<div class="ats-metric-grid" style="grid-template-columns:1fr 1fr">' +
-        field('Qualification country', ATS.esc(ob.qualCountry || '-')) +
-        field('Specialty', ATS.esc(ob.specialty || '-')) +
-        field('Target arrival', ATS.esc(ob.target || '-')) +
-        field('Preferred city', ATS.esc(ob.city || '-')) +
-        field("Family / who's moving", ATS.esc(ob.family || '-')) +
+        field('Qualification country', ATS.esc(ob.qualCountry || '—')) +
+        field('Specialty', ATS.esc(ob.specialty || '—')) +
+        field('Target arrival', ATS.esc(ob.target || '—')) +
+        field('Preferred city', ATS.esc(ob.city || '—')) +
+        field("Family / who's moving", ATS.esc(ob.family || '—')) +
         '<div class="ats-detail-field"><div class="df-lbl">Identity verified</div><div class="df-val">' +
           (ob.idVerified ? '<span class="ats-pill green">Yes</span>' : '<span class="ats-pill amber">Pending</span>') + '</div></div>' +
       '</div>';
@@ -1476,7 +1476,7 @@
         '<button class="ats-btn ats-btn-sm" id="ats-comms-scan" style="margin-top:12px">Run AI comms scan</button>';
     }
     var tone = cm.tone || 'No data';
-    var avg = (typeof cm.avgReplyHrs === 'number') ? (cm.avgReplyHrs + 'h') : '-';
+    var avg = (typeof cm.avgReplyHrs === 'number') ? (cm.avgReplyHrs + 'h') : '—';
     var engVal = cm.engagementVal || 0;
     var eng = Math.round(engVal * 100);
     var engColor = engVal >= 0.7 ? 'var(--ats-green)' : engVal >= 0.4 ? 'var(--ats-amber)' : 'var(--ats-muted)';
@@ -1484,7 +1484,7 @@
         '<span class="ats-pill ' + toneClass(tone) + '" style="margin-left:auto">' + ATS.esc(tone) + '</span></div>' +
       banner +
       '<div class="ats-metric-grid" style="grid-template-columns:repeat(3,1fr)">' +
-        metric(cm.messages30d != null ? cm.messages30d : '-', 'Messages / 30d') +
+        metric(cm.messages30d != null ? cm.messages30d : '—', 'Messages / 30d') +
         metric(avg, 'Avg reply time') +
         '<div class="ats-metric"><div class="m-val" style="color:' + engColor + '">' + eng + '</div><div class="m-lbl">Engagement / 100</div></div>' +
       '</div>' +
@@ -1496,13 +1496,13 @@
   function callsCardInner(c) {
     var calls = c.calls || [];
     var banner = '<div class="ats-ai-banner">' + SVG_ZOOM +
-      " Zoom calls are summarised automatically by Zoom's AI once the call ends, no manual notes.</div>";
+      " Zoom calls are summarised automatically by Zoom's AI once the call ends — no manual notes.</div>";
     var body = calls.length ? calls.map(function (call) {
       if (call.status === 'upcoming') {
         return '<div class="ats-ai-call upcoming"><div class="ats-ac-head"><div>' +
           '<div class="ac-when">' + ATS.esc(call.when || '') + '</div><div class="ac-type">' + ATS.esc(call.type || '') + '</div></div>' +
           '<span class="ats-pill blue">Upcoming</span></div>' +
-          '<div class="ats-ac-sum">Scheduled, the summary will appear automatically after the call.</div></div>';
+          '<div class="ats-ac-sum">Scheduled — the summary will appear automatically after the call.</div></div>';
       }
       var tag = call.status === 'no_show'
         ? '<span class="ats-pill amber">No-show</span>'
@@ -1535,15 +1535,15 @@
           : ATS.esc(h.concerns);
         parts.push('<div style="margin-top:10px;color:var(--ats-amber)">' + concerns + '</div>');
       }
-      inner = parts.join('') || '-';
+      inner = parts.join('') || '—';
     } else {
-      inner = ATS.esc(h || '-');
+      inner = ATS.esc(h || '—');
     }
     return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-blue)"></span> AI handover summary</div>' +
       '<div class="ats-handover-box">' + inner + '</div>';
   }
 
-  // AI Matching (Task 8): "Interviews & strikes" panel (mockup v11), only
+  // AI Matching (Task 8): "Interviews & strikes" panel (mockup v11) — only
   // ever rendered when c.career_lock is present (this GP has been locked at
   // least once). Chips CAREER LOCKED / STRIKES n/3, one row per strike
   // (practice · location · date · DID NOT PROCEED + the GP's own reason, or
@@ -1558,7 +1558,7 @@
     var strikeChip = '<span class="ats-pill amber">STRIKES ' + strikes.length + '/3</span>';
 
     var rows = strikes.length ? strikes.map(function (s) {
-      var when = s.interviewedAt ? new Date(s.interviewedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
+      var when = s.interviewedAt ? new Date(s.interviewedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
       var metaBits = [s.practiceName || 'Unknown practice', s.location || '', when].filter(Boolean);
       var reasonHtml = s.reason
         ? '<div style="font-size:12.5px;color:var(--ats-text,#0f172a);margin-top:6px">' + ATS.esc(s.reason) + '</div>'
@@ -1572,7 +1572,7 @@
     }).join('') : '<div class="ats-empty">No strikes recorded.</div>';
 
     var intentLine = (lock.pre_lock_intent_score != null)
-      ? '<div style="font-size:13px;margin:10px 0"><b>' + ATS.esc(String(lock.pre_lock_intent_score)) + ' → ' + ATS.esc(String((c.intent && c.intent.score != null) ? c.intent.score : '-')) + '</b> <span style="color:var(--ats-dim,#64748b)">(−50% on lock)</span></div>'
+      ? '<div style="font-size:13px;margin:10px 0"><b>' + ATS.esc(String(lock.pre_lock_intent_score)) + ' → ' + ATS.esc(String((c.intent && c.intent.score != null) ? c.intent.score : '—')) + '</b> <span style="color:var(--ats-dim,#64748b)">(−50% on lock)</span></div>'
       : '';
 
     var answersLine = '<div style="font-size:12px;color:var(--ats-dim,#64748b);margin-bottom:4px">' +
@@ -1625,7 +1625,7 @@
       // A7b: open the offer's stored contract.
       var ocBtn = e.target.closest('.ats-offer-contract');
       if (ocBtn) { viewOfferContract(ocBtn.getAttribute('data-app-id'), ocBtn); return; }
-      // A8a: mark placement secured (verbal acceptance), inline confirm.
+      // A8a: mark placement secured (verbal acceptance) — inline confirm.
       var markPlBtn = e.target.closest('.ats-mark-placement');
       if (markPlBtn) { openPlacementForm(markPlBtn.getAttribute('data-app-id')); return; }
       var plConfirmBtn = e.target.closest('.ats-placement-confirm');
@@ -1795,8 +1795,8 @@
         return;
       }
       sel.innerHTML = jobs.map(function (j) {
-        var lbl = j.title || '-';
-        if (j.practice_name) lbl += ', ' + j.practice_name;
+        var lbl = j.title || '—';
+        if (j.practice_name) lbl += ' — ' + j.practice_name;
         return '<option value="' + ATS.escAttr(j.id) + '">' + ATS.esc(lbl) + '</option>';
       }).join('');
     });

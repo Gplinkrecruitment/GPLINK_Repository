@@ -1,5 +1,5 @@
 /* ============================================================================
- * ceo-ats-meetings.js, Meetings master tab for the CEO dashboard.
+ * ceo-ats-meetings.js — Meetings master tab for the CEO dashboard.
  * Loaded by pages/ceo-dashboard.html AFTER /js/ceo-ats-shared.js (window.ATS).
  * Shows all CEO Zoom consultations + interviews with filter chips and
  * Upcoming / Past / Summaries grouping.
@@ -36,9 +36,9 @@
     no_show:   { label: 'No-show',   mod: 'amber' },
     cancelled: { label: 'Cancelled', mod: 'red'   }
   };
-  function statusMeta(s) { return STATUS_META[s] || { label: s ? String(s) : '-', mod: 'muted' }; }
+  function statusMeta(s) { return STATUS_META[s] || { label: s ? String(s) : '—', mod: 'muted' }; }
 
-  // Plain English for the funnel's stored codes, the owner reads this panel
+  // Plain English for the funnel's stored codes — the owner reads this panel
   // right before the call, so never print a raw code at them.
   var COUNTRY_LABELS = { uk: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand' };
   var SOURCE_LABELS = {
@@ -51,7 +51,7 @@
   var sydFmt = null;
   var sydTzFmt = null;
   function sydneyTime(iso) {
-    if (!iso) return '-';
+    if (!iso) return '—';
     try {
       var d = new Date(iso);
       if (!sydFmt) {
@@ -101,7 +101,7 @@
     return '' +
       '<div class="ats-section-head"><div>' +
         '<h2>Meetings</h2>' +
-        '<p>All CEO Zoom consultations and interviews, upcoming, past, and AI summaries.</p>' +
+        '<p>All CEO Zoom consultations and interviews — upcoming, past, and AI summaries.</p>' +
       '</div></div>' +
       '<div class="mtg-filters" id="mtg-filters">' + chips + '</div>' +
       '<div id="mtg-list">' + ATS.loadingHtml('Loading meetings…') + '</div>';
@@ -138,7 +138,7 @@
         cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelling…';
         ATS.api('/api/ats/interview/cancel', { method: 'POST', body: { applicationId: String(appId) } }).then(function (r) {
           if (r && r.ok) {
-            ATS.toast('Interview cancelled, rebook it from the candidate\'s card.');
+            ATS.toast('Interview cancelled — rebook it from the candidate\'s card.');
             fetchAndRender();
           } else {
             ATS.toast((r && (r.error || r.message)) || 'Could not cancel the interview.');
@@ -207,7 +207,7 @@
   }
 
   /* =====================================================================
-   *  DETAIL PANEL, what we already know about the person on the call
+   *  DETAIL PANEL — what we already know about the person on the call
    * ===================================================================== */
   function detailRow(label, valueHtml) {
     return '<div class="mtg-detail-row">' +
@@ -226,7 +226,7 @@
       var told = [];
       // not_screened = they booked the public link and were never ASKED the
       // screening questions. is_gp would be false there because we never asked,
-      // not because they said no, so say nothing rather than something untrue.
+      // not because they said no — so say nothing rather than something untrue.
       if (!lead.not_screened) {
         told.push('Registered GP: ' + (lead.is_gp ? 'Yes' : 'No'));
         if (lead.country) {
@@ -308,7 +308,7 @@
 
     return '<div class="mtg-row' + (expandable ? ' has-summary' : '') + '"' + expandAttr + '>' +
       '<div class="mtg-row-main">' +
-        '<div class="mtg-name">' + ATS.esc(m.gp_name || '-') + '</div>' +
+        '<div class="mtg-name">' + ATS.esc(m.gp_name || '—') + '</div>' +
         '<div class="mtg-meta">' +
           '<span class="ats-pill ' + kindMod + '">' + ATS.esc(kindLabel) + '</span>' +
           practiceHtml +

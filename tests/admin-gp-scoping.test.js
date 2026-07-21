@@ -39,7 +39,7 @@ describe('resolveAdminGpScope', () => {
 // The override is honored ONLY for super-admins; a regular admin sending it is ignored.
 const povUrl = (email) => new URL('http://x/api/admin/dashboard?pov_rso=' + encodeURIComponent(email));
 
-describe('resolveAdminGpScope, View RSO POV override', () => {
+describe('resolveAdminGpScope — View RSO POV override', () => {
   it('super_admin with pov_rso is scoped to that RSO (previews their view)', async () => {
     const scope = await resolveAdminGpScope({ role: 'super_admin', email: 'ceo@mygplink.com.au' }, povUrl(HAZEL.email));
     expect(scope.superAdmin).toBe(false);

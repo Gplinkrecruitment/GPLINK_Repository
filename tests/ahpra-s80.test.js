@@ -249,7 +249,7 @@ describe('ahpra-s80 officer-email substitution (no "send it to my email address"
     const out = s80.applyOfficerEmail('Send these to me at john@example.com.', { name: 'Jane Officer', email: 'jane@ahpra.gov.au' });
     expect(out).not.toContain('john@example.com');
     expect(out).toContain('jane@ahpra.gov.au');
-    // Exactly one email address remains (the officer's), no doubled "at … at …".
+    // Exactly one email address remains (the officer's) — no doubled "at … at …".
     expect((out.match(/@/g) || []).length).toBe(1);
   });
 

@@ -130,7 +130,7 @@
       font-weight: 600;
     }
     /* [hidden] normally means display:none, but the display:flex above wins the
-       specificity fight, so hiding the loader via el.hidden=true never took
+       specificity fight — so hiding the loader via el.hidden=true never took
        effect and "Loading application details..." stayed on screen forever,
        stacked above the real content. Make the attribute win. */
     .loading-state[hidden] { display: none; }
@@ -761,14 +761,14 @@
       <!-- Status Timeline -->
       <div class="status-timeline" id="statusTimeline"></div>
 
-      <!-- Interview Card (shown conditionally), two states:
+      <!-- Interview Card (shown conditionally) — two states:
            #interviewScheduler (pick a time) and #interviewBooked (locked in) -->
       <div class="interview-card" id="interviewCard" hidden>
         <h3 class="interview-card-title" id="interviewCardTitle">Upcoming Interview</h3>
 
         <!-- SCHEDULER: shown until the doctor confirms a time -->
         <div id="interviewScheduler" hidden>
-          <p class="iv-sched-hint">Pick a time that suits you, your Registration Support Officer joins you, so you're never in the room alone.</p>
+          <p class="iv-sched-hint">Pick a time that suits you — your Registration Support Officer joins you, so you're never in the room alone.</p>
           <p class="iv-sched-status" id="ivSchedStatus">Loading available times…</p>
           <div class="iv-days" id="ivDays"></div>
           <button class="btn-join-interview iv-confirm-btn" id="ivConfirmBtn" type="button" disabled>
@@ -877,7 +877,7 @@
         return d.innerHTML;
       }
 
-      /** Validate URL is safe to open, only allow https: and zoomus: schemes for interview links */
+      /** Validate URL is safe to open — only allow https: and zoomus: schemes for interview links */
       function safeUrl(url) {
         if (!url || typeof url !== "string") return "";
         var trimmed = url.trim();
@@ -889,7 +889,7 @@
         } catch (e) { return ""; }
       }
 
-      // Inline interview scheduler state. Only function *declarations* hoist,
+      // Inline interview scheduler state. Only function *declarations* hoist —
       // a `var` object literal is still `undefined` until its assignment line
       // runs. renderApplication() therefore must not be called before every
       // piece of module state below has been assigned; the cached-preview
@@ -914,14 +914,14 @@
         .then(function (data) {
           if (data && data.ok && data.application) {
             appData = Object.assign({}, appData || {}, data.application);
-            // The fresh status wins outright, drop stale preview presentation.
+            // The fresh status wins outright — drop stale preview presentation.
             appData.rawStatus = data.application.status;
             if (!data.application.statusLabel) delete appData.statusLabel;
             if (!data.application.statusTone) delete appData.statusTone;
             // The API applies the identity-reveal gate, so its role name is the
             // source of truth. renderApplication reads app.practiceName FIRST, so
             // a stale cached (masked "DPA - …") value would otherwise win even
-            // after the practice revealed the real name, override it here.
+            // after the practice revealed the real name — override it here.
             if (data.application.role && data.application.role.practiceName) {
               appData.practiceName = data.application.role.practiceName;
             }
@@ -968,7 +968,7 @@
         return "review";
       }
 
-      // Latest rendered data, renderApplication can run twice (cached preview,
+      // Latest rendered data — renderApplication can run twice (cached preview,
       // then the fresh fetch); buttons are wired ONCE and read these refs so
       // they always act on the freshest data.
       var latestApp = null;
@@ -989,7 +989,7 @@
         return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
       }
 
-      // Counts applications this GP has ALREADY withdrawn. Never rejects, a
+      // Counts applications this GP has ALREADY withdrawn. Never rejects — a
       // failed lookup resolves to 0 so a network problem can't block the user.
       function countPreviousWithdrawals() {
         return fetch("/api/career/applications", { credentials: "same-origin" })
@@ -1011,14 +1011,14 @@
       }
 
       function buildWithdrawCopy(previousCount) {
-        var cannotUndo = "Withdrawing tells the practice you are no longer interested in this role. It cannot be undone, you will not be able to rejoin this application later.";
+        var cannotUndo = "Withdrawing tells the practice you are no longer interested in this role. It cannot be undone — you will not be able to rejoin this application later.";
         if (previousCount >= 2) {
           return {
             title: "You have already withdrawn from " + previousCount + " roles",
             paragraphs: [
               { text: cannotUndo },
               {
-                text: "This would be your " + ordinalLabel(previousCount + 1) + " withdrawal. Your priority for future placements is being noticeably reduced, we look at how often a doctor pulls out of a role when deciding who to put forward.",
+                text: "This would be your " + ordinalLabel(previousCount + 1) + " withdrawal. Your priority for future placements is being noticeably reduced — we look at how often a doctor pulls out of a role when deciding who to put forward.",
                 emphasis: true
               },
               { text: "If you have concerns about this role, please speak to your Registration Support Officer before you withdraw. They can raise your questions with the practice for you." }
@@ -1135,7 +1135,7 @@
       function openWithdrawModal(trigger, onConfirm) {
         var backdrop = document.getElementById("withdrawModalBackdrop");
         if (!backdrop) {
-          // Markup missing, never leave the GP without a confirmation step.
+          // Markup missing — never leave the GP without a confirmation step.
           if (window.confirm("Withdraw this application? This cannot be undone.")) {
             if (typeof onConfirm === "function") onConfirm();
           }
@@ -1147,7 +1147,7 @@
 
         // Open straight away with the gentle wording so the dialog never waits
         // on the network, but hold the destructive button until the real
-        // withdrawal count lands, the GP must see the escalated warning
+        // withdrawal count lands — the GP must see the escalated warning
         // before they can confirm.
         applyWithdrawCopy(buildWithdrawCopy(0));
         var confirmBtn = document.getElementById("withdrawModalConfirm");
@@ -1169,7 +1169,7 @@
       // tier (10 minutes served with NO network call), and career.html keeps its
       // own copy in the localStorage "gp_career_state". Clear the first, patch
       // the second, and leave a one-shot flag so career.html's next boot force-
-      // refreshes from the network. Every step is guarded, none may throw.
+      // refreshes from the network. Every step is guarded — none may throw.
       function markApplicationsStale(applicationId) {
         try {
           var cacheRef = window.gpCache
@@ -1208,7 +1208,7 @@
       // Paint instantly from the sessionStorage preview so the GP isn't left
       // on a spinner while the API call above is in flight. This MUST stay
       // below every module-level `var` that renderApplication (and the helpers
-      // it calls) reads, STATUS_LABELS, ivSched, latestApp, latestInterview.
+      // it calls) reads — STATUS_LABELS, ivSched, latestApp, latestInterview.
       // Running it any earlier reads those as `undefined` and throws.
       if (appData) {
         renderApplication(appData);
@@ -1219,7 +1219,7 @@
         document.getElementById("loadingState").hidden = true;
         document.getElementById("appContent").hidden = false;
 
-        // Header, the API nests the role details under app.role; the cached
+        // Header — the API nests the role details under app.role; the cached
         // preview keeps them at the top level. Support both so internal (ATS)
         // apps never render placeholder text after the fresh fetch lands.
         var role = app.role || {};
@@ -1251,7 +1251,7 @@
             + '</div>';
         }).join("");
 
-        // Interview card, two states. BOOKED (a slot is locked in) shows the
+        // Interview card — two states. BOOKED (a slot is locked in) shows the
         // details + Join/Calendar; otherwise the inline SCHEDULER lets the
         // doctor pick a time from the practice's offered slots and confirm it
         // right here. The live interview row comes from scheduled_calls via
@@ -1301,7 +1301,7 @@
           document.getElementById("viewRoleBtn").href = "career.html";
         }
 
-        // Join interview button, validate URL scheme before opening. Wired
+        // Join interview button — validate URL scheme before opening. Wired
         // ONCE (renders can repeat: cached preview then fresh fetch); the
         // handler reads the latest data through the refs above.
         var joinBtnEl = document.getElementById("joinInterviewBtn");
@@ -1381,10 +1381,10 @@
           }
         }
 
-        // Offer card, ONLY when the server says a live in-app offer is
+        // Offer card — ONLY when the server says a live in-app offer is
         // waiting (offerPending). An offer-ish raw status alone (Zoho-managed
         // offer) must NOT link to offer-review.html: /api/career/my-offer has
-        // no record for it and the doctor would land on an empty page, the
+        // no record for it and the doctor would land on an empty page — the
         // server sends "consultant will be in touch" statusLabel copy instead.
         var showOfferCard = app.offerPending === true;
         var offerCard = document.getElementById('offerCard');
@@ -1479,7 +1479,7 @@
 
       // ── Inline slot scheduler ────────────────────────────────────────────
       // (ivSched state is declared at the TOP of the IIFE so the early cached
-      // render can safely read it, see the note there.)
+      // render can safely read it — see the note there.)
 
       function ivDayGroupKey(slot) {
         try { return new Intl.DateTimeFormat('en-CA', { timeZone: slot.local.gp.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(slot.startUtc)); }
@@ -1518,7 +1518,7 @@
               return;
             }
             statusEl.hidden = false;
-            if (status === 403) statusEl.textContent = "Your interview isn't open for booking just yet, we'll email you the moment the practice shares their times.";
+            if (status === 403) statusEl.textContent = "Your interview isn't open for booking just yet — we'll email you the moment the practice shares their times.";
             else statusEl.textContent = "We couldn't load your interview times. Please try again shortly.";
           })
           .catch(function () {
@@ -1587,11 +1587,11 @@
               var status = res.status, data = res.data || {};
               if (status === 200 && data.ok && data.booked) { applyBookedInterview(data.booked); return; }
               btn.disabled = false; btn.innerHTML = original;
-              if (status === 409) { alert('That time was just taken, please choose another.'); ivSched.loaded = false; ivSched.appId = null; initInterviewScheduler(ivSched.appId || (appData && appData.id) || appId); }
+              if (status === 409) { alert('That time was just taken — please choose another.'); ivSched.loaded = false; ivSched.appId = null; initInterviewScheduler(ivSched.appId || (appData && appData.id) || appId); }
               else if (status === 403) { alert("Your interview isn't open for booking yet. Please check back shortly."); }
-              else { alert('Something went wrong booking that time, please try again.'); }
+              else { alert('Something went wrong booking that time — please try again.'); }
             })
-            .catch(function () { btn.disabled = false; btn.innerHTML = original; alert('Network error, please try again.'); });
+            .catch(function () { btn.disabled = false; btn.innerHTML = original; alert('Network error — please try again.'); });
         });
       }
 

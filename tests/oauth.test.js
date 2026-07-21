@@ -93,7 +93,7 @@ const WEAK_PASSWORD = 'short1';
 // Boot the server in test mode
 // ---------------------------------------------------------------------------
 beforeAll(async () => {
-  // Force test configuration, AGENT_SKIP_DOTENV must be set first to prevent
+  // Force test configuration — AGENT_SKIP_DOTENV must be set first to prevent
   // scripts/agents.js from loading the .env file and overriding our test values.
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
@@ -309,7 +309,7 @@ describe('POST /api/auth/oauth/token (grant_type=refresh_token)', () => {
   });
 
   it('rotates the refresh token (old one becomes invalid)', async () => {
-    // First refresh, succeeds
+    // First refresh — succeeds
     const res1 = await post('/api/auth/oauth/token', {
       grant_type: 'refresh_token',
       refresh_token: validRefreshToken,
@@ -317,7 +317,7 @@ describe('POST /api/auth/oauth/token (grant_type=refresh_token)', () => {
     expect(res1.status).toBe(200);
     const newRefreshToken = res1.body.refresh_token;
 
-    // Second refresh with OLD token, must fail (rotation)
+    // Second refresh with OLD token — must fail (rotation)
     const res2 = await post('/api/auth/oauth/token', {
       grant_type: 'refresh_token',
       refresh_token: validRefreshToken,
@@ -325,7 +325,7 @@ describe('POST /api/auth/oauth/token (grant_type=refresh_token)', () => {
     expect(res2.status).toBe(401);
     expect(res2.body.error).toBe('invalid_refresh_token');
 
-    // Third refresh with NEW token, succeeds
+    // Third refresh with NEW token — succeeds
     const res3 = await post('/api/auth/oauth/token', {
       grant_type: 'refresh_token',
       refresh_token: newRefreshToken,
@@ -501,7 +501,7 @@ describe('POST /api/auth/oauth/token (invalid grant_type)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. BACKWARDS COMPATIBILITY, existing session cookie still works
+// 7. BACKWARDS COMPATIBILITY — existing session cookie still works
 // ---------------------------------------------------------------------------
 describe('backwards compatibility with cookie sessions', () => {
   it('OAuth login also sets a session cookie', async () => {

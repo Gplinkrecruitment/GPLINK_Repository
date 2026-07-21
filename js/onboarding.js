@@ -13,9 +13,9 @@
   // Allow clearing onboarding state via ?reset=1 query param. stateWasReset records
   // that the GP explicitly asked to start the wizard over. Without it, the
   // cross-device restore below (mergeServerOnboarding) would re-adopt the server's
-  // wizard blob right after we clear localStorage here, local state is
+  // wizard blob right after we clear localStorage here — local state is
   // default-fresh by construction immediately after a reset, which is exactly the
-  // condition mergeServerOnboarding treats as "safe to adopt the server copy",
+  // condition mergeServerOnboarding treats as "safe to adopt the server copy" —
   // making ?reset=1 silently re-persist the old blob and do nothing.
   var stateWasReset = false;
   if (new URLSearchParams(window.location.search).get("reset") === "1") {
@@ -33,7 +33,7 @@
   // Every country a GP could plausibly have trained in (UN members + common
   // others), alphabetical by name. Selecting one of these that is NOT in
   // COUNTRIES routes to the eligibility waitlist with the exact name pre-filled
-  //, the GP never types their country freehand, so no misspellings reach the
+  // — the GP never types their country freehand, so no misspellings reach the
   // waitlist. Flag emoji are derived from the ISO alpha-2 code (regional
   // indicator pair), which cannot drift out of sync with the code.
   const ALL_COUNTRIES = [
@@ -145,7 +145,7 @@
       whoMoving: "",
       childrenCount: 1,
       childrenAges: [],
-      leadSource: "",        // optional "How did you hear about us?", never blocks progression
+      leadSource: "",        // optional "How did you hear about us?" — never blocks progression
       leadSourceDetail: "",
       idVerification: null,
       completedAt: null,
@@ -200,7 +200,7 @@
     return '<li data-code="' + c.code + '"' + cls + '><span class="country-flag">' + c.flag + "</span> " + escHtml(c.name) + "</li>";
   }
 
-  // Picker mode, module-level on purpose (never persisted; a reload always
+  // Picker mode — module-level on purpose (never persisted; a reload always
   // starts back in "default"). "default" shows ONLY the three supported
   // countries plus a "Somewhere else" row; "other" is the search-the-whole-
   // world mode that row switches into.
@@ -210,7 +210,7 @@
 
   // Re-renders on every keystroke, so this builds one HTML string and assigns
   // innerHTML once; clicks are handled by a single delegated listener on the
-  // UL (below), no per-row listeners.
+  // UL (below) — no per-row listeners.
   function renderCountryList(filter) {
     const q = (filter || "").toLowerCase().trim();
     let html = "";
@@ -234,7 +234,7 @@
       return;
     }
     // DEFAULT mode: only the supported three (filtered by the query), plus the
-    // always-visible "Somewhere else" row that opens the search-all mode, a
+    // always-visible "Somewhere else" row that opens the search-all mode — a
     // GP trained anywhere else is routed via that search to the "Not yet
     // eligible" waitlist instead of a dead end.
     const supported = q ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q)) : COUNTRIES;
@@ -244,7 +244,7 @@
   }
 
   // "Somewhere else" clicked: switch into other-country search (NOT the
-  // waitlist, that only opens once a concrete unsupported country is picked).
+  // waitlist — that only opens once a concrete unsupported country is picked).
   function enterOtherCountryMode() {
     countryPickerMode = "other";
     countrySearch.value = "";
@@ -284,7 +284,7 @@
     renderQualDocSlots();
   }
 
-  // Unsupported country picked from the dropdown: do NOT set state.country,
+  // Unsupported country picked from the dropdown: do NOT set state.country —
   // instead remember the attempt on the wizard blob (so we know what they
   // wanted even if they abandon the waitlist form) and route to the off-ramp
   // with the exact country name locked in (the anti-typo goal).
@@ -350,7 +350,7 @@
   }
 
   // Cached copy of the session profile written by auth-guard.js (sessionStorage)
-  //, same fallback chain bypass-config.js uses. Covers the race where the GP
+  // — same fallback chain bypass-config.js uses. Covers the race where the GP
   // reaches the off-ramp before this page's /api/auth/session fetch resolves.
   function readCachedSessionProfile() {
     var raw = null;
@@ -384,7 +384,7 @@
     input.classList.remove("input-locked");
   }
 
-  // Email always comes from the signed-in account (readonly, it's where we'll
+  // Email always comes from the signed-in account (readonly — it's where we'll
   // notify them); name prefills from the account profile when we have it.
   // Re-runs when /api/auth/session resolves (see init) in case the off-ramp
   // opened before the profile arrived. Readonly (NOT disabled) inputs still
@@ -417,7 +417,7 @@
         lockWaitlistInput(countryInput, typed);
       } else {
         // Opened via "My country isn’t listed": free text stays editable. A
-        // value we locked in on an earlier dropdown pick is stale here, clear
+        // value we locked in on an earlier dropdown pick is stale here — clear
         // it so the GP's typed guess (below) can take its place.
         if (countryInput.classList.contains("input-locked")) countryInput.value = "";
         unlockWaitlistInput(countryInput);
@@ -486,7 +486,7 @@
       credentials: "same-origin",
       body: JSON.stringify({ state: { gp_eligibility_waitlist: null } }),
     }).catch(() => { /* best effort */ });
-    // Don't leave an abandoned unsupported pick sitting in the search box,
+    // Don't leave an abandoned unsupported pick sitting in the search box —
     // restore it to the confirmed supported country (if any) or clear it, and
     // drop the picker back into default (supported-only) mode.
     countryPickerMode = "default";
@@ -542,12 +542,12 @@
     }
     // A name that differs from the account on a genuine qualification is a name change
     // (e.g. marriage), not a wrong document. Never tell the GP to upload a "matching"
-    // document, a certificate can only carry the name it was issued in.
+    // document — a certificate can only carry the name it was issued in.
     if (/looks like a previous name|changed your name|name change|previous name/.test(lower)) {
-      return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine, we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
+      return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine — we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
     }
     if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
-      return "The name on this document is different from the name on your account. If you've changed your name, that's fine, we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
+      return "The name on this document is different from the name on your account. If you've changed your name, that's fine — we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
     }
     if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
       return "We could not clearly read the full name on this document. Please upload a clearer photo with the full name fully visible.";
@@ -599,7 +599,7 @@
     // Digest-gated temporary tester mechanism (js/bypass-config.js): tester
     // emails ship only as SHA-256 digests mapped to expiry timestamps; on a
     // match bypass-config defines the plaintext key on window.BYPASS_LOCK_EMAILS
-    // with a getter that returns false once the entry expires, so bypasses
+    // with a getter that returns false once the entry expires — so bypasses
     // expire automatically with no code change here. No plaintext tester email
     // is ever embedded in this file.
     var email = String(getAccountEmail() || "").trim().toLowerCase();
@@ -647,15 +647,15 @@
       if (status === "scanning") {
         infoHtml = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Checking your document now...</div>';
       } else if (status === "verified" || status === "verified_name_pending") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Verified, one less thing to think about.</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Verified — one less thing to think about.</div>';
       } else if (status === "approved") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Approved by our team, nothing more to do here.</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Approved by our team — nothing more to do here.</div>';
       } else if (status === "rejected") {
         infoHtml = '<div class="qual-doc-slot-info error">' + escHtml(docState.rejectionReason || "Our team needs a clearer copy of this document.") + '<br>Please upload a new copy below.</div>';
       } else if (status === "under_review") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Our team is reviewing this document, no action needed.</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Our team is reviewing this document — no action needed.</div>';
       } else if (status === "storage_failed") {
-        infoHtml = '<div class="qual-doc-slot-info error">This document did not save, so we do not have a copy yet. Nothing has been lost and this does not count against you, please upload it again. If it keeps happening, try a photo taken with your phone camera.</div>';
+        infoHtml = '<div class="qual-doc-slot-info error">This document did not save, so we do not have a copy yet. Nothing has been lost and this does not count against you — please upload it again. If it keeps happening, try a photo taken with your phone camera.</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "failed" && retryCount >= MAX_RETRIES) {
         infoHtml = '<div class="qual-doc-slot-info error">We\'ll have a team member verify this personally. No action needed from you.</div>';
@@ -862,7 +862,7 @@
     // the account set to the current legal name, and at most ONE update call
     // fires per run, with a single name chosen across ALL specialist docs.
     // (Previously each CASE-1 pair fired its own POST /api/account/update-name,
-    // so two pairs, e.g. UK MRCGP + CCT, could race with different names.)
+    // so two pairs — e.g. UK MRCGP + CCT — could race with different names.)
     var docsWantingUpdate = [];
     specialistDocs.forEach(function (specialistKey) {
       var specDoc = state.qualDocs[specialistKey.key];
@@ -920,7 +920,7 @@
 
   // The original single-pair check: one specialist certificate vs the primary medical
   // degree. Statuses on BOTH documents may be updated by each pass. Returns true when
-  // the pair wants the account name set to the current legal name (CASE 1), the
+  // the pair wants the account name set to the current legal name (CASE 1) — the
   // caller applies that at most once per run, never from inside a pair.
   function crossDocNameCheckPair(specDoc, medDoc) {
     // Both need to be verified or verified_name_pending
@@ -944,9 +944,9 @@
     // only when both are clearly readable and (unusually) put the medical degree later.
     var currentLegalName = pickCurrentLegalName(specDoc, medDoc, specName, medName);
 
-    // CASE 1, at least one qualification matches the account name. This is the normal case,
+    // CASE 1 — at least one qualification matches the account name. This is the normal case,
     // INCLUDING a genuine name change: the two certificates may carry DIFFERENT names (the older
-    // one in a former/maiden name) and that is fine. Accept both, the certificate carrying the
+    // one in a former/maiden name) and that is fine. Accept both — the certificate carrying the
     // current legal name is "verified", the other is a recorded NAME CHANGE (never rejected,
     // never manual review). The per-document scan already flagged the name change to the server
     // and the AMC step asks the GP for proof. The caller then sets the account to the
@@ -960,11 +960,11 @@
       return true;
     }
 
-    // CASE 2, NEITHER certificate matches the account name, but the two AGREE with each other:
+    // CASE 2 — NEITHER certificate matches the account name, but the two AGREE with each other:
     // a consistent name change. Accept both as name-change pending and flag for review, but do
     // NOT auto-change the account: with no qualification matching the account we cannot be sure
     // whether the account is a former name (older than the certs) or a NEWER name the GP adopted
-    // after their most recent qualification, so a human confirms rather than overwriting it.
+    // after their most recent qualification — so a human confirms rather than overwriting it.
     if (docsMatchEachOther) {
       specDoc.status = "verified_name_pending";
       medDoc.status = "verified_name_pending";
@@ -972,7 +972,7 @@
       return false;
     }
 
-    // CASE 3, neither certificate matches the account AND the two disagree with each other:
+    // CASE 3 — neither certificate matches the account AND the two disagree with each other:
     // genuinely ambiguous, so a human needs to check.
     specDoc.status = "manual_review";
     medDoc.status = "manual_review";
@@ -1068,7 +1068,7 @@
           // Mark doc as support_requested so user can continue onboarding
           if (docKey === ID_SUPPORT_KEY) {
             // Identity step (2026-07-20 audit): same fallback the qual slots
-            // have, step-completion already accepts "support_requested".
+            // have — step-completion already accepts "support_requested".
             state.idVerification = state.idVerification || {};
             state.idVerification.status = "support_requested";
           } else if (docKey && state.qualDocs && state.qualDocs[docKey]) {
@@ -1187,13 +1187,13 @@
           state.qualDocs[docKey].nameMatch = v.nameMatch;
         } else if (v.nameMatch === "mismatch") {
           // A different name on a genuine qualification is a NAME CHANGE (e.g.
-          // marriage), not a failure. Accept the document, verified_name_pending
-          // counts as verified for progression and shows a "Verified" badge, and do
+          // marriage), not a failure. Accept the document — verified_name_pending
+          // counts as verified for progression and shows a "Verified" badge — and do
           // NOT burn a retry or demand a re-upload. The server records the name change
           // so the AMC step asks for proof; a Registration Support Officer still
           // sees it for confirmation.
           state.qualDocs[docKey].status = "verified_name_pending";
-          var nameChangeIssues = (v.issues && v.issues.length > 0) ? v.issues : ["This looks like a name change, we'll ask you for proof at a later step."];
+          var nameChangeIssues = (v.issues && v.issues.length > 0) ? v.issues : ["This looks like a name change — we'll ask you for proof at a later step."];
           state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(nameChangeIssues, { documentTitle: doc.label, mode: "qualification" }) };
           state.qualDocs[docKey].nameMatch = v.nameMatch;
           state.accountReviewFlag = true;
@@ -1217,7 +1217,7 @@
 
       // Persist the actual file regardless of the verification outcome. A name
       // mismatch / failed scan still needs a Registration Support Officer to open and review the
-      // real document, previously only verified docs were saved, which is why a
+      // real document — previously only verified docs were saved, which is why a
       // flagged qualification showed "No document is stored for this task".
       var storedOk = false;
       try {
@@ -1239,19 +1239,19 @@
       }
 
       // A storage failure must NEVER leave a green "Verified" tick on the slot. The
-      // scan passing only means the picture was readable, if the file did not save,
+      // scan passing only means the picture was readable — if the file did not save,
       // nothing was filed and the GP would move on believing their degree was safely
       // with us. Flip the slot to storage_failed so they are told plainly and can
       // re-upload. This runs last so it also overrides the manual_review conversion
       // above: with no stored file there is nothing for anyone to review by hand.
-      // retryCount is deliberately left untouched, a storage problem is our fault,
-      // not one of the GP's five verification attempts, so a retry that scans and
+      // retryCount is deliberately left untouched — a storage problem is our fault,
+      // not one of the GP's five verification attempts — so a retry that scans and
       // saves cleanly still lands on the correct status, and a GP already at the retry
       // ceiling still converts to manual_review on their next successful save.
       if (!storedOk) {
         state.qualDocs[docKey].scanOutcome = state.qualDocs[docKey].status;
         state.qualDocs[docKey].status = "storage_failed";
-        showError("qualDocsError", "Your document was checked, but it did not save. Nothing has been lost, please upload it again.");
+        showError("qualDocsError", "Your document was checked, but it did not save. Nothing has been lost — please upload it again.");
       }
     } catch (err) {
       console.error("[QualVerify] Error:", err);
@@ -1286,7 +1286,7 @@
   // bytes by about a third, so an ordinary phone photo of a degree certificate can
   // overflow the limit and fail before it ever reaches the server. Shrink images in
   // the browser first (the same mitigation my-documents.html and the scan modal in
-  // js/qualification-scan.js already use, mirrored here because those helpers live
+  // js/qualification-scan.js already use — mirrored here because those helpers live
   // behind window.gpDownscaleImageDataUrl in a script the wizard does not load), and
   // hard-stop anything that is still too big rather than letting it die as a 502.
   const MAX_UPLOAD_BASE64_LENGTH = 3600000; // ~3.4 MB of base64, safely under the cap
@@ -1388,11 +1388,11 @@
   // cross-device base (adopted wholesale only when this browser has nothing); the
   // authoritative review decision per document ALWAYS wins over the local cache.
   function mergeServerOnboarding(serverBlob, serverCountryName) {
-    // A fresh ?reset=1 means "start the wizard over", never re-adopt the server's
+    // A fresh ?reset=1 means "start the wizard over" — never re-adopt the server's
     // wizard blob (that would silently undo the reset) or re-populate the country
     // from the cached gp_selected_country (that would skip the country step). The
     // per-document review-decision overlay (applyServerDocStatuses) is unaffected by
-    // stateWasReset, it stays gated on state.country, which a genuine reset leaves
+    // stateWasReset — it stays gated on state.country, which a genuine reset leaves
     // empty, so it naturally has nothing to overlay until the GP re-picks a country.
     if (!stateWasReset && serverBlob && typeof serverBlob === "object" && isDefaultLocalState(state)) {
       state = { ...defaultState(), ...serverBlob, _version: 2 };
@@ -1420,7 +1420,7 @@
         state.qualDocs[wizardKey] = { ...local, fileName: local.fileName || serverDoc.fileName || "", status: "rejected", rejectionReason: serverDoc.rejection_reason || "" };
       } else if ((!local.status || local.status === "rejected") && (serverStatus === "under_review" || serverStatus === "pending") && serverDoc.fileName) {
         // This browser has no memory of the upload (new device), OR this device's
-        // only memory is a stale "rejected", which is always server-derived, so a
+        // only memory is a stale "rejected" — which is always server-derived, so a
         // newer server "under_review" (e.g. the GP re-uploaded on ANOTHER device)
         // must replace it rather than keep showing "Needs re-upload" forever. Local
         // in-progress statuses (e.g. "scanning"/"verified" from an upload in
@@ -1455,7 +1455,7 @@
   }
 
   // This is an allow-list, so a document whose upload did not save ("storage_failed")
-  // can never count as complete, the GP is held on this step until we really have the
+  // can never count as complete — the GP is held on this step until we really have the
   // file. Deliberately NOT gated on storedAt: "approved" and "under_review" are handed
   // to us by the server for uploads made on another device (and older saved wizards
   // predate storedAt entirely), so requiring it would lock those GPs out of a step
@@ -1520,13 +1520,13 @@
       statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Confirming your identity...</div>';
       actionsEl.style.display = "none";
     } else if (status === "verified") {
-      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity confirmed, your document has been deleted.</div>';
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity confirmed — your document has been deleted.</div>';
       actionsEl.style.display = "none";
     } else if (status === "failed") {
       const issues = humanizeScanIssues((idState.issues && idState.issues.length) ? idState.issues : ["Verification failed"], { mode: "identity" });
       // Same "Contact Support" fallback the qualification-doc slots offer
       // (2026-07-20 audit): after a failed scan the doctor must always have a
-      // path forward, support_requested counts as step-complete.
+      // path forward — support_requested counts as step-complete.
       statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>' +
         '<button class="qual-support-btn" id="idVerifySupportBtn" type="button">Contact Support</button>';
       actionsEl.style.display = "";
@@ -1651,7 +1651,7 @@
     saveState();
   });
 
-  // ── How did you hear about us? (OPTIONAL, never blocks progression) ──
+  // ── How did you hear about us? (OPTIONAL — never blocks progression) ──
   const leadSourceEl = document.getElementById("leadSource");
   const leadSourceDetailEl = document.getElementById("leadSourceDetail");
   const LEAD_SOURCE_DETAIL_KEYS = ["other", "colleague_referral"];
@@ -1830,7 +1830,7 @@
         else if (d.status === "manual_review") { value = "Under Review"; cls = "status-pending"; }
         else if (d.status === "under_review") { value = "Under Review"; cls = "status-pending"; }
         else if (d.status === "rejected") { value = "Needs re-upload"; cls = "status-missing"; }
-        else if (d.status === "storage_failed") { value = "Not saved, please upload again"; cls = "status-missing"; }
+        else if (d.status === "storage_failed") { value = "Not saved — please upload again"; cls = "status-missing"; }
         else { value = "Not verified"; cls = "status-missing"; }
       }
       return { label: doc.label, value, cls };
@@ -1873,7 +1873,7 @@
 
   // ── Button morph (WAAPI FLIP: transform + width only) ──
   // Font-size and padding switch instantly with the class toggle (no per-frame
-  // text reflow), the label crossfade masks it. The Web Animations API leaves
+  // text reflow) — the label crossfade masks it. The Web Animations API leaves
   // no inline styles behind, so an interrupted morph can never strand the
   // button at a wrong size; cancelling always lands on the final class layout.
   var btnRow = nextBtn.parentElement;
@@ -1938,7 +1938,7 @@
       nextBtn.classList.toggle("submit", isSubmit);
       return;
     }
-    // Fade out (~120ms CSS transition), swap, fade back in, well inside the
+    // Fade out (~120ms CSS transition), swap, fade back in — well inside the
     // 550ms morph. Timers are managed so a rapid re-nav can never strand the
     // label hidden or on the wrong text.
     nextBtnLabel.style.opacity = "0";
@@ -1994,7 +1994,7 @@
       skipBtn.classList.add("invisible");
     }
 
-    // Button label, crossfade while morphing, instant swap otherwise
+    // Button label — crossfade while morphing, instant swap otherwise
     var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
     var isSubmit = step === TOTAL_STEPS - 1;
     setNextBtnLabel(newLabel, isSubmit, needsFlip);
@@ -2016,7 +2016,7 @@
     if (!validateStep(currentStep)) return;
     if (currentStep === TOTAL_STEPS - 1) {
       // Final gate: a GP resumed past step 1 (saved currentStep or ?step deep
-      // link) may be missing a document added since (e.g. UK CCT),
+      // link) may be missing a document added since (e.g. UK CCT) —
       // validateStep only checks the CURRENT step, so re-check the docs here.
       if (!canBypassOnboardingValidation() && !allDocsComplete()) {
         const docs = COUNTRY_DOCS[state.country] || [];
@@ -2178,9 +2178,9 @@
             })
             .catch(function () { /* best effort */ });
         })
-        .catch(function () { /* best effort, local state still works */ })
+        .catch(function () { /* best effort — local state still works */ })
         .then(function () {
-          if (eligibilityScreenShown) return; // eligibility screen already rendered, never fall through to the wizard
+          if (eligibilityScreenShown) return; // eligibility screen already rendered — never fall through to the wizard
           // Deep link from reminder emails: ?step=N opens that step. Deep link from
           // reject emails: ?reupload=<docKey> opens the qualification step at that doc.
           var params = new URLSearchParams(window.location.search);
@@ -2197,7 +2197,7 @@
         .catch(function (e) {
           // Safety net: a throw anywhere in the restore chain above (e.g. during
           // render) must not leave an unhandled rejection with nothing on screen.
-          // Only paint the wizard here if nothing was rendered yet, avoids
+          // Only paint the wizard here if nothing was rendered yet — avoids
           // double-rendering over an already-shown eligibility screen or wizard step.
           try { if (!initRendered) goToStep(currentStep); } catch (e2) {}
         });

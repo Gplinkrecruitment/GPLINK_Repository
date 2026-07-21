@@ -1,4 +1,4 @@
-// Phase 6 F4, verified self-serve email change.
+// Phase 6 F4 — verified self-serve email change.
 //
 // Proves, against the REAL server with an in-memory PostgREST + GoTrue-admin
 // emulator:
@@ -149,7 +149,7 @@ function userCookie(email, supabaseUserId) {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
 }
-// Purpose token crafted exactly like the server does, for the expiry test.
+// Purpose token crafted exactly like the server does — for the expiry test.
 function craftPurposeToken(purpose, data, expMs) {
   const payload = b64url(JSON.stringify({ purpose, data, exp: Date.now() + expMs }));
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');

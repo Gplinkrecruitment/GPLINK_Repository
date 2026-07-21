@@ -1,9 +1,9 @@
-// Task 11, server-side DPA gate + preferred-city ranking + blurred fillers.
+// Task 11 — server-side DPA gate + preferred-city ranking + blurred fillers.
 //
 // A GP who did NOT train in Australia can only be legally placed into a DPA
-// (District of Priority Area) role. Non-DPA roles must never be applyable,
+// (District of Priority Area) role. Non-DPA roles must never be applyable —
 // and their identifying details (practice name, suburb, exact city) must
-// never even reach the client, for a GP whose registration country isn't
+// never even reach the client — for a GP whose registration country isn't
 // Australia (the "Australia-trained" flag is derived from that country, not
 // a separate onboarding question).
 //
@@ -51,21 +51,21 @@ const db = {
   ],
   user_roles: [],
   career_roles: [
-    // DPA role, qualifies regardless of training country. `masked_title` is
+    // DPA role — qualifies regardless of training country. `masked_title` is
     // what mapCareerRoleRowToClient actually serves as practiceName (Task 10
     // privacy layer masks identity independently of the DPA gate); the real
     // `practice_name` must NEVER reach the client either way.
     {
       id: 'role-dpa-1', provider: 'internal_ats', provider_role_id: 'ats_dpa1',
-      title: 'GP, DPA role', practice_name: 'ULTRA SECRET Toowoomba Bush Medical',
+      title: 'GP — DPA role', practice_name: 'ULTRA SECRET Toowoomba Bush Medical',
       masked_title: 'DPA - Toowoomba',
       is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true,
       dpa: true, location_state: 'QLD', nearest_city: 'Toowoomba', updated_at: NOW
     },
-    // Non-DPA role, only qualifies for an Australia-trained GP.
+    // Non-DPA role — only qualifies for an Australia-trained GP.
     {
       id: 'role-nondpa-1', provider: 'internal_ats', provider_role_id: 'ats_nondpa1',
-      title: 'GP, Non-DPA role', practice_name: 'ULTRA SECRET Melbourne Family Clinic',
+      title: 'GP — Non-DPA role', practice_name: 'ULTRA SECRET Melbourne Family Clinic',
       masked_title: 'Non-DPA - Melbourne',
       is_active: true, approval_status: 'approved', job_status: 'open', ats_created: true,
       dpa: false, location_state: 'VIC', nearest_city: 'Melbourne', updated_at: NOW
@@ -222,7 +222,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/career/roles, DPA gate for an overseas-trained GP', () => {
+describe('GET /api/career/roles — DPA gate for an overseas-trained GP', () => {
   it('shows the DPA role crisp and blurs the non-DPA role with no identifying fields', async () => {
     const res = await httpReq('GET', '/api/career/roles', { cookie: userCookie(OVERSEAS_GP.email, OVERSEAS_GP.userId) });
     expect(res.status).toBe(200);
@@ -256,7 +256,7 @@ describe('GET /api/career/roles, DPA gate for an overseas-trained GP', () => {
   });
 });
 
-describe('GET /api/career/roles, an Australia-trained GP sees everything crisp', () => {
+describe('GET /api/career/roles — an Australia-trained GP sees everything crisp', () => {
   it('both roles qualify (not blurred); the non-DPA role is no longer gated', async () => {
     const res = await httpReq('GET', '/api/career/roles', { cookie: userCookie(AU_TRAINED_GP.email, AU_TRAINED_GP.userId) });
     expect(res.status).toBe(200);
@@ -267,13 +267,13 @@ describe('GET /api/career/roles, an Australia-trained GP sees everything crisp',
     expect(nonDpaEntry).toBeTruthy();
     expect(nonDpaEntry.qualifies).toBe(true);
     // Still masked (Task 10's identity reveal gate is independent of the DPA
-    // gate), the real practice name never leaks regardless of qualification.
+    // gate) — the real practice name never leaks regardless of qualification.
     expect(nonDpaEntry.practiceName).toBe('Non-DPA - Melbourne');
     expect(res.raw).not.toContain('ULTRA SECRET');
   });
 });
 
-describe('GET /api/career/role, detail endpoint DPA gate (defense in depth)', () => {
+describe('GET /api/career/role — detail endpoint DPA gate (defense in depth)', () => {
   it('an overseas-trained GP fetching the non-DPA role detail directly (e.g. a shared/guessed link) gets a blurred stub, not the real detail', async () => {
     const res = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_nondpa1'), {
       cookie: userCookie(OVERSEAS_GP.email, OVERSEAS_GP.userId)
@@ -298,7 +298,7 @@ describe('GET /api/career/role, detail endpoint DPA gate (defense in depth)', ()
   });
 });
 
-describe('POST /api/career/apply, server-side DPA enforcement', () => {
+describe('POST /api/career/apply — server-side DPA enforcement', () => {
   it('rejects an overseas-trained GP applying to a non-DPA role with 403 not_qualified', async () => {
     const res = await httpReq('POST', '/api/career/apply', {
       cookie: userCookie(OVERSEAS_GP.email, OVERSEAS_GP.userId),
@@ -335,16 +335,16 @@ describe('POST /api/career/apply, server-side DPA enforcement', () => {
   });
 });
 
-// Unit tests against the gate helper itself (exported via __testUtils),
+// Unit tests against the gate helper itself (exported via __testUtils) —
 // covers behavior that is hard to reach through the HTTP endpoint: the
 // fail-closed error path and the no-mutation guarantee for cached role objects.
-describe('_applyGpRoleVisibilityGate, fail-closed + no cache mutation (unit)', () => {
+describe('_applyGpRoleVisibilityGate — fail-closed + no cache mutation (unit)', () => {
   it('FAILS CLOSED: an unexpected throw mid-gate returns every role as a redacted stub, never the raw list', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const poisoned = [
         { id: 'r-ok', practiceName: 'SECRET Practice A', state: 'QLD', dpa: true },
-        // Reading .dpa on this role throws, simulates any unexpected runtime
+        // Reading .dpa on this role throws — simulates any unexpected runtime
         // fault inside the gate's main path.
         Object.defineProperty({ id: 'r-boom', practiceName: 'SECRET Practice B', state: 'VIC' }, 'dpa', {
           get() { throw new Error('simulated gate fault'); },
@@ -353,7 +353,7 @@ describe('_applyGpRoleVisibilityGate, fail-closed + no cache mutation (unit)', (
       ];
       const out = await testUtils._applyGpRoleVisibilityGate(poisoned, OVERSEAS_GP.userId, OVERSEAS_GP.email);
       expect(out).toHaveLength(2);
-      // EVERY role comes back blurred/redacted, including the DPA one that
+      // EVERY role comes back blurred/redacted — including the DPA one that
       // would have qualified had the gate not faulted.
       out.forEach((r) => {
         expect(r.blurred).toBe(true);
@@ -362,7 +362,7 @@ describe('_applyGpRoleVisibilityGate, fail-closed + no cache mutation (unit)', (
       });
       expect(JSON.stringify(out)).not.toContain('SECRET');
       expect(errSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[dpa-gate] visibility gate failed, failing closed'),
+        expect.stringContaining('[dpa-gate] visibility gate failed — failing closed'),
         expect.any(Error)
       );
     } finally {

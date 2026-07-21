@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 // overrides[stage] = (stageIndex <= currentStageIndex). visa is index 5, so every GP
 // before the visa stage gets overrides.visa === false. The journey's Visa card is
 // always unlocked and links to /pages/visa; the server stage-gate must therefore treat
-// visa as always-accessible (like ahpra/career), otherwise the shell iframe load of
+// visa as always-accessible (like ahpra/career) — otherwise the shell iframe load of
 // /pages/visa.html is 302'd to /pages/index and the home journey renders at /pages/visa.
 
 let stageGateDecision;
@@ -18,13 +18,13 @@ beforeAll(async () => {
 });
 
 // The exact overrides written by stage-advance for a GP currently at the AHPRA stage
-// (index 4), every later stage, including visa (index 5), is false.
+// (index 4) — every later stage, including visa (index 5), is false.
 const PRE_VISA_OVERRIDES = {
   placement: true, myintealth: true, amc: true, career: true,
   ahpra: true, visa: false, pbs: false, commencement: false
 };
 
-describe('stageGateDecision, visa is always accessible', () => {
+describe('stageGateDecision — visa is always accessible', () => {
   it('allows visa even when the overrides explicitly lock it', () => {
     expect(stageGateDecision('visa', { visa: false }, false)).toBe(true);
   });
@@ -37,7 +37,7 @@ describe('stageGateDecision, visa is always accessible', () => {
   });
 });
 
-describe('stageGateDecision, other stages still honour overrides (no regression)', () => {
+describe('stageGateDecision — other stages still honour overrides (no regression)', () => {
   it('blocks a genuinely locked stage', () => {
     expect(stageGateDecision('pbs', PRE_VISA_OVERRIDES, false)).toBe(false);
     expect(stageGateDecision('commencement', { commencement: false }, false)).toBe(false);
@@ -57,7 +57,7 @@ describe('stageGateDecision, other stages still honour overrides (no regression)
   });
 });
 
-describe('stageGateDecision, vaulted commencement is fully shelved', () => {
+describe('stageGateDecision — vaulted commencement is fully shelved', () => {
   it('blocks commencement regardless of overrides or bypass', () => {
     expect(stageGateDecision('commencement', {}, false)).toBe(false);                    // natural progression can't reach it
     expect(stageGateDecision('commencement', { commencement: true }, false)).toBe(false); // an override cannot unlock it

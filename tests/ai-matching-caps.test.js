@@ -1,7 +1,7 @@
-// Task 7 (AI Matching, 2026-07-06 plan), caps, velocity, self-apply-as-accept.
+// Task 7 (AI Matching, 2026-07-06 plan) — caps, velocity, self-apply-as-accept.
 //
 // Two halves, mirroring tests/ai-matching-redirect.test.js:
-//  (A) Source-regex wiring checks, no server boot needed.
+//  (A) Source-regex wiring checks — no server boot needed.
 //  (B) Endpoint + helper behavior against a real Supabase-mode boot (in-
 //      memory PostgREST emulator), plus real GP + ATS super_admin sessions.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 // ── Source wiring (no server boot needed) ───────────────────────────────────
-describe('AI Matching Task 7, source wiring', () => {
+describe('AI Matching Task 7 — source wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const jobHtml = fs.readFileSync(path.join(ROOT, 'pages/job.html'), 'utf8');
   const jobsSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-jobs.js'), 'utf8');
@@ -81,7 +81,7 @@ describe('AI Matching Task 7, source wiring', () => {
     const idx = serverSrc.indexOf("pathname === '/api/career/apply'");
     // Precheck: session-only userId (no DB), pure roleId parse, single
     // bounded gp_applications lookup on the UNIQUE(user_id, provider_role_id)
-    // pair for a live shortlisted row, then the limiter, gated on it.
+    // pair for a live shortlisted row — then the limiter, gated on it.
     const precheckIdx = serverSrc.indexOf('const preSessionUserId = getSessionSupabaseUserId(session);', idx);
     const precheckQueryIdx = serverSrc.indexOf('&ats_stage=eq.shortlisted&limit=1', idx);
     const rateIdx = serverSrc.indexOf('const rateLimitUserId = preSessionUserId || email;', idx);
@@ -190,7 +190,7 @@ describe('AI Matching Task 7, source wiring', () => {
 
   it('job.html has the deliberate-apply confirm sheet with the verbatim cap note + a meter line', () => {
     expect(jobHtml).toContain('id="applyConfirmOverlay"');
-    expect(jobHtml).toContain("You can interview for up to 3 positions per month, so accept the roles you're genuinely serious about.");
+    expect(jobHtml).toContain("You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.");
     expect(jobHtml).toContain('id="applyConfirmMeter"');
     expect(jobHtml).toMatch(/data\.used \+ " of " \+ \(data\.limit \|\| 3\) \+ " interviews used"/);
   });
@@ -204,7 +204,7 @@ describe('AI Matching Task 7, source wiring', () => {
 
   it('job.html handles active_cap, expired, and matched:true copy', () => {
     expect(jobHtml).toContain('data.error === "active_cap"');
-    expect(jobHtml).toContain('You have 3 active applications, focus on those first, or withdraw one.');
+    expect(jobHtml).toContain('You have 3 active applications — focus on those first, or withdraw one.');
     expect(jobHtml).toContain('data && data.expired');
     expect(jobHtml).toContain('data.matched');
     expect(jobHtml).toContain("Matched! Your team has been notified you're moving forward.");
@@ -222,7 +222,7 @@ describe('AI Matching Task 7, source wiring', () => {
     expect(jobsSrc).toMatch(/function stageNeedsWithdrawReason/);
     expect(jobsSrc).toMatch(/function openWithdrawReasonPrompt/);
     // Wired into both stage-move sites: moveCard (drag) + onDrawerStageChange
-    // (drawer select), the drawer's version guards `found` may be null first.
+    // (drawer select) — the drawer's version guards `found` may be null first.
     const occurrences = jobsSrc.split("stageNeedsWithdrawReason(found.col.key)").length - 1;
     expect(occurrences).toBe(2);
     expect(jobsSrc).toMatch(/function moveCard\(id, stage\) \{[\s\S]*?stageNeedsWithdrawReason/);
@@ -292,7 +292,7 @@ const db = {
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
-// Which tables the app READ (GET), in order, used to prove the rate limiter
+// Which tables the app READ (GET), in order — used to prove the rate limiter
 // fires before any of the apply gates' DB reads. Tests truncate it
 // (dbReadLog.length = 0) right before the request they want to inspect.
 const dbReadLog = [];
@@ -393,7 +393,7 @@ function startSupabaseEmulator() {
           }
           const row = { id: r.id || crypto.randomUUID(), created_at: new Date().toISOString(), ...r };
           // Real Postgres defaults gp_applications.ats_stage to 'applied' (migration
-          // 20260627100200) when an insert omits it, /api/career/apply's real
+          // 20260627100200) when an insert omits it — /api/career/apply's real
           // insert payload never sets it explicitly, so the emulator must mirror
           // that DEFAULT or the active-application-cap tests below would silently
           // under-count real self-applied rows (a fidelity gap, not a feature).
@@ -443,7 +443,7 @@ beforeAll(async () => {
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
   process.env.OPENAI_API_KEY = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
-  // Zoom/Google Calendar left UNCONFIGURED on purpose, createZoomInterviewMeeting
+  // Zoom/Google Calendar left UNCONFIGURED on purpose — createZoomInterviewMeeting
   // / gcalCreateEvent both gracefully fall back to a local fake id/join-url
   // without ever touching the network when unconfigured.
 
@@ -485,7 +485,7 @@ function seedGp(userId, email) {
 function seedRole(id, providerRoleId, extra) {
   db.career_roles.push(Object.assign({
     id, provider: 'internal_ats', provider_role_id: providerRoleId,
-    title: 'General Practitioner, VR', practice_name: 'Test Practice ' + id,
+    title: 'General Practitioner — VR', practice_name: 'Test Practice ' + id,
     is_active: true, job_status: 'open', ats_created: true, updated_at: new Date().toISOString()
   }, extra || {}));
 }
@@ -496,7 +496,7 @@ describe('Active-application cap (spec §9: 3 active at a time)', () => {
     seedGp(GP.userId, GP.email);
     seedRole('role-cap-1', 'cap_1'); seedRole('role-cap-2', 'cap_2'); seedRole('role-cap-3', 'cap_3'); seedRole('role-cap-4', 'cap_4');
 
-    // Three REAL applies via the endpoint, exercises the actual insert path
+    // Three REAL applies via the endpoint — exercises the actual insert path
     // (not a pre-seeded fixture), so the cap counter sees exactly what
     // production would (including the emulator's ats_stage='applied' DEFAULT).
     for (const roleId of ['internal_ats:cap_1', 'internal_ats:cap_2', 'internal_ats:cap_3']) {
@@ -524,16 +524,16 @@ describe('Active-application cap (spec §9: 3 active at a time)', () => {
       const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId } });
       expect(res.status).toBe(200);
     }
-    // Now genuinely at 3 active, confirmed by the cap blocking a 4th new apply.
+    // Now genuinely at 3 active — confirmed by the cap blocking a 4th new apply.
     seedRole('role-cap2-blocked', 'cap2_blocked');
     const preCheck = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap2_blocked' } });
     expect(preCheck.status).toBe(409);
     expect(preCheck.body.error).toBe('active_cap');
 
-    // A live team match on a DIFFERENT role, must succeed regardless.
+    // A live team match on a DIFFERENT role — must succeed regardless.
     db.gp_applications.push({
       id: 'app-cap2-match', user_id: GP.userId, career_role_id: 'role-cap2-match', provider_role_id: 'cap2_match',
-      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner, VR',
+      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner — VR',
       matched_at: new Date().toISOString(), match_expires_at: new Date(Date.now() + 5 * 86400000).toISOString()
     });
     const matchRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap2_match' } });
@@ -543,7 +543,7 @@ describe('Active-application cap (spec §9: 3 active at a time)', () => {
     const matchedRow = db.gp_applications.find((a) => a.id === 'app-cap2-match');
     expect(matchedRow.ats_stage).toBe('applied');
     expect(matchedRow.match_outcome).toBe('accepted');
-    // No extra row was created for the accept, still exactly 4 rows total
+    // No extra row was created for the accept — still exactly 4 rows total
     // (3 applied + the 1 pre-existing match row, now accepted in place).
     expect(db.gp_applications.filter((a) => a.user_id === GP.userId).length).toBe(4);
   });
@@ -556,7 +556,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
     seedRole('role-sa-1', 'sa_1');
     db.gp_applications.push({
       id: 'app-sa-1', user_id: GP.userId, career_role_id: 'role-sa-1', provider_role_id: 'sa_1',
-      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner, VR',
+      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner — VR',
       matched_at: new Date().toISOString(), match_expires_at: new Date(Date.now() + 5 * 86400000).toISOString()
     });
 
@@ -584,7 +584,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
       seedRole('role-sa-rate-' + i, 'sa_rate_' + i);
       db.gp_applications.push({
         id: 'app-sa-rate-' + i, user_id: GP.userId, career_role_id: 'role-sa-rate-' + i, provider_role_id: 'sa_rate_' + i,
-        status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner, VR',
+        status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner — VR',
         matched_at: new Date().toISOString(), match_expires_at: new Date(Date.now() + 5 * 86400000).toISOString()
       });
     }
@@ -598,7 +598,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
   it('review fix: a burst of garbage applies hits 429 as a rate-limit (not role_not_found), with ONLY the bounded precheck read', async () => {
     const GP = { userId: 'u-burst-1', email: 'burst1@gplink-test.local' };
     seedGp(GP.userId, GP.email);
-    // 10 applies to NONEXISTENT roles, each passes the limiter (consuming a
+    // 10 applies to NONEXISTENT roles — each passes the limiter (consuming a
     // slot) and then 404s at the role lookup, exactly like main.
     for (let i = 1; i <= 10; i++) {
       const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:garbage_' + i } });
@@ -613,7 +613,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
     expect(throttled.status).toBe(429);
     expect(throttled.body.message).toMatch(/Too many applications/i);
     // Zero unthrottled gate reads: the ONLY read is the single bounded
-    // gp_applications precheck, never career_roles / user_state /
+    // gp_applications precheck — never career_roles / user_state /
     // user_profiles / user_documents.
     expect(dbReadLog).toEqual(['gp_applications']);
   });
@@ -624,7 +624,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
     seedRole('role-exp-1', 'exp_1');
     db.gp_applications.push({
       id: 'app-exp-1', user_id: GP.userId, career_role_id: 'role-exp-1', provider_role_id: 'exp_1',
-      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner, VR',
+      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner — VR',
       matched_at: new Date(Date.now() - 6 * 86400000).toISOString(),
       match_expires_at: new Date(Date.now() - 1 * 86400000).toISOString() // 1 day in the past
     });
@@ -637,7 +637,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
     expect(res.body.message).toMatch(/expired/i);
 
     const row = db.gp_applications.find((a) => a.id === 'app-exp-1');
-    expect(row.ats_stage).toBe('shortlisted'); // untouched, no accept happened
+    expect(row.ats_stage).toBe('shortlisted'); // untouched — no accept happened
     expect(row.match_outcome == null).toBe(true);
 
     const stillInterestedEmail = resendCalls.slice(before).find((c) => c.body && /still interested/i.test(c.body.subject || ''));
@@ -650,7 +650,7 @@ describe('Self-apply-as-accept (spec §7)', () => {
     seedRole('role-rr-1', 'rr_1');
     db.gp_applications.push({
       id: 'app-rr-1', user_id: GP.userId, career_role_id: 'role-rr-1', provider_role_id: 'rr_1',
-      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner, VR',
+      status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner — VR',
       matched_at: new Date().toISOString(), match_expires_at: new Date(Date.now() + 5 * 86400000).toISOString()
     });
     const res = await httpReq('POST', '/api/career/match/respond', {
@@ -678,7 +678,7 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     );
     db.scheduled_calls.push(
       { id: 'sc-usage-1', user_id: GP.userId, meeting_kind: 'interview', status: 'booked', scheduled_at: midMonth },
-      { id: 'sc-usage-invited', user_id: GP.userId, meeting_kind: 'interview', status: 'invited', scheduled_at: midMonth } // no slot chosen, must NOT count
+      { id: 'sc-usage-invited', user_id: GP.userId, meeting_kind: 'interview', status: 'invited', scheduled_at: midMonth } // no slot chosen — must NOT count
     );
     const res = await httpReq('GET', '/api/career/interview-usage', { cookie: userCookie(GP.email, GP.userId) });
     expect(res.status).toBe(200);
@@ -693,8 +693,8 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     const GP_USER = 'u-boundary-1';
     const window = currentInterviewMonthWindow(new Date());
     const justBefore = new Date(window.start.getTime() - 1000).toISOString(); // last second of prev month
-    const atStart = window.start.toISOString(); // first instant of this month, included
-    const justAfterEnd = window.end.toISOString(); // first instant of next month, excluded (lt, not lte)
+    const atStart = window.start.toISOString(); // first instant of this month — included
+    const justAfterEnd = window.end.toISOString(); // first instant of next month — excluded (lt, not lte)
     const lastInstantOfMonth = new Date(window.end.getTime() - 1000).toISOString(); // included
     db.career_interviews.push(
       { id: 'ci-b-before', user_id: GP_USER, status: 'scheduled', scheduled_at: justBefore },
@@ -722,7 +722,7 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     seedRole('role-ivcap-1', 'ivcap_1');
     db.gp_applications.push({
       id: 'app-ivcap-1', user_id: GP.userId, career_role_id: 'role-ivcap-1', provider_role_id: 'ivcap_1',
-      status: 'applied', ats_stage: 'interview', revealed: true, job_title: 'General Practitioner, VR'
+      status: 'applied', ats_stage: 'interview', revealed: true, job_title: 'General Practitioner — VR'
     });
     db.scheduled_calls.push({ id: 'sc-ivcap-gp', user_id: GP.userId, application_id: 'app-ivcap-1', meeting_kind: 'interview', status: 'invited' });
     const gpRes = await httpReq('POST', '/api/career/interview/book', {
@@ -741,7 +741,7 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     seedRole('role-ivcap-2', 'ivcap_2');
     db.gp_applications.push({
       id: 'app-ivcap-2', user_id: GP.userId, career_role_id: 'role-ivcap-2', provider_role_id: 'ivcap_2',
-      status: 'applied', ats_stage: 'interview', job_title: 'General Practitioner, VR'
+      status: 'applied', ats_stage: 'interview', job_title: 'General Practitioner — VR'
     });
     db.scheduled_calls.push({ id: 'sc-ivcap-ats', user_id: GP.userId, application_id: 'app-ivcap-2', meeting_kind: 'interview', status: 'invited' });
     const atsRes = await httpReq('POST', '/api/ats/interview/book', {
@@ -757,7 +757,7 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     expect(atsScRow.status).toBe('invited');
   });
 
-  it("review fix: the ATS book cap ignores body.now, a spoofed next-month `now` can't dodge this month's cap", async () => {
+  it("review fix: the ATS book cap ignores body.now — a spoofed next-month `now` can't dodge this month's cap", async () => {
     const GP = { userId: 'u-ivcap-spoof-1', email: 'ivcap-spoof1@gplink-test.local' };
     seedGp(GP.userId, GP.email);
     const now = new Date();
@@ -771,10 +771,10 @@ describe('Interview cap (spec §9: 3/calendar month, merged count)', () => {
     seedRole('role-ivcap-spoof', 'ivcap_spoof');
     db.gp_applications.push({
       id: 'app-ivcap-spoof', user_id: GP.userId, career_role_id: 'role-ivcap-spoof', provider_role_id: 'ivcap_spoof',
-      status: 'applied', ats_stage: 'interview', job_title: 'General Practitioner, VR'
+      status: 'applied', ats_stage: 'interview', job_title: 'General Practitioner — VR'
     });
     db.scheduled_calls.push({ id: 'sc-ivcap-spoof', user_id: GP.userId, application_id: 'app-ivcap-spoof', meeting_kind: 'interview', status: 'invited' });
-    // Spoof `now` into NEXT month, if the cap window (wrongly) followed
+    // Spoof `now` into NEXT month — if the cap window (wrongly) followed
     // bodyBK.now, the count would be 0 and the request would sail past the
     // cap into the slot machinery instead of 409ing with interview_cap.
     const spoofedNow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 5, 9, 0, 0)).toISOString();
@@ -796,7 +796,7 @@ describe('Velocity flag (spec §9: 5+ applies/24h)', () => {
     // 3 pre-existing NOT-active (not_proceeding) applications, seeded directly
     // (not via the endpoint) so they count towards the 24h velocity window
     // (which counts ALL applied_at rows, any stage) WITHOUT tripping the
-    // separate active-application cap (3 active at a time), this test is
+    // separate active-application cap (3 active at a time) — this test is
     // isolating the velocity signal, not the cap interaction.
     const recentIso = new Date().toISOString();
     for (let i = 1; i <= 3; i++) {
@@ -809,13 +809,13 @@ describe('Velocity flag (spec §9: 5+ applies/24h)', () => {
     seedRole('role-vel-4', 'vel_4');
     seedRole('role-vel-5', 'vel_5');
 
-    // 4th applied_at-recent row overall (1st genuinely NEW/active one), still under 5.
+    // 4th applied_at-recent row overall (1st genuinely NEW/active one) — still under 5.
     const fourthRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:vel_4' } });
     expect(fourthRes.status).toBe(200);
     let stateRow = db.user_state.find((s) => s.user_id === GP.userId);
     expect(stateRow.state.application_velocity_flag).toBeUndefined();
 
-    // 5th applied_at-recent row overall, trips the flag.
+    // 5th applied_at-recent row overall — trips the flag.
     const fifthRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:vel_5' } });
     expect(fifthRes.status).toBe(200);
     stateRow = db.user_state.find((s) => s.user_id === GP.userId);
@@ -867,7 +867,7 @@ describe('Withdraw-reason stage events (Task 8 strike-source data)', () => {
     seedRole('role-wd-1', 'wd_1');
     db.gp_applications.push({
       id: 'app-wd-1', user_id: 'u-wd-1', career_role_id: 'role-wd-1', provider_role_id: 'wd_1',
-      status: 'submitted_to_practice', ats_stage: 'submitted', job_title: 'General Practitioner, VR'
+      status: 'submitted_to_practice', ats_stage: 'submitted', job_title: 'General Practitioner — VR'
     });
     const res = await httpReq('PATCH', '/api/ats/application?id=app-wd-1', {
       host: SUPER_HOST, cookie: superCookie(), body: { stage: 'not_proceeding', reason: 'gp_withdrew' }
@@ -883,7 +883,7 @@ describe('Withdraw-reason stage events (Task 8 strike-source data)', () => {
     seedRole('role-wd-2', 'wd_2');
     db.gp_applications.push({
       id: 'app-wd-2', user_id: 'u-wd-2', career_role_id: 'role-wd-2', provider_role_id: 'wd_2',
-      status: 'applied', ats_stage: 'applied', job_title: 'General Practitioner, VR'
+      status: 'applied', ats_stage: 'applied', job_title: 'General Practitioner — VR'
     });
     const res = await httpReq('PATCH', '/api/ats/application?id=app-wd-2', {
       host: SUPER_HOST, cookie: superCookie(), body: { stage: 'interview', reason: 'gp_withdrew' }
@@ -898,13 +898,13 @@ describe('Withdraw-reason stage events (Task 8 strike-source data)', () => {
     seedRole('role-wd-3', 'wd_3');
     db.gp_applications.push({
       id: 'app-wd-3', user_id: 'u-wd-3', career_role_id: 'role-wd-3', provider_role_id: 'wd_3',
-      status: 'submitted_to_practice', ats_stage: 'submitted', job_title: 'General Practitioner, VR'
+      status: 'submitted_to_practice', ats_stage: 'submitted', job_title: 'General Practitioner — VR'
     });
     // A free-text lookalike that would dilute Task 8's exact-match query.
     const res = await httpReq('PATCH', '/api/ats/application?id=app-wd-3', {
       host: SUPER_HOST, cookie: superCookie(), body: { stage: 'not_proceeding', reason: 'GP Withdrew (chatty free text)' }
     });
-    expect(res.status).toBe(200); // never a 400, the move itself is fine
+    expect(res.status).toBe(200); // never a 400 — the move itself is fine
     expect(res.body.ok).toBe(true);
     const row = db.gp_applications.find((a) => a.id === 'app-wd-3');
     expect(row.ats_stage).toBe('not_proceeding');
@@ -922,7 +922,7 @@ describe('Withdraw-reason stage events (Task 8 strike-source data)', () => {
       seedRole('role-wd-wl-' + i, 'wd_wl_' + i);
       db.gp_applications.push({
         id: appId, user_id: 'u-wd-wl-' + i, career_role_id: 'role-wd-wl-' + i, provider_role_id: 'wd_wl_' + i,
-        status: 'submitted_to_practice', ats_stage: 'reviewing', job_title: 'General Practitioner, VR'
+        status: 'submitted_to_practice', ats_stage: 'reviewing', job_title: 'General Practitioner — VR'
       });
       const res = await httpReq('PATCH', '/api/ats/application?id=' + appId, {
         host: SUPER_HOST, cookie: superCookie(), body: { stage: 'not_proceeding', reason }

@@ -1,19 +1,19 @@
 /*
- * AI Matching (Task 4 of the 2026-07-06 implementation plan), GP-facing
+ * AI Matching (Task 4 of the 2026-07-06 implementation plan) — GP-facing
  * one-time full-page match popup.
  *
  * Loaded once from pages/app-shell.html (the top-level shell page, not the
- * iframed content pages), after DOMContentLoaded, fetches
+ * iframed content pages) — after DOMContentLoaded, fetches
  * GET /api/career/matches; if there is an unseen live match, renders a
  * full-viewport takeover per docs/mockups/matching/matching-email-popup-v3.html
  * (dark hero gradient, animated falling confetti, badge, serif headline, job
  * card, why-ticks, video card, 98% stat, 5-day reserve strip, shiny animated
  * Accept, "I'll look at this later"). Only the NEWEST unseen match is ever
- * shown, never stacks. Marks the match seen on render. Accept posts
+ * shown — never stacks. Marks the match seen on render. Accept posts
  * /api/career/match/respond then navigates the shell to /pages/career.
  *
  * Never shown to a gated account (mid-onboarding / under_review /
- * pep_waitlist / archived), enforced server-side in GET /api/career/matches
+ * pep_waitlist / archived) — enforced server-side in GET /api/career/matches
  * (which returns an empty matches list for those accounts), so this file
  * doesn't need to re-derive gating itself.
  */
@@ -38,7 +38,7 @@
     prefersReducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   } catch (e) {}
 
-  // ── Confetti, adapted from pages/offer-review.html's launchConfetti()      ──
+  // ── Confetti — adapted from pages/offer-review.html's launchConfetti()      ──
   // (a one-shot ~2.8s burst) into a gently continuous loop: pieces recycle back
   // to the top once they fall past the bottom of the confetti host, rather than
   // the animation ending. Skipped entirely under prefers-reduced-motion.
@@ -337,14 +337,14 @@
     if (document.getElementById("gpMatchPopup")) return;
     fetchMatches().then(function (data) {
       var match = pickNewestUnseen(data);
-      if (!match) return; // no unseen match, locked account, or fetch failure, do nothing silently
+      if (!match) return; // no unseen match, locked account, or fetch failure — do nothing silently
       markSeen(match.applicationId);
       showOverlay(match, data.gp || {});
     });
   }
 
   // This file is loaded with `defer`, placed AFTER app-shell.js's own <script>
-  // tag in pages/app-shell.html, both scripts register their DOMContentLoaded
+  // tag in pages/app-shell.html — both scripts register their DOMContentLoaded
   // listener during the (pre-DOMContentLoaded) deferred-script execution phase,
   // in document order, so app-shell.js's listener (which sets
   // window.gpShellNavigate inside its own init()) always runs first.

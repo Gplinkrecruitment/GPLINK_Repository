@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // auth-guard.js is a browser IIFE, so these tests extract the account-status
-// gate logic from the source (Phase 6B bug #8: fail directions were both wrong,
+// gate logic from the source (Phase 6B bug #8: fail directions were both wrong —
 // network failure fail-CLOSED into a false "Under Review" wall, and unknown
 // account_status values fail-OPENED to full access).
 

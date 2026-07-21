@@ -1,4 +1,4 @@
-// Phase 5 Task 5, ATS document access (A6/A7b), manual placement + list (A8),
+// Phase 5 Task 5 — ATS document access (A6/A7b), manual placement + list (A8),
 // stale-vocab pruning (A10) and the folded empty-parse ingest fix.
 //
 // Boots the real server against the in-memory PostgREST + storage emulator
@@ -73,7 +73,7 @@ const db = {
     { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', billing_model: 'Mixed Billing', is_active: true, job_status: 'open', ats_created: true, updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', billing_model: 'Mixed Billing', is_active: true, job_status: 'open', ats_created: true, updated_at: NOW }
   ],
   gp_applications: [
     { id: 'app-int', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'interview', applied_at: NOW },
@@ -83,15 +83,15 @@ const db = {
   ],
   user_documents: [
     { id: 'doc-cv', user_id: GP.userId, document_key: 'cv_signed_dated', country_code: 'uk', status: 'uploaded', file_name: 'Jane-CV.pdf', storage_bucket: 'documents', storage_path: 'users/u-gp-1/career-documents/cv/current', file_url: 'users/u-gp-1/career-documents/cv/current' },
-    // GP2 has ONLY an identity document, the CV endpoint must never serve it.
+    // GP2 has ONLY an identity document — the CV endpoint must never serve it.
     { id: 'doc-id', user_id: GP2.userId, document_key: 'identity_document', country_code: 'ie', status: 'uploaded', file_name: 'passport.pdf', storage_bucket: 'documents', storage_path: 'users/u-gp-2/id/current', file_url: 'users/u-gp-2/id/current' },
     // GP4's offer contract, delivered with a storage path.
     { id: 'doc-oc', user_id: GP4.userId, document_key: 'offer_contract', country_code: 'uk', status: 'approved', file_name: 'Offer-Contract.pdf', storage_bucket: 'documents', storage_path: 'users/u-gp-4/offer-documents/offer_contract/current', file_url: 'users/u-gp-4/offer-documents/offer_contract/current' }
   ],
   ats_offers: [
-    { id: 'offer-oc', application_id: 'app-oc', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$350k+ estimated', start_date: '2026-10-01', contract_document_key: 'offer_contract', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
-    { id: 'offer-mp', application_id: 'app-mp', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-09-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
-    { id: 'offer-mp2', application_id: 'app-mp2', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '60 / 40', sessions_per_week: '5', compensation_range: '$280k+ estimated', start_date: '2026-11-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+    { id: 'offer-oc', application_id: 'app-oc', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$350k+ estimated', start_date: '2026-10-01', contract_document_key: 'offer_contract', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    { id: 'offer-mp', application_id: 'app-mp', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-09-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    { id: 'offer-mp2', application_id: 'app-mp2', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '60 / 40', sessions_per_week: '5', compensation_range: '$280k+ estimated', start_date: '2026-11-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   scheduled_calls: [
     { id: 'int-1', application_id: 'app-int', user_id: GP.userId, case_id: 'case-1', meeting_kind: 'interview', status: 'pending', practice_availability_status: 'requested', practice_availability_windows: [], created_at: NOW }
@@ -286,7 +286,7 @@ beforeAll(async () => {
       return Promise.resolve(new Response('{}', { status: 200 }));
     }
     // Anthropic: the availability parser calls this only when ANTHROPIC_API_KEY
-    // is set (the T3 test flips it on), return an empty windows array so the
+    // is set (the T3 test flips it on) — return an empty windows array so the
     // "unparseable reply" path is exercised deterministically.
     if (u.startsWith('https://api.anthropic.com/')) {
       return Promise.resolve(new Response(JSON.stringify({ content: [{ text: '[]' }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 }));
@@ -308,7 +308,7 @@ afterAll(async () => {
 });
 
 // ── A6: CV access ────────────────────────────────────────────────────────────
-describe('A6, consultant CV access', () => {
+describe('A6 — consultant CV access', () => {
   it('returns a signed URL for the CV (by user_id)', async () => {
     const r = await atsGet('/api/ats/candidate-cv?user_id=' + GP.userId);
     expect(r.status).toBe(200);
@@ -324,7 +324,7 @@ describe('A6, consultant CV access', () => {
   });
 
   it('404s when the doctor has no CV on file', async () => {
-    // GP2 has only an ID document, it must NOT be served here.
+    // GP2 has only an ID document — it must NOT be served here.
     const r = await atsGet('/api/ats/candidate-cv?user_id=' + GP2.userId);
     expect(r.status).toBe(404);
     expect(r.body.ok).toBe(false);
@@ -343,7 +343,7 @@ describe('A6, consultant CV access', () => {
 });
 
 // ── A7b: offer contract ──────────────────────────────────────────────────────
-describe('A7b, offer contract retrieval', () => {
+describe('A7b — offer contract retrieval', () => {
   it('returns a signed URL when a contract is stored on the offer', async () => {
     const r = await atsGet('/api/ats/offer-contract?application_id=app-oc');
     expect(r.status).toBe(200);
@@ -371,7 +371,7 @@ describe('A7b, offer contract retrieval', () => {
 });
 
 // ── A8a: manual placement ────────────────────────────────────────────────────
-describe('A8a, manual "Mark placement secured"', () => {
+describe('A8a — manual "Mark placement secured"', () => {
   it('finalises the placement like a GP self-accept + emails the GP exactly once', async () => {
     const gpBefore = gpEmailsMatching(GP3.email).length;
     const r = await atsPost('/api/ats/placement', { applicationId: 'app-mp' });
@@ -422,7 +422,7 @@ describe('A8a, manual "Mark placement secured"', () => {
 });
 
 // ── A8b: placements list + commencement edit ─────────────────────────────────
-describe('A8b, placements list + commencement edit', () => {
+describe('A8b — placements list + commencement edit', () => {
   it('lists the seeded placements newest-first', async () => {
     const r = await atsGet('/api/ats/placements?limit=50');
     expect(r.status).toBe(200);
@@ -431,7 +431,7 @@ describe('A8b, placements list + commencement edit', () => {
     expect(mp).toBeTruthy();
     expect(mp.gp_name).toBe('Three Doctor');
     expect(mp.practice_name).toBe('Greenslopes Family Medical');
-    expect(mp.job_title).toBe('General Practitioner, VR');
+    expect(mp.job_title).toBe('General Practitioner — VR');
     expect(mp.secured_at).toBeTruthy();
   });
 
@@ -451,7 +451,7 @@ describe('A8b, placements list + commencement edit', () => {
 });
 
 // ── T3: empty-parse ingest keeps 'requested' ─────────────────────────────────
-describe('T3, unparseable practice reply keeps status requested', () => {
+describe('T3 — unparseable practice reply keeps status requested', () => {
   it('does not flip to received when zero windows are parsed', async () => {
     // The deterministic fallback parser always yields windows; the empty case
     // only arises from the AI parser returning []. Drive that here (the stubbed

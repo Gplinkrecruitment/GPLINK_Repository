@@ -224,7 +224,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
       var height = Math.abs(p2[1] - p1[1]);
 
       // Calculate font size: use annotation fontSize if set, else a sensible default.
-      // fontSize=0 in PDF means "auto-size", use 10pt scaled, capped to fit field.
+      // fontSize=0 in PDF means "auto-size" — use 10pt scaled, capped to fit field.
       var fontSize;
       if (annot.fontSize && annot.fontSize > 0) {
         fontSize = Math.round(annot.fontSize * currentScale);
@@ -237,7 +237,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
 
       var el;
       if (annot.fieldType === 'Tx') {
-        // Comb field, render individual character boxes (e.g. DD/MM/YYYY)
+        // Comb field — render individual character boxes (e.g. DD/MM/YYYY)
         var isComb = annot.comb || ((annot.fieldFlags || 0) & 0x1000000) !== 0;
         var maxLen = annot.maxLen || 0;
         // Debug: log text fields with maxLen to help identify comb fields
@@ -418,7 +418,7 @@ textarea.pdf-text-field { resize:none; overflow:auto; }
       var orig = (el.dataset.originalValue || '').trim();
       if (val !== orig) fields.push({ name: name, value: val });
     });
-    // Comb fields, reassemble characters into one value per field
+    // Comb fields — reassemble characters into one value per field
     var combGroups = {};
     document.querySelectorAll('.pdf-comb-char').forEach(function (el) {
       var name = el.dataset.fieldName;

@@ -1,4 +1,4 @@
-// Phase 6 I1, category-driven routing for the GENERIC email_triage path.
+// Phase 6 I1 — category-driven routing for the GENERIC email_triage path.
 //
 // resolveEmailRouting (lib/email-triage.js) is the pure decision the server's
 // email_triage task creation now uses for related_stage + priority. The AHPRA
@@ -8,7 +8,7 @@ import { resolveEmailRouting, parseTriageResponse, detectKeywordCategory, CATEGO
 
 const matchedBase = { matched: true, gpStage: 'amc', senderIsGp: true, urgency: 'normal' };
 
-describe('email category routing, stage-routable categories', () => {
+describe('email category routing — stage-routable categories', () => {
   it('a visa email (AI category) files under the visa stage group, not the generic bucket', () => {
     const r = resolveEmailRouting({ ...matchedBase, sender: 'gp@example.com', subject: 'My 482 visa', bodySnippet: '', category: 'visa' });
     expect(r.related_stage).toBe('visa');
@@ -47,7 +47,7 @@ describe('email category routing, stage-routable categories', () => {
   });
 });
 
-describe('email category routing, pre-existing behaviour preserved', () => {
+describe('email category routing — pre-existing behaviour preserved', () => {
   it('generic GP-sent mail keeps the GP\'s current stage and normal priority', () => {
     const r = resolveEmailRouting({ ...matchedBase, sender: 'gp@example.com', subject: 'Quick question', bodySnippet: 'about my documents', category: 'signing_question' });
     expect(r.related_stage).toBe('amc');
@@ -70,7 +70,7 @@ describe('email category routing, pre-existing behaviour preserved', () => {
   });
 });
 
-describe('email category routing, unmatched mail still lands in Support', () => {
+describe('email category routing — unmatched mail still lands in Support', () => {
   it('unmatched mail keeps low priority and no stage (case_id-null Support task)', () => {
     const r = resolveEmailRouting({ matched: false, sender: 'stranger@gmail.com', subject: 'hello', bodySnippet: '', category: 'other', urgency: 'normal' });
     expect(r.priority).toBe('low');
@@ -89,7 +89,7 @@ describe('email category routing, unmatched mail still lands in Support', () => 
   });
 });
 
-describe('email category routing, AI parser accepts the new categories', () => {
+describe('email category routing — AI parser accepts the new categories', () => {
   it('parseTriageResponse keeps "visa" / "medicare_pbs" / "practice_enquiry" / "regulator"', () => {
     for (const cat of ['visa', 'medicare_pbs', 'practice_enquiry', 'regulator']) {
       const r = parseTriageResponse(JSON.stringify({ matched_gp_user_id: 'u-1', confidence: 0.9, category: cat, urgency: 'normal', summary: 'x', needs_triage: false }));
@@ -102,7 +102,7 @@ describe('email category routing, AI parser accepts the new categories', () => {
   });
 });
 
-describe('email category routing, keyword detector stays narrow', () => {
+describe('email category routing — keyword detector stays narrow', () => {
   it('detects visa and medicare keywords', () => {
     expect(detectKeywordCategory('My visa expires soon', '')).toBe('visa');
     expect(detectKeywordCategory('', 'my medicare provider number came through')).toBe('medicare_pbs');

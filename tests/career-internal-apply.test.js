@@ -1,10 +1,10 @@
-// Task 4, internal ATS jobs visible + applyable by GPs; already-placed guard.
+// Task 4 — internal ATS jobs visible + applyable by GPs; already-placed guard.
 //
 // Boots the real server against a tiny in-memory PostgREST emulator (SUPABASE_URL
 // points at a local http server), so the FULL Supabase-mode code paths run:
 // /api/career/roles DB fallback, /api/career/role, and the whole /api/career/apply
 // pipeline (gates → guard → insert → VA follow-up task). Zoho Recruit is left
-// UNCONFIGURED (no client id/secret), exactly like production before connect,
+// UNCONFIGURED (no client id/secret), exactly like production before connect —
 // isZohoRecruitConfigured() is false, so any attempted Zoho call would be a
 // behavior change these tests would catch via missing rows / thrown errors.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -28,7 +28,7 @@ const db = {
   user_profiles: [
     // Task 11's server-side DPA gate blocks a non-Australia-trained GP from a
     // non-DPA role (these fixture roles don't set `dpa`, so it defaults false
-    // per the career_roles schema), mark both Australia-trained (via
+    // per the career_roles schema) — mark both Australia-trained (via
     // registration_country) here since this file tests internal-ATS
     // visibility/apply mechanics, not the DPA gate.
     { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' },
@@ -40,7 +40,7 @@ const db = {
   ],
   user_documents: [
     // Task 4: /api/career/apply's CV gate now requires the verified careers
-    // CV (document_key 'career_cv'), not a registration-file document, seed
+    // CV (document_key 'career_cv'), not a registration-file document — seed
     // that key so these apply-mechanics tests aren't blocked by the gate
     // they don't intend to exercise.
     { id: 'doc-cv-gp', user_id: GP.userId, document_key: 'career_cv', status: 'uploaded', updated_at: NOW },
@@ -51,13 +51,13 @@ const db = {
     // CEO-created in-app ATS job, OPEN → must be GP-visible + applyable.
     // (No location fields on purpose: the /api/career/role detail endpoint
     // only tries hero-image lookups when a location exists.)
-    { id: 'role-int-open', provider: 'internal_ats', provider_role_id: 'ats_open1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', is_active: true, job_status: 'open', ats_created: true, updated_at: NOW },
-    // CEO-created job that was CLOSED (is_active stays true, only job_status flips).
-    { id: 'role-int-closed', provider: 'internal_ats', provider_role_id: 'ats_closed1', title: 'GP, Filled role', practice_name: 'Filled Practice', is_active: true, job_status: 'closed', ats_created: true, updated_at: NOW },
-    // Admin-entered manual role (job_status null), behavior must stay identical.
-    { id: 'role-manual', provider: 'manual', provider_role_id: 'man_1', title: 'GP, Manual role', practice_name: 'Manual Practice', is_active: true, job_status: null, updated_at: NOW },
+    { id: 'role-int-open', provider: 'internal_ats', provider_role_id: 'ats_open1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', is_active: true, job_status: 'open', ats_created: true, updated_at: NOW },
+    // CEO-created job that was CLOSED (is_active stays true — only job_status flips).
+    { id: 'role-int-closed', provider: 'internal_ats', provider_role_id: 'ats_closed1', title: 'GP — Filled role', practice_name: 'Filled Practice', is_active: true, job_status: 'closed', ats_created: true, updated_at: NOW },
+    // Admin-entered manual role (job_status null) — behavior must stay identical.
+    { id: 'role-manual', provider: 'manual', provider_role_id: 'man_1', title: 'GP — Manual role', practice_name: 'Manual Practice', is_active: true, job_status: null, updated_at: NOW },
     // Stored Zoho role for the unchanged Zoho-path apply test.
-    { id: 'role-zoho', provider: 'zoho_recruit', provider_role_id: 'z_123', title: 'GP, Zoho role', practice_name: 'Zoho Practice', is_active: true, updated_at: NOW }
+    { id: 'role-zoho', provider: 'zoho_recruit', provider_role_id: 'z_123', title: 'GP — Zoho role', practice_name: 'Zoho Practice', is_active: true, updated_at: NOW }
   ],
   gp_applications: [
     // The placed GP's secured placement (what the guard must find).
@@ -195,7 +195,7 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = DB_FILE;
-  // Zoho stays UNCONFIGURED, isZohoRecruitConfigured() must be false.
+  // Zoho stays UNCONFIGURED — isZohoRecruitConfigured() must be false.
   process.env.ZOHO_RECRUIT_CLIENT_ID = '';
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
   process.env.ZOHO_RECRUIT_REDIRECT_URI = '';
@@ -231,12 +231,12 @@ describe('GP visibility of internal ATS roles (/api/career/roles + /api/career/r
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.role.id).toBe('internal_ats:ats_open1');
-    expect(res.body.role.roleType).toBe('General Practitioner, VR');
+    expect(res.body.role.roleType).toBe('General Practitioner — VR');
     expect(Array.isArray(res.body.role.detailCards)).toBe(true);
   });
 });
 
-describe('POST /api/career/apply, internal_ats path (no Zoho side effects)', () => {
+describe('POST /api/career/apply — internal_ats path (no Zoho side effects)', () => {
   it('creates the gp_applications row + VA follow-up task with Zoho unconfigured', async () => {
     const res = await httpReq('POST', '/api/career/apply', {
       cookie: userCookie(GP.email, GP.userId),
@@ -291,11 +291,11 @@ describe('POST /api/career/apply, internal_ats path (no Zoho side effects)', () 
     const entry = res.body.applications.find((a) => a.role && a.role.id === 'internal_ats:ats_open1');
     expect(entry).toBeTruthy();
     expect(entry.status).toBe('applied'); // no Zoho status to merge → local fallback
-    expect(entry.role.roleType).toBe('General Practitioner, VR');
+    expect(entry.role.roleType).toBe('General Practitioner — VR');
   });
 });
 
-describe('POST /api/career/apply, already-placed guard', () => {
+describe('POST /api/career/apply — already-placed guard', () => {
   it('rejects a GP with a secured placement with 409 already_placed', async () => {
     const res = await httpReq('POST', '/api/career/apply', {
       cookie: userCookie(PLACED.email, PLACED.userId),
@@ -310,7 +310,7 @@ describe('POST /api/career/apply, already-placed guard', () => {
   });
 });
 
-describe('POST /api/career/apply, Zoho path unchanged', () => {
+describe('POST /api/career/apply — Zoho path unchanged', () => {
   it('an unplaced GP can still apply to a zoho_recruit role (no regression)', async () => {
     const res = await httpReq('POST', '/api/career/apply', {
       cookie: userCookie(GP.email, GP.userId),
@@ -325,13 +325,13 @@ describe('POST /api/career/apply, Zoho path unchanged', () => {
   });
 });
 
-// Task 10 follow-up, identity masking in the applications feed. The GP now
+// Task 10 follow-up — identity masking in the applications feed. The GP now
 // has two live applications (role-int-open 'Greenslopes Family Medical' and
 // role-zoho 'Zoho Practice'); neither has passed the reveal rule yet, so the
 // real practice names must not appear ANYWHERE in the response. Seeding an
 // ACCEPTED offer for the internal application must then reveal that entry
 // (and only that entry).
-describe('GET /api/career/applications, identity reveal gate', () => {
+describe('GET /api/career/applications — identity reveal gate', () => {
   it("a non-revealed application's entry never carries the real practice name anywhere in the response", async () => {
     const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(GP.email, GP.userId) });
     expect(res.status).toBe(200);
@@ -340,7 +340,7 @@ describe('GET /api/career/applications, identity reveal gate', () => {
     expect(entry).toBeTruthy();
     // Masked value (no masked_title on this role → the serializer's generic
     // masked fallback, e.g. 'Australian GP practice' / 'Confidential GP
-    // practice'), the exact copy doesn't matter, the real name must be gone.
+    // practice') — the exact copy doesn't matter, the real name must be gone.
     expect(entry.role.practiceName).toBeTruthy();
     expect(entry.role.practiceName).not.toContain('Greenslopes');
     expect(entry.role.revealed).toBeUndefined();
@@ -348,7 +348,7 @@ describe('GET /api/career/applications, identity reveal gate', () => {
     expect(res.raw).not.toContain('Zoho Practice');
   });
 
-  it('an accepted-offer application DOES reveal the real practice name, and only that one', async () => {
+  it('an accepted-offer application DOES reveal the real practice name — and only that one', async () => {
     const app = db.gp_applications.find((a) => a.user_id === GP.userId && a.career_role_id === 'role-int-open');
     expect(app).toBeTruthy();
     tableOf('ats_offers').push({

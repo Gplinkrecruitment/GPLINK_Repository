@@ -36,7 +36,7 @@ describe('parseWriteupResponse', () => {
   });
 });
 
-describe('maskIdentity, the safety backstop', () => {
+describe('maskIdentity — the safety backstop', () => {
   it('removes the practice name wherever it appears', () => {
     expect(maskIdentity('Erina Medical Centre is a great place; join Erina Medical Centre.', { practiceName: 'Erina Medical Centre' }))
       .not.toMatch(/Erina Medical Centre/);

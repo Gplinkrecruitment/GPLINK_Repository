@@ -1,4 +1,4 @@
-// Task 8, the redesigned practice intake form. This repo tests HTML pages
+// Task 8 — the redesigned practice intake form. This repo tests HTML pages
 // by reading the file and asserting on its contents (see
 // tests/practice-status-page.test.js for the live-server pattern used
 // elsewhere; this file deliberately stays a pure static-content check so it

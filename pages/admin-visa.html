@@ -847,7 +847,7 @@
           // Render tasks from ops data
           renderTasks(ops.tasks || []);
         }).catch(function () {
-          // ops endpoint may not exist yet, hide section silently
+          // ops endpoint may not exist yet — hide section silently
           document.getElementById("regCaseSection").style.display = "none";
         });
       });
@@ -1193,7 +1193,7 @@
       var container = document.getElementById("questionnairePanel");
       apiJson("/api/admin/visa/questionnaire?visaCaseId=" + encodeURIComponent(visaCaseId)).then(function (data) {
         if (!data.ok || !data.questionnaire) {
-          // No questionnaire, show request button
+          // No questionnaire — show request button
           container.innerHTML = '<div style="text-align:center;padding:24px;">' +
             '<p style="font-size:13px;color:var(--muted);font-weight:500;margin-bottom:12px;">No questionnaire submitted yet.</p>' +
             '<button class="btn btn-blue" id="requestQuestionnaireBtn">Request Questionnaire from GP</button>' +

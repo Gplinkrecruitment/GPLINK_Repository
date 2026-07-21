@@ -1,8 +1,8 @@
-// Phase 6 E2: job SEO, server-rendered JobPosting JSON-LD on /jobs/view?id=…
+// Phase 6 E2: job SEO — server-rendered JobPosting JSON-LD on /jobs/view?id=…
 // plus the enriched sitemap (per-job URLs + privacy/terms/blog).
 //
 // LEAK CONTRACT UNDER TEST: the JSON-LD, rewritten meta tags and sitemap are
-// built ONLY from the sanitized public job shape, the real practice name
+// built ONLY from the sanitized public job shape — the real practice name
 // (present on the raw career_roles row) must never appear anywhere in the
 // served HTML or XML.
 //
@@ -37,14 +37,14 @@ function extractJsonLd(html) {
   return match ? JSON.parse(match[1]) : null;
 }
 
-// Raw career_roles-shaped row, carries the REAL practice name (and a title
+// Raw career_roles-shaped row — carries the REAL practice name (and a title
 // that embeds it, so the masked-title fallback must kick in).
 function makeRawRow(overrides) {
   return {
     id: 901,
     provider: 'zoho_recruit',
     provider_role_id: 'ZR-901',
-    title: 'VR GP, ' + REAL_PRACTICE_NAME,
+    title: 'VR GP — ' + REAL_PRACTICE_NAME,
     practice_name: REAL_PRACTICE_NAME,
     masked_title: '',
     header_image_url: '',
@@ -100,7 +100,7 @@ beforeEach(() => {
   testUtils.__setPublicJobsRowsCacheForTest({ rows: [ROW_A, ROW_B], at: Date.now() });
 });
 
-describe('GET /jobs/view?id=…, server-rendered JobPosting JSON-LD', () => {
+describe('GET /jobs/view?id=… — server-rendered JobPosting JSON-LD', () => {
   it('serves HTML containing a valid JobPosting JSON-LD for the requested job', async () => {
     const res = await get('/jobs/view?id=' + encodeURIComponent(JOB_A_ID));
     expect(res.status).toBe(200);
@@ -158,7 +158,7 @@ describe('GET /jobs/view?id=…, server-rendered JobPosting JSON-LD', () => {
   });
 });
 
-describe('GET /sitemap.xml, enrichment', () => {
+describe('GET /sitemap.xml — enrichment', () => {
   it('includes one URL per live public job plus privacy/terms/blog', async () => {
     const res = await get('/sitemap.xml');
     expect(res.status).toBe(200);
@@ -194,10 +194,10 @@ describe('buildJobPostingJsonLd (pure)', () => {
 
   it('drops the raw row defensively even if a caller passes one', () => {
     // Belt-and-braces: passing the RAW row (with practice_name) still cannot
-    // leak, buildJobPostingJsonLd re-runs sanitizePublicJob internally, so
+    // leak — buildJobPostingJsonLd re-runs sanitizePublicJob internally, so
     // only whitelisted fields survive. The raw title is a whitelisted field
     // (masking happens in the mapper), which is why callers must always map
-    // first, this test just proves non-whitelisted columns are stripped.
+    // first — this test just proves non-whitelisted columns are stripped.
     const jsonLd = testUtils.buildJobPostingJsonLd({ ...testUtils.mapCareerRoleRowToPublicJob(ROW_A), practice_name: REAL_PRACTICE_NAME, source_payload: { secret: 'x' } });
     expect(JSON.stringify(jsonLd)).not.toContain(REAL_PRACTICE_NAME);
   });
@@ -236,7 +236,7 @@ describe('injectJobSeoIntoHtml (pure)', () => {
     expect(jsonLd['@type']).toBe('JobPosting');
     expect(jsonLd.title).toBe('GP role $& deluxe');
     expect(jsonLd.description).toContain("Earn $$300k and $' more");
-    // Exactly one well-formed head/body, nothing duplicated or spliced in.
+    // Exactly one well-formed head/body — nothing duplicated or spliced in.
     expect(out.match(/<\/head>/g)).toHaveLength(1);
     expect(out.match(/<\/body>/g)).toHaveLength(1);
     expect(out.match(/<p>page tail<\/p>/g)).toHaveLength(1);

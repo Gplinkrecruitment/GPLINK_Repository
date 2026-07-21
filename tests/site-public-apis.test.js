@@ -3,17 +3,17 @@ import http from 'http';
 import crypto from 'crypto';
 
 // Coverage for the two new public (no-session) marketing-site APIs:
-//   GET /api/public/jobs , sanitized, filtered, paginated read of career_roles
-//   GET /api/public/stats, the static SITE_STATS constants, served verbatim
+//   GET /api/public/jobs  — sanitized, filtered, paginated read of career_roles
+//   GET /api/public/stats — the static SITE_STATS constants, served verbatim
 //
 // Two test strategies, matching how the production code is structured:
 //  1. HTTP round-trip tests against a real booted server (Supabase left
-//     UNCONFIGURED, same pattern as tests/site-public-routes.test.js), these
+//     UNCONFIGURED, same pattern as tests/site-public-routes.test.js) — these
 //     prove the routes exist, require no session, and degrade gracefully
 //     (empty jobs list) when there is no database.
 //  2. Direct unit tests against the exported __testUtils pure functions
 //     (mapCareerRoleRowToPublicJob, sanitizePublicJob, classifyPublicJobType,
-//     buildPublicJobsResponse), these are the EXACT functions the live route
+//     buildPublicJobsResponse) — these are the EXACT functions the live route
 //     handler calls, so exercising them directly with seeded career_roles-shaped
 //     fixture rows covers the filter/whitelist/pagination semantics without
 //     needing to fake a Supabase REST backend.
@@ -117,7 +117,7 @@ describe('GET /api/public/stats (HTTP)', () => {
 // Direct unit tests against the exact functions the route handler calls
 // ---------------------------------------------------------------------------
 
-// practice_name is intentionally ABSENT, the marketing site (no session, no
+// practice_name is intentionally ABSENT — the marketing site (no session, no
 // reveal gate) must only ever see the masked title/display_label. See
 // canRevealPracticeIdentity() in server.js for the session-gated in-app
 // equivalent that IS allowed to surface the real name once earned.
@@ -136,7 +136,7 @@ function makeRawRow(overrides) {
     provider_role_id: 'ZR-000',
     title: 'General Practitioner',
     // The raw DB row DOES carry the real practice name (and, once the
-    // practice-client pipeline migration lands, masked_title/suburb/etc.),
+    // practice-client pipeline migration lands, masked_title/suburb/etc.) —
     // that's exactly why the mapper/sanitizer whitelist below is load-bearing.
     practice_name: 'Sample Medical Centre',
     masked_title: '',
@@ -184,7 +184,7 @@ describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
     expect(JSON.stringify(sanitized)).not.toMatch(/internal-zoho-payload|sk-should-not-leak|synced_at/);
   });
 
-  it('the real practice name never appears anywhere in the sanitized job, even inside another field', () => {
+  it('the real practice name never appears anywhere in the sanitized job — even inside another field', () => {
     const row = makeRawRow({ practice_name: 'Riverside Medical Centre' });
     const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
     const sanitized = testUtils.sanitizePublicJob(mapped);
@@ -223,7 +223,7 @@ describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
 
   it('builds display_label from billing_model/dpa/nearest_city (never from practice_name)', () => {
     // billing_model on a practice-client-pipeline row (task 6) is the raw
-    // style key ('mixed'/'bulk'/'private'), not a human label, that's the
+    // style key ('mixed'/'bulk'/'private'), not a human label — that's the
     // key buildMaskedDisplayLabel's BILLING_LABELS map expects.
     const row = makeRawRow({ billing_model: 'bulk', dpa: true, nearest_city: 'Perth' });
     const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
@@ -262,9 +262,9 @@ describe('classifyPublicJobType', () => {
   });
 });
 
-describe('buildPublicJobsResponse, filters, whitelist, pagination (the exact function the route calls)', () => {
-  // Each row still carries a real (sensitive) practice_name, exactly like a
-  // live career_roles row would, so these tests double as a masking
+describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact function the route calls)', () => {
+  // Each row still carries a real (sensitive) practice_name — exactly like a
+  // live career_roles row would — so these tests double as a masking
   // regression suite: the practice_name text must never surface anywhere in
   // a response, even via search/filter/pagination paths.
   const rows = [
@@ -389,14 +389,14 @@ describe('buildPublicJobsResponse, filters, whitelist, pagination (the exact fun
 });
 
 // ---------------------------------------------------------------------------
-// getPublicJobsRows(), in-memory 5-min-TTL rows cache (anonymous-abuse fix).
+// getPublicJobsRows() — in-memory 5-min-TTL rows cache (anonymous-abuse fix).
 // Supabase is never configured in this test boot (SUPABASE_URL=''), so the
-// real live fetch (getActivePublicJobRowsLive) always returns null here, the
+// real live fetch (getActivePublicJobRowsLive) always returns null here — the
 // caching/TTL/stale-good-fallback logic in getPublicJobsRows() is exercised
 // instead by injecting a fake `fetcher` (its documented test seam) and by
 // seeding/inspecting the module-level cache via the __*ForTest helpers.
 // ---------------------------------------------------------------------------
-describe('getPublicJobsRows, in-memory cache (no live Supabase needed)', () => {
+describe('getPublicJobsRows — in-memory cache (no live Supabase needed)', () => {
   const ROWS_A = [makeRawRow({ id: 101, provider_role_id: 'CACHE-A' })];
   const ROWS_B = [makeRawRow({ id: 102, provider_role_id: 'CACHE-B' })];
 
@@ -416,7 +416,7 @@ describe('getPublicJobsRows, in-memory cache (no live Supabase needed)', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
 
     const second = await testUtils.getPublicJobsRows(fetcher);
-    expect(second).toBe(first); // same cached reference, no refetch
+    expect(second).toBe(first); // same cached reference — no refetch
     expect(fetcher).toHaveBeenCalledTimes(1); // still only called once
   });
 

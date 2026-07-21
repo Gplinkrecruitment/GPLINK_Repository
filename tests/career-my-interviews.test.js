@@ -1,4 +1,4 @@
-// Tests for GET /api/career/my-interviews (Task 3, interview-prep page data source).
+// Tests for GET /api/career/my-interviews (Task 3 — interview-prep page data source).
 // Mirrors the local-JSON bootstrap pattern in tests/interview-endpoints.test.js.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
@@ -57,10 +57,10 @@ beforeAll(async () => {
   fs.writeFileSync(DB_FILE, JSON.stringify({
     version: 1,
     atsJobs: [
-      { id: 'job1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', provider: 'internal_ats', is_active: true, job_status: 'open' },
-      // Masked pipeline job, its application below has NO accepted offer, so
+      { id: 'job1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', provider: 'internal_ats', is_active: true, job_status: 'open' },
+      // Masked pipeline job — its application below has NO accepted offer, so
       // its interview must never surface the real practice name.
-      { id: 'job2', title: 'GP, Hidden Hills flagship role', masked_title: 'DPA - Brisbane - Bulk Billing', practice_name: 'Hidden Hills Medical', provider: 'internal_ats', is_active: true, job_status: 'open' }
+      { id: 'job2', title: 'GP — Hidden Hills flagship role', masked_title: 'DPA - Brisbane - Bulk Billing', practice_name: 'Hidden Hills Medical', provider: 'internal_ats', is_active: true, job_status: 'open' }
     ],
     atsApplications: [
       { id: 'appA', user_id: ME.userId, career_role_id: 'job1', status: 'applied', ats_stage: 'interview' },
@@ -72,41 +72,41 @@ beforeAll(async () => {
       { id: 'off-appA', application_id: 'appA', status: 'accepted', sent_at: PAST, created_at: PAST, updated_at: PAST }
     ],
     scheduledCalls: [
-      // Mine, upcoming booked interview (must come FIRST in the sorted response).
+      // Mine — upcoming booked interview (must come FIRST in the sorted response).
       {
         id: 'sc1', user_id: ME.userId, application_id: 'appA', meeting_kind: 'interview',
         status: 'booked', scheduled_at: FUTURE,
         zoom_join_url: 'https://zoom.us/j/111111', zoom_host_url: 'https://zoom.us/s/HOSTSECRET1', zoom_passcode: 'pc-1',
         practice_name: '', created_at: PAST
       },
-      // Mine, upcoming interview on the NON-revealed application. The stored
+      // Mine — upcoming interview on the NON-revealed application. The stored
       // row itself carries the real practice name, which must stay masked.
       {
         id: 'sc2', user_id: ME.userId, application_id: 'appM', meeting_kind: 'interview',
         status: 'booked', scheduled_at: FUTURE_LATER,
         zoom_join_url: 'https://zoom.us/j/333333', practice_name: 'Hidden Hills Medical', created_at: PAST
       },
-      // Another user's interview, must NEVER appear.
+      // Another user's interview — must NEVER appear.
       {
         id: 'sc-other', user_id: 'u-other', application_id: 'appB', meeting_kind: 'interview',
         status: 'booked', scheduled_at: FUTURE_LATER, zoom_join_url: 'https://zoom.us/j/999999'
       },
-      // Mine but NOT an interview (standard consult), excluded.
+      // Mine but NOT an interview (standard consult) — excluded.
       { id: 'sc-consult', user_id: ME.userId, meeting_kind: 'consultation', status: 'booked', scheduled_at: FUTURE },
-      // Mine but cancelled, excluded.
+      // Mine but cancelled — excluded.
       { id: 'sc-cancelled', user_id: ME.userId, meeting_kind: 'interview', status: 'cancelled', scheduled_at: FUTURE }
     ],
     careerInterviews: [
-      // Mine, past interview from the OLDER table (merged, sorted after the upcoming one).
+      // Mine — past interview from the OLDER table (merged, sorted after the upcoming one).
       {
         id: 'ci1', user_id: ME.userId, application_id: 'appA', scheduled_at: PAST,
         duration_minutes: 30, timezone: 'Australia/Sydney', format: 'video', status: 'completed',
         zoom_join_url: 'https://zoom.us/j/222222', zoom_host_url: 'https://zoom.us/s/HOSTSECRET2',
         interviewer_name: 'Dr Rachel Thompson', interviewer_email: 'rachel@practice-secret.example'
       },
-      // Another user's row, must NEVER appear.
+      // Another user's row — must NEVER appear.
       { id: 'ci-other', user_id: 'u-other', application_id: 'appB', scheduled_at: PAST, status: 'scheduled' },
-      // Mine but cancelled, excluded.
+      // Mine but cancelled — excluded.
       { id: 'ci-cancelled', user_id: ME.userId, scheduled_at: FUTURE, status: 'cancelled' }
     ]
   }, null, 2));
@@ -164,7 +164,7 @@ describe('GET /api/career/my-interviews', () => {
     // Enriched via gp_applications(appA) → career_roles(job1); appA holds an
     // ACCEPTED offer → the reveal rule passes → the real practice name shows.
     expect(upcoming.practice_name).toBe('Greenslopes Family Medical');
-    expect(upcoming.job_title).toBe('General Practitioner, VR');
+    expect(upcoming.job_title).toBe('General Practitioner — VR');
 
     const past = res.body.interviews.find((iv) => iv.id === 'ci1');
     expect(past.source).toBe('career_interviews');
@@ -179,7 +179,7 @@ describe('GET /api/career/my-interviews', () => {
     const masked = res.body.interviews.find((iv) => iv.id === 'sc2');
     expect(masked).toBeTruthy();
     // appM has no offer at all → masked: role's masked_title, never the real
-    // name, even though the stored interview row AND the career_roles row
+    // name — even though the stored interview row AND the career_roles row
     // both carry it.
     expect(masked.practice_name).toBe('DPA - Brisbane - Bulk Billing');
     expect(masked.job_title).toBe('DPA - Brisbane - Bulk Billing'); // raw title embeds the name → masked title wins

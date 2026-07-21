@@ -749,7 +749,7 @@
     </div>
 
     <!-- Post-signup "go and check your email" panel. Brand-new GPs land here the
-         moment their account is created, it replaces the sign-in/sign-up cards
+         moment their account is created — it replaces the sign-in/sign-up cards
          so the instruction cannot be missed. -->
     <div class="form-container check-inbox-container" id="checkInboxContainer" aria-label="Verify your email">
       <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
@@ -894,7 +894,7 @@
         </div>
         <div class="overlay-panel overlay-right">
           <h2 class="overlay-title">Your fastest pathway to Australia</h2>
-          <p class="overlay-copy">Personalised to your qualifications, timeline, and family, set up in under 3 minutes.</p>
+          <p class="overlay-copy">Personalised to your qualifications, timeline, and family — set up in under 3 minutes.</p>
           <button class="overlay-btn" id="signUpToggleBtn" type="button">SIGN UP</button>
         </div>
       </div>
@@ -1110,7 +1110,7 @@
     // internal /pages/ path to avoid open-redirects.
     var GP_SIGNIN_NEXT = (function () {
       try {
-        // URLSearchParams.get already percent-decodes, do not decode again.
+        // URLSearchParams.get already percent-decodes — do not decode again.
         var dec = new URLSearchParams(window.location.search).get("next");
         if (!dec) return "";
         // Internal absolute path only: must be under /pages/, with no scheme or
@@ -1405,7 +1405,7 @@
       // ── Detect password recovery flow ──
       const isRecovery = hash.includes("type=recovery");
       if (isRecovery) {
-        // Parse access_token directly from hash, bypass Supabase JS client entirely
+        // Parse access_token directly from hash — bypass Supabase JS client entirely
         // to avoid race conditions with its auto-detection
         var hashParams = new URLSearchParams(hash.substring(1));
         var recoveryToken = hashParams.get("access_token");
@@ -1654,7 +1654,7 @@
           return;
         }
         if (!response.ok || !data.ok) {
-          // Signed up but never clicked the link, the server has just resent
+          // Signed up but never clicked the link — the server has just resent
           // it, so show the full "check your email" panel rather than a line of
           // red text they'll read as "wrong password".
           if (data && data.reason === "email_unconfirmed") {
@@ -1709,7 +1709,7 @@
 
         if (data.requiresConfirmation) {
           // Account made, but they cannot sign in until they click the link.
-          // Full-panel takeover, a one-line status is far too easy to miss.
+          // Full-panel takeover — a one-line status is far too easy to miss.
           signUpFormEl.reset();
           showCheckInboxPanel(data.email || payload.email);
           return;
@@ -1721,7 +1721,7 @@
           } else {
             primeAuthSession(data.sessionProfile, payload.email);
           }
-          // Signed straight in but still unverified, onboarding shows a
+          // Signed straight in but still unverified — onboarding shows a
           // persistent "verify your email" banner (see pages/onboarding.html).
           window.location.replace(data.redirectTo);
           return;
@@ -1780,7 +1780,7 @@
     }
 
     setPanel(GP_SIGNIN_SIGNUP ? "signup" : "signin");
-    // Meta-ads funnel: recognised leads arrive with ?signup=1&email=…, prefill only.
+    // Meta-ads funnel: recognised leads arrive with ?signup=1&email=… — prefill only.
     try {
       var gpPrefillEmail = new URLSearchParams(window.location.search).get("email") || "";
       if (GP_SIGNIN_SIGNUP && gpPrefillEmail) {
@@ -1795,7 +1795,7 @@
     try {
       var gpConfirmedFlag = new URLSearchParams(window.location.search).get("confirmed");
       if (gpConfirmedFlag === "true" && !(window.location.hash || "").includes("access_token")) {
-        setStatus(signInStatusEl, "Email verified, thank you. Please sign in to continue.", "ok");
+        setStatus(signInStatusEl, "Email verified — thank you. Please sign in to continue.", "ok");
       }
     } catch (e) { /* no-op */ }
     pickCountryDialFromLocale();

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Task 4 (2026-07-18 AI job write-up + combined review design), the
+// Task 4 (2026-07-18 AI job write-up + combined review design) — the
 // pending-job click routes into ONE combined review screen (details, AI
 // write-up, preview, approve) instead of the empty candidate pipeline board.
 // Source-level regex asserts, same style as tests/ceo-jobs-ui.test.js.
@@ -26,7 +26,7 @@ const editorPayloadStart = serverSrc.indexOf('function atsJobEditorPayload');
 const editorPayloadEnd = serverSrc.indexOf('\n}', editorPayloadStart) + 2;
 const editorPayload = serverSrc.slice(editorPayloadStart, editorPayloadEnd);
 
-describe('CEO Jobs review screen (Task 4, combined review)', () => {
+describe('CEO Jobs review screen (Task 4 — combined review)', () => {
   it('a pending job card routes to the review, not the empty candidate board', () => {
     expect(clickHandler).toMatch(/data-approval-status'\)\s*===\s*'pending'/);
     expect(clickHandler).toMatch(/openJobReview\(jobId\)/);
@@ -38,7 +38,7 @@ describe('CEO Jobs review screen (Task 4, combined review)', () => {
   it('"Review & approve" also opens the review, never the standalone photo modal directly', () => {
     expect(clickHandler).toMatch(/data-ats-approve-job/);
     expect(clickHandler).toMatch(/openJobReview\(approveBtn\.getAttribute\('data-ats-approve-job'\)\)/);
-    // Must NOT call openApprovalModal directly from the list click handler,
+    // Must NOT call openApprovalModal directly from the list click handler —
     // it should only ever be reached from inside the review screen now.
     expect(clickHandler).not.toMatch(/openApprovalModal\(approveBtn/);
   });
@@ -53,7 +53,7 @@ describe('CEO Jobs review screen (Task 4, combined review)', () => {
 
   it('the pending-only sections are appended to the settings/editor modal, not a new modal', () => {
     expect(jobsSrc).toMatch(/\(pending \? reviewExtrasHtml\(e\) : ''\)/);
-    expect(jobsSrc).toMatch(/id="atsJobSettingsModal"/); // same modal id, reused, not duplicated
+    expect(jobsSrc).toMatch(/id="atsJobSettingsModal"/); // same modal id — reused, not duplicated
   });
 
   it('AI write-up block: editable textarea seeded from editor.ai_about', () => {
@@ -105,7 +105,7 @@ describe('CEO Jobs review screen (Task 4, combined review)', () => {
     expect(reviewExtras).toMatch(/data-ats-open-approval/);
     expect(jobsSrc).toMatch(/on\('atsJsOpenApproval', 'click', function \(\) \{ openApprovalModal\(jobId\); \}\)/);
     // No second upload/reuse-picker implementation anywhere near the review
-    // extras, the ONLY approval-photo logic in the file stays inside
+    // extras — the ONLY approval-photo logic in the file stays inside
     // openApprovalModal/bindApprovalModal (asserted by absence of a second
     // "atsApFileInput"-style id inside the review-extras region).
     expect(reviewExtras).not.toMatch(/atsApFileInput/);

@@ -345,10 +345,10 @@
     .doc-preview-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:32px}
     .doc-preview-docx{overflow:auto;height:100%;padding:20px 32px;background:#fff}
     .doc-preview-docx .docx-preview-content{max-width:800px;margin:0 auto}
-    /* "Document checks", candidate document-verification tasks routed to this RSO via
+    /* "Document checks" — candidate document-verification tasks routed to this RSO via
        task.assignee even though the parent case has no owner yet (case_assigned===false,
        see /api/admin/ops/queue). Kept visually distinct (blue-tinted) and separate from the
-       per-GP caseload list below it, these candidates are NOT this RSO's caseload. */
+       per-GP caseload list below it — these candidates are NOT this RSO's caseload. */
     .ops-doccheck-section{background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--radius);padding:14px 16px;margin:0 0 16px}
     .ops-doccheck-title{font-size:14px;font-weight:800;color:#1e3a8a}
     .ops-doccheck-intro{font-size:12px;color:#1e40af;margin-top:3px;line-height:1.5;max-width:640px}
@@ -374,7 +374,7 @@
       .ops-doccheck-row{flex-direction:column}
       .ops-doccheck-row .ops-btn-green{width:100%;text-align:center}
     }
-    /* ══ VA Dashboard rebuild, Today, Tickets, Quals, WhatsApp, Nudges ══ */
+    /* ══ VA Dashboard rebuild — Today, Tickets, Quals, WhatsApp, Nudges ══ */
     .today-wrap{padding:16px;overflow-y:auto;max-height:calc(100vh - 48px)}
     .today-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
     .today-header h2{font-size:18px;font-weight:800;margin:0}
@@ -1224,7 +1224,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     #hubInboxPanel .hub-mode b{color:var(--text)}
     #hubInboxPanel .hub-mode-hint{color:var(--muted)}
     #hubInboxPanel .tg-clear{border:0;background:transparent;color:var(--hub-amber);cursor:pointer;font-size:12px;font-family:inherit;text-decoration:underline;padding:0 2px;margin-left:auto}
-    /* Per-candidate Emails tab on the GP profile, same look as the global Inbox, scoped to #gpEmailsPanel */
+    /* Per-candidate Emails tab on the GP profile — same look as the global Inbox, scoped to #gpEmailsPanel */
     #gpEmailsPanel{--hub-teal:#0f766e;--hub-teal-dark:#0b5b54;--hub-teal-soft:#e6f4f2;--hub-sent:#eef6f5;--hub-amber:#b45309;--hub-amber-soft:#fff7ed;--hub-amber-line:#fed7aa;max-width:940px;margin:0 auto;padding:18px 16px 60px}
     #gpEmailsPanel .hub-loading,#gpEmailsPanel .hub-empty{color:var(--muted);font-size:14px;padding:34px 10px;text-align:center}
     #gpEmailsPanel .hub-inbox-head{padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}
@@ -1258,7 +1258,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     #gpEmailsPanel .hub-back:hover{text-decoration:underline}
     #gpEmailsPanel .hub-thread-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:0 2px 14px;border-bottom:1px solid var(--line);margin-bottom:14px}
     #gpEmailsPanel .hub-thread-head h2{font-size:18px;margin:0 8px 0 0}
-    /* Same as #hubInboxPanel .hub-thread, no height cap, or flexbox squishes the cards. */
+    /* Same as #hubInboxPanel .hub-thread — no height cap, or flexbox squishes the cards. */
     #gpEmailsPanel .hub-thread{display:flex;flex-direction:column;gap:12px;padding:2px}
     #gpEmailsPanel .hub-msg{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
     #gpEmailsPanel .hub-msg.sent{background:var(--hub-sent);border-color:#d4e7e4}
@@ -1471,18 +1471,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     </div>
     <div style="padding:14px 18px;border-top:1px solid #e5e7eb;flex-shrink:0;">
-      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject, the email sends exactly what you type here)</span></label>
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject — the email sends exactly what you type here)</span></label>
       <!-- Formatting toolbar: same [data-fmt] delegation as the Inbox composer (fmtToolbarHtml). -->
       <div class="fmt-toolbar" data-fmt-target="reviewDocNote" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 6px;">
         <button type="button" data-fmt="bold" title="Bold the selected text" style="background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit;font-weight:800;">B</button>
         <button type="button" data-fmt="bullet" title="Turn the selected lines into dot points" style="background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit;">• Dot point</button>
         <span style="font-size:11px;color:#9ca3af;">Line breaks are kept · **text** = bold · start a line with "- " for a dot point</span>
       </div>
-      <textarea id="reviewDocNote" rows="5" placeholder="Reason for rejection / note to the GP, sent as the email body exactly as typed…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <textarea id="reviewDocNote" rows="5" placeholder="Reason for rejection / note to the GP — sent as the email body exactly as typed…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
       <div id="reviewDocError" style="color:#dc2626;font-size:12px;margin-top:6px;display:none;"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
         <button onclick="closeReviewDocModal()" style="background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;color:#374151;">Cancel</button>
-        <button id="reviewDocRejectBtn" onclick="submitReviewDoc('reject')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Reject, request re-upload</button>
+        <button id="reviewDocRejectBtn" onclick="submitReviewDoc('reject')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Reject — request re-upload</button>
         <button id="reviewDocApproveBtn" onclick="submitReviewDoc('approve')" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;">Approve</button>
       </div>
     </div>
@@ -1510,7 +1510,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      request with that param so the server scopes the work-list to that RSO's
      assigned GPs (the server honors pov_rso ONLY for genuine super-admins). The
      page also renders in RSO mode below so it mirrors exactly what the RSO sees.
-     The real super-admin session cookie still governs server authorization, this
+     The real super-admin session cookie still governs server authorization — this
      only changes which GPs/tasks are listed and how the page is presented. */
   var POV = (function(){
     try{
@@ -1594,7 +1594,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function _elsOver2yEvidence(){
     return {
       work: ['CV in AHPRA’s standard format',
-             'A letter from the employer(s) confirming continuous employment, or, if unavailable, a professional reference from a supervisor, colleague or other health practitioner',
+             'A letter from the employer(s) confirming continuous employment — or, if unavailable, a professional reference from a supervisor, colleague or other health practitioner',
              'The dates they started (and, if relevant, stopped) working'],
       study: ['A transcript showing continuous enrolment in a Board-approved program',
               'Study started within 12 months of sitting the test, and finished within 12 months of applying']
@@ -1621,10 +1621,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var workLis = ev.work.map(function(d){ return '<li>' + esc(d) + '</li>'; }).join('');
         var studyLis = ev.study.map(function(d){ return '<li>' + esc(d) + '</li>'; }).join('');
         requiredHtml = '<div style="margin-top:8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px">' +
-          '<div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:4px">REQUIRED, test sat more than 2 years ago. Provide ONE of:</div>' +
+          '<div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:4px">REQUIRED — test sat more than 2 years ago. Provide ONE of:</div>' +
           '<div style="font-size:11px;font-weight:700;color:#0c1222;margin-top:2px">Continuous work</div>' +
           '<ul class="els-admin-list">' + workLis + '</ul>' +
-          '<div style="font-size:10px;font-weight:800;color:#92400e;text-align:center;margin:3px 0">OR</div>' +
+          '<div style="font-size:10px;font-weight:800;color:#92400e;text-align:center;margin:3px 0">— OR —</div>' +
           '<div style="font-size:11px;font-weight:700;color:#0c1222">Continuous study</div>' +
           '<ul class="els-admin-list">' + studyLis + '</ul>' +
           '</div>';
@@ -1658,7 +1658,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // esc() also encodes " and ' so it is SAFE inside a double- or single-quoted
   // HTML attribute (textContent→innerHTML alone leaves quotes unescaped, which
   // let a crafted GP name like  x" onmouseover=...  break out of a data-*
-  // attribute and run script in the admin origin, a stored-XSS account
+  // attribute and run script in the admin origin — a stored-XSS account
   // takeover). Encoding quotes is harmless in text content (renders the same).
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML.replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
   function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
@@ -1677,7 +1677,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function isDtUrl(u){return!!u&&typeof u==='string'&&isHostMatch(u,'doubletick.io');}
   function isDriveUrl(u){return!!u&&typeof u==='string'&&isHostMatch(u,'drive.google.com');}
 
-  /* ══ Interaction guard, prevents destructive re-renders while user is active ══ */
+  /* ══ Interaction guard — prevents destructive re-renders while user is active ══ */
   function isUserInteracting(){
     const ae=document.activeElement;
     if(ae&&(ae.tagName==="INPUT"||ae.tagName==="TEXTAREA"||ae.tagName==="SELECT"||ae.isContentEditable))return true;
@@ -1979,7 +1979,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var bar=document.createElement("div");
     bar.id="povBanner";
     bar.setAttribute("style","position:sticky;top:0;z-index:400;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;padding:8px 16px;background:linear-gradient(90deg,#2563eb,#7c3aed);color:#fff;font-size:13px;font-weight:600;box-shadow:0 1px 8px rgba(0,0,0,0.28)");
-    bar.innerHTML='<span style="opacity:.96">👁️ Viewing as '+esc(who)+', exactly the dashboard this RSO sees</span>'+
+    bar.innerHTML='<span style="opacity:.96">👁️ Viewing as '+esc(who)+' — exactly the dashboard this RSO sees</span>'+
       '<button id="povExitBtn" type="button" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:6px;padding:3px 12px;font-size:12px;font-weight:600;cursor:pointer">Exit RSO view</button>';
     document.body.insertBefore(bar,document.body.firstChild);
     var btn=document.getElementById("povExitBtn");
@@ -2082,8 +2082,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ["vaAccounts",loadVaAccounts]
     ];
     // Unmatched documents + incoming email questions are a super-admin/CEO ops-triage
-    // function (they render only in CEO surfaces). Never load them for a scoped RSO,
-    // or the "View RSO POV" preview, where isSA() is false, so no cross-RSO triage
+    // function (they render only in CEO surfaces). Never load them for a scoped RSO —
+    // or the "View RSO POV" preview, where isSA() is false — so no cross-RSO triage
     // data reaches an RSO's browser.
     if(isSA()){
       jobs.push(["unmatchedDocuments",loadUnmatchedDocuments]);
@@ -2125,7 +2125,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // Use the case stage as the authoritative source of truth
     const caseStage=c.stage||"";
     const stageIdx=STAGE_ORDER.indexOf(caseStage);
-    // Determine step status from the case stage, steps before the current stage are done,
+    // Determine step status from the case stage — steps before the current stage are done,
     // the current stage is current, steps after are pending (or locked if prerequisites unmet)
     function stepStatus(stepKey){
       const si=STAGE_ORDER.indexOf(stepKey);
@@ -2200,7 +2200,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     if(S.filter==="needsaction")list=list.filter(caseNeedsAction);
     else if(S.filter==="ontrack")list=list.filter(m=>!caseNeedsAction(m));
-    /* Structured filters (stage / RSO / country / stage-age) + "My caseload",
+    /* Structured filters (stage / RSO / country / stage-age) + "My caseload" —
        fields come from /api/admin/cases (assigned_rso_email, days_in_stage) with
        country looked up from the va/dashboard users payload. Candidate-only rows
        (no registration case) drop out when a case-scoped filter is active. */
@@ -2292,7 +2292,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${anyActive?'<button class="filter-btn" data-clear-case-filters style="color:#dc2626">Clear</button>':''}
     </div>`;
   }
-  /* Compact per-RSO caseload strip (active cases / open / overdue per RSO),
+  /* Compact per-RSO caseload strip (active cases / open / overdue per RSO) —
      numbers come from the SAME ceoMetrics.computeRsoWorkload rollup as the CEO
      "RSO Workload" card. Clicking a chip filters the list to that RSO. */
   function renderRsoCaseloadStrip(){
@@ -2469,7 +2469,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const sel=document.getElementById("rollbackStageSel_"+caseId);
     const target=sel&&sel.value;
     if(!target){alert("Choose which stage to re-open first.");return;}
-    if(!email){alert("This case has no GP email on file, cannot roll back.");return;}
+    if(!email){alert("This case has no GP email on file — cannot roll back.");return;}
     if(!confirm("Re-open the \""+target+"\" stage for "+email+"?\n\nThe GP will be able to return to that step. This does NOT wipe any progress (unlike a full reset)."))return;
     const ORDER=ROLLBACK_STAGE_ORDER;
     const curIdx=ORDER.indexOf(currentStage);
@@ -2489,8 +2489,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const other=[];
     const practiceContact=[];
     tasks.forEach(t=>{
-      // The supervised-practice document set, the practice pack (SPPA-00, Section G, Position
-      // Description, Supervisor CV, Offer/Contract) and the alternate-supervisor CV tasks, is part
+      // The supervised-practice document set — the practice pack (SPPA-00, Section G, Position
+      // Description, Supervisor CV, Offer/Contract) and the alternate-supervisor CV tasks — is part
       // of the AHPRA application, so group it under AHPRA even though practice-pack tasks are
       // stamped 'career' at placement-secured time.
       const stage=(t.task_type==="practice_pack_child"||t.task_type==="alt_supervisor_cv_request"||t.task_type==="alt_supervisor_cv_review")?"ahpra":(t.related_stage||"");
@@ -2504,7 +2504,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     });
     const result=[];
-    // Practice correspondence is a cross-cutting category (not a registration stage), surface
+    // Practice correspondence is a cross-cutting category (not a registration stage) — surface
     // it at the top of the GP's task list rather than under a stage or the trailing "Other".
     if(practiceContact.length)result.push({stage:"practice_contact",tasks:practiceContact});
     STAGE_ORDER.forEach(s=>{
@@ -2516,7 +2516,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   // Qualification documents the GP uploads themselves. A "Review uploaded: X"
   // task (task_type 'review') for one of these is a document the admin must
-  // verify, it should open the document and offer approve/reject (emailing the
+  // verify — it should open the document and offer approve/reject (emailing the
   // GP), exactly like a flagged_doc, NOT be chased as a practice document or
   // blindly "Mark Complete". Keep in sync with server.js QUALIFICATION_DOC_KEYS.
   var QUAL_REVIEW_DOC_KEYS=new Set([
@@ -2534,7 +2534,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // A "Review uploaded: X" (task_type 'review') OR a doc-pipeline "Review uploaded
   // X for Dr Y" (task_type 'doc_review') task for a qualification document the GP
   // uploaded themselves: open it and approve/reject (the GP is emailed), exactly
-  // like a flagged_doc, NOT chase it as a practice document ("Email Practice").
+  // like a flagged_doc — NOT chase it as a practice document ("Email Practice").
   function isQualDocReviewTask(t){
     return !!(t&&(t.task_type==='review'||t.task_type==='doc_review')&&t.related_document_key&&QUAL_REVIEW_DOC_KEYS.has(t.related_document_key));
   }
@@ -2546,7 +2546,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     // flagged_doc is an internal manual-review task about the GP's own uploaded
     // document. It carries a related_document_key to identify which qualification
-    // was flagged, but it is NOT a practice document to chase, intercept it
+    // was flagged, but it is NOT a practice document to chase — intercept it
     // before the practice-doc branch so it never renders "Email Practice".
     if(t.task_type==='flagged_doc'){
       return{prompt:'Review the document, then approve or reject (the GP is emailed)',label:'Review Document',action:'reviewFlaggedDoc',taskId:t.id};
@@ -2563,7 +2563,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // An alternate-supervisor CV REQUEST task is just a tracker for the email we auto-sent the
     // practice asking for a named alternate supervisor's CV. It carries
     // related_document_key='sppa_00' to tie it to the SPPA, so intercept it BEFORE the
-    // practice-doc branch below, otherwise it would be mistaken for the SPPA-00 task and
+    // practice-doc branch below — otherwise it would be mistaken for the SPPA-00 task and
     // wrongly offer a "Send SPPA" button. Read-only: status only, no action button.
     if(t.task_type==='alt_supervisor_cv_request'){
       if(t.status==='completed')return{prompt:'Alternate supervisor CV received',label:'Done',action:null,taskId:t.id};
@@ -2574,10 +2574,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(dk==='sppa_00'){
         var _sppaMeta=t.metadata; if(typeof _sppaMeta==='string'){try{_sppaMeta=JSON.parse(_sppaMeta);}catch(e){_sppaMeta={};}}
         var _sppaSt=(_sppaMeta&&_sppaMeta.sppa_state)||'';
-        if(_sppaSt==='sent_to_candidate')return{prompt:'Sent to the candidate, awaiting the signed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
-        if(_sppaSt==='gp_returned')return{prompt:'Candidate returned the SPPA-00, send it to the practice',label:'Send to Practice',action:'sendSppa',taskId:t.id};
-        if(_sppaSt==='sent_to_practice')return{prompt:'Sent to the practice, awaiting the completed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
-        if(_sppaSt==='practice_returned')return{prompt:'Practice returned the SPPA-00, review and submit',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='sent_to_candidate')return{prompt:'Sent to the candidate — awaiting the signed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='gp_returned')return{prompt:'Candidate returned the SPPA-00 — send it to the practice',label:'Send to Practice',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='sent_to_practice')return{prompt:'Sent to the practice — awaiting the completed SPPA-00 to come back',label:'Open',action:'sendSppa',taskId:t.id};
+        if(_sppaSt==='practice_returned')return{prompt:'Practice returned the SPPA-00 — review and submit',label:'Open',action:'sendSppa',taskId:t.id};
         if(_sppaSt==='completed')return{prompt:'SPPA-00 completed',label:'Done',action:null,taskId:t.id};
         return{prompt:'Send SPPA-00 to candidate via email',label:'Send SPPA',action:'sendSppa',taskId:t.id};
       }
@@ -2632,14 +2632,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
     ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:90vh;overflow:auto;padding:22px;">'
       +'<div style="font-weight:800;font-size:16px;color:var(--ink);">Log an AHPRA letter</div>'
-      +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray, nothing reaches the GP until you Release.</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-top:4px;">Paste the AHPRA officer’s letter. We’ll read it and create review items in the tray — nothing reaches the GP until you Release.</div>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:14px;">GP email<input id="ahpraLetterEmail" type="email" value="'+esc(gpEmail||'')+'" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Subject<input id="ahpraLetterSubject" type="text" value="Notice to provide further information under section 80(1)(b)" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
       +'<div style="display:flex;gap:10px;margin-top:10px;">'
       +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Assigned AHPRA officer (name)<input id="ahpraLetterOfficerName" type="text" placeholder="e.g. Jane Smith" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
       +'<label style="flex:1;display:block;font-size:12px;color:var(--muted);">Officer email<input id="ahpraLetterOfficerEmail" type="email" placeholder="officer@ahpra.gov.au" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;"></label>'
       +'</div>'
-      +'<div style="font-size:11px;color:var(--muted);margin-top:4px;">Optional, used so the doctor sees a real address instead of the officer’s “send it to my email”.</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:4px;">Optional — used so the doctor sees a real address instead of the officer’s “send it to my email”.</div>'
       +'<label style="display:block;font-size:12px;color:var(--muted);margin-top:10px;">Letter text<textarea id="ahpraLetterBody" rows="12" placeholder="Paste the full AHPRA letter here…" style="width:100%;margin-top:4px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;"></textarea></label>'
       +'<div id="ahpraLetterMsg" style="font-size:12px;color:#b91c1c;margin-top:8px;"></div>'
       +'<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;"><button type="button" id="ahpraLetterCancel" style="background:none;border:1px solid var(--border);color:var(--muted);padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer;">Cancel</button><button type="button" id="ahpraLetterSubmit" style="background:#2563eb;color:#fff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;cursor:pointer;">Read letter &amp; create items</button></div>'
@@ -2662,7 +2662,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var d=await r.json().catch(()=>({}));
         if(!d.ok){ msg.style.color='#b91c1c'; msg.textContent=d.message||'Could not log the letter.'; btn.disabled=false; btn.textContent='Read letter & create items'; return; }
         close(); await loadAll(true);
-        alert('Created '+(d.created||0)+' item(s) in the review tray'+(d.failed?' (automatic reading found nothing, added the raw letter for manual splitting)':'')+'.');
+        alert('Created '+(d.created||0)+' item(s) in the review tray'+(d.failed?' (automatic reading found nothing — added the raw letter for manual splitting)':'')+'.');
       }catch(err){ msg.style.color='#b91c1c'; msg.textContent='Network error. Please try again.'; btn.disabled=false; btn.textContent='Read letter & create items'; }
     });
   }
@@ -2687,13 +2687,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function s80VerdictChip(m){
     var ac=(m&&m.upload&&m.upload.ai_check)||null; if(!ac||!ac.verdict) return '';
-    var map={match:['#065f46','#d1fae5','✓ Looks right'],possible_issue:['#9a3412','#ffedd5','⚠ Possible issue'],unclear:['#475569','#f1f5f9',', Not verified'],unchecked:['#475569','#f1f5f9',', Not verified']};
+    var map={match:['#065f46','#d1fae5','✓ Looks right'],possible_issue:['#9a3412','#ffedd5','⚠ Possible issue'],unclear:['#475569','#f1f5f9','— Not verified'],unchecked:['#475569','#f1f5f9','— Not verified']};
     var v=map[ac.verdict]||map.unclear;
     var h='<div style="margin-top:6px;"><span style="display:inline-block;font-size:11px;font-weight:700;color:'+v[0]+';background:'+v[1]+';border-radius:999px;padding:2px 8px;">AI check: '+v[2]+'</span>';
     if(ac.summary) h+='<div style="font-size:12px;color:var(--muted);margin-top:3px;">'+esc(ac.summary)+'</div>';
     h+='</div>'; return h;
   }
-  // The exact text the doctor will see, so the team can sanity-check it before Release.
+  // The exact text the doctor will see — so the team can sanity-check it before Release.
   function renderS80GpPreview(m){
     if(m.owner!=='gp') return '';
     var gi=m.gp_instructions||'';
@@ -2716,7 +2716,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var ref=m0.reference?(' · Ref '+esc(m0.reference)):'';
       var deadline=items[0].ahpra_deadline?(' · Due '+esc(fmtD(items[0].ahpra_deadline))):'';
       html+='<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:12px;padding:14px;margin-bottom:14px;">';
-      html+='<div style="font-weight:800;color:#92400e;font-size:14px;">🔎 Needs review, AHPRA requested more information'+ref+deadline+'</div>';
+      html+='<div style="font-weight:800;color:#92400e;font-size:14px;">🔎 Needs review — AHPRA requested more information'+ref+deadline+'</div>';
       html+='<div style="font-size:12px;color:#92400e;margin-top:2px;">Check each item, set who does it and how, then release. Nothing reaches the GP until you click Release.</div>';
       if(m0.original_email&&m0.original_email.body){
         html+='<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:#92400e;font-weight:600;">View original AHPRA letter</summary><pre style="white-space:pre-wrap;font-size:12px;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:240px;overflow:auto;">'+esc(m0.original_email.body)+'</pre></details>';
@@ -2744,7 +2744,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function renderS80Active(c, active){
     if(!active.length) return '';
-    var html='<div style="margin-bottom:14px;"><div style="font-weight:800;color:var(--ink);font-size:13px;margin-bottom:8px;">AHPRA, requested information (in progress)</div>';
+    var html='<div style="margin-bottom:14px;"><div style="font-weight:800;color:var(--ink);font-size:13px;margin-bottom:8px;">AHPRA — requested information (in progress)</div>';
     active.forEach(function(t){
       var m=s80Meta(t);
       html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-bottom:10px;">';
@@ -2768,7 +2768,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
           html+='<div id="s80OfficerComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
         } else if(up&&up.status==='rejected'){
-          html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+', waiting on the GP to re-upload.</div>';
+          html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+' — waiting on the GP to re-upload.</div>';
         } else {
           html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">⏳ Waiting on the GP to upload.</div>';
         }
@@ -2901,7 +2901,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='</div>';
           html+='<div class="st-actions">';
           if((t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g')||t.task_type==='ahpra_correspondence'||t.task_type==='ahpra_action_item'||t.task_type==='alt_supervisor_cv_review'||t.task_type==='alt_supervisor_cv_request'||t.task_type==='ahpra_conflict_letter'){
-            // No button, row click expands (accordion style)
+            // No button — row click expands (accordion style)
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
@@ -2966,7 +2966,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='</div></div>';
             html+='<div class="et-btn-row" style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px">';
             html+='<button class="btn sm" data-resolve-email="'+esc(t.id)+'">\u2713 Mark Resolved</button>';
-            html+='<div class="et-resolve-error" id="et-error-'+esc(t.id)+'" style="display:none;color:#dc2626;font-size:12px;font-weight:600;background:#fef2f2;padding:6px 10px;border-radius:6px;margin-left:8px">No email reply found, please reply via Gmail before resolving.</div>';
+            html+='<div class="et-resolve-error" id="et-error-'+esc(t.id)+'" style="display:none;color:#dc2626;font-size:12px;font-weight:600;background:#fef2f2;padding:6px 10px;border-radius:6px;margin-left:8px">No email reply found — please reply via Gmail before resolving.</div>';
             html+='</div>';
             html+='</div>';
           }
@@ -3045,7 +3045,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
        POST /api/admin/visa/questionnaire/send          (mark ready | mark sent)
        GET  /api/admin/visa/dependants?caseId=          (read-only dependants list) */
   const VQ_ROUTES=[["gplink_migration_agent","GP Link migration agent"],["practice_agent","Practice's migration agent"],["practice_direct","Practice directly"]];
-  function vqStatusLabel(s){return s==="draft"?"Requested, waiting on GP":s==="submitted"?"Submitted, ready to review":s==="returned_for_changes"?"Returned to GP for changes":s==="va_reviewed"?"Reviewed, ready for PDF/send":s==="ready_to_send"?"Ready to send":s==="sent"?"Sent":"Not requested";}
+  function vqStatusLabel(s){return s==="draft"?"Requested — waiting on GP":s==="submitted"?"Submitted — ready to review":s==="returned_for_changes"?"Returned to GP for changes":s==="va_reviewed"?"Reviewed — ready for PDF/send":s==="ready_to_send"?"Ready to send":s==="sent"?"Sent":"Not requested";}
   function vqRouteLabel(r){const m=VQ_ROUTES.find(x=>x[0]===r);return m?m[1]:(r||"");}
   function vqRouteSelect(id){return '<select id="'+id+'" style="padding:6px;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-size:12px">'+VQ_ROUTES.map(x=>'<option value="'+x[0]+'">'+esc(x[1])+'</option>').join("")+'</select>';}
   function vqFields(obj){
@@ -3073,7 +3073,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function renderVisaQuestionnairePane(c){
     const vc=findVisa(c);
-    if(!vc)return '<div class="empty" style="margin-top:8px">No visa case yet, use Manage Visa to open one, then questionnaire actions appear here.</div>';
+    if(!vc)return '<div class="empty" style="margin-top:8px">No visa case yet — use Manage Visa to open one, then questionnaire actions appear here.</div>';
     S.va.gpDetailCache[c.user_id]=S.va.gpDetailCache[c.user_id]||{};
     const cache=S.va.gpDetailCache[c.user_id];
     const vq=cache.visaQuestionnaire;
@@ -3103,14 +3103,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="btn sm" href="'+esc(pdfHref)+'" target="_blank" download>Download PDF</a>'+vqRouteSelect("vqRouteSel")+'<button class="btn primary sm" data-vq-ready="'+vcId+'">Mark ready to send</button></div>';
     }else if(status==="ready_to_send"){
       h+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="btn sm" href="'+esc(pdfHref)+'" target="_blank" download>Download PDF</a>'+vqRouteSelect("vqRouteSel")+'<input id="vqSendNote" placeholder="Send note (optional)" style="padding:6px;background:var(--bg,#0f1218);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-size:12px"><button class="btn primary sm" data-vq-sent="'+vcId+'">Mark sent</button></div>';
-      h+='<div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">Marking sent records who, when and where, attach the downloaded PDF to your email yourself.</div>';
+      h+='<div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">Marking sent records who, when and where — attach the downloaded PDF to your email yourself.</div>';
     }else if(status==="sent"){
       h+='<div style="font-size:12px;margin-top:6px">'+(q.sent_by?'Sent by '+esc(q.sent_by):'Sent')+(q.sent_at?' on '+esc(new Date(q.sent_at).toLocaleDateString("en-AU")):'')+(q.recipient_route?' → '+esc(vqRouteLabel(q.recipient_route)):'')+'</div>';
       h+='<div style="margin-top:6px"><a class="btn sm" href="'+esc(pdfHref)+'" target="_blank" download>Download PDF</a></div>';
     }
     h+='<div style="margin-top:10px"><strong style="font-size:11px">Dependants ('+deps.length+')</strong>';
-    if(!deps.length)h+='<div style="font-size:11px;color:var(--muted,#9aa3b2)">None recorded, the GP manages dependants on their visa page.</div>';
-    else deps.forEach(d=>{h+='<div style="font-size:12px;padding:2px 0">'+esc(d.full_name||"")+', '+esc(d.relationship||"")+(d.date_of_birth?' · DOB '+esc(d.date_of_birth):'')+(d.visa_status?' · '+esc(String(d.visa_status).replace(/_/g," ")):'')+'</div>';});
+    if(!deps.length)h+='<div style="font-size:11px;color:var(--muted,#9aa3b2)">None recorded — the GP manages dependants on their visa page.</div>';
+    else deps.forEach(d=>{h+='<div style="font-size:12px;padding:2px 0">'+esc(d.full_name||"")+' — '+esc(d.relationship||"")+(d.date_of_birth?' · DOB '+esc(d.date_of_birth):'')+(d.visa_status?' · '+esc(String(d.visa_status).replace(/_/g," ")):'')+'</div>';});
     h+='</div>';
     h+='</div>';
     return h;
@@ -3139,7 +3139,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const d=await r.json().catch(()=>({}));
       if(r.ok&&d.ok){toast(successMsg);if(c&&S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].visaQuestionnaire;renderDetail();}
       else{toast("Failed: "+(d.message||("HTTP "+r.status)),"red");btn.disabled=false;btn.textContent=orig;}
-    }catch{toast("Network error, please try again","red");btn.disabled=false;btn.textContent=orig;}
+    }catch{toast("Network error — please try again","red");btn.disabled=false;btn.textContent=orig;}
   }
 
   function renderGpNotesPane(c){
@@ -3191,7 +3191,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!gpDocs)return '<div class="empty">Loading\u2026</div>';
     var h='';
 
-    // Section 1: Direct to AHPRA (checkboxes, user marks these as requested, no file upload)
+    // Section 1: Direct to AHPRA (checkboxes — user marks these as requested, no file upload)
     var ahpra=gpDocs.directToAhpra||[];
     var ahpraCount=ahpra.filter(function(d){return d.status!=='pending';}).length;
     h+='<div class="doc-section">';
@@ -3239,7 +3239,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     h+='</div></div>';
 
-    // Section 4: Other Files (unmatched Drive files), also the upload target.
+    // Section 4: Other Files (unmatched Drive files) — also the upload target.
     // Uploads here post to /api/admin/drive/upload, which drops the file in the
     // case Drive folder unmatched, so it lands back in this section.
     var other=gpDocs.otherFiles||[];
@@ -3538,7 +3538,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           </div>
         </div>
         <div class="gp-detail-tabs-wrap">
-          <div class="empty" style="padding:32px;text-align:center">No registration case, tasks, documents, and notes will appear once a case is created.</div>
+          <div class="empty" style="padding:32px;text-align:center">No registration case — tasks, documents, and notes will appear once a case is created.</div>
         </div>
       </div>`;
   }
@@ -3719,7 +3719,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-profile-section" style="margin-top:8px;padding:12px 16px">
           <h3 style="margin-bottom:6px">English Language Skills</h3>
           <div style="font-size:12px;font-weight:600;color:#0c1222;margin-bottom:4px">${esc(ELS_PATHWAY_DOCS[u.els_pathway].title)}${(u.els_pathway==='test'&&u.els_test_type)?(' <span style="color:#2563eb">· '+esc(u.els_test_type)+'</span>'):''}${(u.els_pathway==='test'&&u.els_test_status)?('<span style="display:inline-block;font-size:10px;font-weight:800;padding:1px 7px;border-radius:999px;margin-left:6px;'+(u.els_test_status==='done'?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e')+'">'+(u.els_test_status==='done'?'COMPLETED':'PLANNED')+'</span>'):''}</div>
-          ${(u.els_pathway==='test'&&u.els_test_status==='done'&&u.els_test_recency)?('<div style="font-size:11px;margin-bottom:6px;font-weight:'+(u.els_test_recency==='over2y'?'700':'500')+';color:'+(u.els_test_recency==='over2y'?'#92400e':'#64748b')+'">Test sat: '+(u.els_test_recency==='over2y'?'more than 2 years ago, continuous work/study evidence required':'within the last 2 years')+'</div>'):''}
+          ${(u.els_pathway==='test'&&u.els_test_status==='done'&&u.els_test_recency)?('<div style="font-size:11px;margin-bottom:6px;font-weight:'+(u.els_test_recency==='over2y'?'700':'500')+';color:'+(u.els_test_recency==='over2y'?'#92400e':'#64748b')+'">Test sat: '+(u.els_test_recency==='over2y'?'more than 2 years ago — continuous work/study evidence required':'within the last 2 years')+'</div>'):''}
           ${buildElsAdminDocsCard(u)}
         </div>` : ''}
         <div class="pb-expand-panel" id="pbExpandPanel">
@@ -3766,7 +3766,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       if(el.parentElement)el.parentElement.scrollTop=prevScroll;else el.scrollTop=prevScroll;
       // Fresh GP open from a card: auto-scroll to the urgency-driving task (red outline) so the
-      // RSO lands on what needs action. Only on open, re-renders keep the user's scroll above.
+      // RSO lands on what needs action. Only on open — re-renders keep the user's scroll above.
       if(S._scrollToUrgency){
         S._scrollToUrgency=false;
         var _utid=S._urgencyTargetId;
@@ -3779,7 +3779,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       return;
     }
-    // Non-GPs view, show default empty or existing content
+    // Non-GPs view — show default empty or existing content
     if(!S.selectedCaseId){
       const tasks=S.tasks.slice().sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
       const urgent=tasks.filter(t=>t.priority==="urgent"),high=tasks.filter(t=>t.priority==="high"),normal=tasks.filter(t=>t.priority!=="urgent"&&t.priority!=="high");
@@ -3809,7 +3809,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="qual-box"><h4>✓ Approved by AI (${approved.length})</h4>
           ${approved.length?approved.map(q=>`<span class="qual-chip approved"><span class="dot"></span>${esc(q.label)} <a href="${esc(q.download_url||"#")}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;margin-left:4px">download</a></span>`).join(""):`<div class="todo-detail">None approved yet.</div>`}
         </div>
-        <div class="qual-box"><h4>⧗ Uploaded, awaiting AI (${pending.length})</h4>
+        <div class="qual-box"><h4>⧗ Uploaded — awaiting AI (${pending.length})</h4>
           ${pending.length?pending.map(q=>`<span class="qual-chip pending"><span class="dot"></span>${esc(q.label)}</span>`).join(""):`<div class="todo-detail">Nothing awaiting verification.</div>`}
         </div>
       </div>
@@ -4031,7 +4031,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     window.open('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), '_blank');
   }
 
-  // Thumbnail <img> failed to render (e.g. a PDF), swap it for the document icon.
+  // Thumbnail <img> failed to render (e.g. a PDF) — swap it for the document icon.
   function gpDocThumbError(img){
     if(!img||!img.parentNode)return;
     var d=document.createElement('div');
@@ -4087,7 +4087,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById('reviewDocReason').textContent=_reviewReasonText;
     // Pre-fill the note with the reason for now; once the AI scan (kicked off below) returns,
     // runReviewDocAiScan replaces this with a GP-ready suggested message built from what the
-    // scan actually found, UNLESS the RSO has started typing their own (tracked via
+    // scan actually found — UNLESS the RSO has started typing their own (tracked via
     // _reviewDocInitialNote). The GP name is parsed from the task title for the greeting.
     document.getElementById('reviewDocNote').value=_reviewReasonText;
     _reviewDocInitialNote=_reviewReasonText;
@@ -4151,7 +4151,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(e){ if(scanTaskId===_reviewDocTaskId)body.innerHTML='<span style="color:#b45309;">AI scan failed: '+esc(e.message)+'</span>'; }
     if(btn)btn.disabled=false;
   }
-  // Build a GP-ready "note to GP" from what the AI scan actually found, a suggested message
+  // Build a GP-ready "note to GP" from what the AI scan actually found — a suggested message
   // the RSO can send as-is or edit. Returns '' when there is nothing actionable to raise (so a
   // clean/approvable document leaves the note untouched). Name-change wording is excluded (that
   // is handled automatically and is never a reason to email the GP).
@@ -4159,7 +4159,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!s||typeof s!=='object')return '';
     var issues=(Array.isArray(s.issues)?s.issues:[]).filter(function(i){return String(i||'').trim()&&!/previous name|name change|different from your account|does not match your account name|name matching your profile|differs from the account name/i.test(String(i||''));});
     if(s.requiresCertification&&s.certified!==true&&!issues.some(function(i){return /certified/i.test(i);})){
-      issues.push('This document must be a certified true copy, please upload a copy certified by an authorised person (e.g. a JP, solicitor or notary) showing their certification statement, name, profession, signature or stamp, and the date.');
+      issues.push('This document must be a certified true copy — please upload a copy certified by an authorised person (e.g. a JP, solicitor or notary) showing their certification statement, name, profession, signature or stamp, and the date.');
     }
     if(!issues.length)return '';
     var greet=gpName?('Hi '+gpName+','):'Hi Doctor,';
@@ -4178,23 +4178,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var rows=[];
     var headColor=ok?'#15803d':'#b45309';
     var headIcon=ok?'✓':'⚠';
-    var headText=ok?('Looks genuine, reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving';
+    var headText=ok?('Looks genuine — reads as '+esc(s.documentType||'the expected document')):'Needs a closer look before approving';
     rows.push('<div style="font-weight:700;color:'+headColor+';margin-bottom:6px;">'+headIcon+' '+headText+'</div>');
     var line=function(lbl,val,color){return '<div style="margin:2px 0;"><span style="color:#6b7280;">'+lbl+':</span> <span style="color:'+(color||'#111827')+';font-weight:600;">'+esc(val)+'</span></div>';};
     if(s.documentType)rows.push(line('Identified as',s.documentType));
     if(s.nameFound){
-      var nm=(nameMatch==='exact'||nameMatch==='fuzzy')?{t:s.nameFound+', matches the account',c:'#15803d'}:{t:s.nameFound,c:'#111827'};
+      var nm=(nameMatch==='exact'||nameMatch==='fuzzy')?{t:s.nameFound+' — matches the account',c:'#15803d'}:{t:s.nameFound,c:'#111827'};
       rows.push(line('Name on document',nm.t,nm.c));
     }else{ rows.push(line('Name on document','not detected','#b45309')); }
     if(s.dateFound)rows.push(line('Date on document',s.dateFound));
     if(s.issuingBody)rows.push(line('Issuing body',s.issuingBody));
     if(s.legible===false)rows.push(line('Legibility','hard to read','#dc2626'));
     if(s.requiresCertification){
-      if(s.certified===true){ rows.push(line('Certified copy','✓ Yes'+(s.certificationNote?', '+s.certificationNote:''),'#15803d')); }
-      else { rows.push(line('Certified copy','✗ Not a certified copy, AHPRA needs a certified true copy','#dc2626')); }
+      if(s.certified===true){ rows.push(line('Certified copy','✓ Yes'+(s.certificationNote?' — '+s.certificationNote:''),'#15803d')); }
+      else { rows.push(line('Certified copy','✗ Not a certified copy — AHPRA needs a certified true copy','#dc2626')); }
     }
     // The name change is handled automatically, so strip any name-change wording from the issues
-    // the reviewer sees, only real, actionable checks remain.
+    // the reviewer sees — only real, actionable checks remain.
     var visibleIssues=(Array.isArray(s.issues)?s.issues:[]).filter(function(i){return !/previous name|name change|different from your account|does not match your account name|name matching your profile|differs from the account name/i.test(String(i||''));});
     if(visibleIssues.length){
       rows.push('<div style="margin-top:6px;color:#b45309;font-weight:700;">Issues to check:</div>');
@@ -4215,12 +4215,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!_reviewDocTaskId)return;
     var note=document.getElementById('reviewDocNote').value.trim();
     var err=document.getElementById('reviewDocError');
-    if(decision==='reject'&&!note){err.textContent='A reason is required to reject, the GP will see it.';err.style.display='block';return;}
+    if(decision==='reject'&&!note){err.textContent='A reason is required to reject — the GP will see it.';err.style.display='block';return;}
     err.style.display='none';
     // When the RSO rejects while STILL using the AI-suggested message (unedited), make them
-    // pause and confirm, the AI can be wrong, and the GP receives exactly this text.
+    // pause and confirm — the AI can be wrong, and the GP receives exactly this text.
     if(decision==='reject'&&_reviewDocSuggested&&note===String(_reviewDocSuggested).trim()){
-      if(!confirm('You’re about to email the GP this AI-suggested message and reject the document.\n\nThe AI can make mistakes, please double-check the message reads correctly and that its findings are actually right. The GP receives EXACTLY what is in the box.\n\nSend this message and reject?'))return;
+      if(!confirm('You’re about to email the GP this AI-suggested message and reject the document.\n\nThe AI can make mistakes — please double-check the message reads correctly and that its findings are actually right. The GP receives EXACTLY what is in the box.\n\nSend this message and reject?'))return;
     }
     var approveBtn=document.getElementById('reviewDocApproveBtn'),rejectBtn=document.getElementById('reviewDocRejectBtn');
     approveBtn.disabled=true;rejectBtn.disabled=true;
@@ -4249,7 +4249,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (e) { alert('Error: ' + e.message); }
   }
 
-  // markTaskWaiting removed, status now only changes when a message is confirmed sent via API
+  // markTaskWaiting removed — status now only changes when a message is confirmed sent via API
 
   async function requestRevision(taskId) {
     if (!confirm('Create a revision request draft in Gmail? The document will be attached for the practice to review.')) return;
@@ -4312,7 +4312,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   async function setupGmailWatch() {
-    if (!confirm('Initialize Gmail auto-parsing?\n\nThis registers each monitored VA inbox with Google to push new emails to our webhook. Only needs to be done once, renewal is automatic every 6 days via cron.')) return;
+    if (!confirm('Initialize Gmail auto-parsing?\n\nThis registers each monitored VA inbox with Google to push new emails to our webhook. Only needs to be done once — renewal is automatic every 6 days via cron.')) return;
     try {
       var res = await fetch('/api/admin/gmail/setup-watch', {
         method: 'POST',
@@ -4327,7 +4327,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             var expiryStr = (expiryDate && !isNaN(expiryDate.getTime())) ? expiryDate.toLocaleString() : 'unknown';
             return r.email + ': OK (expires ' + expiryStr + ')';
           }
-          return r.email + ': FAILED\n  ' + (r.error || 'unknown error, check Vercel logs');
+          return r.email + ': FAILED\n  ' + (r.error || 'unknown error — check Vercel logs');
         }).join('\n\n');
         alert('Gmail watch setup:\n\n' + summary);
       } else {
@@ -4872,8 +4872,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!cc.is_complete && (cc.only_alt_cv_outstanding===true || _ccOnlyAltCv(cc))){
       var altn=(cc.alternate_supervisors_on_form&&cc.alternate_supervisors_on_form.length)?cc.alternate_supervisors_on_form.join(', '):'';
       var hr='<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      hr+='<div style="font-weight:700;color:#92400e">✓ SPPA-00 form complete &amp; signed, one item to collect</div>';
-      hr+='<div style="color:#92400e;margin-top:2px">The form is fully completed and all declarations are signed. The only outstanding item is the alternate supervisor’s signed CV'+(altn?' ('+esc(altn)+')':'')+'. Complete the <strong>"Request alternate supervisor CV from practice"</strong> task to collect it, you can submit the SPPA-00 now; the CV is delivered to the GP separately.</div>';
+      hr+='<div style="font-weight:700;color:#92400e">✓ SPPA-00 form complete &amp; signed — one item to collect</div>';
+      hr+='<div style="color:#92400e;margin-top:2px">The form is fully completed and all declarations are signed. The only outstanding item is the alternate supervisor’s signed CV'+(altn?' ('+esc(altn)+')':'')+'. Complete the <strong>"Request alternate supervisor CV from practice"</strong> task to collect it — you can submit the SPPA-00 now; the CV is delivered to the GP separately.</div>';
       if(checkedAt) hr+='<div style="color:#9ca3af;margin-top:4px;font-size:10px">Checked '+esc(checkedAt)+'</div>';
       hr+='</div>';
       return hr;
@@ -5039,7 +5039,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-expand-section">';
       h += gpSectionBanner();
       h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      h += '<span style="color:#b45309">Filled by the GP, ready to send to the practice</span>';
+      h += '<span style="color:#b45309">Filled by the GP — ready to send to the practice</span>';
       h += '</div>';
       h += opsRenderThread(msgs);
       h += opsRenderDocs(docs);
@@ -5188,13 +5188,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div id="opsResendWrap_' + esc(task.id) + '" style="display:none;margin-top:8px">';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(resendTo) + '" /></div>';
-      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Corrections Needed, Dr ' + esc(gpName) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Corrections Needed — Dr ' + esc(gpName) + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
         + 'This is a follow-up regarding the corrections needed on the SPPA-00 for Dr ' + esc(gpName) + '.<br><br>'
         + (meta.corrections_note ? esc(meta.corrections_note) + '<br><br>' : '')
         + 'Could you please provide the corrected document as soon as possible?<br><br>'
-        + 'Kind regards,<br>Hazel, GP Link Registration Team'
+        + 'Kind regards,<br>Hazel — GP Link Registration Team'
         + '</div>';
       h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-auto-attach="true" data-ops-resend="true">Send</button></div>';
       h += '</div></div>';
@@ -5253,9 +5253,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return h;
   }
 
-  /* ── Alt Supervisor CV Request (read-only tracker, no documents to review) ── */
+  /* ── Alt Supervisor CV Request (read-only tracker — no documents to review) ── */
   // The practice was auto-emailed asking for a named alternate supervisor's CV. This shows who
-  // we asked for and whether the CV has come back. No fetch/upload/review wiring, the matching
+  // we asked for and whether the CV has come back. No fetch/upload/review wiring — the matching
   // review happens in the separate alt_supervisor_cv_review task once a CV actually arrives.
   function renderOpsAltSupervisorCvRequest(task){
     var meta=task.metadata||{};
@@ -5270,7 +5270,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     // Already sent to the practice: read-only waiting banner.
     if(task.status==='waiting_on_practice'||task.status==='waiting_on_external'){
-      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:#1d4ed8">📤 Request sent to the practice, awaiting their reply</span></div>';
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:#1d4ed8">📤 Request sent to the practice — awaiting their reply</span></div>';
       if(names.length){
         h+='<div style="font-size:12px;margin:4px 0"><strong>Alternate supervisor'+(names.length>1?'s':'')+':</strong> '+esc(names.join(', '))+'</div>';
       }
@@ -5281,7 +5281,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h;
     }
     // Open: review the suggested email and send it to the practice. Reuses the shared
-    // data-ops-send-email composer + handler (NO auto-send, the RSO clicks Send).
+    // data-ops-send-email composer + handler (NO auto-send — the RSO clicks Send).
     if(names.length){
       h+='<div style="font-size:12px;margin:4px 0 8px">Alternate supervisor'+(names.length>1?'s':'')+': '+esc(names.join(', '))+'</div>';
     }
@@ -5290,7 +5290,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +'Kind regards,<br>GP Link Registration Team';
     h+='<div class="ops-email-composer">';
     h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(meta.practice_email||'')+'" /></div>';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'SPPA-00 for Dr, Alternate Supervisor CV needed')+'" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'SPPA-00 for Dr — Alternate Supervisor CV needed')+'" /></div>';
     h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+(meta.suggested_body?meta.suggested_body:fallbackBody)+'</div>';
     h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send request to practice</button></div>';
     h+='</div>';
@@ -5305,21 +5305,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var h='<div class="ops-expand-section">';
     // Completed: confirmation received from the practice.
     if(task.status==='completed'){
-      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Confirmation received, on file.</span></div>';
+      h+='<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#15803d">✅ Confirmation received — on file.</span></div>';
       h+='</div>';
       return h;
     }
     // Already sent: read-only waiting banner.
     if(task.status==='waiting_on_practice'||task.status==='waiting_on_external'){
-      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#1d4ed8">📤 Sent, awaiting the practice to email AHPRA (they\'ll CC us).</span></div>';
+      h+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:#1d4ed8">📤 Sent — awaiting the practice to email AHPRA (they\'ll CC us).</span></div>';
       h+='</div>';
       return h;
     }
     // Open: review the suggested email and send it to the practice.
-    // Reuses the shared data-ops-send-email composer + handler (NO auto-send, the RSO clicks Send).
+    // Reuses the shared data-ops-send-email composer + handler (NO auto-send — the RSO clicks Send).
     h+='<div class="ops-email-composer">';
     h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(meta.practice_email||'')+'" /></div>';
-    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'AHPRA Conflict of Interest, Action Required')+'" /></div>';
+    h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'AHPRA Conflict of Interest — Action Required')+'" /></div>';
     h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+(meta.suggested_body||'')+'</div>';
     h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send to practice</button></div>';
     h+='</div>';
@@ -5429,7 +5429,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h2;
     }
 
-    // State A: No messages yet (initial, ball with Hazel), show email composer
+    // State A: No messages yet (initial, ball with Hazel) — show email composer
     var h3='<div class="ops-expand-section">';
     var isOfferContractWithDoc = (task.related_document_key === 'offer_contract') && (docs.length > 0 || task.attachment_url);
     h3+='<div class="ops-expand-label">'+(isOfferContractWithDoc ? 'Request employer counter-signature' : 'Request document from practice')+'</div>';
@@ -5517,7 +5517,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-expand-label">What AHPRA is asking</div>';
     h+='<div class="ops-expand-desc">'+esc(ti)+'</div>';
     h+='<div style="font-size:12px;color:var(--muted);margin:2px 0 8px;">'+esc(ownerLabel)+' · '+esc(modeLabel)+' · '+esc(statusLabel)+'</div>';
-    h+=(function(){var ac=m.upload&&m.upload.ai_check;if(!ac||!ac.verdict||ac.verdict==='unchecked')return '';var lab=ac.verdict==='match'?'✓ Looks right':ac.verdict==='possible_issue'?'⚠ Possible issue':', Not verified';return '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">AI check: '+esc(lab)+(ac.summary?', '+esc(ac.summary):'')+'</div>';})();
+    h+=(function(){var ac=m.upload&&m.upload.ai_check;if(!ac||!ac.verdict||ac.verdict==='unchecked')return '';var lab=ac.verdict==='match'?'✓ Looks right':ac.verdict==='possible_issue'?'⚠ Possible issue':'— Not verified';return '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">AI check: '+esc(lab)+(ac.summary?' — '+esc(ac.summary):'')+'</div>';})();
     if(m.needs_call||m.kind==='qualification_check'){
       h+='<div style="font-size:12px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;margin-bottom:8px;">📞 Book a Zoom call with the doctor to debug this (PSV / MyIntealth / AMC).</div>';
     }
@@ -5561,7 +5561,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
     var responseType = task.response_type || meta.response_type || 'request_from_gp';
     var taskCategory = task.category || meta.category || '';
-    // application_update category is always a status update, override AI misclassification
+    // application_update category is always a status update — override AI misclassification
     if (taskCategory === 'application_update' && responseType !== 'status_update') responseType = 'status_update';
     var amendTarget = task.amend_target || meta.amend_target || null;
     var draftResponse = task.draft_response || meta.draft_response || '';
@@ -5631,7 +5631,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h2;
     }
 
-    // State A: Initial, response_type-aware rendering
+    // State A: Initial — response_type-aware rendering
     var h3 = '<div class="ops-expand-section">';
 
     // Response type badge
@@ -5804,7 +5804,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h3;
     }
 
-    // ── REQUEST FROM GP (default, email only for AHPRA tasks) ──
+    // ── REQUEST FROM GP (default — email only for AHPRA tasks) ──
     h3 += '<div class="ops-action-item-box">';
     h3 += '<div class="ops-expand-label">Action Required</div>';
     h3 += '<div style="font-size:12px;font-weight:700">' + esc(task.title || '\u2014') + '</div>';
@@ -5876,7 +5876,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-action-row" style="margin-top:12px">';
     // flagged_doc tasks AND generic "Review uploaded: X" tasks for a qualification
     // document both open the approve/reject review modal instead of a plain
-    // "Mark Complete", the admin must actually look at the document.
+    // "Mark Complete" — the admin must actually look at the document.
     var _isFlaggedDoc=task.task_type==='flagged_doc'||isQualDocReviewTask(task);
     if(_isFlaggedDoc)h+='<button class="ops-btn-green" onclick="openReviewDocModal(\''+escAttr(task.id)+'\')">Review Document</button>';
     if(task.status!=='completed'&&task.status!=='cancelled')h+=scheduleCallButtonHtml(task, task.gp_email);
@@ -6009,7 +6009,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var resp = await fetch('/api/admin/va/case/' + encodeURIComponent(caseId) + '/email-contacts', { credentials: 'include' });
       var data = await resp.json();
       selects.forEach(function(sel) {
-        // Exclude the recipient already in the "To" field, we're emailing the practice
+        // Exclude the recipient already in the "To" field — we're emailing the practice
         // contact, so it should never also be offered as a CC.
         var tid = sel.getAttribute('data-email-cc');
         var toInput = document.querySelector('[data-email-to="' + tid + '"]') || document.querySelector('[data-gp-email-to="' + tid + '"]');
@@ -6046,7 +6046,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!task){container.innerHTML='<div style="padding:12px;color:var(--red)">Task not found</div>';return;}
     var pc=task.practice_contact||{};
     // Fall back to the GP's case-level practice contact (the same source the GP profile
-    // shows) when this task's cached enrichment is missing it, prevents a stale/blank "To".
+    // shows) when this task's cached enrichment is missing it — prevents a stale/blank "To".
     if(!(pc.contactEmail||pc.email)&&task.case_id){
       var _gpRow=((S.va&&S.va.dashboard&&Array.isArray(S.va.dashboard.users))?S.va.dashboard.users:[]).find(function(u){return u.case_id===task.case_id;});
       if(_gpRow&&_gpRow.practice_contact&&(_gpRow.practice_contact.contactEmail||_gpRow.practice_contact.email)) pc=_gpRow.practice_contact;
@@ -6212,7 +6212,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       await loadAll(true);
     });
     document.getElementById("detailContent").addEventListener("click",async e=>{
-      /* AHPRA "Send to GP", the same 6-card action as the Ops Queue, but this pane (the GP
+      /* AHPRA "Send to GP" — the same 6-card action as the Ops Queue, but this pane (the GP
          profile Tasks view) previously had no handler for it, so the button did nothing here. */
       var _sgpBtn=e.target.closest("[data-ops-send-gp-email]");
       if(_sgpBtn){ await _opsSendToGp(_sgpBtn); return; }
@@ -6276,7 +6276,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         s80Snd.disabled=true; s80Snd.textContent='Sending…';
         try{
           var sr=await fetch('/api/admin/ahpra/item/officer-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:stid,to:to.trim(),cc:cc.trim(),subject:subj.trim(),bodyHtml:bodyHtml})}).then(r=>r.json());
-          if(sr.ok){ showOpsToast('Sent to AHPRA officer, replied on the thread'); if(typeof loadAll==='function')loadAll(true); }
+          if(sr.ok){ showOpsToast('Sent to AHPRA officer — replied on the thread'); if(typeof loadAll==='function')loadAll(true); }
           else { showOpsToast(sr.message||'Send failed','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
         }catch(err){ showOpsToast(err.message||'Network error','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
         return;
@@ -6284,7 +6284,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var s80Copy=e.target.closest("[data-s80-copy]");
       if(s80Copy){ e.preventDefault();
         var pre=document.getElementById('s80draft-'+s80Copy.getAttribute("data-s80-copy"));
-        if(pre){ try{ await navigator.clipboard.writeText(pre.textContent); var ot=s80Copy.textContent; s80Copy.textContent='Copied ✓'; setTimeout(()=>{s80Copy.textContent=ot;},1500); }catch(err){ alert('Copy failed, select the text manually.'); } }
+        if(pre){ try{ await navigator.clipboard.writeText(pre.textContent); var ot=s80Copy.textContent; s80Copy.textContent='Copied ✓'; setTimeout(()=>{s80Copy.textContent=ot;},1500); }catch(err){ alert('Copy failed — select the text manually.'); } }
         return;
       }
       var s80Comp=e.target.closest("[data-s80-complete]");
@@ -6357,7 +6357,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return;
       }
 
-      /* Resolve email task, check for reply first */
+      /* Resolve email task — check for reply first */
       if(e.target.closest("[data-resolve-email]")){
         var resolveBtn=e.target.closest("[data-resolve-email]");
         var resolveTaskId=resolveBtn.getAttribute("data-resolve-email");
@@ -6573,7 +6573,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // Only toggle when the click is on the row chrome itself, NOT on the detail
       // panel or an interactive control. When it IS interactive (a button, link,
       // input, the email composer, etc.) we must fall through to the ops-action
-      // handlers below, returning here would swallow the click and leave buttons
+      // handlers below — returning here would swallow the click and leave buttons
       // like "Email Practice" dead.
       var gpExpInteractive=e.target.closest('.gp-task-detail')||e.target.closest('button')||e.target.closest('a')||e.target.closest('input')||e.target.closest('textarea')||e.target.closest('[contenteditable]')||e.target.closest('[data-preview-doc]')||e.target.closest('.ops-email-composer-ahpra')||e.target.closest('.ops-action-row');
       if(gpExpBtn&&!gpExpInteractive){
@@ -6718,7 +6718,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
-        else alert('No document data available, try refreshing the page');
+        else alert('No document data available — try refreshing the page');
         return;
       }
 
@@ -6727,7 +6727,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
       const impBtn=e.target.closest("[data-impersonate-gp]");if(impBtn){const uid=impBtn.getAttribute("data-impersonate-gp");if(uid)window.open('/api/admin/impersonate?user_id='+encodeURIComponent(uid),'_blank');return;}
       const cn=e.target.closest("[data-case-nudge]");if(cn){openNudgeModal(cn.getAttribute("data-case-nudge"),cn.getAttribute("data-nudge-stage"),cn.getAttribute("data-nudge-substage"),cn.getAttribute("data-nudge-name"));return;}
-      /* Visa questionnaire actions (Phase 6 I3), must run BEFORE the step-toggle handler */
+      /* Visa questionnaire actions (Phase 6 I3) — must run BEFORE the step-toggle handler */
       const vqReq=e.target.closest("[data-vq-request]");if(vqReq){vqAction(vqReq,"/api/admin/visa/questionnaire/request",{visaCaseId:vqReq.getAttribute("data-vq-request"),userId:vqReq.getAttribute("data-vq-user")},"Questionnaire requested from the GP");return;}
       const vqAppr=e.target.closest("[data-vq-approve]");if(vqAppr){vqAction(vqAppr,"/api/admin/visa/questionnaire/review",{visaCaseId:vqAppr.getAttribute("data-vq-approve"),action:"approve"},"Questionnaire approved");return;}
       const vqRetT=e.target.closest("[data-vq-return-toggle]");if(vqRetT){const p=document.getElementById("vqReturnPanel");if(p)p.style.display=p.style.display==="none"?"block":"none";return;}
@@ -6896,7 +6896,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           +'<div style="font-size:0.85rem;color:#555">Signing in requires your password plus a 6-digit code from your authenticator app. You have <strong>'+Number(d.backupCodesRemaining||0)+'</strong> backup code(s) left for lost-device recovery.</div>'
           +'<div style="border-top:1px solid #eee;padding-top:10px">'
           +'<div style="font-weight:600;margin-bottom:6px">Turn off two-factor</div>'
-          +'<div style="font-size:0.82rem;color:#666;margin-bottom:8px">Enter the current code from your app, or one of your backup codes if you lost the device.</div>'
+          +'<div style="font-size:0.82rem;color:#666;margin-bottom:8px">Enter the current code from your app — or one of your backup codes if you lost the device.</div>'
           +'<div style="display:flex;gap:6px"><input id="mfaDisableCode" type="text" placeholder="123456 or XXXX-XXXX" style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px" /><button class="btn red" id="mfaDisableBtn">Turn Off</button></div>'
           +'</div>'
           +'<div style="display:flex;justify-content:flex-end"><button class="btn" data-close-modal>Close</button></div>'
@@ -6933,16 +6933,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const grouped=String(d.secret||"").replace(/(.{4})/g,"$1 ").trim();
         mfaModalShell(
           '<div style="display:grid;gap:10px">'
-          +'<div style="font-weight:600">Step 1, Add GP Link Admin to your authenticator app</div>'
+          +'<div style="font-weight:600">Step 1 — Add GP Link Admin to your authenticator app</div>'
           +'<div style="font-size:0.85rem;color:#555">Open your authenticator app, choose <strong>Add account &rarr; Enter a setup key</strong>, and type this key (spaces don’t matter):</div>'
           +'<div style="font-family:monospace;font-size:1.02rem;letter-spacing:1px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;text-align:center" id="mfaSecretText">'+esc(grouped)+'</div>'
           +'<div style="display:flex;gap:6px"><button class="btn" id="mfaCopySecretBtn">Copy key</button><button class="btn" id="mfaCopyUriBtn" title="For apps that accept otpauth:// links">Copy setup link</button></div>'
-          +'<div style="font-weight:600;margin-top:4px">Step 2, Confirm it works</div>'
+          +'<div style="font-weight:600;margin-top:4px">Step 2 — Confirm it works</div>'
           +'<div style="font-size:0.85rem;color:#555">Enter the 6-digit code your app now shows for GP Link Admin:</div>'
           +'<div style="display:flex;gap:6px"><input id="mfaConfirmCode" type="text" inputmode="numeric" maxlength="8" placeholder="123456" style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px" /><button class="btn primary" id="mfaConfirmBtn">Turn On</button></div>'
           +'<div style="display:flex;justify-content:flex-end"><button class="btn" data-close-modal>Cancel</button></div>'
           +'</div>');
-        document.getElementById("mfaCopySecretBtn").addEventListener("click",()=>{navigator.clipboard.writeText(d.secret).then(()=>toast("Key copied","green")).catch(()=>toast("Copy failed, select the key text manually","red"));});
+        document.getElementById("mfaCopySecretBtn").addEventListener("click",()=>{navigator.clipboard.writeText(d.secret).then(()=>toast("Key copied","green")).catch(()=>toast("Copy failed — select the key text manually","red"));});
         document.getElementById("mfaCopyUriBtn").addEventListener("click",()=>{navigator.clipboard.writeText(d.otpauthUri).then(()=>toast("Setup link copied","green")).catch(()=>toast("Copy failed","red"));});
         document.getElementById("mfaConfirmBtn").addEventListener("click",async()=>{
           const code=document.getElementById("mfaConfirmCode").value.trim();
@@ -6961,23 +6961,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       mfaModalShell(
         '<div style="display:grid;gap:10px">'
         +'<div style="padding:10px 12px;border-radius:10px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;font-weight:600">Two-factor authentication is now ON</div>'
-        +'<div style="font-weight:600">Save your backup codes now, they are shown only once</div>'
+        +'<div style="font-weight:600">Save your backup codes now — they are shown only once</div>'
         +'<div style="font-size:0.85rem;color:#555">If you ever lose your phone, any ONE of these codes signs you in (each works once) and can turn two-factor off. Keep them somewhere safe, like a password manager.</div>'
         +'<div style="font-family:monospace;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center">'+codes.map(c=>'<div>'+esc(c)+'</div>').join("")+'</div>'
         +'<div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn" id="mfaCopyCodesBtn">Copy all codes</button><button class="btn primary" data-close-modal>Done</button></div>'
         +'</div>');
-      document.getElementById("mfaCopyCodesBtn").addEventListener("click",()=>{navigator.clipboard.writeText(codes.join("\n")).then(()=>toast("Backup codes copied","green")).catch(()=>toast("Copy failed, write them down manually","red"));});
+      document.getElementById("mfaCopyCodesBtn").addEventListener("click",()=>{navigator.clipboard.writeText(codes.join("\n")).then(()=>toast("Backup codes copied","green")).catch(()=>toast("Copy failed — write them down manually","red"));});
     }
     /* After a sign-in where the org requires 2FA but this admin hasn't enrolled,
-       the sign-in page sets this flag, prompt (never block). */
+       the sign-in page sets this flag — prompt (never block). */
     try{
       if(sessionStorage.getItem("gpAdminMfaEnrolPrompt")==="1"){
         sessionStorage.removeItem("gpAdminMfaEnrolPrompt");
-        setTimeout(()=>{toast("Please set up two-factor authentication, click the Security button (top right)","blue");},1500);
+        setTimeout(()=>{toast("Please set up two-factor authentication — click the Security button (top right)","blue");},1500);
       }
     }catch(e){}
 
-    /* Ops Queue bindings, stat card filter toggle */
+    /* Ops Queue bindings — stat card filter toggle */
     document.getElementById("opsStats").addEventListener("click",function(e){
       var card=e.target.closest("[data-stat-key]");if(!card)return;
       var key=card.getAttribute("data-stat-key");
@@ -6988,7 +6988,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     // Shared "Send to GP" action for AHPRA cards. Wired into BOTH the Ops Queue table
     // (#opsTableBody) AND the GP-profile Tasks pane (#detailContent) so the button works
-    // wherever the card renders, it was previously only handled in the Ops Queue. The in-app
+    // wherever the card renders — it was previously only handled in the Ops Queue. The in-app
     // AHPRA to-do (the per-document s80 fan-out) is the primary deliverable, so it is created
     // even if the notification email fails.
     async function _opsSendToGp(sendGpEmailBtn){
@@ -7012,10 +7012,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         emailOk=!!d3.ok;emailMsg=d3.message||'';
       }catch(err){emailMsg=(err&&err.message)||'Network error';}
       if(ahpraDeliver3){
-        // Create the in-app to-do regardless of the email result. This can take a few seconds,
+        // Create the in-app to-do regardless of the email result. This can take a few seconds —
         // the server AI-splits the officer request into the per-document items.
         try{await fetch('/api/admin/va/task/'+encodeURIComponent(tid3)+'/ahpra-deliver-to-gp',{method:'POST',credentials:'same-origin'});}catch(_e){}
-        showOpsToast(emailOk?'Sent to GP, emailed + added to their in-app AHPRA to-do':'Added to GP’s AHPRA to-do (email not sent)',emailOk?'':'red');
+        showOpsToast(emailOk?'Sent to GP — emailed + added to their in-app AHPRA to-do':'Added to GP’s AHPRA to-do (email not sent)',emailOk?'':'red');
       }else if(emailOk){
         if(flipStatus3){try{await fetch('/api/admin/task?id='+encodeURIComponent(tid3),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus3})});}catch(_e){}}
         showOpsToast('Email sent to GP');
@@ -7159,7 +7159,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             }
             if(ahpraDeliver3){
               try{await fetch('/api/admin/va/task/'+encodeURIComponent(tid3)+'/ahpra-deliver-to-gp',{method:'POST',credentials:'same-origin'});}catch(_e){}
-              showOpsToast('Sent to GP, emailed + added to their in-app AHPRA to-do');loadOpsQueue();
+              showOpsToast('Sent to GP — emailed + added to their in-app AHPRA to-do');loadOpsQueue();
             }else{showOpsToast('Email sent to GP');loadOpsQueue();}
           }else{showOpsToast(d3.message||'Email failed','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send Email to GP';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send Email to GP';}
@@ -7208,7 +7208,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             // Finalize: upload edited SPPA to Drive + MyDocuments, then complete task
             await fetch('/api/admin/va/task/'+encodeURIComponent(tid5)+'/sppa-finalize-edit',{method:'POST',credentials:'same-origin'}).catch(function(){});
             await fetch('/api/admin/task?id='+encodeURIComponent(tid5),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
-            showOpsToast('Email sent to AHPRA, SPPA updated in Drive & GP documents');loadOpsQueue();
+            showOpsToast('Email sent to AHPRA — SPPA updated in Drive & GP documents');loadOpsQueue();
           }else{showOpsToast(d5.message||'Email failed','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
         return;
@@ -7355,9 +7355,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       reader.onload=async function(){
         try{
           // Mark existing current docs as not current
-          // Then insert new doc, we'll use a simple approach via the existing upload endpoint if available, or direct supabase
+          // Then insert new doc — we'll use a simple approach via the existing upload endpoint if available, or direct supabase
           showOpsToast('Uploading '+file.name+'\u2026');
-          // For now, just complete the upload conceptually, the server-side endpoint handles Drive upload
+          // For now, just complete the upload conceptually — the server-side endpoint handles Drive upload
           // We can POST to task/submit-drive after upload or just reload
           showOpsToast('File selected: '+file.name+'. Use Submit to Drive to upload.','amber');
           fileInput.value='';
@@ -7411,14 +7411,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function fmtIvDate(iso){
-    if(!iso)return"-";
+    if(!iso)return"—";
     const d=new Date(iso);
     return d.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})+" at "+d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
   }
   function ivFormatClass(f){return(f||"").toLowerCase().replace(/\s+/g,"_");}
   function ivFormatLabel(f){
     const map={video:"Video",phone:"Phone",in_person:"In Person","video call":"Video","phone call":"Phone","in person":"In Person"};
-    return map[(f||"").toLowerCase()]||f||"-";
+    return map[(f||"").toLowerCase()]||f||"—";
   }
 
   function renderInterviewsPanel(){
@@ -7645,7 +7645,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ══════════════════════════════════════════════
-     VA Dashboard rebuild, Today / Users / Tickets
+     VA Dashboard rebuild — Today / Users / Tickets
      ══════════════════════════════════════════════ */
   async function loadVaDashboard(){
     // Preserve detail cache for the currently selected GP to avoid "Loading..." flicker
@@ -7790,7 +7790,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='<td>'+srcBadge+'</td>';
       const nudgeTag=item.source==="nudge_reply"?' <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle">Nudge Reply</span>':"";
       h+='<td>'+esc(item.title||"")+nudgeTag+'</td>';
-      h+='<td>'+esc(item.stage||"-")+'</td>';
+      h+='<td>'+esc(item.stage||"—")+'</td>';
       h+='<td>'+priDot+'</td>';
       h+='<td><span class="'+statusCls+'">'+statusLabel+'</span></td>';
       h+='<td>'+fmtR(item.created_at)+'</td>';
@@ -7833,9 +7833,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── Registration Email Hub: Inbox tab (conversation list + thread + reply) ──
   // ── Phase 6 I1 (audit M2): outbound template library ─────────────────────
   // "Insert template ▾" selects (attribute data-tpl-insert) are populated from
-  // GET /api/admin/email-templates (cached) and insert the template body, with
+  // GET /api/admin/email-templates (cached) and insert the template body — with
   // simple {{firstName}}/{{gpName}}/{{practiceName}}/{{rsoName}} substitution
-  // from data attributes, into the composer textarea. AI suggest-reply and
+  // from data attributes — into the composer textarea. AI suggest-reply and
   // free typing stay untouched: the template text is appended, never auto-sent.
   var _tplPromise=null,_tplResolved=null;
   function fetchEmailTemplates(){
@@ -7920,7 +7920,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var b=e.target&&e.target.closest&&e.target.closest(".fmt-toolbar [data-fmt]");
     if(!b)return;
     var bar=b.closest(".fmt-toolbar");
-    // Resolve the textarea within the same composer first, both hub panels use
+    // Resolve the textarea within the same composer first — both hub panels use
     // id="hubReply", so a bare getElementById could hit the other (hidden) panel.
     var wrap=bar.closest(".hub-composer");
     var ta=wrap?wrap.querySelector("textarea"):null;
@@ -7978,7 +7978,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const panel=document.getElementById(PANEL);if(!panel)return;
       const needs=convs.filter(function(c){return c.needsReply;}).length;
       // The Mine / All RSOs scope toggle is super-admin-only. A regular RSO (and the
-      // "View RSO POV" preview, where isSA() is false) is locked to their own mail,
+      // "View RSO POV" preview, where isSA() is false) is locked to their own mail —
       // the server also forces scope=mine for non-super-admins, so this is defence in
       // depth, not the sole gate.
       const scopeToggle=isSA()
@@ -8072,14 +8072,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // conversation's counterparty (the doctor / practice this case talks to).
       var target=sel?(sel.to||header.to||""):(header.to||"");
       var canSend=!!target;
-      var sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+", GP Link":"GP Link Registration";
+      var sendingAs=(header&&header.assignedRsoName)?header.assignedRsoName+" — GP Link":"GP Link Registration";
       var senderEmail=(header&&header.senderEmail)||"registration@mygplink.com.au";
       // Preserve half-typed drafts across repaints (selection / expand clicks re-render).
       var _r=panel.querySelector("#hubReply"),_c=panel.querySelector("#hubCc"),_s=panel.querySelector("#hubSubj");
       var draft={reply:_r?_r.value:"",cc:_c?_c.value:"",subj:_s?_s.value:""};
       var modeLine=sel
         ?'<div class="hub-mode is-reply">↩ Replying in: <b>'+esc(sel.subject||"(no subject)")+'</b>'+(target?' · to '+esc(target):'')+'<button type="button" class="tg-clear" id="hubClearSel">✕ switch to new email</button></div>'
-        :'<div class="hub-mode is-new">✉ New separate email'+(target?' · to '+esc(target):'')+'<span class="hub-mode-hint">, or click an email above to reply in its thread</span></div>';
+        :'<div class="hub-mode is-new">✉ New separate email'+(target?' · to '+esc(target):'')+'<span class="hub-mode-hint"> — or click an email above to reply in its thread</span></div>';
       panel.innerHTML=
         '<button class="hub-back">← Inbox</button>'+
         '<div class="hub-thread-head"><h2>'+esc(header.name)+'</h2>'+
@@ -8090,14 +8090,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="hub-composer"><div class="hub-sendingas">Sending as: <b>'+esc(sendingAs)+'</b> &lt;'+esc(senderEmail)+'&gt;</div>'+
         modeLine+
         (sel?"":'<input id="hubSubj" class="hub-subj" type="text" placeholder="Subject of the new email (required)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 0;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>')+
-        '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional, comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
+        '<input id="hubCc" class="hub-cc" type="text" placeholder="Cc (optional — comma-separated email addresses)" autocomplete="off" style="width:100%;box-sizing:border-box;margin:8px 0 8px;padding:7px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px"'+(canSend?"":" disabled")+'>'+
         '<div class="hub-suggest-row"><button class="hub-suggest"'+(((sel&&sel.latestTaskId)||header.latestTaskId)?'':' disabled')+'>✦ Suggest a reply</button>'+
         '<select data-tpl-insert data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
-        '<span class="hub-suggest-note">AI draft, review before sending</span></div>'+
+        '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
         fmtToolbarHtml("","margin:2px 12px 6px")+
         '<textarea id="hubReply" placeholder="'+(sel?"Type your reply…":"Type your new email…")+'"'+(canSend?"":" disabled")+'></textarea>'+
         '<div class="hub-composer-foot">'+
-          (canSend?"":'<span class="hub-nosend">No reply address found for this conversation, open the case to reply.</span>')+
+          (canSend?"":'<span class="hub-nosend">No reply address found for this conversation — open the case to reply.</span>')+
           '<button id="hubSend" class="hub-send"'+(canSend?"":" disabled")+'>'+(sel?"Send reply":"Send new email")+'</button></div></div>';
       var r2=panel.querySelector("#hubReply");if(r2)r2.value=draft.reply;
       var c2=panel.querySelector("#hubCc");if(c2)c2.value=draft.cc;
@@ -8146,7 +8146,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }).catch(function(){sgBtn.disabled=false;sgBtn.textContent="✦ Suggest a reply";});
         });
       }
-      // The thread list no longer scrolls internally, bring the composer (just under the
+      // The thread list no longer scrolls internally — bring the composer (just under the
       // newest email) into view instead, whatever ancestor actually scrolls.
       if(scrollToEnd){const c=panel.querySelector(".hub-composer");if(c&&c.scrollIntoView)c.scrollIntoView({block:"nearest"});}
     }
@@ -8185,7 +8185,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     function hubDisplayBody(m){
       var t=hubStripQuoted(m.body_text||"");
       if(!t&&m.body_html)t=hubStripQuoted(hubHtmlToText(m.body_html));
-      if(!t)return '<div class="hub-msg-body" style="color:#9aa3b2;font-style:italic">(no message text, open the original email)</div>';
+      if(!t)return '<div class="hub-msg-body" style="color:#9aa3b2;font-style:italic">(no message text — open the original email)</div>';
       return '<div class="hub-msg-body">'+esc(t).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")+'</div>';
     }
     function hubFmtTime(v){var d=v?new Date(v):null;return (d&&!isNaN(d.getTime()))?d.toLocaleString():"";}
@@ -8264,7 +8264,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(sel.threadId){
           payload.threadId=sel.threadId;
         }else{
-          // The selected thread is a group of our automated notifications, no Gmail thread
+          // The selected thread is a group of our automated notifications — no Gmail thread
           // exists yet. Thread only on ids this group actually has (never the case's other
           // mail), and adopt the group's rows into the Gmail thread this send creates so the
           // whole exchange stays one conversation.
@@ -8422,7 +8422,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+=`<div class="inbox-section-title">NORMAL <span class="count">${normal.length} tasks across ${normalGroups.length} GP${normalGroups.length===1?"":"s"}</span></div><div class="today-grid">${normalGroups.map(gpTaskCard).join("")}</div>`;
     }
     if(!unmatchedDocs.length&&!iqTodos.length&&!tickets.length&&!urgent.length&&!overdue.length&&!blocked.length&&!normal.length){
-      h+='<div class="empty" style="margin-top:20px">All clear, no pending tickets or tasks.</div>';
+      h+='<div class="empty" style="margin-top:20px">All clear — no pending tickets or tasks.</div>';
     }
     el.innerHTML=h;
     // Populate assign-to-task dropdowns for unmatched docs
@@ -8553,7 +8553,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     if (sppaState === 'gp_returned') {
       html += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
-      html += '<span style="color:#b45309">Filled by the GP, ready to send to the practice</span>';
+      html += '<span style="color:#b45309">Filled by the GP — ready to send to the practice</span>';
       html += '</div>';
       html += '<div class="sppa-actions">';
       html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
@@ -8661,9 +8661,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d && d.ok) {
         var s = d.gp_section_scan || {};
-        if (s.overall === 'incomplete') toast('Candidate sections look incomplete, see card', 'red');
+        if (s.overall === 'incomplete') toast('Candidate sections look incomplete — see card', 'red');
         else if (s.overall === 'complete') toast('Candidate sections complete');
-        else toast('Scan finished, see card');
+        else toast('Scan finished — see card');
         loadAll(true);
       } else { toast((d && d.error) || 'Scan failed', 'red'); }
     }).catch(function () { toast('Network error', 'red'); });
@@ -8712,8 +8712,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         });
         var d = await r.json().catch(function () { return {}; });
         if (d && d.ok) {
-          if (statusEl) { statusEl.textContent = file.name + ' uploaded, ready to send'; statusEl.style.color = '#059669'; }
-          toast('Corrected SPPA uploaded, now send to AHPRA');
+          if (statusEl) { statusEl.textContent = file.name + ' uploaded — ready to send'; statusEl.style.color = '#059669'; }
+          toast('Corrected SPPA uploaded — now send to AHPRA');
         } else {
           if (statusEl) { statusEl.textContent = 'Upload failed: ' + (d.error || ''); statusEl.style.color = '#dc2626'; }
         }
@@ -8759,7 +8759,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         body: JSON.stringify({ corrections: corrections, candidate_email: candidateEmail, gp_name: gpName })
       });
       var d = await r.json().catch(function () { return {}; });
-      if (d && d.ok) { toast('Corrections requested, email sent to GP'); await loadAll(true); }
+      if (d && d.ok) { toast('Corrections requested — email sent to GP'); await loadAll(true); }
       else { toast((d && d.error) || 'Failed to send', 'red'); }
     } catch (err) { toast('Network error', 'red'); }
   }
@@ -8774,7 +8774,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         body: JSON.stringify({ corrections: corrections, practice_email: practiceEmail, contact_name: contactName, gp_name: gpName })
       });
       var d = await r.json().catch(function () { return {}; });
-      if (d && d.ok) { toast('Corrections requested, email sent to practice'); await loadAll(true); }
+      if (d && d.ok) { toast('Corrections requested — email sent to practice'); await loadAll(true); }
       else { toast((d && d.error) || 'Failed to send', 'red'); }
     } catch (err) { toast('Network error', 'red'); }
   }
@@ -8786,7 +8786,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var d = await r.json().catch(function () { return {}; });
       if (d && d.ok) {
         if (d.sppa_state === 'practice_returned') {
-          toast("The practice's reply was found and attached, review the completeness check");
+          toast("The practice's reply was found and attached — review the completeness check");
         } else {
           toast('No new practice reply found yet.');
         }
@@ -8807,9 +8807,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (d && d.ok) {
         if (d.recovered) {
           if (statusEl) statusEl.textContent = 'CV found and delivered for review.';
-          toast('The alternate-supervisor CV was found and attached, review it');
+          toast('The alternate-supervisor CV was found and attached — review it');
         } else if (d.reason === 'found-unmatched') {
-          if (statusEl) statusEl.textContent = 'A reply was found but no CV was recognised, see the case timeline.';
+          if (statusEl) statusEl.textContent = 'A reply was found but no CV was recognised — see the case timeline.';
           toast('A practice reply was found but no CV was recognised', 'red');
         } else {
           if (statusEl) statusEl.textContent = 'No CV reply found yet.';
@@ -8834,7 +8834,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var d = await r.json().catch(function () { return {}; });
       if (d && d.ok) { toast('SPPA-00 submitted and delivered to GP'); await loadAll(true); return; }
       if (d && d.needs_review) {
-        // AI flagged the form as not ready, show what's missing and let the RSO decide.
+        // AI flagged the form as not ready — show what's missing and let the RSO decide.
         var cc = d.completeness || {};
         var lines = [];
         function _push(label, arr) { if (arr && arr.length) lines.push(label + ':\n  - ' + arr.join('\n  - ')); }
@@ -8859,7 +8859,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-completeness-check', { method: 'POST', credentials: 'include' });
       var d = await r.json().catch(function () { return {}; });
       if (d && d.ok) {
-        toast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found, see card');
+        toast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found — see card');
         await loadAll(true);
       } else {
         toast((d && d.error) || 'Check could not run', 'red');
@@ -8877,7 +8877,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
-  /* renderTodayPanel removed, replaced by renderInboxPanel */
+  /* renderTodayPanel removed — replaced by renderInboxPanel */
 
 
 
@@ -8991,7 +8991,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     S.search.query=q;
     const ql=q.toLowerCase();
 
-    // Client-side: GPs, merge dashboard users + S.cases + dashboard candidates
+    // Client-side: GPs — merge dashboard users + S.cases + dashboard candidates
     // Use a Map keyed by user_id to merge fields across sources
     const gpMap=new Map();
     function mergeGp(key,rec){
@@ -9071,7 +9071,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+=group("GPs",gps,function(g){var sub=esc(g.stage||"");if(g.gp_email)sub+=(sub?" \u2022 ":"")+esc(g.gp_email);return'<div class="top-search-row" data-search-gp="'+esc(g.case_id)+'"><div class="top-search-row-main">'+esc(g.gp_name)+'</div><div class="top-search-row-sub">'+sub+'</div></div>';},S.search.clientResults.gps);
     h+=group("Tasks",tasks,function(t){return'<div class="top-search-row" data-search-task="'+esc(t.id)+'" data-search-case="'+esc(t.case_id)+'"><div class="top-search-row-main">'+esc(t.title)+'</div><div class="top-search-row-sub">'+esc(t.gp_name||"")+'</div></div>';},S.search.clientResults.tasks);
     h+=group("Tickets",tickets,function(tk){return'<div class="top-search-row" data-search-ticket="'+esc(tk.id)+'" data-search-user="'+esc(tk.user_id)+'"><div class="top-search-row-main">'+esc(tk.title||"Support request")+'</div><div class="top-search-row-sub">'+esc(tk.gp_name||"")+'</div></div>';},S.search.clientResults.tickets);
-    h+=group("Documents",docs,function(d){return'<div class="top-search-row" data-search-doc-user="'+esc(d.user_id)+'" data-search-doc-key="'+esc(d.key)+'"><div class="top-search-row-main">'+esc(d.label)+', '+esc(d.file_name)+'</div><div class="top-search-row-sub">'+esc(d.gp_name||"")+'</div></div>';},S.search.serverResults.documents);
+    h+=group("Documents",docs,function(d){return'<div class="top-search-row" data-search-doc-user="'+esc(d.user_id)+'" data-search-doc-key="'+esc(d.key)+'"><div class="top-search-row-main">'+esc(d.label)+' — '+esc(d.file_name)+'</div><div class="top-search-row-sub">'+esc(d.gp_name||"")+'</div></div>';},S.search.serverResults.documents);
     h+=group("Notes",notes,function(n){return'<div class="top-search-row" data-search-note-case="'+esc(n.case_id)+'"><div class="top-search-row-main">'+esc(n.title||n.event_type||"note")+'</div><div class="top-search-row-sub">'+esc(n.gp_name||"")+' · '+fmtR(n.created_at)+'</div></div>';},S.search.serverResults.notes);
     if(S.search.loading)h+='<div class="top-search-footer">Searching documents and notes…</div>';
     el.innerHTML=h;
@@ -9220,7 +9220,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     const openCase=e.target.closest("[data-view-todo-case]");
     if(openCase){
-      /* Don't intercept clicks on links or buttons inside the card, let them do their own thing */
+      /* Don't intercept clicks on links or buttons inside the card — let them do their own thing */
       const isLink=e.target.closest("a[href]");
       const isBtn=e.target.closest("button");
       if(isLink)return;/* allow link navigation */
@@ -9313,7 +9313,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.requestRevision = requestRevision;
   window.dismissAttachment = dismissAttachment;
   window.assignUnmatchedDoc = assignUnmatchedDoc;
-  // window.markTaskWaiting removed, status changes only on confirmed send
+  // window.markTaskWaiting removed — status changes only on confirmed send
   window.uploadTaskDoc = uploadTaskDoc;
   if (typeof openPDEditor === 'function') window.openPDEditor = openPDEditor;
   if (typeof approvePositionDescription === 'function') window.approvePositionDescription = approvePositionDescription;
@@ -9391,7 +9391,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         toast(d.amended + ' field(s) saved');
         closePdfEditor();
         if (saveStatus) { saveStatus.textContent = 'Saved \u2713'; saveStatus.style.color = '#059669'; }
-        // Refresh just the task detail without closing it, re-fetch docs
+        // Refresh just the task detail without closing it — re-fetch docs
         var expandedTaskId = taskId;
         if (S.opsExpandedId === expandedTaskId) {
           // Ops queue: re-render the expanded row
@@ -9426,7 +9426,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (found && (found.attachment_url || found.google_drive_url)) {
         openDocPreviewModal(found.attachment_url || found.google_drive_url, found.filename || 'document', docId);
       } else {
-        alert('Document data not available, try refreshing');
+        alert('Document data not available — try refreshing');
       }
     }
   }
@@ -9469,7 +9469,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var r = await fetch('/api/admin/calls/suggest-reason', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({ task_id: taskId }) });
       var d = await r.json();
       if (d && d.ok && d.suggestedReason) reasonField.value = d.suggestedReason;
-    } catch (e) { /* leave blank on failure, admin can type their own */ }
+    } catch (e) { /* leave blank on failure — admin can type their own */ }
     finally { reasonField.disabled = false; reasonField.setAttribute('placeholder', origPh); }
   }
   window.autofillZoomReason = autofillZoomReason;
@@ -9564,7 +9564,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html += '<div class="zoom-summary-toggle" onclick="var el=document.getElementById(\'' + sumId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">Meeting Summary \u25BE</div>';
       html += '<div class="zoom-summary-content" id="' + sumId + '" style="display:none">' + esc(call.meeting_summary) + '</div>';
     }
-    // Action buttons, Cancel/Reschedule/No Show only for live calls (backend
+    // Action buttons — Cancel/Reschedule/No Show only for live calls (backend
     // rejects cancel unless status is invited/booked). no_show + cancelled are
     // "needs rebooking" states and only offer Schedule new call.
     if (call.status === 'invited' || call.status === 'booked') {
@@ -9700,7 +9700,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/calls/' + encodeURIComponent(callId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'reschedule' }) });
       var d = await r.json();
-      if (d.ok) { showOpsToast('Call rescheduled, new invite sent'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
+      if (d.ok) { showOpsToast('Call rescheduled — new invite sent'); refreshAfterCallAction(); } else { alert('Failed: ' + (d.message || 'Unknown error')); }
     } catch (e) { alert('Error: ' + e.message); }
   }
   window.rescheduleZoomCall = rescheduleZoomCall;
@@ -9754,7 +9754,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   // Returns the stage (myintealth/amc/ahpra) if a "Schedule call?" button should
   // show for this assistance task, else null. Only GP-originated enquiries from a
-  // registered app GP qualify, never practices/non-app senders.
+  // registered app GP qualify — never practices/non-app senders.
   function callSchedulableStageForTask(t, gpEmail){
     if(!t || !t.case_id) return null;
     if(t.task_type!=='whatsapp_help' && t.task_type!=='email_triage') return null;
@@ -9828,7 +9828,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)"><b>' + escS(it.gp_name) + '</b>' +
             (it.blocker_status ? ' <span style="color:#dc2626;font-size:11px">⛔ ' + escS(it.blocker_status) + '</span>' : '') +
             '<br><span style="color:var(--muted);font-size:11px">' + escS(it.gp_email || '') + '</span></td>' +
-            '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)">' + escS(it.stage || '-') +
+            '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)">' + escS(it.stage || '—') +
             (it.substage ? ' <span style="color:var(--muted);font-size:11px">/ ' + escS(it.substage) + '</span>' : '') + '</td>' +
             '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9)">' + escS(it.assigned_rso || 'Unassigned') + '</td>' +
             '<td style="padding:6px 8px;border-bottom:1px solid var(--line,#f1f5f9);text-align:right;font-weight:600;color:' + tone + '">' + (it.days_stalled || 0) + '</td></tr>';
@@ -10121,7 +10121,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.closePdfEditor = closePdfEditor;
   window.ahpraEscalate = ahpraEscalate;
   window.altCvSubmit = altCvSubmit;
-  // Phase 2, Incoming Questions
+  // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
   window.assignIncomingQuestion = assignIncomingQuestion;
   window.resolveIncomingQuestion = resolveIncomingQuestion;

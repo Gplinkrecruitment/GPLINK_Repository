@@ -49,7 +49,7 @@ describe('taskVisibleToRso', () => {
 
   it('(e) hides an assignee-owned task of a NON-review type on an unassigned case', () => {
     // email_triage is auto-assigned to the default RSO even on unassigned cases.
-    // It must NOT surface via the assignee branch, that branch is only for the
+    // It must NOT surface via the assignee branch — that branch is only for the
     // candidate document checks (flagged_doc / doc_review) shown in "Document checks".
     const task = { id: 't6', assignee: ME, task_type: 'email_triage' };
     const caseRow = { assigned_rso: null, assigned_va: null };

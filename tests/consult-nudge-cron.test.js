@@ -1,6 +1,6 @@
 // Endpoint tests for GET /api/cron/consult-nudge (Task 4 of the Meta-ads GP
 // funnel plan). Boots the real server in LOCAL-JSON mode (SUPABASE_URL='')
-// against an empty temp DB file, same boot harness as
+// against an empty temp DB file — same boot harness as
 // tests/onboarding-nudge-cron.test.js and tests/consult-lead-endpoints.test.js.
 // Exercises the cron over real HTTP, not by calling handlers directly.
 //
@@ -57,7 +57,7 @@ function readDb() {
 }
 
 // dbState is loaded once at server module import and only ever mutated
-// in-memory afterwards (see server.js's loadDbState/saveDbState), a raw
+// in-memory afterwards (see server.js's loadDbState/saveDbState) — a raw
 // fs write to DB_FILE mid-test would never be picked up by the running
 // process. __testUtils.__seedUserForTest mutates the live dbState.users
 // map directly (mirrors the existing __seedSiteEnquiriesForTest pattern)
@@ -106,7 +106,7 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = '';
   process.env.ENFORCE_SAME_ORIGIN = 'false';
   process.env.DB_FILE_PATH = DB_FILE;
-  // Must be set before `import('../server.js')` below, see file-header note.
+  // Must be set before `import('../server.js')` below — see file-header note.
   process.env.RESEND_API_KEY = 'test-key';
   process.env.RESEND_API_URL = 'http://127.0.0.1:' + resendPort + '/emails';
 
@@ -160,7 +160,7 @@ describe('GET /api/cron/consult-nudge', () => {
     resendCaptured.length = 0;
     testUtils.__seedSiteEnquiriesForTest([
       seedLead({ id: 'l1', metadata: { source: 'meta_lead_ad', consult: { qualified: false, screened_out: true, nudges: [] } } }),
-      seedLead({ id: 'l2', created_at: new Date().toISOString() }), // 0 min old, not due
+      seedLead({ id: 'l2', created_at: new Date().toISOString() }), // 0 min old — not due
     ]);
     const res = await get(CRON, AUTH);
     expect(res.json.sent).toBe(0);
@@ -211,7 +211,7 @@ describe('GET /api/cron/consult-nudge', () => {
     expect(row2.metadata.consult.stopped).toBe('exhausted');
 
     // Once stopped, the lead is filtered out before nextConsultNudge even
-    // runs, scanned but skipped, no more state churn.
+    // runs — scanned but skipped, no more state churn.
     const res3 = await get(CRON, AUTH);
     expect(res3.json.sent).toBe(0);
     expect(res3.json.stopped).toBe(0);
@@ -241,7 +241,7 @@ describe('GET /api/cron/consult-nudge', () => {
   it('a lead who signed up after the final nudge is stamped converted at exhaustion, not exhausted', async () => {
     resendCaptured.length = 0;
     // Fully-sent not_booked sequence + an account created after the last
-    // email (its CTA is the signup link), the exhaustion pass must notice
+    // email (its CTA is the signup link) — the exhaustion pass must notice
     // the signup and write converted/signed_up, never the terminal exhausted
     // stop, and must not email them.
     seedLocalUser('lastemail-signup@example.co.uk');

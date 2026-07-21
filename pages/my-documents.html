@@ -1387,13 +1387,13 @@
       title: "Criminal History Check",
       steps: [
         'Complete your international criminal history check through <a href="https://www.fit2work.com.au" target="_blank" rel="noopener noreferrer">Fit2Work</a>.',
-        'When your check is complete, Fit2Work emails you a <strong>reference page</strong> (PDF). Download it and upload it below, our system reads your <strong>FIT</strong> number from it automatically.'
+        'When your check is complete, Fit2Work emails you a <strong>reference page</strong> (PDF). Download it and upload it below — our system reads your <strong>FIT</strong> number from it automatically.'
       ]
     };
     const CV_FALLBACK_HELP = {
       title: "CV",
       steps: [
-        "Upload your CV, it must be signed, dated, cover your full work and registration history, and include the declaration: ‘The curriculum vitae is true and correct as at (insert date)’."
+        "Upload your CV — it must be signed, dated, cover your full work and registration history, and include the declaration: ‘The curriculum vitae is true and correct as at (insert date)’."
       ],
       reminder: "Reminder: your CV will not be accepted unless it includes the signed and dated declaration statement."
     };
@@ -1462,12 +1462,12 @@
       }
     };
 
-    // Active config, starts as the embedded fallback and is replaced with the
+    // Active config — starts as the embedded fallback and is replaced with the
     // server's list (per country) once loadServerDocRequirements() succeeds.
     let COUNTRY_DOCS = FALLBACK_COUNTRY_DOCS;
 
-    // Fetch the per-country document requirements from the server, the single
-    // source of truth, and re-render the checklists. Graceful: any failure
+    // Fetch the per-country document requirements from the server — the single
+    // source of truth — and re-render the checklists. Graceful: any failure
     // (offline, unsupported country, server error) leaves the embedded fallback
     // in place and the page keeps working.
     const DOC_REQUIREMENTS_ENDPOINT = "/api/gp/document-requirements";
@@ -1792,8 +1792,8 @@
     // ── Multi-page CV: combine up to 10 image pages into ONE PDF ─────────────────
     // The AHPRA "CV (Signed and dated)" is often several pages captured as separate
     // photos/screenshots. The pipeline keeps ONE file per document, so combine the
-    // selected images into a single multi-page PDF, which the storage, preview and AI
-    // scan all already handle, so no page is lost. (A single PDF is left as-is.)
+    // selected images into a single multi-page PDF — which the storage, preview and AI
+    // scan all already handle — so no page is lost. (A single PDF is left as-is.)
     function _cvImageFileToJpegDataUrl(file, maxDim) {
       return readFileAsDataUrl(file).then(function (dataUrl) {
         return new Promise(function (resolve, reject) {
@@ -1901,7 +1901,7 @@
       next.storagePath = typeof payload.storagePath === "string" ? payload.storagePath : next.storagePath;
       next.storageBucket = typeof payload.storageBucket === "string" ? payload.storageBucket : next.storageBucket;
       // The server is authoritative for the review status and the reviewer's rejection
-      // reason. Without carrying these, an RSO approval/rejection never reaches the GP,
+      // reason. Without carrying these, an RSO approval/rejection never reaches the GP —
       // the card stays stuck on the locally-cached "under review".
       if (typeof payload.status === "string" && payload.status) next.status = payload.status;
       if (typeof payload.rejection_reason === "string") next.rejection_reason = payload.rejection_reason;
@@ -2054,7 +2054,7 @@
 
     function expiryInfoHtml(key, itemState) {
       var st = itemState && typeof itemState === "object" ? itemState : {};
-      // A real stored file (name/url), not just a "requested" marker, the expiry
+      // A real stored file (name/url), not just a "requested" marker — the expiry
       // endpoint needs a server-side document row to attach the date to.
       var hasFile = !!(st.fileName || st.downloadUrl);
       var expiresAt = st.expires_at ? new Date(st.expires_at) : null;
@@ -2262,7 +2262,7 @@
           var rejectedFileHtml = "";
           if (itemState.fileName) {
             var rejAttrs = itemState.downloadUrl ? 'href="' + itemState.downloadUrl + '" download="' + escapeHtml(itemState.fileName) + '"' : 'href="#" onclick="return false;" aria-disabled="true"';
-            rejectedFileHtml = '<a class="doc-rejected-file" ' + rejAttrs + ' title="Rejected file, click to download"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9.5" y1="13" x2="14.5" y2="18"></line><line x1="14.5" y1="13" x2="9.5" y2="18"></line></svg><span class="file-name">' + escapeHtml(itemState.fileName) + '</span></a>';
+            rejectedFileHtml = '<a class="doc-rejected-file" ' + rejAttrs + ' title="Rejected file — click to download"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9.5" y1="13" x2="14.5" y2="18"></line><line x1="14.5" y1="13" x2="9.5" y2="18"></line></svg><span class="file-name">' + escapeHtml(itemState.fileName) + '</span></a>';
           }
           uploadHtml = reuploadBtn + rejectedFileHtml;
         } else if (itemState.uploaded) {
@@ -2298,7 +2298,7 @@
         card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
         gplinkGrid.appendChild(card);
       });
-      // Alt Supervisor CVs section, shown if any exist (ready or preparing)
+      // Alt Supervisor CVs section — shown if any exist (ready or preparing)
       var _readyCvs = (window._altSupervisorCvs || []);
       var _readyKeys = _readyCvs.map(function(c) { return c.key; });
       // Pending alt CVs from server (authoritative) or from prepared docs state
@@ -2337,7 +2337,7 @@
     // When an admin rejects a document, the GP gets an email whose "Re-upload"
     // button links here with ?reupload=<doc_key>. Open the right tab, scroll the
     // matching document card into view and pulse it so the GP lands exactly on the
-    // document they need to re-upload, not just the documents page. Runs after a
+    // document they need to re-upload — not just the documents page. Runs after a
     // render; retries on the next render if the card isn't built yet (idempotent).
     var _reuploadDeepLinkDone = false;
     function handleReuploadDeepLink() {
@@ -2346,7 +2346,7 @@
       try { key = new URLSearchParams(window.location.search).get("reupload"); } catch (e) { return; }
       if (!key || !/^[a-z0-9_]+$/i.test(key)) return;
       // Legacy onboarding-rejection links (emails sent before 2026-07-13) pointed
-      // here, but onboarding qualification keys have no card on this page, the
+      // here, but onboarding qualification keys have no card on this page — the
       // onboarding wizard owns them. Forward to the wizard's own deep link.
       var LEGACY_ONBOARDING_REUPLOAD = {
         specialist_qualification: "specialist_qualification",
@@ -2360,12 +2360,12 @@
         var obTarget = "/pages/onboarding?reupload=" + encodeURIComponent(LEGACY_ONBOARDING_REUPLOAD[key]);
         try {
           if (window.top !== window.self) { window.top.location.href = obTarget; return; }
-        } catch (e) { /* cross-origin top, fall through */ }
+        } catch (e) { /* cross-origin top — fall through */ }
         window.location.replace(obTarget);
         return;
       }
       var card = document.querySelector('[data-doc-card="' + key + '"]');
-      if (!card) return; // cards not rendered yet, a later render will retry
+      if (!card) return; // cards not rendered yet — a later render will retry
       _reuploadDeepLinkDone = true;
       var panel = card.closest('[id^="panel-"]');
       var tab = panel ? panel.id.replace("panel-", "") : "";
@@ -2526,13 +2526,13 @@
 
       // Invariant: a failed re-scan must never remove the previously stored file.
       // The replacement upload is only saved to the server on scan SUCCESS, so when a
-      // replace-scan fails the stored server copy is the only file the GP has, each
+      // replace-scan fails the stored server copy is the only file the GP has — each
       // scan entry point snapshots the slot so the failure paths can put it back
       // instead of deleting it.
       var priorStoredDocs = {};
       function snapshotPriorStoredDoc(key, state) {
         var current = state.docs && state.docs[key];
-        // A scan already in flight left transient state in the slot, keep the
+        // A scan already in flight left transient state in the slot — keep the
         // snapshot taken when that scan started.
         if (current && current.status === "scanning") return;
         var hasStoredFile = !!(current && current.uploaded && (current.fileName || current.downloadUrl || current.storagePath || current.url));
@@ -2629,7 +2629,7 @@
             fileDataUrl: storedFile.fileDataUrl,
             reviewReason: storedFile.reviewReason || ""
           }));
-        } catch (e) { /* quota, in-memory fallback still covers this session */ }
+        } catch (e) { /* quota — in-memory fallback still covers this session */ }
       }
 
       function readPendingDocFile(key) {
@@ -2685,7 +2685,7 @@
             persistDocsState(state, true);
           }
         }).catch(function() {
-          // Stays pendingServerUpload:true with the cached file, retry layer will resend.
+          // Stays pendingServerUpload:true with the cached file — retry layer will resend.
         });
       }
 
@@ -2736,7 +2736,7 @@
 
         // Special case: the file IS the right kind of document but is missing the
         // signature/date it must carry (e.g. an unsigned or undated CV). This is NOT
-        // a "wrong document", say so plainly, the same way the certification flow
+        // a "wrong document" — say so plainly, the same way the certification flow
         // separates "what it is" from "what is wrong with it".
         var needsSignDate = /signed and dated/i.test(docTitle);
         var mentionsSignDate = /unsigned|not signed|isn'?t signed|missing[^.]*sign|no (?:visible |clear )?signature|undated|not dated|isn'?t dated|missing[^.]*date|no (?:visible |clear )?date|signed and dated/.test(blob);
@@ -2757,7 +2757,7 @@
       }
 
       function handlePreparedDocClassificationFailure(key, state, country, fileName, docTitle, message, title, scanMeta) {
-        // F3: persist the failure reason on the card, only when the server
+        // F3: persist the failure reason on the card — only when the server
         // actually counted a scan failure (technical errors don't burn attempts).
         try {
           if (scanMeta && Number(scanMeta.scanFailCount) > 0) {
@@ -2770,7 +2770,7 @@
           }
         } catch (e) {}
         // Server hit the 3-fail threshold and already routed the file to a human
-        // reviewer, reflect that instead of deleting the upload.
+        // reviewer — reflect that instead of deleting the upload.
         if (scanMeta && scanMeta.manualReview) {
           try { delete window.__gpDocScanFailures[key]; } catch (e) {}
           state.docs[key] = applyStoredFile({
@@ -2981,7 +2981,7 @@
           }
         };
 
-        // The signed & dated CV may be several pages captured as separate images,
+        // The signed & dated CV may be several pages captured as separate images —
         // combine up to 10 image pages into ONE multi-page PDF so no page is lost. A
         // single file (or a PDF) is handled as before.
         if (key === "cv_signed_dated" && files.length > 1 && files.every(isCvImageFile)) {
@@ -3075,7 +3075,7 @@
                 uploaded: true, fileName: (data.document && data.document.fileName) || file.name,
                 status: "accepted", referenceNumber: data.referenceNumber
               }, { downloadUrl: (data.document && data.document.downloadUrl) || '' });
-              // Mirror under .url too, the AHPRA download-pack snapshot reads item.url.
+              // Mirror under .url too — the AHPRA download-pack snapshot reads item.url.
               ichcState.docs.criminal_history.url = (data.document && data.document.downloadUrl) || '';
               // Keep the legacy fallback the AHPRA page also reads.
               try {
@@ -3198,7 +3198,7 @@
                   showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
                 });
               } else {
-                /* Failed, do not attach */
+                /* Failed — do not attach */
                 var issues = result.verification && Array.isArray(result.verification.issues) && result.verification.issues.length
                   ? result.verification.issues.join("<br>")
                   : "The document does not appear to be properly certified.";
@@ -3569,7 +3569,7 @@
     window.addEventListener("gp-state-hydrated", function () {
       try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule hydration error:", e); docTabPanels.direct_to_ahpra.innerHTML = '<div style="padding:12px;color:var(--gp-red-ink);font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
       renderRegistrationRows();
-      // Hydration can change the GP's country, refresh the server doc lists for it.
+      // Hydration can change the GP's country — refresh the server doc lists for it.
       try { loadServerDocRequirements(); } catch (e) {}
     }, { once: true });
   } catch(globalErr) {

@@ -1,4 +1,4 @@
-// Task C, accepting an in-app offer completes the placement (Zoho-free)
+// Task C — accepting an in-app offer completes the placement (Zoho-free)
 // + the offer_contract download fix.
 //
 // Boots the real server against the in-memory PostgREST emulator pattern from
@@ -13,7 +13,7 @@
 //     Supabase Storage path on the user_documents row; GET
 //     /api/prepared-documents lists offer_contract READ-ONLY (PUT/DELETE still
 //     reject the key → no new upload slot) and /api/prepared-documents/download
-//     resolves BOTH shapes, signed storage URL and the Drive-URL fallback for
+//     resolves BOTH shapes — signed storage URL and the Drive-URL fallback for
 //     rows delivered without a storage path.
 //  2. Accept with an offer record → offer accepted, gp_applications.status
 //     placement_secured, gp_career_state written with the offer's terms
@@ -27,14 +27,14 @@
 //  4. Decline → offer declined, stage stays 'offer', sender emailed, kind
 //     idempotent repeat, 404 for non-owners.
 //  4b. Guardrails: withdrawn/declined offers 409 (offer_not_available) with no
-//      stage change; an 'applied' app with no offer record 404s (no_offer),
+//      stage change; an 'applied' app with no offer record 404s (no_offer) —
 //      the applied→hired self-service exploit is closed.
 //  4c. Resume: offer already 'accepted' but the placement writes never landed
 //      → a repeat accept finishes them idempotently (incl. the placements
 //      dedupe guard) WITHOUT re-emailing the consultant.
 //  4d. No-applicationId fallback still picks the GP's offer-lane application.
 //  5. placements table missing (migration un-applied) → tolerant skip, accept
-//     still completes. Runs LAST, the store caches the determination.
+//     still completes. Runs LAST — the store caches the determination.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -56,7 +56,7 @@ const GP5 = { userId: 'u-gp-5', email: 'fifth@gplink-test.local' };
 const NOW = new Date().toISOString();
 
 // When true the emulator answers every /rest/v1/placements request with the
-// PostgREST "table not in schema cache" error, the un-applied-migration case.
+// PostgREST "table not in schema cache" error — the un-applied-migration case.
 let simulateMissingPlacements = false;
 
 // Captured outbound calls.
@@ -74,10 +74,10 @@ const db = {
   ],
   user_state: [
     // Real GP states always carry the progress keys (the app writes them from
-    // day one), task automation stringifies them while diffing.
+    // day one) — task automation stringifies them while diffing.
     { user_id: GP.userId, state: { gp_onboarding_complete: true, gp_push_tokens: [{ token: 'push-tok-1' }], gp_epic_progress: { completed: {} }, gp_amc_progress: { completed: {} }, gp_ahpra_progress: {}, gp_documents_prep: {} }, updated_at: NOW },
     // GP2 carries the Drive-URL-only offer_contract shape (delivered via
-    // deliverToMyDocuments + _updatePreparedDocsState, the pre-fix Zoho path).
+    // deliverToMyDocuments + _updatePreparedDocsState — the pre-fix Zoho path).
     {
       user_id: GP2.userId,
       state: {
@@ -105,7 +105,7 @@ const db = {
     { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', billing_model: 'Mixed Billing', is_active: true, job_status: 'open', ats_created: true, updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', practice_id: 'p1', location_city: 'Brisbane', location_state: 'QLD', billing_model: 'Mixed Billing', is_active: true, job_status: 'open', ats_created: true, updated_at: NOW }
   ],
   gp_applications: [
     { id: 'app-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW },
@@ -133,24 +133,24 @@ const db = {
   ],
   ats_offers: [
     // Live offers for the decline flow (app-5) and the tolerant-skip flow (app-6).
-    { id: 'offer-app5', application_id: 'app-5', user_id: GP2.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
-    { id: 'offer-app6', application_id: 'app-6', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '75 / 25', sessions_per_week: '7', compensation_range: '$320k+ estimated', start_date: '2026-11-02', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
-    // Withdrawn offer, accepting it must 409 without moving the card.
-    { id: 'offer-app7', application_id: 'app-7', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'withdrawn', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    { id: 'offer-app5', application_id: 'app-5', user_id: GP2.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    { id: 'offer-app6', application_id: 'app-6', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '75 / 25', sessions_per_week: '7', compensation_range: '$320k+ estimated', start_date: '2026-11-02', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
+    // Withdrawn offer — accepting it must 409 without moving the card.
+    { id: 'offer-app7', application_id: 'app-7', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'withdrawn', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW },
     // Already-accepted offers whose downstream placement writes never landed
-    // (status still 'applied'), the resume path must finish them.
-    { id: 'offer-app9', application_id: 'app-9', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '60 / 40', sessions_per_week: '5', compensation_range: '$290k+ estimated', start_date: '2026-09-07', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
-    { id: 'offer-app11', application_id: 'app-11', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '66 / 34', sessions_per_week: '6', compensation_range: '$305k+ estimated', start_date: '2026-09-14', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
+    // (status still 'applied') — the resume path must finish them.
+    { id: 'offer-app9', application_id: 'app-9', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '60 / 40', sessions_per_week: '5', compensation_range: '$290k+ estimated', start_date: '2026-09-07', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
+    { id: 'offer-app11', application_id: 'app-11', user_id: GP4.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '66 / 34', sessions_per_week: '6', compensation_range: '$305k+ estimated', start_date: '2026-09-14', status: 'accepted', sent_by: SUPER_EMAIL, sent_at: NOW, responded_at: NOW, created_at: NOW },
     // Live offer for the no-applicationId fallback accept.
-    { id: 'offer-app10', application_id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$340k+ estimated', start_date: '2026-10-05', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+    { id: 'offer-app10', application_id: 'app-10', user_id: GP5.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '70 / 30', sessions_per_week: '8', compensation_range: '$340k+ estimated', start_date: '2026-10-05', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   ats_stage_events: [],
   registration_tasks: [],
   task_timeline: [],
   placements: [
     // Partial first accept for app-11 got as far as the placements insert
-    // before dying, the resume's dedupe guard must not add a second row.
-    { id: 'pl-app11', user_id: GP4.userId, application_id: 'app-11', career_role_id: 'role-1', practice_id: 'p1', practice_name: 'Greenslopes Family Medical', job_title: 'General Practitioner, VR', billing_split: '66 / 34', status: 'active', placed_by: SUPER_EMAIL, placed_at: NOW, created_at: NOW }
+    // before dying — the resume's dedupe guard must not add a second row.
+    { id: 'pl-app11', user_id: GP4.userId, application_id: 'app-11', career_role_id: 'role-1', practice_id: 'p1', practice_name: 'Greenslopes Family Medical', job_title: 'General Practitioner — VR', billing_split: '66 / 34', status: 'active', placed_by: SUPER_EMAIL, placed_at: NOW, created_at: NOW }
   ],
   runtime_kv: []
 };
@@ -330,7 +330,7 @@ beforeAll(async () => {
   process.env.ADMIN_ALLOWED_HOSTS = 'admin-accept.local';
   process.env.SUPER_ADMIN_EMAILS = SUPER_EMAIL;
   process.env.ADMIN_EMAILS = '';
-  // Real email + push config so the notification legs actually run, the
+  // Real email + push config so the notification legs actually run — the
   // wrapped fetch below captures them instead of hitting the network.
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.FCM_SERVER_KEY = 'test-fcm-key';
@@ -410,7 +410,7 @@ describe('offer_contract download fix', () => {
   });
 
   it('download resolves via the DRIVE-URL fallback shape (no storage path)', async () => {
-    // GP2's row has no file_url/google_drive_file_id, only the
+    // GP2's row has no file_url/google_drive_file_id — only the
     // gp_prepared_docs KV entry written by _updatePreparedDocsState.
     const r = await gpGet('/api/prepared-documents/download?country=ie&key=offer_contract', GP2);
     expect(r.status).toBe(302);
@@ -439,7 +439,7 @@ describe('offer_contract download fix', () => {
 });
 
 // ── 2. Accept with an in-app offer → placement completes locally ───────────
-describe('POST /api/career/offer/accept, offer record exists', () => {
+describe('POST /api/career/offer/accept — offer record exists', () => {
   it('completes the placement end-to-end without Zoho', async () => {
     const sendersBefore = senderEmails().length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-1' });
@@ -461,7 +461,7 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
     expect(ev).toBeTruthy();
     expect(ev.actor).toBe('gp_accept_offer');
 
-    // gp_career_state, the exact Zoho reverse-sync shape.
+    // gp_career_state — the exact Zoho reverse-sync shape.
     const state = db.user_state.find((s) => s.user_id === GP.userId).state;
     const career = state.gp_career_state;
     expect(career.career_secured).toBe(true);
@@ -473,11 +473,11 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
     // Placement payload fields career.html's secured view reads.
     const placement = entry.placement;
     expect(placement.practiceName).toBe('Greenslopes Family Medical');
-    expect(placement.roleTitle).toBe('General Practitioner, VR');
+    expect(placement.roleTitle).toBe('General Practitioner — VR');
     expect(placement.location).toBe('Brisbane, QLD');
     expect(placement.statusLabel).toBe('Placement confirmed');
     expect(placement.startDateIso).toBe('2026-08-03');
-    // Split is always the GP's (majority) share, '70 / 30' → '70%'.
+    // Split is always the GP's (majority) share — '70 / 30' → '70%'.
     const split = placement.quickStats.find((s) => s.label === 'Split');
     expect(split.value).toBe('70%');
     expect(placement.compensation.range).toBe('$350k+ estimated');
@@ -509,7 +509,7 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
     expect(senders.length).toBe(1);
     expect(String(senders[0].body.subject)).toContain('accepted the offer');
     expect(String(senders[0].body.subject)).toContain('Test Doctor');
-    // G6: the GP is now congratulated on their own in-app acceptance, exactly
+    // G6: the GP is now congratulated on their own in-app acceptance — exactly
     // one "placement is secured" email to the GP (previously this was missing;
     // the practice-accept congrats never fired for in-app self-accept).
     const gpCongrats = resendCalls.filter((c) => {
@@ -520,7 +520,7 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
     expect(gpCongrats.length).toBe(1);
 
     // D1a: exactly one placement confirmation to the practice contact
-    // (practices.contact_email via the offer's practice_id), real doctor name.
+    // (practices.contact_email via the offer's practice_id) — real doctor name.
     const practiceConfirms = resendCalls.filter((c) => {
       const to = c.body && c.body.to;
       const toPr = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
@@ -535,7 +535,7 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
     expect(tl).toBeTruthy();
 
     // AI Matching (Task 6 review fix): the GP accepting their offer FILLS
-    // role-1, which auto-fires the redirect fan-out, the one other
+    // role-1, which auto-fires the redirect fan-out — the one other
     // live-stage row on this job (app-8, 'applied'; all other fixtures sit
     // in the 'offer' lane, which is not a redirect stage) moves to
     // not_proceeding/position_filled. This is deliberate cross-fixture
@@ -546,7 +546,7 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
     expect(redirectedRow.match_outcome).toBe('position_filled');
   });
 
-  it('repeat accept is idempotent, no new writes, no new emails', async () => {
+  it('repeat accept is idempotent — no new writes, no new emails', async () => {
     const sendersBefore = senderEmails().length;
     const placementsBefore = db.placements.length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-1' });
@@ -584,7 +584,7 @@ describe('POST /api/career/offer/accept, offer record exists', () => {
 });
 
 // ── 3. Accept WITHOUT an offer record → legacy behaviour preserved ─────────
-describe('POST /api/career/offer/accept, no offer record (legacy Zoho apps)', () => {
+describe('POST /api/career/offer/accept — no offer record (legacy Zoho apps)', () => {
   it('advances the stage only; status/placement stay untouched for the Zoho sync to write', async () => {
     const sendersBefore = senderEmails().length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-4' }, GP2);
@@ -641,7 +641,7 @@ describe('POST /api/career/offer/decline', () => {
     expect(senderEmails().length).toBe(sendersBefore);
   });
 
-  it('the doctor then sees "You declined this offer", not "preparing an offer" (F2)', async () => {
+  it('the doctor then sees "You declined this offer" — not "preparing an offer" (F2)', async () => {
     // Stage stays 'offer' + offer status 'declined' → the declined branch, not
     // the quiet offer-lane copy, and no Review Offer CTA.
     const r = await gpGet('/api/career/applications', GP2);
@@ -661,7 +661,7 @@ describe('POST /api/career/offer/decline', () => {
 });
 
 // ── 4b. Accept guardrails: dead offers + no offer evidence ─────────────────
-describe('POST /api/career/offer/accept, guardrails', () => {
+describe('POST /api/career/offer/accept — guardrails', () => {
   it('a WITHDRAWN in-app offer cannot be accepted (409, stage unchanged)', async () => {
     const sendersBefore = senderEmails().length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-7' }, GP4);
@@ -689,10 +689,10 @@ describe('POST /api/career/offer/accept, guardrails', () => {
 
   it("an application with NO offer cannot be self-hired (404, no writes from THIS call)", async () => {
     // NOTE (AI Matching Task 6): by the time this suite runs, app-8 is no
-    // longer in its seeded 'applied' state, app-1's in-app acceptance above
+    // longer in its seeded 'applied' state — app-1's in-app acceptance above
     // filled role-1 and the auto redirect fan-out legitimately moved it to
     // not_proceeding/position_filled (asserted in that test). The guardrail
-    // under test here is unchanged, this 404 must produce ZERO writes, so
+    // under test here is unchanged — this 404 must produce ZERO writes — so
     // it asserts before/after equality instead of assuming pristine fixtures.
     const before = JSON.stringify(db.gp_applications.find((a) => a.id === 'app-8'));
     const eventsBefore = db.ats_stage_events.filter((e) => e.application_id === 'app-8').length;
@@ -709,7 +709,7 @@ describe('POST /api/career/offer/accept, guardrails', () => {
 });
 
 // ── 4c. Resume: offer already 'accepted' but the placement never finished ──
-describe('POST /api/career/offer/accept, resume after a partial first accept', () => {
+describe('POST /api/career/offer/accept — resume after a partial first accept', () => {
   const practiceConfirmCount = () => resendCalls.filter((c) => {
     const to = c.body && c.body.to;
     const toPr = (Array.isArray(to) ? to : [to]).some((t) => String(t || '').includes('anna@greenslopes-test.local'));
@@ -734,14 +734,14 @@ describe('POST /api/career/offer/accept, resume after a partial first accept', (
     expect(entry.isPlacementSecured).toBe(true);
     expect(entry.placement.practiceName).toBe('Greenslopes Family Medical');
 
-    // The missing placements row is backfilled, exactly one.
+    // The missing placements row is backfilled — exactly one.
     expect(db.placements.filter((p) => p.application_id === 'app-9').length).toBe(1);
 
     // The consultant email belongs to the sent→accepted transition (which
-    // already happened before the crash), the resume must NOT email again.
+    // already happened before the crash) — the resume must NOT email again.
     expect(senderEmails().length).toBe(sendersBefore);
     // D1a: the practice confirmation is also tied to the sent→accepted
-    // transition, the resume path must NOT send it (fires exactly once).
+    // transition — the resume path must NOT send it (fires exactly once).
     expect(practiceConfirmCount()).toBe(practiceBefore);
   });
 
@@ -768,7 +768,7 @@ describe('POST /api/career/offer/accept, resume after a partial first accept', (
 });
 
 // ── 4d. No-applicationId fallback still picks the offer-lane application ───
-describe('POST /api/career/offer/accept, no applicationId in the body', () => {
+describe('POST /api/career/offer/accept — no applicationId in the body', () => {
   it('accepts the (single) offer-lane application end-to-end', async () => {
     const sendersBefore = senderEmails().length;
     const r = await gpPost('/api/career/offer/accept', {}, GP5);

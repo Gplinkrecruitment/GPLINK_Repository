@@ -1,4 +1,4 @@
-// Phase 6 G1 (R2), automatic chasing of non-responders.
+// Phase 6 G1 (R2) — automatic chasing of non-responders.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator and a
 // captured Resend transport (Gmail is unconfigured here so the chase falls
@@ -10,7 +10,7 @@
 //      than the window gets a follow-up; an officer who replied last is
 //      never chased;
 //   C) a GP stalled ≥14 days in an extended stage (career/ahpra/visa/pbs)
-//      is chased (email + stall_chase task), myintealth/amc stay with the
+//      is chased (email + stall_chase task) — myintealth/amc stay with the
 //      weekly sweep; the chase is TRANSACTIONAL (sent even with notification
 //      prefs off and the address on the suppression list);
 //   D) nothing inside its window is chased, the per-run cap bounds each
@@ -59,17 +59,17 @@ const db = {
     // GP-stall cases
     { id: 'c-gp1', user_id: 'u-gp1', stage: 'ahpra', substage: '', status: 'active', created_at: iso(-40), updated_at: iso(-20), last_gp_activity_at: iso(-20) },
     { id: 'c-gp2', user_id: 'u-gp2', stage: 'pbs', status: 'active', created_at: iso(-40), updated_at: iso(-5), last_gp_activity_at: iso(-5) },
-    // myintealth stall, weekly-sweep territory, must NOT be chased here
+    // myintealth stall — weekly-sweep territory, must NOT be chased here
     { id: 'c-gp3', user_id: 'u-gp3', stage: 'myintealth', status: 'active', created_at: iso(-40), updated_at: iso(-20), last_gp_activity_at: iso(-20) }
   ],
   registration_tasks: [
     // A) SPPA sent to practice 6 days ago (window 4d) → chase
     { id: 't-sppa1', case_id: 'c-pr1', task_type: 'document', related_document_key: 'sppa_00', status: 'waiting_on_practice', title: 'SPPA-00', gmail_thread_id: null, updated_at: iso(-6), created_at: iso(-10), metadata: { sppa_state: 'sent_to_practice', sent_to_practice_at: iso(-6), sent_to_practice_email: PRACTICE_A } },
-    // A) second overdue practice, used to prove the per-run cap
+    // A) second overdue practice — used to prove the per-run cap
     { id: 't-sppa2', case_id: 'c-pr2', task_type: 'document', related_document_key: 'sppa_00', status: 'waiting_on_practice', title: 'SPPA-00', gmail_thread_id: null, updated_at: iso(-8), created_at: iso(-12), metadata: { sppa_state: 'sent_to_practice', sent_to_practice_at: iso(-8), sent_to_practice_email: PRACTICE_B } },
     // A) inside the window (sent yesterday) → NOT chased
     { id: 't-sppa3', case_id: 'c-pr3', task_type: 'document', related_document_key: 'sppa_00', status: 'waiting_on_practice', title: 'SPPA-00', gmail_thread_id: null, updated_at: iso(-1), created_at: iso(-2), metadata: { sppa_state: 'sent_to_practice', sent_to_practice_at: iso(-1), sent_to_practice_email: PRACTICE_FRESH } },
-    // B) officer silent, our outbound is the latest message, 10 days old (window 6d) → chase
+    // B) officer silent — our outbound is the latest message, 10 days old (window 6d) → chase
     { id: 't-ah1', case_id: 'c-of1', task_type: 'ahpra_correspondence', status: 'waiting_on_external', title: 's80 notice', gmail_thread_id: 'th-of1', updated_at: iso(-10), created_at: iso(-20), metadata: {} },
     // B) officer replied last → never chased
     { id: 't-ah2', case_id: 'c-of2', task_type: 'ahpra_correspondence', status: 'waiting_on_external', title: 's80 notice', gmail_thread_id: 'th-of2', updated_at: iso(-10), created_at: iso(-20), metadata: {} }
@@ -239,7 +239,7 @@ beforeAll(async () => {
   process.env.ADMIN_EMAILS = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.CRON_SECRET = CRON_SECRET;
-  // Category windows (defaults), set explicitly so the test is self-describing
+  // Category windows (defaults) — set explicitly so the test is self-describing
   process.env.CHASE_PRACTICE_SPPA_DAYS = '4';
   process.env.CHASE_AHPRA_OFFICER_DAYS = '6';
   process.env.CHASE_GP_STALL_DAYS = '14';
@@ -278,7 +278,7 @@ describe('GET /api/cron/chase-nonresponders', () => {
     expect(sentEmails.length).toBe(0);
   });
 
-  it('run 1 (cap=1): chases ONE practice, the silent officer, and the stalled GP, nothing inside its window', async () => {
+  it('run 1 (cap=1): chases ONE practice, the silent officer, and the stalled GP — nothing inside its window', async () => {
     const r = await httpReq('GET', '/api/cron/chase-nonresponders', { bearer: CRON_SECRET });
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -295,7 +295,7 @@ describe('GET /api/cron/chase-nonresponders', () => {
     expect(officerMails.length).toBe(1);
     expect(officerMails[0].subject).toMatch(/^Re: /);
 
-    // GP stalled 20d on ahpra chased, TRANSACTIONAL: prefs off + suppressed,
+    // GP stalled 20d on ahpra chased — TRANSACTIONAL: prefs off + suppressed,
     // still sent (suppression only ever gates category:'marketing').
     expect(r.body.gp).toBe(1);
     expect(emailsTo(GP_STALLED).length).toBe(1);
@@ -319,7 +319,7 @@ describe('GET /api/cron/chase-nonresponders', () => {
     const ah2 = db.registration_tasks.find((t) => t.id === 't-ah2');
     expect(ah2.metadata.officer_chase_last_at).toBeUndefined();
 
-    // Heartbeat recorded by the dispatcher, written just AFTER the response
+    // Heartbeat recorded by the dispatcher — written just AFTER the response
     // is sent, so poll briefly.
     let hb = null;
     for (let i = 0; i < 20 && !hb; i++) {
@@ -347,7 +347,7 @@ describe('GET /api/cron/chase-nonresponders', () => {
     expect(emailsTo(GP_STALLED).length).toBe(1);
   });
 
-  it('run 3: everything is inside its window, nothing is sent (once-per-window dedup)', async () => {
+  it('run 3: everything is inside its window — nothing is sent (once-per-window dedup)', async () => {
     const before = sentEmails.length;
     const r = await httpReq('GET', '/api/cron/chase-nonresponders', { bearer: CRON_SECRET });
     expect(r.status).toBe(200);

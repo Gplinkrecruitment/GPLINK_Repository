@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Phase 3 Task 4, static source pins on the CEO Jobs tab client script
+// Phase 3 Task 4 — static source pins on the CEO Jobs tab client script
 // (same style as tests/ceo-practices-ui.test.js: readFile + regex asserts).
 const root = process.cwd();
 const src = fs.readFileSync(path.join(root, 'js/ceo-ats-jobs.js'), 'utf8');
@@ -84,11 +84,11 @@ describe('CEO Jobs tab UI (Phase 3 Task 4)', () => {
   });
 
   it('settings enum selects guard against a phantom blank-baseline diff', () => {
-    // A selected "Not set" (value "") option is prepended when the baseline
+    // A selected "— Not set —" (value "") option is prepended when the baseline
     // billing_style / type is empty or unmapped, so an untouched select does
     // not default to the first real option and silently PATCH it.
-    expect(src).toMatch(/Not set/);
-    expect(src).toMatch(/<option value="" selected>Not set<\/option>/);
+    expect(src).toMatch(/— Not set —/);
+    expect(src).toMatch(/<option value="" selected>— Not set —<\/option>/);
     // Both the billing and type selects use the blank-guarding helpers.
     expect(src).toMatch(/id="atsJsBilling">'\s*\+\s*valueOptionsMaybeBlank\(BILLING_STYLE_OPTS, e\.billing_style\)/);
     expect(src).toMatch(/id="atsJsType">'\s*\+\s*plainOptionsMaybeBlank\(JOB_TYPES, e\.employment_type\)/);

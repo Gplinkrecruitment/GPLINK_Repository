@@ -1,4 +1,4 @@
-// Phase 6 E1 (audit B4), lead / archive browser endpoints:
+// Phase 6 E1 (audit B4) — lead / archive browser endpoints:
 //   GET /api/admin/leads           (paginated + searchable candidate_leads)
 //   GET /api/admin/archive-summary (zoho_archive counts, never raw payloads)
 //

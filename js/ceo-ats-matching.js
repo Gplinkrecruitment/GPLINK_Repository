@@ -1,32 +1,32 @@
 /* ============================================================================
- * ceo-ats-matching.js, Matching board (funnel-board UI) for the in-app CEO
+ * ceo-ats-matching.js — Matching board (funnel-board UI) for the in-app CEO
  * ATS. Classic <script> (NOT a module). Loaded by pages/ceo-dashboard.html
  * after ceo-ats-shared.js (which exposes window.ATS) and the other
  * ceo-ats-*.js tab modules. Renders into #panel-matching. Exposes
  * window.loadMatchingTab.
  *
  * Task 5 (spec docs/superpowers/specs/2026-07-11-matching-board-design.md,
- * Part A), rewrite of the old job/GP picker into a glanceable board: one
+ * Part A) — rewrite of the old job/GP picker into a glanceable board: one
  * row per open position (or, flipped, per GP), a funnel line of avatars
  * running from the practice out through the live pipeline (solid) into AI
  * suggestions (dashed), click-to-expand for the ranked-matches detail panel.
  *
  * Data source: GET /api/ats/matching/board?direction=positions|gps&q= (Task
- * 4), ONE call renders the whole board; this module never triggers an AI
+ * 4) — ONE call renders the whole board; this module never triggers an AI
  * ranking on its own. Running an AI ranking (empty-state "Run AI ranking" /
  * an age chip's "refresh") still goes through the existing
  * GET /api/ats/matching/candidates?job_id= | /api/ats/matching/jobs?user_id=
  * (+&force=1), and shortlisting still goes through the existing
- * POST /api/ats/matching/shortlist {items:[{user_id, career_role_id}]},
+ * POST /api/ats/matching/shortlist {items:[{user_id, career_role_id}]} —
  * this module is a new *view* over the same write endpoints, not a new
  * write path.
  *
- * Rendering is built from small pure functions (data in, HTML string out),
- * mbKpisHtml/mbRowHtml/mbGpRowHtml/mbNodeHtml/mbExpandHtml and friends,
+ * Rendering is built from small pure functions (data in, HTML string out) —
+ * mbKpisHtml/mbRowHtml/mbGpRowHtml/mbNodeHtml/mbExpandHtml and friends —
  * exposed read-only on window.MatchingBoard purely so
  * tests/matching-board-ui.test.js can drive them directly with sample data
  * shaped like the Task 4 endpoint's response. Nothing in this module reads
- * window.MatchingBoard back, it is a test seam, not a runtime dependency.
+ * window.MatchingBoard back — it is a test seam, not a runtime dependency.
  * ========================================================================== */
 (function () {
   'use strict';
@@ -60,7 +60,7 @@
   // Board display order for pipeline/live nodes: most-progressed first (offer
   // nearest the practice). The Task 4 endpoint already returns rows in this
   // order (its tests pin it), but the board must not silently depend on the
-  // server's ordering, both the funnel line and the expand panel sort
+  // server's ordering — both the funnel line and the expand panel sort
   // defensively via mbSortPipeline (mirrors server.js
   // MATCHING_BOARD_STAGE_RANK).
   var MB_STAGE_RANK = { offer: 0, interview: 1, reviewing: 2, submitted: 3, applied: 4, shortlisted: 5 };
@@ -73,7 +73,7 @@
   }
 
   /* ============================================================
-   * Pure helpers, dates, buckets, labels. No DOM, no escaping (the HTML
+   * Pure helpers — dates, buckets, labels. No DOM, no escaping (the HTML
    * builders below apply A.esc/A.escAttr at the point of interpolation).
    * ========================================================== */
 
@@ -88,7 +88,7 @@
 
   // Whole-unit elapsed time since an ISO stage_updated_at, formatted like the
   // mockup ("3d" / "14h"). No interview_at field exists on the board payload
-  // (Task 4 deviation), every non-shortlisted pipeline sub-label is built
+  // (Task 4 deviation) — every non-shortlisted pipeline sub-label is built
   // from this, never a specific date.
   function mbTimeInStage(iso, nowMs) {
     if (!iso) return '';
@@ -106,18 +106,18 @@
   // A shortlisted pipeline/live node's sub-label + colour class, driven
   // entirely by its match{} object. Order matters (spec Part A + Part D):
   // an "asked for more time" flag always wins over the plain countdown, even
-  // when the match still has days left, it REPLACES the countdown, it does
+  // when the match still has days left — it REPLACES the countdown, it does
   // not require <24h. Then: resolved outcomes, then <24h expiring (amber
   // pulse + optional "· nudged ✓"), then a plain "Awaiting · Nd left".
   function mbMatchSubLabel(match, nowMs) {
     if (!match) return { text: 'Awaiting reply', cls: 'await' };
     if (match.more_time_requested_at) return { text: '🙋 asked for more time', cls: 'expiring' };
     if (match.outcome === 'accepted') return { text: 'Accepted ✓', cls: 'offer' };
-    if (match.outcome === 'expired') return { text: 'Expired, no response', cls: 'expiring' };
+    if (match.outcome === 'expired') return { text: 'Expired — no response', cls: 'expiring' };
     var expiresMs = match.expires_at ? new Date(match.expires_at).getTime() : null;
     if (expiresMs != null && Number.isFinite(expiresMs)) {
       var msLeft = expiresMs - nowMs;
-      if (msLeft <= 0) return { text: 'Expired, no response', cls: 'expiring' };
+      if (msLeft <= 0) return { text: 'Expired — no response', cls: 'expiring' };
       var hoursLeft = Math.floor(msLeft / 3600000);
       if (hoursLeft < 24) {
         var nudged = match.final_reminder_sent_at ? ' · nudged ✓' : '';
@@ -130,7 +130,7 @@
   }
 
   // "Extend 5 days" visibility (spec: expiring <24h, expired, or asked-for-
-  // more-time, never for a resolved accepted/declined match).
+  // more-time — never for a resolved accepted/declined match).
   function mbShouldShowExtend(match, nowMs) {
     if (!match) return false;
     if (match.outcome === 'accepted' || match.outcome === 'declined') return false;
@@ -145,7 +145,7 @@
     return false;
   }
 
-  // Two-tier score band (fit quality, high is good, so this is intentionally
+  // Two-tier score band (fit quality — high is good, so this is intentionally
   // NOT the same "hot/warm/cold" intent-scoring convention used elsewhere in
   // the ATS, which scores urgency rather than fit).
   function mbScoreBand(score) { return (score != null && score >= 85) ? 'hi' : 'mid'; }
@@ -158,7 +158,7 @@
     return d.getDate() + ' ' + months[d.getMonth()];
   }
 
-  // Whole days between two ISO timestamps, used for a filled row's "was
+  // Whole days between two ISO timestamps — used for a filled row's "was
   // unfilled Nd" line (posted -> hired), computed client-side from fields the
   // board endpoint already returns rather than asking for a new one.
   function mbDaysBetween(fromIso, toIso) {
@@ -176,7 +176,7 @@
   }
 
   /* ============================================================
-   * Node adapters, normalise a pipeline/live/suggestion entry into the
+   * Node adapters — normalise a pipeline/live/suggestion entry into the
    * plain {name, score, cls, sub, dimmed, dataId} shape mbNodeHtml renders.
    * ========================================================== */
 
@@ -207,13 +207,13 @@
   }
 
   /* ============================================================
-   * Builder functions, pure(-ish) data -> HTML string. Exposed on
+   * Builder functions — pure(-ish) data -> HTML string. Exposed on
    * window.MatchingBoard at the bottom of this file for direct testing.
    * ========================================================== */
 
   function mbNodeHtml(node) {
     node = node || {};
-    var name = node.name || '-';
+    var name = node.name || '—';
     var initials = A.initials(name);
     var color = A.avatarColor(name);
     var band = mbScoreBand(node.score);
@@ -230,8 +230,8 @@
 
   // Shimmer placeholder + honest "still working" copy (Part D: "🤖 Ranking {N}
   // eligible GPs against this position… usually 10–20 seconds"). N is
-  // genuinely unknown while the AI run is still in flight, the moment we DO
-  // know it, the run is over and this state is gone, so the placeholder
+  // genuinely unknown while the AI run is still in flight — the moment we DO
+  // know it, the run is over and this state is gone — so the placeholder
   // never fabricates a count; it stays generic the whole time it's shown.
   function mbRunningTrackHtml(kind) {
     var msg = (kind === 'gps')
@@ -323,7 +323,7 @@
     return '<button type="button" class="ats-mb-corp" data-mb-open-practice="' + A.escAttr(job.practice_id) + '">🏢 ' + A.esc(disp.groupName) + '</button>';
   }
 
-  // ctx: { expandedId, runningIds, nowMs }, a subset of the module's state
+  // ctx: { expandedId, runningIds, nowMs } — a subset of the module's state
   // object (or an equivalent plain object from a test).
   // Click model (owner call 2026-07-12): the practice card opens the job
   // opening's page; the group tile (corps only) opens the practice page; the
@@ -339,7 +339,7 @@
     var pinitials = A.initials(disp.heading);
     var pcolor = A.avatarColor(disp.heading);
     var practiceClickable = (!disp.groupName && job.practice_id) ? (' data-mb-open-practice="' + A.escAttr(job.practice_id) + '"') : '';
-    var loc = [job.suburb, job.city].filter(Boolean).join(', ') || job.city || '-';
+    var loc = [job.suburb, job.city].filter(Boolean).join(', ') || job.city || '—';
     var trackHtml = running ? mbRunningTrackHtml('positions') : mbTrackHtml(row, nowMs);
     return (
       '<div class="ats-mb-row ' + bucket + (expanded ? ' expanded' : '') + '" data-mb-row="' + A.escAttr(job.id) + '">' +
@@ -362,7 +362,7 @@
 
   // GPs-direction mirror of mbRowHtml. Left block: GP avatar/name (click ->
   // GP file) + urgency chip driven by days_on_books + whether anything was
-  // ever sent (spec Part A "GPs -> Positions"). No country/preference line,
+  // ever sent (spec Part A "GPs -> Positions"). No country/preference line —
   // the board endpoint's gp{} carries only user_id/name/email/days_on_books,
   // so nothing here is fabricated beyond what the payload actually returns.
   function mbGpRowHtml(row, ctx) {
@@ -405,16 +405,16 @@
     );
   }
 
-  // filters is optional, mbKpisHtml(kpis) alone renders with nothing active.
+  // filters is optional — mbKpisHtml(kpis) alone renders with nothing active.
   function mbKpisHtml(kpis, filters) {
     kpis = kpis || {};
     filters = filters || {};
     return (
       '<div class="ats-mb-kpis">' +
-        mbKpiTile('open', kpis.open == null ? '-' : kpis.open, 'OPEN POSITIONS', '', false) +
-        mbKpiTile('unfilled60', kpis.unfilled60 == null ? '-' : kpis.unfilled60, 'UNFILLED 60+ DAYS', 'hot', filters.urgency === '60') +
-        mbKpiTile('awaiting', kpis.awaiting == null ? '-' : kpis.awaiting, 'AWAITING GP REPLY', 'wait', filters.status === 'awaiting') +
-        mbKpiTile('acceptedWeek', kpis.accepted_week == null ? '-' : kpis.accepted_week, 'ACCEPTED THIS WEEK', 'win', filters.status === 'acceptedWeek') +
+        mbKpiTile('open', kpis.open == null ? '—' : kpis.open, 'OPEN POSITIONS', '', false) +
+        mbKpiTile('unfilled60', kpis.unfilled60 == null ? '—' : kpis.unfilled60, 'UNFILLED 60+ DAYS', 'hot', filters.urgency === '60') +
+        mbKpiTile('awaiting', kpis.awaiting == null ? '—' : kpis.awaiting, 'AWAITING GP REPLY', 'wait', filters.status === 'awaiting') +
+        mbKpiTile('acceptedWeek', kpis.accepted_week == null ? '—' : kpis.accepted_week, 'ACCEPTED THIS WEEK', 'win', filters.status === 'acceptedWeek') +
       '</div>'
     );
   }
@@ -493,7 +493,7 @@
     return out;
   }
 
-  // rows: the CURRENT direction's full (unfiltered) row list, chip counts
+  // rows: the CURRENT direction's full (unfiltered) row list — chip counts
   // are faceted against the full set, independent of the other active
   // filters, so a chip always answers "how many if I click me right now".
   // The state dropdown + DPA chip only apply to positions (no location/DPA
@@ -530,12 +530,12 @@
   function mbFilledToggleHtml(count, active) {
     return (
       '<button type="button" class="ats-mb-chip won' + (active ? ' on' : '') + '" data-mb-filter="filled:1">' +
-        '✓ Filled last 30 days (' + (count || 0) + ')' + (active ? ', showing' : '') +
+        '✓ Filled last 30 days (' + (count || 0) + ')' + (active ? ' — showing' : '') +
       '</button>'
     );
   }
 
-  // Verbatim (Part D): "✓ FILLED, {Dr Name} · {D Mon}" /
+  // Verbatim (Part D): "✓ FILLED — {Dr Name} · {D Mon}" /
   // "{N} other GPs redirected to similar roles · redirect emails sent ✓".
   function mbFilledRowHtml(f) {
     f = f || {};
@@ -546,7 +546,7 @@
     var color = A.avatarColor(disp.heading);
     var wasUnfilled = mbDaysBetween(job.posted, hired && hired.at);
     var hiredLine = hired
-      ? ('✓ FILLED, ' + A.esc(hired.name || 'Unknown') + ' · ' + mbShortDate(hired.at))
+      ? ('✓ FILLED — ' + A.esc(hired.name || 'Unknown') + ' · ' + mbShortDate(hired.at))
       : '✓ FILLED';
     var redirectLine = f.redirected_count
       ? (f.redirected_count + ' other GP' + (f.redirected_count === 1 ? '' : 's') + ' redirected to similar roles · redirect emails sent ✓')
@@ -558,7 +558,7 @@
           '<div class="ats-mb-prow">' +
             '<div class="ats-mb-plogo" style="background:' + color + '"' + practiceClickable + '>' + A.esc(initials) + '</div>' +
             '<div><div class="ats-mb-pname"' + practiceClickable + '>' + A.esc(disp.heading) + '</div>' +
-            '<div class="ats-mb-ploc">📍 ' + A.esc(job.city || '-') + (job.state ? ', ' + A.esc(job.state) : '') + '</div></div>' +
+            '<div class="ats-mb-ploc">📍 ' + A.esc(job.city || '—') + (job.state ? ', ' + A.esc(job.state) : '') + '</div></div>' +
           '</div>' +
           mbGroupTileHtml(disp, job) +
           '<div class="ats-mb-postitle">' + A.esc(disp.sub || 'Role') + (wasUnfilled != null ? (' · was unfilled ' + wasUnfilled + ' days') : '') + '</div>' +
@@ -574,7 +574,7 @@
   /* ---------------- expand panel ---------------- */
 
   function mbExpandPipelineRowHtml(entry, isGp, nowMs) {
-    var name = isGp ? (entry.practice_name || entry.title || 'Role') : (entry.name || '-');
+    var name = isGp ? (entry.practice_name || entry.title || 'Role') : (entry.name || '—');
     var openId = isGp ? entry.career_role_id : entry.user_id;
     var initials = A.initials(name);
     var color = A.avatarColor(name);
@@ -607,7 +607,7 @@
   }
 
   function mbExpandSuggestionRowHtml(entry, isGp, checked) {
-    var name = isGp ? (entry.practice_name || entry.title || 'Role') : (entry.name || '-');
+    var name = isGp ? (entry.practice_name || entry.title || 'Role') : (entry.name || '—');
     var id = isGp ? entry.career_role_id : entry.user_id;
     var initials = A.initials(name);
     var color = A.avatarColor(name);
@@ -618,7 +618,7 @@
         '<input type="checkbox" class="ats-mb-excb" data-mb-cb="' + A.escAttr(id) + '"' + (checked ? ' checked' : '') + ' />' +
         '<div class="ats-mb-exgav" style="background:' + color + '">' + A.esc(initials) + '</div>' +
         '<div class="ats-mb-exbody">' +
-          '<div class="ats-mb-exname">' + A.esc(name) + ' <span class="ats-pill ' + (entry.score >= 85 ? 'green' : 'blue') + '">' + (entry.score == null ? '-' : A.esc(entry.score)) + ' match</span></div>' +
+          '<div class="ats-mb-exname">' + A.esc(name) + ' <span class="ats-pill ' + (entry.score >= 85 ? 'green' : 'blue') + '">' + (entry.score == null ? '—' : A.esc(entry.score)) + ' match</span></div>' +
           (reasons ? ('<div class="ats-mb-ticks">' + reasons + '</div>') : '') +
           (chips ? ('<div class="ats-mb-chips">' + chips + '</div>') : '') +
         '</div>' +
@@ -628,9 +628,9 @@
   }
 
   // row: a positions row ({job,pipeline,suggestions,ranking}) or a gps row
-  // ({gp,live,suggestions,ranking}), detected by shape. selection: plain
+  // ({gp,live,suggestions,ranking}) — detected by shape. selection: plain
   // {id:true} map of the currently ticked suggestion ids for THIS row (the
-  // module only ever keeps one row's selection live at a time, an accordion,
+  // module only ever keeps one row's selection live at a time — an accordion,
   // one open row). nowMs optional (defaults Date.now()) purely for
   // deterministic tests.
   function mbExpandHtml(row, selection, nowMs) {
@@ -680,7 +680,7 @@
 
     return (
       '<div class="ats-mb-expand" data-mb-expand-for="' + A.escAttr(rowId) + '">' +
-        '<div class="ats-mb-exhead">RANKED MATCHES, review, tick, then notify. Nothing is sent until you click.</div>' +
+        '<div class="ats-mb-exhead">RANKED MATCHES — review, tick, then notify. Nothing is sent until you click.</div>' +
         pipeHtml + suggHtml + bulkHtml + footerHtml +
       '</div>'
     );
@@ -725,7 +725,7 @@
   var state = {
     direction: 'positions',      // 'positions' | 'gps'
     boardData: null,             // last-fetched board response for the CURRENT direction
-    positionsKpis: null,         // kept across a flip to 'gps' (which returns no kpis), spec: "keep rendering the last-known positions KPIs when flipped"
+    positionsKpis: null,         // kept across a flip to 'gps' (which returns no kpis) — spec: "keep rendering the last-known positions KPIs when flipped"
     positionsFilled: null,
     filters: { urgency: '', status: '', state: '', dpa: false, filled: false, q: '', sort: 'default' },
     expandedId: null,            // job.id (positions) or gp.user_id (gps) of the open accordion row, or null
@@ -801,7 +801,7 @@
     var emptyMsg = !visibleRows.length ? A.emptyHtml(isGp ? 'No GPs match these filters.' : 'No open positions match these filters.') : '';
 
     panel.innerHTML =
-      '<div class="ats-section-head"><div><h2>Matching</h2><p>Every open position and every GP, ranked and ready to shortlist, review, then send.</p></div></div>' +
+      '<div class="ats-section-head"><div><h2>Matching</h2><p>Every open position and every GP, ranked and ready to shortlist — review, then send.</p></div></div>' +
       mbKpisHtml(kpis, state.filters) +
       mbFlipHtml(state.direction) +
       mbFilterChipsHtml(state.direction, allRows, state.filters) +
@@ -894,7 +894,7 @@
     state.visibleCount = 25;
     if (state.direction === 'gps') {
       // The gps endpoint searches server-side across its full candidate pool
-      // (the board only ever loads the top 150 rows), debounce so we don't
+      // (the board only ever loads the top 150 rows) — debounce so we don't
       // hammer it on every keystroke.
       clearTimeout(searchDebounce);
       searchDebounce = setTimeout(fetchBoard, 350);
@@ -985,7 +985,7 @@
   // Final-review fix (Finding 3): drill-ins activate the target tab via the
   // skipLoad=true path (window.ATS.setActiveTab, same mechanism applyHash()
   // uses for #candidate=/#board=/#practice= deep links) instead of
-  // ATS.showMaster(), which also kicks off that tab's LIST loader, a second
+  // ATS.showMaster(), which also kicks off that tab's LIST loader — a second
   // async render that could race the opener below and clobber the detail view
   // it just opened.
   function onOpenPractice(id) {
@@ -1038,7 +1038,7 @@
 
   window.loadMatchingTab = loadMatchingTab;
 
-  // Test seam only (tests/matching-board-ui.test.js), pure builder functions
+  // Test seam only (tests/matching-board-ui.test.js) — pure builder functions
   // driven directly with sample data shaped like the Task 4 board response.
   // Nothing above reads this object back.
   window.MatchingBoard = {

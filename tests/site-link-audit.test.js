@@ -10,7 +10,7 @@ import fs from 'fs';
 // individual known-good links, this crawls every href/src/action attribute
 // actually rendered on each page and classifies it:
 //   (a) an internal path that 200s directly, OR an auth-guarded path that
-//       302s to /pages/signin (which itself must then 200), /pages/signin*
+//       302s to /pages/signin (which itself must then 200) — /pages/signin*
 //       links are asserted to 200 directly, since they ARE the sign-in page;
 //   (b) an in-page anchor (#id resolves against the same page, /#id or
 //       /path#id resolves against the target page's rendered id="...");
@@ -139,7 +139,7 @@ describe('marketing site link audit (Task 14)', () => {
   });
 
   for (const route of PUBLIC_ROUTES) {
-    it(`GET ${route}, every href/src/action resolves`, async () => {
+    it(`GET ${route} — every href/src/action resolves`, async () => {
       const html = pageHtml[route];
       expect(html, `expected ${route} to already be fetched`).toBeTruthy();
 
@@ -161,7 +161,7 @@ describe('marketing site link audit (Task 14)', () => {
 
           // Self-referencing absolute URLs (e.g. the canonical <link>'s
           // href="https://www.mygplink.com.au/faq") are treated as internal
-          // paths, not external links, fall through to the same-origin
+          // paths, not external links — fall through to the same-origin
           // resolution logic below instead of the external allowlist.
           let effectiveValue = value;
           if (value.startsWith(PUBLIC_BASE_URL + '/') || value === PUBLIC_BASE_URL) {
@@ -182,7 +182,7 @@ describe('marketing site link audit (Task 14)', () => {
           const fragment = hashIdx === -1 ? null : effectiveValue.slice(hashIdx + 1);
 
           if (basePart === '') {
-            // Bare "#id", anchor must exist on the SAME page.
+            // Bare "#id" — anchor must exist on the SAME page.
             if (!fragment) {
               failures.push(`${attr}="#" dead link`);
               continue;
@@ -252,7 +252,7 @@ describe('marketing site link audit (Task 14)', () => {
       expect(failures, `broken links on ${route}:\n${failures.join('\n')}`).toEqual([]);
     });
 
-    it(`GET ${route}, no dead href="#", exactly one title/description/canonical, no app-shell chrome`, () => {
+    it(`GET ${route} — no dead href="#", exactly one title/description/canonical, no app-shell chrome`, () => {
       const html = pageHtml[route];
 
       expect(html).not.toMatch(/href="#"/);
@@ -294,7 +294,7 @@ describe('marketing site link audit (Task 14)', () => {
     expect(paths).toContain('/pages/terms');
     expect(paths).toContain('/blog');
     // Everything else in the sitemap is only ever a blog post or a public
-    // masked job URL, nothing internal.
+    // masked job URL — nothing internal.
     // /start page file lands with the meta-ads funnel build
     const known = new Set([...PUBLIC_ROUTES, '/pages/privacy', '/pages/terms', '/blog', '/start']);
     for (const p of paths) {

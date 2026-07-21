@@ -59,7 +59,7 @@ describe('interview-meetings model', () => {
 
   // Viewer-timezone feature: viewer_tz arrives from the browser
   // (Intl.DateTimeFormat().resolvedOptions().timeZone) on public/GP requests, so
-  // it is validated hard, shape regex AND an Intl probe, before it is ever
+  // it is validated hard — shape regex AND an Intl probe — before it is ever
   // persisted or used to render times. Invalid input → '' (caller falls back).
   it('sanitizeViewerTz accepts real IANA zones and rejects everything else', () => {
     expect(m.sanitizeViewerTz('Australia/Perth')).toBe('Australia/Perth');

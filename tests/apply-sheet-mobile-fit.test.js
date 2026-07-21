@@ -1,11 +1,11 @@
 // Mobile bottom-sheets for applying to / accepting a role were partly covered
-// by the app-shell bottom nav bar, the Apply / Accept buttons sat behind the
+// by the app-shell bottom nav bar — the Apply / Accept buttons sat behind the
 // nav on mobile (owner screenshot 2026-07-09: job.html "Apply for this role?").
 //
 // Every such sheet's card must pad its bottom past the shell nav
 // (--gp-shell-bottom-clearance), taking the LARGER of that and the iOS
 // safe-area inset. The nav-shell-bridge measures the nav's height all the way
-// to the viewport bottom, so it already INCLUDES the safe-area inset, summing
+// to the viewport bottom, so it already INCLUDES the safe-area inset — summing
 // both would double-count, hence max(), not +. Same family of fix as the
 // career CV-gate sticky footer (tests/career-gate-modal-fit.test.js).
 import { describe, it, expect } from 'vitest';

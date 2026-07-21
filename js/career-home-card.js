@@ -1,8 +1,8 @@
 // Pure helper: given one application object from GET /api/career/applications,
 // return the home-screen "live application" card (title, badge tone, and the
-// stage-correct deep link), or null when there is nothing to show.
+// stage-correct deep link) — or null when there is nothing to show.
 // UMD: usable both in the browser (window.deriveCareerHomeCard) and in vitest
-// (require/import). No DOM, no browser globals, keep it pure.
+// (require/import). No DOM, no browser globals — keep it pure.
 (function (root, factory) {
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -36,12 +36,12 @@
       return card('Offer ready 🎉', 'success', 'Offer', 'offer-review?applicationId=' + enc(app.id), ts);
     }
     if (status === 'finalising_placement') {
-      return card('Offer accepted, finalising placement', 'success', 'Offer',
+      return card('Offer accepted — finalising placement', 'success', 'Offer',
         'application-detail?id=' + enc(app.id) + '&role=' + enc(roleId), ts);
     }
     // 3. Interview stage -> application-detail (shows the inline confirm-time control).
     if (INTERVIEW.indexOf(status) !== -1) {
-      return card('Interview offered, confirm your time', 'info', 'Interview',
+      return card('Interview offered — confirm your time', 'info', 'Interview',
         'application-detail?id=' + enc(app.id) + '&role=' + enc(roleId), ts);
     }
     // 4. Default (applied / submitted / reviewing / under_review) -> progress page.

@@ -1,9 +1,9 @@
 /*
- * document-prep.js, shared "prepare your documents" brain.
+ * document-prep.js — shared "prepare your documents" brain.
  *
  * Standalone, page-independent module so the global Scan button (in the app
  * shell nav) can build the GP's document checklist and persist a scan result
- * the same way pages/my-documents.html does, without that page being loaded.
+ * the same way pages/my-documents.html does — without that page being loaded.
  *
  * It reads/writes the SAME state as my-documents.html:
  *   - localStorage key `gp_documents_prep` (state-sync tracked → Supabase)

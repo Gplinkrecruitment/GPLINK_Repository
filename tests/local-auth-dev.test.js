@@ -1,4 +1,4 @@
-// Task 1 (2026-07-20 full-app user-POV audit), local/dev-mode regressions:
+// Task 1 (2026-07-20 full-app user-POV audit) — local/dev-mode regressions:
 //
 // Defect A: a `var now = Date.now()` inside handleApi (the /api/ceo/dashboard
 //   handler) is FUNCTION-scoped, so it hoists and shadows the module-global
@@ -9,7 +9,7 @@
 //
 // Defect B: the local-DB branches of POST /api/onboarding/save and
 //   /api/onboarding/complete did `const dbState = loadDbState()` (a fresh
-//   disk copy shadowing the module-global `dbState`) and mutated THAT, but
+//   disk copy shadowing the module-global `dbState`) and mutated THAT — but
 //   `saveDbState()` serializes the module-global, so the write vanished and
 //   stale global state was re-persisted. GET /api/state (which reads the
 //   module-global) then never saw the saved onboarding blob.
@@ -180,7 +180,7 @@ describe('local-mode onboarding persistence (defect B: loadDbState() shadow disc
   });
 });
 
-// Task 15 (2026-07-20 audit), the same loadDbState()-shadow pattern as defect B
+// Task 15 (2026-07-20 audit) — the same loadDbState()-shadow pattern as defect B
 // remained in the support-ticket, account and PEP-waitlist local branches: a
 // fresh disk copy was mutated but saveDbState() serialized the module-global,
 // so the write vanished and stale global state was re-persisted.
@@ -264,7 +264,7 @@ describe('local-mode account update-name persistence (Task 15)', () => {
     expect(upd.status).toBe(200);
     expect(upd.body && upd.body.ok).toBe(true);
 
-    // saveDbState() serializes the module-global to disk, the new name must be there.
+    // saveDbState() serializes the module-global to disk — the new name must be there.
     const disk = JSON.parse(fs.readFileSync(process.env.DB_FILE_PATH, 'utf8'));
     expect(disk.userProfiles[NAME_EMAIL]).toBeTruthy();
     expect(disk.userProfiles[NAME_EMAIL].first_name).toBe('Renamed');

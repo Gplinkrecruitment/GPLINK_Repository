@@ -1,5 +1,5 @@
 /**
- * Shared bypass-lock email list, single source of truth for client-side.
+ * Shared bypass-lock email list — single source of truth for client-side.
  * Server-side reads from process.env.BYPASS_LOCK_EMAILS plus matching temporary
  * entries in server.js.
  *
@@ -76,7 +76,7 @@ var BYPASS_LOCK_EMAILS = {
     var bypassActive = !!BYPASS_LOCK_EMAILS[email];
     try {
       if (bypassActive) {
-        // Don't overwrite an existing marker for the same email, repeated
+        // Don't overwrite an existing marker for the same email — repeated
         // activations (gpRefreshBypassDigestMatch is safe to call many times)
         // would otherwise capture "1" as the pre-bypass value to restore.
         var existingRaw = localStorage.getItem(markerKey);
@@ -101,7 +101,7 @@ var BYPASS_LOCK_EMAILS = {
   }
 
   // Runs the digest comparison for the given email (or the current cached one)
-  // and activates the temporary bypass on a match. Idempotent, safe to call
+  // and activates the temporary bypass on a match. Idempotent — safe to call
   // repeatedly; re-activation just redefines the same expiring getter.
   function refreshBypassDigestMatch(emailOverride) {
     var currentEmail = String(emailOverride || "").trim().toLowerCase() || getCurrentBypassEmail();
@@ -130,7 +130,7 @@ var BYPASS_LOCK_EMAILS = {
   }
 
   // Exposed so pages can re-run the match once their own /api/auth/session fetch
-  // resolves, on a brand-new browser the profile caches are empty when this
+  // resolves — on a brand-new browser the profile caches are empty when this
   // script first runs, so the self-invoke below may find no email yet.
   try { window.gpRefreshBypassDigestMatch = refreshBypassDigestMatch; } catch (e) {}
 

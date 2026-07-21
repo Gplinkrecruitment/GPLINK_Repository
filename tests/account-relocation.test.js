@@ -1,6 +1,6 @@
 // Relocation Details on the account page must reflect what the GP entered at
 // onboarding. Those answers live in user_state.gp_onboarding under the keys
-// preferredCity / targetDate / whoMoving / childrenCount, NOT in the
+// preferredCity / targetDate / whoMoving / childrenCount — NOT in the
 // /api/profile record (which has no such columns). Before this fix the section
 // rendered permanently blank. Contract pinned here:
 //   - account.html reads gp_onboarding from /api/state on load and maps the
@@ -29,7 +29,7 @@ beforeAll(() => {
   onboardingJs = fs.readFileSync(ONBOARDING_JS_PATH, 'utf8');
 });
 
-describe('account.html, Relocation Details is backed by onboarding answers', () => {
+describe('account.html — Relocation Details is backed by onboarding answers', () => {
   it('reads gp_onboarding from /api/state on load (both init and reset paths)', () => {
     expect(accountHtml).toContain('function loadRelocationFromOnboarding(');
     expect(accountHtml).toContain('stateObj.gp_onboarding');

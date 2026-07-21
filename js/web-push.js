@@ -1,10 +1,10 @@
-/* GP Link, standards-based Web Push (VAPID) client helper. Phase 6 J1.
+/* GP Link — standards-based Web Push (VAPID) client helper. Phase 6 J1.
    Exposes window.gpWebPush with:
      isSupported()  -> boolean (browser has SW + PushManager + Notification)
      getStatus()    -> Promise<{supported, permission, subscribed}>
-     enable()       -> Promise<{ok, reason?}>, asks permission, subscribes,
+     enable()       -> Promise<{ok, reason?}> — asks permission, subscribes,
                        POSTs the subscription to /api/push/subscribe
-     disable()      -> Promise<{ok}>, unsubscribes + removes it server-side
+     disable()      -> Promise<{ok}> — unsubscribes + removes it server-side
    Reasons on failure: "unsupported" | "not-configured" | "denied" | "error".
    Call enable() from a user gesture (browsers block permission prompts
    otherwise). */

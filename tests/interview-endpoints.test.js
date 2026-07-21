@@ -83,12 +83,12 @@ describe('POST /api/ats/interview/request', () => {
     expect(row.meeting_kind).toBe('interview');
     expect(row.application_id).toBe(SEED_APP_ID);
     expect(row.practice_availability_status).toBe('requested');
-    // correlation_token is TEXT NOT NULL UNIQUE in prod, every interview row must carry one.
+    // correlation_token is TEXT NOT NULL UNIQUE in prod — every interview row must carry one.
     expect(typeof row.correlation_token).toBe('string');
     expect(row.correlation_token.length).toBeGreaterThan(0);
   });
 
-  it('is idempotent, a second request returns already:true', async () => {
+  it('is idempotent — a second request returns already:true', async () => {
     // Row already exists from the first test; both calls should return already:true.
     const a = await call('POST', '/api/ats/interview/request', { application_id: SEED_APP_ID });
     const b = await call('POST', '/api/ats/interview/request', { application_id: SEED_APP_ID });
@@ -135,7 +135,7 @@ describe('GET /api/ats/interview/slots', () => {
   });
 
   it('returns {ok:true, status:"requested", slots:[]} when practice has not yet replied', async () => {
-    // Use a fresh application (c3) that has no interview row yet, do NOT ingest availability.
+    // Use a fresh application (c3) that has no interview row yet — do NOT ingest availability.
     // This exercises the 'requested' guard branch (status !== 'received'/'defaulted' → empty slots).
     await call('POST', '/api/ats/interview/request', { application_id: 'c3' });
     const res = await call('GET', '/api/ats/interview/slots?application_id=c3&now=2026-07-01T00:00:00Z');
@@ -183,7 +183,7 @@ describe('POST /api/ats/interview/book', () => {
     expect(readDb().fakeCalendar.length).toBe(1);
   });
 
-  it('is idempotent, a second book returns already:true with the existing booking', async () => {
+  it('is idempotent — a second book returns already:true with the existing booking', async () => {
     // The previous test already booked the slot; calling again must return already:true.
     const row = readDb().scheduledCalls.find((r) => r.meeting_kind === 'interview');
     const res = await call('POST', '/api/ats/interview/book', {
@@ -199,13 +199,13 @@ describe('POST /api/ats/interview/book', () => {
   });
 
   it('returns 409 when the requested slot is not in the computed available list', async () => {
-    // Use a fresh application (c2) that is unbooked, independent of the c1 tests above.
+    // Use a fresh application (c2) that is unbooked — independent of the c1 tests above.
     const reqRes = await call('POST', '/api/ats/interview/request', { application_id: 'c2' });
     expect(reqRes.status).toBe(200);
     const freshId = reqRes.body.interview_id;
     const mod = await import('../server.js');
     await mod.__testUtils.ingestPracticeAvailabilityReply(freshId, 'weekdays 6-10pm', '2026-07-01T00:00:00Z');
-    // Book with a slot far in the past, guaranteed not to be in the computed list.
+    // Book with a slot far in the past — guaranteed not to be in the computed list.
     const res = await call('POST', '/api/ats/interview/book', {
       application_id: 'c2',
       slot_start_utc: '2000-01-01T00:00:00.000Z',
@@ -216,9 +216,9 @@ describe('POST /api/ats/interview/book', () => {
   });
 });
 
-describe('GET /api/ats/interview/slots, exhaustive windows when practice has replied', () => {
+describe('GET /api/ats/interview/slots — exhaustive windows when practice has replied', () => {
   it('returns slots ONLY on the day(s) the practice named, not on other days', async () => {
-    // Use c5 (Dr Sofia Ramos), untouched by any earlier test in this file.
+    // Use c5 (Dr Sofia Ramos) — untouched by any earlier test in this file.
     const reqRes = await call('POST', '/api/ats/interview/request', { application_id: 'c5' });
     expect(reqRes.status).toBe(200);
     expect(reqRes.body.ok).toBe(true);
@@ -242,7 +242,7 @@ describe('GET /api/ats/interview/slots, exhaustive windows when practice has rep
 
 describe('POST /api/ats/interview/ingest-reply', () => {
   it('requests interview then ingests reply → status received + windows_count > 0', async () => {
-    // Use c4 (Dr Marcus Webb), untouched by any other test in this file.
+    // Use c4 (Dr Marcus Webb) — untouched by any other test in this file.
     const reqRes = await call('POST', '/api/ats/interview/request', { application_id: 'c4' });
     expect(reqRes.status).toBe(200);
     expect(reqRes.body.ok).toBe(true);

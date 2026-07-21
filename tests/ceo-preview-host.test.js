@@ -4,7 +4,7 @@ import crypto from 'crypto';
 
 // Verifies: on a NON-production Vercel deployment (VERCEL_ENV='preview'), the
 // deployment's OWN Vercel host (VERCEL_URL / VERCEL_BRANCH_URL) is granted
-// super_admin scope so the CEO page is viewable on the preview URL, while an
+// super_admin scope so the CEO page is viewable on the preview URL — while an
 // arbitrary other host is still rejected, and the explicit SUPER_ADMIN_ALLOWED_HOSTS
 // entry still works. (Production exclusion is covered by ceo-preview-host-prod.test.js.)
 

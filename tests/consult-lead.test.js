@@ -35,7 +35,7 @@ describe('screenConsultLead', () => {
 describe('parseYesNo / parseCountryAnswer', () => {
   it('parses yes/no answers tolerantly', () => {
     expect(parseYesNo('Yes')).toBe(true);
-    expect(parseYesNo('yes, fully registered')).toBe(true);
+    expect(parseYesNo('yes — fully registered')).toBe(true);
     expect(parseYesNo('No')).toBe(false);
     expect(parseYesNo('')).toBe(null);
     expect(parseYesNo(undefined)).toBe(null);

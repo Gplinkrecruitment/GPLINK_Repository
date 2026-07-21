@@ -1,11 +1,11 @@
-// Task 4 (2026-07-11 matching-board/nudges plan), GET /api/ats/matching/board.
+// Task 4 (2026-07-11 matching-board/nudges plan) — GET /api/ats/matching/board.
 //
 // The ONE aggregate read behind the Matching board UI: open jobs + days_open,
-// each job's live pipeline, cached AI suggestions (any age, stale is fine),
+// each job's live pipeline, cached AI suggestions (any age — stale is fine),
 // KPI counts, and recently-filled jobs, in a single call that must NEVER
 // trigger an Anthropic call. Boots the real server against a tiny in-memory
 // PostgREST emulator (same technique as tests/ai-matching-cron.test.js, whose
-// buildMatcher supports gt/gte/lt/lte + "not." negation, this endpoint's
+// buildMatcher supports gt/gte/lt/lte + "not." negation — this endpoint's
 // filled-in-last-30-days / accepted-in-last-7-days windows need real date
 // comparisons, not just eq/in). Admin session cookie pattern copied from
 // tests/ai-candidate-job-match.test.js Part B.
@@ -59,28 +59,28 @@ const db = {
   ],
   career_roles: [
     {
-      id: 'job-74d', title: 'GP, Long Open Role', practice_id: 'prac-open', practice_name: '',
+      id: 'job-74d', title: 'GP — Long Open Role', practice_id: 'prac-open', practice_name: '',
       location_city: 'Bundaberg', location_state: 'QLD', suburb: 'Bargara', employment_type: 'Permanent',
       dpa: true, header_image_url: 'https://images.gplink-test.local/bargara.jpg',
       job_status: 'open', is_active: true,
       published_at: daysAgo(74), created_at: daysAgo(74)
     },
     {
-      id: 'job-41d', title: 'GP, Newer Open Role', practice_id: 'prac-open', practice_name: '',
+      id: 'job-41d', title: 'GP — Newer Open Role', practice_id: 'prac-open', practice_name: '',
       location_city: 'Toowoomba', location_state: 'QLD', suburb: '', employment_type: 'Permanent',
       dpa: false, header_image_url: '',
       job_status: 'open', is_active: true,
       published_at: daysAgo(41), created_at: daysAgo(41)
     },
     {
-      id: 'job-filled-5d', title: 'GP, Filled Role', practice_id: 'prac-filled', practice_name: '',
+      id: 'job-filled-5d', title: 'GP — Filled Role', practice_id: 'prac-filled', practice_name: '',
       location_city: 'Rockhampton', location_state: 'QLD', suburb: '', employment_type: 'Permanent',
       dpa: true, header_image_url: '',
       job_status: 'filled', is_active: false,
       published_at: daysAgo(90), created_at: daysAgo(90), updated_at: daysAgo(5)
     },
     {
-      id: 'job-filled-40d', title: 'GP, Old Filled Role', practice_id: 'prac-filled', practice_name: '',
+      id: 'job-filled-40d', title: 'GP — Old Filled Role', practice_id: 'prac-filled', practice_name: '',
       location_city: 'Gladstone', location_state: 'QLD', suburb: '', employment_type: 'Permanent',
       dpa: false, header_image_url: '',
       job_status: 'filled', is_active: false,
@@ -88,7 +88,7 @@ const db = {
     }
   ],
   gp_applications: [
-    // job-74d pipeline, deliberately spans multiple stages.
+    // job-74d pipeline — deliberately spans multiple stages.
     {
       id: 'app-a1', user_id: 'gp-a1', career_role_id: 'job-74d',
       ats_stage: 'shortlisted', ats_stage_updated_at: hoursAgo(20),
@@ -102,21 +102,21 @@ const db = {
       match_score: null, matched_at: null, match_expires_at: null, match_seen_at: null, match_outcome: null,
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null
     },
-    // Accepted THIS week, counts toward kpis.accepted_week.
+    // Accepted THIS week — counts toward kpis.accepted_week.
     {
       id: 'app-a3', user_id: 'gp-a3', career_role_id: 'job-74d',
       ats_stage: 'applied', ats_stage_updated_at: daysAgo(2),
       match_score: 75, matched_at: daysAgo(9), match_expires_at: daysAgo(2), match_seen_at: daysAgo(3),
       match_outcome: 'accepted', match_reminder_sent_at: daysAgo(3), match_final_reminder_sent_at: null, match_more_time_requested_at: null
     },
-    // Terminal (declined), excluded from pipeline AND from suggestions.
+    // Terminal (declined) — excluded from pipeline AND from suggestions.
     {
       id: 'app-a4', user_id: 'gp-a4', career_role_id: 'job-74d',
       ats_stage: 'not_proceeding', ats_stage_updated_at: daysAgo(6),
       match_score: 60, matched_at: daysAgo(10), match_expires_at: daysAgo(6), match_seen_at: daysAgo(7),
       match_outcome: 'declined', match_reminder_sent_at: daysAgo(7), match_final_reminder_sent_at: null, match_more_time_requested_at: null
     },
-    // Accepted OUTSIDE the 7-day window, must NOT count toward accepted_week.
+    // Accepted OUTSIDE the 7-day window — must NOT count toward accepted_week.
     {
       id: 'app-a5', user_id: 'gp-a5', career_role_id: 'job-74d',
       ats_stage: 'applied', ats_stage_updated_at: daysAgo(10),
@@ -307,7 +307,7 @@ beforeAll(async () => {
   process.env.ZOHO_RECRUIT_CLIENT_ID = '';
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
 
-  // Any outbound call to Anthropic is a hard bug for this endpoint, the
+  // Any outbound call to Anthropic is a hard bug for this endpoint — the
   // board must ONLY ever read match_cache, never generate a fresh ranking.
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
@@ -330,14 +330,14 @@ afterAll(async () => {
   if (sbServer) await new Promise((r) => sbServer.close(r));
 });
 
-describe('GET /api/ats/matching/board, auth', () => {
+describe('GET /api/ats/matching/board — auth', () => {
   it('rejects a request without a valid admin session', async () => {
     const r = await httpReq('GET', '/api/ats/matching/board', { host: SUPER_HOST });
     expect([302, 401, 403]).toContain(r.status);
   });
 });
 
-describe('GET /api/ats/matching/board, direction=positions (default)', () => {
+describe('GET /api/ats/matching/board — direction=positions (default)', () => {
   it('returns the {ok, kpis, rows, filled} envelope, never calling Anthropic', async () => {
     const before = anthropicCallCount;
     const r = await atsGet('/api/ats/matching/board');
@@ -362,7 +362,7 @@ describe('GET /api/ats/matching/board, direction=positions (default)', () => {
   it('job-74d pipeline: spans multiple stages (offer-first ordering), excludes not_proceeding, and carries the full match{} node', async () => {
     const r = await atsGet('/api/ats/matching/board');
     const pipeline = r.body.rows[0].pipeline;
-    // a1 shortlisted, a2 interview, a3+a5 applied, a4 (not_proceeding) excluded.
+    // a1 shortlisted, a2 interview, a3+a5 applied — a4 (not_proceeding) excluded.
     expect(pipeline.length).toBe(4);
     expect(pipeline.map((p) => p.user_id)).not.toContain('gp-a4');
     // Board display order: closest-to-hire first (interview) ... shortlisted last.
@@ -411,7 +411,7 @@ describe('GET /api/ats/matching/board, direction=positions (default)', () => {
     expect(r.body.kpis.accepted_week).toBe(1); // app-a3 (2d ago); app-a5 (10d ago) excluded
   });
 
-  it('filled: last-30-day window, hired name, and redirected_count, a 40-day-old fill is absent', async () => {
+  it('filled: last-30-day window, hired name, and redirected_count — a 40-day-old fill is absent', async () => {
     const r = await atsGet('/api/ats/matching/board');
     expect(r.body.filled.length).toBe(1);
     const row = r.body.filled[0];
@@ -437,7 +437,7 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     // from job-74d/job-41d so the positions-direction assertions above (run
     // first) stay untouched by this describe block's fixtures.
     db.career_roles.push({
-      id: 'job-cand', title: 'GP, Candidate Job', practice_id: '', practice_name: 'Cand Practice',
+      id: 'job-cand', title: 'GP — Candidate Job', practice_id: '', practice_name: 'Cand Practice',
       location_city: 'Cairns', location_state: 'QLD', employment_type: 'Permanent',
       dpa: true, header_image_url: '', job_status: 'open', is_active: true,
       published_at: daysAgo(10), created_at: daysAgo(10)
@@ -456,11 +456,11 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     // Eligibility fixtures. The no-signal "filler" GPs (OLD/NEW/SEARCH) must
     // genuinely PASS the ranking endpoints' eligibility gate (onboarding
     // complete + career CV uploaded) to earn a board slot. LIVE and CACHED
-    // get NO user_state/CV on purpose, they are INELIGIBLE
+    // get NO user_state/CV on purpose — they are INELIGIBLE
     // (onboarding_incomplete + no_cv) and must still appear purely on their
     // signal (live application / cached ranking respectively). BLOCKED is
-    // fully onboarded WITH a CV but placed (career_secured), its ONLY
-    // eligibility block is 'placed', and has no signal, so it must be
+    // fully onboarded WITH a CV but placed (career_secured) — its ONLY
+    // eligibility block is 'placed' — and has no signal, so it must be
     // excluded from the rows entirely.
     db.user_state.push(
       { user_id: OLD, state: { gp_onboarding_complete: true, account_status: 'active' } },
@@ -485,7 +485,7 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
       generated_at: hoursAgo(50),
       payload: {
         ranked: [
-          { career_role_id: 'job-74d', title: 'GP, Long Open Role', practice_name: 'Open Roles Practice', score: 88, reasons: ['great fit', 'timeline', 'location'], chips: ['DPA eligible role'] }
+          { career_role_id: 'job-74d', title: 'GP — Long Open Role', practice_name: 'Open Roles Practice', score: 88, reasons: ['great fit', 'timeline', 'location'], chips: ['DPA eligible role'] }
         ],
         excluded_count: 2
       }
@@ -504,22 +504,22 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     expect(r.body.rows.length).toBe(5);
 
     // A placed GP with no live match and no cached ranking never occupies a
-    // board slot, the "eligible others" filler pool applies the SAME
+    // board slot — the "eligible others" filler pool applies the SAME
     // eligibility gate the ranking endpoints use (checkMatchEligibility,
     // evaluated job-agnostically).
     expect(byId[BLOCKED]).toBeUndefined();
 
     // LIVE is INELIGIBLE (no onboarding, no CV, at interview stage) but has
-    // a live application, the "any live match first" rule keeps it anyway.
+    // a live application — the "any live match first" rule keeps it anyway.
     expect(byId[LIVE]).toBeTruthy();
     expect(byId[LIVE].gp.days_on_books).toBeGreaterThanOrEqual(2);
     expect(byId[LIVE].live.length).toBe(1);
     expect(byId[LIVE].live[0].ats_stage).toBe('interview');
-    expect(byId[LIVE].live[0].title).toBe('GP, Candidate Job');
+    expect(byId[LIVE].live[0].title).toBe('GP — Candidate Job');
     expect(byId[LIVE].live[0].match).toBeNull();
 
     // CACHED is likewise ineligible (no onboarding/CV) but has a cached
-    // gp-side ranking, the cached-ranking signal keeps it too.
+    // gp-side ranking — the cached-ranking signal keeps it too.
     expect(byId[CACHED]).toBeTruthy();
     expect(byId[CACHED].ranking).not.toBeNull();
     expect(Number.isInteger(byId[CACHED].ranking.age_hours)).toBe(true);

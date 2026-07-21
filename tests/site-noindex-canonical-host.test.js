@@ -7,7 +7,7 @@ import fs from 'fs';
 // on (the real site, preview.mygplink.com.au, app.mygplink.com.au/jobs, Vercel
 // preview URLs). Before this, robots.txt said "Allow: /" on all of them, so
 // Google saw several competing indexable copies of the same site and picked the
-// canonical itself, often the wrong one. Only the canonical marketing host may
+// canonical itself — often the wrong one. Only the canonical marketing host may
 // be indexed; every other host must send X-Robots-Tag: noindex.
 //
 // Mirrors the http-harness idiom used by tests/site-public-routes.test.js.
@@ -97,7 +97,7 @@ describe('marketing site is indexable only on the canonical host', () => {
   });
 
   it('does NOT Disallow the crawl on a non-canonical host', async () => {
-    // A Disallow would stop Google fetching the page, so it would never SEE
+    // A Disallow would stop Google fetching the page — so it would never SEE
     // the noindex header, and a disallowed URL can still be indexed if some
     // other site links to it. Allow-the-crawl + noindex-header is the reliable
     // combination. We just don't advertise a sitemap from a copy.

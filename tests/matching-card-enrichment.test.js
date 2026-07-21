@@ -1,4 +1,4 @@
-// Task 6 (2026-07-11 matching-board plan): career.html match card gains,
+// Task 6 (2026-07-11 matching-board plan): career.html match card gains —
 // GET /api/career/matches returns a new `mapQuery` field per live match
 // (spec Part C §1), and the card gains a website button, a map preview +
 // "Open in Maps" link, a "See the full job opening" row, a sticky accept
@@ -10,7 +10,7 @@
 // is file-content assertions (pattern from tests/apply-sheet-mobile-fit.test.js)
 // plus real execution of the page's own pure-logic functions via `new
 // Function` sandboxing (pattern from ai-matching-gp-flow.test.js's "review
-// fix 1", extractFunctionSource by brace counting, no browser needed).
+// fix 1" — extractFunctionSource by brace counting, no browser needed).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -43,7 +43,7 @@ function extractFunctionSource(src, name) {
 // Client-side: file-content assertions + real execution (no server needed)
 // ============================================================================
 
-describe('career.html, file-content checks for Task 6 (design R6) additions', () => {
+describe('career.html — file-content checks for Task 6 (design R6) additions', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
 
   it('match card: website button, map embed + overlay link, see-job row', () => {
@@ -60,7 +60,7 @@ describe('career.html, file-content checks for Task 6 (design R6) additions', ()
     expect(careerHtml).toContain('id="matchStickyBar"');
     expect(careerHtml).toContain('function renderMatchStickyBar()');
     expect(careerHtml).toContain('data-match-sticky-accept');
-    expect(careerHtml).toContain(', your spot is reserved until then');
+    expect(careerHtml).toContain('— your spot is reserved until then');
     const barCss = careerHtml.slice(careerHtml.indexOf('.at-match-stickybar {'), careerHtml.indexOf('.at-match-stickybar-sub'));
     expect(barCss).toMatch(/max\(\s*env\(safe-area-inset-bottom[^)]*\)\s*,\s*var\(--gp-shell-bottom-clearance[^)]*\)\s*\)/);
   });
@@ -69,11 +69,11 @@ describe('career.html, file-content checks for Task 6 (design R6) additions', ()
     const fnSrc = extractFunctionSource(careerHtml, 'handleMatchDeepLink');
     expect(fnSrc).toContain('needtime');
     expect(fnSrc).toContain('/api/career/match/need-more-time');
-    expect(fnSrc).toContain("We've let the team know you need more time. They may extend your window, watch your alerts. Accepting now still works.");
+    expect(fnSrc).toContain("We've let the team know you need more time. They may extend your window — watch your alerts. Accepting now still works.");
     expect(fnSrc).toContain('"noted"');
     expect(fnSrc).toContain('"already"');
     // Still never posts an accept from the deep link (pre-existing review
-    // fix 3b guarantee from tests/ai-matching-gp-flow.test.js, re-asserted
+    // fix 3b guarantee from tests/ai-matching-gp-flow.test.js — re-asserted
     // here since this function was touched).
     expect(fnSrc).not.toContain('/api/career/match/respond');
   });
@@ -86,7 +86,7 @@ describe('career.html, file-content checks for Task 6 (design R6) additions', ()
   });
 });
 
-describe('buildMatchCardHtml, website/map/see-job additions (career.html, executed for real)', () => {
+describe('buildMatchCardHtml — website/map/see-job additions (career.html, executed for real)', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
   const sandboxSrc = [
     extractFunctionSource(careerHtml, 'escapeHtml'),
@@ -98,7 +98,7 @@ describe('buildMatchCardHtml, website/map/see-job additions (career.html, execut
   const renderCard = (matchInput) => new Function('matchInput', sandboxSrc)(matchInput);
 
   const baseMatch = {
-    applicationId: 'app-map-1', roleId: 'role-99', jobTitle: 'GP, Mixed Billing', practiceName: 'Coral Coast Family Practice',
+    applicationId: 'app-map-1', roleId: 'role-99', jobTitle: 'GP — Mixed Billing', practiceName: 'Coral Coast Family Practice',
     locationCity: 'Bundaberg', locationState: 'QLD', dpa: true,
     reasons: ['Coastal fit'], expiresAt: new Date(Date.now() + 3 * 86400000).toISOString(),
     website: 'https://coralcoastfp.com.au', introVideoUrl: '', headerImageUrl: '',
@@ -109,7 +109,7 @@ describe('buildMatchCardHtml, website/map/see-job additions (career.html, execut
     const html = renderCard(baseMatch);
     expect(html).toContain('🌐 Visit website');
     expect(html).toContain('href="https://coralcoastfp.com.au"');
-    // & is HTML-attribute-escaped to &amp; by escapeHtml, correct HTML, not a bug.
+    // & is HTML-attribute-escaped to &amp; by escapeHtml — correct HTML, not a bug.
     expect(html).toContain('src="https://maps.google.com/maps?q=Coral%20Coast%20Family%20Practice%2C%20Bundaberg%2C%20QLD&amp;output=embed"');
     expect(html).toContain('Open in Maps ↗');
     expect(html).toContain('href="https://www.google.com/maps?q=Coral%20Coast%20Family%20Practice%2C%20Bundaberg%2C%20QLD"');
@@ -137,7 +137,7 @@ describe('buildMatchCardHtml, website/map/see-job additions (career.html, execut
   });
 });
 
-describe('sticky-bar live-match helpers, isMatchLive/getLiveMatches/pickStickyMatch (career.html, executed for real)', () => {
+describe('sticky-bar live-match helpers — isMatchLive/getLiveMatches/pickStickyMatch (career.html, executed for real)', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
   const sandboxSrc = [
     extractFunctionSource(careerHtml, 'formatMatchCountdown'),
@@ -182,7 +182,7 @@ describe('sticky-bar live-match helpers, isMatchLive/getLiveMatches/pickStickyMa
   });
 });
 
-describe('client nudge alerts, checkMatchNudgeAlerts/pushMatchNudgeAlert (career.html, executed for real)', () => {
+describe('client nudge alerts — checkMatchNudgeAlerts/pushMatchNudgeAlert (career.html, executed for real)', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
   const sandboxSrc = [
     extractFunctionSource(careerHtml, 'pushMatchNudgeAlert'),
@@ -211,7 +211,7 @@ describe('client nudge alerts, checkMatchNudgeAlerts/pushMatchNudgeAlert (career
     expect(global.localStorage.getItem('match-nudge-24h-app-nudge-1')).toBe('1');
     expect(global.localStorage.getItem('match-nudge-2h-app-nudge-1')).toBe('1');
 
-    runCheck([soonMatch]); // repeat, fully deduped
+    runCheck([soonMatch]); // repeat — fully deduped
     expect(pushed.length).toBe(2);
   });
 
@@ -267,10 +267,10 @@ const db = {
     user_id: g.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW)
   })),
   practices: [
-    // Real street address on file, mapQuery must use it (matching
+    // Real street address on file — mapQuery must use it (matching
     // /api/career/role's revealedMapQuery [address, suburb, state] shape).
     { id: 'prac-addr', name: 'Coral Coast Family Practice', address: 'Shop 4, 12 Bay Tce', website: '', intro_video_url: '' },
-    // No address anywhere, mapQuery must fall back to practice name.
+    // No address anywhere — mapQuery must fall back to practice name.
     { id: 'prac-noaddr', name: 'Riverbend Medical Centre', address: '', website: '', intro_video_url: '' },
     // Legacy intake-only address (metadata.intake.address, no top-level column).
     { id: 'prac-intake', name: 'Ocean View Clinic', metadata: { intake: { address: '5 Ocean Dr' } }, website: '', intro_video_url: '' }
@@ -278,19 +278,19 @@ const db = {
   career_roles: [
     {
       id: 'job-addr', provider: 'internal_ats', provider_role_id: 'ats_job_addr',
-      title: 'GP, Mixed Billing', practice_name: 'Coral Coast Family Practice', practice_id: 'prac-addr',
+      title: 'GP — Mixed Billing', practice_name: 'Coral Coast Family Practice', practice_id: 'prac-addr',
       location_city: 'Bundaberg', location_state: 'QLD', suburb: 'Bargara', dpa: true,
       header_image_url: '', job_status: 'open', is_active: true
     },
     {
       id: 'job-noaddr', provider: 'internal_ats', provider_role_id: 'ats_job_noaddr',
-      title: 'GP, Bulk Billing', practice_name: 'Riverbend Medical Centre', practice_id: 'prac-noaddr',
+      title: 'GP — Bulk Billing', practice_name: 'Riverbend Medical Centre', practice_id: 'prac-noaddr',
       location_city: 'Toowoomba', location_state: 'QLD', suburb: '', dpa: false,
       header_image_url: '', job_status: 'open', is_active: true
     },
     {
       id: 'job-intake', provider: 'internal_ats', provider_role_id: 'ats_job_intake',
-      title: 'GP, Chronic Disease', practice_name: 'Ocean View Clinic', practice_id: 'prac-intake',
+      title: 'GP — Chronic Disease', practice_name: 'Ocean View Clinic', practice_id: 'prac-intake',
       location_city: 'Hervey Bay', location_state: 'QLD', suburb: 'Urangan', dpa: true,
       header_image_url: '', job_status: 'open', is_active: true
     }
@@ -299,7 +299,7 @@ const db = {
     {
       id: 'app-addr-1', user_id: GP_ADDR.userId, career_role_id: 'job-addr',
       provider_role_id: 'ats_job_addr', ats_stage: 'shortlisted', origin: 'ai_matched',
-      status: 'applied', job_title: 'GP, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      status: 'applied', job_title: 'GP — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_score: 80, match_reasons: { reasons: ['Coastal fit'], _history: [] },
       matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 4 * 86400000),
       match_seen_at: null, match_outcome: null,
@@ -311,7 +311,7 @@ const db = {
     {
       id: 'app-noaddr-1', user_id: GP_NOADDR.userId, career_role_id: 'job-noaddr',
       provider_role_id: 'ats_job_noaddr', ats_stage: 'shortlisted', origin: 'ai_matched',
-      status: 'applied', job_title: 'GP, Bulk Billing', practice_name: 'Riverbend Medical Centre',
+      status: 'applied', job_title: 'GP — Bulk Billing', practice_name: 'Riverbend Medical Centre',
       match_score: 65, match_reasons: { reasons: ['Regional fit'], _history: [] },
       matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 4 * 86400000),
       match_seen_at: null, match_outcome: null
@@ -319,7 +319,7 @@ const db = {
     {
       id: 'app-intake-1', user_id: GP_INTAKE.userId, career_role_id: 'job-intake',
       provider_role_id: 'ats_job_intake', ats_stage: 'shortlisted', origin: 'ai_matched',
-      status: 'applied', job_title: 'GP, Chronic Disease', practice_name: 'Ocean View Clinic',
+      status: 'applied', job_title: 'GP — Chronic Disease', practice_name: 'Ocean View Clinic',
       match_score: 70, match_reasons: { reasons: ['Chronic disease caseload fit'], _history: [] },
       matched_by: 'consultant@gplink-test.local', matched_at: iso(NOW - 3600000), match_expires_at: iso(NOW + 4 * 86400000),
       match_seen_at: null, match_outcome: null
@@ -472,7 +472,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/career/matches, mapQuery (Task 6)', () => {
+describe('GET /api/career/matches — mapQuery (Task 6)', () => {
   it('uses the real street address (+ suburb/state) when one is on file', async () => {
     const res = await httpReq('GET', '/api/career/matches', { cookie: userCookie(GP_ADDR.email, GP_ADDR.userId) });
     expect(res.status).toBe(200);
@@ -500,11 +500,11 @@ describe('GET /api/career/matches, mapQuery (Task 6)', () => {
 
 // ============================================================================
 // Final-review Finding 1 (2026-07-11 whole-branch review): the matches mapper
-// emitted `roleId: r.career_role_id` the raw career_roles.id bigint
+// emitted `roleId: r.career_role_id` — the raw career_roles.id bigint —
 // instead of the PUBLIC `provider:providerRoleId` id parseCareerRolePublicId()
 // (and therefore GET /api/career/role) requires. career.html's "See the full
 // job opening" link feeds this roleId straight into job.html?id=<roleId>,
-// which calls GET /api/career/role?id=<roleId>, so the raw bigint 400'd
+// which calls GET /api/career/role?id=<roleId> — so the raw bigint 400'd
 // there with "Missing or invalid role id." This seam test proves the exact
 // value /api/career/matches emits round-trips through /api/career/role.
 // ============================================================================
@@ -516,7 +516,7 @@ describe('GET /api/career/matches roleId -> GET /api/career/role (Finding 1 seam
     expect(matchesRes.status).toBe(200);
     const m = matchesRes.body.matches.find((x) => x.applicationId === 'app-addr-1');
     expect(m).toBeTruthy();
-    // The public provider:providerRoleId id, NOT the raw 'job-addr' bigint id.
+    // The public provider:providerRoleId id — NOT the raw 'job-addr' bigint id.
     expect(m.roleId).toBe('internal_ats:ats_job_addr');
 
     const roleRes = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent(m.roleId), { cookie });

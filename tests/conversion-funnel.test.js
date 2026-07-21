@@ -1,4 +1,4 @@
-// Phase 6 H2, cross-system conversion funnel + time-to-placement.
+// Phase 6 H2 — cross-system conversion funnel + time-to-placement.
 //
 // 1. Unit tests of lib/ceo-metrics.js computeConversionFunnel /
 //    computeTimeToPlacement: cross-system step counts, step-to-step
@@ -23,7 +23,7 @@ const SUPER_HOST = 'convfunnel-test.local';
 
 // Anchor to the real clock: the endpoint tests hit the live server, which
 // windows periods (7d/30d/90d) off Date.now(). A fixed anchor here becomes a
-// time bomb, the "3d-old" seed aged past the 7d window once the calendar
+// time bomb — the "3d-old" seed aged past the 7d window once the calendar
 // passed anchor+4d and the suite went red with no code change. Every seed and
 // assertion below is relative to NOW, so a live anchor stays deterministic.
 const NOW = Date.now();
@@ -37,7 +37,7 @@ function funnelFixture() {
     enquiries: [
       { id: 'e1', kind: 'practice', created_at: ago(3) },
       { id: 'e2', kind: 'practice', created_at: ago(60) },
-      { id: 'e3', kind: 'gp', created_at: ago(2) } // GP enquiry, NOT a practice lead
+      { id: 'e3', kind: 'gp', created_at: ago(2) } // GP enquiry — NOT a practice lead
     ],
     practices: [
       // FB-lead practice: counts as a lead (FB leads never hit site_enquiries)
@@ -95,7 +95,7 @@ describe('computeConversionFunnel (lib)', () => {
     const steps = f.practice_funnel;
     expect(steps[0].conversion_pct).toBeNull();
     expect(steps[1].conversion_pct).toBe(33.3);  // 1/3 signed
-    expect(steps[2].conversion_pct).toBe(200);   // 2 jobs from 1 practice, honest, can exceed 100
+    expect(steps[2].conversion_pct).toBe(200);   // 2 jobs from 1 practice — honest, can exceed 100
     // A zero previous step yields null (a % of nothing is meaningless)
     const empty = M.computeConversionFunnel({ apps: funnelFixture().apps }, 'all', NOW);
     const pe = empty.practice_funnel;
@@ -119,7 +119,7 @@ describe('computeConversionFunnel (lib)', () => {
     expect(p.practices_signed.count).toBe(0);
     expect(p.gp_applicants.count).toBe(0);
     expect(p.placements.count).toBe(0);
-    // time-to-placement is a duration metric, period-independent
+    // time-to-placement is a duration metric — period-independent
     expect(f.time_to_placement.from_signup.sample_size).toBe(2);
   });
 });
@@ -345,7 +345,7 @@ describe('GET /api/ceo/conversion-funnel', () => {
     for (const f of fetches) expect(f, `unbounded fetch: ${f}`).toContain('limit=');
   });
 
-  it('never reports revenue, counts and durations only (Xero owns money)', async () => {
+  it('never reports revenue — counts and durations only (Xero owns money)', async () => {
     const r = await req('GET', '/api/ceo/conversion-funnel', { host: SUPER_HOST, cookie: superCookie() });
     const raw = JSON.stringify(r.body).toLowerCase();
     for (const word of ['revenue', 'income', '"aud"', 'invoice']) {
@@ -372,7 +372,7 @@ describe('CEO dashboard conversion-funnel card (static)', () => {
     expect(html).toMatch(/loadConversionFunnel[\s\S]{0,200}currentPeriod/);
   });
 
-  it('funnel is hand-rolled HTML/SVG, no external chart libs', () => {
+  it('funnel is hand-rolled HTML/SVG — no external chart libs', () => {
     const forbidden = ['chart.js', 'chartjs', 'highcharts', 'd3.min', 'plotly', 'echarts'];
     for (const lib of forbidden) expect(html.toLowerCase()).not.toContain(lib);
   });

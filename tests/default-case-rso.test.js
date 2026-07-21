@@ -4,7 +4,7 @@ import server from '../server.js';
 // The launch handoff: new registration cases default to hello@ (GP Link Admin)
 // so the owner handles all doc-checking/support during the first GP rollout,
 // then hands to Hazel later by setting LAUNCH_DEFAULT_RSO_EMAIL. This guards the
-// pure resolver, the one place the launch-vs-Hazel decision is made.
+// pure resolver — the one place the launch-vs-Hazel decision is made.
 const { pickDefaultCaseRsoUserId } = server.__testUtils;
 
 const ROSTER = [
@@ -13,7 +13,7 @@ const ROSTER = [
   { user_id: 'kh-id',    name: 'Khaleed', email: 'khaleedmahmoud1211@gmail.com' }
 ];
 
-describe('pickDefaultCaseRsoUserId, launch default RSO for new cases', () => {
+describe('pickDefaultCaseRsoUserId — launch default RSO for new cases', () => {
   it('defaults to hello@ (GP Link Admin) when the env is unset (launch config)', () => {
     // null/undefined rawEmail = env unset = the launch default (owner handles all).
     expect(pickDefaultCaseRsoUserId(ROSTER, null)).toBe('hello-id');

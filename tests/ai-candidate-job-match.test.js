@@ -1,7 +1,7 @@
 // Task 2 (AI Matching): lib/ai-candidate-job-match.js + the three
 // /api/ats/matching/* endpoints.
 //
-// Part A (below) is pure unit tests no server, no network for the
+// Part A (below) is pure unit tests — no server, no network — for the
 // synchronous eligibility gate, the fence-stripping JSON parser, and the
 // batching/graceful-degradation behaviour of the two AI ranking calls (via
 // an injected `opts.fetchImpl`, so no real network or global.fetch patching
@@ -12,7 +12,7 @@
 // because every table this feature reads (user_profiles, user_state,
 // user_documents, registration_cases, gp_applications, career_interviews,
 // career_roles, match_cache) only has a real code path when
-// `isSupabaseDbConfigured()` is true, there is no local-JSON fallback for
+// `isSupabaseDbConfigured()` is true — there is no local-JSON fallback for
 // these newer ATS tables. Outbound Anthropic calls are captured/stubbed by
 // wrapping global fetch, same as the Resend-call pattern in sibling tests.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -30,7 +30,7 @@ import {
 // Part A: pure unit tests
 // ─────────────────────────────────────────────────────────────────────────
 
-describe('checkMatchEligibility, eligibility matrix', () => {
+describe('checkMatchEligibility — eligibility matrix', () => {
   const baseGp = () => ({
     onboardingComplete: true,
     hasCv: true,
@@ -191,7 +191,7 @@ describe('aiRankCandidatesForJob', () => {
     expect(result).toEqual({ ranked: [] });
   });
 
-  it('gracefully degrades with no API key, never throws, never calls fetch', async () => {
+  it('gracefully degrades with no API key — never throws, never calls fetch', async () => {
     const fetchImpl = () => { throw new Error('should not be called'); };
     const result = await aiRankCandidatesForJob({ id: 'job-1' }, [{ id: 'gp-1' }, { id: 'gp-2' }], { apiKey: '', fetchImpl });
     expect(result.error).toBe('no_api_key');
@@ -273,7 +273,7 @@ let server, port;
 let sbServer, sbPort;
 let realFetch;
 let anthropicCallCount = 0;
-let anthropicResponder = null; // (body) => rankedArray, set per-test
+let anthropicResponder = null; // (body) => rankedArray — set per-test
 
 const db = {
   user_profiles: [
@@ -292,14 +292,14 @@ const db = {
     { id: 'case-2', user_id: 'gp-2', ai_handover_summary: null, intent_score: 20, intent_band: 'cold' }
   ],
   career_roles: [
-    { id: 'role-1', title: 'GP, Brisbane', practice_name: 'Test Practice', practice_type: 'Corporate', location_city: 'Brisbane', location_state: 'QLD', employment_type: 'Permanent', dpa: true, visa_pathway_aligned: true, regional: false, metro: true, family_friendly: true, tags: ['family-friendly'], summary: 'A great role.', job_status: 'open', is_active: true, provider: 'internal_ats', provider_role_id: 'ats_role1' },
+    { id: 'role-1', title: 'GP — Brisbane', practice_name: 'Test Practice', practice_type: 'Corporate', location_city: 'Brisbane', location_state: 'QLD', employment_type: 'Permanent', dpa: true, visa_pathway_aligned: true, regional: false, metro: true, family_friendly: true, tags: ['family-friendly'], summary: 'A great role.', job_status: 'open', is_active: true, provider: 'internal_ats', provider_role_id: 'ats_role1' },
     // Dedicated to the shortlist tests below so they never share a match_cache
     // row (subject_type='job', subject_id) with the ranking-endpoint tests.
     // is_active:false keeps it OUT of the /matching/jobs open+active jobs
     // pool (atsGetJobRow itself has no such filter, so the shortlist
-    // insert/reopen/skip paths, which look the job up directly by id, are
+    // insert/reopen/skip paths — which look the job up directly by id — are
     // unaffected).
-    { id: 'role-2', title: 'GP, Toowoomba', practice_name: 'Shortlist Test Practice', practice_type: 'Corporate', location_city: 'Toowoomba', location_state: 'QLD', employment_type: 'Permanent', dpa: true, job_status: 'open', is_active: false, provider: 'internal_ats', provider_role_id: 'ats_role2' }
+    { id: 'role-2', title: 'GP — Toowoomba', practice_name: 'Shortlist Test Practice', practice_type: 'Corporate', location_city: 'Toowoomba', location_state: 'QLD', employment_type: 'Permanent', dpa: true, job_status: 'open', is_active: false, provider: 'internal_ats', provider_role_id: 'ats_role2' }
   ],
   practices: [
     { id: 'p1', name: 'Test Practice' }
@@ -422,7 +422,7 @@ const atsPost = (p, body) => httpReq('POST', p, { host: SUPER_HOST, cookie: supe
 
 // Wrapped in its own describe so this beforeAll/afterAll (which sets
 // ANTHROPIC_API_KEY + boots a real server) never runs before Part A's plain
-// unit tests above, vitest hoists a FILE-level beforeAll ahead of every
+// unit tests above — vitest hoists a FILE-level beforeAll ahead of every
 // test in the file regardless of source order, which would otherwise leak
 // a real-looking API key into the "no API key" unit test.
 describe('AI Matching endpoints (Supabase emulator)', () => {
@@ -449,7 +449,7 @@ beforeAll(async () => {
     if (u.startsWith('https://api.anthropic.com/')) {
       anthropicCallCount++;
       const body = JSON.parse(opts.body);
-      // Only pull ids from the "rank ALL of them" LIST section, the single
+      // Only pull ids from the "rank ALL of them" LIST section — the single
       // job/gp summary block above it also has its own "id" field, which must
       // not be mistaken for a list entry to rank.
       const content = body.messages[0].content;
@@ -489,7 +489,7 @@ describe('GET /api/ats/matching/candidates', () => {
     expect(r1.body.ranked[0].reasons.length).toBeGreaterThanOrEqual(3);
     expect(anthropicCallCount).toBe(before + 1);
 
-    // Second call without force reuses the 24h cache, no new Anthropic call.
+    // Second call without force reuses the 24h cache — no new Anthropic call.
     const r2 = await atsGet('/api/ats/matching/candidates?job_id=role-1');
     expect(r2.status).toBe(200);
     expect(r2.body.cached).toBe(true);
@@ -553,8 +553,8 @@ describe('POST /api/ats/matching/shortlist', () => {
   //
   // The endpoint now re-checks eligibility server-side before ANY write, so
   // the shortlisted GPs need REAL pool fixtures (profile + state + CV + case).
-  // Seeded in a describe-scoped beforeAll, i.e. AFTER the ranking endpoint
-  // tests above have already run, so those tests' exact candidate-universe
+  // Seeded in a describe-scoped beforeAll — i.e. AFTER the ranking endpoint
+  // tests above have already run — so those tests' exact candidate-universe
   // counts (ranked.length / excluded_count) are not disturbed.
   beforeAll(() => {
     db.user_profiles.push(
@@ -582,10 +582,10 @@ describe('POST /api/ats/matching/shortlist', () => {
       { id: 'case-gat', user_id: 'gp-gated' }
     );
     // Non-DPA role for the dpa_ineligible case. is_active:false keeps it out
-    // of the /matching/jobs open-pool query (belt-and-braces, those tests
+    // of the /matching/jobs open-pool query (belt-and-braces — those tests
     // already ran); the shortlist path looks jobs up directly by id, unaffected.
     db.career_roles.push(
-      { id: 'role-3', title: 'GP, Sydney (non-DPA)', practice_name: 'Metro Practice', location_city: 'Sydney', location_state: 'NSW', dpa: false, job_status: 'open', is_active: false, provider: 'internal_ats', provider_role_id: 'ats_role3' }
+      { id: 'role-3', title: 'GP — Sydney (non-DPA)', practice_name: 'Metro Practice', location_city: 'Sydney', location_state: 'NSW', dpa: false, job_status: 'open', is_active: false, provider: 'internal_ats', provider_role_id: 'ats_role3' }
     );
   });
 
@@ -653,7 +653,7 @@ describe('POST /api/ats/matching/shortlist', () => {
   });
 
   it('re-checks eligibility server-side: gated account (under_review) is blocked and writes nothing', async () => {
-    // gp-gated targets role-2 (dpa:true so no DPA block), only account_gated fires.
+    // gp-gated targets role-2 (dpa:true so no DPA block) — only account_gated fires.
     const countBefore = db.gp_applications.length;
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-gated', career_role_id: 'role-2' }] });
     expect(r.status).toBe(200);

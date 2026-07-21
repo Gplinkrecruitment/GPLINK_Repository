@@ -1,4 +1,4 @@
-// Phase 6 H1, PEP-launch button (static checks): /api/ceo/pep-waitlist/launch
+// Phase 6 H1 — PEP-launch button (static checks): /api/ceo/pep-waitlist/launch
 // existed but NOTHING called it (the owner would have had to curl it). The CEO
 // dashboard Waitlist card must now carry a guarded "Launch PEP pathway" button:
 //  1. button present in the PEP waitlist pane, wired to the launch endpoint;
@@ -21,7 +21,7 @@ beforeAll(() => {
   serverSrc = fs.readFileSync(SERVER, 'utf8');
 });
 
-describe('CEO Waitlist card, Launch PEP pathway button', () => {
+describe('CEO Waitlist card — Launch PEP pathway button', () => {
   it('the Waitlist card renders a launch button', () => {
     expect(html).toContain('data-pep-launch');
     expect(html).toContain('Launch PEP pathway');

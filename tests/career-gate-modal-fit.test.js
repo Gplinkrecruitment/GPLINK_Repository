@@ -5,11 +5,11 @@
 //  1. `.career-gate-card` set `overflow: hidden`, overriding `.modal-card`'s
 //     `overflow: auto`. The gate content is ~1000px tall, so on any viewport
 //     shorter than that the CTA (the ONLY way past the modal) was clipped off
-//     the bottom with no scrollbar, the GP was hard-stuck.
+//     the bottom with no scrollbar — the GP was hard-stuck.
 //  2. The scan-status lines are toggled via the HTML `hidden` attribute, but
 //     `.career-gate-scanline { display: flex }` beats the user-agent
 //     `[hidden] { display: none }` rule (author styles always win over UA
-//     styles), so all three lines, including an EMPTY red error box, were
+//     styles), so all three lines — including an EMPTY red error box — were
 //     permanently visible, adding ~125px of phantom height.
 //
 // Static pins in the style of tests/gp-flow-server-gaps.test.js "G2".
@@ -29,7 +29,7 @@ function cssBlock(selector) {
 describe('careers gate modal fits every viewport', () => {
   it('gate card scrolls vertically instead of clipping the CTA', () => {
     const card = cssBlock('.career-gate-card');
-    // `overflow: hidden` silently discarded everything below the fold,
+    // `overflow: hidden` silently discarded everything below the fold —
     // including the only button that closes the modal.
     expect(card).not.toMatch(/overflow:\s*hidden\s*;/);
     expect(card).toMatch(/overflow-y:\s*auto/);
@@ -50,10 +50,10 @@ describe('careers gate modal fits every viewport', () => {
   });
 });
 
-// Round 2, owner's iPhone screenshot 2026-07-07 11:47pm (embedded in the app
+// Round 2 — owner's iPhone screenshot 2026-07-07 11:47pm (embedded in the app
 // shell): CTA hidden behind the bottom nav, blue header inset from the card
 // edges, and the whole page pannable left-right.
-describe('careers gate modal, mobile shell fixes', () => {
+describe('careers gate modal — mobile shell fixes', () => {
   it('CTA lives in a sticky footer so it is always visible', () => {
     // markup: the CTA + foot note are wrapped in the sticky footer
     expect(html).toMatch(/career-gate-footer">\s*<button class="career-gate-cta"/);
@@ -66,7 +66,7 @@ describe('careers gate modal, mobile shell fixes', () => {
 
   it('gate card keeps padding 0 on mobile (blue header reaches the card edges)', () => {
     // The mobile media query re-pads .modal-card AFTER .career-gate-card's
-    // padding: 0 (same specificity, later source order wins), so the LAST
+    // padding: 0 (same specificity, later source order wins) — so the LAST
     // .career-gate-card declaration in the file must restore padding: 0.
     const blocks = [...html.matchAll(/\.career-gate-card\s*\{[^}]*\}/g)].map((m) => m[0]);
     expect(blocks.length).toBeGreaterThan(1);
@@ -90,14 +90,14 @@ describe('careers gate modal, mobile shell fixes', () => {
   });
 });
 
-// Round 3, owner report 2026-07-08: with the popup open, scroll gestures
+// Round 3 — owner report 2026-07-08: with the popup open, scroll gestures
 // sometimes scroll the career page underneath instead of the popup. Gestures
 // starting on the backdrop fall through to the document, and the card's
 // scroll chains to the page at its top/bottom edges.
-describe('careers gate modal, background scroll lock', () => {
+describe('careers gate modal — background scroll lock', () => {
   it('page scrolling is locked while the gate modal is open', () => {
     // the lock MUST cover html as well: body overflow no longer propagates
-    // to the viewport once html has overflow-x: hidden (verified live,
+    // to the viewport once html has overflow-x: hidden (verified live —
     // a body-only lock still scrolled).
     expect(html).toMatch(/html\.career-gate-open,\s*body\.career-gate-open\s*\{[^}]*overflow:\s*hidden/);
     // open/close must toggle the lock class on BOTH roots in step with is-open
@@ -110,10 +110,10 @@ describe('careers gate modal, background scroll lock', () => {
   });
 });
 
-// Round 4, owner request 2026-07-08: make the blue "One quick step / Complete
+// Round 4 — owner request 2026-07-08: make the blue "One quick step / Complete
 // your profile" header sticky too, pinned to the top of the card while the
 // content scrolls (mirrors the sticky footer).
-describe('careers gate modal, sticky header', () => {
+describe('careers gate modal — sticky header', () => {
   it('blue header sticks to the top of the scrollable card', () => {
     const top = cssBlock('.career-gate-top');
     expect(top).toMatch(/position:\s*sticky/);

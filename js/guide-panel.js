@@ -1,9 +1,9 @@
 /* ============================================================================
- * guide-panel.js, shared RSO Guide component.
+ * guide-panel.js — shared RSO Guide component.
  *
  * One source of truth for the folders/items how-to guide, mounted in two places:
- *   • pages/admin.html   , the RSO dashboard, READ-ONLY (canEdit:false)
- *   • pages/ceo-dashboard, Registration → Guides sub-tab, EDITABLE (canEdit:true)
+ *   • pages/admin.html    — the RSO dashboard, READ-ONLY (canEdit:false)
+ *   • pages/ceo-dashboard — Registration → Guides sub-tab, EDITABLE (canEdit:true)
  *
  * The server already enforces the real permission: reads (GET /api/admin/guide/
  * folders) are open to any admin so RSOs can watch the tutorials, but every write
@@ -285,7 +285,7 @@
     });
   };
 
-  // Drag-to-reorder, top-level folders only (mirrors admin.html behaviour).
+  // Drag-to-reorder — top-level folders only (mirrors admin.html behaviour).
   Instance.prototype.bindDrag = function () {
     var self = this;
     var el = this.el;

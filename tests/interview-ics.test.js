@@ -1,4 +1,4 @@
-// Phase 6 Batch D1a, unit tests for the reusable .ics calendar helper
+// Phase 6 Batch D1a — unit tests for the reusable .ics calendar helper
 // (lib/interview-ics.js). Pure functions, no server boot.
 import { describe, it, expect } from 'vitest';
 import { buildInterviewIcs, icsAttachment, icsEscape } from '../lib/interview-ics.js';
@@ -7,7 +7,7 @@ const BASE = {
   uid: 'gplink-interview-int-123@mygplink.com.au',
   start: '2026-08-14T03:30:00.000Z',
   durationMins: 45,
-  summary: 'Interview, Dr Test @ Greenslopes Family Medical',
+  summary: 'Interview — Dr Test @ Greenslopes Family Medical',
   description: 'GP Link interview. Join Zoom: https://zoom.us/j/12345',
   location: 'https://zoom.us/j/12345',
   organizerEmail: 'hello@mygplink.com.au',
@@ -17,13 +17,13 @@ const BASE = {
 // Unfold RFC 5545 folded lines (CRLF + single space) back into logical lines.
 const unfold = (ics) => ics.replace(/\r\n[ \t]/g, '').split('\r\n').filter(Boolean);
 
-describe('buildInterviewIcs, REQUEST (booking invite)', () => {
+describe('buildInterviewIcs — REQUEST (booking invite)', () => {
   const ics = buildInterviewIcs(BASE);
   const lines = unfold(ics);
 
   it('produces a valid VCALENDAR/VEVENT wrapper with CRLF line endings', () => {
     expect(ics.includes('\r\n')).toBe(true);
-    // Every line break is CRLF, no bare \n anywhere.
+    // Every line break is CRLF — no bare \n anywhere.
     expect(/[^\r]\n/.test(ics)).toBe(false);
     expect(lines[0]).toBe('BEGIN:VCALENDAR');
     expect(lines[lines.length - 1]).toBe('END:VCALENDAR');
@@ -61,7 +61,7 @@ describe('buildInterviewIcs, REQUEST (booking invite)', () => {
   });
 });
 
-describe('buildInterviewIcs, CANCEL (same UID, bumped SEQUENCE)', () => {
+describe('buildInterviewIcs — CANCEL (same UID, bumped SEQUENCE)', () => {
   const ics = buildInterviewIcs({ ...BASE, method: 'CANCEL', status: 'CANCELLED', sequence: 1 });
   const lines = unfold(ics);
 
@@ -96,7 +96,7 @@ describe('text escaping', () => {
   });
 });
 
-describe('icsAttachment, sendEmail attachment wrapper', () => {
+describe('icsAttachment — sendEmail attachment wrapper', () => {
   it('returns {filename, content(base64), contentType} and round-trips to the ICS text', () => {
     const att = icsAttachment(BASE);
     expect(att.filename).toBe('interview.ics');

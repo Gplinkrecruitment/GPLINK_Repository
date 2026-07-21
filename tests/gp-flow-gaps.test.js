@@ -1,14 +1,14 @@
-// Phase 5 Task 1, GP-journey gap closures (G1, G3, G4, G5, G7).
+// Phase 5 Task 1 — GP-journey gap closures (G1, G3, G4, G5, G7).
 //
 // These pages are static HTML/JS served verbatim (no server-side templating),
 // so reading them straight from disk is an honest check of exactly what the
 // browser receives. Assertions pin the gap-closure contract:
-//   G1/G3, offer-review.html reveals a post-accept "Schedule your interview"
+//   G1/G3 — offer-review.html reveals a post-accept "Schedule your interview"
 //           CTA and re-fetches /api/career/my-offer after accepting.
-//   G4   , career.html Offers rows render honest terminal ribbons instead of
+//   G4    — career.html Offers rows render honest terminal ribbons instead of
 //           "UNDER REVIEW" for closed applications.
-//   G5   , finalising_placement gets a positive client status-meta entry.
-//   G7   , /pages/secure-interview is registered in the app-shell route tables.
+//   G5    — finalising_placement gets a positive client status-meta entry.
+//   G7    — /pages/secure-interview is registered in the app-shell route tables.
 // GP-visible copy must never say the bare "RSO" abbreviation.
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs';
@@ -30,7 +30,7 @@ beforeAll(() => {
   appShellJs = fs.readFileSync(APP_SHELL_JS_PATH, 'utf8');
 });
 
-describe('offer-review.html, post-accept interview path (G1 + G3)', () => {
+describe('offer-review.html — post-accept interview path (G1 + G3)', () => {
   it('has a post-accept interview CTA inside the celebration panel', () => {
     expect(offerHtml).toContain('id="postAcceptInterview"');
     expect(offerHtml).toContain('id="postAcceptInterviewBtn"');
@@ -64,7 +64,7 @@ describe('offer-review.html, post-accept interview path (G1 + G3)', () => {
   });
 });
 
-describe('career.html, terminal ribbons + finalising meta (G4 + G5)', () => {
+describe('career.html — terminal ribbons + finalising meta (G4 + G5)', () => {
   it('renders honest terminal ribbons, not UNDER REVIEW', () => {
     expect(careerHtml).toContain('>NOT PROCEEDING<');
     expect(careerHtml).toContain('>WITHDRAWN<');
@@ -85,8 +85,8 @@ describe('career.html, terminal ribbons + finalising meta (G4 + G5)', () => {
 
   it('has a positive finalising_placement client status-meta entry (G5)', () => {
     expect(careerHtml).toContain('key === "finalising_placement"');
-    expect(careerHtml).toContain('Offer accepted, finalising your placement');
-    // The metaLine string uses a, escape for the em-dash, so match around it.
+    expect(careerHtml).toContain('Offer accepted — finalising your placement');
+    // The metaLine string uses a — escape for the em-dash, so match around it.
     expect(careerHtml).toContain("We're finalising the paperwork");
     expect(careerHtml).toContain('your placement page unlocks shortly.');
     expect(careerHtml).toContain('>OFFER ACCEPTED<');
@@ -97,7 +97,7 @@ describe('career.html, terminal ribbons + finalising meta (G4 + G5)', () => {
   });
 });
 
-describe('js/app-shell.js, secure-interview route registration (G7)', () => {
+describe('js/app-shell.js — secure-interview route registration (G7)', () => {
   it('registers /pages/secure-interview in the shell route tables', () => {
     // PAGE_PATHS whitelist
     expect(appShellJs).toContain('"/pages/secure-interview": true');

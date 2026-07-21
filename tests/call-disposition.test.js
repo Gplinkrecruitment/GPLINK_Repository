@@ -1,4 +1,4 @@
-// Phase 6 G2b, structured call-outcome logging.
+// Phase 6 G2b — structured call-outcome logging.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. PATCH /api/admin/calls/:id {action:'complete'} requires a disposition
@@ -15,8 +15,8 @@
 //   5. Invalid source status (invited) → 409. Auth-gated.
 //   6. Static: admin.html ships the outcome modal + disposition rendering.
 //   7. HONESTY: when the disposition PATCH itself fails at the DB, the endpoint
-//      returns 500 (not ok:true) and runs NO side-effects, no follow-up task,
-//      linked task untouched, and the same request succeeds on retry.
+//      returns 500 (not ok:true) and runs NO side-effects — no follow-up task,
+//      linked task untouched — and the same request succeeds on retry.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
@@ -47,7 +47,7 @@ const TASK_DBFAIL = crypto.randomUUID(); // linked registration task of CALL_DBF
 const DONE_COMPLETED_AT = iso(-1);
 
 // When a table name is in here, the NEXT emulator PATCH against it returns 500
-// (then the flag clears), simulates a real DB write failure.
+// (then the flag clears) — simulates a real DB write failure.
 const failNextPatch = new Set();
 
 const db = {
@@ -270,7 +270,7 @@ describe('PATCH /api/admin/calls/:id action=complete', () => {
     expect(row.call_disposition).toBe('needs_followup');
     expect(row.outcome_note).toBe('GP still needs the AMC portfolio walkthrough.');
     expect(row.completed_at).toBeTruthy();
-    // never-requested summary flips to pending, same as the auto-complete cron
+    // never-requested summary flips to pending — same as the auto-complete cron
     expect(row.summary_status).toBe('pending');
 
     // linked registration task completed via the existing status map
@@ -293,7 +293,7 @@ describe('PATCH /api/admin/calls/:id action=complete', () => {
     const before = followUps().length;
     const r = await httpReq('PATCH', '/api/admin/calls/' + CALL_ESC, {
       cookie: adminCookie(),
-      body: { action: 'complete', disposition: 'escalate', outcome_note: 'Practice conflict, needs the CEO.' }
+      body: { action: 'complete', disposition: 'escalate', outcome_note: 'Practice conflict — needs the CEO.' }
     });
     expect(r.status).toBe(200);
     const created = followUps();
@@ -321,7 +321,7 @@ describe('PATCH /api/admin/calls/:id action=complete', () => {
       cookie: adminCookie(),
       body: { action: 'complete', disposition: 'needs_followup', outcome_note: 'DB was down mid-save.' }
     });
-    // Honest failure, never ok:true on a write that did not persist
+    // Honest failure — never ok:true on a write that did not persist
     expect(r.status).toBe(500);
     expect(r.body.ok).toBe(false);
 
@@ -329,7 +329,7 @@ describe('PATCH /api/admin/calls/:id action=complete', () => {
     expect(followUps().length).toBe(before);
     // Linked registration task untouched (NOT marked completed)
     expect(db.registration_tasks.find((t) => t.id === TASK_DBFAIL).status).toBe('waiting');
-    // Call row untouched, still booked, no disposition persisted
+    // Call row untouched — still booked, no disposition persisted
     const row = callRow(CALL_DBFAIL);
     expect(row.status).toBe('booked');
     expect(row.call_disposition).toBeUndefined();
@@ -369,7 +369,7 @@ describe('PATCH /api/admin/calls/:id action=complete', () => {
   });
 });
 
-describe('admin.html, call outcome UI (static)', () => {
+describe('admin.html — call outcome UI (static)', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages', 'admin.html'), 'utf8');
 
   it('ships the outcome modal with the disposition list + required note', () => {

@@ -7,7 +7,7 @@ const { isOnlyAltCvOutstanding } = require('../lib/sppa-completeness-check.js');
 // supervisor's CV (collected via its own task), the submit gate must not hard-block and the panel
 // should reframe it as a reminder. This classifier decides that case.
 describe('isOnlyAltCvOutstanding', () => {
-  const altDoc = 'Alternate supervisor 1 (Ahmed Mahmoud) signed CV (Q5), not present in GP Link\'s document inventory';
+  const altDoc = 'Alternate supervisor 1 (Ahmed Mahmoud) signed CV (Q5) — not present in GP Link\'s document inventory';
 
   it('is true when the only gap is an alternate-supervisor CV', () => {
     expect(isOnlyAltCvOutstanding({

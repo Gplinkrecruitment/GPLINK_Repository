@@ -1,4 +1,4 @@
-// Matching Board Task 1 (2026-07-11 spec, Part B), nudge stamp columns.
+// Matching Board Task 1 (2026-07-11 spec, Part B) — nudge stamp columns.
 //
 // Source-wiring block only: confirms the migration file exists and declares
 // both nudge timestamp columns. Extended below with endpoint/behavior
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
-describe('Matching Board Task 1, nudge stamp migration source wiring', () => {
+describe('Matching Board Task 1 — nudge stamp migration source wiring', () => {
   const migrationPath = path.join(ROOT, 'supabase/migrations/20260711220000_match_nudges.sql');
 
   it('migration file exists', () => {
@@ -67,7 +67,7 @@ const ALL_GPS = [REMIND24_GP, OUTSIDE30_GP, FINAL_GP, FINAL_ACCEPTED_GP, FINAL_A
 const ALREADY_FINAL_STAMP = iso(NOW - 10 * 60000);
 
 // ── Task 3 (2026-07-11 nudges plan) fixtures: POST /api/career/match/need-more-time.
-// Separate GP-session (not admin-session) fixtures, kept out of ALL_GPS/the
+// Separate GP-session (not admin-session) fixtures — kept out of ALL_GPS/the
 // shared user_profiles map so each gets a distinctive display name for the
 // verbatim ops-email subject assertion below.
 const NEEDTIME_LIVE_GP = { userId: 'gp-needtime-live-1', email: 'needtime-live@gplink-test.local' };
@@ -79,7 +79,7 @@ const NEEDTIME_OTHER_GP = { userId: 'gp-needtime-other-1', email: 'needtime-othe
 
 // ── Finding 2 (2026-07-11 final-review fix) fixture: POST
 // /api/ats/matching/shortlist reopening a TERMINAL row that carries all
-// three nudge stamps from its PRIOR match window, proves the reopen branch
+// three nudge stamps from its PRIOR match window — proves the reopen branch
 // (msPatch) clears match_final_reminder_sent_at + match_more_time_requested_at
 // too, not just match_seen_at/match_reminder_sent_at.
 const REOPEN_NUDGE_GP = { userId: 'gp-reopen-nudge-1', email: 'reopen-nudge@gplink-test.local' };
@@ -103,7 +103,7 @@ const db = {
     { user_id: NEEDTIME_EXPIRED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
     { user_id: NEEDTIME_RESOLVED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
     { user_id: NEEDTIME_GATED_GP.userId, state: { gp_onboarding_complete: true, account_status: 'under_review' }, updated_at: iso(NOW) },
-    // Career-locked (Task 8's 3-strike lock): locked_at set, never released,
+    // Career-locked (Task 8's 3-strike lock): locked_at set, never released —
     // isCareerLocked() is true, so need-more-time must 423 (review fix).
     { user_id: NEEDTIME_LOCKED_GP.userId, state: { gp_onboarding_complete: true, career_lock: { strikes: [], locked_at: iso(NOW - 86400000), released_at: null, reasons: {} } }, updated_at: iso(NOW) },
     { user_id: NEEDTIME_OTHER_GP.userId, state: { gp_onboarding_complete: true }, updated_at: iso(NOW) },
@@ -122,7 +122,7 @@ const db = {
   ],
   career_roles: [
     {
-      id: 'job-1', title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      id: 'job-1', title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       practice_id: 'prac-1', location_city: 'Bundaberg', location_state: 'QLD', dpa: true,
       billing_model: 'Mixed billing', job_status: 'open', is_active: true
     }
@@ -132,16 +132,16 @@ const db = {
     // expires in 20h (inside the 24h window) + never reminded.
     {
       id: 'app-remind24-1', user_id: REMIND24_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['Coastal Queensland fit'] },
       matched_at: iso(NOW - 2 * 86400000), match_expires_at: iso(NOW + 20 * 3600000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
     },
-    // Outside BOTH the 24h and 2h windows (expires in 30h), must never be
+    // Outside BOTH the 24h and 2h windows (expires in 30h) — must never be
     // touched by either pass.
     {
       id: 'app-outside30-1', user_id: OUTSIDE30_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 1 * 86400000), match_expires_at: iso(NOW + 30 * 3600000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
@@ -151,25 +151,25 @@ const db = {
     // never had a final call.
     {
       id: 'app-final-1', user_id: FINAL_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['Coastal Queensland fit'] },
       matched_at: iso(NOW - 4 * 86400000), match_expires_at: iso(NOW + 90 * 60000),
       match_reminder_sent_at: iso(NOW - 3 * 3600000), match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
     },
-    // Same 2h window, but already accepted, match_outcome is no longer
+    // Same 2h window, but already accepted — match_outcome is no longer
     // null, so the final-call pass must skip it entirely.
     {
       id: 'app-final-accepted-1', user_id: FINAL_ACCEPTED_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 4 * 86400000), match_expires_at: iso(NOW + 90 * 60000),
       match_reminder_sent_at: iso(NOW - 3 * 3600000), match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: 'accepted'
     },
-    // Same 2h window, but already final-called (idempotency fixture), must
+    // Same 2h window, but already final-called (idempotency fixture) — must
     // not be re-sent or re-stamped.
     {
       id: 'app-final-already-1', user_id: FINAL_ALREADY_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 4 * 86400000), match_expires_at: iso(NOW + 90 * 60000),
       match_reminder_sent_at: iso(NOW - 3 * 3600000), match_final_reminder_sent_at: ALREADY_FINAL_STAMP, match_more_time_requested_at: null, match_outcome: null
@@ -179,68 +179,68 @@ const db = {
     // match_extend PATCH test can prove all three are cleared.
     {
       id: 'app-extend-1', user_id: EXTEND_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'not_proceeding', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'not_proceeding', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 7 * 86400000), match_expires_at: iso(NOW - 2 * 86400000), match_outcome: 'expired',
       match_reminder_sent_at: iso(NOW - 3 * 86400000), match_final_reminder_sent_at: iso(NOW - 2 * 86400000), match_more_time_requested_at: iso(NOW - 2 * 86400000)
     },
     // Finding 2 (2026-07-11 final-review fix) fixture: a TERMINAL row (the
     // POST /api/ats/matching/shortlist REOPEN case, not the match_extend PATCH
-    // above) carrying all three nudge stamps from its prior match window,
+    // above) carrying all three nudge stamps from its prior match window —
     // proves the reopen branch's msPatch clears match_final_reminder_sent_at
     // + match_more_time_requested_at too.
     {
       id: 'app-reopen-nudge-1', user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'not_proceeding', origin: 'ai_matched', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'not_proceeding', origin: 'ai_matched', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: ['old reason'], _history: [] },
       matched_at: iso(NOW - 7 * 86400000), match_expires_at: iso(NOW - 2 * 86400000), match_outcome: 'expired',
       match_reminder_sent_at: iso(NOW - 3 * 86400000), match_final_reminder_sent_at: iso(NOW - 2 * 86400000), match_more_time_requested_at: iso(NOW - 2 * 86400000)
     },
     // Task 3 (2026-07-11 nudges plan): POST /api/career/match/need-more-time fixtures.
-    // Live, unstamped, the "noted" + idempotent-"already" pair (same row, two calls).
+    // Live, unstamped — the "noted" + idempotent-"already" pair (same row, two calls).
     {
       id: 'app-needtime-live-1', user_id: NEEDTIME_LIVE_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
     },
-    // Still 'shortlisted' but match_expires_at is in the past, the lifecycle
+    // Still 'shortlisted' but match_expires_at is in the past — the lifecycle
     // cron hasn't swept it yet (mirrors app-expired-1 in ai-matching-gp-flow).
     // matched_at is deliberately null: the lifecycle cron's expiry-sweep
     // filter requires matched_at=not.is.null, and this fixture must NOT be
-    // picked up by that cron pass (it belongs only to this describe block),
+    // picked up by that cron pass (it belongs only to this describe block) —
     // need-more-time's own classification never reads matched_at anyway.
     {
       id: 'app-needtime-expired-1', user_id: NEEDTIME_EXPIRED_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: null, match_expires_at: iso(NOW - 3600000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
     },
-    // Already accepted, ats_stage moved off 'shortlisted', so the row reads
+    // Already accepted — ats_stage moved off 'shortlisted', so the row reads
     // as resolved regardless of how much time is left on match_expires_at.
     {
       id: 'app-needtime-resolved-1', user_id: NEEDTIME_RESOLVED_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'applied', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'applied', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: 'accepted'
     },
-    // Live, owned by NEEDTIME_GATED_GP whose account_status is under_review,
+    // Live, owned by NEEDTIME_GATED_GP whose account_status is under_review —
     // the account gate must block this before any row/email logic runs.
     {
       id: 'app-needtime-gated-1', user_id: NEEDTIME_GATED_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
     },
-    // Live, owned by NEEDTIME_LOCKED_GP whose career_lock is active, the
+    // Live, owned by NEEDTIME_LOCKED_GP whose career_lock is active — the
     // lock gate must 423 before any row/email logic runs (review fix).
     {
       id: 'app-needtime-locked-1', user_id: NEEDTIME_LOCKED_GP.userId, career_role_id: 'job-1',
-      ats_stage: 'shortlisted', job_title: 'General Practitioner, Mixed Billing', practice_name: 'Coral Coast Family Practice',
+      ats_stage: 'shortlisted', job_title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice',
       match_reasons: { reasons: [] },
       matched_at: iso(NOW - 3 * 86400000), match_expires_at: iso(NOW + 2 * 86400000),
       match_reminder_sent_at: null, match_final_reminder_sent_at: null, match_more_time_requested_at: null, match_outcome: null
@@ -438,7 +438,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('GET /api/cron/match-lifecycle, 24h copy upgrade + 2h final-call nudge (Task 2, 2026-07-11 nudges plan)', () => {
+describe('GET /api/cron/match-lifecycle — 24h copy upgrade + 2h final-call nudge (Task 2, 2026-07-11 nudges plan)', () => {
   it('single run: reminds the 24h row and final-calls the 2h row with the new verbatim copy, excluding accepted/already-called/out-of-window rows', async () => {
     const r = await callCron();
     expect(r.status).toBe(200);
@@ -454,7 +454,7 @@ describe('GET /api/cron/match-lifecycle, 24h copy upgrade + 2h final-call nudge 
     // ── 24h reminder pass: app-remind24-1 ──────────────────────────────────
     const reminderCall = resendCalls.find((c) => (c.body.to || []).includes(REMIND24_GP.email));
     expect(reminderCall).toBeTruthy();
-    expect(reminderCall.body.subject).toBe('24 hours left, Coral Coast Family Practice is holding your spot');
+    expect(reminderCall.body.subject).toBe('24 hours left — Coral Coast Family Practice is holding your spot');
     expect(reminderCall.body.html).toContain('Review &amp; accept my match');
     expect(reminderCall.body.html).toContain('Not the right fit? Tell us why');
     expect(reminderCall.body.html).toContain('98%');
@@ -466,11 +466,11 @@ describe('GET /api/cron/match-lifecycle, 24h copy upgrade + 2h final-call nudge 
     // ── 2h final-call pass: app-final-1 ────────────────────────────────────
     const finalCall = resendCalls.find((c) => (c.body.to || []).includes(FINAL_GP.email));
     expect(finalCall).toBeTruthy();
-    expect(finalCall.body.subject).toMatch(/^Final call, your match expires at \d{1,2}:\d{2} (am|pm) (today|tomorrow)$/);
+    expect(finalCall.body.subject).toMatch(/^Final call — your match expires at \d{1,2}:\d{2} (am|pm) (today|tomorrow)$/);
     expect(finalCall.body.html).toContain('Accept before it expires');
     // Assert on a distinctive substring rather than the exact HTML-escaping
-    // of the apostrophe in "I'm interested, I need more time" (the builder
-    // may render it as &#39; or a raw apostrophe, either is correct).
+    // of the apostrophe in "I'm interested — I need more time" (the builder
+    // may render it as &#39; or a raw apostrophe — either is correct).
     expect(finalCall.body.html).toContain('need more time');
     expect(finalCall.body.html).toContain('needtime%3D1');
     expect(finalCall.body.html).toContain('98%');
@@ -494,7 +494,7 @@ describe('GET /api/cron/match-lifecycle, 24h copy upgrade + 2h final-call nudge 
     expect(outsideRow.match_reminder_sent_at).toBeFalsy();
     expect(outsideRow.match_final_reminder_sent_at).toBeFalsy();
 
-    // Exactly two emails this run (the reminder + the final call), no
+    // Exactly two emails this run (the reminder + the final call) — no
     // summary ops email (nothing expired yet), nothing else.
     expect(resendCalls.length).toBe(2);
   });
@@ -509,7 +509,7 @@ describe('GET /api/cron/match-lifecycle, 24h copy upgrade + 2h final-call nudge 
   });
 });
 
-describe('PATCH /api/ats/application {match_extend:true}, clears all three nudge stamps (Task 2, 2026-07-11 nudges plan)', () => {
+describe('PATCH /api/ats/application {match_extend:true} — clears all three nudge stamps (Task 2, 2026-07-11 nudges plan)', () => {
   it('resets match_reminder_sent_at, match_final_reminder_sent_at, and match_more_time_requested_at to null', async () => {
     const before = db.gp_applications.find((a) => a.id === 'app-extend-1');
     expect(before.match_reminder_sent_at).toBeTruthy();
@@ -538,12 +538,12 @@ describe('PATCH /api/ats/application {match_extend:true}, clears all three nudge
 // (server.js msPatch, POST /api/ats/matching/shortlist) reset match_seen_at/
 // match_reminder_sent_at and set revealed:true, but left the two newer nudge
 // stamps (match_final_reminder_sent_at, match_more_time_requested_at) from
-// the PRIOR terminal match window untouched, leaving stale stamps that could
+// the PRIOR terminal match window untouched — leaving stale stamps that could
 // suppress/mis-classify the cron's nudges on the freshly reopened match.
 // revealed:true itself is already covered by
-// tests/matching-job-unmask.test.js's reopen test, this only pins the stamps.
+// tests/matching-job-unmask.test.js's reopen test — this only pins the stamps.
 // ============================================================================
-describe('POST /api/ats/matching/shortlist, REOPEN clears stale nudge stamps (Finding 2, 2026-07-11 final-review fix)', () => {
+describe('POST /api/ats/matching/shortlist — REOPEN clears stale nudge stamps (Finding 2, 2026-07-11 final-review fix)', () => {
   it('reopening a terminal row with both stamps set clears match_final_reminder_sent_at and match_more_time_requested_at', async () => {
     const before = db.gp_applications.find((a) => a.id === 'app-reopen-nudge-1');
     expect(before.match_final_reminder_sent_at).toBeTruthy();
@@ -564,7 +564,7 @@ describe('POST /api/ats/matching/shortlist, REOPEN clears stale nudge stamps (Fi
 });
 
 // ============================================================================
-// Task 3 (2026-07-11 nudges plan): POST /api/career/match/need-more-time, the
+// Task 3 (2026-07-11 nudges plan): POST /api/career/match/need-more-time — the
 // 2h final-call email's secondary CTA (`&needtime=1` deep link, Task 2).
 // Clones the still-interested/respond session-ownership-row-loading-expiry
 // pattern (tests/ai-matching-gp-flow.test.js), but as a GP-session (not
@@ -573,7 +573,7 @@ describe('POST /api/ats/matching/shortlist, REOPEN clears stale nudge stamps (Fi
 describe('POST /api/career/match/need-more-time (Task 3, 2026-07-11 nudges plan)', () => {
   it('live + unstamped: notes the request, stamps the column, and sends exactly one verbatim ops email; a second call is idempotent', async () => {
     resendCalls.length = 0;
-    const expectedSubject = 'GP asked for more time, Amara Chen × Coral Coast Family Practice';
+    const expectedSubject = 'GP asked for more time — Amara Chen × Coral Coast Family Practice';
 
     const before = db.gp_applications.find((a) => a.id === 'app-needtime-live-1');
     expect(before.match_more_time_requested_at).toBeNull();

@@ -68,7 +68,7 @@ describe('clean URL routing', () => {
     // Task 2 (public marketing routes): '/' on a non-admin host now serves the
     // public marketing homepage for anonymous visitors instead of redirecting
     // to /pages/index, which used to bounce straight to /pages/signin anyway.
-    // Signed-in visitors still land on /pages/index, see
+    // Signed-in visitors still land on /pages/index — see
     // tests/site-public-routes.test.js for that coverage.
     const res = await get('/');
     expect(res.status).toBe(200);
@@ -101,7 +101,7 @@ describe('clean URL routing', () => {
 
   it('API routes unaffected', async () => {
     const res = await get('/api/auth/session');
-    // 200 or 401 depending on auth state, the point is it's NOT a 301/404
+    // 200 or 401 depending on auth state — the point is it's NOT a 301/404
     expect([200, 401]).toContain(res.status);
   });
 

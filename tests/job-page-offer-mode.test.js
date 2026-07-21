@@ -1,4 +1,4 @@
-// Phase 2 Task 4, OFFER MODE + inline interview scheduling on pages/job.html
+// Phase 2 Task 4 — OFFER MODE + inline interview scheduling on pages/job.html
 // (plus the folded minors: terminal apply-guard states survive re-renders,
 // 70px shell-clearance fallback, career.html Offers-tab reveal chip).
 //
@@ -21,7 +21,7 @@ beforeAll(() => {
   careerHtml = fs.readFileSync(CAREER_PAGE_PATH, 'utf8');
 });
 
-describe('job.html, offer mode wiring (Phase 2 Task 4)', () => {
+describe('job.html — offer mode wiring (Phase 2 Task 4)', () => {
   it('never says "RSO" anywhere GP-visible (job.html + career.html)', () => {
     expect(html).not.toMatch(/\bRSO\b/);
     expect(careerHtml).not.toMatch(/\bRSO\b/);
@@ -95,10 +95,10 @@ describe('job.html, offer mode wiring (Phase 2 Task 4)', () => {
     expect(html).toContain('https://calendar.google.com/calendar/render');
     expect(html).toMatch(/45 \* 60 \* 1000/); // 45-minute event
     // Calendar title is masked-or-real strictly by the reveal gate.
-    expect(html).toMatch(/revealed \? \("Interview, " \+ String\(currentRole\.realPracticeName\)\) : "GP Link practice interview"/);
+    expect(html).toMatch(/revealed \? \("Interview — " \+ String\(currentRole\.realPracticeName\)\) : "GP Link practice interview"/);
   });
 
-  it('reschedule goes via the Registration Support Officer, no fake reschedule endpoint', () => {
+  it('reschedule goes via the Registration Support Officer — no fake reschedule endpoint', () => {
     expect(html).toContain('Need a different time? Message your Registration Support Officer');
     expect(html).not.toMatch(/interview\/(reschedule|cancel|unbook)/);
     expect(html).not.toContain('unbook(');
@@ -144,13 +144,13 @@ describe('job.html, offer mode wiring (Phase 2 Task 4)', () => {
   });
 });
 
-describe('career.html, Offers tab reveal chip (folded Task-2 minor)', () => {
+describe('career.html — Offers tab reveal chip (folded Task-2 minor)', () => {
   it('buildApplicationRowHtml shows the real name + unlocked chip only when server-revealed', () => {
     const fn = careerHtml.match(/function buildApplicationRowHtml\(application\) \{[\s\S]*?\n    \}/);
     expect(fn).toBeTruthy();
     expect(fn[0]).toContain('application.revealed === true');
     expect(fn[0]).toContain('isConfidentialText');
-    // The checkmark may be stored raw or as a ✓ JS escape, both render
+    // The checkmark may be stored raw or as a ✓ JS escape — both render
     // identically in the browser.
     expect(fn[0]).toMatch(/(?:✓|\\u2713) IDENTITY UNLOCKED/);
     // Masked treatment kept otherwise.

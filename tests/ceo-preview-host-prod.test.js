@@ -3,7 +3,7 @@ import http from 'http';
 import crypto from 'crypto';
 
 // SAFETY PROPERTY: in PRODUCTION (VERCEL_ENV='production'), the deployment's own
-// Vercel host (VERCEL_URL) is NOT auto-trusted for super_admin scope, production
+// Vercel host (VERCEL_URL) is NOT auto-trusted for super_admin scope — production
 // still honours ONLY the explicit SUPER_ADMIN_ALLOWED_HOSTS. (NODE_ENV stays 'test'
 // so the server boots without the prod Supabase-key requirement; the preview-host
 // allowance is gated purely on VERCEL_ENV, so VERCEL_ENV='production' exercises the

@@ -1,4 +1,4 @@
-// Phase 6 D1b, practice one-click action tokens.
+// Phase 6 D1b — practice one-click action tokens.
 //
 // Pure unit tests over the signed-token helpers (no server boot). The tokens
 // reuse the createSignedPurposeToken/parseSignedPurposeToken HMAC scheme

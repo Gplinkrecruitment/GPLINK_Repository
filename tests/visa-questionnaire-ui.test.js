@@ -1,4 +1,4 @@
-// Phase 6 Batch I3, the EXISTING visa questionnaire server flow is wired into
+// Phase 6 Batch I3 — the EXISTING visa questionnaire server flow is wired into
 // the admin UI (GP file's visa step in pages/admin.html). RSOs previously had
 // no button for it there: admin.html only ever called /api/admin/visa/cases.
 //
@@ -9,7 +9,7 @@
 //   - every route the UI calls actually exists in server.js (no invented
 //     endpoints);
 //   - recipient-route dropdowns only offer values the server accepts
-//     (QUESTIONNAIRE_ROUTES), admin-visa.html previously sent values the
+//     (QUESTIONNAIRE_ROUTES) — admin-visa.html previously sent values the
 //     server silently dropped;
 //   - all interpolated GP data goes through esc() (XSS).
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -39,7 +39,7 @@ const WIRED_ROUTES = [
   { route: '/api/admin/visa/dependants', method: 'GET' },
 ];
 
-describe('admin.html GP-file visa step, questionnaire pane', () => {
+describe('admin.html GP-file visa step — questionnaire pane', () => {
   it('renders the questionnaire pane inside the visa journey step', () => {
     expect(adminHtml).toContain('renderVisaQuestionnairePane(c)');
     // wired into the visa step template next to the Manage Visa link
@@ -81,7 +81,7 @@ describe('admin.html GP-file visa step, questionnaire pane', () => {
   });
 });
 
-describe('no invented endpoints, every wired route exists in server.js', () => {
+describe('no invented endpoints — every wired route exists in server.js', () => {
   for (const { route, method } of WIRED_ROUTES) {
     it(`${method} ${route} exists`, () => {
       const handler = `pathname === '${route}' && req.method === '${method}'`;
@@ -114,9 +114,9 @@ describe('recipient routes match the server allowlist', () => {
 
   it('admin-visa.html recipient-route dropdowns no longer send values the server drops', () => {
     // Previously qRecipientRoute/qSendRoute offered migration_agent / sponsor /
-    // department / other, all outside QUESTIONNAIRE_ROUTES, so recipient_route
-    // was silently nulled. (Other selects on the page, doc type, task type,
-    // task domain, legitimately use their own vocabularies.)
+    // department / other — all outside QUESTIONNAIRE_ROUTES, so recipient_route
+    // was silently nulled. (Other selects on the page — doc type, task type,
+    // task domain — legitimately use their own vocabularies.)
     for (const selectId of ['qRecipientRoute', 'qSendRoute']) {
       const start = adminVisaHtml.indexOf('id="' + selectId + '"');
       expect(start, selectId + ' select exists').toBeGreaterThan(-1);
@@ -133,7 +133,7 @@ describe('recipient routes match the server allowlist', () => {
 });
 
 describe('no GP-facing surface touched', () => {
-  it('the pane lives in admin.html only, GP-facing visa.html does not gain admin questionnaire actions', () => {
+  it('the pane lives in admin.html only — GP-facing visa.html does not gain admin questionnaire actions', () => {
     const visaHtml = fs.readFileSync(path.join(root, 'pages', 'visa.html'), 'utf8');
     expect(visaHtml).not.toContain('data-vq-request');
     expect(visaHtml).not.toContain('/api/admin/visa/questionnaire');

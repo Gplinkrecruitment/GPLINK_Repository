@@ -15,7 +15,7 @@ describe('backfillStateBlob', () => {
     expect(Object.values(w.tips).every(Boolean)).toBe(true);
     expect(out.gp_selected_country).toBe('GB'); // other keys untouched
   });
-  it('is idempotent, leaves an existing value unchanged', () => {
+  it('is idempotent — leaves an existing value unchanged', () => {
     const existing = { gp_walkthrough_state: JSON.stringify({ tourDone: false, tips: {} }) };
     expect(backfillStateBlob(existing)).toBe(null); // null => skip (already set)
   });

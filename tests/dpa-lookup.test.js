@@ -8,7 +8,7 @@ const hwlResponse = (dpaValue, mmmValue = 2, catchment = 'Gosford') => ({
   },
 });
 
-describe('parseHwlResult, the official Department of Health answer', () => {
+describe('parseHwlResult — the official Department of Health answer', () => {
   it('reads Y as in-DPA', () => {
     expect(parseHwlResult(hwlResponse('Y'))).toMatchObject({
       dpa: true, dpaCatchment: 'Gosford', dpaBonded: false, mmm: 'MM2',

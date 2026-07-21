@@ -1,10 +1,10 @@
-// Phase 6 Batch C4, installable PWA (audit 2026-07-07 platform):
+// Phase 6 Batch C4 — installable PWA (audit 2026-07-07 platform):
 //  1. /manifest.webmanifest is served with the manifest content-type and is
 //     valid JSON with name / short_name / start_url / display / icons.
 //  2. Every icon the manifest references resolves (200, image/png) through the
 //     static handler.
 //  3. app-shell.html links the manifest + theme-color; the other primary GP
-//     pages carry the manifest link too (asserted from source, those routes
+//     pages carry the manifest link too (asserted from source — those routes
 //     are shell-wrapped over HTTP).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
@@ -39,7 +39,7 @@ function get(p) {
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
-  process.env.AUTH_DISABLED = 'true'; // page-serving test, auth is covered elsewhere
+  process.env.AUTH_DISABLED = 'true'; // page-serving test — auth is covered elsewhere
   process.env.AUTH_SECRET = 'pwa-manifest-test-' + RUN_ID;
   process.env.REQUIRE_SUPABASE_DB = 'false';
   process.env.SUPABASE_URL = '';
@@ -109,7 +109,7 @@ describe('manifest.webmanifest', () => {
 
 describe('page wiring', () => {
   it('the app-shell entry (manifest start_url) serves and links the manifest + theme-color', async () => {
-    // /pages/app-shell, the clean-URL entry the manifest's start_url points at.
+    // /pages/app-shell — the clean-URL entry the manifest's start_url points at.
     const res = await get('/pages/app-shell');
     expect(res.status).toBe(200);
     expect(res.raw).toContain('rel="manifest"');

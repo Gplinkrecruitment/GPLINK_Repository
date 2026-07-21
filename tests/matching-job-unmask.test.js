@@ -1,4 +1,4 @@
-// Task 7 (AI Matching, 2026-07-11 matching-board plan), job.html for a
+// Task 7 (AI Matching, 2026-07-11 matching-board plan) — job.html for a
 // matched GP: the shortlist REOPEN branch now sets revealed:true (fresh
 // inserts already did), /api/career/role now returns `website` when
 // revealed and a `match` block for a live/non-expired/owned shortlisted
@@ -7,7 +7,7 @@
 // ?match= param names that exact live match.
 //
 // Two halves:
-//  (A) Source-regex wiring checks, no server boot needed.
+//  (A) Source-regex wiring checks — no server boot needed.
 //  (B) Endpoint behavior against a real Supabase-mode boot (in-memory
 //      PostgREST emulator, pattern from tests/career-internal-apply.test.js
 //      / tests/ai-candidate-job-match.test.js), a real ATS super_admin
@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 // ── Source wiring (no server boot needed) ───────────────────────────────────
-describe('AI Matching Task 7, source wiring', () => {
+describe('AI Matching Task 7 — source wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const jobHtml = fs.readFileSync(path.join(ROOT, 'pages/job.html'), 'utf8');
 
@@ -72,7 +72,7 @@ describe('AI Matching Task 7, source wiring', () => {
   });
 
   it('job.html has the verbatim job-page banner + "Why this matches you" ticks, gated by getActiveMatch', () => {
-    expect(jobHtml).toContain("Your team matched you here for a reason, this page normally hides the practice name, but your match unlocks the full picture.");
+    expect(jobHtml).toContain("Your team matched you here for a reason — this page normally hides the practice name, but your match unlocks the full picture.");
     expect(jobHtml).toContain('function buildMatchBannerHtml(role)');
     expect(jobHtml).toContain('function buildMatchWhyHtml(role)');
     expect(jobHtml).toContain('Why this matches you');
@@ -95,8 +95,8 @@ describe('AI Matching Task 7, source wiring', () => {
 
   it('job.html sticky bar relabels to "Accept this match" with the verbatim countdown sub-line, without a new accept call', () => {
     expect(jobHtml).toContain('Accept this match<small>');
-    expect(jobHtml).toContain('", your spot is reserved until then</small>"');
-    // submitApply() still only ever POSTs /api/career/apply, no separate
+    expect(jobHtml).toContain('" — your spot is reserved until then</small>"');
+    // submitApply() still only ever POSTs /api/career/apply — no separate
     // match/respond call was introduced for the matched-job-page path.
     const idxSubmit = jobHtml.indexOf('async function submitApply()');
     const fnSrc = jobHtml.slice(idxSubmit, idxSubmit + 1200);
@@ -259,14 +259,14 @@ const atsPost = (p, body) => httpReq('POST', p, { host: SUPER_HOST, cookie: supe
 const PRACTICE_A = { id: 'practice-a', name: 'Coral Coast Family Practice', website: 'https://coralcoastfp.com.au' };
 const ROLE_A = {
   id: 'role-a', provider: 'internal_ats', provider_role_id: 'ats_role_a',
-  title: 'VR General Practitioner, Full time', practice_id: PRACTICE_A.id, practice_name: PRACTICE_A.name,
+  title: 'VR General Practitioner — Full time', practice_id: PRACTICE_A.id, practice_name: PRACTICE_A.name,
   dpa: true, is_active: true, job_status: 'open', ats_created: true, updated_at: iso(NOW)
 };
-// No practice_id at all, website must fall back to extractCareerWebsiteUrl
+// No practice_id at all — website must fall back to extractCareerWebsiteUrl
 // reading the role's own source_payload (Task 6's pattern for /matches).
 const ROLE_B = {
   id: 'role-b', provider: 'internal_ats', provider_role_id: 'ats_role_b',
-  title: 'GP, Fallback-website role', practice_id: null, practice_name: 'Fallback Practice',
+  title: 'GP — Fallback-website role', practice_id: null, practice_name: 'Fallback Practice',
   dpa: true, is_active: true, job_status: 'open', ats_created: true, updated_at: iso(NOW),
   source_payload: { Practice_Website: 'fallbacksite.com.au' }
 };
@@ -305,7 +305,7 @@ beforeAll(async () => {
   db.user_profiles.push({ user_id: REOPEN_GP.userId, email: REOPEN_GP.email, first_name: 'Reopen', last_name: 'Doctor', registration_country: 'uk' });
   db.user_state.push({ user_id: REOPEN_GP.userId, state: { gp_onboarding_complete: true, account_status: 'active' } });
   db.user_documents.push({ id: 'doc-reopen', user_id: REOPEN_GP.userId, document_key: 'cv_signed_dated', status: 'uploaded' });
-  // A TERMINAL prior row on role-a, the reopen case (the bug this task fixes).
+  // A TERMINAL prior row on role-a — the reopen case (the bug this task fixes).
   db.gp_applications.push({
     id: 'app-reopen-1', user_id: REOPEN_GP.userId, career_role_id: ROLE_A.id,
     ats_stage: 'not_proceeding', origin: 'ai_matched', revealed: false,
@@ -320,18 +320,18 @@ beforeAll(async () => {
     ats_stage: 'shortlisted', origin: 'ai_matched', revealed: true,
     matched_at: iso(NOW), match_expires_at: iso(NOW + 5 * 24 * 60 * 60 * 1000),
     match_score: 91,
-    match_reasons: { reasons: ['Coastal Queensland, your top preferred region', 'Family-medicine caseload matches your experience'], _history: [] }
+    match_reasons: { reasons: ['Coastal Queensland — your top preferred region', 'Family-medicine caseload matches your experience'], _history: [] }
   });
 
   // REVEALED_NO_MATCH_GP: revealed via admin_applied origin, but no live
-  // match, must show the real practice/website but never a match block.
+  // match — must show the real practice/website but never a match block.
   db.gp_applications.push({
     id: 'app-revealed-1', user_id: REVEALED_NO_MATCH_GP.userId, career_role_id: ROLE_A.id,
     ats_stage: 'applied', origin: 'admin_applied'
   });
 
   // EXPIRED_MATCH_GP: still ats_stage 'shortlisted' + revealed:true (cron
-  // hasn't swept it yet), but match_expires_at already elapsed, the `match`
+  // hasn't swept it yet), but match_expires_at already elapsed — the `match`
   // block must NOT appear (identity stays revealed either way).
   db.gp_applications.push({
     id: 'app-expired-1', user_id: EXPIRED_MATCH_GP.userId, career_role_id: ROLE_A.id,
@@ -340,7 +340,7 @@ beforeAll(async () => {
     match_score: 70, match_reasons: { reasons: ['Regional experience'], _history: [] }
   });
 
-  // FALLBACK_GP: revealed on role-b (no practice_id), proves the website
+  // FALLBACK_GP: revealed on role-b (no practice_id) — proves the website
   // fallback to extractCareerWebsiteUrl(source_payload).
   db.gp_applications.push({
     id: 'app-fallback-1', user_id: FALLBACK_GP.userId, career_role_id: ROLE_B.id,
@@ -358,7 +358,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('POST /api/ats/matching/shortlist, reopen sets revealed:true', () => {
+describe('POST /api/ats/matching/shortlist — reopen sets revealed:true', () => {
   it('reopens the terminal row AND flips revealed to true (asserted directly on the emulator row)', async () => {
     const before = db.gp_applications.find((a) => a.id === 'app-reopen-1');
     expect(before.revealed).toBe(false); // sanity: the bug's starting state
@@ -369,7 +369,7 @@ describe('POST /api/ats/matching/shortlist, reopen sets revealed:true', () => {
 
     const row = db.gp_applications.find((a) => a.id === 'app-reopen-1');
     expect(row.ats_stage).toBe('shortlisted');
-    expect(row.revealed).toBe(true); // the fix, the whole point of this test
+    expect(row.revealed).toBe(true); // the fix — the whole point of this test
     expect(row.match_outcome).toBeNull();
   });
 
@@ -384,7 +384,7 @@ describe('POST /api/ats/matching/shortlist, reopen sets revealed:true', () => {
   });
 });
 
-describe('GET /api/career/role, website + match for a matched GP', () => {
+describe('GET /api/career/role — website + match for a matched GP', () => {
   it('returns realPracticeName, website (from practices.website), and the match block', async () => {
     const res = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_role_a'), { cookie: userCookie(MATCHED_GP.email, MATCHED_GP.userId) });
     expect(res.status).toBe(200);
@@ -396,7 +396,7 @@ describe('GET /api/career/role, website + match for a matched GP', () => {
     expect(role.match).toEqual({
       applicationId: 'app-matched-1',
       expiresAt: db.gp_applications.find((a) => a.id === 'app-matched-1').match_expires_at,
-      reasons: ['Coastal Queensland, your top preferred region', 'Family-medicine caseload matches your experience'],
+      reasons: ['Coastal Queensland — your top preferred region', 'Family-medicine caseload matches your experience'],
       score: 91
     });
   });
@@ -408,7 +408,7 @@ describe('GET /api/career/role, website + match for a matched GP', () => {
     expect(role.revealed).toBeUndefined();
     expect(role.website).toBeUndefined();
     expect(role.match).toBeUndefined();
-    // Masked title unchanged, never the real practice name.
+    // Masked title unchanged — never the real practice name.
     expect(role.practiceName).toBeTruthy();
     expect(role.practiceName).not.toBe('Coral Coast Family Practice');
     expect(res.raw).not.toContain('Coral Coast Family Practice');
@@ -439,7 +439,7 @@ describe('GET /api/career/role, website + match for a matched GP', () => {
     expect(role.revealed).toBe(true);
     // extractCareerWebsiteUrl -> sanitizeHttpUrl round-trips through
     // `new URL(...).toString()`, which normalizes a bare-domain root path
-    // to a trailing slash, same as every other extractCareerWebsiteUrl call
+    // to a trailing slash — same as every other extractCareerWebsiteUrl call
     // site in this file, not something Task 7 needs to special-case.
     expect(role.website).toBe('https://fallbacksite.com.au/');
   });

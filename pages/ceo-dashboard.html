@@ -124,7 +124,7 @@
     }
     .escalation-badge.visible { display: inline-flex; }
     .escalation-badge:hover { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
-    /* Role chip shown to consultants (ATS-only mode), matches the header badge shape */
+    /* Role chip shown to consultants (ATS-only mode) — matches the header badge shape */
     .role-chip {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 5px 12px;
@@ -932,7 +932,7 @@
       color: var(--text-muted);
       font-weight: 500;
     }
-    /* Honest error / recovery state, replaces an otherwise-eternal spinner. */
+    /* Honest error / recovery state — replaces an otherwise-eternal spinner. */
     .page-error {
       display: flex;
       flex-direction: column;
@@ -966,7 +966,7 @@
     .rso-gp-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--panel-border); }
     .rso-gp-row .name { font-weight: 600; flex: 1; }
 
-    /* Medical Centres styles removed, tab deleted (covered by Practices). */
+    /* Medical Centres styles removed — tab deleted (covered by Practices). */
 
     /* ═══ TECHNICAL (read-only integrations + health) ═══ */
     .ceo-tech-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
@@ -990,7 +990,7 @@
     .ceo-tech-strip-val { font-family: var(--mono); font-weight: 700; color: var(--text); }
     .ceo-tech-strip-sub { color: var(--text-dim); }
     .ceo-tech-strip-na { color: var(--text-dim); font-style: italic; }
-    /* Clickable health strips, they now open a full detail view. */
+    /* Clickable health strips — they now open a full detail view. */
     .ceo-tech-strip.clickable { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
     .ceo-tech-strip.clickable:hover { border-color: var(--panel-border-hover); background: rgba(255,255,255,0.03); }
     .ceo-tech-strip.clickable:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -1172,7 +1172,7 @@
     /* Documents sub-tab */
     .ceo-gp-drive-link { font-size: 11px; color: var(--accent, #4a9eff); text-decoration: none; }
     .ceo-gp-drive-link:hover { text-decoration: underline; }
-    /* Documents sub-tab, admin-parity categorized view (checklist + thumbnail card grids) */
+    /* Documents sub-tab — admin-parity categorized view (checklist + thumbnail card grids) */
     .ceo-doc-section { margin-top: 18px; }
     .ceo-doc-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .ceo-doc-section-title { font-size: 13px; font-weight: 700; color: var(--text); }
@@ -1224,7 +1224,7 @@
     .ceo-gp-call-summary { margin-top: 8px; padding: 8px 10px; font-size: 12px; color: var(--text); background: var(--panel-2, rgba(255,255,255,0.03)); border: 1px solid var(--panel-border); border-radius: var(--radius-sm, 6px); white-space: pre-wrap; word-break: break-word; }
     .ceo-gp-call-summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
     .ceo-gp-call-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-    /* Nested sub-tab bar inside the Calls pane, lighter than the main GP-detail tabs. */
+    /* Nested sub-tab bar inside the Calls pane — lighter than the main GP-detail tabs. */
     .ceo-call-subtabs { display: flex; gap: 4px; margin: 4px 0 14px; }
     .ceo-call-subtab { padding: 5px 12px; font-size: 12px; font-weight: 600; font-family: var(--sans); color: var(--text-muted); background: transparent; border: 1px solid var(--panel-border); border-radius: 999px; cursor: pointer; transition: all 0.15s; }
     .ceo-call-subtab:hover { color: var(--text); border-color: var(--panel-border-hover); }
@@ -1448,7 +1448,7 @@
       </div>
     </header>
 
-    <!-- MASTER TABS (ATS restructure), order: Overview, RSO, Candidates, Matching, Jobs, Practices, Meetings, Technical -->
+    <!-- MASTER TABS (ATS restructure) — order: Overview, RSO, Candidates, Matching, Jobs, Practices, Meetings, Technical -->
     <nav class="ats-master-tabs" id="masterTabs">
       <button class="ats-master-tab active" data-mtab="registration">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
@@ -1535,7 +1535,7 @@
     <div class="master-panel ats-scope" id="panel-meetings" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-leads" style="display:none"></div>
 
-    <!-- TECHNICAL (own master tab, far right), rendered by loadTechnical() -->
+    <!-- TECHNICAL (own master tab, far right) — rendered by loadTechnical() -->
     <div class="master-panel" id="panel-technical" style="display:none">
       <div class="content" id="techContent"></div>
     </div>
@@ -1554,7 +1554,7 @@
 
   <script>
     /* ═══════════════════════════════════════════════════════════════════
-       CEO COMMAND CENTRE, GP Link
+       CEO COMMAND CENTRE — GP Link
        Single-file vanilla JS dashboard
        ═══════════════════════════════════════════════════════════════════ */
 
@@ -1684,12 +1684,12 @@
     /* ── Consultant (ATS-only) mode ──
        Consultants share the four ATS master tabs (Candidates / Jobs / Practices /
        Meetings) but must never see the Registration side or team management.
-       The server 403s every Registration/CEO endpoint for them anyway, this
+       The server 403s every Registration/CEO endpoint for them anyway — this
        just makes the page honest about what they can use. */
     function applyConsultantMode() {
       document.body.classList.add('gp-consultant');
       // Hide the executive-only master tabs + their panels (Overview/Registration,
-      // RSO oversight, Technical, Leads), their data is never loaded for consultants
+      // RSO oversight, Technical, Leads) — their data is never loaded for consultants
       // and the server 403s every underlying endpoint. /api/ceo/leads is super-admin
       // only (requireCeoSession), so Leads dead-ends for consultants; hide it too.
       ['registration', 'rso', 'technical', 'leads'].forEach(function (mt) {
@@ -1717,7 +1717,7 @@
       // Land on Candidates (the ATS home). ceo-ats-shared.js may still be
       // initialising when the session check resolves, so retry briefly. An ATS
       // deep-link hash (#jobs, #candidate=…) has already moved activeTab off
-      // 'registration', honour it.
+      // 'registration' — honour it.
       (function goAts(tries) {
         if (window.ATS && typeof window.ATS.showMaster === 'function') {
           if (window.ATS.activeTab === 'registration') window.ATS.showMaster('candidates');
@@ -2007,7 +2007,7 @@
     }
 
     /* ── 12-week trends chart (Phase 6 H1) ─────────────────────────────
-       Hand-rolled inline SVG (no external chart libs, CSP blocks CDNs).
+       Hand-rolled inline SVG (no external chart libs — CSP blocks CDNs).
        One selectable series at a time; each series keeps its own fixed color
        (color follows the entity, matching the KPI-card accent language). */
     function trendWeekLabel(ws) {
@@ -2037,7 +2037,7 @@
 
       var svg = '<svg class="trend-chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(series.label) + ' per week, last 12 weeks">';
 
-      // Faint gridlines + y labels (0 / half / max), recessive, data stays dominant.
+      // Faint gridlines + y labels (0 / half / max) — recessive, data stays dominant.
       var gridVals = [0, maxV / 2, maxV];
       for (var g = 0; g < gridVals.length; g++) {
         var gy = py(gridVals[g]);
@@ -2065,7 +2065,7 @@
         } else {
           svg += '<circle cx="' + cx + '" cy="' + cy + '" r="2.5" fill="' + series.color + '"/>';
         }
-        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="transparent"><title>Week of ' + esc(weeks[p].week_start) + ', ' + vals[p] + ' ' + esc(series.label.toLowerCase()) + '</title></circle>';
+        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="transparent"><title>Week of ' + esc(weeks[p].week_start) + ' — ' + vals[p] + ' ' + esc(series.label.toLowerCase()) + '</title></circle>';
       }
 
       // Sparse x labels: first / middle / latest week.
@@ -2113,7 +2113,7 @@
     }
 
     /* ── Conversion funnel + time-to-placement (Phase 6 H2) ─────────────
-       Cross-system business funnel from GET /api/ceo/conversion-funnel,
+       Cross-system business funnel from GET /api/ceo/conversion-funnel —
        hand-rolled HTML stepped bars (no chart libs; CSP blocks CDNs).
        Counts and durations only: revenue lives in Xero, never here. */
     function funnelStepsHtml(steps, colorSeq) {
@@ -2170,7 +2170,7 @@
       }).catch(function () { /* card keeps its loading/last state */ });
     }
 
-    /* ── "How GPs found us", lead-source attribution (Phase 6 H2) ── */
+    /* ── "How GPs found us" — lead-source attribution (Phase 6 H2) ── */
     function renderSourcesBodyHtml() {
       if (!sourceData || sourceData.period !== currentPeriod) {
         return '<div class="pep-wl-empty">Loading source breakdown&hellip;</div>';
@@ -2212,8 +2212,8 @@
     // the PEP pathway page until we launch that pathway. This section lists them and
     // lets the CEO release anyone the AI misjudged back into the normal pipeline.
     function pepShortDate(iso) {
-      if (!iso) return '-';
-      try { var d = new Date(iso); if (isNaN(d.getTime())) return '-'; return d.toLocaleDateString(); } catch (e) { return '-'; }
+      if (!iso) return '—';
+      try { var d = new Date(iso); if (isNaN(d.getTime())) return '—'; return d.toLocaleDateString(); } catch (e) { return '—'; }
     }
     function renderWaitlistSection() {
       var tabs = '<div class="wl-tabs">'
@@ -2238,16 +2238,16 @@
       var rows = '';
       for (var i = 0; i < items.length; i++) {
         var it = items[i];
-        var contact = esc(it.email || '-');
+        var contact = esc(it.email || '—');
         if (it.phone) contact += '<br><span class="pep-wl-dim">' + esc(it.phone) + '</span>';
-        var cert = esc(it.certType || '-');
+        var cert = esc(it.certType || '—');
         if (it.dateFound) cert += '<br><span class="pep-wl-dim">dated ' + esc(it.dateFound) + '</span>';
         rows += '<tr>'
-          + '<td>' + esc(it.name || '-') + ' <span class="pep-badge">PEP</span></td>'
+          + '<td>' + esc(it.name || '—') + ' <span class="pep-badge">PEP</span></td>'
           + '<td>' + contact + '</td>'
-          + '<td>' + esc(it.country || '-') + '</td>'
+          + '<td>' + esc(it.country || '—') + '</td>'
           + '<td>' + cert + '</td>'
-          + '<td>' + esc(it.cutoffLabel || it.cutoffDate || '-') + '</td>'
+          + '<td>' + esc(it.cutoffLabel || it.cutoffDate || '—') + '</td>'
           + '<td>' + (it.notifyRequested ? 'Yes' : 'No') + '</td>'
           + '<td>' + esc(pepShortDate(it.createdAt)) + '</td>'
           + '<td><button class="pep-wl-release" data-pep-release="' + esc(it.email) + '">Release</button></td>'
@@ -2282,10 +2282,10 @@
           : it.stopped ? '<span class="onb-wl-badge muted">' + (it.stopped_reason === 'exhausted' ? 'Reminders ended' : 'Stopped') + '</span>'
           : '<span class="onb-wl-badge">' + it.emails_sent + '/7 emails</span>';
         rows += '<tr>'
-          + '<td>' + esc(it.name || '-') + '</td>'
-          + '<td>' + esc(it.email || '-') + '</td>'
-          + '<td>' + esc(it.country || '-') + '</td>'
-          + '<td>Step ' + (Number(it.last_step) + 1) + ', ' + esc(it.last_step_label || '') + '</td>'
+          + '<td>' + esc(it.name || '—') + '</td>'
+          + '<td>' + esc(it.email || '—') + '</td>'
+          + '<td>' + esc(it.country || '—') + '</td>'
+          + '<td>Step ' + (Number(it.last_step) + 1) + ' — ' + esc(it.last_step_label || '') + '</td>'
           + '<td>' + it.inactivity_days + 'd</td>'
           + '<td>' + status + '</td>'
           + '</tr>';
@@ -2451,12 +2451,12 @@
        · commencement). Commencement is editable inline via a small PATCH-style
        POST to /api/ats/placement (mode:'update'). */
     function fmtPlacementDate(iso) {
-      if (!iso) return '-';
+      if (!iso) return '—';
       try {
         var d = new Date(iso);
-        if (isNaN(d.getTime())) return String(iso).slice(0, 10) || '-';
+        if (isNaN(d.getTime())) return String(iso).slice(0, 10) || '—';
         return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-      } catch (e) { return String(iso).slice(0, 10) || '-'; }
+      } catch (e) { return String(iso).slice(0, 10) || '—'; }
     }
 
     function loadPlacementsList() {
@@ -2473,9 +2473,9 @@
           var commenceCell = '<span class="pl-commence-view" style="font-size:12px">' + esc(fmtPlacementDate(p.commencement_date)) + '</span>' +
             (canEdit ? ' <button type="button" class="pl-commence-edit" data-app-id="' + esc(p.application_id) + '" data-date="' + esc(dateIso) + '" style="background:none;border:none;color:var(--blue);font-size:11px;text-decoration:underline;cursor:pointer;padding:0">edit</button>' : '');
           return '<tr style="border-top:1px solid var(--panel-border)">' +
-            '<td style="padding:6px 8px;font-size:12px">' + esc(p.gp_name || '-') + '</td>' +
-            '<td style="padding:6px 8px;font-size:12px">' + esc(p.practice_name || '-') + '</td>' +
-            '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted)">' + esc(p.job_title || '-') + '</td>' +
+            '<td style="padding:6px 8px;font-size:12px">' + esc(p.gp_name || '—') + '</td>' +
+            '<td style="padding:6px 8px;font-size:12px">' + esc(p.practice_name || '—') + '</td>' +
+            '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted)">' + esc(p.job_title || '—') + '</td>' +
             '<td style="padding:6px 8px;font-size:12px;color:var(--text-muted)">' + esc(fmtPlacementDate(p.secured_at)) + '</td>' +
             '<td style="padding:6px 8px" data-app-id="' + esc(p.application_id || '') + '">' + commenceCell + '</td>' +
           '</tr>';
@@ -2767,7 +2767,7 @@
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; btn.textContent = 'Create Task'; });
     }
 
-    /* RSO roster cache (from /api/ceo/rsos), populated lazily, refreshed on dashboard load */
+    /* RSO roster cache (from /api/ceo/rsos) — populated lazily, refreshed on dashboard load */
     var rsoRosterCache = null;
     function loadRsoRoster() {
       if (rsoRosterCache) return Promise.resolve(rsoRosterCache);
@@ -2788,7 +2788,7 @@
         var sel = document.getElementById('mRsoSelect');
         if (!sel) return;
         if (!rsos.length) { sel.innerHTML = '<option value="">No RSOs available</option>'; return; }
-        var opts = '<option value="">Select RSO</option>';
+        var opts = '<option value="">— Select RSO —</option>';
         for (var i = 0; i < rsos.length; i++) {
           var r = rsos[i];
           if (r.active === false) continue;
@@ -2991,7 +2991,7 @@
         if (d.ok) {
           renderDashboard(d);
         } else if (!dashboardData) {
-          // Initial load failed, show an honest error instead of an eternal spinner.
+          // Initial load failed — show an honest error instead of an eternal spinner.
           renderLoadError('The dashboard couldn’t be loaded' + (d.message ? ' (' + d.message + ')' : '') + '.');
         } else {
           showToast('Dashboard refresh failed: ' + (d.message || ''), 'error');
@@ -3037,7 +3037,7 @@
 
     /* ── Event Delegation ── */
     document.addEventListener('click', function(e) {
-      // RSO management actions (Add / Edit), handled BEFORE the card-click so the
+      // RSO management actions (Add / Edit) — handled BEFORE the card-click so the
       // button doesn't also open the RSO detail view.
       var rsoActionEl = e.target.closest('[data-rso-action]');
       if (rsoActionEl) {
@@ -3213,7 +3213,7 @@
       var c = document.getElementById('rsoContent');
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading RSOs...</div></div>';
       // Fetch the stats roster (/api/ceo/rsos) and the full management roster
-      // (/api/admin/rsos) in parallel. Either can fail independently, we degrade
+      // (/api/admin/rsos) in parallel. Either can fail independently — we degrade
       // gracefully rather than failing the whole screen.
       var ceoP = apiFetch('/api/ceo/rsos').then(function(d) { return d; }).catch(function() { return null; });
       var adminP = apiFetch('/api/admin/rsos?include_inactive=1').then(function(d) { return d; }).catch(function() { return null; });
@@ -3246,7 +3246,7 @@
             if (ae) seenEmails[ae] = true;
             merged.push({
               user_id: a.user_id,
-              // rso_id is what the existing card-click (openRsoDetail) expects, prefer the
+              // rso_id is what the existing card-click (openRsoDetail) expects — prefer the
               // ceo roster's id (matched by email), fall back to the admin user_id.
               rso_id: (s && s.rso_id) || a.user_id || '',
               rso_name: a.name || (s && s.rso_name) || '',
@@ -3263,7 +3263,7 @@
             });
           }
         }
-        // Append ceo-only RSOs (no admin match), kept visible, Edit disabled.
+        // Append ceo-only RSOs (no admin match) — kept visible, Edit disabled.
         for (var k = 0; k < ceoRsos.length; k++) {
           var cr = ceoRsos[k];
           var ce = (cr.email || '').toLowerCase();
@@ -3308,15 +3308,15 @@
           + (r.on_leave ? ' <span style="font-size:10px;color:var(--amber);border:1px solid var(--amber);border-radius:8px;padding:1px 6px;margin-left:4px">On leave</span>' : '')
           + '</div>';
         if (r.email) html += '<div class="rso-card-email">' + esc(r.email) + '</div>';
-        // Mailbox line, the Gmail inbox their GP emails send from / land in.
+        // Mailbox line — the Gmail inbox their GP emails send from / land in.
         if (r.hasAdminRecord) {
           if (r.va_gmail) {
             html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">Mailbox: ' + esc(r.va_gmail) + '</div>';
           } else {
-            html += '<div style="font-size:11px;color:var(--amber);margin-top:4px">No mailbox linked, emails fall back to the team inbox</div>';
+            html += '<div style="font-size:11px;color:var(--amber);margin-top:4px">No mailbox linked — emails fall back to the team inbox</div>';
           }
         }
-        // Calendly status line, muted when set, amber when missing.
+        // Calendly status line — muted when set, amber when missing.
         if (r.calendly_event_url) {
           html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">Calendly link set</div>';
         } else {
@@ -3328,7 +3328,7 @@
         html += '<div class="rso-card-stat"><span class="rso-card-stat-value" style="color:' + ((r.overdue_tasks || 0) > 0 ? 'var(--red)' : 'var(--text)') + '">' + (r.overdue_tasks || 0) + '</span><span class="rso-card-stat-label">Overdue</span></div>';
         html += '</div>';
         // Action buttons. "View RSO POV" opens the RSO Command Centre scoped exactly
-        // as this RSO sees it, available for any roster RSO with a linked email.
+        // as this RSO sees it — available for any roster RSO with a linked email.
         // Edit + bulk-reassign need the full admin record (has user_id).
         var rsoActions = '';
         if (r.email) {
@@ -3349,7 +3349,7 @@
 
     /* ── RSO management modals (Add / Edit) ── */
     function rsoModalFields(rec) {
-      // escAttr() (not esc()) because these land inside double-quoted value="..." attributes,
+      // escAttr() (not esc()) because these land inside double-quoted value="..." attributes —
       // esc() does not escape the double-quote, which would allow attribute breakout / stored
       // XSS from a malicious RSO name or calendly value.
       var nameV = rec ? escAttr(rec.rso_name || '') : '';
@@ -3369,7 +3369,7 @@
       h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">Leave blank to use the default GP Link Calendly link.</div></div>';
       h += '<div class="modal-field"><label class="modal-label" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="mRsoActive"' + activeChecked + '> Active</label></div>';
       h += '<div class="modal-field"><label class="modal-label" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="mRsoOnLeave"' + onLeaveChecked + '> On leave</label>';
-      h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">On-leave officers can’t be given new cases. Their existing cases stay put, use “Reassign all cases” to hand them over.</div></div>';
+      h += '<div class="modal-note" style="font-size:11px;color:var(--text-dim);margin-top:4px">On-leave officers can’t be given new cases. Their existing cases stay put — use “Reassign all cases” to hand them over.</div></div>';
       return h;
     }
 
@@ -3386,8 +3386,8 @@
       for (var i = 0; i < rsoAdminRosterCache.length; i++) {
         if (rsoAdminRosterCache[i].user_id === userId) { rec = rsoAdminRosterCache[i]; break; }
       }
-      if (!rec) { showToast('RSO record not found, try refreshing', 'error'); return; }
-      // The admin cache stores raw /api/admin/rsos records (name, not rso_name), normalise
+      if (!rec) { showToast('RSO record not found — try refreshing', 'error'); return; }
+      // The admin cache stores raw /api/admin/rsos records (name, not rso_name) — normalise
       // for the shared field builder.
       var view = {
         rso_name: rec.name || '',
@@ -3437,12 +3437,12 @@
       req.then(function(d) {
         if (d && d.ok) {
           if (mailbox && d.mailboxLinked === false) {
-            // The RSO record saved but the mailbox link failed, surface why.
+            // The RSO record saved but the mailbox link failed — surface why.
             showToast('Saved, but the mailbox wasn’t linked: ' + (d.mailboxError || 'unknown error'), 'error');
           } else if (!userId && d.generatedUserId) {
             // No GP Link account matched this email, so a standalone id was created. Make
-            // the silent path visible, case assignment / Gmail routing need a real account.
-            showToast('RSO added, but no GP Link account matched this email yet, case assignment and email routing won’t work until they sign in with this email.', 'info');
+            // the silent path visible — case assignment / Gmail routing need a real account.
+            showToast('RSO added, but no GP Link account matched this email yet — case assignment and email routing won’t work until they sign in with this email.', 'info');
           } else {
             showToast(userId ? 'RSO updated' : 'RSO added', 'success');
           }
@@ -3464,9 +3464,9 @@
       for (var i = 0; i < rsoAdminRosterCache.length; i++) {
         if (rsoAdminRosterCache[i].user_id === fromUserId) { fromRec = rsoAdminRosterCache[i]; break; }
       }
-      if (!fromRec) { showToast('RSO record not found, try refreshing', 'error'); return; }
+      if (!fromRec) { showToast('RSO record not found — try refreshing', 'error'); return; }
       var fromName = fromRec.name || fromRec.email || 'this RSO';
-      // Confirm step needs the real count, ask the server (dry run) before rendering.
+      // Confirm step needs the real count — ask the server (dry run) before rendering.
       openModal('<div class="modal-title">Reassign all cases</div><div style="padding:12px 0;font-size:13px;color:var(--text-dim)">Counting ' + esc(fromName) + '&rsquo;s active cases&hellip;</div>');
       apiFetch('/api/admin/rso/bulk-reassign', { method: 'POST', body: { fromRsoId: fromUserId, dryRun: true } }).then(function(d) {
         if (!d || !d.ok) { showToast('Failed: ' + ((d && d.message) || 'count failed'), 'error'); closeModal(); return; }
@@ -3474,7 +3474,7 @@
         var html = '<div class="modal-title">Reassign all cases</div>';
         html += '<div style="font-size:13px;line-height:1.6;margin-bottom:12px"><b>' + total + '</b> active case' + (total === 1 ? '' : 's') + ' currently assigned to <b>' + esc(fromName) + '</b> will move to the officer you pick. Their emails, WhatsApp chats and Gmail folders follow automatically.</div>';
         if (total === 0) {
-          html += '<div class="modal-note" style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Nothing to move, you can still close this window.</div>';
+          html += '<div class="modal-note" style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Nothing to move — you can still close this window.</div>';
           html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>';
           openModal(html);
           return;
@@ -3508,7 +3508,7 @@
       apiFetch('/api/admin/rso/bulk-reassign', { method: 'POST', body: { fromRsoId: fromUserId, toRsoId: toUserId } }).then(function(d) {
         if (d && d.ok) {
           var msg = 'Moved ' + (d.moved || 0) + ' of ' + (d.total != null ? d.total : expectedTotal) + ' cases to ' + ((d.to && d.to.name) || 'the new officer');
-          if (d.remaining) msg += ', ' + d.remaining + ' still to go (run this again)';
+          if (d.remaining) msg += ' — ' + d.remaining + ' still to go (run this again)';
           if (d.emailTransfersSkipped) msg += '; ' + d.emailTransfersSkipped + ' Gmail folder move(s) deferred';
           if (d.emailTransfersFailed) msg += '; ' + d.emailTransfersFailed + ' Gmail folder move(s) failed';
           showToast(msg, (d.emailTransfersFailed || d.moveFailed) ? 'info' : 'success');
@@ -3524,7 +3524,7 @@
       });
     }
 
-    /* Medical Centres tab removed, the Practices master tab already covers medical
+    /* Medical Centres tab removed — the Practices master tab already covers medical
        centres, so the redundant read-only company-wide view was deleted (loader,
        renderer, status toggle, delegated handler, panel div, and CSS all gone). */
 
@@ -3561,11 +3561,11 @@
       mainEl.addEventListener('click', function (e) {
         var launchBtn = e.target.closest('[data-pep-launch]');
         if (!launchBtn) return;
-        if (!window.confirm('Launch the PEP pathway now?\n\nThis releases EVERY GP still on the PEP waitlist back into the app and notifies everyone who asked to be told (email + WhatsApp). Released GPs regain full access immediately, this can’t be undone from here.')) return;
+        if (!window.confirm('Launch the PEP pathway now?\n\nThis releases EVERY GP still on the PEP waitlist back into the app and notifies everyone who asked to be told (email + WhatsApp). Released GPs regain full access immediately — this can’t be undone from here.')) return;
         launchBtn.disabled = true; launchBtn.textContent = 'Launching…';
         apiFetch('/api/ceo/pep-waitlist/launch', { method: 'POST', body: {} }).then(function (d) {
           if (d && d.ok) {
-            showToast('PEP pathway launched, released ' + (d.released || 0) + ' GP' + ((d.released || 0) === 1 ? '' : 's') + ', notified ' + (d.notified || 0), 'success');
+            showToast('PEP pathway launched — released ' + (d.released || 0) + ' GP' + ((d.released || 0) === 1 ? '' : 's') + ', notified ' + (d.notified || 0), 'success');
             loadPepWaitlist();
           } else {
             launchBtn.disabled = false; launchBtn.innerHTML = '&#x1F680; Launch PEP pathway';
@@ -3680,7 +3680,7 @@
               var ikeys = Object.keys(item);
               for (var iki = 0; iki < ikeys.length; iki++) {
                 var iv = item[ikeys[iki]];
-                sub += '<div class="ceo-tech-subkv">' + esc(ikeys[iki].replace(/_/g, ' ')) + ': ' + esc(iv === null || iv === undefined ? '-' : (typeof iv === 'boolean' ? (iv ? 'Yes' : 'No') : String(iv))) + '</div>';
+                sub += '<div class="ceo-tech-subkv">' + esc(ikeys[iki].replace(/_/g, ' ')) + ': ' + esc(iv === null || iv === undefined ? '—' : (typeof iv === 'boolean' ? (iv ? 'Yes' : 'No') : String(iv))) + '</div>';
               }
             }
             sub += '</div>';
@@ -3696,7 +3696,7 @@
         var okeys = Object.keys(val);
         for (var ok = 0; ok < okeys.length; ok++) {
           var ov = val[okeys[ok]];
-          ovo += '<div class="ceo-tech-subkv">' + esc(okeys[ok].replace(/_/g, ' ')) + ': ' + esc(ov === null || ov === undefined ? '-' : (typeof ov === 'boolean' ? (ov ? 'Yes' : 'No') : String(ov))) + '</div>';
+          ovo += '<div class="ceo-tech-subkv">' + esc(okeys[ok].replace(/_/g, ' ')) + ': ' + esc(ov === null || ov === undefined ? '—' : (typeof ov === 'boolean' ? (ov ? 'Yes' : 'No') : String(ov))) + '</div>';
         }
         return ovo;
       }
@@ -3722,7 +3722,7 @@
           for (var k = 0; k < dkeys.length; k++) { html += techDetailRow(dkeys[k], det[dkeys[k]]); }
           // Reconnect / Sync buttons are intentionally NOT rendered here. They trigger
           // live external calls (Gmail watch renewal, Zoho OAuth) and are a DEFERRED
-          // follow-up, Phase 5 Technical is read-only display.
+          // follow-up — Phase 5 Technical is read-only display.
           html += '</div>';
         }
         html += '</div>';
@@ -3732,13 +3732,13 @@
       html += '<div class="ceo-tech-health" id="techHealthStrips">'
         + '<div class="ceo-tech-strip clickable" id="techBugsStrip" role="button" tabindex="0" title="Open the bug list"'
         + ' onclick="openSystemBugsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openSystemBugsView();}">'
-        + '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">-</span></div>'
+        + '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '<div class="ceo-tech-strip clickable" id="techErrStrip" role="button" tabindex="0" title="Open the error list"'
         + ' onclick="openClientErrorsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openClientErrorsView();}">'
-        + '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">-</span></div>'
+        + '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '<div class="ceo-tech-strip clickable" id="techFixStrip" role="button" tabindex="0" title="Open the fixes waiting for your approval"'
         + ' onclick="openFixProposalsView()" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openFixProposalsView();}">'
-        + '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-val">-</span></div>'
+        + '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-val">—</span></div>'
         + '</div>';
       // Phase 6 E1 (audit B4): candidate leads + Zoho archive browser card.
       html += '<div class="ceo-tech-cards" style="margin-top:14px"><div class="ceo-tech-card" id="leadsArchiveCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading leads &amp; archive…</div></div></div>';
@@ -3750,7 +3750,7 @@
 
     // ── Phase 6 E1 (audit B4): Candidate leads & Zoho archive card ──
     // Read-only browser over candidate_leads (search + pagination) plus a
-    // counts-only roll-up of the zoho_archive capture. No editing, leads are
+    // counts-only roll-up of the zoho_archive capture. No editing — leads are
     // reference data for the future marketing campaign.
     var leadsState = { q: '', offset: 0, limit: 50, total: 0 };
     var leadsSearchTimer = null;
@@ -3805,9 +3805,9 @@
             + '<tr style="color:var(--text-muted);text-align:left"><th style="padding:5px 8px 5px 0;font-weight:600">Name</th><th style="padding:5px 8px 5px 0;font-weight:600">Email</th><th style="padding:5px 8px 5px 0;font-weight:600">Phone</th><th style="padding:5px 8px 5px 0;font-weight:600">Source</th><th style="padding:5px 8px 5px 0;font-weight:600">Status</th><th style="padding:5px 0;font-weight:600">Added</th></tr>';
           rows.forEach(function (l) {
             t += '<tr style="border-top:1px solid var(--panel-border)">'
-              + '<td style="padding:6px 8px 6px 0">' + esc(l.name || '-') + '</td>'
+              + '<td style="padding:6px 8px 6px 0">' + esc(l.name || '—') + '</td>'
               + '<td style="padding:6px 8px 6px 0">' + esc(l.email || '') + '</td>'
-              + '<td style="padding:6px 8px 6px 0">' + esc(l.phone || '-') + '</td>'
+              + '<td style="padding:6px 8px 6px 0">' + esc(l.phone || '—') + '</td>'
               + '<td style="padding:6px 8px 6px 0">' + esc(l.source || '') + '</td>'
               + '<td style="padding:6px 8px 6px 0">' + (l.unsubscribed ? '<span class="ceo-tech-badge disconnected">Unsubscribed</span>' : '<span class="ceo-tech-badge connected">Subscribed</span>') + '</td>'
               + '<td style="padding:6px 0">' + esc(String(l.created_at || '').slice(0, 10)) + '</td>'
@@ -3853,7 +3853,7 @@
           + '<span class="ceo-tech-badge ' + (d.gmailConfigured ? 'connected' : 'disconnected') + '">' + (d.gmailConfigured ? 'Configured' : 'Not configured') + '</span></div>';
         if (test.length) {
           h += '<div style="background:var(--amber-dim);color:var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.5">'
-            + '⚠ <b>TEST MODE</b>, watching <b>' + esc(test.join(', ')) + '</b>, but only mail from <b>' + esc(senders.join(', ') || '(none)') + '</b> is processed. Everything else is ignored.</div>';
+            + '⚠ <b>TEST MODE</b> — watching <b>' + esc(test.join(', ')) + '</b>, but only mail from <b>' + esc(senders.join(', ') || '(none)') + '</b> is processed. Everything else is ignored.</div>';
         }
         var inboxes = {};
         (d.monitored || []).forEach(function(e){ inboxes[e] = { email: e, role: 'VA' }; });
@@ -3872,7 +3872,7 @@
         if (test.length) {
           h += '<div class="ceo-tech-detail" style="margin-top:12px"><b>Recent ' + esc(test[0]) + ' activity</b></div>';
           var rec = d.recentTestInbox || [];
-          if (!rec.length) h += '<div class="ceo-tech-subrow" style="color:var(--text-dim)">nothing processed yet</div>';
+          if (!rec.length) h += '<div class="ceo-tech-subrow" style="color:var(--text-dim)">— nothing processed yet —</div>';
           rec.forEach(function(m){
             h += '<div class="ceo-tech-subrow">' + esc(String(m.processed_at || '').slice(0, 19).replace('T', ' ')) + ' · from ' + esc(String(m.sender || '').slice(0, 42)) + ' · <b>' + esc(m.result || '') + '</b>'
               + '<div class="ceo-tech-subkv">' + esc(String(m.subject || '').slice(0, 64)) + '</div></div>';
@@ -3903,7 +3903,7 @@
           + '<button id="gmailPullBtn" style="background:var(--green-dim);color:var(--green);border:1px solid var(--green);border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer">Pull recent emails now</button>'
           + '<button id="gmailWatchRefreshBtn" style="background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);border-radius:8px;padding:9px 14px;font-size:13px;cursor:pointer">Refresh</button>'
           + '<span id="gmailSetupResult" style="font-size:12px;color:var(--text-muted)"></span></div>'
-          + '<div class="ceo-tech-subkv" style="margin-top:8px">“Set up / Renew” reconnects each watched inbox with Google. “Pull recent emails now” fetches the latest messages directly (use if live detection seems delayed), only allowlisted senders are processed.</div>';
+          + '<div class="ceo-tech-subkv" style="margin-top:8px">“Set up / Renew” reconnects each watched inbox with Google. “Pull recent emails now” fetches the latest messages directly (use if live detection seems delayed) — only allowlisted senders are processed.</div>';
         card.innerHTML = h;
         var b1 = document.getElementById('gmailSetupBtn'); if (b1) b1.onclick = runGmailSetup;
         var b2 = document.getElementById('gmailWatchRefreshBtn'); if (b2) b2.onclick = loadGmailWatchCard;
@@ -3941,7 +3941,7 @@
           return;
         }
         var fails = (d.results || []).filter(function(r){ return !r.ok; });
-        if (rs) { rs.style.color = fails.length ? 'var(--amber)' : 'var(--green)'; rs.textContent = 'Pull complete' + (fails.length ? ' (' + fails.length + ' inbox error(s))' : '') + ', see Recent activity below.'; }
+        if (rs) { rs.style.color = fails.length ? 'var(--amber)' : 'var(--green)'; rs.textContent = 'Pull complete' + (fails.length ? ' (' + fails.length + ' inbox error(s))' : '') + ' — see Recent activity below.'; }
         setTimeout(loadGmailWatchCard, 1400);
       }).catch(function(e){ if (rs) { rs.style.color = 'var(--red)'; rs.textContent = 'Error: ' + e.message; } if (btn) { btn.disabled = false; btn.textContent = 'Pull recent emails now'; } });
     }
@@ -3971,7 +3971,7 @@
             + '<span class="ceo-tech-strip-go">View &rarr;</span>';
         }).catch(function() { if (errStrip) errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
       }
-      // Fixes waiting for approval. "unavailable" is deliberately NOT "0", if the
+      // Fixes waiting for approval. "unavailable" is deliberately NOT "0" — if the
       // proposals API cannot be read we must not imply there is nothing to approve.
       var fixStrip = document.getElementById('techFixStrip');
       if (fixStrip) {
@@ -4015,7 +4015,7 @@
       return new Date(iso).toLocaleDateString();
     }
 
-    // Long UA strings mean nothing to a non-technical reader, name the browser.
+    // Long UA strings mean nothing to a non-technical reader — name the browser.
     function errBrowserName(ua) {
       var u = String(ua || '');
       if (!u) return '';
@@ -4040,7 +4040,7 @@
           c.innerHTML = errViewHead('Errors') + '<div class="drilldown-empty">Could not load errors: ' + esc((d && d.message) || 'Unknown error') + '</div>';
           return;
         }
-        // The server could not read the list. This is NOT "no errors", saying
+        // The server could not read the list. This is NOT "no errors" — saying
         // so on top of a counter reading 50 open is how a bad column name hid
         // every error. Say plainly that the list failed to load.
         if (d.fetch_failed) {
@@ -4075,7 +4075,7 @@
 
       var html = errViewHead('Errors doctors are hitting');
       html += '<div class="ceo-err-note">'
-        + 'One line per problem, the same fault reported fifty times is a single row here. Sorted worst-first '
+        + 'One line per problem — the same fault reported fifty times is a single row here. Sorted worst-first '
         + '(how often it happens &times; how many people it touches). '
         + '“Affects at least N” is a floor, not an exact count: we only store the first person to report each fault.'
         + '</div>';
@@ -4095,7 +4095,7 @@
         + ' &middot; ' + Number(s.total_occurrences_24h || 0) + ' occurrence(s) recorded across the whole table in the last 24h.</div>';
 
       if (!real.length) {
-        html += '<div class="drilldown-empty">Nothing here, no ' + esc(errView.status === 'all' ? '' : errView.status) + ' problems to look at.</div>';
+        html += '<div class="drilldown-empty">Nothing here — no ' + esc(errView.status === 'all' ? '' : errView.status) + ' problems to look at.</div>';
       } else {
         html += real.map(function (g) { return renderErrRow(g, errView.groups.indexOf(g)); }).join('');
       }
@@ -4140,10 +4140,10 @@
       }
 
       h += '<div class="ceo-err-tech"><b>Where:</b> ' + esc(g.page_url || 'unknown') + '</div>';
-      h += '<div class="ceo-err-tech"><b>Technical message:</b> ' + esc(g.error_message || '-') + '</div>';
+      h += '<div class="ceo-err-tech"><b>Technical message:</b> ' + esc(g.error_message || '—') + '</div>';
       if (g.user_context) h += '<div class="ceo-err-tech"><b>Context:</b> ' + esc(g.user_context) + '</div>';
 
-      // Stack trace is noise for a non-technical reader, collapsed by default.
+      // Stack trace is noise for a non-technical reader — collapsed by default.
       if (g.error_stack) {
         h += '<details class="ceo-err-stack"><summary>Show the technical stack trace (for a developer)</summary>'
           + '<pre>' + esc(g.error_stack) + '</pre></details>';
@@ -4193,7 +4193,7 @@
       apiFetch('/api/ceo/error-digest/send', { method: 'POST', body: {} }).then(function (d) {
         if (!btn) return;
         btn.removeAttribute('disabled');
-        btn.textContent = (d && d.ok && d.sent) ? 'Sent, check your inbox'
+        btn.textContent = (d && d.ok && d.sent) ? 'Sent — check your inbox'
           : 'Failed: ' + esc((d && d.message) || 'unknown');
       }).catch(function (e) {
         if (btn) { btn.removeAttribute('disabled'); btn.textContent = 'Failed: ' + e.message; }
@@ -4234,11 +4234,11 @@
 
     var FIX_STATUS_TEXT = {
       proposed: { label: 'Waiting for your decision', cls: '' },
-      approved: { label: 'Approved, fix in progress', cls: 'working' },
+      approved: { label: 'Approved — fix in progress', cls: 'working' },
       in_progress: { label: 'Fix in progress', cls: 'working' },
       shipped: { label: 'Fixed and shipped', cls: 'good' },
       rejected: { label: 'You said no to this one', cls: '' },
-      failed: { label: 'The automatic fix failed, a person needs to look', cls: 'bad' }
+      failed: { label: 'The automatic fix failed — a person needs to look', cls: 'bad' }
     };
     function fixStatusText(s) { return FIX_STATUS_TEXT[String(s || 'proposed')] || { label: String(s || 'unknown'), cls: '' }; }
     // Only a proposal still sitting at "proposed" can be approved or rejected.
@@ -4251,7 +4251,7 @@
         ? '<span class="ceo-err-chip risk-safe">Safe to fix automatically</span>'
         : '<span class="ceo-err-chip risk-review">Needs a closer look</span>';
     }
-    // pr_url comes from the server but is rendered into an href, only ever allow
+    // pr_url comes from the server but is rendered into an href — only ever allow
     // plain http(s) so a javascript: value can never become a live link.
     function fixSafeUrl(u) {
       var s = String(u == null ? '' : u).trim();
@@ -4275,7 +4275,7 @@
           return;
         }
         // Same guard as the errors view: the server read failed, so we know
-        // nothing, say that instead of drawing a reassuring empty list.
+        // nothing — say that instead of drawing a reassuring empty list.
         if (d.fetch_failed || !Array.isArray(d.proposals)) {
           c.innerHTML = fixLoadFailedHtml(d.fetch_error || d.message || 'The list came back in a form we do not understand.');
           return;
@@ -4296,7 +4296,7 @@
       return errViewHead('Fixes to approve')
         + '<div class="ceo-err-note" style="border-left:3px solid var(--red);padding-left:12px">'
         + '<b>The list of fixes could not be loaded.</b><br>'
-        + 'This does <b>not</b> mean there is nothing waiting for you, it means we could not read the list at all, '
+        + 'This does <b>not</b> mean there is nothing waiting for you — it means we could not read the list at all, '
         + 'so nothing can be shown or approved until that is fixed.'
         + (tableMissing
           ? ' The database table this feature needs has not been created yet, so the feature is not switched on.'
@@ -4306,7 +4306,7 @@
         + '<span class="ceo-err-btn" onclick="loadTechnical()">Back to Technical</span></div>';
     }
 
-    // Deep link from the email names one proposal, bring it into view and mark it.
+    // Deep link from the email names one proposal — bring it into view and mark it.
     function fixScrollToHighlight() {
       if (!fixView.highlightId) return;
       var i = -1;
@@ -4328,7 +4328,7 @@
       html += '<div class="ceo-err-note">'
         + 'Each card below is one problem the app found by itself, explained in plain words, with the fix it wants to make. '
         + 'Tick the ones you are happy with, or use <b>Approve all</b>. '
-        + 'Approving is what actually starts the fix, nothing is changed until you do.'
+        + 'Approving is what actually starts the fix — nothing is changed until you do.'
         + '</div>';
 
       if (fixView.banner) {
@@ -4361,12 +4361,12 @@
       }
 
       if (!list.length) {
-        // Reached ONLY on a successful read that returned zero rows, the failure
+        // Reached ONLY on a successful read that returned zero rows — the failure
         // paths above return before this point.
         html += '<div class="drilldown-empty">'
           + (fixView.status === 'proposed'
-            ? 'Nothing is waiting for your approval right now. That is good news, the list loaded fine, it is simply empty.'
-            : 'The list loaded fine, there is nothing in this category.')
+            ? 'Nothing is waiting for your approval right now. That is good news — the list loaded fine, it is simply empty.'
+            : 'The list loaded fine — there is nothing in this category.')
           + '</div>';
       } else {
         html += list.map(function (p, i) { return renderFixRow(p, i); }).join('');
@@ -4394,7 +4394,7 @@
       var h = '<div class="ceo-err-row ceo-fix-row' + (isTarget ? ' is-target' : '') + '" id="fixRow' + idx + '">';
       if (isTarget) h += '<div class="ceo-fix-target-note">This is the one from your email.</div>';
 
-      // 1. The plain explanation is the headline, the owner is not an engineer.
+      // 1. The plain explanation is the headline — the owner is not an engineer.
       h += '<div class="ceo-fix-head">';
       if (pending) {
         h += '<input type="checkbox" class="ceo-fix-check" id="fixChk' + idx + '"' + checked
@@ -4415,7 +4415,7 @@
       h += '<span class="ceo-err-chip">suggested ' + esc(errTimeAgo(p.created_at)) + '</span>';
       h += '</div>';
 
-      // Why the app decided this is not automatically safe, the guardrail can
+      // Why the app decided this is not automatically safe — the guardrail can
       // only ever downgrade the model's own claim, and the owner should see that.
       if (fixRiskOf(p) !== 'safe_auto' && p.risk_reason) {
         h += '<div class="ceo-err-noise-note">Why it needs a closer look: ' + esc(p.risk_reason)
@@ -4432,7 +4432,7 @@
       if (p.execution_error) h += '<br><span style="color:var(--red)">The fix run reported: ' + esc(p.execution_error) + '</span>';
       h += '</div>';
 
-      // 4. Detail, collapsed by default, same idiom as the errors view.
+      // 4. Detail, collapsed by default — same idiom as the errors view.
       if (p.technical_diagnosis) {
         h += '<details class="ceo-err-stack"><summary>What the AI thinks is wrong (technical)</summary>'
           + '<pre>' + esc(p.technical_diagnosis) + '</pre></details>';
@@ -4445,7 +4445,7 @@
         h += '<details class="ceo-err-stack"><summary>The original error (for a developer)</summary>'
           + '<pre>' + esc(p.error_message || '') + (p.error_stack ? '\n\n' + esc(p.error_stack) : '') + '</pre></details>';
       }
-      // suspect_files is JSONB, render defensively, it is model-influenced.
+      // suspect_files is JSONB — render defensively, it is model-influenced.
       if (p.suspect_files && p.suspect_files.length) {
         h += '<details class="ceo-err-stack"><summary>The files it looked at</summary><pre>';
         (Array.isArray(p.suspect_files) ? p.suspect_files : []).forEach(function (f) {
@@ -4484,7 +4484,7 @@
       fixSyncToolbar();
     }
 
-    // Patch the toolbar in place rather than re-rendering the whole list, a full
+    // Patch the toolbar in place rather than re-rendering the whole list — a full
     // re-render would slam every open <details> shut under the owner's cursor.
     function fixSyncToolbar() {
       var pending = (fixView.proposals || []).filter(fixIsPending);
@@ -4533,7 +4533,7 @@
       var msg = 'Approve ' + targets.length + ' fix' + (targets.length === 1 ? '' : 'es') + '?\n\n'
         + 'This starts real code changes to the live app.\n\n';
       if (risky.length) {
-        msg += risky.length + ' of them ' + (risky.length === 1 ? 'is' : 'are') + ' marked "needs a closer look", '
+        msg += risky.length + ' of them ' + (risky.length === 1 ? 'is' : 'are') + ' marked "needs a closer look" — '
           + 'the AI is not confident ' + (risky.length === 1 ? 'it' : 'they') + ' can be fixed safely on ' + (risky.length === 1 ? 'its' : 'their') + ' own.\n\n';
       } else {
         msg += 'All of them are marked safe to fix automatically.\n\n';
@@ -4580,7 +4580,7 @@
       work.then(function (r) {
         fixView.busy = false;
         if (!r.ok) {
-          fixView.banner = { kind: 'bad', text: 'Nothing was changed, the server rejected it: ' + (r.message || 'unknown error') };
+          fixView.banner = { kind: 'bad', text: 'Nothing was changed — the server rejected it: ' + (r.message || 'unknown error') };
           renderFixProposalsView();
           return;
         }
@@ -4594,15 +4594,15 @@
         var verb = action === 'approve' ? 'approved' : 'turned down';
         var txt = r.done + ' fix' + (r.done === 1 ? '' : 'es') + ' ' + verb + '.';
         txt += action === 'approve'
-          ? ' The fix' + (r.done === 1 ? '' : 'es') + ' will start automatically, this list shows the progress.'
+          ? ' The fix' + (r.done === 1 ? '' : 'es') + ' will start automatically — this list shows the progress.'
           : ' Nothing was changed in the app.';
         // Never round a partial failure up into a clean success.
-        if (r.failed) txt = r.done + ' of ' + n + ' ' + verb + ', ' + r.failed + ' could not be saved. Re-open this page to see what actually stuck.';
+        if (r.failed) txt = r.done + ' of ' + n + ' ' + verb + ' — ' + r.failed + ' could not be saved. Re-open this page to see what actually stuck.';
         fixView.banner = { kind: r.failed ? 'bad' : 'good', text: txt };
         renderFixProposalsView();
       }).catch(function (e) {
         fixView.busy = false;
-        fixView.banner = { kind: 'bad', text: 'We could not tell the server. Nothing has been confirmed as changed, check again before re-trying. (' + (e && e.message ? e.message : 'unknown error') + ')' };
+        fixView.banner = { kind: 'bad', text: 'We could not tell the server. Nothing has been confirmed as changed — check again before re-trying. (' + (e && e.message ? e.message : 'unknown error') + ')' };
         renderFixProposalsView();
       });
     }
@@ -4627,7 +4627,7 @@
 
     /* Deep-link into this view. The daily bug email's "Investigate further"
        button sends /pages/ceo-dashboard?tab=technical&proposal=<id> (see
-       sendErrorFixProposalEmail in server.js), that is the contract that must
+       sendErrorFixProposalEmail in server.js) — that is the contract that must
        work. ?tab=fixes and #fixes are accepted too as plain entry points.
 
        With a named proposal we load status=all, not just 'proposed': the owner may
@@ -4665,7 +4665,7 @@
        Backed by the system_bugs table via GET /api/ceo/technical/system-bugs,
        with triage through the existing PUT .../system-bugs/:id.
        HONEST NOTE (shown in the UI too): nothing in this codebase WRITES to
-       system_bugs automatically, the only writer is POST /api/ceo/technical/
+       system_bugs automatically — the only writer is POST /api/ceo/technical/
        scan-results, which no cron or script currently calls. So this list is
        only ever populated by a manual scan upload, which is why it reads 0. */
     function openSystemBugsView(status) {
@@ -4683,7 +4683,7 @@
         }
         var bugs = Array.isArray(d.bugs) ? d.bugs : [];
         html += '<div class="ceo-err-note">These come from an automated code scan writing into the <code>system_bugs</code> table. '
-          + '<b>Nothing currently runs that scan</b>, the upload endpoint exists but no scheduled job calls it, so this list stays empty '
+          + '<b>Nothing currently runs that scan</b> — the upload endpoint exists but no scheduled job calls it, so this list stays empty '
           + 'unless a scan is uploaded by hand. The live problems doctors actually hit are under “Client errors”.</div>';
         html += '<div class="ceo-err-toolbar">';
         ['open', 'acknowledged', 'fixed', 'dismissed', 'all'].forEach(function (st) {
@@ -4832,7 +4832,7 @@
           if (_rsoMatch) rsoName = _rsoMatch.rso_name || '';
         }
         if (!rsoName) rsoName = cs.assigned_rso_name || '';
-        // Last GP activity dot, same 7d/3d red/amber/green thresholds as admin.
+        // Last GP activity dot — same 7d/3d red/amber/green thresholds as admin.
         var _actTs = cs.last_gp_activity_at || cs.updated_at || cs.created_at || '';
         var _actDays = _actTs ? Math.floor((Date.now() - new Date(_actTs).getTime()) / 86400000) : -1;
         var _actColor = _actDays >= 7 ? 'var(--red)' : _actDays >= 3 ? 'var(--amber)' : 'var(--green)';
@@ -4846,7 +4846,7 @@
         html += '<div class="pb-info">';
         html += '<div class="pb-name">' + esc(gpName) + '</div>';
         // Meta line: email · phone · country · practice · RSO. Practice rendered as plain
-        // text (the CEO page has no practice-navigation handler, rule 2: omit the link,
+        // text (the CEO page has no practice-navigation handler — rule 2: omit the link,
         // keep the value). WhatsApp/quals omitted (not present in gpDetailCache.case).
         var _meta = esc(cs.gp_email || '');
         if (cs.gp_phone) _meta += ' • ' + esc(cs.gp_phone);
@@ -4870,7 +4870,7 @@
           html += '</div>';
         }
 
-        // Header case actions, reuse the existing CEO action modals, passing this GP's
+        // Header case actions — reuse the existing CEO action modals, passing this GP's
         // caseId/user_id/gp_name. Each modal's submit handler calls refreshGpDetailIfOpen()
         // on success, so the GP file re-fetches + re-renders. Add Note (no taskId) files a
         // case-level note → lands in the Notes sub-tab after the refresh. Zoom opens a
@@ -4887,12 +4887,12 @@
         html += '</div>';
 
         // Expandable case-management panel (ported from admin renderCaseManagementForm,
-        // 2542–2562): Assigned RSO (reuses openReassignModal, the CEO reassign+thread-
+        // 2542–2562): Assigned RSO (reuses openReassignModal — the CEO reassign+thread-
         // transfer flow), Status + VA Verified Stage dropdowns saved via PUT /api/admin/case.
         html += '<div class="pb-expand-panel" id="pbExpandPanel">';
         html += '<div class="case-mgmt">';
         html += '<div class="case-field"><label>Assigned RSO</label>';
-        html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(caseId) + '\')" style="justify-content:flex-start">' + (rsoName ? esc(rsoName) + ', Reassign' : 'Unassigned, Assign RSO') + '</button></div>';
+        html += '<button class="btn btn-amber" onclick="openReassignModal(\'' + esc(caseId) + '\')" style="justify-content:flex-start">' + (rsoName ? esc(rsoName) + ' — Reassign' : 'Unassigned — Assign RSO') + '</button></div>';
         var _statuses = ['active', 'on_hold', 'complete', 'withdrawn'];
         html += '<div class="case-field"><label>Status</label><select id="caseMgmtStatus">';
         for (var _si = 0; _si < _statuses.length; _si++) {
@@ -4998,7 +4998,7 @@
       return STAGE_LABELS[s] || stage;
     }
 
-    // ── Admin-parity GP-task helpers (ported from pages/admin.html, READ-ONLY source) ──
+    // ── Admin-parity GP-task helpers (ported from pages/admin.html — READ-ONLY source) ──
     // Registration-stage ordering the RSO view groups tasks by (admin.html STAGE_ORDER
     // 1549). Includes 'career' (the DB stage for Secure Placement) so career tasks group
     // under "Career" exactly like the RSO view, instead of falling into a trailing "Other"
@@ -5021,8 +5021,8 @@
       var other = [];
       var practiceContact = [];
       (tasks || []).forEach(function(t) {
-        // The supervised-practice document set, the practice pack (SPPA-00, Section G, Position
-        // Description, Supervisor CV, Offer/Contract) and the alternate-supervisor CV tasks, is
+        // The supervised-practice document set — the practice pack (SPPA-00, Section G, Position
+        // Description, Supervisor CV, Offer/Contract) and the alternate-supervisor CV tasks — is
         // part of the AHPRA application, so group it under AHPRA even though practice-pack tasks are
         // stamped 'career' at placement-secured time. (Mirrors admin.html groupTasksByStage.)
         var stage = (t && (t.task_type === 'practice_pack_child' || t.task_type === 'alt_supervisor_cv_request' || t.task_type === 'alt_supervisor_cv_review')) ? 'ahpra' : ((t && t.related_stage) || '');
@@ -5036,7 +5036,7 @@
         }
       });
       var result = [];
-      // Practice correspondence is cross-cutting (not a registration stage), surface it at
+      // Practice correspondence is cross-cutting (not a registration stage) — surface it at
       // the top of the GP's task list, mirroring admin.html groupTasksByStage.
       if (practiceContact.length) result.push({ stage: 'practice_contact', tasks: practiceContact });
       STAGE_ORDER.forEach(function(s) {
@@ -5046,7 +5046,7 @@
       return result;
     }
 
-    // Qualification-document keys the GP uploads themselves, a "Review uploaded: X" task
+    // Qualification-document keys the GP uploads themselves — a "Review uploaded: X" task
     // for one of these is a doc to verify (approve/reject, GP emailed), NOT a practice doc
     // to chase. Mirror of admin.html QUAL_REVIEW_DOC_KEYS (2591–2599) / server.js.
     var QUAL_REVIEW_DOC_KEYS = new Set([
@@ -5077,7 +5077,7 @@
       }
       // Alternate-supervisor CV REQUEST tracker (carries related_document_key='sppa_00'):
       // intercept before the practice-doc branch so it is not mistaken for the SPPA-00 task
-      // and wrongly offered a "Send SPPA" button. Read-only, status only, no action.
+      // and wrongly offered a "Send SPPA" button. Read-only — status only, no action.
       if (t.task_type === 'alt_supervisor_cv_request') {
         if (t.status === 'completed') return { prompt: 'Alternate supervisor CV received', label: 'Done', action: null, taskId: t.id };
         return { prompt: 'Send the practice a request for the alternate supervisor’s CV', label: 'Waiting', action: null, taskId: t.id };
@@ -5179,7 +5179,7 @@
     }
 
     // Schedule-call control (port of admin scheduleCallFromTask): instead of POSTing the
-    // schedule directly, open the existing CEO Schedule-call modal pre-seeded for this task,
+    // schedule directly, open the existing CEO Schedule-call modal pre-seeded for this task —
     // it auto-suggests a GP-visible meeting reason from the GP's message, leaves internal
     // notes empty, and links the booked call back to the originating task via origin_task_id.
     // The modal's submit (submitCeoZoom) flips the task to waiting_on_gp on success.
@@ -5201,7 +5201,7 @@
     // them). Mirrors the RSO/admin view, which only loads active tasks (open / in_progress /
     // waiting* / escalated): completed + cancelled are history, and 'deferred' practice-pack
     // tasks (e.g. SPPA-00 + Section G, before the conflict scan activates them) are not yet
-    // live, the RSO never surfaces them (/api/admin/tasks omits 'deferred'), so neither do we.
+    // live — the RSO never surfaces them (/api/admin/tasks omits 'deferred'), so neither do we.
     var GP_PARITY_HIDDEN_STATUSES = ['complete', 'completed', 'cancelled', 'deferred'];
 
     function renderGpTasksTab() {
@@ -5227,7 +5227,7 @@
       }
 
       // STAGE_ORDER now carries 'career' (the DB stage for Secure Placement), so the case's
-      // DB stage maps straight into it, current/future-stage detection matches the RSO view.
+      // DB stage maps straight into it — current/future-stage detection matches the RSO view.
       var currentStage = cs.stage || '';
       var currentIdx = STAGE_ORDER.indexOf(currentStage);
       var gpEmail = cs.gp_email || '';
@@ -5240,7 +5240,7 @@
         var isFuture = !isCurrentOrPast && stageIdx > currentIdx && currentIdx !== -1;
 
         // Match the RSO/admin view (admin.html:2698): mute the label + show an "Upcoming"
-        // badge for future stages, but do NOT freeze the card, the tasks stay clickable.
+        // badge for future stages, but do NOT freeze the card — the tasks stay clickable.
         html += '<div class="stage-group">';
         html += '<div class="stage-group-header">';
         html += '<div class="sg-dot ' + (isFuture ? 'locked' : 'active') + '"></div>';
@@ -5302,8 +5302,8 @@
             var _acrMeta = t.metadata; if (typeof _acrMeta === 'string') { try { _acrMeta = JSON.parse(_acrMeta); } catch (e) { _acrMeta = {}; } }
             var _acrNames = (_acrMeta && Array.isArray(_acrMeta.alt_supervisor_names)) ? _acrMeta.alt_supervisor_names : [];
             var _acrSent = (t.status === 'waiting_on_practice' || t.status === 'waiting_on_external');
-            var _acrStatus = t.status === 'completed' ? '✅ CV received' : (_acrSent ? '📤 Requested, awaiting practice reply' : 'Send the practice a request for the alternate supervisor’s CV');
-            html += '<div class="st-guide">' + (_acrNames.length ? 'Alternate supervisor' + (_acrNames.length > 1 ? 's' : '') + ': ' + esc(_acrNames.join(', ')) + ', ' : '') + _acrStatus + '</div>';
+            var _acrStatus = t.status === 'completed' ? '✅ CV received' : (_acrSent ? '📤 Requested — awaiting practice reply' : 'Send the practice a request for the alternate supervisor’s CV');
+            html += '<div class="st-guide">' + (_acrNames.length ? 'Alternate supervisor' + (_acrNames.length > 1 ? 's' : '') + ': ' + esc(_acrNames.join(', ')) + ' — ' : '') + _acrStatus + '</div>';
           }
           if (t.status === 'escalated') {
             html += '<div><span class="tp escalated" style="display:inline-flex;align-items:center;border-radius:4px;padding:2px 8px;width:auto;height:auto;font-size:0.75rem;">🚨 Escalated</span></div>';
@@ -5315,23 +5315,23 @@
             html += '</div>';
           }
           if (needsNudge) {
-            html += '<div class="st-nudge-reminder">⚠️ ' + waitingDays + ' days waiting, follow up?';
+            html += '<div class="st-nudge-reminder">⚠️ ' + waitingDays + ' days waiting — follow up?';
             html += '<button class="st-nudge-btn" onclick="event.stopPropagation();openNudgeModal(\'' + esc(cs.user_id || '') + '\', \'' + esc(cs.gp_name || '') + '\')">Send Nudge</button>';
             html += '</div>';
           }
 
           html += '</div>'; // .st-body
           html += '<div class="st-actions">';
-          // When the row has its own task-detail panel, admin shows NO primary button, the row
+          // When the row has its own task-detail panel, admin shows NO primary button — the row
           // click expands the accordion instead (admin 2763–2767). Match that exactly.
           if (hasDetailPanel) {
-            // No button, row click expands (accordion style).
+            // No button — row click expands (accordion style).
           } else if (guided.action === 'completeTask' || guided.action === 'resolveEmail' || guided.action === 'openWhatsApp' || guided.action === 'reviewFlaggedDoc') {
             // Only render a primary button for guided actions the CEO page actually wires.
             html += '<button class="st-primary-btn" data-guided-action="' + esc(guided.action) + '" data-task-id="' + esc(t.id) + '"' + (guided.dk ? ' data-doc-key="' + esc(guided.dk) + '"' : '') + '>' + esc(guided.label) + '</button>';
           } else if (guided.action) {
             // Admin's deep doc/SPPA composer for this action isn't ported to the CEO page yet
-            // (live-email composers / PDF editor, Phase 3e gap). Instead of a dead grey label,
+            // (live-email composers / PDF editor — Phase 3e gap). Instead of a dead grey label,
             // send the user to the Documents tab, where the document is viewable and the
             // Approve / Request-revision / Upload actions ARE wired.
             html += '<button class="st-more-btn" onclick="event.stopPropagation();renderGpDetailTab(\'documents\')" title="Open the Documents tab to action this" style="white-space:nowrap">In Documents &rarr;</button>';
@@ -5344,7 +5344,7 @@
           // and the per-item wiring are handled by the GP-detail delegated click handler.
           html += '<div class="st-dropdown" id="dropdown-' + esc(t.id) + '">';
           if (t.status === 'escalated') {
-            html += '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;font-weight:600;">🚨 Escalated to CEO, awaiting decision</div>';
+            html += '<div style="padding:8px 12px;color:var(--red);font-size:0.8rem;font-weight:600;">🚨 Escalated to CEO — awaiting decision</div>';
           } else {
             html += '<button class="st-dropdown-item" data-complete-task="' + esc(t.id) + '">✓ Mark Complete</button>';
             html += '<button class="st-dropdown-item" data-start-task="' + esc(t.id) + '">▶ Start / In Progress</button>';
@@ -5354,7 +5354,7 @@
               html += '<a class="st-dropdown-item" href="mailto:' + esc(gpEmail) + '" target="_blank">✉ Email GP</a>';
             }
             // WhatsApp only when a valid DoubleTick conversation link is present on the task
-            // (gpDetailCache carries no GP-level link, so it is omitted otherwise, porting rule 2).
+            // (gpDetailCache carries no GP-level link, so it is omitted otherwise — porting rule 2).
             var dtUrl = t.doubletick_conversation_url || '';
             if (ceoIsDtUrl(dtUrl)) {
               html += '<a class="st-dropdown-item" href="' + ceoSafeUrl(dtUrl) + '" target="_blank">💬 WhatsApp</a>';
@@ -5392,7 +5392,7 @@
     }
 
     // Hydrate zoom_call task placeholders on the Tasks pane with the rich call card
-    // (renderGpCallCard), parity with admin.html's fillZoomTaskCards (9276). Fetches the
+    // (renderGpCallCard) — parity with admin.html's fillZoomTaskCards (9276). Fetches the
     // case's calls and fills each placeholder with the most-recent call for that task.
     function fillCeoZoomTaskCards() {
       if (!document.querySelector('[data-ceo-zoom-task]')) return;
@@ -5425,7 +5425,7 @@
 
     // Email-triage expanded panel markup (port of admin renderGpTasksPane 2797–2831, dark).
     // Email block (from/subject/body + Open-in-Gmail), GP Context grid (stage/practice/open
-    // tasks, Qualifications omitted: not carried in gpDetailCache, porting rule 2), Suggested
+    // tasks — Qualifications omitted: not carried in gpDetailCache, porting rule 2), Suggested
     // Reply (Generate → reply textarea + Copy + Open Gmail to Reply), and ✓ Mark Resolved with
     // its inline "reply via Gmail first" error. Open/reply state persists in gpEmailPanels so a
     // Tasks re-render keeps the panel open and the generated reply. All values through esc().
@@ -5461,18 +5461,18 @@
       h += '<textarea class="et-reply-area" id="et-reply-' + esc(t.id) + '">' + esc(epReply) + '</textarea>';
       h += '<div class="et-btn-row"><button class="btn sm" data-copy-reply="' + esc(t.id) + '">Copy to Clipboard</button>';
       if (gmailUrl) h += '<a class="btn sm" href="' + ceoSafeUrl(gmailUrl) + '" target="_blank" rel="noopener">Open Gmail to Reply</a>';
-      h += '<span class="et-note">This is a suggestion, edit as needed before sending.</span></div>';
+      h += '<span class="et-note">This is a suggestion — edit as needed before sending.</span></div>';
       h += '</div></div>';
       h += '<div class="et-btn-row" style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px">';
       h += '<button class="btn sm" data-resolve-email="' + esc(t.id) + '">✓ Mark Resolved</button>';
-      h += '<div class="et-resolve-error" id="et-error-' + esc(t.id) + '" style="display:none;color:var(--red);font-size:12px;font-weight:600;background:var(--red-dim);padding:6px 10px;border-radius:6px;margin-left:8px">No email reply found, please reply via Gmail before resolving.</div>';
+      h += '<div class="et-resolve-error" id="et-error-' + esc(t.id) + '" style="display:none;color:var(--red);font-size:12px;font-weight:600;background:var(--red-dim);padding:6px 10px;border-radius:6px;margin-left:8px">No email reply found — please reply via Gmail before resolving.</div>';
       h += '</div>';
       h += '</div>';
       return h;
     }
 
     /* ════════════════════════════════════════════════════════════════════════════
-       Task-detail accordion (Task 3d.6), dark port of admin.html's renderOps* views.
+       Task-detail accordion (Task 3d.6) — dark port of admin.html's renderOps* views.
 
        The detail panel opens beneath document/AHPRA/SPPA/alt-supervisor-CV task rows.
        PARITY SCOPE (porting rule 2 + Task 3d.6 NOTE): admin's renderOps* renderers embed
@@ -5482,15 +5482,15 @@
        openPdfEditor, _viewSppaDoc, _isPrereqDone, altCvSubmit, ahpraAcknowledge/Escalate,
        loadCcContacts). Those depend on admin-only handlers/state the CEO page does not have
        and that Phase 3d does NOT wire. So the CEO ports the cleanly-portable READ-ONLY views
-       faithfully, original email / AHPRA request, response-type badge, conflict banner,
-       practice-response banner, the message thread, the documents list, descriptions, and
+       faithfully — original email / AHPRA request, response-type badge, conflict banner,
+       practice-response banner, the message thread, the documents list, descriptions — and
        REUSES the CEO's existing document controls (Approve & send / Request revision / Upload
        new version) where they overlap, via the already-wired data-ceo-doc-* delegation. The
        send/compose/SPPA-edit actions are intentionally surfaced as a read-only note pointing
        to the RSO admin tooling rather than faked. Each gap is recorded in the task report.
        ──────────────────────────────────────────────────────────────────────────── */
 
-    // Read-only display helpers, verbatim ports of admin opsSnippet/opsFormatDate/
+    // Read-only display helpers — verbatim ports of admin opsSnippet/opsFormatDate/
     // opsRelativeTime/opsRenderThread/opsRenderDocs (admin 4723–4794), using esc + ceoSafeUrl.
     function ceoOpsSnippet(text, max) {
       if (!text) return '';
@@ -5498,7 +5498,7 @@
       return t.length > max ? t.slice(0, max) + '…' : t;
     }
     function ceoOpsFormatDate(iso) {
-      if (!iso) return '-';
+      if (!iso) return '—';
       var d = new Date(iso);
       return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
     }
@@ -5609,7 +5609,7 @@
                   : task.related_document_key === 'position_description' ? 'Please make sure the position description is signed by the practice owner/employer.'
                   : '';
 
-      // State B: practice responded with a document, response banner + doc + controls.
+      // State B: practice responded with a document — response banner + doc + controls.
       if (hasInbound && hasDoc) {
         var conf = lastInbound && typeof lastInbound.ai_match_confidence === 'number' ? Math.round(lastInbound.ai_match_confidence * 100) : '';
         var confCls = conf && conf < 70 ? 'low' : '';
@@ -5618,7 +5618,7 @@
         if (conf) h += ' <span class="ops-match-badge ' + confCls + '">' + conf + '% match</span>';
         h += '</div>';
         if (lastInbound) h += '<div class="ops-response-text">' + esc(ceoOpsSnippet(lastInbound.body_text || lastInbound.body_html || '', 300)) + '</div>';
-        if (lastInbound) h += '<div class="ops-response-meta">From: ' + esc(lastInbound.sender || '-') + ' · ' + ceoOpsFormatDate(lastInbound.created_at) + '</div>';
+        if (lastInbound) h += '<div class="ops-response-meta">From: ' + esc(lastInbound.sender || '—') + ' · ' + ceoOpsFormatDate(lastInbound.created_at) + '</div>';
         h += '</div>';
         h += ceoOpsRenderDocs(currentDocs);
         var diffNote = task.ai_match_reasoning || '';
@@ -5633,7 +5633,7 @@
         return h;
       }
 
-      // State C: waiting on practice, thread + collapsible nudge email composer (functional;
+      // State C: waiting on practice — thread + collapsible nudge email composer (functional;
       // port of admin renderOpsPracticePackChild State C 5388).
       if (task.status === 'waiting_on_practice' && !hasInbound) {
         h += '<div class="ops-expand-label">Waiting on practice</div>';
@@ -5641,13 +5641,13 @@
         if (!msgs.length) h += '<div style="font-size:12px;color:var(--muted)">Email sent to practice. Awaiting response.</div>';
         var lastOutbound = msgs.filter(function(m) { return m.direction === 'outbound'; }).pop();
         var daysSince = lastOutbound ? Math.floor((Date.now() - new Date(lastOutbound.created_at).getTime()) / 86400000) : 0;
-        if (daysSince >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + daysSince + ' days since last outreach, consider a follow-up</div>';
+        if (daysSince >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + daysSince + ' days since last outreach — consider a follow-up</div>';
         var nTitle = task.title || 'Document', nGp = task.gp_name || 'the GP', nContact = task.practice_contact_name || '';
         h += '<div id="ceoNudgeWrap_' + esc(task.id) + '" style="display:none;margin-top:8px"><div class="ops-email-composer">';
         h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(task.practice_contact_email || '') + '" /></div>';
         h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
         h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: ' + esc(nTitle) + ' for Dr ' + esc(nGp) + '" /></div>';
-        h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Hi ' + esc(nContact) + ',<br><br>Just following up on our earlier email regarding the <strong>' + esc(nTitle) + '</strong> for Dr ' + esc(nGp) + '.<br><br>Could you please provide this at your earliest convenience? We need this document to proceed with their registration.' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel, GP Link Registration Team</div>';
+        h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Hi ' + esc(nContact) + ',<br><br>Just following up on our earlier email regarding the <strong>' + esc(nTitle) + '</strong> for Dr ' + esc(nGp) + '.<br><br>Could you please provide this at your earliest convenience? We need this document to proceed with their registration.' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel — GP Link Registration Team</div>';
         h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send</button></div>';
         h += '</div></div>';
         h += '<div class="ops-action-row"><button class="ops-btn-secondary" onclick="var w=document.getElementById(\'ceoNudgeWrap_' + escAttr(task.id) + '\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Nudge Practice</button></div>';
@@ -5655,7 +5655,7 @@
         return h;
       }
 
-      // State A: no messages yet, full practice-request email composer (functional; port of
+      // State A: no messages yet — full practice-request email composer (functional; port of
       // admin renderOpsPracticePackChild State A 5418). Replaces the old read-only note.
       var docTitle = task.title || 'Document';
       var gpName = task.gp_name || 'the GP';
@@ -5676,10 +5676,10 @@
       var subjA, bodyA;
       if (isOfferContractWithDoc) {
         subjA = 'Signed Offer/Contract needed for Dr ' + gpName + ' - GP Link';
-        bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>Offer / Contract</strong> with both the candidate and employer signatures.<br><br>Please find attached the contract already signed by the candidate. Could you please counter-sign and return the completed contract at your earliest convenience?<br><br>Kind regards,<br>Hazel, GP Link Registration Team';
+        bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>Offer / Contract</strong> with both the candidate and employer signatures.<br><br>Please find attached the contract already signed by the candidate. Could you please counter-sign and return the completed contract at your earliest convenience?<br><br>Kind regards,<br>Hazel — GP Link Registration Team';
       } else {
         subjA = docTitle + ' needed for Dr ' + gpName + ' - GP Link';
-        bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>' + esc(docTitle) + '</strong>.<br><br>Could you please send this through at your earliest convenience?' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel, GP Link Registration Team';
+        bodyA = 'Hi ' + esc(contactName) + ',<br><br>We are preparing the registration documents for Dr ' + esc(gpName) + ' and need the following: <strong>' + esc(docTitle) + '</strong>.<br><br>Could you please send this through at your earliest convenience?' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel — GP Link Registration Team';
       }
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(subjA) + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + bodyA + '</div>';
@@ -5698,7 +5698,7 @@
       var matchedCvs = Array.isArray(meta.matched_cvs) ? meta.matched_cvs : [];
       var h = '<div class="ops-expand-section">';
       h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      h += '<span style="color:var(--blue)">📄 Alternate supervisor CV(s) received from practice, review against SPPA-00</span>';
+      h += '<span style="color:var(--blue)">📄 Alternate supervisor CV(s) received from practice — review against SPPA-00</span>';
       h += '</div>';
       if (matchedCvs.length > 0) {
         h += '<div style="margin-bottom:10px">';
@@ -5714,16 +5714,16 @@
       h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px;color:var(--text)">CV Documents</div>';
       h += ceoOpsRenderDocs(docs);
       h += '<div class="ops-action-row">';
-      h += '<button class="ops-btn-green" data-ceo-act="altcv_submit" data-task="' + esc(task.id) + '">Submit, Deliver to GP</button>';
+      h += '<button class="ops-btn-green" data-ceo-act="altcv_submit" data-task="' + esc(task.id) + '">Submit — Deliver to GP</button>';
       if (meta.sppa_task_id) h += '<button class="ops-btn-secondary" data-ceo-act="open_pdf" data-pdf-task="' + escAttr(meta.sppa_task_id) + '">Review SPPA-00</button>';
       h += '</div>';
       h += '</div>';
       return h;
     }
 
-    // ── Alt Supervisor CV Request (read-only tracker, no documents to review) ──
+    // ── Alt Supervisor CV Request (read-only tracker — no documents to review) ──
     // The practice was auto-emailed asking for a named alternate supervisor's CV. Shows who we
-    // asked for + whether it has come back. No fetch/upload/review wiring, the review happens
+    // asked for + whether it has come back. No fetch/upload/review wiring — the review happens
     // in the separate alt_supervisor_cv_review task once a CV actually arrives. Admin parity.
     function renderCeoOpsAltSupervisorCvRequest(task) {
       var meta = task.metadata || {};
@@ -5738,7 +5738,7 @@
       }
       // Already sent to the practice: read-only waiting banner.
       if (task.status === 'waiting_on_practice' || task.status === 'waiting_on_external') {
-        h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:var(--blue)">📤 Request sent to the practice, awaiting their reply</span></div>';
+        h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px"><span style="color:var(--blue)">📤 Request sent to the practice — awaiting their reply</span></div>';
         if (names.length) {
           h += '<div style="font-size:12px;margin:4px 0;color:var(--text)"><strong>Alternate supervisor' + (names.length > 1 ? 's' : '') + ':</strong> ' + esc(names.join(', ')) + '</div>';
         }
@@ -5746,7 +5746,7 @@
         return h;
       }
       // Open: review the suggested email and send it to the practice. Reuses the shared
-      // data-ops-send-email composer + handler (NO auto-send, the user clicks Send).
+      // data-ops-send-email composer + handler (NO auto-send — the user clicks Send).
       if (names.length) {
         h += '<div style="font-size:12px;margin:4px 0 8px;color:var(--text)">Alternate supervisor' + (names.length > 1 ? 's' : '') + ': ' + esc(names.join(', ')) + '</div>';
       }
@@ -5755,7 +5755,7 @@
         + 'Kind regards,<br>GP Link Registration Team';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(meta.practice_email || '') + '" /></div>';
-      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(meta.suggested_subject || 'SPPA-00 for Dr, Alternate Supervisor CV needed') + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(meta.suggested_subject || 'SPPA-00 for Dr — Alternate Supervisor CV needed') + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + (meta.suggested_body ? meta.suggested_body : fallbackBody) + '</div>';
       h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send request to practice</button></div>';
       h += '</div>';
@@ -5770,21 +5770,21 @@
       var h = '<div class="ops-expand-section">';
       // Completed: confirmation received from the practice.
       if (task.status === 'completed') {
-        h += '<div style="background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--green)">✅ Confirmation received, on file.</span></div>';
+        h += '<div style="background:var(--green-dim);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--green)">✅ Confirmation received — on file.</span></div>';
         h += '</div>';
         return h;
       }
       // Already sent: read-only waiting banner.
       if (task.status === 'waiting_on_practice' || task.status === 'waiting_on_external') {
-        h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--blue)">📤 Sent, awaiting the practice to email AHPRA (they\'ll CC us).</span></div>';
+        h += '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:8px 12px;font-size:11px"><span style="color:var(--blue)">📤 Sent — awaiting the practice to email AHPRA (they\'ll CC us).</span></div>';
         h += '</div>';
         return h;
       }
       // Open: review the suggested email and send it to the practice.
-      // Reuses the shared data-ops-send-email composer + handler (NO auto-send, click Send).
+      // Reuses the shared data-ops-send-email composer + handler (NO auto-send — click Send).
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(meta.practice_email || '') + '" /></div>';
-      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(meta.suggested_subject || 'AHPRA Conflict of Interest, Action Required') + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc(meta.suggested_subject || 'AHPRA Conflict of Interest — Action Required') + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">' + (meta.suggested_body || '') + '</div>';
       h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send to practice</button></div>';
       h += '</div>';
@@ -5823,11 +5823,11 @@
       var rtBadgeLabel = { direct_reply: 'Direct Reply', request_from_gp: 'Request from GP', request_from_practice: 'Request from Practice', amend_document: 'Amendment Needed', status_update: 'Status Update', escalation: 'Escalation Required' };
       h += '<div style="margin-bottom:8px"><span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;color:#fff;background:' + (rtBadgeColor[responseType] || 'var(--text-muted)') + '">' + esc(rtBadgeLabel[responseType] || responseType) + '</span></div>';
 
-      // AHPRA officer request (or task description), read-only port of _ahpraOfficerEmailHtml.
+      // AHPRA officer request (or task description) — read-only port of _ahpraOfficerEmailHtml.
       if (firstInbound) {
         h += '<div class="ops-original-email">';
         h += '<div class="ops-expand-label">AHPRA Officer Request</div>';
-        h += '<div class="ops-email-from">' + esc(firstInbound.sender || ahpraOfficerEmail || '-') + ' · ' + ceoOpsFormatDate(firstInbound.created_at) + '</div>';
+        h += '<div class="ops-email-from">' + esc(firstInbound.sender || ahpraOfficerEmail || '—') + ' · ' + ceoOpsFormatDate(firstInbound.created_at) + '</div>';
         h += '<div class="ops-email-content">' + esc(ceoOpsSnippet(firstInbound.body_text || firstInbound.body_html || '', 400)) + '</div>';
         if (gmailLink) h += '<a class="ops-action-link-inline" href="' + ceoSafeUrl(gmailLink) + '" target="_blank">Open full email →</a>';
         h += '</div>';
@@ -5848,11 +5848,11 @@
         h += ceoOpsRenderThread(msgs);
         if (!msgs.length) h += '<div style="font-size:12px;color:var(--muted)">Message sent to GP for Dr ' + esc(gpName) + '. Awaiting response.</div>';
       } else {
-        // State A, show what is needed (read-only). The interactive officer/GP/practice
+        // State A — show what is needed (read-only). The interactive officer/GP/practice
         // composers and Acknowledge/Escalate buttons live in the RSO admin tools.
         h += '<div class="ops-action-item-box">';
         h += '<div class="ops-expand-label">Action Required</div>';
-        h += '<div style="font-size:12px;font-weight:700;color:var(--text)">' + esc(task.title || '-') + '</div>';
+        h += '<div style="font-size:12px;font-weight:700;color:var(--text)">' + esc(task.title || '—') + '</div>';
         if (task.description) h += '<div style="font-size:12px;color:var(--text);margin-top:4px">' + esc(task.description) + '</div>';
         h += '</div>';
         if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
@@ -5879,7 +5879,7 @@
     function ceoRenderSppaCompletenessPanel(meta) {
       var cc = meta && meta.completeness_check;
       if (!cc) {
-        return '<div style="background:var(--panel);border:1px dashed var(--border, rgba(255,255,255,0.12));border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--muted)">AI completeness check not run yet, re-check below before submitting.</div>';
+        return '<div style="background:var(--panel);border:1px dashed var(--border, rgba(255,255,255,0.12));border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--muted)">AI completeness check not run yet — re-check below before submitting.</div>';
       }
       var checkedAt = cc.checked_at ? new Date(cc.checked_at).toLocaleString() : '';
       if (cc.error) {
@@ -5909,8 +5909,8 @@
       if(!cc.is_complete && (cc.only_alt_cv_outstanding===true || _ccOnlyAltCv(cc))){
         var altn=(cc.alternate_supervisors_on_form&&cc.alternate_supervisors_on_form.length)?cc.alternate_supervisors_on_form.join(', '):'';
         var hr='<div style="background:var(--amber-dim);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">';
-        hr+='<div style="font-weight:700;color:var(--amber)">✓ SPPA-00 form complete &amp; signed, one item to collect</div>';
-        hr+='<div style="color:var(--amber);margin-top:2px">The form is fully completed and all declarations are signed. The only outstanding item is the alternate supervisor’s signed CV'+(altn?' ('+esc(altn)+')':'')+'. Complete the <strong>"Request alternate supervisor CV from practice"</strong> task to collect it, the SPPA-00 can be submitted now; the CV is delivered to the GP separately.</div>';
+        hr+='<div style="font-weight:700;color:var(--amber)">✓ SPPA-00 form complete &amp; signed — one item to collect</div>';
+        hr+='<div style="color:var(--amber);margin-top:2px">The form is fully completed and all declarations are signed. The only outstanding item is the alternate supervisor’s signed CV'+(altn?' ('+esc(altn)+')':'')+'. Complete the <strong>"Request alternate supervisor CV from practice"</strong> task to collect it — the SPPA-00 can be submitted now; the CV is delivered to the GP separately.</div>';
         if(checkedAt) hr+='<div style="color:var(--muted);margin-top:4px;font-size:10px">Checked '+esc(checkedAt)+'</div>';
         hr+='</div>';
         return hr;
@@ -5950,13 +5950,13 @@
       // Human-readable state labels (parity with admin's per-state copy).
       var stateLabel = {
         ready_to_send: 'Ready to send to candidate',
-        sent_to_candidate: 'Sent to candidate, awaiting return',
-        gp_returned: 'Returned by candidate, review and send to practice',
+        sent_to_candidate: 'Sent to candidate — awaiting return',
+        gp_returned: 'Returned by candidate — review and send to practice',
         gp_corrections_requested: 'Awaiting candidate corrections',
-        sent_to_practice: 'Sent to practice, awaiting return',
-        practice_returned: 'Returned by practice, final review',
+        sent_to_practice: 'Sent to practice — awaiting return',
+        practice_returned: 'Returned by practice — final review',
         corrections_requested: 'Awaiting practice corrections',
-        completed: 'Completed, delivered to GP'
+        completed: 'Completed — delivered to GP'
       };
       h += '<div class="ops-expand-label">' + esc(stateLabel[sppaState] || sppaState) + '</div>';
 
@@ -5968,21 +5968,21 @@
         var rescanBtn = '<button class="ops-btn-secondary" style="margin-top:6px;font-size:11px" data-ceo-act="sppa_scan_sections" data-task="' + esc(task.id) + '">' + (scan ? 'Re-scan sections' : 'Run section check') + '</button>';
         if (!scan) {
           return '<div style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">'
-            + '<b style="color:var(--blue)">ℹ Section check</b>, the AI is verifying the candidate completed their sections. Reload in a moment, or run it now.<br>' + rescanBtn
+            + '<b style="color:var(--blue)">ℹ Section check</b> — the AI is verifying the candidate completed their sections. Reload in a moment, or run it now.<br>' + rescanBtn
             + '</div>';
         }
         var bg, bd, fg, head;
         if (scan.overall === 'complete') { bg = 'var(--green-dim)'; bd = 'rgba(52,211,153,0.3)'; fg = 'var(--green)'; head = '✓ Candidate sections complete'; }
         else if (scan.overall === 'incomplete') { bg = 'var(--red-dim)'; bd = 'rgba(239,68,68,0.3)'; fg = 'var(--red)'; head = '⚠ Candidate sections look incomplete'; }
-        else { bg = 'var(--amber-dim)'; bd = 'rgba(251,191,36,0.3)'; fg = 'var(--amber)'; head = '⚠ Could not confirm, review the form manually'; }
+        else { bg = 'var(--amber-dim)'; bd = 'rgba(251,191,36,0.3)'; fg = 'var(--amber)'; head = '⚠ Could not confirm — review the form manually'; }
         var aMark = scan.section_a_filled ? '✓' : '✗';
         var iMark = scan.section_i_signed ? '✓' : '✗';
         var b = '<div style="background:' + bg + ';border:1px solid ' + bd + ';border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text)">';
         b += '<b style="color:' + fg + '">' + head + '</b>';
         if (scan.summary) b += '<div style="margin-top:3px;color:var(--muted)">' + esc(scan.summary) + '</div>';
         b += '<div style="margin-top:6px;color:var(--muted)">';
-        b += '<div>' + aMark + ' <b>Section A (Q1, personal details)</b>' + (scan.section_a_notes ? ', ' + esc(scan.section_a_notes) : '') + '</div>';
-        b += '<div>' + iMark + ' <b>Section I (Supervisee\'s signature)</b>' + (scan.section_i_notes ? ', ' + esc(scan.section_i_notes) : '') + '</div>';
+        b += '<div>' + aMark + ' <b>Section A (Q1 — personal details)</b>' + (scan.section_a_notes ? ' — ' + esc(scan.section_a_notes) : '') + '</div>';
+        b += '<div>' + iMark + ' <b>Section I (Supervisee\'s signature)</b>' + (scan.section_i_notes ? ' — ' + esc(scan.section_i_notes) : '') + '</div>';
         b += '</div>';
         b += '<div style="margin-top:4px;color:var(--muted);font-size:10px">AI confidence: ' + esc(scan.confidence || 'low')
           + (scan.candidate_name_detected ? ' · name on form: ' + esc(scan.candidate_name_detected) : '')
@@ -6005,12 +6005,12 @@
         var corrAt = isGpCorr ? meta.gp_corrections_requested_at : meta.corrections_requested_at;
         var corrWho = isGpCorr ? 'candidate' : 'practice';
         h += '<div style="background:var(--red-dim);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-        h += '<span style="color:var(--red)">Corrections requested from ' + corrWho + ', awaiting revised SPPA</span>';
+        h += '<span style="color:var(--red)">Corrections requested from ' + corrWho + ' — awaiting revised SPPA</span>';
         h += '</div>';
         if (corrAt) {
           var corrDays = Math.floor((Date.now() - new Date(corrAt).getTime()) / 86400000);
           h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Requested ' + corrDays + ' day' + (corrDays === 1 ? '' : 's') + ' ago</div>';
-          if (corrDays >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + corrDays + ' days since corrections requested, consider a follow-up</div>';
+          if (corrDays >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + corrDays + ' days since corrections requested — consider a follow-up</div>';
         }
         if (corrNote) {
           h += '<div style="background:var(--panel);border:1px solid var(--border, rgba(255,255,255,0.08));border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:var(--text)"><strong>Corrections requested:</strong> ' + esc(corrNote) + '</div>';
@@ -6035,7 +6035,7 @@
       if (sppaState === 'sent_to_candidate' && meta.sent_to_candidate_at) {
         var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
         h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_candidate_email || '') + '</div>';
-        if (days >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + days + ' days since sent, consider a follow-up</div>';
+        if (days >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + days + ' days since sent — consider a follow-up</div>';
       }
       h += ceoOpsRenderThread(msgs);
       if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
@@ -6056,7 +6056,7 @@
       } else if (sppaState === 'sent_to_practice') {
         h += '<button class="ops-btn-green" data-ceo-act="sppa_returned_practice" data-task="' + esc(task.id) + '">Upload Practice Return</button>';
       } else if (sppaState === 'practice_returned') {
-        h += '<button class="ops-btn-green" data-ceo-act="sppa_submit" data-task="' + esc(task.id) + '">Submit, Deliver to GP</button>';
+        h += '<button class="ops-btn-green" data-ceo-act="sppa_submit" data-task="' + esc(task.id) + '">Submit — Deliver to GP</button>';
         h += '<button class="ops-btn-secondary" data-ceo-act="sppa_recheck" data-task="' + esc(task.id) + '">Re-check with AI</button>';
         h += '<button class="ops-btn-danger" data-ceo-act="sppa_correct_practice" data-task="' + esc(task.id) + '" data-email="' + escAttr(practiceEmail) + '" data-name="' + escAttr(pcName) + '" data-gp="' + escAttr(gpNm) + '">Request Corrections</button>';
       } else if (sppaState === 'gp_corrections_requested') {
@@ -6119,7 +6119,7 @@
     }
 
     // Send the practice-request / nudge email composed in a task-detail panel. Posts to
-    // /api/admin/email/send (a super-admin/CEO session passes its requireAdminSession, these
+    // /api/admin/email/send (a super-admin/CEO session passes its requireAdminSession — these
     // endpoints are not RSO-assignment gated), optionally flips the task status (e.g.
     // waiting_on_practice), then refreshes the GP file. Port of admin's data-ops-send-email
     // handler (admin.html 6865).
@@ -6157,8 +6157,8 @@
     }
 
     // ── GP-file task actions ported from admin (alt-CV / AHPRA / SPPA). All hit the same
-    // /api/admin/va/task/* (or /api/admin/task) endpoints the RSO uses, a super-admin/CEO
-    // session passes their requireAdminSession guard (not RSO-assignment gated), then refresh
+    // /api/admin/va/task/* (or /api/admin/task) endpoints the RSO uses — a super-admin/CEO
+    // session passes their requireAdminSession guard (not RSO-assignment gated) — then refresh
     // the GP file. Mirrors admin's altCvSubmit/ahpra*/sppa* handlers (admin.html 8350–8423).
     function ceoTaskPost(url, okMsg) {
       return apiFetch(url, { method: 'POST' }).then(function(d) {
@@ -6226,7 +6226,7 @@
       showToast('Running AI completeness check…', 'info');
       apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-completeness-check', { method: 'POST' })
         .then(function(d) {
-          if (d && d.ok) { showToast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found, see card', 'success'); refreshGpDetailTasks(); }
+          if (d && d.ok) { showToast((d.completeness && d.completeness.is_complete) ? 'AI check: ready to submit' : 'AI check: issues found — see card', 'success'); refreshGpDetailTasks(); }
           else showToast((d && (d.error || d.message)) || 'Check could not run', 'error');
         })
         .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
@@ -6238,9 +6238,9 @@
         .then(function(d) {
           if (d && d.ok) {
             var s = d.gp_section_scan || {};
-            if (s.overall === 'incomplete') showToast('Candidate sections look incomplete, see card', 'error');
+            if (s.overall === 'incomplete') showToast('Candidate sections look incomplete — see card', 'error');
             else if (s.overall === 'complete') showToast('Candidate sections complete', 'success');
-            else showToast('Scan finished, see card', 'info');
+            else showToast('Scan finished — see card', 'info');
             refreshGpDetailTasks();
           } else showToast((d && (d.error || d.message)) || 'Scan failed', 'error');
         })
@@ -6263,8 +6263,8 @@
       var h = '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(officerEmail) + '" /></div>';
       h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
-      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Re: ' + esc(task.title || 'AHPRA application') + ', Dr ' + esc(gpName) + '" /></div>';
-      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Dear AHPRA Officer,<br><br>Please find the requested information below regarding Dr ' + esc(gpName) + '.<br><br>[Your reply]<br><br>Kind regards,<br>Hazel, GP Link Registration Team</div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Re: ' + esc(task.title || 'AHPRA application') + ' — Dr ' + esc(gpName) + '" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Dear AHPRA Officer,<br><br>Please find the requested information below regarding Dr ' + esc(gpName) + '.<br><br>[Your reply]<br><br>Kind regards,<br>Hazel — GP Link Registration Team</div>';
       h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="completed"' + (threadId ? ' data-ops-thread="' + escAttr(threadId) + '"' : '') + (attachUrl ? ' data-ops-auto-attach="true" data-ops-attach-url="' + escAttr(attachUrl) + '" data-ops-attach-name="' + escAttr(attachName) + '"' : '') + '>Send to AHPRA</button></div>';
       h += '</div>';
       return h;
@@ -6295,7 +6295,7 @@
       });
       // Live-fetch the case's authoritative practice contact alongside messages/documents so a
       // blank/stale "To" can be filled before render (RSO parity, 823ec3b). Without this the
-      // composer "To" stays empty when the cached task has no practice_contact, and an empty
+      // composer "To" stays empty when the cached task has no practice_contact — and an empty
       // "To" then lets the practice person wrongly appear as a CC option instead.
       var ccCaseId = adapted.case_id || (gpDetailCache && gpDetailCache.caseId) || '';
       Promise.all([
@@ -6423,7 +6423,7 @@
 
     // Minimal Zoom/call scheduler (admin parity for the profile-header Zoom button). The
     // /api/admin/calls/schedule endpoint requires case_id + a stage in {myintealth,amc,ahpra};
-    // optional admin_notes. Sends a Zoom invite to the GP (no live send during build, this
+    // optional admin_notes. Sends a Zoom invite to the GP (no live send during build — this
     // only fires on an explicit click at runtime). Refreshes the open GP file on success.
     var CEO_ZOOM_STAGES = ['myintealth', 'amc', 'ahpra'];
     function openCeoZoomModal(caseId, userId, currentStage, opts) {
@@ -6566,7 +6566,7 @@
     // 'CEO' + escalated_reason from a prompt. The server records escalated_by/_at.
     function ceoGpTaskEscalate(ev, taskId) {
       if (ev) { ev.stopPropagation(); }
-      var reason = prompt('Escalate this task to the CEO, reason:');
+      var reason = prompt('Escalate this task to the CEO — reason:');
       if (reason === null) return; // cancelled
       reason = reason.trim();
       if (!reason) { showToast('A reason is required to escalate', 'error'); return; }
@@ -6608,7 +6608,7 @@
         body: { taskId: taskId }
       }).then(function(d) {
         if (d && d.ok && d.replied) {
-          // Replied, complete the task. ceoGpTaskAction handles toast + refresh/re-render.
+          // Replied — complete the task. ceoGpTaskAction handles toast + refresh/re-render.
           ceoGpTaskAction(ev, taskId, 'completed');
         } else {
           if (errorEl) errorEl.style.display = 'inline-block';
@@ -6623,7 +6623,7 @@
     // Generate an AI-suggested reply for an email-triage task (port of admin's data-generate-reply
     // handler, 5995–6026) via POST /api/admin/email-triage/suggest-reply. On success reveals the
     // reply textarea, fills it, and persists open+reply state in gpEmailPanels so a Tasks re-render
-    // keeps the panel open with the generated text. NO email is sent, this only drafts a reply.
+    // keeps the panel open with the generated text. NO email is sent — this only drafts a reply.
     function ceoGenerateEmailReply(ev, taskId) {
       if (ev) { ev.stopPropagation(); }
       var btn = (ev && ev.target && ev.target.closest) ? ev.target.closest('[data-generate-reply]') : null;
@@ -6642,10 +6642,10 @@
           gpEmailPanels[taskId].open = true;
           gpEmailPanels[taskId].reply = d.suggestedReply;
         } else {
-          if (btn) { btn.textContent = 'Failed, try again'; btn.disabled = false; }
+          if (btn) { btn.textContent = 'Failed — try again'; btn.disabled = false; }
         }
       }).catch(function(e) {
-        if (btn) { btn.textContent = 'Error, try again'; btn.disabled = false; }
+        if (btn) { btn.textContent = 'Error — try again'; btn.disabled = false; }
       });
     }
 
@@ -6688,7 +6688,7 @@
       var notes = gpNotesFromTimeline((gpDetailCache && gpDetailCache.timeline) || []);
       var html = '<div class="ceo-ops-section-head">Notes <span class="count">' + notes.length + '</span></div>';
       // Inline "add a note" composer (files a case-level note via the same path as the
-      // header Add Note button), admin parity, so the CEO can jot a note in context.
+      // header Add Note button) — admin parity, so the CEO can jot a note in context.
       html += '<div style="display:flex;gap:8px;margin:10px 0 16px;align-items:flex-start">';
       html += '<textarea id="ceoNoteAddText" rows="2" placeholder="Add a note about this GP…" style="flex:1;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px 10px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>';
       html += '<button class="btn btn-blue" id="ceoNoteAddBtn" onclick="ceoAddGpNote()">Add note</button>';
@@ -6912,7 +6912,7 @@
       }).catch(function(e) { var box = document.getElementById('ceoDocViewerBox'); if (box) box.innerHTML = '<div style="color:var(--red);font-size:13px;padding:24px">Could not load the document: ' + esc(e.message) + '</div>'; });
     }
     // Drive file preview (Drive embed in the CEO modal). Used by Drive-backed cards
-    // (data-drive-preview), GP LINK pack docs + Other Files.
+    // (data-drive-preview) — GP LINK pack docs + Other Files.
     function ceoOpenDrivePreview(fileId, name, mime, link) {
       if (!fileId) return;
       var previewUrl = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview';
@@ -6992,7 +6992,7 @@
       if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + escAttr(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:' + (docCaseId ? '12px' : 'auto') + '">Open Drive folder</a>';
       html += '</div>';
 
-      // Section 1, Direct to AHPRA (checklist).
+      // Section 1 — Direct to AHPRA (checklist).
       var ahpraDone = ahpra.filter(function(d) { return d.status !== 'pending'; }).length;
       html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Direct to AHPRA</span><span class="ceo-doc-section-count">' + ahpraDone + ' / ' + ahpra.length + '</span></div>';
       if (!ahpra.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
@@ -7014,21 +7014,21 @@
       }
       html += '</div>';
 
-      // Section 2, Prepared by Candidate (card grid, click to open).
+      // Section 2 — Prepared by Candidate (card grid, click to open).
       var candDone = candidate.filter(function(d) { return d.status !== 'pending'; }).length;
       html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Prepared by Candidate</span><span class="ceo-doc-section-count">' + candDone + ' / ' + candidate.length + '</span></div>';
       if (!candidate.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
       else { html += '<div class="ceo-doc-grid">'; candidate.forEach(function(doc) { html += renderCeoCandidateDocCard(doc, docCaseId); }); html += '</div>'; }
       html += '</div>';
 
-      // Section 3, Prepared by GP LINK (card grid + CEO actions).
+      // Section 3 — Prepared by GP LINK (card grid + CEO actions).
       var gplinkDone = gplink.filter(function(d) { return d.ops_status === 'completed' || d.ops_status === 'ready_for_gp'; }).length;
       html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Prepared by GP LINK</span><span class="ceo-doc-section-count">' + gplinkDone + ' / ' + gplink.length + '</span></div>';
       if (!gplink.length) html += '<div class="ceo-gp-doc-empty">No documents in this category.</div>';
       else { html += '<div class="ceo-doc-grid">'; gplink.forEach(function(doc) { html += renderCeoGpLinkDocCard(doc); }); html += '</div>'; }
       html += '</div>';
 
-      // Section 4, Other Files (Drive thumbnail grid).
+      // Section 4 — Other Files (Drive thumbnail grid).
       html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Other Files</span><span class="ceo-doc-section-count">' + other.length + '</span></div>';
       if (!other.length) html += '<div class="ceo-gp-doc-empty">No files in this category.</div>';
       else {
@@ -7131,7 +7131,7 @@
       }).then(function(d) {
         if (d && d.ok && d.draft_url) {
           window.open(d.draft_url, '_blank', 'noopener');
-          showToast('Draft created, add your note and send', 'success');
+          showToast('Draft created — add your note and send', 'success');
           refreshGpDocsAndTasks();
         } else {
           showToast('Error: ' + ((d && (d.message || d.error)) || 'Unknown error'), 'error');
@@ -7162,7 +7162,7 @@
     }
 
     // GP Tasks action: review a flagged / qualification-review document. Dark port of admin's
-    // openReviewDocModal + submitReviewDoc, previews the uploaded doc, then Approve or Reject
+    // openReviewDocModal + submitReviewDoc — previews the uploaded doc, then Approve or Reject
     // (reject requires a note; the GP is emailed). Reuses the unchanged GET
     // /api/admin/va/task/preview-document and POST /api/admin/va/task/review-flagged-doc.
     // Look up a task in the loaded GP-detail cache by id. Defined at top-level script scope
@@ -7185,8 +7185,8 @@
       var html = '<div class="modal-title">' + esc(t.title || 'Review flagged document') + '</div>';
       if (ceoReason) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(ceoReason) + '</div>';
       html += '<div id="ceoReviewDocPreview" style="min-height:120px;max-height:52vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
-      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP, the email sends exactly what you type</label>';
-      // Formatting toolbar: same [data-fmt] delegation pattern as admin.html, the email
+      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP — the email sends exactly what you type</label>';
+      // Formatting toolbar: same [data-fmt] delegation pattern as admin.html — the email
       // keeps line breaks, renders **text** bold and "- " lines as dot points.
       var fmtBtn = 'background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:var(--text);font-family:inherit';
       html += '<div class="fmt-toolbar" data-fmt-target="ceoReviewDocNote" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0">'
@@ -7197,7 +7197,7 @@
       html += '<textarea id="ceoReviewDocNote" rows="5" style="width:100%;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box">' + esc(ceoReason) + '</textarea></div>';
       html += '<div id="ceoReviewDocError" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>';
-      html += '<button class="btn btn-red" id="ceoReviewDocReject" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'reject\')">Reject, request re-upload</button>';
+      html += '<button class="btn btn-red" id="ceoReviewDocReject" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'reject\')">Reject — request re-upload</button>';
       html += '<button class="btn btn-green" id="ceoReviewDocApprove" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'approve\')">Approve</button></div>';
       openModal(html);
       if (_ceoReviewDocObjUrl) { URL.revokeObjectURL(_ceoReviewDocObjUrl); _ceoReviewDocObjUrl = null; }
@@ -7219,12 +7219,12 @@
       var noteEl = document.getElementById('ceoReviewDocNote');
       var err = document.getElementById('ceoReviewDocError');
       var note = noteEl ? noteEl.value.trim() : '';
-      if (decision === 'reject' && !note) { if (err) { err.textContent = 'A reason is required to reject, the GP will see it.'; err.style.display = 'block'; } return; }
+      if (decision === 'reject' && !note) { if (err) { err.textContent = 'A reason is required to reject — the GP will see it.'; err.style.display = 'block'; } return; }
       if (err) err.style.display = 'none';
-      // When rejecting while STILL using the suggested (AI-derived) message unedited, confirm,
+      // When rejecting while STILL using the suggested (AI-derived) message unedited, confirm —
       // the AI can be wrong, and the GP receives exactly this text.
       if (decision === 'reject' && _ceoReviewSuggested && note === String(_ceoReviewSuggested).trim()) {
-        if (!confirm('You’re about to email the GP this suggested message and reject the document.\n\nThe AI can make mistakes, please double-check the message reads correctly and that its findings are actually right. The GP receives EXACTLY what is in the box.\n\nSend this message and reject?')) return;
+        if (!confirm('You’re about to email the GP this suggested message and reject the document.\n\nThe AI can make mistakes — please double-check the message reads correctly and that its findings are actually right. The GP receives EXACTLY what is in the box.\n\nSend this message and reject?')) return;
       }
       var ap = document.getElementById('ceoReviewDocApprove'), rj = document.getElementById('ceoReviewDocReject');
       if (ap) ap.disabled = true; if (rj) rj.disabled = true;
@@ -7284,7 +7284,7 @@
       // F8 (audit 2026-07-20): booked-only, matching admin.html's per-GP calls
       // card. A zoom_join_url only ever exists once the Calendly webhook flips
       // the row to 'booked' (the same PATCH writes both), and a reschedule back
-      // to 'invited' nulls it, so the old 'invited' branch could never fire.
+      // to 'invited' nulls it — so the old 'invited' branch could never fire.
       if (c.zoom_join_url && (c.status || '').toLowerCase() === 'booked') {
         html += '<a class="ceo-gp-call-join" href="' + esc(c.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';
       }
@@ -7295,7 +7295,7 @@
       if (c.invitee_notes) {
         html += '<div class="ceo-gp-call-notes"><span style="color:var(--text-muted);font-weight:600">GP&rsquo;s booking notes:</span> ' + esc(c.invitee_notes) + '</div>';
       }
-      // GP-VISIBLE reason for the meeting, distinct tinted box, shown before the
+      // GP-VISIBLE reason for the meeting — distinct tinted box, shown before the
       // internal admin notes so the two are never confused.
       if (c.meeting_reason) {
         html += '<div class="ceo-gp-call-notes" style="margin-top:8px;padding:8px 10px;background:rgba(56,139,253,0.10);border:1px solid rgba(56,139,253,0.30);border-radius:var(--radius-sm,6px)"><span style="color:var(--blue,#388bfd);font-weight:600">Reason for meeting:</span> ' + esc(c.meeting_reason) + '</div>';
@@ -7328,7 +7328,7 @@
         // Server now permits cancelling a no_show row (already-cancelled rows skip it).
         if (cs === 'no_show') actions += '<button class="btn btn-red" onclick="ceoGpCallCancel(event, \'' + cid + '\')">Cancel</button>';
       } else if (cs === 'completed' && !c.meeting_summary) {
-        // Completed call with no summary yet, same gate as admin (10733–10736):
+        // Completed call with no summary yet — same gate as admin (10733–10736):
         // pull the Zoom AI meeting summary on demand.
         actions += '<button class="btn btn-blue" onclick="ceoGpCallFetchSummary(event, \'' + cid + '\')">Fetch Summary</button>';
       }
@@ -7342,7 +7342,7 @@
     //   Past     = completed | no_show | cancelled (excluding abandoned drafts)
     //   Summary  = completed AND has a non-empty meeting_summary
     // An abandoned booking draft = a cancelled call that was never scheduled and
-    // never booked (no date, never confirmed), skipped so it never clutters Past.
+    // never booked (no date, never confirmed) — skipped so it never clutters Past.
     function classifyGpCalls(calls) {
       var groups = { upcoming: [], past: [], summary: [] };
       var list = calls || [];
@@ -7471,7 +7471,7 @@
       apiFetch(opts.path, opts.fetchOpts).then(function(d) {
         if (d && d.ok) {
           showToast(opts.successMsg, 'success');
-          // Refresh whichever pane is showing, the call card lives on both the Calls tab
+          // Refresh whichever pane is showing — the call card lives on both the Calls tab
           // and (as a zoom_call task) the Tasks tab.
           if (gpDetailTab === 'tasks') { refreshGpDetailTasks(); } else { refreshGpDetailCalls(); }
         } else {
@@ -7512,11 +7512,11 @@
       ceoGpCallApiAction(ev, {
         path: '/api/admin/calls/' + encodeURIComponent(callId),
         fetchOpts: { method: 'PATCH', body: { action: 'reschedule' } },
-        successMsg: 'Call rescheduled, new invite sent'
+        successMsg: 'Call rescheduled — new invite sent'
       });
     }
     // Pull the Zoom AI meeting summary for a completed call that has none yet
-    // (admin retryZoomSummary parity, no confirm, same endpoint).
+    // (admin retryZoomSummary parity — no confirm, same endpoint).
     function ceoGpCallFetchSummary(ev, callId) {
       ceoGpCallApiAction(ev, {
         path: '/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary',
@@ -7526,7 +7526,7 @@
     }
 
     // Sub-tab click delegation for the GP file (+ Tasks show-all toggle + Documents actions
-    // + the per-task ••• menu and its controls, port of admin renderGpTasksPane wiring).
+    // + the per-task ••• menu and its controls — port of admin renderGpTasksPane wiring).
     document.addEventListener('click', function(e) {
       // ── Per-task ••• dropdown (admin parity) ────────────────────────────────
       // Close any open dropdown when the click is outside both a dropdown and a ••• button.
@@ -7645,7 +7645,7 @@
       }
       // findCeoTask is now defined at top-level script scope (near ceoReviewFlaggedDoc) so it
       // is shared with the top-level review handlers; it is still called here as before.
-      // ✓ Mark Complete, email_triage routes to the resolve flow (Task 3d.5) when available,
+      // ✓ Mark Complete — email_triage routes to the resolve flow (Task 3d.5) when available,
       // mirroring admin's data-complete-task handler; otherwise mark the task completed.
       var completeBtn = e.target.closest('[data-complete-task]');
       if (completeBtn) {
@@ -7665,10 +7665,10 @@
       // ⏳ Waiting on External (data-waiting carries the exact status)
       var waitBtn = e.target.closest('[data-set-waiting]');
       if (waitBtn) { closeAllDropdowns(); ceoGpTaskAction(e, waitBtn.getAttribute('data-set-waiting'), waitBtn.getAttribute('data-waiting') || 'waiting_on_external'); return; }
-      // 💌 Send Nudge, reuse the existing CEO nudge modal (user id + GP name).
+      // 💌 Send Nudge — reuse the existing CEO nudge modal (user id + GP name).
       var nudgeItem = e.target.closest('[data-case-nudge]');
       if (nudgeItem) { closeAllDropdowns(); openNudgeModal(nudgeItem.getAttribute('data-case-nudge') || '', nudgeItem.getAttribute('data-nudge-name') || ''); return; }
-      // 🚨 Escalate to CEO, reuse the existing CEO escalate handler.
+      // 🚨 Escalate to CEO — reuse the existing CEO escalate handler.
       var escBtn = e.target.closest('[data-escalate-ceo]');
       if (escBtn) { closeAllDropdowns(); ceoGpTaskEscalate(e, escBtn.getAttribute('data-escalate-ceo')); return; }
       // Primary guided-action button (port of admin's data-guided-action dispatch). Maps the
@@ -7731,7 +7731,7 @@
         var drivePrevEl = e.target.closest('[data-drive-preview]');
         if (drivePrevEl) { ceoOpenDrivePreview(drivePrevEl.getAttribute('data-drive-preview') || '', drivePrevEl.getAttribute('data-drive-name') || 'Document', drivePrevEl.getAttribute('data-drive-mime') || '', drivePrevEl.getAttribute('data-drive-link') || ''); return; }
       }
-      // Support board resolve/reopen, delegated so it survives board re-renders.
+      // Support board resolve/reopen — delegated so it survives board re-renders.
       var supportBtn = e.target.closest('[data-ceo-support-action]');
       if (supportBtn) {
         var ticketId = supportBtn.getAttribute('data-ticket');
@@ -7741,7 +7741,7 @@
       }
       var tabBtn = e.target.closest('.ceo-gp-detail-tab[data-gp-tab]');
       if (tabBtn) { renderGpDetailTab(tabBtn.getAttribute('data-gp-tab')); return; }
-      // Nested Calls sub-tab switch, re-render from the cache, no re-fetch, stay on Calls.
+      // Nested Calls sub-tab switch — re-render from the cache, no re-fetch, stay on Calls.
       var callSubBtn = e.target.closest('[data-call-subtab]');
       if (callSubBtn) {
         gpCallsSubTab = callSubBtn.getAttribute('data-call-subtab');
@@ -7811,7 +7811,7 @@
               html += '<button class="btn btn-blue" onclick="ceoOpsViewEmail(event, \'' + esc(task.gmail_thread_id) + '\')">View email</button>';
             }
             // Doc-review tasks get a real "Review Document" action (preview + approve/reject),
-            // not just a blind "Mark done", matches the admin ops queue.
+            // not just a blind "Mark done" — matches the admin ops queue.
             if (task.task_type === 'flagged_doc' || isQualDocReviewTask(task)) {
               html += '<button class="btn btn-blue" onclick="event.stopPropagation();ceoReviewFlaggedDoc(\'' + esc(task.id) + '\')">Review Document</button>';
             }
@@ -7863,7 +7863,7 @@
           board.innerHTML = '<div class="ceo-calls-section-head">Scheduled Calls</div><div class="ceo-calls-empty">Failed to load calls: ' + esc((d && d.message) || 'Unknown error') + '</div>';
           return;
         }
-        // Hide abandoned booking drafts (cancelled, never scheduled, never booked), the same
+        // Hide abandoned booking drafts (cancelled, never scheduled, never booked) — the same
         // cleanup applied to the per-GP Calls tab (3e7e72c). They have no name/date/email and
         // only surface here as junk "Unknown GP / Past & other" rows. Filter BEFORE the header
         // count so the count keeps matching the rows shown.
@@ -7875,7 +7875,7 @@
 
         // Group calls by state. This board is an "ops / what-needs-doing" view, so it renders
         // only the actionable groups (Upcoming + Awaiting booking) and the header count matches
-        // exactly those shown. Completed/cancelled/no-show are computed but NOT rendered here,
+        // exactly those shown. Completed/cancelled/no-show are computed but NOT rendered here —
         // they're history and live on the per-GP file's Calls tab.
         var now = Date.now();
         var groups = { upcoming: [], awaiting: [], completed: [], other: [] };
@@ -7931,7 +7931,7 @@
             html += callStatusPill(c2.status);
             html += '<div class="ceo-calls-actions">';
             // Only offer "Join" for calls that are still joinable (upcoming/booked or
-            // awaiting booking), a completed/cancelled/no-show call keeps its link but
+            // awaiting booking) — a completed/cancelled/no-show call keeps its link but
             // can't be joined.
             if (c2.zoom_join_url && ['booked', 'invited'].indexOf((c2.status || '').toLowerCase()) !== -1) {
               html += '<a class="ceo-calls-join" href="' + esc(c2.zoom_join_url) + '" target="_blank" rel="noopener">Join</a>';

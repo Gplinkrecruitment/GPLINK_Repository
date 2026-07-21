@@ -1,13 +1,13 @@
-// Phase 6 G1 (R1), Stuck cases / SLA view for the RSO admin dashboard.
+// Phase 6 G1 (R1) — Stuck cases / SLA view for the RSO admin dashboard.
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. GET /api/admin/stuck-cases is auth-gated, and returns active cases
 //      bucketed by days-in-stage (0-7 / 8-14 / 15-30 / 30+) with the GP,
-//      stage, assigned Registration Support Officer name and days stalled,
+//      stage, assigned Registration Support Officer name and days stalled —
 //      the same ceoMetrics.caseAgeMs aging the CEO drilldown uses (withdrawn
 //      and >6-months-dead cases excluded).
 //   2. GET /api/cron/sla-sweep is cron-secret-gated, runs the (previously
-//      orphaned) runSlaCheck, creating sla_overdue tasks for silent cases,
+//      orphaned) runSlaCheck — creating sla_overdue tasks for silent cases —
 //      records a bucketed snapshot in runtime_kv AND the cron heartbeat
 //      (cron_last_run_sla-sweep) is written by the dispatcher.
 //   3. vercel.json declares both new crons (schedule-map sync guard).
@@ -196,7 +196,7 @@ function adminCookie() {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
 }
-// A regular (non-super) admin session, an RSO. On the loopback host this resolves
+// A regular (non-super) admin session — an RSO. On the loopback host this resolves
 // to 'local' admin scope (non-production), so the role↔host check admits them.
 function rsoCookie(email) {
   const payload = b64url(JSON.stringify({ userProfile: { email, adminRole: 'admin' }, expiresAt: Date.now() + 3600000 }));
@@ -308,7 +308,7 @@ describe('GET /api/admin/stuck-cases', () => {
 // RSO data-leak lockdown: a regular RSO only ever sees stuck cases for GPs assigned
 // to them; a super-admin can preview any RSO's exact view via ?pov_rso=. Proven
 // against the real endpoint + in-memory PostgREST (with or= support).
-describe('GET /api/admin/stuck-cases, RSO scoping', () => {
+describe('GET /api/admin/stuck-cases — RSO scoping', () => {
   it('a regular RSO sees ONLY their assigned GPs (not unassigned, not another RSO\'s)', async () => {
     // Rae (rso-1) owns c-fresh / c-mid / c-old; c-late is unassigned (assigned_va null).
     const r = await httpReq('GET', '/api/admin/stuck-cases', { cookie: rsoCookie('rae@mygplink.com.au'), host: '127.0.0.1' });
@@ -316,7 +316,7 @@ describe('GET /api/admin/stuck-cases, RSO scoping', () => {
     expect(r.body.ok).toBe(true);
     const allIds = r.body.buckets.flatMap((b) => b.items.map((i) => i.case_id)).sort();
     expect(allIds).toEqual(['c-fresh', 'c-mid', 'c-old']);
-    expect(allIds).not.toContain('c-late'); // unassigned, not theirs
+    expect(allIds).not.toContain('c-late'); // unassigned — not theirs
     expect(r.body.total).toBe(3);
     // count/total are recomputed post-filter, not the unscoped originals
     for (const b of r.body.buckets) expect(b.count).toBe(b.items.length);
@@ -365,7 +365,7 @@ describe('GET /api/cron/sla-sweep', () => {
     expect(snap).toBeTruthy();
     expect(snap.value.total).toBe(4);
 
-    // Dispatcher heartbeat (recordCronRun via CRON_SCHEDULES map), written
+    // Dispatcher heartbeat (recordCronRun via CRON_SCHEDULES map) — written
     // just AFTER the response is sent, so poll briefly.
     let hb = null;
     for (let i = 0; i < 20 && !hb; i++) {
@@ -376,7 +376,7 @@ describe('GET /api/cron/sla-sweep', () => {
     expect(hb.value.status).toBe('ok');
   });
 
-  it('is idempotent, a second run creates no duplicate sla_overdue tasks', async () => {
+  it('is idempotent — a second run creates no duplicate sla_overdue tasks', async () => {
     const before = db.registration_tasks.filter((t) => t.task_type === 'sla_overdue').length;
     const r = await httpReq('GET', '/api/cron/sla-sweep', { bearer: CRON_SECRET });
     expect(r.status).toBe(200);

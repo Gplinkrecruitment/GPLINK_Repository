@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260722d";
+  var VERSION = "20260722e";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -15,7 +15,7 @@
   // variants the app shell actually requests ("/pages/career?gp_shell=…"):
   // the server 302-redirects "/pages/career.html" to the clean URL, redirected
   // responses are never cached (shouldCacheResponse), and an entry keyed under
-  // the .html URL would not match the shell's requests anyway, the old .html
+  // the .html URL would not match the shell's requests anyway — the old .html
   // manifest precached NOTHING, so every page open paid a full network fetch.
   // JS busters must track what the pages currently ship with
   // (alerts-panel.test.js pins updates-sync structurally).
@@ -230,7 +230,7 @@
     }
   });
 
-  /* ── Web Push (VAPID), Phase 6 J1 ── */
+  /* ── Web Push (VAPID) — Phase 6 J1 ── */
   var NOTIFICATION_ICON = "/media/icons/gp-link-icon-192.png";
   var DEFAULT_NOTIFICATION_URL = "/pages/app-shell.html";
 
@@ -290,7 +290,7 @@
     if (isPageDocument(request, url)) {
       // Stale-while-revalidate: serve the cached page instantly (caches are
       // VERSION-keyed, purged+re-precached on every deploy that bumps
-      // VERSION, the mandatory convention when a page's HTML changes) and
+      // VERSION — the mandatory convention when a page's HTML changes) and
       // refresh the cache in the background so even a missed bump self-heals
       // one navigation later. network-first with a 4s window made every page
       // switch pay a full network round trip and was the main reason
@@ -302,7 +302,7 @@
             fetch(request).then(function (response) {
               if (!shouldCacheResponse(response)) return response;
               // Refresh BOTH caches: STATIC_CACHE (install precache) is
-              // created first, so caches.match always prefers its entry,
+              // created first, so caches.match always prefers its entry —
               // updating only PAGE_CACHE would pin precached pages at
               // install-time HTML forever, killing the self-heal this
               // branch exists to provide.
@@ -317,7 +317,7 @@
                 }).then(function () {
                   // RUNTIME_CACHE can also hold page documents (idle-prefetch
                   // warmUrls stores non-precached pages there) and may have
-                  // been created before PAGE_CACHE, refresh its entry too or
+                  // been created before PAGE_CACHE — refresh its entry too or
                   // those pages stay pinned at warm-time HTML.
                   return caches.open(RUNTIME_CACHE);
                 }).then(function (cache) {

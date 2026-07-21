@@ -38,11 +38,11 @@ describe('groupConversations', () => {
     const c2 = all.find(x => x.caseId === 'c2');
     expect(c2.kind).toBe('practice');
     expect(c2.name).toBe('Greenslopes');
-    expect(c2.unread).toBe(false); // its inbound (none here), last msg outbound + read
+    expect(c2.unread).toBe(false); // its inbound (none here) — last msg outbound + read
   });
 });
 
-describe('groupConversations, per-thread split', () => {
+describe('groupConversations — per-thread split', () => {
   const casesById = { c1: { id:'c1', stage:'ahpra', assigned_va:'u-hazel', gp_name:'Dr Sana Khan', gp_email:'sana@example.com', practice_name:'Greenslopes Medical Centre' } };
   const rsoNameByUserId = { 'u-hazel':'Hazel' };
   // Same case c1, TWO gmail threads: one with the GP, one with the practice
@@ -114,10 +114,10 @@ describe('normalizeSubject', () => {
 
 describe('groupThreadMessages', () => {
   const msgs = [
-    // Two Resend notifications, no gmail thread, only a subject to group on.
+    // Two Resend notifications — no gmail thread, only a subject to group on.
     { id:'m1', gmail_thread_id:null, direction:'outbound', sender:'registration@mygplink.com.au', recipient:'mercy@example.com', subject:'Re-upload requested: Specialist Qualification', body_text:'Rejected.', created_at:'2026-07-13T00:02:00Z', read_at:null },
     { id:'m2', gmail_thread_id:null, direction:'outbound', sender:'registration@mygplink.com.au', recipient:'mercy@example.com', subject:'Primary Medical Degree verified', body_text:'Approved.', created_at:'2026-07-13T02:29:00Z', read_at:null },
-    // The doctor replies to the first one, same subject with "Re:", still no gmail thread id.
+    // The doctor replies to the first one — same subject with "Re:", still no gmail thread id.
     { id:'m3', gmail_thread_id:null, direction:'inbound', sender:'mercy@example.com', recipient:'registration@mygplink.com.au', subject:'Re: Re-upload requested: Specialist Qualification', body_text:'Re-uploaded now', created_at:'2026-07-13T03:00:00Z', read_at:null, rfc822_message_id:'<abc@mail.gmail.com>', task_id:'t-9' }
   ];
   const reupload = (out) => out.find(g => /Re-upload/.test(g.subject));
@@ -145,7 +145,7 @@ describe('groupThreadMessages', () => {
     const out = groupThreadMessages({ messages: orphan, fallbackTo:'mercy@example.com' });
     expect(out[0].to).toBe('mercy@example.com');
   });
-  it('gmail_thread_id wins over subject, two threads can share a subject', () => {
+  it('gmail_thread_id wins over subject — two threads can share a subject', () => {
     const twoThreads = [
       { id:'a', gmail_thread_id:'t1', direction:'outbound', recipient:'a@x.com', subject:'Documents', created_at:'2026-07-01T09:00:00Z' },
       { id:'b', gmail_thread_id:'t2', direction:'outbound', recipient:'b@x.com', subject:'Documents', created_at:'2026-07-02T09:00:00Z' }

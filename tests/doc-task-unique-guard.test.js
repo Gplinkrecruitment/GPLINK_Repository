@@ -13,7 +13,7 @@
 // reusing the existing task instead of losing the review.
 //
 // This file drives __testUtils._createRegTask directly against a Supabase
-// REST emulator (no auth cookies needed), scaffolding pattern copied from
+// REST emulator (no auth cookies needed) — scaffolding pattern copied from
 // tests/onboarding-review-roundtrip.test.js.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
@@ -90,7 +90,7 @@ function readBody(req) {
 }
 
 // The two guarded task types + the three "active" statuses the partial
-// unique index (uniq_open_doc_check_task) covers, mirrors the migration.
+// unique index (uniq_open_doc_check_task) covers — mirrors the migration.
 const GUARDED_TASK_TYPES = new Set(['doc_review', 'flagged_doc']);
 const ACTIVE_STATUSES = new Set(['open', 'in_progress', 'waiting']);
 
@@ -129,7 +129,7 @@ function startSupabaseEmulator() {
         // supabase/migrations/20260403000000_registration_cases_tasks.sql),
         // and every doc_review/flagged_doc payload _createRegTask ever posts
         // either sets status explicitly ('open') or omits it entirely
-        // (createFlaggedDocTask's payload), so a missing status must be
+        // (createFlaggedDocTask's payload) — so a missing status must be
         // treated as 'open' here to match the real column's behavior.
         if (table === 'registration_tasks') {
           for (const r of incoming) {
@@ -229,7 +229,7 @@ describe('_createRegTask duplicate-prevention guard (uniq_open_doc_check_task)',
     expect(result).toBeTruthy();
     expect(result.id).toBe('t-seed-1');
 
-    // Still exactly ONE active doc_review row for (case, key), the index's
+    // Still exactly ONE active doc_review row for (case, key) — the index's
     // whole job is to make a second one impossible.
     const activeRows = db.registration_tasks.filter((t) =>
       t.case_id === CASE_X && t.task_type === 'doc_review' &&
@@ -240,7 +240,7 @@ describe('_createRegTask duplicate-prevention guard (uniq_open_doc_check_task)',
     // The graceful-degrade path leaves an honest timeline trail instead of
     // silently swallowing the duplicate attempt.
     const timelineRow = db.task_timeline.find((e) =>
-      e.task_id === 't-seed-1' && e.title === 'Duplicate task creation blocked, existing task reused');
+      e.task_id === 't-seed-1' && e.title === 'Duplicate task creation blocked — existing task reused');
     expect(timelineRow).toBeTruthy();
     expect(timelineRow.event_type).toBe('system');
     expect(timelineRow.detail).toBe('Review uploaded Primary Medical Degree for Dr Test');
@@ -266,7 +266,7 @@ describe('_createRegTask duplicate-prevention guard (uniq_open_doc_check_task)',
     expect(timelineRow.detail).toBe('Review uploaded IELTS Certificate for Dr Test');
   });
 
-  it('the guard is scoped to doc_review/flagged_doc, a same-key conflict on an unguarded task_type is NOT blocked', async () => {
+  it('the guard is scoped to doc_review/flagged_doc — a same-key conflict on an unguarded task_type is NOT blocked', async () => {
     db.registration_tasks.push({
       id: 't-zoom-1', case_id: CASE_X, task_type: 'zoom_call', status: 'open',
       related_stage: 'ahpra', related_document_key: 'shared_key',
@@ -281,7 +281,7 @@ describe('_createRegTask duplicate-prevention guard (uniq_open_doc_check_task)',
       _actor: 'system'
     });
 
-    // Not a guarded type, so no 409 from the emulator, a genuine duplicate
+    // Not a guarded type, so no 409 from the emulator — a genuine duplicate
     // row is created, proving the guard doesn't over-reach.
     expect(result).toBeTruthy();
     expect(result.id).not.toBe('t-zoom-1');

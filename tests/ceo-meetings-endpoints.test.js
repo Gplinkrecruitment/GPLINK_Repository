@@ -22,8 +22,8 @@ const CEO_DRAFT_ID       = 'sc_ceo_dft_' + RUN_ID;
 // An unsolicited Calendly booking: no user_id / case_id, name only knowable via the lead row.
 const CEO_DIRECT_ID      = 'sc_ceo_dir_' + RUN_ID;
 const DIRECT_EMAIL       = 'khaleedmahmoud1211@gmail.com';
-// The lead row carries ip + user_agent in metadata, exactly as the real capture
-// paths write them, so the privacy assertion has something real to catch.
+// The lead row carries ip + user_agent in metadata — exactly as the real capture
+// paths write them — so the privacy assertion has something real to catch.
 const PRIVATE_IP         = '203.0.113.77';
 const PRIVATE_UA         = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) SecretAgent/1.0';
 const DIRECT_NOTES       = 'Please share your phone number for contact via WhatsApp: +61 406 281 243';
@@ -94,7 +94,7 @@ beforeAll(async () => {
   //    - a CEO interview (booked, has meeting_summary, linked to app c1)
   //    - a CEO consultation (completed)
   //    - an RSO consultation (must be EXCLUDED from /api/ceo/meetings)
-  //    - a CEO abandoned draft (status=cancelled, no scheduled_at/booked_at, EXCLUDED)
+  //    - a CEO abandoned draft (status=cancelled, no scheduled_at/booked_at — EXCLUDED)
   const state = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   state.scheduledCalls = [
     {
@@ -128,7 +128,7 @@ beforeAll(async () => {
     {
       id: RSO_CONSULT_ID,
       meeting_kind: 'consultation',
-      host_kind: 'rso',         // MUST be excluded, not the CEO's meeting
+      host_kind: 'rso',         // MUST be excluded — not the CEO's meeting
       // assigned to a DIFFERENT RSO than the test session email, so the assigned-email
       // branch of the scope filter does not pull it in.
       assigned_rso_email: 'other-rso@gplink-test.local',
@@ -145,7 +145,7 @@ beforeAll(async () => {
     {
       id: CEO_DRAFT_ID,
       meeting_kind: 'consultation',
-      host_kind: 'ceo',         // CEO-hosted but abandoned, MUST be excluded
+      host_kind: 'ceo',         // CEO-hosted but abandoned — MUST be excluded
       application_id: null,
       case_id: 'g3',
       status: 'cancelled',
@@ -158,7 +158,7 @@ beforeAll(async () => {
     },
     {
       // The production bug: a stranger booked the owner's Calendly with no invite.
-      // Shaped exactly like buildScheduledCallFromCalendly's output, null user_id
+      // Shaped exactly like buildScheduledCallFromCalendly's output — null user_id
       // (no profile to read a name from) and host_kind 'ceo' (the visibility key).
       id: CEO_DIRECT_ID,
       meeting_kind: 'consultation',
@@ -180,7 +180,7 @@ beforeAll(async () => {
       updated_at: '2026-07-16T09:00:00.000Z'
     }
   ];
-  // The lead row captured at booking time, the ONLY place this person's name,
+  // The lead row captured at booking time — the ONLY place this person's name,
   // phone, country answer and typed question exist. Shaped exactly like the
   // production row for this booker (screened via /start, then booked).
   state.siteEnquiries = [
@@ -220,7 +220,7 @@ afterAll(async () => {
 
 // ─── GET /api/ceo/meetings ──────────────────────────────────────────────────
 
-describe('GET /api/ceo/meetings, kind=all', () => {
+describe('GET /api/ceo/meetings — kind=all', () => {
   it('returns exactly the 3 CEO non-draft meetings (excludes RSO + draft)', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=all');
     expect(res.status).toBe(200);
@@ -260,7 +260,7 @@ describe('GET /api/ceo/meetings, kind=all', () => {
   });
 });
 
-describe('GET /api/ceo/meetings, kind=interview', () => {
+describe('GET /api/ceo/meetings — kind=interview', () => {
   it('returns only the interview meeting', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=interview');
     expect(res.status).toBe(200);
@@ -271,7 +271,7 @@ describe('GET /api/ceo/meetings, kind=interview', () => {
   });
 });
 
-describe('GET /api/ceo/meetings, kind=consultation', () => {
+describe('GET /api/ceo/meetings — kind=consultation', () => {
   it('returns only the consultation meetings', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=consultation');
     expect(res.status).toBe(200);
@@ -285,7 +285,7 @@ describe('GET /api/ceo/meetings, kind=consultation', () => {
 // ─── Regression: unsolicited Calendly booking (null user_id) ───────────────
 // A GP booked the owner's Calendly with no correlation token; the webhook dropped
 // the booking, so the meeting never reached this tab.
-describe('GET /api/ceo/meetings, direct booking with null user_id', () => {
+describe('GET /api/ceo/meetings — direct booking with null user_id', () => {
   it('appears in kind=consultation despite having no user_id/case_id', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=consultation');
     expect(res.status).toBe(200);
@@ -298,12 +298,12 @@ describe('GET /api/ceo/meetings, direct booking with null user_id', () => {
     expect(direct.scheduled_at).toBe('2026-07-20T04:30:00.000Z');
   });
 
-  it('resolves gp_name from the lead row, the UI must not render "-"', async () => {
+  it('resolves gp_name from the lead row — the UI must not render "—"', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=consultation');
     const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
     expect(direct.gp_name).toBe('Khaleed Mahmoud');
-    // js/ceo-ats-meetings.js renders `m.gp_name || '-'`.
-    expect(direct.gp_name || '-').not.toBe('-');
+    // js/ceo-ats-meetings.js renders `m.gp_name || '—'`.
+    expect(direct.gp_name || '—').not.toBe('—');
   });
 
   it('is labelled a standard consultation, not an interview', async () => {
@@ -317,7 +317,7 @@ describe('GET /api/ceo/meetings, direct booking with null user_id', () => {
 // ─── Booking context on the meeting row ────────────────────────────────────
 // The owner takes the call off this tab: the name + time alone are useless. The
 // funnel already holds what they told us, what they asked, and how to ring them.
-describe('GET /api/ceo/meetings, lead context', () => {
+describe('GET /api/ceo/meetings — lead context', () => {
   it('attaches a lead object resolved from the booker email', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=all');
     const direct = (res.body.meetings || []).find((m) => m.id === CEO_DIRECT_ID);
@@ -358,7 +358,7 @@ describe('GET /api/ceo/meetings, lead context', () => {
 // PRIVACY: site_enquiries.metadata holds the booker's IP + user agent. The lead
 // projection is explicit precisely so these can never reach the browser; assert
 // on the RAW body so a nested/renamed leak is still caught.
-describe('GET /api/ceo/meetings, privacy', () => {
+describe('GET /api/ceo/meetings — privacy', () => {
   it('never returns raw metadata.ip or metadata.user_agent', async () => {
     const res = await call('GET', '/api/ceo/meetings?kind=all');
     expect(res.status).toBe(200);
@@ -389,9 +389,9 @@ describe('GET /api/ceo/meetings, privacy', () => {
 // ─── Lead capture for a direct booker (safety) ─────────────────────────────
 // Someone who books the public Calendly link answered NO screening questions. The
 // consult-nudge cron skips rows where metadata.consult.qualified !== true, so this
-// lead MUST stay unqualified, otherwise strangers (possibly practice owners) start
+// lead MUST stay unqualified — otherwise strangers (possibly practice owners) start
 // receiving GP-targeted nudge emails.
-describe('captureCalendlyDirectBookerLead, nudge safety', () => {
+describe('captureCalendlyDirectBookerLead — nudge safety', () => {
   const NOW = '2026-07-16T09:00:00.000Z';
   const NEW_EMAIL = 'stranger-' + RUN_ID + '@example.com';
   let testUtils, consultLead;
@@ -457,9 +457,9 @@ describe('captureCalendlyDirectBookerLead, nudge safety', () => {
   });
 });
 
-// ─── GET /api/ceo/candidate, apps[] extension ─────────────────────────────
+// ─── GET /api/ceo/candidate — apps[] extension ─────────────────────────────
 
-describe('GET /api/ceo/candidate, apps[] has interview + offer', () => {
+describe('GET /api/ceo/candidate — apps[] has interview + offer', () => {
   // g6 = Dr Aisha Khan; she has app c1 which is linked to CEO_INTERVIEW_ID
   const CANDIDATE_ID = 'g6';
 
@@ -486,11 +486,11 @@ describe('GET /api/ceo/candidate, apps[] has interview + offer', () => {
     expect(app).toBeTruthy();
     expect(app.offer).toBeTruthy();
     expect(app.offer.status).toBe('not_started');
-    expect(app.offer.label).toBe('-');
+    expect(app.offer.label).toBe('—');
   });
 
   it('returns interview:null for an app with no interview row', async () => {
-    // g10 = Dr Emma Wilson; has app c10, no scheduledCalls seeded for her
+    // g10 = Dr Emma Wilson; has app c10 — no scheduledCalls seeded for her
     const res = await call('GET', '/api/ceo/candidate?case_id=g10');
     expect(res.status).toBe(200);
     const apps = res.body.candidate.apps;

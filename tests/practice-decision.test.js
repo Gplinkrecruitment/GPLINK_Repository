@@ -1,7 +1,7 @@
-// Task 7, public (token-authenticated, no session) practice decision +
+// Task 7 — public (token-authenticated, no session) practice decision +
 // availability endpoints. A practice contact reaches these from the
 // submit-to-practice introduction email's decision buttons (Task 6) /
-// pages/practice-decision.html (Task 8), no account, no cookie.
+// pages/practice-decision.html (Task 8) — no account, no cookie.
 //
 // Boots the real server against a tiny in-memory PostgREST emulator
 // (career-profile-gate.test.js / practice-submission-email.test.js pattern)
@@ -41,11 +41,11 @@ const db = {
     { id: 'app-tok-7', user_id: 'u-e2e-7', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-e2e-7', applied_at: NOW },
     // Already secured via a different path (e.g. the GP accepted their offer
     // through /api/career/offer/accept) BEFORE this stale approve link is
-    // ever clicked, regression fixture for the backward-drag bug.
+    // ever clicked — regression fixture for the backward-drag bug.
     { id: 'app-tok-8', user_id: 'u-secured-8', career_role_id: 'role-1', status: 'placement_secured', ats_stage: 'hired', practice_action_token: 'tok-test-secured8', applied_at: NOW },
     // Already advanced to the 'offer' lane (offer sent, not yet decided)
     // through a different path (e.g. an admin/CEO action) BEFORE this stale
-    // approve link is ever clicked, regression fixture for the forward-only
+    // approve link is ever clicked — regression fixture for the forward-only
     // stage guard.
     { id: 'app-tok-9', user_id: 'u-forward-9', career_role_id: 'role-1', status: 'applied', ats_stage: 'offer', practice_action_token: 'tok-test-forward9', applied_at: NOW }
   ],
@@ -155,7 +155,7 @@ function startSupabaseEmulator() {
 }
 
 const resendCaptured = [];
-let resendMode = 'ok'; // 'ok' | 'error', toggled by the email-resilience test below
+let resendMode = 'ok'; // 'ok' | 'error' — toggled by the email-resilience test below
 function startResendCaptureServer() {
   return new Promise((resolve) => {
     resendServer = http.createServer((req, res) => {
@@ -178,7 +178,7 @@ function startResendCaptureServer() {
   });
 }
 
-// GP session cookie, built exactly the way tests/career-profile-gate.test.js
+// GP session cookie — built exactly the way tests/career-profile-gate.test.js
 // builds userCookie (b64url(JSON payload) + HMAC-SHA512 over AUTH_SECRET).
 function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 function userCookie(email, userId) {
@@ -268,7 +268,7 @@ describe('GET /api/practice/application/decision-context', () => {
   });
 });
 
-describe('POST /api/practice/application/decision, approve', () => {
+describe('POST /api/practice/application/decision — approve', () => {
   it('404s on a bad token', async () => {
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'nope', action: 'approve' } });
     expect(res.status).toBe(404);
@@ -293,7 +293,7 @@ describe('POST /api/practice/application/decision, approve', () => {
     expect(interview.correlation_token.length).toBeGreaterThan(0);
   });
 
-  it('is idempotent, a second approve on the same token does not duplicate the interview row or re-decide', async () => {
+  it('is idempotent — a second approve on the same token does not duplicate the interview row or re-decide', async () => {
     const before = db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length;
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-abc123', action: 'approve' } });
     expect(res.status).toBe(200);
@@ -313,11 +313,11 @@ describe('POST /api/practice/application/decision, approve', () => {
 
 // Final-review fix: a stale approve link (still sitting unread in a
 // practice's inbox) must never drag an already-progressed application
-// backward, whether it fully reached placement_secured/hired through a
+// backward — whether it fully reached placement_secured/hired through a
 // DIFFERENT path (the GP accepted their offer, or the team manually secured
 // the placement) or merely advanced past 'interview' (offer sent, not yet
 // decided).
-describe('POST /api/practice/application/decision, approve on a stale link (application already progressed)', () => {
+describe('POST /api/practice/application/decision — approve on a stale link (application already progressed)', () => {
   it('no-ops when the application already reached placement_secured/hired via a different path', async () => {
     const interviewsBefore = db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length;
     const capturedBefore = resendCaptured.length;
@@ -330,7 +330,7 @@ describe('POST /api/practice/application/decision, approve on a stale link (appl
     expect(row.status).toBe('placement_secured');
     expect(row.ats_stage).toBe('hired');
     expect(db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length).toBe(interviewsBefore);
-    // No emails at all fired off the back of this stale click, in particular
+    // No emails at all fired off the back of this stale click — in particular
     // never the "would like to interview you!" copy to an already-placed GP.
     expect(resendCaptured.length).toBe(capturedBefore);
   });
@@ -342,12 +342,12 @@ describe('POST /api/practice/application/decision, approve on a stale link (appl
 
     const row = db.gp_applications.find((a) => a.id === 'app-tok-9');
     expect(row.practice_decision).toBe('approved');
-    // The offer lane outranks 'interview', the forward-only guard must keep it.
+    // The offer lane outranks 'interview' — the forward-only guard must keep it.
     expect(row.ats_stage).toBe('offer');
   });
 });
 
-describe('POST /api/practice/application/decision, turn_down', () => {
+describe('POST /api/practice/application/decision — turn_down', () => {
   it('records decision + reason on a second application without touching status/ats_stage', async () => {
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-def456', action: 'turn_down', reason: 'Position filled' } });
     expect(res.status).toBe(200);
@@ -356,7 +356,7 @@ describe('POST /api/practice/application/decision, turn_down', () => {
     const row = db.gp_applications.find((a) => a.practice_action_token === 'tok-test-def456');
     expect(row.practice_decision).toBe('turned_down');
     expect(row.practice_decision_reason).toBe('Position filled');
-    // No 'rejected'/'not_proceeding' stage exists in ATS_STAGES, status and
+    // No 'rejected'/'not_proceeding' stage exists in ATS_STAGES — status and
     // ats_stage must be left exactly as they were (still 'applied').
     expect(row.status).toBe('applied');
     expect(row.ats_stage).toBeUndefined();
@@ -372,12 +372,12 @@ describe('POST /api/practice/application/decision, turn_down', () => {
   });
 });
 
-describe('email transport resilience, a Resend outage must never fail the request', () => {
+describe('email transport resilience — a Resend outage must never fail the request', () => {
   it('approve still returns 200 + the application is still patched when the GP/ops emails fail to send', async () => {
     // sendEmail is fired-and-forgotten (never awaited by the handler), so the
     // HTTP response can land before the notify fetches even reach the capture
     // server. Don't flip resendMode back until we've positively observed the
-    // in-flight sends fail, otherwise this test would race and could pass
+    // in-flight sends fail — otherwise this test would race and could pass
     // for the wrong reason (mode reset before the delayed send actually fires).
     const capturedBefore = resendCaptured.length;
     resendMode = 'error';
@@ -392,7 +392,7 @@ describe('email transport resilience, a Resend outage must never fail the reques
 
     // Give the fire-and-forget sendEmail() fetches time to actually reach the
     // (currently 500-ing) capture server, then verify neither notification
-    // for THIS approve was captured, i.e. they genuinely failed, and that
+    // for THIS approve was captured — i.e. they genuinely failed, and that
     // failure never touched the response above.
     await new Promise((r) => setTimeout(r, 150));
     expect(resendCaptured.length).toBe(capturedBefore);
@@ -400,7 +400,7 @@ describe('email transport resilience, a Resend outage must never fail the reques
   });
 });
 
-// Availability windows must be in the FUTURE, the endpoint rejects past
+// Availability windows must be in the FUTURE — the endpoint rejects past
 // dates. These were hardcoded as '2026-07-20'/'2026-07-21' and started
 // failing the moment that date passed. Derive them instead so the suite
 // cannot expire again.
@@ -485,7 +485,7 @@ describe('notification-email HTML injection is escaped (public turn-down reason)
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'turned_down' });
 
-    // The ops email is fire-and-forget, give the send time to land in capture.
+    // The ops email is fire-and-forget — give the send time to land in capture.
     await new Promise((r) => setTimeout(r, 250));
     const opsEmail = resendCaptured.find((m) => m && m.subject
       && String(m.subject).includes('turned down') && String(m.subject).includes('Inject'));
@@ -512,7 +512,7 @@ describe('availability stores ONLY the canonical window shape (extra keys stripp
   });
 });
 
-describe('CRITICAL, GP can book after practice approval (full end-to-end)', () => {
+describe('CRITICAL — GP can book after practice approval (full end-to-end)', () => {
   it('approve → availability → GP session sees revealed offer + interview slots (no dead-end)', async () => {
     // 1) Practice approves. Previously this ONLY set practice_decision/status and
     //    NEVER revealed the practice or created an offer, so the GP booking
@@ -536,7 +536,7 @@ describe('CRITICAL, GP can book after practice approval (full end-to-end)', () =
     expect(avail.status).toBe(200);
 
     // 3) GP (session-authed) can now fetch interview slots derived from those
-    //    windows, a 200 here (was 403 before the fix) is the headline result.
+    //    windows — a 200 here (was 403 before the fix) is the headline result.
     const gpCookie = userCookie('e2e.booker@example.com', 'u-e2e-7');
     const slots = await httpReq('GET', '/api/career/interview/slots?applicationId=app-tok-7', { cookie: gpCookie });
     expect(slots.status).toBe(200);

@@ -1,4 +1,4 @@
-// AI bug-fix approval pipeline, server wiring.
+// AI bug-fix approval pipeline — server wiring.
 //
 //   BUILD 1  friendly error page for GPs (page navigations only, /api/ untouched)
 //   BUILD 3  the daily cron is registered for heartbeat tracking
@@ -147,7 +147,7 @@ describe('isHtmlPageNavigation', () => {
     expect(nav({ accept: 'text/html,application/xhtml+xml' }, '/pages/nope')).toBe(true);
   });
 
-  it('is NEVER true for /api/, API 404s must stay JSON', () => {
+  it('is NEVER true for /api/ — API 404s must stay JSON', () => {
     expect(nav({ 'sec-fetch-dest': 'document', accept: 'text/html' }, '/api/anything')).toBe(false);
     expect(nav({ accept: 'text/html' }, '/api/career/applications')).toBe(false);
   });
@@ -194,7 +194,7 @@ describe('unknown page requests serve pages/error.html', () => {
     expect(r.raw).toBe('Not found');
   });
 
-  it('does NOT serve HTML for an unknown /api/ route, JSON 404 is preserved', async () => {
+  it('does NOT serve HTML for an unknown /api/ route — JSON 404 is preserved', async () => {
     const r = await req('GET', '/api/definitely-not-a-route', { headers: { 'Sec-Fetch-Dest': 'document', Accept: 'text/html' } });
     expect(r.status).toBe(404);
     expect(r.headers['content-type']).toMatch(/application\/json/);
@@ -250,7 +250,7 @@ describe('cron registration', () => {
 
 // ── BUILD 4/5: the email one-click flow ────────────────────────────────────
 
-describe('GET /approve-fix, a link prefetcher CANNOT approve', () => {
+describe('GET /approve-fix — a link prefetcher CANNOT approve', () => {
   it('renders a confirm page and changes NOTHING', async () => {
     const before = await ef.getErrorFixProposalById('prop-a');
     expect(before.status).toBe('proposed');
@@ -260,7 +260,7 @@ describe('GET /approve-fix, a link prefetcher CANNOT approve', () => {
       const r = await req('GET', '/approve-fix?token=' + TOK_A, { headers: { 'Sec-Fetch-Dest': 'document', Accept: 'text/html' } });
       expect(r.status).toBe(200);
       expect(r.raw).toMatch(/Approve this fix\?/);
-      // The page must contain a FORM that posts, not a link that acts.
+      // The page must contain a FORM that posts — not a link that acts.
       expect(r.raw).toMatch(/<form[^>]+method="POST"[^>]+action="\/api\/error-fix\/approve"/);
       expect(r.headers['cache-control']).toMatch(/no-store/);
       expect(r.headers['x-robots-tag']).toMatch(/noindex/);
@@ -292,7 +292,7 @@ describe('GET /approve-fix, a link prefetcher CANNOT approve', () => {
   });
 });
 
-describe('POST /api/error-fix/approve, the token is SINGLE USE', () => {
+describe('POST /api/error-fix/approve — the token is SINGLE USE', () => {
   it('approves on the first POST', async () => {
     const r = await req('POST', '/api/error-fix/approve', { json: { token: TOK_A } });
     expect(r.status).toBe(200);
@@ -478,13 +478,13 @@ describe('the fix executor is wired to approval, but does not run inside it', ()
   // The executor is implemented (see tests/error-fix-executor*.test.js). What
   // matters HERE is that approving does not drag GitHub or Anthropic into the
   // owner's button press.
-  it('approval only QUEUES, it never does the work inline', async () => {
+  it('approval only QUEUES — it never does the work inline', async () => {
     const out = await ef.dispatchApprovedFixProposal({ id: 'prop-a', risk_class: 'safe_auto' }, { queueOnly: true });
     expect(out.dispatched).toBe(false);
     expect(out.reason).toBe('queued');
   });
 
-  it('approval never fills in branch/PR, that is the executor cron’s job', async () => {
+  it('approval never fills in branch/PR — that is the executor cron’s job', async () => {
     const row = await ef.getErrorFixProposalById('prop-a');
     expect(row.branch_name).toBeFalsy();
     expect(row.pr_url).toBeFalsy();
@@ -497,13 +497,13 @@ describe('the fix executor is wired to approval, but does not run inside it', ()
     expect(await ef.claimFixProposalForExecution('')).toBe(null);
   });
 
-  it('a row can only be claimed ONCE, the second attempt gets nothing', async () => {
+  it('a row can only be claimed ONCE — the second attempt gets nothing', async () => {
     const row = await ef.getErrorFixProposalById('prop-b');
     if (row.status !== 'approved') {
       await ef.updateErrorFixProposal('prop-b', { status: 'approved' });
     }
     expect(await ef.claimFixProposalForExecution('prop-b')).toBeTruthy();
-    // Now in_progress, a second cron must not pick it up as well.
+    // Now in_progress — a second cron must not pick it up as well.
     expect(await ef.claimFixProposalForExecution('prop-b')).toBe(null);
     expect((await ef.getErrorFixProposalById('prop-b')).status).toBe('in_progress');
   });

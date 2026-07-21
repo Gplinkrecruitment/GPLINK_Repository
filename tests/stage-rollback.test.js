@@ -1,8 +1,8 @@
-// Phase 6 G2b, targeted stage rollback (re-open one stage, NOT reset-gp).
+// Phase 6 G2b — targeted stage rollback (re-open one stage, NOT reset-gp).
 //
 // Proves, against the REAL server with an in-memory PostgREST emulator:
 //   1. POST /api/admin/registration-return-overrides re-opens a specific stage
-//      by writing gp_registration_return_overrides into user_state, WITHOUT
+//      by writing gp_registration_return_overrides into user_state — WITHOUT
 //      touching any other state key (non-destructive, unlike admin_reset_gp).
 //   2. The action is audit-logged (admin_audit_log: admin_stage_rollback with
 //      actor, target GP email and the steps map).
@@ -197,7 +197,7 @@ afterAll(async () => {
   try { fs.unlinkSync(DB_FILE); } catch {}
 });
 
-describe('POST /api/admin/registration-return-overrides, targeted stage rollback', () => {
+describe('POST /api/admin/registration-return-overrides — targeted stage rollback', () => {
   // The map the admin UI sends to re-open "amc" for a GP currently in ahpra:
   // natural progression up to the current stage stays open, target forced open.
   const ROLLBACK_STEPS = { placement: true, myintealth: true, amc: true, career: true, ahpra: true, visa: false, pbs: false, commencement: false };
@@ -243,7 +243,7 @@ describe('POST /api/admin/registration-return-overrides, targeted stage rollback
   });
 });
 
-describe('admin.html, stage rollback control (static)', () => {
+describe('admin.html — stage rollback control (static)', () => {
   const html = fs.readFileSync(path.join(ROOT, 'pages', 'admin.html'), 'utf8');
 
   it('ships the Re-open stage control wired to the overrides endpoint with a confirm step', () => {

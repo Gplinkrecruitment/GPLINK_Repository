@@ -8,10 +8,10 @@
   var homeLoaded = false, hydrated = false, ranAuto = false;
 
   var TABS = [
-    { area: 'home', title: 'Home', body: 'Your dashboard, see how far along your registration is, anytime.' },
+    { area: 'home', title: 'Home', body: 'Your dashboard — see how far along your registration is, anytime.' },
     { area: 'practice', title: 'My Practice', body: 'Browse GP roles matched to you and accept the one you want.' },
     { area: 'scan', title: 'Scan', body: 'Snap a photo of a document and we verify it for you.' },
-    { area: 'support', title: 'Support', body: 'Message our team, replies land right here.' },
+    { area: 'support', title: 'Support', body: 'Message our team — replies land right here.' },
     { area: 'account', title: 'Account', body: 'Your profile, details and notification settings.' }
   ];
   var MOBILE = {

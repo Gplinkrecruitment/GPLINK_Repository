@@ -1,4 +1,4 @@
-// Task 5, pipeline automation: Zoho↔ats_stage reconciliation, GP milestone
+// Task 5 — pipeline automation: Zoho↔ats_stage reconciliation, GP milestone
 // notifications, and offer-accept → hired.
 //
 // Boots the real server against the in-memory PostgREST emulator (pattern from
@@ -41,7 +41,7 @@ const db = {
     { user_id: GP3.userId, state: {}, updated_at: NOW }
   ],
   career_roles: [
-    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner, VR', practice_name: 'Greenslopes Family Medical', is_active: true, job_status: 'open', updated_at: NOW }
+    { id: 'role-1', provider: 'internal_ats', provider_role_id: 'ats_r1', title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
     // Reconciliation targets.
@@ -68,7 +68,7 @@ function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 
 // Live Zoho application records served by the wrapped fetch below (keyed by
 // zoho_application_id). The locally secured app deliberately maps to a live
-// status that is NOT placement-secured, the exact downgrade scenario the
+// status that is NOT placement-secured — the exact downgrade scenario the
 // sync guard must skip.
 const ZOHO_API_BASE = 'https://zoho-sync.gplink-test.local';
 const zohoLiveRecords = {
@@ -188,7 +188,7 @@ function httpReq(method, p, { host, cookie, body } = {}) {
   });
 }
 
-// The notifier is fire-and-forget from endpoints/reconcile, poll briefly.
+// The notifier is fire-and-forget from endpoints/reconcile — poll briefly.
 async function waitFor(fn, { tries = 40, ms = 25 } = {}) {
   for (let i = 0; i < tries; i++) {
     if (fn()) return true;
@@ -295,7 +295,7 @@ describe('reconcileAtsStageAfterStatusSync (the per-row step syncZohoRecruitAppl
     await waitFor(() => updatesFor(GP1.userId).length > before);
     const entry = updatesFor(GP1.userId)[0];
     expect(entry.title).toMatch(/interview/i);
-    expect(entry.body).toContain('General Practitioner, VR');
+    expect(entry.body).toContain('General Practitioner — VR');
     expect(entry.body).toContain('Greenslopes Family Medical');
   });
 
@@ -352,7 +352,7 @@ describe('reconcileAtsStageAfterStatusSync (the per-row step syncZohoRecruitAppl
   });
 });
 
-// Zoho Recruit decommissioned, the syncZohoRecruitApplicationStatuses
+// Zoho Recruit decommissioned — the syncZohoRecruitApplicationStatuses
 // downgrade-guard tests were removed with the function. reconcileAtsStageAfterStatusSync
 // (the per-row step it used) is still covered above.
 
@@ -390,12 +390,12 @@ describe('PATCH /api/ats/application notifier', () => {
     expect(updatesFor(GP2.userId).length).toBe(count);
   });
 
-  it('dragging a card into the Offer lane is SILENT for the GP (no offer exists yet, F1)', async () => {
+  it('dragging a card into the Offer lane is SILENT for the GP (no offer exists yet — F1)', async () => {
     const before = updatesFor(GP2.userId).length;
     const r = await httpReq('PATCH', '/api/ats/application?id=app-patch-1', { host: SUPER_HOST, cookie: superCookie(), body: { stage: 'offer' } });
     expect(r.status).toBe(200);
     expect(r.body.application.ats_stage).toBe('offer');
-    // The move itself still lands (stage + audit row), only the premature
+    // The move itself still lands (stage + audit row) — only the premature
     // "You have an offer!" notification is suppressed: the dedicated email
     // from POST /api/ats/offer is the doctor-facing signal for a real offer.
     const ev = eventsFor('app-patch-1').find((e) => e.to_stage === 'offer');

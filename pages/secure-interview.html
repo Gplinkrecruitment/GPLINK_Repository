@@ -8,7 +8,7 @@
   <meta name="color-scheme" content="light dark" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Secure My Interview, GP Link</title>
+  <title>Secure My Interview — GP Link</title>
   <script src="../js/native-bridge.js?v=20260707a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a" defer></script>
@@ -213,7 +213,7 @@
   <div class="wrap">
     <div class="hero" id="pageHero">
       <h1>Secure My Interview</h1>
-      <p>Pick a time that works for you, we'll lock in the Zoom call instantly and send you the invite.</p>
+      <p>Pick a time that works for you — we'll lock in the Zoom call instantly and send you the invite.</p>
     </div>
 
     <div id="loadingState" class="card">
@@ -230,7 +230,7 @@
       <div class="card">
         <p class="tz-note" id="tzNote" hidden></p>
         <div id="daysList"></div>
-        <div class="empty-slots" id="emptySlots" hidden>No times are available right now, please check back shortly.</div>
+        <div class="empty-slots" id="emptySlots" hidden>No times are available right now — please check back shortly.</div>
       </div>
     </div>
 
@@ -241,7 +241,7 @@
       <div>
         <a class="btn btn-primary btn-block" id="successZoomLink" href="#" target="_blank" rel="noopener" hidden>Join Zoom call</a>
       </div>
-      <p class="success-note">It's on your calendar, invite sent to your email.</p>
+      <p class="success-note">It's on your calendar — invite sent to your email.</p>
     </div>
   </div>
 
@@ -293,7 +293,7 @@
 
   // ── Viewer timezone (owner req: show + book in the GP's OWN timezone) ──
   // The browser's device tz is the "current location". Probed immediately so a
-  // bad/unsupported value can never blank the picker, every Intl call below
+  // bad/unsupported value can never blank the picker — every Intl call below
   // is additionally wrapped in try/catch with the server label as fallback.
   var viewerTz = '';
   try {
@@ -307,7 +307,7 @@
     return viewerTz || (slot && slot.local && slot.local.gp && slot.local.gp.tz) || '';
   }
 
-  // Short name (e.g. BST, AWST) for a tz at a given instant, '' when Intl can't.
+  // Short name (e.g. BST, AWST) for a tz at a given instant — '' when Intl can't.
   function tzShortName(tz, dateIso) {
     if (!tz) return '';
     try {
@@ -344,7 +344,7 @@
     showOnly(errorState);
   }
 
-  // ── Confetti (reused pattern from pages/offer-review.html, Task 12),
+  // ── Confetti (reused pattern from pages/offer-review.html, Task 12) —
   // self-contained canvas burst, no library, removes its own canvas after. ──
   function launchConfetti() {
     var palette = ['#2563eb', '#22c55e', '#f59e0b', '#ef4444', '#a855f7'];
@@ -423,7 +423,7 @@
   }
 
   // The one always-visible line above the slot list naming the timezone every
-  // time below is shown in, e.g. "Times are shown in your timezone:
+  // time below is shown in — e.g. "Times are shown in your timezone:
   // Europe/London (BST)".
   function renderTzNote(slots) {
     var tzNote = document.getElementById('tzNote');
@@ -462,7 +462,7 @@
 
       var heading = document.createElement('div');
       heading.className = 'day-heading';
-      heading.textContent = group.heading; // textContent only, never innerHTML with server data
+      heading.textContent = group.heading; // textContent only — never innerHTML with server data
       groupEl.appendChild(heading);
 
       var grid = document.createElement('div');
@@ -490,14 +490,14 @@
     var label = dayHeading(slot) + ' at ' + timeOnlyLabel(slot);
     var tzShort = tzShortName(displayTzFor(slot), slot.startUtc);
     confirmTimeLabel.textContent = label + (tzShort ? ' (' + tzShort + ')' : '');
-    // Secondary line: the same moment in the PRACTICE's timezone, only when
+    // Secondary line: the same moment in the PRACTICE's timezone — only when
     // the server sent one; skipped silently otherwise.
     var practiceLine = '';
     if (slot.local && slot.local.practice && slot.local.practice.tz) {
       try {
         var pTime = new Intl.DateTimeFormat(undefined, { timeZone: slot.local.practice.tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(slot.startUtc));
         var pShort = tzShortName(slot.local.practice.tz, slot.startUtc);
-        practiceLine = pTime + ' at the practice' + (pShort ? ', ' + pShort : '');
+        practiceLine = pTime + ' at the practice' + (pShort ? ' — ' + pShort : '');
       } catch (e) {
         practiceLine = slot.local.practice.label ? (slot.local.practice.label + ' at the practice') : '';
       }
@@ -555,7 +555,7 @@
           return;
         }
         if (status === 403 && data.error === 'not_available') {
-          showError("Your interview isn't available to book yet, check your offer for the latest status.", '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
+          showError("Your interview isn't available to book yet — check your offer for the latest status.", '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
           return;
         }
         if (status === 401) {
@@ -596,23 +596,23 @@
         }
         if (status === 409 && data.error === 'slot_taken') {
           closeConfirm();
-          showToast('That time was just taken, please pick another.');
+          showToast('That time was just taken — please pick another.');
           loadSlots();
           return;
         }
         if (status === 403 && data.error === 'not_available') {
           closeConfirm();
-          showError("Your interview isn't available to book yet, check your offer for the latest status.", '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
+          showError("Your interview isn't available to book yet — check your offer for the latest status.", '/pages/offer-review.html?applicationId=' + encodeURIComponent(applicationId));
           return;
         }
         closeConfirm();
-        showToast('Something went wrong booking that time, please try again.');
+        showToast('Something went wrong booking that time — please try again.');
       })
       .catch(function () {
         confirmBookBtn.disabled = false;
         confirmBookBtn.textContent = 'Confirm booking';
         closeConfirm();
-        showToast('Something went wrong booking that time, please try again.');
+        showToast('Something went wrong booking that time — please try again.');
       });
   }
 

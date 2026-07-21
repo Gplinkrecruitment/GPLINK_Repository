@@ -2,7 +2,7 @@
 // with GET, but two cron routes were registered POST-only, so every scheduled
 // invocation 404'd and the crons were silently dead. This test parses
 // vercel.json's crons array AT TEST TIME and asserts every declared cron path
-// responds to a GET with a non-404 (and non-405) status, 200/401/403/503 are
+// responds to a GET with a non-404 (and non-405) status — 200/401/403/503 are
 // all fine (auth or missing config may reject), the point is that the route
 // exists and accepts GET. New crons added to vercel.json are covered
 // automatically.

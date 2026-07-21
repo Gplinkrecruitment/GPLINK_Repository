@@ -133,7 +133,7 @@ describe('validateDoubleTickSignature', () => {
     expect(validateDoubleTickSignature(SAMPLE_BODY, signBody(SAMPLE_BODY), '')).toBe(false);
   });
 
-  it('uses timingSafeEqual, flipping one hex digit is rejected', () => {
+  it('uses timingSafeEqual — flipping one hex digit is rejected', () => {
     const valid = crypto.createHmac('sha256', TEST_SECRET).update(SAMPLE_BODY).digest('hex');
     const flipped = valid.slice(0, -1) + (valid.endsWith('0') ? '1' : '0');
     expect(validateDoubleTickSignature(SAMPLE_BODY, flipped)).toBe(false);

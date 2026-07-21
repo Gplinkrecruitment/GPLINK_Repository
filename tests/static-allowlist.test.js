@@ -5,7 +5,7 @@ import fs from 'fs';
 
 // Launch-readiness security: the static file server must ONLY serve public
 // asset roots (pages/ js/ css/ media/ documents/ assets/ + a few root files).
-// It must NEVER serve backend source or config, before the allowlist,
+// It must NEVER serve backend source or config — before the allowlist,
 // `GET /server.js` returned the entire 3.2MB backend (and Vercel bundles
 // server.js + lib/** into the lambda, so the leak reached production).
 // Mirrors the http-harness idiom used by tests/site-public-routes.test.js.
@@ -49,7 +49,7 @@ afterAll(async () => {
   try { fs.unlinkSync(process.env.DB_FILE_PATH); } catch {}
 });
 
-describe('static file allowlist, backend source is NOT downloadable', () => {
+describe('static file allowlist — backend source is NOT downloadable', () => {
   const BLOCKED = [
     '/server.js',
     '/package.json',
@@ -70,7 +70,7 @@ describe('static file allowlist, backend source is NOT downloadable', () => {
   }
 });
 
-describe('static file allowlist, public assets STILL serve', () => {
+describe('static file allowlist — public assets STILL serve', () => {
   const ALLOWED = [
     '/js/auth-guard.js',
     '/css/gp-tokens.css',

@@ -26,7 +26,7 @@
     'gp_stage_override_at',
     'gp_walkthrough_state'
   ];
-  // Keys managed exclusively by admin endpoints, never push back to server
+  // Keys managed exclusively by admin endpoints — never push back to server
   const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const SESSION_OWNER_KEY = 'gp_state_owner';
@@ -242,7 +242,7 @@
     var currentOwner = '';
     try { currentOwner = localStorage.getItem(SESSION_OWNER_KEY) || ''; } catch (e) {}
     if (currentOwner && currentOwner !== email) {
-      // Different user, clear all previous user's data immediately
+      // Different user — clear all previous user's data immediately
       clearTrackedLocalState();
       clearStoredResetAt();
     }
@@ -383,7 +383,7 @@
         hydrated = true;
         window.dispatchEvent(new Event('gp-state-hydrated'));
       } catch (err) {
-        // Hydration failed, clear all user data so stale data is never shown
+        // Hydration failed — clear all user data so stale data is never shown
         hydrated = false;
         clearTrackedLocalState();
       } finally {
@@ -422,7 +422,7 @@
   };
 
   function scheduleHydrate() {
-    // Hydrate as soon as possible, don't defer with requestIdleCallback
+    // Hydrate as soon as possible — don't defer with requestIdleCallback
     // to minimise the window where stale data could be visible.
     window.setTimeout(() => hydrateState(), 0);
   }

@@ -1061,7 +1061,7 @@
         MyIntealth Verification
       </div>
       <h1 class="gate-title">Confirm your MyIntealth ID</h1>
-      <p class="gate-subtitle">Before continuing to your AMC Portfolio, we need your MyIntealth ID. You can find it on your MyIntealth Applicant Portal dashboard, it's displayed in the top-right corner of the home page.</p>
+      <p class="gate-subtitle">Before continuing to your AMC Portfolio, we need your MyIntealth ID. You can find it on your MyIntealth Applicant Portal dashboard — it's displayed in the top-right corner of the home page.</p>
 
       <div class="gate-steps">
         <div class="gate-step">
@@ -1228,7 +1228,7 @@
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="nameChangeModalTitle">
       <h4 id="nameChangeModalTitle">Where to upload your evidence</h4>
       <p>On the AMC portal, upload your name-change evidence at step 2.4 Evidence, shown below.</p>
-      <img src="/media/images/amc-name-change-reference.png" alt="AMC portal step 2.4 Evidence, where to upload name-change evidence" style="width:100%;border-radius:var(--gp-r-md)">
+      <img src="/media/images/amc-name-change-reference.png" alt="AMC portal step 2.4 Evidence — where to upload name-change evidence" style="width:100%;border-radius:var(--gp-r-md)">
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn-modern btn-outline" data-close="nameChangeModal" type="button">Close</button>
       </div>
@@ -1469,7 +1469,7 @@
     const stepTabsEl = document.getElementById("stepTabs");
 
     let currentTabKey = null; // tracks which tab is selected/viewed
-    let nameChangeDetected = false; // /api/gp/name-change-flag.nameChangeDetected, gates the Establishment-step evidence notice
+    let nameChangeDetected = false; // /api/gp/name-change-flag.nameChangeDetected — gates the Establishment-step evidence notice
 
     function showToast(msg) {
       toastEl.textContent = msg;
@@ -1575,7 +1575,7 @@
         syncRouteForStage("upload_credentials");
         currentTabKey = "upload_credentials";
         renderPage(progress);
-        showToast("AMC complete, redirecting to AHPRA");
+        showToast("AMC complete — redirecting to AHPRA");
         setTimeout(function () { shellNavigate("/pages/ahpra"); }, 1500);
         return;
       }
@@ -1697,7 +1697,7 @@
       });
     }
 
-    // Glass positioning removed, replaced by progress fill line
+    // Glass positioning removed — replaced by progress fill line
 
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
     function renderStepContent(progress) {
@@ -1721,13 +1721,13 @@
       // Warning
       const warning = document.getElementById("stepWarning");
       // Name-change evidence notice takes priority over the generic Establishment
-      // warning whenever it applies, gated purely on tab + flag (Task 8 spec),
+      // warning whenever it applies — gated purely on tab + flag (Task 8 spec),
       // independent of step-completion status.
       const showNameChangeNotice = key === "upload_credentials" && !!nameChangeDetected;
       if (showNameChangeNotice) {
         warning.classList.remove("hidden");
         warning.classList.add("warn-danger");
-        document.getElementById("stepWarningTitle").textContent = "Name change detected, extra evidence required";
+        document.getElementById("stepWarningTitle").textContent = "Name change detected — extra evidence required";
         document.getElementById("stepWarningText").textContent = "The name on your qualifications is different from your account name. The AMC will ask you to prove the difference before your portfolio can be verified.";
       } else if (isAction) {
         warning.classList.remove("hidden");
@@ -1747,7 +1747,7 @@
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
-      // Name-change evidence block, appended into the action card so the GP sees
+      // Name-change evidence block — appended into the action card so the GP sees
       // exactly what documents AMC will require, plus a screenshot of where to
       // upload them (Task 8 spec).
       let nameChangeBlockHtml = '';
@@ -2255,7 +2255,7 @@
       });
     });
 
-    // Stuck help button, opens support modal with category prefilled
+    // Stuck help button — opens support modal with category prefilled
     document.addEventListener("click", function(e) {
       var btn = e.target.closest("#stuckHelpBtn");
       if (btn) openSupportCaseModal(btn);
@@ -2372,7 +2372,7 @@
       const epic = parseStorage(EPIC_KEY);
       const amc = parseStorage(AMC_KEY);
       const ahpra = parseStorage(AHPRA_KEY);
-      // If no epic data in localStorage yet (fresh session), don't redirect,
+      // If no epic data in localStorage yet (fresh session), don't redirect —
       // show the gate instead and let state-sync hydration correct the state.
       if (!epic) return false;
       const epicDone = effectiveEpicDone(epic, amc);
@@ -2436,7 +2436,7 @@
 
     var gateListenersAttached = false;
     function showMyintealthGate() {
-      // Hide AMC content, gate takes over the entire view
+      // Hide AMC content — gate takes over the entire view
       var hero = document.querySelector(".hero-compact");
       if (hero) hero.style.display = "none";
       var regBlocks = document.querySelectorAll(".reg-content");

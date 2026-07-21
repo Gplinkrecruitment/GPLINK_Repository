@@ -13,10 +13,10 @@
     (function () {
       // Anti-flash pre-lock: default to the placement ("secured") view ONLY when
       // the cached state's last server sync marked an application isPlacementSecured
-      //, the same authoritative flag shouldLockCareerToSecuredView() uses in JS.
+      // — the same authoritative flag shouldLockCareerToSecuredView() uses in JS.
       // Keying off looser signals (a placement object, or a non-"confidential"
-      // practice name) false-positived a non-placed GP, someone merely at the
-      // review/interview stage, straight onto the "Placement Secured" page on a
+      // practice name) false-positived a non-placed GP — someone merely at the
+      // review/interview stage — straight onto the "Placement Secured" page on a
       // cold load. GPs without a real placement fall through to the job-browse
       // view. The JS below reconciles this attribute against the live server data.
       var initialView = "";
@@ -36,13 +36,13 @@
         // Mask the secured panel behind its loading skeleton until the first
         // renderSecuredPlacement() stamps real data. Without this the static
         // markup (placeholder practice text) is visible while the document
-        // parses, seen live as a flash of a wrong practice name before the
+        // parses — seen live as a flash of a wrong practice name before the
         // cached placement painted.
         document.documentElement.setAttribute("data-career-placement-state", "loading");
       } else {
         // We do NOT yet know this GP's correct view (cold cache, or a stale cache
         // left by another account on this shared browser origin). Do not paint the
-        // browse job-board first, the "career page flashes, then the placement
+        // browse job-board first — the "career page flashes, then the placement
         // page loads in, then scrolling freezes" bug is caused by that wrong-view
         // first paint and the reflow when it swaps to the placement view. Hide
         // content behind a neutral spinner until the live server data picks the
@@ -374,7 +374,7 @@
     .main {
       padding: 14px 0 0;
       display: grid;
-      /* minmax(0, 1fr), not the implicit auto track, so wide children (e.g.
+      /* minmax(0, 1fr) — not the implicit auto track — so wide children (e.g.
          the filters row's selects) cannot force the column past the viewport
          on small screens; the implicit track's auto minimum laid this page out
          at 425px inside a 375px viewport and clipped ~50px of content. */
@@ -692,7 +692,7 @@
 
     .view-panel.is-active {
       display: grid;
-      /* Shrinkable single column: see .main, stops job-card min-content
+      /* Shrinkable single column: see .main — stops job-card min-content
          from widening the panel past a small viewport. */
       grid-template-columns: minmax(0, 1fr);
     }
@@ -2048,7 +2048,7 @@
       box-shadow: none;
     }
 
-    /* ===== G2: Upcoming interview card (secured view), fenced addition ===== */
+    /* ===== G2: Upcoming interview card (secured view) — fenced addition ===== */
     .placement-interview-card {
       background: #fff;
       border: 1px solid var(--border, #e2e8f0);
@@ -5293,7 +5293,7 @@
 
     /* While the gate modal is open the page behind must not scroll: gestures
        starting on the backdrop fall through to the document otherwise. The
-       lock must sit on html too, body overflow stops propagating to the
+       lock must sit on html too — body overflow stops propagating to the
        viewport once html has overflow-x: hidden. The gate opens at page load
        (scroll position 0), so no jump on lock. */
     html.career-gate-open,
@@ -5997,7 +5997,7 @@
       }
 
       /* re-assert after the .modal-card override above (same specificity,
-         later source order would otherwise win), the gate card's gradient
+         later source order would otherwise win) — the gate card's gradient
          header must reach the card edges */
       .career-gate-card {
         padding: 0;
@@ -6011,14 +6011,14 @@
          body, and overflow-y is left to the natural document flow. On iOS inside the
          app-shell iframe, turning the <body> into its own momentum-scroll container
          (or forcing overflow-y:auto on BOTH <html> and <body>) nests two scroll
-         containers and JAMS touch scrolling, the placement page then can't scroll
+         containers and JAMS touch scrolling — the placement page then can't scroll
          at all. It must scroll like every other page that works in the same iframe.
 
          Also do NOT set `overflow-x` or `overscroll-behavior-y: contain` here. On the
          tall secured (hired) page the real vertical overflow lives on <html>, and body
          is exactly content-height. Setting overflow-x turned <body> into a dead scroll
          container with no scroll range, and overscroll-behavior-y: contain then blocked
-         the wheel from chaining up to <html>, the page moved a few px then rubber-banded
+         the wheel from chaining up to <html> — the page moved a few px then rubber-banded
          back to the top (owner report 2026-07-09). Horizontal clipping is already handled
          by the base `html, body { overflow-x: hidden }`. */
       touch-action: pan-y; /* explicitly permit vertical touch scrolling */
@@ -6304,7 +6304,7 @@
       opacity: 0.7;
     }
 
-    /* ── My Practice (secured), legibility + contact-tile polish (2026-06-16) ──
+    /* ── My Practice (secured) — legibility + contact-tile polish (2026-06-16) ──
        These cards are forced white in BOTH themes (dark mode whitens the card
        backgrounds further down) but the token text colours resolve light in dark
        mode, leaving faint grey text on white. Pin the in-card text to dark,
@@ -6333,7 +6333,7 @@
       font-weight: 800;
     }
 
-    /* Polished Call / Email / WhatsApp action tiles, channel-accented icons in
+    /* Polished Call / Email / WhatsApp action tiles — channel-accented icons in
        soft circles, dark labels, lift-on-hover. Replaces the flat dark squares. */
     body.career-mode-secured .placement-practice-contact-actions {
       gap: 10px;
@@ -6895,7 +6895,7 @@
       opacity: 0.018;
     }
 
-    /* Hero card must keep dark gradient, override the general html.dark-mode rule */
+    /* Hero card must keep dark gradient — override the general html.dark-mode rule */
     html.dark-mode body.career-mode-secured .placement-hero-card {
       background:
         radial-gradient(360px 180px at 100% 0%, rgba(37, 99, 235, 0.10), transparent 62%),
@@ -6922,7 +6922,7 @@
 
     /* ── Offline indicator ── */
     html.is-offline::after {
-      content: "You're offline, showing cached data";
+      content: "You're offline — showing cached data";
       position: fixed;
       top: 0;
       left: 0;
@@ -7101,7 +7101,7 @@
        ATLAS BROWSE LAYER (Phase 2 Task 2)
        New browse experience per docs/mockups/career-redesign/variant-b.html.
        All classes are at-* and are ONLY used by the browse/saved/offers UI.
-       Secured-mode styles above are untouched, do not mix layers.
+       Secured-mode styles above are untouched — do not mix layers.
        ════════════════════════════════════════════════════════════════════ */
     :root {
       --at-navy0: #0b1322;
@@ -7111,7 +7111,7 @@
       --at-ease: cubic-bezier(.22, .61, .21, 1);
     }
 
-    /* ── Masthead (navy, serif headline, sky glow, NO stats/counts) ── */
+    /* ── Masthead (navy, serif headline, sky glow — NO stats/counts) ── */
     .page-hero.at-head {
       padding: 0;
       background: transparent;
@@ -7132,7 +7132,7 @@
       position: absolute;
       /* Same sky glow as the old 420x420 box at top:-130/right:-150 (circle
          centred 60px in from the right, 80px down, farthest-corner radius
-         ~297px), but painted inside the mast so the pseudo no longer hangs
+         ~297px) — but painted inside the mast so the pseudo no longer hangs
          150px past the right edge and inflates scrollWidth on phones. */
       inset: 0;
       background: radial-gradient(circle 297px at calc(100% - 60px) 80px, rgba(78, 183, 245, .2), transparent 66%);
@@ -7510,7 +7510,7 @@
     }
     .at-rstatus--applied { background: var(--gp-ink, #0f172a); color: #fff; }
     .at-rstatus--offer { background: var(--gp-green, #16a34a); color: #fff; }
-    /* Terminal outcomes (G4): calm, muted neutral, never a red alarm. */
+    /* Terminal outcomes (G4): calm, muted neutral — never a red alarm. */
     .at-rstatus--muted { background: var(--gp-muted, #64748b); color: #fff; }
     .at-cta-link {
       flex: none;
@@ -7576,7 +7576,7 @@
 
     /* ── AI Matching (Task 4): pinned "Your team matches" section + the
        position-filled notice/alternatives. Same token system as the rest of
-       this page (var(--gp-*, fallback)), no invented visual language, the
+       this page (var(--gp-*, fallback)) — no invented visual language, the
        ONE deliberate standout is the .shiny animated Accept button. ── */
     .at-match-section { margin-bottom: 14px; }
     .at-match-sechead {
@@ -7702,7 +7702,7 @@
     .at-match-pass a { color: var(--gp-muted, #64748b); }
 
     /* Match card (design R6): website button, map preview, "see full job
-       opening" row, inserted under the reason ticks, above the 98% line. */
+       opening" row — inserted under the reason ticks, above the 98% line. */
     .at-match-qrow { display: flex; gap: 8px; margin-bottom: 9px; }
     .at-match-qbtn {
       flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -7728,7 +7728,7 @@
     }
     .at-match-seejob-arr { color: var(--gp-blue, #2563eb); font-weight: 900; }
 
-    /* Sticky accept bar, pinned above the app-shell bottom nav while ≥1 live
+    /* Sticky accept bar — pinned above the app-shell bottom nav while ≥1 live
        match exists (design R6: same "Accept this match" CTA + countdown
        sub-line as the card, always reachable without scrolling). */
     .at-match-stickybar {
@@ -7740,7 +7740,7 @@
     }
     .at-match-stickybar-sub { text-align: center; font-size: 11px; font-weight: 700; color: var(--gp-amber-ink, #92400e); margin-top: 8px; }
 
-    /* The one deliberate standout, glossy animated shine (copied from the
+    /* The one deliberate standout — glossy animated shine (copied from the
        approved mockups matching-email-popup-v3.html / matching-multi-timer-v5.html). */
     .shiny {
       position: relative; overflow: hidden;
@@ -7918,7 +7918,7 @@
     </header>
 
     <main class="main">
-      <!-- ═══════ ATLAS BROWSE HEAD (Phase 2 Task 2), hidden entirely in secured mode via body.career-mode-secured .page-hero ═══════ -->
+      <!-- ═══════ ATLAS BROWSE HEAD (Phase 2 Task 2) — hidden entirely in secured mode via body.career-mode-secured .page-hero ═══════ -->
       <section class="page-hero at-head gp-reveal gp-reveal-1">
         <header class="at-mast">
           <div class="at-mast-inner">
@@ -8009,7 +8009,7 @@
 
           <!-- Provisional placement note: shown when the GP is tied to a practice
                (placed by association) but the full placement package isn't in the
-               system yet. Honest copy, never demo salary/contact data. -->
+               system yet. Honest copy — never demo salary/contact data. -->
           <p class="placement-provisional-note" id="securedProvisionalNote" hidden></p>
 
           <!-- G2: Upcoming interview card (secured view). Hidden until an
@@ -8091,7 +8091,7 @@
             </div>
             <div class="placement-contract-copy">
               <p class="placement-contract-title">Download Your Contract</p>
-              <p class="placement-contract-sub">Placement agreement, PDF</p>
+              <p class="placement-contract-sub">Placement agreement — PDF</p>
             </div>
             <svg class="placement-contract-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </a>
@@ -8151,18 +8151,18 @@
   <div class="toast" id="careerToast"></div>
 
   <!-- Sticky accept bar (Task 6, design R6): pinned above the app-shell
-       bottom nav whenever ≥1 live team match exists, see renderMatchStickyBar(). -->
+       bottom nav whenever ≥1 live team match exists — see renderMatchStickyBar(). -->
   <div class="at-match-stickybar" id="matchStickyBar" hidden></div>
 
   <!-- Careers profile-completion gate modal (Task 5). Not dismissible: no close
-       button, no scrim-click close, no Escape handler, the CTA only enables
+       button, no scrim-click close, no Escape handler — the CTA only enables
        once the CV is AI-verified, and that's the only way to close it. -->
   <div class="modal career-gate-modal" id="careerGateModal" aria-hidden="true" role="dialog" aria-label="Complete your careers profile">
     <div class="modal-card career-gate-card">
       <div class="career-gate-top">
         <div class="career-gate-kicker">One quick step</div>
         <h3>Complete your profile to start browsing careers</h3>
-        <p>Medical centres see your CV the moment we introduce you, let’s make sure it’s ready.</p>
+        <p>Medical centres see your CV the moment we introduce you — let’s make sure it’s ready.</p>
       </div>
       <div class="career-gate-body">
         <div class="career-gate-req">
@@ -8332,7 +8332,7 @@
         {
           key: "visa",
           title: "Visa Application",
-          summary: "Begin your 482→186 visa pathway, you can start this at any time.",
+          summary: "Begin your 482→186 visa pathway — you can start this at any time.",
           status: "pending",
           started: false,
           href: "visa"
@@ -8408,7 +8408,7 @@
       }
     };
 
-    // Honest fallback for a PROVISIONAL placement, the GP is tied to a real
+    // Honest fallback for a PROVISIONAL placement — the GP is tied to a real
     // practice, but the full package (salary, start date, contract, lifestyle)
     // isn't in the system yet. Every value here is a neutral placeholder or
     // empty so resolveSecuredPlacement never substitutes the SECURED_PLACEMENT
@@ -8853,9 +8853,9 @@
         return { label: "Offer Pending", tone: "offer", isPlacementSecured: false };
       }
       // G5: offer accepted but the secured placement payload hasn't landed yet.
-      // Positive tone, consistent with the server statusLabel, never "Under Review".
+      // Positive tone, consistent with the server statusLabel — never "Under Review".
       if (key === "finalising_placement") {
-        return { label: "Offer accepted, finalising your placement", tone: "offer", isPlacementSecured: false };
+        return { label: "Offer accepted — finalising your placement", tone: "offer", isPlacementSecured: false };
       }
       // G4: terminal outcomes get honest, calm labels rather than a startCase
       // fallback or a stale "Under Review".
@@ -8879,10 +8879,10 @@
     }
 
     // An application counts as a live "opportunity" for the Offers tab the
-    // moment the practice moves it forward, a real in-app offer, an accepted
+    // moment the practice moves it forward — a real in-app offer, an accepted
     // (identity-revealed) application, or a scheduled interview. Terminal
     // outcomes and an already-secured placement (its own view) drop out. Used
-    // for BOTH the Offers badge count and the "Offers" group so they agree,
+    // for BOTH the Offers badge count and the "Offers" group so they agree —
     // previously the badge counted offerPending only, so an interview-stage
     // application (practice accepted, interview being scheduled) showed 0.
     function isCareerOpportunity(application) {
@@ -8895,7 +8895,7 @@
         || ["offer", "offer_pending", "offered", "interview", "interview_scheduled", "shortlisted", "finalising_placement"].includes(key);
     }
 
-    // Human "Next step" line by status, the detail page reads this off the
+    // Human "Next step" line by status — the detail page reads this off the
     // cached preview meta. Was hard-coded to "GP Link screening" for everything
     // that wasn't a secured placement, so an interview-stage doctor wrongly saw
     // "GP Link screening" instead of "Confirm your interview time".
@@ -8905,7 +8905,7 @@
       if (key === "finalising_placement") return "Finalising your placement";
       if (["offer", "offer_pending", "offered"].includes(key)) return "Review your offer";
       if (["interview", "interview_scheduled", "shortlisted"].includes(key)) return "Confirm your interview time";
-      if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "-";
+      if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "—";
       return "GP Link screening";
     }
 
@@ -9109,7 +9109,7 @@
       const applications = Array.isArray(source.applications)
         ? source.applications
             // A secured placement must survive normalization even when its role
-            // is not in the public roles list, private/filled placement roles
+            // is not in the public roles list — private/filled placement roles
             // never are. Dropping it here made the cached "Practice Secured"
             // view impossible: every boot fell back to the job board until the
             // server re-sent the placement (the wrong-page flash on My Practice).
@@ -9229,7 +9229,7 @@
     let practiceLifestyleHousingSearchTimer = 0;
     // 2026-07-20 audit: after sign-out the error → render → ensure → schedule
     // cycle hammered /api/career/housing-search with dozens of 401s. Once a
-    // 401 is seen the session is gone, latch and never schedule again.
+    // 401 is seen the session is gone — latch and never schedule again.
     let practiceLifestyleHousingAuthLost = false;
     let practiceLifestyleHeartPulseTimer = 0;
 
@@ -9487,7 +9487,7 @@
 
     function syncCareerViewFromLocation() {
       if (enforceLockedCareerView()) return;
-      // Not locked (no secured placement): never honour a stale #secured hash,
+      // Not locked (no secured placement): never honour a stale #secured hash —
       // a GP without a placement belongs on the job-browse view, not the empty
       // placement view. The locked case is already handled by the early return above.
       const hashView = window.location.hash.replace("#", "");
@@ -9774,7 +9774,7 @@
         const payload = await response.json().catch(() => null);
         if (bucket.signature !== signature) return;
         if (response.status === 401) {
-          // Signed out, retrying can never succeed. Latch so ensure/schedule
+          // Signed out — retrying can never succeed. Latch so ensure/schedule
           // stop firing further requests (auth-guard handles the redirect).
           practiceLifestyleHousingAuthLost = true;
           window.clearTimeout(practiceLifestyleHousingSearchTimer);
@@ -10142,7 +10142,7 @@
     }
 
     // Google Maps config is injected by the server via the lifestyle API payload.
-    // Do NOT hardcode API keys here, they are read from env vars server-side.
+    // Do NOT hardcode API keys here — they are read from env vars server-side.
     const PRACTICE_LIFESTYLE_DEFAULT_GOOGLE_MAPS = {
       enabled: false,
       apiKey: "",
@@ -11227,7 +11227,7 @@
         roleTitle: placementPayload.roleTitle || (placementRole && placementRole.roleType) || FB.roleTitle,
         // Same honesty rule as the contact/contract guards below: a REAL server
         // placement with no stored location/start date must render as "to be
-        // confirmed", never borrow the demo dataset's city or start date.
+        // confirmed" — never borrow the demo dataset's city or start date.
         location: placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || (hasServerPlacement ? "" : FB.location),
         statusLabel: placementPayload.statusLabel || FB.statusLabel,
         startDateIso: placementPayload.startDateIso || (hasServerPlacement ? "" : FB.startDateIso),
@@ -11259,7 +11259,7 @@
           meta: practiceContactPayload.meta || FB.practiceContact.meta,
           // Contact CHANNELS must point at the GP's REAL practice. For a genuine
           // server-side placement an empty phone/email/WhatsApp means "not synced
-          // yet", it must stay empty (the render then disables the button), never
+          // yet" — it must stay empty (the render then disables the button), never
           // borrow the demo practice's details (that sent GPs to the wrong clinic).
           // Only pure-demo mode (no server placement at all) uses the FB channels.
           phone: hasServerPlacement ? (practiceContactPayload.phone || "") : (practiceContactPayload.phone || FB.practiceContact.phone),
@@ -11309,7 +11309,7 @@
         const status = normalizeChecklistStatus(item && item.status);
         const title = String(item && item.title || `Step ${index + 1}`).trim();
         const started = item && item.started === true;
-        // Visa Application is an independent step the GP can begin at any time,
+        // Visa Application is an independent step the GP can begin at any time —
         // the 482→186 pathway runs in parallel with registration (the nav journey
         // already treats it as unlocked). It is never locked, and it must not gate
         // the steps that follow it.
@@ -11483,7 +11483,7 @@
         savedTabBadgeEl.textContent = String(visibleSavedCount);
       }
       if (offersTabBadgeEl) {
-        // The "Offers" badge counts genuine OFFERS only, not every application.
+        // The "Offers" badge counts genuine OFFERS only — not every application.
         // Applying puts you Under Review; that is not an offer, so it must not
         // light up the Offers tab. offerPending is the same server-decided flag
         // the panel uses to group its "Offers" section (a placement you've
@@ -11499,7 +11499,7 @@
 
     // ── Atlas card helpers (Phase 2 Task 2) ──────────────────────────────
     // Application count shown on cards is ALWAYS the server's deterministic
-    // presentation band (15–23), never a real applicant count. If a cached
+    // presentation band (15–23) — never a real applicant count. If a cached
     // role predates the field, recompute the identical band client-side from
     // a stable hash of the role id (same djb2 as server careerApplicantBand)
     // so the number never flickers between visits.
@@ -11538,7 +11538,7 @@
     }
 
     // Photo-less scenery: refined map motif (grid + glow + pin) per the Atlas
-    // mockup, production roles have no practice photos while masked.
+    // mockup — production roles have no practice photos while masked.
     function buildRoleSceneHtml(role, options = {}) {
       const suburb = options.hideLabel ? "" : getRoleSuburbLabel(role);
       return `<div class="at-scene" aria-hidden="true">
@@ -11550,7 +11550,7 @@
 
     function buildRoleThumbHtml(role, options = {}) {
       // A practice-uploaded header image (task 9) always wins over the
-      // AI-sourced scenery photo, it's a real photo of the actual location.
+      // AI-sourced scenery photo — it's a real photo of the actual location.
       const heroUrl = String((role && (role.headerImageUrl || role.heroImageUrl)) || "");
       const inner = heroUrl
         ? `<img class="at-thumb-img" src="${escapeHtml(heroUrl)}" alt="" loading="lazy" />`
@@ -11562,7 +11562,7 @@
     const AT_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
     // Task 11: a non-qualifying role (server-side DPA gate) arrives already
-    // redacted (buildRedactedRoleStub), no identifying fields at all. Render
+    // redacted (buildRedactedRoleStub) — no identifying fields at all. Render
     // it as a blurred filler card: no save button, no clickable CTA.
     function buildBlurredRoleCardHtml(role) {
       const location = String((role && role.location) || "Australia");
@@ -11625,7 +11625,7 @@
       return careerState.applications.some((job) => job && job.roleId === roleId && isActiveApplication(job));
     }
 
-    // A role the GP withdrew from must never resurface in Roles/Saved,
+    // A role the GP withdrew from must never resurface in Roles/Saved —
     // it lives only in the Offers tab, marked WITHDRAWN (owner rule 2026-07-21).
     function isWithdrawnRole(roleId) {
       return careerState.applications.some(
@@ -11673,7 +11673,7 @@
           // Search haystack is masked-field ONLY: the masked headline, the
           // public location line and server-approved suburb/billing text.
           // Never a raw title or the real practice name (which never reaches
-          // the client anyway, belt and braces).
+          // the client anyway — belt and braces).
           const searchFields = [
             role.practiceName, role.displayLabel, role.location, role.locationLine,
             role.nearest_city, role.mapLabel, role.majorCity, role.state,
@@ -11686,13 +11686,13 @@
       });
 
       // Blurred stubs only ever appear when the GP explicitly switches the
-      // eligibility dropdown to "All roles", and even then only in the plain,
+      // eligibility dropdown to "All roles" — and even then only in the plain,
       // unfiltered, non-Saved-Jobs browse view (a stub carries no data, so it
       // could never truthfully match a search/billing/location filter).
       const isDefaultBrowseView = showAllRoles && !careerState.showSavedOnly && !filterLocation && !filterBilling && !filterSearch;
       const list = isDefaultBrowseView ? filteredQualifying.concat(blurredRoles) : filteredQualifying.slice();
       // Empty-state visibility must key off the REAL (qualifying) match count,
-      // never the stub-padded count, otherwise blurred filler could mask a
+      // never the stub-padded count — otherwise blurred filler could mask a
       // genuinely empty "no saved jobs" / "no matches" state.
       list.qualifyingCount = filteredQualifying.length;
       return list;
@@ -11712,13 +11712,13 @@
         } else {
           var rolesResponse = await fetch("/api/career/roles", { credentials: "same-origin" });
           if (!rolesResponse.ok) {
-            if (careerDataSource === "fallback") showRolesError("Could not load roles, please refresh the page.");
+            if (careerDataSource === "fallback") showRolesError("Could not load roles — please refresh the page.");
             return;
           }
           payload = await rolesResponse.json().catch(() => null);
         }
         if (!payload || payload.ok !== true) {
-          showRolesError("Could not load roles, please refresh the page.");
+          showRolesError("Could not load roles — please refresh the page.");
           return;
         }
         hideRolesError();
@@ -11734,7 +11734,7 @@
           if (shouldRender && handleRequestedRoleRedirect()) return;
         }
       } catch (err) {
-        if (careerDataSource === "fallback") showRolesError("Network error, please check your connection and refresh.");
+        if (careerDataSource === "fallback") showRolesError("Network error — please check your connection and refresh.");
       }
     }
 
@@ -11772,19 +11772,19 @@
         offerPending: app.offerPending === true,
         placement: app.placement,
         meta: [
-          { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "-" },
-          { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "-" },
+          { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
+          { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
           { label: "Next step", value: nextStepForApplication(app.status) }
         ]
       }));
       // The server is the source of truth for applications, so reconcile to
-      // it UNCONDITIONALLY, including when it authoritatively returns an empty
+      // it UNCONDITIONALLY — including when it authoritatively returns an empty
       // list. The top guard already proved payload.ok + applications is an
       // array, so an empty `remote` here means "this GP has no applications",
       // not "unknown". Previously this only ran when remote.length > 0, so an
       // application cleared server-side (Reset GP, data cleanup, the Zoho→in-app
       // migration) lingered forever as a ghost "offer" in the browser's
-      // localStorage, the doctor saw an Under-Review card for a role the system
+      // localStorage — the doctor saw an Under-Review card for a role the system
       // no longer had any record of. Applications are never written to
       // careerState locally (apply persists server-side, then we refetch), so
       // there is no un-synced local-only application to preserve here.
@@ -11794,7 +11794,7 @@
       } else if (careerState.activeView === "secured" && !shouldLockCareerToSecuredView()) {
         // The server authoritatively reports NO secured placement for this GP,
         // but a stale localStorage state left the page stuck on the "Placement
-        // Secured" view, e.g. the GP is only at the review/interview stage, or
+        // Secured" view — e.g. the GP is only at the review/interview stage, or
         // a test placement was reverted. A non-placed GP must never see the
         // placement page (with its "finalising the details" note and interview
         // card). Downgrade to their real stage view and persist it, so the
@@ -11875,7 +11875,7 @@
 
     // ── AI Matching (Task 4): pinned "Your team matches" section + position-
     // filled notices + the accept confirm sheet. Matches are fetched fresh
-    // from the server (never cached in localStorage, they're time-sensitive:
+    // from the server (never cached in localStorage — they're time-sensitive:
     // expiry/seen/outcome can change server-side any moment), cached in this
     // module-level state so a filter/search re-render doesn't re-fetch.
     let teamMatchesState = { matches: [], positionFilled: [], gp: {}, loaded: false };
@@ -11905,7 +11905,7 @@
         const cityLabel = match.locationCity || "a new location";
         const item = {
           type: "success",
-          title: `You were matched to a position, ${cityLabel}`,
+          title: `You were matched to a position — ${cityLabel}`,
           detail: "Matched by your team based on your preferences and experience.",
           ts: Date.now()
         };
@@ -11926,7 +11926,7 @@
     }
 
     // http(s)-only URL gate for practice-supplied links (website / intro
-    // video / area photo), anything else (javascript:, data:, relative
+    // video / area photo) — anything else (javascript:, data:, relative
     // paths, garbage) renders NOTHING. Same rule as the popup's safeUrl and
     // the email builder's _matchSafeUrl: never let a stored URL become a
     // script-scheme href in the GP's session.
@@ -11956,7 +11956,7 @@
         ? `<a class="at-match-chip" href="${escapeHtml(introVideoUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">▶ Meet the practice · video</a>`
         : "";
       // Design R6 (2026-07-11 matching-board spec Part C): website button,
-      // map preview + "Open in Maps" link, and the full-opening row, all
+      // map preview + "Open in Maps" link, and the full-opening row — all
       // gated the SAME http(s)-only way as the rest of this card (mapQuery
       // itself is never rendered as visible text, only percent-encoded into
       // our own maps.google.com URLs, so it needs no scheme gate).
@@ -12005,7 +12005,7 @@
           <button type="button" class="at-match-filled-dismiss" data-filled-dismiss="${escapeHtml(entry.applicationId)}" aria-label="Dismiss">&times;</button>
         </div>
         <div class="at-match-filled-pn">${escapeHtml(entry.practiceName || "That position")}</div>
-        <p class="at-match-filled-copy">This changes nothing about how practices see you, timing favoured another candidate.${locationLine ? " (" + escapeHtml(locationLine) + ")" : ""}</p>
+        <p class="at-match-filled-copy">This changes nothing about how practices see you — timing favoured another candidate.${locationLine ? " (" + escapeHtml(locationLine) + ")" : ""}</p>
         ${alternatives.length ? `<div class="at-match-filled-alts">
           <div class="at-match-filled-alts-t">✦ Picked for you next</div>
           ${alternatives.map((alt) => `<div class="at-match-alt-card">
@@ -12017,7 +12017,7 @@
       </div>`;
     }
 
-    // True while a match's countdown hasn't expired, the single definition
+    // True while a match's countdown hasn't expired — the single definition
     // of "live" the sticky bar and the client nudge alerts share with the
     // card's own countdown chip.
     function isMatchLive(match) {
@@ -12043,7 +12043,7 @@
 
     // Sticky accept bar (design R6): fixed above the shell nav while ≥1 live
     // match exists; hides itself the moment there's none (no live match, or
-    // this GP just accepted/declined, renderPage() re-runs this every time).
+    // this GP just accepted/declined — renderPage() re-runs this every time).
     function renderMatchStickyBar() {
       const bar = document.getElementById("matchStickyBar");
       if (!bar) return;
@@ -12056,12 +12056,12 @@
       const countdown = formatMatchCountdown(target.expiresAt);
       bar.hidden = false;
       bar.innerHTML = `<button type="button" class="at-match-accept shiny" data-match-sticky-accept="${escapeHtml(target.applicationId)}">Accept this match</button>
-        <div class="at-match-stickybar-sub">${escapeHtml(countdown.label)}, your spot is reserved until then</div>`;
+        <div class="at-match-stickybar-sub">${escapeHtml(countdown.label)} — your spot is reserved until then</div>`;
     }
 
     // Client-side mirror of the 24h/2h nudge emails: the FIRST time this
     // browser sees a live match cross under 24h / under 2h left, push a
-    // one-time updates-panel alert, deduped per application+threshold in
+    // one-time updates-panel alert — deduped per application+threshold in
     // localStorage so neither threshold ever fires twice for the same match,
     // even across reloads. Reuses pushMatchTeamAlert's writer (saveGpLinkUpdates).
     function pushMatchNudgeAlert(match, windowLabel) {
@@ -12072,7 +12072,7 @@
         const item = {
           type: "warning",
           title: `Less than ${windowLabel} left to accept your match`,
-          detail: `${practiceLabel} is holding your spot, open My Practice to accept before it expires.`,
+          detail: `${practiceLabel} is holding your spot — open My Practice to accept before it expires.`,
           ts: Date.now()
         };
         window.saveGpLinkUpdates([item].concat(Array.isArray(existing) ? existing : []));
@@ -12134,7 +12134,7 @@
         const data = await res.json().catch(() => null);
         if (!data || data.ok !== true) return;
         // AI Matching (Task 8): a career-locked GP is redirected to the lock
-        // page, server-enforced too (every mutating endpoint 423s), this is
+        // page — server-enforced too (every mutating endpoint 423s), this is
         // just the friendly client-side bounce so they never see a dead page.
         if (data.locked === true) {
           window.location.replace("/pages/career-paused");
@@ -12158,11 +12158,11 @@
           gp: data.gp || {},
           loaded: true
         };
-      } catch (e) { /* leave prior state, never blocks the rest of the page */ }
+      } catch (e) { /* leave prior state — never blocks the rest of the page */ }
     }
 
     function showMatchExpiredNotice() {
-      showToast("This match has expired, the role may still be open; your team has been told you're interested.");
+      showToast("This match has expired — the role may still be open; your team has been told you're interested.");
     }
 
     function closeMatchConfirmSheet() {
@@ -12191,12 +12191,12 @@
       overlay.className = "at-match-confirm-overlay";
       overlay.innerHTML = `
         <div class="at-match-confirm-card">
-          <h3>Confirm, accept this match?</h3>
+          <h3>Confirm — accept this match?</h3>
           <p>We'll confirm your interest with <b>${escapeHtml(match.practiceName || "the practice")}</b>. Once they confirm their availability, you'll choose an interview time.</p>
-          <p class="at-match-confirm-cap">You can interview for up to 3 positions per month, so accept the roles you're genuinely serious about.</p>
+          <p class="at-match-confirm-cap">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
           <div class="at-match-confirm-meter">
             <div class="at-match-confirm-meter-bar"><div class="at-match-confirm-meter-fill" style="width:${pct}%"></div></div>
-            <div class="at-match-confirm-meter-label">${usage.used} of ${usage.limit} interviews used${resetsLabel ? ", resets " + escapeHtml(resetsLabel) : ""}</div>
+            <div class="at-match-confirm-meter-label">${usage.used} of ${usage.limit} interviews used${resetsLabel ? " — resets " + escapeHtml(resetsLabel) : ""}</div>
           </div>
           <div class="at-match-confirm-actions">
             <button type="button" class="at-match-confirm-cancel" data-match-confirm-cancel>Cancel</button>
@@ -12221,14 +12221,14 @@
           return;
         }
         if (!res.ok || !data || !data.ok) {
-          showToast((data && data.message) || "Could not accept this match, please try again.");
+          showToast((data && data.message) || "Could not accept this match — please try again.");
           return;
         }
-        showToast("Match accepted, we've let the practice know.");
+        showToast("Match accepted — we've let the practice know.");
         await Promise.all([loadRemoteApplications({ render: false }), loadTeamMatches()]);
         renderPage();
       } catch (e) {
-        showToast("Network error, please try again.");
+        showToast("Network error — please try again.");
       }
     }
 
@@ -12245,15 +12245,15 @@
         } else if (!res.ok || !data || !data.ok) {
           // Mirror submitMatchAccept: never claim "we've let your team know"
           // when the server rejected or failed to record the decline.
-          showToast((data && data.message) || "Could not record your response, please try again.");
+          showToast((data && data.message) || "Could not record your response — please try again.");
           return;
         } else {
-          showToast("Got it, we've let your team know.");
+          showToast("Got it — we've let your team know.");
         }
         await loadTeamMatches();
         renderPage();
       } catch (e) {
-        showToast("Network error, please try again.");
+        showToast("Network error — please try again.");
       }
     }
 
@@ -12267,14 +12267,14 @@
     }
 
     // ?match=<id> deep link (the email's Accept button, after the sign-in
-    // bounce). If the card is live, just scroll to + highlight it, the GP
+    // bounce). If the card is live, just scroll to + highlight it — the GP
     // still completes the confirm sheet in-app (spec §7: every accept path
     // goes through the confirm sheet, "one tap" just means getting here fast).
-    // If the card is NOT present, ask the status probe why, NEVER post an
+    // If the card is NOT present, ask the status probe why — NEVER post an
     // accept from here (review fix: an accept only ever leaves the explicit
     // confirm-sheet flow). The still-interested probe never changes the
     // application; on a genuinely expired match it fires the "GP clicked
-    // expired match, still interested" ops note, which is what keeps the
+    // expired match — still interested" ops note, which is what keeps the
     // expired notice's "your team has been told" line honest.
     function handleMatchDeepLink() {
       let matchId = "";
@@ -12287,7 +12287,7 @@
       if (!matchId) return;
 
       // "I need more time" (the 2h final-call email's secondary CTA):
-      // called once we know the card is genuinely live on this page, the
+      // called once we know the card is genuinely live on this page — the
       // server itself is the real source of truth (idempotent; a stale/
       // already-resolved match no-ops with no toast), this local live check
       // just avoids pinging the ops-email-firing endpoint from a dead link.
@@ -12300,7 +12300,7 @@
         }).then(async (res) => {
           const data = await res.json().catch(() => null);
           if (data && (data.state === "noted" || data.state === "already")) {
-            showToast("We've let the team know you need more time. They may extend your window, watch your alerts. Accepting now still works.");
+            showToast("We've let the team know you need more time. They may extend your window — watch your alerts. Accepting now still works.");
           }
         }).catch(() => {});
       }
@@ -12319,7 +12319,7 @@
         if (!res.ok || !data || !data.ok) return;
         if (data.state === "expired") { showMatchExpiredNotice(); return; }
         if (data.state === "live") {
-          // Live on the server but not rendered, this page's match list is
+          // Live on the server but not rendered — this page's match list is
           // stale (e.g. matched moments ago). Refresh and retry the scroll once.
           loadTeamMatches().then(() => { renderPage(); highlightMatchCard(matchId); requestMoreTimeIfNeeded(); });
           return;
@@ -12364,7 +12364,7 @@
       const isOfferDeclined = actionStatusKey === "offer_declined";
       const isFinalising = actionStatusKey === "finalising_placement";
       // The profile has been sent to the practice ("submitted") or the practice
-      // is actively reviewing it ("reviewing"), both mean it HAS reached the
+      // is actively reviewing it ("reviewing") — both mean it HAS reached the
       // practice, so the copy must not say "before it reaches the practice".
       const isSubmittedToPractice = actionStatusKey === "submitted";
       const isPracticeReviewing = actionStatusKey === "reviewing";
@@ -12376,7 +12376,7 @@
       else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
       else if (isOfferDeclined) ribbon = '<span class="at-rstatus at-rstatus--muted">OFFER DECLINED</span>';
       else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
-      // Interview stage is post-acceptance, an "UNDER REVIEW" ribbon here
+      // Interview stage is post-acceptance — an "UNDER REVIEW" ribbon here
       // contradicted the "Interview stage" pill + the unlocked identity. Give it
       // its own positive-accent ribbon.
       else if (isInterview) ribbon = '<span class="at-rstatus at-rstatus--offer">INTERVIEW</span>';
@@ -12493,7 +12493,7 @@
     function renderSecuredInterviewCard(iv) {
       if (!securedInterviewCardEl) return;
       if (securedInterviewWhenEl) securedInterviewWhenEl.textContent = securedInterviewWhenLabel(iv.scheduled_at, iv.timezone);
-      // Respect whatever masking the payload applied, never unmask client-side.
+      // Respect whatever masking the payload applied — never unmask client-side.
       if (securedInterviewPracticeEl) securedInterviewPracticeEl.textContent = iv.practice_name || "Your interview";
       const zoom = securedSafeZoomUrl(iv.zoom_join_url);
       if (securedInterviewJoinLinkEl) {
@@ -12510,7 +12510,7 @@
 
     // G2: fetch the GP's interviews once on entering secured mode and, when an
     // upcoming booked interview exists, reveal the card. When none, render
-    // nothing (the card stays hidden, no empty state).
+    // nothing (the card stays hidden — no empty state).
     let securedInterviewLoaded = false;
     function loadSecuredInterview() {
       if (securedInterviewLoaded || !securedInterviewCardEl) return;
@@ -12532,7 +12532,7 @@
         .catch(() => { /* leave the card hidden */ });
     }
 
-    // Guarantee the placement (secured) page can scroll on every device, most
+    // Guarantee the placement (secured) page can scroll on every device — most
     // importantly iOS Safari inside the app-shell iframe. The failure modes we
     // defend against: (1) a leaked `.career-gate-open` lock (overflow:hidden on
     // html+body), and (2) a previously-forced overflow-y:auto on BOTH <html> and
@@ -12556,11 +12556,11 @@
       const securedUiState = syncSecuredPlacementUiState();
       if (securedUiState !== "ready") return;
       // A placed GP has already completed the interviews that secured their
-      // placement, never show an "upcoming interview" card on the practice
+      // placement — never show an "upcoming interview" card on the practice
       // view (owner request). Keep the card hidden here.
       if (securedInterviewCardEl) securedInterviewCardEl.hidden = true;
       // A placed GP must be able to scroll the practice page and must never be
-      // trapped behind the CV-gate lock. Clear the gate (belt-and-braces, it is
+      // trapped behind the CV-gate lock. Clear the gate (belt-and-braces — it is
       // only for job-hunting GPs) and restore natural, iOS-safe scrolling.
       // ONLY for GPs genuinely locked to the placement view: for everyone else
       // getSecuredPlacementUiState() is "ready" too, so an unguarded clear here
@@ -12583,7 +12583,7 @@
       if (securedProvisionalNoteEl) {
         if (isProvisionalPlacement) {
           securedProvisionalNoteEl.textContent = "Your placement at " + placement.practiceName
-            + " is confirmed. Your GP Link team is finalising the details, your start date, package and practice contact will appear here as soon as they're ready.";
+            + " is confirmed. Your GP Link team is finalising the details — your start date, package and practice contact will appear here as soon as they're ready.";
           securedProvisionalNoteEl.hidden = false;
         } else {
           securedProvisionalNoteEl.hidden = true;
@@ -12597,7 +12597,7 @@
       securedLocationEl.textContent = placement.location;
       securedStatusChipEl.textContent = placement.statusLabel;
       securedStartDateEl.textContent = startDateLabel ? "Starts " + startDateLabel : "Start date to be confirmed";
-      securedCountdownValueEl.textContent = daysUntilStart !== null ? String(daysUntilStart) : "-";
+      securedCountdownValueEl.textContent = daysUntilStart !== null ? String(daysUntilStart) : "—";
       securedCountdownCopyEl.textContent = placement.countdownCopy || "days until your start";
       securedExpectedIncomeEl.textContent = placement.compensation.range;
       securedExpectedIncomeUnitEl.textContent = placement.compensation.unit;
@@ -12635,7 +12635,7 @@
           // Open the download endpoint in a NEW TOP-LEVEL TAB rather than using a
           // `download` anchor. The endpoint 302-redirects to a cross-origin Supabase
           // signed URL, and browsers silently block the `download` attribute across a
-          // cross-origin redirect (esp. inside the app-shell iframe), so a download
+          // cross-origin redirect (esp. inside the app-shell iframe) — so a download
           // anchor here does nothing. A same-origin _blank navigation carries the GP's
           // session cookie, follows the redirect, and the signed URL's
           // Content-Disposition: attachment drives the actual file download.
@@ -12700,7 +12700,7 @@
       if (!savedGrid) return;
 
       // Withdrawn roles stay in careerState.savedJobs (storage is untouched)
-      // but must not render, only the display list is filtered.
+      // but must not render — only the display list is filtered.
       const savedRoles = careerState.savedJobs
         .map(saved => findRole(saved.id) || saved)
         .filter(Boolean)
@@ -12863,7 +12863,7 @@
         event.preventDefault();
         const declineId = matchDeclineLink.getAttribute("data-match-decline");
         const reasonInput = window.prompt("What's not the right fit about this role? (optional)");
-        if (reasonInput === null) return; // cancelled, do nothing
+        if (reasonInput === null) return; // cancelled — do nothing
         submitMatchDecline(declineId, reasonInput.trim());
         return;
       }
@@ -13016,7 +13016,7 @@
         event.preventDefault();
         var route = '/pages/area-guide';
         if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === 'function') {
-          // Second arg is the shell's OPTIONS object, passing a string made
+          // Second arg is the shell's OPTIONS object — passing a string made
           // opts.replace truthy (String.prototype.replace), silently turning
           // this into history-replace so Back skipped the career page.
           window.parent.gpShellNavigate(route);
@@ -13048,7 +13048,7 @@
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
         // Task 11: a blurred (non-qualifying) filler card must never open a
-        // job modal, even if something upstream re-attached data-open-role.
+        // job modal — even if something upstream re-attached data-open-role.
         if (openBtn.closest(".role-card--blurred")) return;
         if (shouldLockCareerToSecuredView()) {
           setView("secured");
@@ -13167,7 +13167,7 @@
     // Swap a card's map-motif scenery for the real area photo once the
     // hero-image endpoint has one. Blurred stubs carry no data-role-thumb id,
     // so they keep the anonymous motif.
-    // 2026-07-20 audit: once a 401 is seen the session is gone, stop firing
+    // 2026-07-20 audit: once a 401 is seen the session is gone — stop firing
     // hero-image requests for the remaining thumbs and any later render pass.
     let heroImageAuthLost = false;
     async function loadRoleCardHeroImages() {
@@ -13201,7 +13201,7 @@
 
     /* ============ Careers profile-completion gate (Task 5) ============
        Shown to non-placed GPs the first time they open Careers, until they
-       have an AI-verified CV on file. Placed GPs never see this, guarded by
+       have an AI-verified CV on file. Placed GPs never see this — guarded by
        shouldLockCareerToSecuredView(). A network failure on the status check
        must never lock the page (fails open). */
     var careerGateState = { cvVerified: false, checked: false };
@@ -13212,7 +13212,7 @@
     function careerGateSetScanState(state, opts) {
       ['careerGateScanChecking', 'careerGateScanOk', 'careerGateScanBad'].forEach(function (id) { var el = careerGateEl(id); if (el) el.hidden = true; });
       if (state === 'checking') careerGateEl('careerGateScanChecking').hidden = false;
-      if (state === 'ok') { careerGateEl('careerGateScanOk').hidden = false; careerGateEl('careerGateScanOkText').textContent = 'CV verified, ' + (opts && opts.fileName ? opts.fileName : 'your CV') + ' is ready to send to practices'; }
+      if (state === 'ok') { careerGateEl('careerGateScanOk').hidden = false; careerGateEl('careerGateScanOkText').textContent = 'CV verified — ' + (opts && opts.fileName ? opts.fileName : 'your CV') + ' is ready to send to practices'; }
       if (state === 'bad') {
         careerGateEl('careerGateScanBad').hidden = false;
         careerGateEl('careerGateScanBadText').textContent = (opts && opts.reason) || 'This file doesn’t look like a CV.';
@@ -13238,16 +13238,16 @@
     async function careerGateUpload(kind, file) {
       if (!file) return;
       if (file.size > 3 * 1024 * 1024) {
-        if (kind === 'cv') careerGateSetScanState('bad', { reason: 'That file is over 3 MB, please save a smaller PDF and try again.' });
-        else careerGateEl('careerGateClHint').textContent = 'That file is over 3 MB, please choose a smaller file.';
+        if (kind === 'cv') careerGateSetScanState('bad', { reason: 'That file is over 3 MB — please save a smaller PDF and try again.' });
+        else careerGateEl('careerGateClHint').textContent = 'That file is over 3 MB — please choose a smaller file.';
         return;
       }
       var base64;
       try {
         base64 = await careerGateReadFile(file);
       } catch (err) {
-        if (kind === 'cv') careerGateSetScanState('bad', { reason: 'We couldn\'t read that file, please try again.' });
-        else careerGateEl('careerGateClHint').textContent = 'We couldn\'t read that file, please try again.';
+        if (kind === 'cv') careerGateSetScanState('bad', { reason: 'We couldn\'t read that file — please try again.' });
+        else careerGateEl('careerGateClHint').textContent = 'We couldn\'t read that file — please try again.';
         return;
       }
       var endpoint = kind === 'cv' ? '/api/career/profile/cv' : '/api/career/profile/cover-letter';
@@ -13259,11 +13259,11 @@
       } catch (err) { data = {}; }
       if (kind === 'cv') {
         if (res && res.ok && data.verified) { careerGateState.cvVerified = true; careerGateSetScanState('ok', { fileName: data.fileName }); }
-        else if (res && res.status === 429) careerGateSetScanState('bad', { reason: data.message || 'You’ve reached today’s CV check limit, please try again tomorrow.', hint: 'Come back tomorrow to try again.' });
-        else careerGateSetScanState('bad', { reason: data.reason || data.message || 'We couldn’t check that file, please try again.', attemptsRemaining: data.attemptsRemaining });
+        else if (res && res.status === 429) careerGateSetScanState('bad', { reason: data.message || 'You’ve reached today’s CV check limit — please try again tomorrow.', hint: 'Come back tomorrow to try again.' });
+        else careerGateSetScanState('bad', { reason: data.reason || data.message || 'We couldn’t check that file — please try again.', attemptsRemaining: data.attemptsRemaining });
         careerGateSyncCta();
       } else {
-        careerGateEl('careerGateClHint').textContent = (res && res.ok) ? ('Added ✓ ' + file.name) : (data.message || 'Upload failed, please try again.');
+        careerGateEl('careerGateClHint').textContent = (res && res.ok) ? ('Added ✓ ' + file.name) : (data.message || 'Upload failed — please try again.');
       }
     }
     async function ensureCareerGate() {
@@ -13300,7 +13300,7 @@
     }
 
     // Returning to the page (bfcache restore) or rotating the device can drop the
-    // scroll context on iOS, re-assert it whenever we're on the placement view.
+    // scroll context on iOS — re-assert it whenever we're on the placement view.
     window.addEventListener("pageshow", function () {
       if (careerState.activeView === "secured") ensureSecuredScrollable();
     });
@@ -13314,10 +13314,10 @@
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
       if (remoteApplicationsSettled) {
         // Cached concrete placement: make sure the cache belongs to THIS
-        // session's account, an admin hopping between "View as" GPs in one
+        // session's account — an admin hopping between "View as" GPs in one
         // browser must not see the previous GP's practice. The check is
         // SYNCHRONOUS (shell-warmed cached session, no network) so the first
-        // paint is never delayed, awaiting the session here made every
+        // paint is never delayed — awaiting the session here made every
         // My Practice open sit on the skeleton for a full round trip. When
         // no cached session exists to compare against, trust the local cache:
         // the parallel fetches below reconcile to server truth within ~1s.
@@ -13337,11 +13337,11 @@
       moveNavGlass(activeNavItem);
       if (handleRequestedRoleRedirect()) { clearCareerBoot(); return; }
       if (remoteApplicationsSettled) {
-        // Owner-confirmed cached placement, the correct view is already on
+        // Owner-confirmed cached placement — the correct view is already on
         // screen. Reveal now; the fetches below revalidate in the background.
         clearCareerBoot();
       }
-      // Session, roles and applications are independent, fetch them together
+      // Session, roles and applications are independent — fetch them together
       // instead of serially (was 4 back-to-back round trips before the page
       // settled on cold loads).
       await Promise.allSettled([
@@ -13351,14 +13351,14 @@
       ]);
       syncCareerViewFromLocation();
       renderPage();
-      clearCareerBoot(); // live data picked the correct view, reveal it once
+      clearCareerBoot(); // live data picked the correct view — reveal it once
       ensureCareerGate();
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
       // Team matches never gate the reveal: placed GPs don't need them and a
       // cold serverless start on this call was holding the boot overlay past
-      // its 3s failsafe, which then revealed the browse view for a beat
+      // its 3s failsafe — which then revealed the browse view for a beat
       // before the placement landed. They render whenever they arrive.
       loadTeamMatches().then(function () {
         renderTeamMatches();

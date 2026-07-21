@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1322" />
   <title>GP Link</title>
   <script>
-  // CRITICAL: runs before any rendering, force iframes and frame stack
+  // CRITICAL: runs before any rendering — force iframes and frame stack
   // invisible until app-shell.js explicitly reveals them after content loads.
   (function(){var d=document.documentElement;if(window.self!==window.top)d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-shell-preload-guard';s.textContent='.app-shell-frame-stack,.app-shell-frame{visibility:hidden!important;opacity:0!important;pointer-events:none!important}html.gp-shell-embedded .app-shell-desktop,html.gp-shell-embedded #appShellDesktop,html.gp-shell-embedded .mobile-nav{display:none!important}html.gp-shell-embedded .app-shell-frame-stack{top:0!important;height:100dvh!important}';(document.head||d).appendChild(s)})();
   </script>

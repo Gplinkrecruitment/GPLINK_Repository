@@ -1,4 +1,4 @@
-// A GP must only ever see the page matching where they are in the process,
+// A GP must only ever see the page matching where they are in the process —
 // never a "Placement Secured" page they haven't reached. Smith Miller was stuck
 // on the placement page (finalising note + upcoming-interview card) while the
 // server said his application was only status "review" (submitted / under
@@ -22,10 +22,10 @@ beforeAll(() => {
   serverJs = fs.readFileSync(SERVER_PATH, 'utf8');
 });
 
-describe('career placement view, only shown to an actually-placed GP', () => {
+describe('career placement view — only shown to an actually-placed GP', () => {
   it('the anti-flash head script keys off isPlacementSecured only', () => {
     // The pre-lock decision must use the same authoritative flag the JS lock
-    // uses, not a placement object or a non-"confidential" practice name,
+    // uses — not a placement object or a non-"confidential" practice name,
     // which false-positived a review/interview-stage GP onto the secured page.
     const head = careerHtml.slice(0, careerHtml.indexOf('native-bridge.js'));
     expect(head).toContain('application.isPlacementSecured === true');
@@ -68,11 +68,11 @@ describe('career placement view, only shown to an actually-placed GP', () => {
   });
 });
 
-describe('career application card, submitted-to-practice stage reads correctly', () => {
+describe('career application card — submitted-to-practice stage reads correctly', () => {
   it('an in-app-originated application presents from its stage, not as Zoho', () => {
     // Zoho is decommissioned: a legacy zoho_application_id must not force the
     // generic status when the GP applied in-app (origin gp_applied/admin_applied)
-    //, that app is managed by the in-app ATS pipeline. A pure Zoho-synced app
+    // — that app is managed by the in-app ATS pipeline. A pure Zoho-synced app
     // with no in-app origin still stays raw.
     const fn = serverJs.slice(
       serverJs.indexOf('function isInternalCareerApplication'),

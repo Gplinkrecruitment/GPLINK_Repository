@@ -1,8 +1,8 @@
-// GP application withdrawal, the five defects fixed on 2026-07-21.
+// GP application withdrawal — the five defects fixed on 2026-07-21.
 //
 //  1. GET /api/ceo/candidates asked PostgREST for gp_applications.created_at,
 //     which does not exist. The 400 was swallowed, byUser2 stayed empty, and
-//     EVERY candidate fell through to pipeline_bucket 'unassociated', so
+//     EVERY candidate fell through to pipeline_bucket 'unassociated' — so
 //     every pipeline chip read "No candidates match your filters".
 //  2. POST /api/career/application/withdraw passed the withdraw reason in the
 //     ACTOR argument slot, so ats_stage_events.reason was never written.
@@ -12,7 +12,7 @@
 //  5. Repeated withdrawals never dented the intent score.
 //
 // Boots the real server against an in-memory PostgREST emulator (same pattern
-// as tests/ai-matching-lock.test.js), with one deliberate addition: the
+// as tests/ai-matching-lock.test.js) — with one deliberate addition: the
 // emulator is SCHEMA-STRICT for gp_applications. A select naming a column the
 // production table does not have answers HTTP 400 with PostgREST's own
 // "column ... does not exist" body, exactly like production. That is what
@@ -30,12 +30,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 // ── Source + migration wiring (no server boot needed) ──────────────────────
-describe('withdrawal, source & migration wiring', () => {
+describe('withdrawal — source & migration wiring', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
   // Asserts the INVARIANT, not one exact select string: gp_applications has no
   // created_at column in production, so ANY select naming it makes PostgREST
-  // 400 the whole query, which is how every candidate silently became
+  // 400 the whole query — which is how every candidate silently became
   // 'unassociated' and every pipeline chip went empty. Pinning the literal
   // string instead would break the moment someone legitimately adds a real
   // column to this select (match_outcome did exactly that).
@@ -82,7 +82,7 @@ describe('withdrawal, source & migration wiring', () => {
 
 // ── Client-side visibility: a withdrawn role must vanish from Roles/Saved ───
 // Owner rule (2026-07-21): once a GP withdraws, the role is gone from the
-// Roles and Saved tabs entirely, it lives ONLY in the Offers tab's
+// Roles and Saved tabs entirely — it lives ONLY in the Offers tab's
 // applications list, already ribboned WITHDRAWN.
 describe('withdrawn roles are hidden from Roles/Saved', () => {
   const src = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
@@ -301,12 +301,12 @@ function seed() {
     { id: 'case-wd-2', user_id: GP2.userId, status: 'active', stage: 'amc', assigned_rso: null, assigned_va: null, last_gp_activity_at: NOW, updated_at: NOW }
   );
   db.career_roles.push({
-    id: 'role-wd', provider: 'internal_ats', provider_role_id: 'ats_wd', title: 'General Practitioner, VR',
+    id: 'role-wd', provider: 'internal_ats', provider_role_id: 'ats_wd', title: 'General Practitioner — VR',
     practice_name: 'Erina Medical Centre', location_city: 'Erina', location_state: 'NSW',
     is_active: true, job_status: 'open', updated_at: NOW
   });
 
-  // (A) Submitted to the practice, live approve/turn-down token, the exact
+  // (A) Submitted to the practice, live approve/turn-down token — the exact
   //     production shape that let a practice approve a withdrawn doctor.
   db.gp_applications.push({
     id: 'app-submitted', user_id: GP.userId, career_role_id: 'role-wd', provider_role_id: 'ats_wd',
@@ -316,7 +316,7 @@ function seed() {
     submitted_to_practice_at: NOW, practice_action_token: 'live-token-abcdefghijklmnop',
     revealed: true, withdrawn_at: null
   });
-  // (B) Never left GP Link, the practice must NOT be emailed about this one.
+  // (B) Never left GP Link — the practice must NOT be emailed about this one.
   db.gp_applications.push({
     id: 'app-internal', user_id: GP.userId, career_role_id: 'role-wd', provider_role_id: 'ats_wd',
     status: 'applied', ats_stage: 'applied', applied_at: NOW, updated_at: NOW,
@@ -389,7 +389,7 @@ afterAll(async () => {
 });
 
 // ── DEFECT 1 ───────────────────────────────────────────────────────────────
-describe('DEFECT 1, /api/ceo/candidates pipeline buckets', () => {
+describe('DEFECT 1 — /api/ceo/candidates pipeline buckets', () => {
   it('filtering by the interview bucket returns the GP whose application is at interview', async () => {
     // Pre-fix this FAILED: the select carried created_at, the schema-strict
     // emulator (like production) answered 400, byUser2 stayed empty, every
@@ -412,7 +412,7 @@ describe('DEFECT 1, /api/ceo/candidates pipeline buckets', () => {
 });
 
 // ── DEFECTS 2 + 3 + 4 ──────────────────────────────────────────────────────
-describe('DEFECT 3, a practice can still act on a withdrawn candidate', () => {
+describe('DEFECT 3 — a practice can still act on a withdrawn candidate', () => {
   it('the live approve link works BEFORE the doctor withdraws', async () => {
     const r = await httpReq('GET', '/api/practice/application/decision-context?token=live-token-abcdefghijklmnop');
     expect(r.status).toBe(200);
@@ -421,7 +421,7 @@ describe('DEFECT 3, a practice can still act on a withdrawn candidate', () => {
   });
 });
 
-describe('DEFECT 2/3/4, withdrawing a submitted application', () => {
+describe('DEFECT 2/3/4 — withdrawing a submitted application', () => {
   let emailsBefore = 0;
 
   it('records status, withdrawn_at, and NULLs the practice action token', async () => {
@@ -443,7 +443,7 @@ describe('DEFECT 2/3/4, withdrawing a submitted application', () => {
     const ev = db.ats_stage_events.find((e) => e.application_id === 'app-submitted' && e.to_stage === 'not_proceeding');
     expect(ev).toBeTruthy();
     expect(ev.reason).toBe('gp_self_withdrew');
-    // Actor is the GP's own identity, audit, not a reason smuggled into the
+    // Actor is the GP's own identity — audit, not a reason smuggled into the
     // wrong argument position (the original bug).
     expect(ev.actor).toBe(GP.email);
     expect(ev.actor).not.toBe('gp_withdrew');
@@ -464,7 +464,7 @@ describe('DEFECT 2/3/4, withdrawing a submitted application', () => {
     expect(String(toOps.subject)).toContain('withdrew');
   });
 
-  it('the practice can no longer approve, clear message, no 500', async () => {
+  it('the practice can no longer approve — clear message, no 500', async () => {
     // Defence in depth: the token was nulled, but a cached token must also be
     // refused on the STATUS, so the guard is exercised directly here.
     db.gp_applications.find((a) => a.id === 'app-submitted').practice_action_token = 'live-token-abcdefghijklmnop';
@@ -497,7 +497,7 @@ describe('DEFECT 2/3/4, withdrawing a submitted application', () => {
     db.gp_applications.find((a) => a.id === 'app-submitted').practice_action_token = null;
   });
 
-  it('DEFECT 4, the CEO drawer payload carries raw status + withdrawn_at', async () => {
+  it('DEFECT 4 — the CEO drawer payload carries raw status + withdrawn_at', async () => {
     const r = await ceoGet('/api/ceo/candidate?case_id=case-wd-1');
     expect(r.status).toBe(200);
     const apps = (r.body.candidate && r.body.candidate.apps) || (r.body.apps) || [];
@@ -511,7 +511,7 @@ describe('DEFECT 2/3/4, withdrawing a submitted application', () => {
   });
 });
 
-describe('DEFECT 3, an application that never reached the practice', () => {
+describe('DEFECT 3 — an application that never reached the practice', () => {
   it('withdrawing it emails nobody at a practice', async () => {
     const before = resendCalls.length;
     const r = await gpPost('/api/career/application/withdraw', { applicationId: 'app-internal' });
@@ -520,13 +520,13 @@ describe('DEFECT 3, an application that never reached the practice', () => {
     const sent = resendCalls.slice(before).map((c) => c.body || {});
     const recipients = sent.flatMap((b) => [].concat(b.to || []));
     expect(recipients).not.toContain('anna@erina-test.local');
-    // Nor an ops "withdrew after submission" note, nothing was submitted.
+    // Nor an ops "withdrew after submission" note — nothing was submitted.
     expect(sent.some((b) => String(b.subject || '').includes('withdrew after submission'))).toBe(false);
   });
 });
 
 // ── DEFECT 2 (product rule) ────────────────────────────────────────────────
-describe('DEFECT 2, a GP self-withdrawal must NOT cost them a career strike', () => {
+describe('DEFECT 2 — a GP self-withdrawal must NOT cost them a career strike', () => {
   it('computeCareerStrikes ignores the two self-withdrawals just recorded', async () => {
     const strikes = await testUtils.computeCareerStrikes(GP.userId);
     const ids = strikes.map((s) => s.applicationId);
@@ -536,7 +536,7 @@ describe('DEFECT 2, a GP self-withdrawal must NOT cost them a career strike', ()
 
   it('but a STAFF-recorded gp_withdrew on the same shape DOES strike', async () => {
     // Proves the strike machinery is live in this fixture, so the clean result
-    // above is the distinct reason value doing its job, not a dead query.
+    // above is the distinct reason value doing its job — not a dead query.
     db.ats_stage_events.push({
       id: 'ev-staff-1', application_id: 'app-submitted', from_stage: 'interview',
       to_stage: 'not_proceeding', actor: SUPER_EMAIL, reason: 'gp_withdrew',
@@ -549,7 +549,7 @@ describe('DEFECT 2, a GP self-withdrawal must NOT cost them a career strike', ()
 });
 
 // ── DEFECT 5 ───────────────────────────────────────────────────────────────
-describe('DEFECT 5, intent score falls as a GP withdraws more roles', () => {
+describe('DEFECT 5 — intent score falls as a GP withdraws more roles', () => {
   it('atsIntentInputFromFacts passes withdrawnCount through to computeIntent', () => {
     const input = testUtils.atsIntentInputFromFacts({ withdrawnCount: 3, apps: [], calls: [] });
     expect(input.withdrawnCount).toBe(3);

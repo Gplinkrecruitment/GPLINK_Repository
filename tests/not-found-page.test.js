@@ -56,7 +56,7 @@ const BROWSER_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
-  process.env.AUTH_DISABLED = 'false'; // auth ENABLED, the 404 page must not bounce to signin
+  process.env.AUTH_DISABLED = 'false'; // auth ENABLED — the 404 page must not bounce to signin
   process.env.AUTH_SECRET = 'test-not-found-page-' + RUN_ID;
   process.env.REQUIRE_SUPABASE_DB = 'false';
   process.env.SUPABASE_URL = '';
@@ -74,7 +74,7 @@ afterAll(async () => {
   try { fs.unlinkSync(process.env.DB_FILE_PATH); } catch {}
 });
 
-describe('friendly 404, browser navigations get the branded page', () => {
+describe('friendly 404 — browser navigations get the branded page', () => {
   it('GET /totally-bogus-url with a browser Accept header → 404 branded HTML', async () => {
     const res = await get('/totally-bogus-url', { accept: BROWSER_ACCEPT });
     expect(res.status).toBe(404);
@@ -116,7 +116,7 @@ describe('friendly 404, browser navigations get the branded page', () => {
     expect(res.raw).toBe('Not found');
   });
 
-  it('blocked backend paths (allowlist gate) stay terse plain text, assets never get HTML', async () => {
+  it('blocked backend paths (allowlist gate) stay terse plain text — assets never get HTML', async () => {
     const res = await get('/server.js', { accept: BROWSER_ACCEPT });
     expect(res.status).toBe(404);
     expect(res.raw).toBe('Not found');
@@ -125,7 +125,7 @@ describe('friendly 404, browser navigations get the branded page', () => {
   });
 });
 
-describe('friendly 404, non-browser callers are unchanged', () => {
+describe('friendly 404 — non-browser callers are unchanged', () => {
   it('GET /totally-bogus-url with no Accept header → 404 plain text "Not found"', async () => {
     const res = await get('/totally-bogus-url');
     expect(res.status).toBe(404);
@@ -152,7 +152,7 @@ describe('the 404 page itself is publicly servable', () => {
   it('pages/not-found.html stays self-contained (no scripts, absolute links only)', () => {
     const html = fs.readFileSync('pages/not-found.html', 'utf8');
     expect(html).not.toMatch(/<script/i);
-    expect(html).not.toMatch(/src="\.\.?\//); // no relative asset paths, served at arbitrary URLs
+    expect(html).not.toMatch(/src="\.\.?\//); // no relative asset paths — served at arbitrary URLs
     expect(html).not.toMatch(/href="\.\.?\//);
   });
 });

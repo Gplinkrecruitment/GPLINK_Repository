@@ -1,4 +1,4 @@
-// Phase 6 Batch C4, migration ledger (audit 2026-07-07 platform):
+// Phase 6 Batch C4 — migration ledger (audit 2026-07-07 platform):
 //  1. The schema_migrations migration exists and creates the server-only table.
 //  2. GET /api/admin/migration-status (super-admin) lists every repo migration
 //     file and reports the unapplied set from the public.schema_migrations
@@ -193,7 +193,7 @@ describe('POST /api/admin/migration-status/mark-all-applied', () => {
     expect(after.body.recorded_count).toBe(files.length);
   });
 
-  it('is idempotent, a second call records nothing new', async () => {
+  it('is idempotent — a second call records nothing new', async () => {
     const files = repoMigrationFiles();
     const r = await ceoPost('/api/admin/migration-status/mark-all-applied');
     expect(r.status).toBe(200);

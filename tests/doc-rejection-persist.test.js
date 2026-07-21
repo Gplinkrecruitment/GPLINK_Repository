@@ -1,4 +1,4 @@
-// Phase 6 F3, persistent AI-rejection reason + server-authoritative 3-fail
+// Phase 6 F3 — persistent AI-rejection reason + server-authoritative 3-fail
 // escalation + rejection alerts.
 //
 // Proves, against the REAL server (Anthropic mocked to always fail the scan):
@@ -28,7 +28,7 @@ const GP = { userId: 'u-rej-1', email: 'reject-gp@gplink-test.local' };
 // NZ GP: profile carries a loose-cased country; scans that omit `country` must
 // escalate under 'nz', never the hardcoded 'uk' fallback.
 const NZGP = { userId: 'u-rej-nz', email: 'reject-nz@gplink-test.local' };
-// IE GP: NO registration_country on the profile, country only resolvable via
+// IE GP: NO registration_country on the profile — country only resolvable via
 // user_state.gp_selected_country (second link of the profile-country chain).
 const IEGP = { userId: 'u-rej-ie2', email: 'reject-ie2@gplink-test.local' };
 const SUPER_EMAIL = 'super@gplink-test.local';
@@ -54,7 +54,7 @@ const db = {
     // reminder even though GP.email is on the suppression list (transactional).
     { id: 'd-rej-exp', user_id: GP.userId, document_key: 'certificate_good_standing', country_code: 'ie', status: 'approved', file_name: 'cogs.pdf', file_url: 'users/u-rej-1/cogs', expires_at: new Date(Date.now() + 5 * 86400000).toISOString(), expiry_nudged_at: null, updated_at: NOW }
   ],
-  // GP.email unsubscribed from marketing mail, registration-critical
+  // GP.email unsubscribed from marketing mail — registration-critical
   // transactional sends must ignore this list.
   email_suppression: [
     { email: GP.email, reason: 'unsubscribe', source: 'test', created_at: NOW }
@@ -392,7 +392,7 @@ describe('rejection produces a user-facing alert with a re-upload deep link', ()
 });
 
 // F3 fix: when the scan call omits `country`, escalation must file the
-// under-review doc under the GP's OWN profile country, never the hardcoded
+// under-review doc under the GP's OWN profile country — never the hardcoded
 // 'uk' fallback, which would split an IE/NZ GP's document rows across two
 // country buckets.
 describe('escalation country falls back to the GP\'s profile country, not "uk"', () => {
@@ -405,7 +405,7 @@ describe('escalation country falls back to the GP\'s profile country, not "uk"',
         documentType: 'Police check',
         docKey: 'criminal_history',
         fileName: 'police-check.pdf'
-        // NO country field, the escalation must resolve it from the profile.
+        // NO country field — the escalation must resolve it from the profile.
       }
     });
   }
@@ -439,7 +439,7 @@ describe('escalation country falls back to the GP\'s profile country, not "uk"',
 });
 
 // F3 fix: the document-expiry renewal reminder is registration-critical, so it
-// is TRANSACTIONAL, it must reach the GP even when their address sits on the
+// is TRANSACTIONAL — it must reach the GP even when their address sits on the
 // email_suppression list (marketing unsubscribe/bounce).
 describe('document-expiry renewal email is transactional (never suppressed)', () => {
   it('a GP on the suppression list still receives the expiry reminder email', async () => {

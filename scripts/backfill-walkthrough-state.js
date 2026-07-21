@@ -1,7 +1,7 @@
 // One-time launch backfill: mark every EXISTING user's walkthrough as fully seen so the
 // auto-tour and first-visit tips only ever fire for brand-new sign-ups.
 // Pure transform `backfillStateBlob` is unit-tested; the runner is guarded behind `main`.
-// Runner talks to the Supabase REST API directly via Node's global `fetch` (Node 20),
+// Runner talks to the Supabase REST API directly via Node's global `fetch` (Node 20) —
 // there is NO @supabase/supabase-js dependency (it is not installed in this repo). Needs
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SERVICE_ROLE_KEY) in the environment.
 // Run once, in a quiet window, e.g.:

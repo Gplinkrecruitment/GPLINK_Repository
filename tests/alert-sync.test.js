@@ -1,4 +1,4 @@
-// Phase 6 Batch K1, cross-device alert read-state sync.
+// Phase 6 Batch K1 — cross-device alert read-state sync.
 //
 // The bell panel (js/updates-sync.js) is local-first (localStorage), and
 // GET/POST /api/gp/alerts/read-state is the server merge layer that makes an
@@ -26,7 +26,7 @@ const ID2 = 'support:case-1:2026-07-07T01:00:00.000Z';
 function b64url(s) {
   return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
-// Each call mints a FRESH signed session token, two calls for the same email
+// Each call mints a FRESH signed session token — two calls for the same email
 // model the same GP signed in on two different devices.
 function userCookie(email) {
   const payload = b64url(JSON.stringify({ userProfile: { email }, expiresAt: Date.now() + 3600000 }));
@@ -77,7 +77,7 @@ afterAll(async () => {
   try { fs.unlinkSync(process.env.DB_FILE_PATH); } catch {}
 });
 
-describe('/api/gp/alerts/read-state, auth + own-data only', () => {
+describe('/api/gp/alerts/read-state — auth + own-data only', () => {
   it('rejects an unauthenticated GET with 401', async () => {
     const res = await request('GET', '/api/gp/alerts/read-state');
     expect(res.status).toBe(401);
@@ -96,7 +96,7 @@ describe('/api/gp/alerts/read-state, auth + own-data only', () => {
   });
 });
 
-describe('/api/gp/alerts/read-state, persistence + cross-device reconcile', () => {
+describe('/api/gp/alerts/read-state — persistence + cross-device reconcile', () => {
   it('persists a read id server-side (device A marks read)', async () => {
     const res = await request('POST', '/api/gp/alerts/read-state', {
       cookie: userCookie(GP_A),
@@ -115,7 +115,7 @@ describe('/api/gp/alerts/read-state, persistence + cross-device reconcile', () =
     expect(Object.keys(res.body.read)).toContain(ID1);
   });
 
-  it('POST is a union merge, a second id is added without dropping the first', async () => {
+  it('POST is a union merge — a second id is added without dropping the first', async () => {
     const post = await request('POST', '/api/gp/alerts/read-state', {
       cookie: userCookie(GP_A),
       body: { ids: [ID2] }
@@ -158,7 +158,7 @@ describe('/api/gp/alerts/read-state, persistence + cross-device reconcile', () =
   });
 });
 
-describe('js/updates-sync.js, local-first client wiring (static)', () => {
+describe('js/updates-sync.js — local-first client wiring (static)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'updates-sync.js'), 'utf8');
 
   it('talks to the read-state sync endpoint', () => {
@@ -179,7 +179,7 @@ describe('js/updates-sync.js, local-first client wiring (static)', () => {
 
   it('read-state still renders from localStorage (offline keeps working)', () => {
     expect(src).toMatch(/function parseReadState\(\) \{\s*\n\s*const raw = safeGetItem\(READ_KEY\)/);
-    // The reconcile merge is union-only, server ids are added, never used to un-read.
+    // The reconcile merge is union-only — server ids are added, never used to un-read.
     expect(src).toContain('if (local[id] !== true)');
     expect(src).not.toMatch(/delete\s+local\[/);
   });

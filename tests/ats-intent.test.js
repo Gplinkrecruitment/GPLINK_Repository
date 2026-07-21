@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { computeIntent, INTENT_WEIGHTS, bandFor, withdrawalPenalty } from '../lib/ats-intent.js';
 
 // Frozen clock for parity with the other ATS/CEO suites (intent itself is
-// clock-free, callers pass pre-computed day deltas, so this is decorative
+// clock-free — callers pass pre-computed day deltas — so this is decorative
 // but keeps the fixture style consistent).
 const NOW = Date.UTC(2026, 5, 14, 12, 0, 0); // 2026-06-14T12:00:00Z
 
@@ -82,7 +82,7 @@ describe('computeIntent shape + signals', () => {
     });
   });
 
-  it('is deterministic, same input yields a deeply-equal result', () => {
+  it('is deterministic — same input yields a deeply-equal result', () => {
     expect(computeIntent(HOT)).toEqual(computeIntent(HOT));
     expect(computeIntent(COLD)).toEqual(computeIntent(COLD));
   });

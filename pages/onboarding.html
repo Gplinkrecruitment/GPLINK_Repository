@@ -88,7 +88,7 @@
       opacity: 0.7;
     }
 
-    /* per-step blob drift (6 steps: 0-5), calm transform-only motion */
+    /* per-step blob drift (6 steps: 0-5) — calm transform-only motion */
     [data-step="0"] .blob-1 { transform: translate(20px, 20px); }
     [data-step="0"] .blob-3 { transform: translate(-10px, -14px); }
 
@@ -105,7 +105,7 @@
     [data-step="4"] .blob-2 { transform: translate(-10px, 18px); }
     [data-step="4"] .blob-3 { transform: translate(0, -20px); }
 
-    /* step 5 removed, identity is now step 4 */
+    /* step 5 removed — identity is now step 4 */
 
     /* ── PREVIOUS BUTTON ──────────────────────── */
     .back-btn {
@@ -1111,7 +1111,7 @@
 
     /* ── VERIFY-EMAIL BANNER ──────────────────────
        A flex child of .onboarding-shell (not fixed) so it claims its own row
-       and the slides viewport simply gets shorter, it can never sit on top of
+       and the slides viewport simply gets shorter — it can never sit on top of
        the wizard. Non-blocking: onboarding stays fully usable. */
     .verify-banner {
       display: none;
@@ -1192,7 +1192,7 @@ if (window.parent && window.parent !== window) {
       <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
     </div>
     <h1>You're all set.</h1>
-    <p>Your personalised pathway is ready. We'll guide you through registration, placement, and relocation, step by step.</p>
+    <p>Your personalised pathway is ready. We'll guide you through registration, placement, and relocation — step by step.</p>
     <button class="btn-next" id="successContinueBtn">Go to Dashboard</button>
   </div>
 
@@ -1260,7 +1260,7 @@ if (window.parent && window.parent !== window) {
         </div>
         <div class="slide-content gp-reveal gp-reveal-2" style="text-align:center;">
           <h1>Your fastest pathway to practising in Australia</h1>
-          <p>Personalised to your qualifications, timeline, and family, set up in under 3 minutes.</p>
+          <p>Personalised to your qualifications, timeline, and family — set up in under 3 minutes.</p>
           <p style="font-size:13px;color:var(--light);margin-top:-8px;">Trusted by GPs from the UK, Ireland, and New Zealand.</p>
           <div class="partners-section">
             <div class="partners-label">We work with</div>
@@ -1389,7 +1389,7 @@ if (window.parent && window.parent !== window) {
                 <option value="medical_college_event">Medical college or event</option>
                 <option value="other">Other</option>
               </select>
-              <input type="text" id="leadSourceDetail" maxlength="200" placeholder="Tell us more, e.g. who referred you (optional)" style="display:none;margin-top:8px;" />
+              <input type="text" id="leadSourceDetail" maxlength="200" placeholder="Tell us more — e.g. who referred you (optional)" style="display:none;margin-top:8px;" />
               <div class="field-hint">This helps us understand where to reach more GPs. You can skip it.</div>
             </div>
           </div>
@@ -1464,7 +1464,7 @@ if (window.parent && window.parent !== window) {
           <div class="form-area">
             <div class="id-check-info">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              <span>Your document is <strong>deleted immediately</strong> after verification. We only check the name, nothing is stored.</span>
+              <span>Your document is <strong>deleted immediately</strong> after verification. We only check the name — nothing is stored.</span>
             </div>
 
             <div id="idVerifyArea">
@@ -1513,7 +1513,7 @@ if (window.parent && window.parent !== window) {
   // ── Verify-email banner ──────────────────────────────────────────────
   // Self-contained on purpose: it only reads /api/auth/email-verification and
   // has no dependency on the wizard in onboarding.js. Onboarding is NOT blocked
-  // on verification (it never has been), this only makes the outstanding step
+  // on verification (it never has been) — this only makes the outstanding step
   // visible so a brand-new GP isn't left wondering why sign-in fails later.
   (function () {
     var bannerEl = document.getElementById("verifyEmailBanner");
@@ -1534,7 +1534,7 @@ if (window.parent && window.parent !== window) {
             bannerEl.classList.remove("show");
             return;
           }
-          setNote((data && data.message) || "Sent, please check your inbox.");
+          setNote((data && data.message) || "Sent — please check your inbox.");
           // Long cool-down: repeated clicks just burn Resend quota.
           setTimeout(function () { resendBtnEl.disabled = false; setNote(""); }, 60000);
         })

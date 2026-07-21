@@ -15,14 +15,14 @@ const ef = require('../lib/error-fix-proposals.js');
 const SAFE = {
   modelRisk: 'safe_auto',
   plainExplanation: 'The list of jobs on the practice page stops loading half way, so doctors see a blank space instead of the jobs.',
-  technicalDiagnosis: 'jobsList is not defined at js/career-list.js:212, the variable was renamed but this reference was missed.',
+  technicalDiagnosis: 'jobsList is not defined at js/career-list.js:212 — the variable was renamed but this reference was missed.',
   proposedFix: 'In js/career-list.js line 212, change jobsList to jobList to match the declaration on line 190.',
   suspectFiles: ['js/career-list.js'],
   errorMessage: 'jobsList is not defined',
   pageUrl: '/pages/career.html'
 };
 
-describe('classifyProposalRisk, the safe path', () => {
+describe('classifyProposalRisk — the safe path', () => {
   it('allows safe_auto for a small self-contained fix', () => {
     const v = ef.classifyProposalRisk(SAFE);
     expect(v.risk_class).toBe('safe_auto');
@@ -31,7 +31,7 @@ describe('classifyProposalRisk, the safe path', () => {
   });
 });
 
-describe('classifyProposalRisk, the model never gets the last word', () => {
+describe('classifyProposalRisk — the model never gets the last word', () => {
   it('honours needs_review from the model', () => {
     const v = ef.classifyProposalRisk({ ...SAFE, modelRisk: 'needs_review' });
     expect(v.risk_class).toBe('needs_review');
@@ -51,14 +51,14 @@ describe('classifyProposalRisk, the model never gets the last word', () => {
     expect(ef.normaliseRiskClaim('anything else')).toBe('needs_review');
   });
 
-  it('needs a complete answer, blank fields are never safe_auto', () => {
+  it('needs a complete answer — blank fields are never safe_auto', () => {
     expect(ef.classifyProposalRisk({ ...SAFE, proposedFix: '' }).risk_class).toBe('needs_review');
     expect(ef.classifyProposalRisk({ ...SAFE, technicalDiagnosis: '   ' }).risk_class).toBe('needs_review');
     expect(ef.classifyProposalRisk({ ...SAFE, plainExplanation: '' }).risk_class).toBe('needs_review');
   });
 });
 
-describe('classifyProposalRisk, sensitive areas are never automatic', () => {
+describe('classifyProposalRisk — sensitive areas are never automatic', () => {
   // Each of these claims safe_auto. Every one must be downgraded.
   const cases = [
     ['sign-in', { suspectFiles: ['js/auth-guard.js'] }],
@@ -83,7 +83,7 @@ describe('classifyProposalRisk, sensitive areas are never automatic', () => {
   }
 });
 
-describe('classifyProposalRisk, size and uncertainty', () => {
+describe('classifyProposalRisk — size and uncertainty', () => {
   it('downgrades a fix longer than MAX_SAFE_FIX_CHARS', () => {
     const long = 'Change the undefined variable jobsList to jobList. ' + 'x'.repeat(ef.MAX_SAFE_FIX_CHARS);
     const v = ef.classifyProposalRisk({ ...SAFE, proposedFix: long });
@@ -133,9 +133,9 @@ describe('classifyProposalRisk, size and uncertainty', () => {
   it('accepts each of the known small fix shapes', () => {
     const shapes = [
       'jobList is not defined at js/a.js:3.',
-      'Cannot read properties of undefined at js/a.js:3, a null check is missing.',
+      'Cannot read properties of undefined at js/a.js:3 — a null check is missing.',
       'A typo in the property name at js/a.js:3.',
-      'render is not a function at js/a.js:3, the method was renamed.'
+      'render is not a function at js/a.js:3 — the method was renamed.'
     ];
     for (const s of shapes) {
       expect(ef.classifyProposalRisk({ ...SAFE, technicalDiagnosis: s }).risk_class, s).toBe('safe_auto');
@@ -165,7 +165,7 @@ describe('approval tokens', () => {
     }
   });
 
-  it('stores only a hash, the plaintext is not recoverable from it', () => {
+  it('stores only a hash — the plaintext is not recoverable from it', () => {
     const t = ef.makeApprovalToken();
     expect(t.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(t.hash).not.toBe(t.token);
@@ -194,7 +194,7 @@ describe('approval tokens', () => {
   });
 });
 
-describe('evaluateApprovalToken, SINGLE USE', () => {
+describe('evaluateApprovalToken — SINGLE USE', () => {
   let tok;
   let proposal;
   beforeAll(() => {
@@ -256,7 +256,7 @@ describe('evaluateApprovalToken, SINGLE USE', () => {
   });
 });
 
-describe('privacy, nothing personal reaches the model', () => {
+describe('privacy — nothing personal reaches the model', () => {
   it('scrubForModel removes email addresses and phone numbers', () => {
     const out = ef.scrubForModel('failed for dr.smith@example.com on +61 412 345 678');
     expect(out).not.toMatch(/@example\.com/);

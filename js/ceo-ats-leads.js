@@ -1,5 +1,5 @@
 /* ============================================================================
- * ceo-ats-leads.js, Leads master tab for the CEO dashboard.
+ * ceo-ats-leads.js — Leads master tab for the CEO dashboard.
  * Loaded by pages/ceo-dashboard.html AFTER /js/ceo-ats-shared.js (window.ATS).
  * Shows every GP lead from the Meta-ads / landing-page consult funnel
  * (site_enquiries kind=gp) with filter chips, search and chase-email history.
@@ -38,16 +38,16 @@
 
   // Why the chase emails stopped, in plain words.
   var STOPPED_LABELS = {
-    signed_up:    'stopped, they signed up',
-    unsubscribed: 'stopped, they unsubscribed',
-    exhausted:    'stopped, every email sent'
+    signed_up:    'stopped — they signed up',
+    unsubscribed: 'stopped — they unsubscribed',
+    exhausted:    'stopped — every email sent'
   };
 
   // The lead's state as ONE badge, most-decisive fact first.
   // `not_screened` outranks `call_booked` because a stranger on the calendar
   // who was never asked if they're even a GP is the thing to act on; the meta
   // line still shows the booking time, so nothing is hidden.
-  // The final fallback catches website-enquiry rows with no consult data,
+  // The final fallback catches website-enquiry rows with no consult data —
   // they were never screened either, so saying "Not qualified" would be a lie.
   function stateBadge(l) {
     if (l.status === 'converted')  return { label: 'Signed up',           mod: 'green'  };
@@ -61,7 +61,7 @@
   // Format a UTC datetime string in Sydney local time (matches ceo-ats-meetings.js).
   var sydFmt = null;
   function sydneyTime(iso) {
-    if (!iso) return '-';
+    if (!iso) return '—';
     try {
       if (!sydFmt) {
         sydFmt = new Intl.DateTimeFormat('en-GB', {
@@ -94,7 +94,7 @@
     return '' +
       '<div class="ats-section-head"><div>' +
         '<h2>Leads</h2>' +
-        '<p>Everyone who asked about GP work, from the ads, the landing page and the website form.</p>' +
+        '<p>Everyone who asked about GP work — from the ads, the landing page and the website form.</p>' +
       '</div></div>' +
       '<div class="lead-toolbar">' +
         '<div class="lead-filters" id="lead-filters"></div>' +
@@ -150,7 +150,7 @@
   // `append` true = "Show more" (fetch the next page and keep what's loaded);
   // falsy = a fresh load (filter/search change) that resets the pager. The
   // server paginates (limit/offset, total returned), so without this the tab
-  // silently showed only the newest 100 leads once a filter matched more,
+  // silently showed only the newest 100 leads once a filter matched more —
   // older leads were unreachable from any UI (a real risk after the GP blast).
   function fetchAndRender(append) {
     var listEl = document.getElementById('lead-list');
@@ -162,7 +162,7 @@
     ATS.api('/api/ceo/leads' + qs).then(function (d) {
       var el = document.getElementById('lead-list');
       if (!el) return;
-      // Only overwrite the chip counts on a good response, an error must not
+      // Only overwrite the chip counts on a good response — an error must not
       // wipe the totals the chips already show.
       var chips = document.getElementById('lead-filters');
       if (chips && d && d.ok) chips.innerHTML = chipsHtml(d.counts);
@@ -200,7 +200,7 @@
   function rowHtml(l) {
     var sb = stateBadge(l);
 
-    var contact = ATS.esc(l.email || '-');
+    var contact = ATS.esc(l.email || '—');
     if (l.phone) contact += ' <span class="lead-sep">·</span> ' + ATS.esc(l.phone);
 
     var bookedHtml = l.call_booked && l.call_booked_at
@@ -213,7 +213,7 @@
       nudgeText = 'No chase emails sent';
     } else {
       nudgeText = l.nudges_sent + ' chase email' + (l.nudges_sent === 1 ? '' : 's') + ' sent';
-      if (l.last_nudge_at) nudgeText += ', last ' + sydneyTime(l.last_nudge_at);
+      if (l.last_nudge_at) nudgeText += ' — last ' + sydneyTime(l.last_nudge_at);
     }
     if (l.stopped) nudgeText += ' (' + (STOPPED_LABELS[l.stopped] || 'stopped') + ')';
 
@@ -224,7 +224,7 @@
 
     return '<div class="lead-row">' +
       '<div class="lead-row-main">' +
-        '<div class="lead-name">' + ATS.esc(l.name || '-') + '</div>' +
+        '<div class="lead-name">' + ATS.esc(l.name || '—') + '</div>' +
         '<div class="lead-contact">' + contact + '</div>' +
         '<div class="lead-meta">' +
           '<span class="lead-source">' + ATS.esc(sourceLabel(l.source)) + '</span>' +

@@ -1,5 +1,5 @@
 // Job page redesign (2026-07): restructures the NON-offer body of
-// pages/job.html to match the owner-approved mockup, a name-on-acceptance
+// pages/job.html to match the owner-approved mockup — a name-on-acceptance
 // dropdown directly under the hero, "The package" headline figures + blue-
 // icon rows, About moved above a new "The practice" facts panel, and blue
 // line-SVG icons everywhere (no emojis). Offer mode, apply, and the reveal
@@ -7,9 +7,9 @@
 //
 // job.html is a static file served verbatim (no server-side templating), so
 // reading it straight from disk is an honest check of exactly what the
-// browser receives, same source-level pattern as
+// browser receives — same source-level pattern as
 // tests/practice-status-page.test.js / tests/job-writeup-render.test.js's
-// "source," describe block.
+// "source —" describe block.
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -24,7 +24,7 @@ beforeAll(() => {
   html = fs.readFileSync(JOB_PAGE_PATH, 'utf8');
 });
 
-describe('job.html, redesign (2026-07)', () => {
+describe('job.html — redesign (2026-07)', () => {
   it('references role.aiPerks for "The package" rows', () => {
     expect(html).toContain('aiPerks');
   });
@@ -76,7 +76,7 @@ describe('job.html, redesign (2026-07)', () => {
     expect(fn[0]).toContain('pt.supervision');
     expect(fn[0]).toMatch(/role\.visa.*pt\.visaSponsorship|pt\.visaSponsorship.*role\.visa/s);
     expect(fn[0]).toContain('buildRoleTeamLine');
-    // Empty-panel guard, never an empty shell.
+    // Empty-panel guard — never an empty shell.
     expect(fn[0]).toMatch(/if \(!rows\.length\) return ""/);
   });
 
@@ -97,12 +97,12 @@ describe('job.html, redesign (2026-07)', () => {
     expect(fn[0]).toContain('at-map-overlay');
   });
 
-  it('no raw emoji in the new perk/practice-facts/name-on-acceptance icon markup, svg only', () => {
+  it('no raw emoji in the new perk/practice-facts/name-on-acceptance icon markup — svg only', () => {
     const packageFn = html.match(/function buildPackageCellsHtml\(role\) \{[\s\S]*?\n  \}/)[0];
     const factsFn = html.match(/function buildPracticeFactsHtml\(role\) \{[\s\S]*?\n  \}/)[0];
     const identityFn = html.match(/function buildPracticeIdentityHtml\(role\) \{[\s\S]*?\n  \}/)[0];
     // Icon rows are built from named AT_ICON_*_SVG / AT_NOA_*_SVG constants,
-    // not inline emoji glyphs, check the reference AND that each referenced
+    // not inline emoji glyphs — check the reference AND that each referenced
     // constant is itself an actual <svg>.
     expect(packageFn).toMatch(/AT_ICON_\w+_SVG/);
     expect(factsFn).toMatch(/AT_ICON_\w+_SVG/);
