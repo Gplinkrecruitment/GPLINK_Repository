@@ -1247,6 +1247,19 @@
     if (n > maxStep) return;          // never skip ahead
     if (n === step) return;
     captureCur();
+    // Steps 1-3 are the per-practice wizard and always edit exactly ONE
+    // practice. Walking back into them from the list (step 4) or the sign step
+    // with no edit target left editIdx null, so savePrac() treated the practice
+    // as brand new and APPENDED a duplicate — the reported bug. Bind the rail
+    // to the practice `cur` already represents. Object identity is lost across
+    // a reload (restoreDraft rebuilds `cur`), so fall back to the most recently
+    // worked-on practice rather than guessing wrong and duplicating.
+    if (n <= 3 && step >= 4 && saved.length) {
+      var bound = editIdx !== null ? editIdx : saved.indexOf(cur);
+      if (bound < 0 || bound >= saved.length) bound = saved.length - 1;
+      editPrac(bound, n);
+      return;
+    }
     go(n);
   }
 
@@ -1375,15 +1388,32 @@
     go(4);
   }
 
-  function setMode(m) {
-    mode = m;
+  function paintModeButtons() {
     var buttons = document.querySelectorAll('#modeSeg button');
-    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('sel', buttons[i].getAttribute('data-value') === m);
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('sel', buttons[i].getAttribute('data-value') === mode);
+  }
+
+  function setMode(m) {
+    // Going back to a single practice DROPS every clinic after the first. Now
+    // that "＋ Add another practice" is offered in both modes this is easy to
+    // hit by accident, so make the loss a deliberate choice instead of silent.
+    if (m === 'solo' && mode !== 'solo' && saved.length > 1) {
+      var losing = saved.length - 1;
+      if (!window.confirm('Switching to a single practice will remove the other ' + losing +
+          ' practice' + (losing > 1 ? 's' : '') + ' you added. Continue?')) {
+        paintModeButtons();
+        return;
+      }
+    }
+    mode = m;
+    paintModeButtons();
     if (m === 'solo') {
       saved = saved.slice(0, 1);
       saved.forEach(function (p) { p.hasOwn = false; p.ownEntity = ''; p.ownAbn = ''; });
     }
-    $('addBtn').classList.toggle('hidden', m !== 'group');
+    // Available to a single practice too — adding a second one promotes them
+    // to a group (see addAnother), so this is no longer group-only.
+    $('addBtn').classList.toggle('hidden', saved.length === 0);
     $('entLbl').innerHTML = (m === 'group' ? 'Group legal entity name' : 'Legal entity name') +
       ' <span class="must">REQUIRED</span><span class="tip">?<span>The company registered against your ABN, not the trading name on your signage.</span></span>';
     persistSoon();
@@ -1411,11 +1441,11 @@
         (saved.length > 1 ? '<button type="button" class="del" data-action="remove-prac" data-idx="' + i + '">Remove</button>' : '') +
         '</div></div>' + own + '</div>';
     }).join('') || '<div class="note">No practices added yet.</div>';
-    $('addBtn').classList.toggle('hidden', mode !== 'group');
+    $('addBtn').classList.toggle('hidden', saved.length === 0);
     $('toSign').disabled = saved.length === 0;
   }
 
-  function editPrac(i) {
+  function editPrac(i, targetStep) {
     editIdx = i;
     cur = saved[i];
     addr.value = cur.address || '';
@@ -1431,7 +1461,7 @@
     $('p1h').textContent = 'Edit this practice';
     showCancel(true);
     gate1(); gate2();
-    go(1);
+    go(targetStep || 1);
   }
   function rmPrac(i) { saved.splice(i, 1); persistSoon(); renderList(); }
   function toggleOwn(i, checked) {
@@ -1441,6 +1471,10 @@
   }
 
   function addAnother() {
+    // A practice adding a second clinic IS a group. Promote them automatically
+    // rather than making them find the "Corporate group" toggle first — the
+    // per-clinic entity fields and group wording then appear on their own.
+    if (mode !== 'group') setMode('group');
     cur = freshCur(); editIdx = null;
     showCancel(saved.length > 0);
     addr.value = ''; addr.style.display = '';
@@ -1463,6 +1497,10 @@
   // ---------------------------------------------------------------------
   function buildClinicPayload(p) {
     return {
+      // practice_name is REQUIRED by the server validator (INTAKE_FIELDS in
+      // lib/practice-pipeline.js) and becomes the practice row's name. Leaving
+      // it out rejected every submission with "practice_name is required".
+      practice_name: p.practice_name || '',
       billing_style: p.billing_style || '', dpa: boolToSelect(p.dpa), dpa_suggested: p.dpaSuggested,
       mmm: p.mmm || '', percentage_split: p.percentage_split || '',
       suburb: p.suburb || '', nearest_city: p.nearest_city || '', state: p.state || '',
@@ -1755,9 +1793,8 @@
     editIdx = (d.editIdx === 0 || d.editIdx) ? d.editIdx : null;
 
     paintCur();
-    var modeButtons = document.querySelectorAll('#modeSeg button');
-    for (var i = 0; i < modeButtons.length; i++) modeButtons[i].classList.toggle('sel', modeButtons[i].getAttribute('data-value') === mode);
-    $('addBtn').classList.toggle('hidden', mode !== 'group');
+    paintModeButtons();
+    $('addBtn').classList.toggle('hidden', saved.length === 0);
 
     if (d.manual) { $('manual').classList.remove('hidden'); $('manualLink').classList.add('hidden'); addr.style.display = 'none'; }
     if (d.manualFields) { $('mStreet').value = d.manualFields.mStreet || ''; $('mSuburb').value = d.manualFields.mSuburb || ''; $('mPostcode').value = d.manualFields.mPostcode || ''; $('state').value = d.manualFields.mState || $('state').value; }
