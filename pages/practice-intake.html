@@ -104,6 +104,18 @@
     font-family:inherit;border-radius:6px}
   .prac .acts button:hover{background:#eef1f6;color:var(--ink)}
   .prac .acts .del:hover{color:var(--bad)}
+  /* "Which practice do you want to keep?" mode, entered by switching a group
+     back to a single practice. The whole card becomes the choice. */
+  .prac.pick{cursor:pointer;transition:border-color .12s,background .12s,box-shadow .12s}
+  .prac.pick:hover,.prac.pick:focus-visible{border-color:var(--brand);background:#f2f7ff;box-shadow:0 0 0 3px rgba(37,99,235,.10);outline:none}
+  .prac .keep{margin-left:auto;flex:none;background:var(--brand);border:0;color:#fff;border-radius:8px;
+    padding:8px 14px;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap}
+  .prac.pick:hover .keep{background:#1d4ed8}
+  .pickmsg{background:#fff6ec;border:1px solid #f3d7b8;border-radius:10px;padding:13px 15px;
+    font-size:13px;color:var(--ink-2);margin-bottom:12px}
+  .pickmsg b{color:var(--ink)}
+  .pickmsg .cancel{background:none;border:0;padding:0;margin-top:7px;color:var(--brand);font-weight:600;
+    font-size:12.5px;font-family:inherit;cursor:pointer;text-decoration:underline;display:block}
   .toggle{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);
     font-size:12.5px;color:var(--ink-2);cursor:pointer}
   .toggle input{width:15px;height:15px;accent-color:var(--brand)}
@@ -545,6 +557,7 @@
         </div>
       </div>
 
+      <div class="pickmsg hidden" id="pickMsg"></div>
       <div id="plist"></div>
       <button type="button" class="btn ghost wide hidden" id="addBtn" data-action="add-another">＋ Add another practice</button>
 
@@ -1247,6 +1260,19 @@
     if (n > maxStep) return;          // never skip ahead
     if (n === step) return;
     captureCur();
+    // Steps 1-3 are the per-practice wizard and always edit exactly ONE
+    // practice. Walking back into them from the list (step 4) or the sign step
+    // with no edit target left editIdx null, so savePrac() treated the practice
+    // as brand new and APPENDED a duplicate — the reported bug. Bind the rail
+    // to the practice `cur` already represents. Object identity is lost across
+    // a reload (restoreDraft rebuilds `cur`), so fall back to the most recently
+    // worked-on practice rather than guessing wrong and duplicating.
+    if (n <= 3 && step >= 4 && saved.length) {
+      var bound = editIdx !== null ? editIdx : saved.indexOf(cur);
+      if (bound < 0 || bound >= saved.length) bound = saved.length - 1;
+      editPrac(bound, n);
+      return;
+    }
     go(n);
   }
 
@@ -1261,7 +1287,7 @@
     if (n === 1) gate1();
     if (n === 2) gate2();
     if (n === 3) gate3();
-    if (n === 4) renderList();
+    if (n === 4) { settleProvisionalGroup(); renderList(); }
     if (n === 5) { renderSchedule(); mountCanvas(); gateSign(); }
     persistSoon();
   }
@@ -1375,15 +1401,77 @@
     go(4);
   }
 
-  function setMode(m) {
-    mode = m;
+  function paintModeButtons() {
     var buttons = document.querySelectorAll('#modeSeg button');
-    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('sel', buttons[i].getAttribute('data-value') === m);
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('sel', buttons[i].getAttribute('data-value') === mode);
+  }
+
+  // "Which one do you want to keep?" mode. Going back to a single practice can
+  // only leave ONE, so rather than silently keeping the first (or asking a
+  // yes/no question that hides which one dies), the practice picks the keeper.
+  var soloPick = false;
+
+  // True while the group mode was granted by addAnother() rather than chosen
+  // from the segment. Any explicit segment click clears it (see the click
+  // handler) because that IS a deliberate choice.
+  var autoPromoted = false;
+
+  // Called whenever we land back on the practices list. A provisional group
+  // that never gained a second clinic reverts to a single practice, so starting
+  // to add one and then backing out leaves no trace.
+  function settleProvisionalGroup() {
+    if (!autoPromoted) return;
+    autoPromoted = false;
+    if (saved.length > 1) return;          // they did add one, the group is real now
+    if (mode === 'group') setMode('solo'); // safe: one practice, so no picker
+  }
+
+  function startSoloPick() {
+    soloPick = true;
+    paintModeButtons();   // the segment keeps showing Corporate group until they choose
+    var losing = saved.length - 1;
+    $('pickMsg').innerHTML =
+      '<b>Only one practice can remain.</b> The other ' + (losing === 1 ? 'one' : losing) +
+      ' will be deleted. Click the practice you want to keep.' +
+      '<button type="button" class="cancel" data-action="cancel-solo-pick">Cancel, stay a corporate group</button>';
+    $('pickMsg').classList.remove('hidden');
+    renderList();
+  }
+
+  function cancelSoloPick() {
+    soloPick = false;
+    $('pickMsg').classList.add('hidden');
+    paintModeButtons();
+    renderList();
+  }
+
+  function keepOnly(i) {
+    if (!saved[i]) return;
+    saved = [saved[i]];
+    soloPick = false;
+    $('pickMsg').classList.add('hidden');
+    setMode('solo');       // saved is length 1 now, so this no longer re-opens the picker
+  }
+
+  function setMode(m) {
+    // Going back to a single practice DROPS every clinic after the first. Now
+    // that "＋ Add another practice" is offered in both modes this is easy to
+    // hit by accident, so let them choose the survivor instead of losing it.
+    if (m === 'solo' && mode !== 'solo' && saved.length > 1) {
+      startSoloPick();
+      return;
+    }
+    soloPick = false;
+    $('pickMsg').classList.add('hidden');
+    mode = m;
+    paintModeButtons();
     if (m === 'solo') {
       saved = saved.slice(0, 1);
       saved.forEach(function (p) { p.hasOwn = false; p.ownEntity = ''; p.ownAbn = ''; });
     }
-    $('addBtn').classList.toggle('hidden', m !== 'group');
+    // Available to a single practice too — adding a second one promotes them
+    // to a group (see addAnother), so this is no longer group-only.
+    $('addBtn').classList.toggle('hidden', saved.length === 0);
     $('entLbl').innerHTML = (m === 'group' ? 'Group legal entity name' : 'Legal entity name') +
       ' <span class="must">REQUIRED</span><span class="tip">?<span>The company registered against your ABN, not the trading name on your signage.</span></span>';
     persistSoon();
@@ -1394,7 +1482,9 @@
   var EMP_LABEL = { full_time: 'Full-time', part_time: 'Part-time', either: 'FT or PT' };
   function renderList() {
     $('plist').innerHTML = saved.map(function (p, i) {
-      var own = mode === 'group' ? (
+      // While choosing which practice survives the switch to a single practice,
+      // the card IS the button: no Edit/Remove, no per-clinic entity fields.
+      var own = (mode === 'group' && !soloPick) ? (
         '<label class="toggle"><input type="checkbox" data-action="toggle-own" data-idx="' + i + '" ' + (p.hasOwn ? 'checked' : '') + '>' +
         '<span>This clinic trades under a <b>different company</b></span></label>' +
         '<div class="own ' + (p.hasOwn ? 'on' : '') + '">' +
@@ -1402,20 +1492,28 @@
         '<input type="text" placeholder="Its ABN or ACN" maxlength="14" value="' + escapeHtml(p.ownAbn || '') + '" data-action="own-abn" data-idx="' + i + '">' +
         '</div>'
       ) : '';
-      return '<div class="prac"><div class="top"><div class="ic">' + (i + 1) + '</div><div>' +
+      var acts = soloPick
+        ? '<button type="button" class="keep" data-action="keep-only" data-idx="' + i + '">Keep this one</button>'
+        : '<div class="acts"><button type="button" data-action="edit-prac" data-idx="' + i + '">Edit</button>' +
+          (saved.length > 1 ? '<button type="button" class="del" data-action="remove-prac" data-idx="' + i + '">Remove</button>' : '') +
+          '</div>';
+      return '<div class="prac' + (soloPick ? ' pick' : '') + '"' +
+        (soloPick ? ' role="button" tabindex="0" data-action="keep-only" data-idx="' + i + '"' +
+          ' aria-label="Keep ' + escapeHtml(p.suburb || 'this practice') + ' and delete the others"' : '') +
+        '><div class="top"><div class="ic">' + (i + 1) + '</div><div>' +
         '<div class="n">' + escapeHtml(p.suburb || 'Not set') + ', ' + escapeHtml(p.state || 'Not set') + ' near ' + escapeHtml(p.nearest_city || 'Not set') + '</div>' +
         '<div class="m2">' + escapeHtml(p.billing_style || 'Not set') + ' billing · GP keeps ' + (parseSplit(p.percentage_split) ? parseSplit(p.percentage_split).gp + '%' : 'Not set') +
         ' · ' + (p.dpa === true ? 'DPA' : (p.dpa === false ? 'not DPA' : 'Not set')) + ' · ' + escapeHtml(p.gps_needed || 'Not set') + ' × ' + (EMP_LABEL[p.employment_type] || 'Not set') +
         ' · ' + (URG_LABEL[p.urgency] || 'Not set') + '</div></div>' +
-        '<div class="acts"><button type="button" data-action="edit-prac" data-idx="' + i + '">Edit</button>' +
-        (saved.length > 1 ? '<button type="button" class="del" data-action="remove-prac" data-idx="' + i + '">Remove</button>' : '') +
-        '</div></div>' + own + '</div>';
+        acts + '</div>' + own + '</div>';
     }).join('') || '<div class="note">No practices added yet.</div>';
-    $('addBtn').classList.toggle('hidden', mode !== 'group');
-    $('toSign').disabled = saved.length === 0;
+    // While picking a survivor, adding another practice or moving on would both
+    // leave the choice half-made.
+    $('addBtn').classList.toggle('hidden', saved.length === 0 || soloPick);
+    $('toSign').disabled = saved.length === 0 || soloPick;
   }
 
-  function editPrac(i) {
+  function editPrac(i, targetStep) {
     editIdx = i;
     cur = saved[i];
     addr.value = cur.address || '';
@@ -1431,7 +1529,7 @@
     $('p1h').textContent = 'Edit this practice';
     showCancel(true);
     gate1(); gate2();
-    go(1);
+    go(targetStep || 1);
   }
   function rmPrac(i) { saved.splice(i, 1); persistSoon(); renderList(); }
   function toggleOwn(i, checked) {
@@ -1441,6 +1539,14 @@
   }
 
   function addAnother() {
+    // A practice adding a second clinic IS a group. Promote them automatically
+    // rather than making them find the "Corporate group" toggle first — the
+    // per-clinic entity fields and group wording then appear on their own.
+    // The promotion is PROVISIONAL though: if they back out without actually
+    // saving a second clinic, settleProvisionalGroup() puts them back to a
+    // single practice (see go(4)), so nobody is left labelled a corporate
+    // group with one clinic they never added to.
+    if (mode !== 'group') { setMode('group'); autoPromoted = true; }
     cur = freshCur(); editIdx = null;
     showCancel(saved.length > 0);
     addr.value = ''; addr.style.display = '';
@@ -1463,6 +1569,10 @@
   // ---------------------------------------------------------------------
   function buildClinicPayload(p) {
     return {
+      // practice_name is REQUIRED by the server validator (INTAKE_FIELDS in
+      // lib/practice-pipeline.js) and becomes the practice row's name. Leaving
+      // it out rejected every submission with "practice_name is required".
+      practice_name: p.practice_name || '',
       billing_style: p.billing_style || '', dpa: boolToSelect(p.dpa), dpa_suggested: p.dpaSuggested,
       mmm: p.mmm || '', percentage_split: p.percentage_split || '',
       suburb: p.suburb || '', nearest_city: p.nearest_city || '', state: p.state || '',
@@ -1723,6 +1833,7 @@
       localStorage.setItem(STORE, JSON.stringify({
         token: token,
         saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
+        autoPromoted: autoPromoted,
         manual: !$('manual').classList.contains('hidden'),
         manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value, mState: $('state').value },
         addr: addr.value,
@@ -1753,11 +1864,11 @@
     mode = d.mode || 'solo';
     cur = d.cur && typeof d.cur === 'object' ? Object.assign(freshCur(), d.cur) : freshCur();
     editIdx = (d.editIdx === 0 || d.editIdx) ? d.editIdx : null;
+    autoPromoted = !!d.autoPromoted;
 
     paintCur();
-    var modeButtons = document.querySelectorAll('#modeSeg button');
-    for (var i = 0; i < modeButtons.length; i++) modeButtons[i].classList.toggle('sel', modeButtons[i].getAttribute('data-value') === mode);
-    $('addBtn').classList.toggle('hidden', mode !== 'group');
+    paintModeButtons();
+    $('addBtn').classList.toggle('hidden', saved.length === 0);
 
     if (d.manual) { $('manual').classList.remove('hidden'); $('manualLink').classList.add('hidden'); addr.style.display = 'none'; }
     if (d.manualFields) { $('mStreet').value = d.manualFields.mStreet || ''; $('mSuburb').value = d.manualFields.mSuburb || ''; $('mPostcode').value = d.manualFields.mPostcode || ''; $('state').value = d.manualFields.mState || $('state').value; }
@@ -1816,7 +1927,11 @@
       case 'go-4': go(4); break;
       case 'save-practice': savePrac(); break;
       case 'cancel-entry': cancelEntry(); break;
-      case 'set-mode': setMode(el.getAttribute('data-value')); break;
+      // Choosing from the segment is deliberate, so the group no longer needs
+      // to prove itself by gaining a second clinic.
+      case 'set-mode': autoPromoted = false; setMode(el.getAttribute('data-value')); break;
+      case 'keep-only': keepOnly(Number(idx)); break;
+      case 'cancel-solo-pick': cancelSoloPick(); break;
       case 'add-another': addAnother(); break;
       case 'edit-prac': editPrac(Number(idx)); break;
       case 'remove-prac': rmPrac(Number(idx)); break;
@@ -1824,6 +1939,18 @@
       case 'use-standard-incentives': useStandardIncentives(); break;
       case 'pick-intro-video': $('introVideoFile').click(); break;
     }
+  });
+  // Keyboard parity for the "click the practice you want to keep" cards. They
+  // are re-rendered on every list paint, so they cannot carry their own
+  // listeners the way the step rail does. Scoped to the CARD itself so that
+  // pressing Enter on the inner "Keep this one" button (a real <button>, which
+  // already fires a click) does not run the choice twice.
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var el = ev.target;
+    if (!el || !el.classList || !el.classList.contains('prac') || !el.classList.contains('pick')) return;
+    ev.preventDefault();
+    keepOnly(Number(el.getAttribute('data-idx')));
   });
   document.addEventListener('change', function (ev) {
     if (ev.target.matches('[data-action="toggle-own"]')) toggleOwn(Number(ev.target.getAttribute('data-idx')), ev.target.checked);
