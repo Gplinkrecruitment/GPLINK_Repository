@@ -38041,30 +38041,14 @@ async function handleApi(req, res, pathname) {
 
       const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
       const practiceName = (ctx && ctx.practiceName) || '';
-      const gpEmail = (ctx && ctx.gpEmail) || '';
       const gpName = (ctx && ctx.gpName) || 'the candidate';
 
       // Notifications are best-effort — a Resend outage must never turn an
       // otherwise-successful approve into a failed request for the practice.
-      // This "times coming soon" email sits alongside the congrats email sent
-      // below — the practice has not yet supplied availability, so the GP is
-      // nudged to actually book once they do (POST .../availability), while
-      // the congrats email lets them start heading toward secure-interview
-      // right away (that page handles the no-slots-yet state gracefully).
-      if (gpEmail) {
-        sendEmail({
-          to: gpEmail,
-          subject: practiceName + ' would like to interview you!',
-          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
-          html: buildCareerEmailHtml({
-            title: esc(practiceName) + ' would like to interview you!',
-            body: 'Great news, ' + esc(practiceName) + ' has approved your application for ' + esc(roleTitle) + '. As soon as they confirm their available times you\'ll be able to pick your interview slot in the app.',
-            ctaText: 'View my application',
-            ctaUrl: APP_BASE_URL + '/pages/career.html#applications'
-          })
-        }).catch(function (err) { console.warn('[practice-decision] GP approval email failed:', err && err.message); });
-      }
-
+      // Ops gets a status email here; the GP gets a single congratulatory
+      // booking email below (via sendGpCongratsEmail) with a deep-link to the
+      // secure-interview page — that page handles the no-slots-yet state
+      // gracefully if the practice hasn't supplied availability yet.
       sendEmail({
         to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
         subject: 'Practice approved ' + gpName + ', awaiting their interview times',

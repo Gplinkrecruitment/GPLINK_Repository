@@ -313,21 +313,26 @@ describe('POST /api/practice/application/decision — approve', () => {
     expect(db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length).toBe(before);
   });
 
-  it('sent a GP "approved" email and an ops notify email (best-effort notifications actually fired)', async () => {
+  it('sent the GP a single congrats email and an ops notify email (best-effort notifications actually fired)', async () => {
+    // The GP no longer gets a separate "would like to interview you!" email —
+    // just the one congrats/booking email (asserted in full detail by the
+    // describe block below), sent alongside the ops status email.
     const gpEmail = resendCaptured.find((m) => m && m.to && [].concat(m.to).includes('gate.smith@example.com'));
     expect(gpEmail).toBeTruthy();
-    expect(gpEmail.subject).toContain('interview');
+    expect(gpEmail.subject).toContain('Congratulations');
     const opsEmail = resendCaptured.find((m) => m && m.to && [].concat(m.to).some((t) => String(t).includes('hello@mygplink.com.au')));
     expect(opsEmail).toBeTruthy();
     expect(opsEmail.subject).toContain('Practice approved');
   });
 });
 
-// Owner (2026-07-23): the practice's approve click must also congratulate the
-// GP with a booking deep-link (sendGpCongratsEmail), separate from the
-// existing "would like to interview you" notice above. It is awaited by the
-// handler (unlike the other two best-effort emails), so it is guaranteed to
-// already be in resendCaptured by the time the HTTP response lands.
+// Owner (2026-07-23): the practice's approve click congratulates the GP with
+// a single booking deep-link email (sendGpCongratsEmail) — the old separate
+// "would like to interview you" notice was removed so the GP gets ONE
+// congratulatory email, not two overlapping ones. It is awaited by the
+// handler (unlike the ops notify email, which is best-effort), so it is
+// guaranteed to already be in resendCaptured by the time the HTTP response
+// lands.
 describe('POST /api/practice/application/decision — approve sends the GP congrats/booking email', () => {
   it('fresh approve sends exactly one congrats email with the secure-interview deep-link', async () => {
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-congrats10', action: 'approve' } });
@@ -373,7 +378,7 @@ describe('POST /api/practice/application/decision — approve on a stale link (a
     expect(row.ats_stage).toBe('hired');
     expect(db.scheduled_calls.filter((r) => r.meeting_kind === 'interview').length).toBe(interviewsBefore);
     // No emails at all fired off the back of this stale click — in particular
-    // never the "would like to interview you!" copy to an already-placed GP.
+    // never the congrats/booking email to an already-placed GP.
     expect(resendCaptured.length).toBe(capturedBefore);
   });
 
