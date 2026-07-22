@@ -229,9 +229,145 @@ describe('practice intake — adding a second practice promotes to a group', () 
     expect(extractFn(html, 'renderList')).not.toMatch(/addBtn[\s\S]{0,80}!==\s*['"]group['"]/);
   });
 
-  it('warns before dropping practices when switching back to a single practice', () => {
-    // Switching to solo truncates the list; with the add button always
-    // available this became easy to hit by accident.
-    expect(extractFn(html, 'setMode')).toMatch(/confirm\(/);
+  it('does not fall back to a blunt yes/no confirm', () => {
+    expect(extractFn(html, 'setMode')).not.toMatch(/confirm\(/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Switching a group back to a single practice: the practice picks the survivor
+// ---------------------------------------------------------------------------
+describe('practice intake — choosing which practice to keep', () => {
+  // Runs the REAL setMode/startSoloPick/keepOnly against DOM stubs.
+  function harness(initial) {
+    const factory = new Function('state', `
+      var saved = state.saved;
+      var mode = state.mode;
+      var soloPick = false;
+
+      function fakeEl() {
+        return {
+          innerHTML: '', disabled: false,
+          classList: { add: function () {}, remove: function () {}, toggle: function () {} }
+        };
+      }
+      var els = {};
+      function $(id) { if (!els[id]) els[id] = fakeEl(); return els[id]; }
+      var document = { querySelectorAll: function () { return []; } };
+      function persistSoon() {}
+      function renderList() { state.renders = (state.renders || 0) + 1; }
+
+      ${extractFn(html, 'paintModeButtons')}
+      ${extractFn(html, 'startSoloPick')}
+      ${extractFn(html, 'cancelSoloPick')}
+      ${extractFn(html, 'keepOnly')}
+      ${extractFn(html, 'setMode')}
+
+      return {
+        setMode: setMode,
+        keepOnly: keepOnly,
+        cancelSoloPick: cancelSoloPick,
+        pickMessage: function () { return els.pickMsg ? els.pickMsg.innerHTML : ''; },
+        read: function () { return { saved: saved, mode: mode, soloPick: soloPick }; }
+      };
+    `);
+    const state = Object.assign({}, initial);
+    return factory(state);
+  }
+
+  function group3() {
+    return harness({
+      mode: 'group',
+      saved: [
+        { practice_name: 'Erina', suburb: 'Erina', hasOwn: true, ownEntity: 'Erina Pty', ownAbn: '123' },
+        { practice_name: 'Gosford', suburb: 'Gosford', hasOwn: true, ownEntity: 'Gosford Pty', ownAbn: '456' },
+        { practice_name: 'Terrigal', suburb: 'Terrigal', hasOwn: true, ownEntity: 'Terrigal Pty', ownAbn: '789' }
+      ]
+    });
+  }
+
+  it('does not delete anything until the practice has chosen', () => {
+    const h = group3();
+    h.setMode('solo');
+    const out = h.read();
+    expect(out.saved).toHaveLength(3);   // nothing lost yet
+    expect(out.mode).toBe('group');      // still a group until they pick
+    expect(out.soloPick).toBe(true);     // picker is open
+  });
+
+  it('says only one will remain and how many will be deleted', () => {
+    const h = group3();
+    h.setMode('solo');
+    const msg = h.pickMessage();
+    expect(msg).toMatch(/Only one practice can remain/i);
+    expect(msg).toMatch(/2 will be deleted/i);
+    expect(msg).toMatch(/click the practice you want to keep/i);
+  });
+
+  it('reads naturally when only one practice would be lost', () => {
+    const h = harness({
+      mode: 'group',
+      saved: [{ practice_name: 'Erina' }, { practice_name: 'Gosford' }]
+    });
+    h.setMode('solo');
+    expect(h.pickMessage()).toMatch(/The other one will be deleted/i);
+    expect(h.pickMessage()).not.toMatch(/The other 1 will be deleted/i);
+  });
+
+  it('keeps the practice the user actually clicked, not just the first', () => {
+    const h = group3();
+    h.setMode('solo');
+    h.keepOnly(1); // clicks "Gosford"
+
+    const out = h.read();
+    expect(out.saved).toHaveLength(1);
+    expect(out.saved[0].practice_name).toBe('Gosford');
+    expect(out.mode).toBe('solo');
+    expect(out.soloPick).toBe(false);
+  });
+
+  it('keeps the LAST one when that is the one chosen', () => {
+    const h = group3();
+    h.setMode('solo');
+    h.keepOnly(2);
+    expect(h.read().saved[0].practice_name).toBe('Terrigal');
+  });
+
+  it('clears the kept practice\'s own-company fields, since it is no longer a group', () => {
+    const h = group3();
+    h.setMode('solo');
+    h.keepOnly(1);
+    const kept = h.read().saved[0];
+    expect(kept.hasOwn).toBe(false);
+    expect(kept.ownEntity).toBe('');
+    expect(kept.ownAbn).toBe('');
+  });
+
+  it('cancelling leaves every practice untouched and stays a group', () => {
+    const h = group3();
+    h.setMode('solo');
+    h.cancelSoloPick();
+    const out = h.read();
+    expect(out.saved).toHaveLength(3);
+    expect(out.mode).toBe('group');
+    expect(out.soloPick).toBe(false);
+  });
+
+  it('a group of one switches straight to single with no picker', () => {
+    const h = harness({ mode: 'group', saved: [{ practice_name: 'Erina', hasOwn: true, ownEntity: 'E', ownAbn: '1' }] });
+    h.setMode('solo');
+    const out = h.read();
+    expect(out.soloPick).toBe(false);
+    expect(out.mode).toBe('solo');
+    expect(out.saved).toHaveLength(1);
+  });
+
+  it('the card itself is the choice, and Edit/Remove are out of the way while picking', () => {
+    const src = extractFn(html, 'renderList');
+    expect(src).toMatch(/soloPick\s*\?/);
+    expect(src).toMatch(/keep-only/);
+    // Continue and Add are blocked mid-choice.
+    expect(src).toMatch(/toSign[\s\S]{0,60}soloPick/);
+    expect(src).toMatch(/addBtn[\s\S]{0,60}soloPick/);
   });
 });
