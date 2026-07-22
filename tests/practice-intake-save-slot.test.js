@@ -362,6 +362,13 @@ describe('practice intake — choosing which practice to keep', () => {
     expect(out.saved).toHaveLength(1);
   });
 
+  it('reverting a provisional group is safe: one practice never opens the picker', () => {
+    const h = harness({ mode: 'group', saved: [{ practice_name: 'Erina' }] });
+    h.setMode('solo');
+    expect(h.read().soloPick).toBe(false);
+    expect(h.read().mode).toBe('solo');
+  });
+
   it('the card itself is the choice, and Edit/Remove are out of the way while picking', () => {
     const src = extractFn(html, 'renderList');
     expect(src).toMatch(/soloPick\s*\?/);
@@ -369,5 +376,88 @@ describe('practice intake — choosing which practice to keep', () => {
     // Continue and Add are blocked mid-choice.
     expect(src).toMatch(/toSign[\s\S]{0,60}soloPick/);
     expect(src).toMatch(/addBtn[\s\S]{0,60}soloPick/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Starting to add a second practice, then backing out, must not leave the
+// practice labelled a corporate group with a single clinic.
+// ---------------------------------------------------------------------------
+describe('practice intake — the group promotion is provisional', () => {
+  function harness(initial) {
+    const factory = new Function('state', `
+      var saved = state.saved;
+      var mode = state.mode;
+      var soloPick = false;
+      var autoPromoted = state.autoPromoted;
+
+      function fakeEl() {
+        return { innerHTML: '', disabled: false,
+          classList: { add: function () {}, remove: function () {}, toggle: function () {} } };
+      }
+      var els = {};
+      function $(id) { if (!els[id]) els[id] = fakeEl(); return els[id]; }
+      var document = { querySelectorAll: function () { return []; } };
+      function persistSoon() {}
+      function renderList() {}
+
+      ${extractFn(html, 'paintModeButtons')}
+      ${extractFn(html, 'startSoloPick')}
+      ${extractFn(html, 'settleProvisionalGroup')}
+      ${extractFn(html, 'setMode')}
+
+      return {
+        settle: settleProvisionalGroup,
+        setMode: setMode,
+        addSecond: function (p) { saved.push(p); },
+        read: function () { return { saved: saved, mode: mode, autoPromoted: autoPromoted }; }
+      };
+    `);
+    return factory(Object.assign({}, initial));
+  }
+
+  it('reverts to a single practice when the second one never got added', () => {
+    // addAnother() promoted them to a group, then they pressed Cancel.
+    const h = harness({ mode: 'group', autoPromoted: true, saved: [{ practice_name: 'Erina' }] });
+    h.settle();
+    const out = h.read();
+    expect(out.mode).toBe('solo');
+    expect(out.autoPromoted).toBe(false);
+    expect(out.saved).toHaveLength(1);
+  });
+
+  it('stays a group once a second practice really was added', () => {
+    const h = harness({ mode: 'group', autoPromoted: true, saved: [{ practice_name: 'Erina' }] });
+    h.addSecond({ practice_name: 'Gosford' });
+    h.settle();
+    const out = h.read();
+    expect(out.mode).toBe('group');
+    expect(out.autoPromoted).toBe(false); // promotion is earned, no longer provisional
+    expect(out.saved).toHaveLength(2);
+  });
+
+  it('leaves a DELIBERATELY chosen group alone, even with one practice', () => {
+    // They picked "Corporate group" from the segment themselves.
+    const h = harness({ mode: 'group', autoPromoted: false, saved: [{ practice_name: 'Erina' }] });
+    h.settle();
+    expect(h.read().mode).toBe('group');
+  });
+
+  it('does not fight the user if they revert and then promote again', () => {
+    const h = harness({ mode: 'group', autoPromoted: true, saved: [{ practice_name: 'Erina' }] });
+    h.settle();
+    expect(h.read().mode).toBe('solo');
+    h.settle();                       // idempotent
+    expect(h.read().mode).toBe('solo');
+  });
+
+  it('is wired up: addAnother marks it provisional and landing on the list settles it', () => {
+    expect(extractFn(html, 'addAnother')).toMatch(/autoPromoted\s*=\s*true/);
+    expect(extractFn(html, 'go')).toMatch(/n === 4[\s\S]{0,60}settleProvisionalGroup\(\)/);
+    // An explicit segment click is a deliberate choice, so it clears the flag.
+    expect(html).toMatch(/case 'set-mode':\s*autoPromoted = false;/);
+    // Survives a reload mid-entry.
+    expect(html).toMatch(/autoPromoted: autoPromoted/);
+    expect(html).toMatch(/autoPromoted = !!d\.autoPromoted/);
   });
 });

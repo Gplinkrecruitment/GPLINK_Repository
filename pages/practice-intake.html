@@ -1287,7 +1287,7 @@
     if (n === 1) gate1();
     if (n === 2) gate2();
     if (n === 3) gate3();
-    if (n === 4) renderList();
+    if (n === 4) { settleProvisionalGroup(); renderList(); }
     if (n === 5) { renderSchedule(); mountCanvas(); gateSign(); }
     persistSoon();
   }
@@ -1411,6 +1411,21 @@
   // yes/no question that hides which one dies), the practice picks the keeper.
   var soloPick = false;
 
+  // True while the group mode was granted by addAnother() rather than chosen
+  // from the segment. Any explicit segment click clears it (see the click
+  // handler) because that IS a deliberate choice.
+  var autoPromoted = false;
+
+  // Called whenever we land back on the practices list. A provisional group
+  // that never gained a second clinic reverts to a single practice, so starting
+  // to add one and then backing out leaves no trace.
+  function settleProvisionalGroup() {
+    if (!autoPromoted) return;
+    autoPromoted = false;
+    if (saved.length > 1) return;          // they did add one, the group is real now
+    if (mode === 'group') setMode('solo'); // safe: one practice, so no picker
+  }
+
   function startSoloPick() {
     soloPick = true;
     paintModeButtons();   // the segment keeps showing Corporate group until they choose
@@ -1527,7 +1542,11 @@
     // A practice adding a second clinic IS a group. Promote them automatically
     // rather than making them find the "Corporate group" toggle first — the
     // per-clinic entity fields and group wording then appear on their own.
-    if (mode !== 'group') setMode('group');
+    // The promotion is PROVISIONAL though: if they back out without actually
+    // saving a second clinic, settleProvisionalGroup() puts them back to a
+    // single practice (see go(4)), so nobody is left labelled a corporate
+    // group with one clinic they never added to.
+    if (mode !== 'group') { setMode('group'); autoPromoted = true; }
     cur = freshCur(); editIdx = null;
     showCancel(saved.length > 0);
     addr.value = ''; addr.style.display = '';
@@ -1814,6 +1833,7 @@
       localStorage.setItem(STORE, JSON.stringify({
         token: token,
         saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
+        autoPromoted: autoPromoted,
         manual: !$('manual').classList.contains('hidden'),
         manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value, mState: $('state').value },
         addr: addr.value,
@@ -1844,6 +1864,7 @@
     mode = d.mode || 'solo';
     cur = d.cur && typeof d.cur === 'object' ? Object.assign(freshCur(), d.cur) : freshCur();
     editIdx = (d.editIdx === 0 || d.editIdx) ? d.editIdx : null;
+    autoPromoted = !!d.autoPromoted;
 
     paintCur();
     paintModeButtons();
@@ -1906,7 +1927,9 @@
       case 'go-4': go(4); break;
       case 'save-practice': savePrac(); break;
       case 'cancel-entry': cancelEntry(); break;
-      case 'set-mode': setMode(el.getAttribute('data-value')); break;
+      // Choosing from the segment is deliberate, so the group no longer needs
+      // to prove itself by gaining a second clinic.
+      case 'set-mode': autoPromoted = false; setMode(el.getAttribute('data-value')); break;
       case 'keep-only': keepOnly(Number(idx)); break;
       case 'cancel-solo-pick': cancelSoloPick(); break;
       case 'add-another': addAnother(); break;
