@@ -38046,10 +38046,11 @@ async function handleApi(req, res, pathname) {
 
       // Notifications are best-effort — a Resend outage must never turn an
       // otherwise-successful approve into a failed request for the practice.
-      // We keep THIS "times coming soon" email (rather than the accept flow's
-      // "secure your interview now" congrats) because at approve-time the
-      // practice has not yet supplied availability — the GP is nudged to book
-      // by the separate notify fired once they do (POST .../availability).
+      // This "times coming soon" email sits alongside the congrats email sent
+      // below — the practice has not yet supplied availability, so the GP is
+      // nudged to actually book once they do (POST .../availability), while
+      // the congrats email lets them start heading toward secure-interview
+      // right away (that page handles the no-slots-yet state gracefully).
       if (gpEmail) {
         sendEmail({
           to: gpEmail,
@@ -38073,6 +38074,13 @@ async function handleApi(req, res, pathname) {
           body: esc(practiceName) + ' approved ' + esc(gpName) + ' for ' + esc(roleTitle) + '. Awaiting the practice\'s interview availability.'
         })
       }).catch(function (err) { console.warn('[practice-decision] ops notify email failed:', err && err.message); });
+
+      // Owner (2026-07-23): congratulate the GP the moment they make it to the
+      // interview stage, with a booking deep-link — the availability email
+      // ("your times are ready") follows separately once the practice shares
+      // windows. Awaited: fire-and-forget gets dropped on Vercel.
+      try { await sendGpCongratsEmail(ctx && ctx.userId, String(appRow.id), practiceName); }
+      catch (cgErr) { console.warn('[practice-decision] GP congrats notify failed (ignored):', cgErr && cgErr.message); }
 
       sendJson(res, 200, { ok: true, decision: 'approved' });
       return;

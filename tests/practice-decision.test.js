@@ -36,7 +36,8 @@ const db = {
     { user_id: 'u-inject-6', email: 'inject@example.com', first_name: 'Inject', last_name: 'Test', registration_country: 'uk' },
     { user_id: 'u-e2e-7', email: 'e2e.booker@example.com', first_name: 'Endto', last_name: 'End', registration_country: 'uk' },
     { user_id: 'u-secured-8', email: 'secured.eight@example.com', first_name: 'Secured', last_name: 'Eight', registration_country: 'uk' },
-    { user_id: 'u-forward-9', email: 'forward.nine@example.com', first_name: 'Forward', last_name: 'Nine', registration_country: 'uk' }
+    { user_id: 'u-forward-9', email: 'forward.nine@example.com', first_name: 'Forward', last_name: 'Nine', registration_country: 'uk' },
+    { user_id: 'u-congrats-10', email: 'congrats.ten@example.com', first_name: 'Congrats', last_name: 'Ten', registration_country: 'uk' }
   ],
   user_state: [],
   career_roles: [
@@ -57,7 +58,8 @@ const db = {
     // through a different path (e.g. an admin/CEO action) BEFORE this stale
     // approve link is ever clicked — regression fixture for the forward-only
     // stage guard.
-    { id: 'app-tok-9', user_id: 'u-forward-9', career_role_id: 'role-1', status: 'applied', ats_stage: 'offer', practice_action_token: 'tok-test-forward9', applied_at: NOW }
+    { id: 'app-tok-9', user_id: 'u-forward-9', career_role_id: 'role-1', status: 'applied', ats_stage: 'offer', practice_action_token: 'tok-test-forward9', applied_at: NOW },
+    { id: 'app-tok-10', user_id: 'u-congrats-10', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-congrats10', applied_at: NOW }
   ],
   registration_cases: [],
   practices: [],
@@ -318,6 +320,36 @@ describe('POST /api/practice/application/decision — approve', () => {
     const opsEmail = resendCaptured.find((m) => m && m.to && [].concat(m.to).some((t) => String(t).includes('hello@mygplink.com.au')));
     expect(opsEmail).toBeTruthy();
     expect(opsEmail.subject).toContain('Practice approved');
+  });
+});
+
+// Owner (2026-07-23): the practice's approve click must also congratulate the
+// GP with a booking deep-link (sendGpCongratsEmail), separate from the
+// existing "would like to interview you" notice above. It is awaited by the
+// handler (unlike the other two best-effort emails), so it is guaranteed to
+// already be in resendCaptured by the time the HTTP response lands.
+describe('POST /api/practice/application/decision — approve sends the GP congrats/booking email', () => {
+  it('fresh approve sends exactly one congrats email with the secure-interview deep-link', async () => {
+    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-congrats10', action: 'approve' } });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, decision: 'approved' });
+
+    const congratsEmails = resendCaptured.filter((m) => m && m.to
+      && [].concat(m.to).includes('congrats.ten@example.com')
+      && m.subject && String(m.subject).includes('Congratulations'));
+    expect(congratsEmails.length).toBe(1);
+    expect(String(congratsEmails[0].html)).toContain('/pages/secure-interview?applicationId=');
+  });
+
+  it('repeat approve click on the same token does not send a second congrats email (idempotent short-circuit)', async () => {
+    const before = resendCaptured.filter((m) => m && m.to && [].concat(m.to).includes('congrats.ten@example.com')).length;
+
+    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-congrats10', action: 'approve' } });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, decision: 'approved', already: true });
+
+    const after = resendCaptured.filter((m) => m && m.to && [].concat(m.to).includes('congrats.ten@example.com')).length;
+    expect(after).toBe(before);
   });
 });
 
