@@ -907,6 +907,14 @@ describe('Task 5 — POST /api/career/offer/accept books the interview, never fa
   it('GP accepting the interview invitation redirects NOBODY; every other live GP is untouched', async () => {
     resetDb();
     const w = seedOfferWorld('oa');
+    // Owner rule (2026-07-23): a fresh accept requires a booked interview
+    // (booking is how the invitation is accepted). Seed one so this accept
+    // exercises the recovery path (booking landed, offer still 'sent').
+    tableOf('scheduled_calls').push({
+      id: 'oa-interview', application_id: w.winnerAppId, user_id: w.winnerId,
+      meeting_kind: 'interview', status: 'booked', scheduled_at: iso(NOW + 86400000),
+      zoom_join_url: 'https://zoom.example/oa', created_at: iso(NOW)
+    });
     resendCalls.length = 0;
 
     const r = await httpReq('POST', '/api/career/offer/accept', {

@@ -30,6 +30,10 @@ let sbServer, sbPort;
 
 const GP = { userId: 'u-int-gp-1', email: 'gp-interview@gplink-test.local' };
 const GP2 = { userId: 'u-int-gp-2', email: 'other-interview@gplink-test.local' };
+// Fresh GP (no prior bookings → clear of the 3/month interview cap) for the
+// "booking accepts the offer" flip test.
+const GP_OFF = { userId: 'u-int-gp-off', email: 'offer-interview@gplink-test.local' };
+const SUPER_EMAIL = 'super@gplink-test.local';
 const NOW = new Date().toISOString();
 
 const resendCalls = [];
@@ -37,11 +41,13 @@ const resendCalls = [];
 const db = {
   user_profiles: [
     { user_id: GP.userId, email: GP.email, first_name: 'Interview', last_name: 'Doctor', registration_country: 'uk' },
-    { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' }
+    { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
+    { user_id: GP_OFF.userId, email: GP_OFF.email, first_name: 'Offer', last_name: 'Doctor', registration_country: 'uk' }
   ],
   user_state: [],
   registration_cases: [
-    { id: 'case-int-1', user_id: GP.userId, status: 'active', assigned_rso: null, assigned_va: null }
+    { id: 'case-int-1', user_id: GP.userId, status: 'active', assigned_rso: null, assigned_va: null },
+    { id: 'case-int-off', user_id: GP_OFF.userId, status: 'active', assigned_rso: null, assigned_va: null }
   ],
   practices: [
     { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW },
@@ -84,6 +90,13 @@ const db = {
       id: 'role-int-nsw2', provider: 'internal_ats', provider_role_id: 'ats_int_rnsw2', title: 'General Practitioner — VR (second)',
       practice_name: 'Harbour Medical Group', practice_id: 'p-int-nsw', location_city: 'Newcastle', location_state: 'NSW',
       is_active: true, job_status: 'open', updated_at: NOW
+    },
+    // Booking-accepts-offer flip test: its own role (reveal is keyed on
+    // (user_id, role_id), so a fresh role keeps this GP's reveal independent).
+    {
+      id: 'role-int-offer', provider: 'internal_ats', provider_role_id: 'ats_int_roff', title: 'General Practitioner — VR',
+      practice_name: 'Greenslopes Family Medical', practice_id: 'p-int-1', location_city: 'Brisbane', location_state: 'QLD',
+      is_active: true, job_status: 'open', updated_at: NOW
     }
   ],
   gp_applications: [
@@ -98,9 +111,14 @@ const db = {
     // Viewer-tz feature: approved apps with practice_action_tokens so the
     // practice-decision availability endpoint can be exercised end-to-end.
     { id: 'app-int-nsw', user_id: GP.userId, career_role_id: 'role-int-nsw', provider_role_id: 'ats_int_rnsw', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved', practice_decision: 'approved', practice_action_token: 'tok-int-nsw-000000001' },
-    { id: 'app-int-nsw2', user_id: GP2.userId, career_role_id: 'role-int-nsw2', provider_role_id: 'ats_int_rnsw2', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved', practice_decision: 'approved', practice_action_token: 'tok-int-nsw-000000002' }
+    { id: 'app-int-nsw2', user_id: GP2.userId, career_role_id: 'role-int-nsw2', provider_role_id: 'ats_int_rnsw2', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved', practice_decision: 'approved', practice_action_token: 'tok-int-nsw-000000002' },
+    // Flip test: revealed offer-stage app with a live 'sent' in-app offer.
+    { id: 'app-int-offer', user_id: GP_OFF.userId, career_role_id: 'role-int-offer', provider_role_id: 'ats_int_roff', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: true, practice_submission_status: 'client_approved' }
   ],
-  ats_offers: [],
+  ats_offers: [
+    // The 'sent' offer that booking an interview must auto-accept.
+    { id: 'offer-int-offer', application_id: 'app-int-offer', user_id: GP_OFF.userId, career_role_id: 'role-int-offer', practice_id: 'p-int-1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
+  ],
   ats_stage_events: [],
   user_documents: [],
   integration_connections: [],
@@ -569,5 +587,52 @@ describe('viewer timezone: availability windows + booking labels', () => {
     const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw2' && c.meeting_kind === 'interview');
     expect(row.status).toBe('booked');
     expect(row.timezone == null).toBe(true); // invalid viewer_tz is never persisted
+  });
+});
+
+// Owner rule (2026-07-23): booking an interview time IS the acceptance. So when
+// the application still has a live 'sent' in-app offer, the booking flow must
+// auto-accept it — flip the offer to 'accepted' and mark the application
+// interview_scheduled — and quietly notify the consultant (offer sender) ONCE.
+describe('POST /api/career/interview/book — booking accepts the offer', () => {
+  const senderMail = () => resendCalls.filter((c) => (Array.isArray(c.body.to) ? c.body.to : [c.body.to]).some((t) => String(t || '').includes(SUPER_EMAIL)));
+
+  it('flips the sent offer → accepted and lands the application on interview_scheduled', async () => {
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-offer', GP_OFF);
+    expect(slotsRes.status).toBe(200);
+    expect(slotsRes.body.slots.length).toBeGreaterThan(0);
+    const slot = slotsRes.body.slots[0];
+
+    // Precondition: offer still 'sent'.
+    expect(db.ats_offers.find((o) => o.application_id === 'app-int-offer').status).toBe('sent');
+    const sendersBefore = senderMail().length;
+
+    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-offer', slot_start_utc: slot.startUtc }, GP_OFF);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.booked.scheduled_at).toBe(slot.startUtc);
+
+    // Booking IS the acceptance: offer → accepted (with a response timestamp).
+    const offer = db.ats_offers.find((o) => o.application_id === 'app-int-offer');
+    expect(offer.status).toBe('accepted');
+    expect(offer.responded_at).toBeTruthy();
+    // The application lands on interview_scheduled (forward-only status).
+    const app = db.gp_applications.find((a) => a.id === 'app-int-offer');
+    expect(app.status).toBe('interview_scheduled');
+    expect(app.ats_stage).toBe('interview');
+    // Exactly one quiet consultant note (the offer sender), on this transition.
+    expect(senderMail().length).toBe(sendersBefore + 1);
+    expect(String(senderMail().slice(-1)[0].body.subject).toLowerCase()).toContain('interview invitation');
+  });
+
+  it('re-booking is idempotent — no re-flip, no second consultant note', async () => {
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-offer' && c.meeting_kind === 'interview');
+    const sendersBefore = senderMail().length;
+    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-offer', slot_start_utc: row.scheduled_at }, GP_OFF);
+    expect(r.status).toBe(200);
+    expect(r.body.already).toBe(true);
+    // Offer stays accepted; the sent→accepted transition already fired the note.
+    expect(db.ats_offers.find((o) => o.application_id === 'app-int-offer').status).toBe('accepted');
+    expect(senderMail().length).toBe(sendersBefore);
   });
 });

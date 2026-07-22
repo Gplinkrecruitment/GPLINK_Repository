@@ -41,11 +41,19 @@ describe('job.html — offer mode wiring (Phase 2 Task 4)', () => {
     expect(html).toMatch(/loadRoleDetail\(roleId, 25000, \{ bypassCache: true \}\)/);
   });
 
-  it('wires accept + decline to the real endpoints with a decline confirm step', () => {
-    expect(html).toContain('/api/career/offer/accept');
+  it('primary CTA navigates to secure-interview (booking IS acceptance) — no accept POST — decline still posts', () => {
+    // Owner rule (2026-07-23): the GP accepts the invitation by booking an
+    // interview time, so job.html no longer POSTs /api/career/offer/accept — the
+    // primary offer CTA links to the scheduler and the server auto-accepts on
+    // booking. Decline is unchanged.
+    expect(html).not.toContain('/api/career/offer/accept');
+    expect(html).toContain('data-offer-choose-time');
+    expect(html).toContain('/pages/secure-interview?applicationId=');
+    // Shell-aware navigation (postMessage gp-shell-route when embedded).
+    expect(html).toContain('gp-shell-route');
+    // Decline still goes through a real POST behind a confirm sheet with an
+    // irreversible tone + the Registration Support Officer to talk to first.
     expect(html).toContain('/api/career/offer/decline');
-    // Decline goes through a confirm sheet with irreversible tone + the
-    // Registration Support Officer as the person to talk to first.
     expect(html).toContain('declineOverlay');
     expect(html).toContain("This can't be undone");
     expect(html).toMatch(/renegotiate[\s\S]{0,120}talking to them first/);

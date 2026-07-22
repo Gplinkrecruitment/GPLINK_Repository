@@ -1527,7 +1527,6 @@
   let offerSelectedDayKey = null;
   let offerSelectedSlotUtc = null;
   let offerPendingSlot = null;      // slot shown in the booking confirm sheet
-  let offerAccepting = false;
   let offerDeclining = false;
 
   /* ── Get role ID from URL ── */
@@ -2322,13 +2321,12 @@
            ? "Your video interview is locked in — your Registration Support Officer joins you on the call."
            : "Choose a time below and we'll set up a video interview with the practice and your Registration Support Officer."))
       : ("Great news — the practice reviewed your profile and wants to meet. " +
-         "Review the offer terms below; accepting unlocks the practice identity and lets you schedule the interview. " +
+         "Review the offer terms below, then choose your interview time — booking a slot accepts the invitation and unlocks the practice identity. " +
          "Your Registration Support Officer negotiated these terms for you.");
     const chip = booked ? "Interview confirmed" : (accepted ? "Pick a time below" : "Please respond within 5 days");
     const actions = accepted ? "" :
       '<div class="at-offer-actions">' +
-        '<button class="at-offer-accept" type="button" data-offer-accept' + (offerAccepting ? " disabled" : "") + '>' +
-          (offerAccepting ? "Accepting…" : "Accept offer") + '</button>' +
+        '<button class="at-offer-accept" type="button" data-offer-choose-time>Choose interview time</button>' +
         '<button class="at-offer-decline" type="button" data-offer-decline' + (offerDeclining ? " disabled" : "") + '>Decline</button>' +
       '</div>';
     return '<section class="at-offerbanner at-rv at-rv1">' +
@@ -2586,59 +2584,21 @@
     }
   }
 
-  /* ── Accept / decline — server is the source of truth ── */
-  async function refreshOfferState() {
-    const [freshRole, offerData] = await Promise.all([
-      loadRoleDetail(pageRoleId, 25000, { bypassCache: true }),
-      loadMyOffer()
-    ]);
-    if (offerData && offerTargetsRole(offerData, pageRoleId)) {
-      offerContext = offerData;
-      offerBookedInterview = offerData.bookedInterview || null;
-      const merged = mergeRoleData(currentRole, freshRole || {});
-      renderRole(merged, { mode: "offer" });
-      if (isOfferAccepted() && !getBookedInterview() && offerContext.interviewBookable) {
-        loadOfferSlots();
-      }
-    } else if (freshRole) {
-      offerContext = null;
-      renderRole(mergeRoleData(currentRole, freshRole), { mode: "standard" });
-    }
-  }
-
-  async function acceptOffer() {
-    if (!offerContext || offerAccepting) return;
-    offerAccepting = true;
-    renderOfferBody(currentRole);
-    try {
-      const res = await fetch("/api/career/offer/accept", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId: offerContext.applicationId })
-      });
-      const data = await res.json().catch(() => null);
-      offerAccepting = false;
-      if (res.status === 401) {
-        redirectToSignIn();
+  /* ── Choose interview time — booking IS the acceptance ──
+     Owner rule (2026-07-23): the GP accepts the invitation by locking in an
+     interview slot, so the primary offer CTA navigates to the scheduler rather
+     than POSTing an accept. Shell-aware (postMessage gp-shell-route when embedded
+     in the app shell, per CLAUDE.md), with a plain-navigation fallback. */
+  function goToSecureInterview() {
+    if (!offerContext || !offerContext.applicationId) return;
+    const href = "/pages/secure-interview?applicationId=" + encodeURIComponent(offerContext.applicationId);
+    if (window.parent !== window && window.parent && typeof window.parent.postMessage === "function") {
+      try {
+        window.parent.postMessage({ type: "gp-shell-route", href: href, title: "Secure your interview" }, window.location.origin);
         return;
-      }
-      if (res.ok && data && data.ok) {
-        // Celebratory moment, then re-fetch detail + my-offer so the reveal
-        // comes from the server — never assumed client-side.
-        launchConfetti();
-        showToast("Invitation accepted — now pick your interview time");
-        await refreshOfferState();
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        return;
-      }
-      renderOfferBody(currentRole);
-      showToast((data && data.message) || "That didn’t go through — please try again.");
-    } catch (err) {
-      offerAccepting = false;
-      renderOfferBody(currentRole);
-      showToast("Network error — please try again.");
+      } catch (err) { /* fall through to direct navigation */ }
     }
+    window.location.href = href;
   }
 
   function openDeclineConfirm() {
@@ -2760,7 +2720,7 @@
       applyBtnEl.disabled = false;
       if (!isOfferAccepted()) {
         applyBtnEl.className = "at-bapply at-bapply--offer";
-        applyBtnEl.innerHTML = "Respond to your offer<small>Accept to unlock the practice &amp; schedule your interview</small>";
+        applyBtnEl.innerHTML = "Respond to your offer<small>Book your interview time to unlock the practice &amp; meet the team</small>";
       } else if (booked) {
         applyBtnEl.className = "at-bapply at-bapply--offer at-bapply--done";
         applyBtnEl.innerHTML = "✓ Interview booked<small>" + escapeHtml(formatBookedLabel(booked.scheduled_at)) + "</small>";
@@ -3110,7 +3070,7 @@
   // Offer-mode controls (banner actions + scheduler) — event delegation, the
   // scheduler re-renders its own innerHTML on every state change.
   dbodyEl.addEventListener("click", (event) => {
-    if (event.target.closest("[data-offer-accept]")) { acceptOffer(); return; }
+    if (event.target.closest("[data-offer-choose-time]")) { goToSecureInterview(); return; }
     if (event.target.closest("[data-offer-decline]")) { openDeclineConfirm(); return; }
     const retryLink = event.target.closest("[data-offer-retry]");
     if (retryLink) {

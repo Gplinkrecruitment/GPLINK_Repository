@@ -40156,6 +40156,31 @@ async function handleApi(req, res, pathname) {
     // (forward-only — a card already at/past interview is left where it is),
     // sets gp_applications.status = 'interview', and notifies (once, on the
     // fresh accept only) the GP + the offer sender.
+
+    // Owner rule (2026-07-23): booking an interview time IS the acceptance. A
+    // FRESH accept (NOT a resume) must therefore be backed by a real booked (or
+    // completed) interview for this application — the GP accepts by locking in a
+    // slot, never by a bare "Accept" tap. The resume path (offer already
+    // 'accepted') is exempt: the slot was booked when the offer first flipped
+    // (the booking flow auto-accepts), and this call only replays the idempotent
+    // downstream writes.
+    if (!acceptIsResume) {
+      var acceptHasBooking = false;
+      if (isSupabaseDbConfigured()) {
+        var acceptBookRes = await supabaseDbRequest('scheduled_calls',
+          'select=id&meeting_kind=eq.interview&application_id=eq.' + encodeURIComponent(String(acceptTargetApp.id)) + '&status=in.(booked,completed)&limit=1');
+        acceptHasBooking = !!(acceptBookRes.ok && Array.isArray(acceptBookRes.data) && acceptBookRes.data[0]);
+      } else {
+        acceptHasBooking = (dbState.scheduledCalls || []).some(function (r) {
+          return r && r.meeting_kind === 'interview' && String(r.application_id) === String(acceptTargetApp.id) && (r.status === 'booked' || r.status === 'completed');
+        });
+      }
+      if (!acceptHasBooking) {
+        sendJson(res, 409, { ok: false, code: 'book_first', message: 'Pick your interview time first — booking the interview is how you accept the invitation.' });
+        return;
+      }
+    }
+
     var acceptNowIso = new Date().toISOString();
     var acceptedOffer = acceptIsResume
       ? acceptOffer
@@ -66423,6 +66448,47 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     // No gcalDeleteEvent helper exists — a GCal event created before a later
     // failure cannot be cleaned up here yet.
     throw bookErr;
+  }
+
+  // ── Booking IS acceptance (owner rule 2026-07-23) ──────────────────────────
+  // If this application still has a live in-app offer in the 'sent' state,
+  // locking a slot accepts the interview invitation: flip the offer to
+  // 'accepted' and mark the application interview_scheduled. Entirely
+  // best-effort and guarded — the booking above already succeeded and must
+  // NEVER be undone because this follow-up failed; the '[book-accept]' tag makes
+  // the (rare) failure greppable. The GP confirmation + calendar/Zoom emails are
+  // sent by the notify block below, so the ONLY extra notify here is one quiet
+  // consultant note, fired once on the sent→accepted transition (a re-book finds
+  // an already-'accepted' offer and skips this whole block).
+  try {
+    var baAppId = (appCtx && appCtx.app) ? String(appCtx.app.id) : '';
+    if (baAppId) {
+      var baOffer = await atsOffersStore.getAtsOfferByApplication(baAppId);
+      var baStatus = baOffer ? String(baOffer.status || '').trim().toLowerCase() : '';
+      if (baOffer && baStatus === 'sent') {
+        var baNowIso = atsNowIso();
+        var baAccepted = (await atsOffersStore.updateAtsOfferStatus(baAppId, 'accepted', { responded_at: baNowIso }))
+          || Object.assign({}, baOffer, { status: 'accepted', responded_at: baNowIso });
+        // Forward-only status write: an interview is now scheduled. Never touch a
+        // terminal/secured row (belt-and-braces — a 'sent' offer already implies
+        // the placement isn't secured yet).
+        var baCurStatus = String((appCtx.app && appCtx.app.status) || '').trim().toLowerCase();
+        var baTerminal = ['placement_secured', 'hired', 'withdrawn', 'rejected', 'not_proceeding', 'declined'].indexOf(baCurStatus) !== -1;
+        if (!baTerminal && baCurStatus !== 'interview_scheduled') {
+          if (isSupabaseDbConfigured()) {
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(baAppId), {
+              method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { status: 'interview_scheduled', updated_at: baNowIso }
+            });
+          } else if (appCtx.app) {
+            appCtx.app.status = 'interview_scheduled'; appCtx.app.updated_at = baNowIso; saveDbState();
+          }
+        }
+        try { await notifyOfferSenderOfDecision(baAccepted, 'accepted', { interviewInvitation: true }); }
+        catch (notifyErr) { console.error('[book-accept] consultant notify failed:', notifyErr && notifyErr.message); }
+      }
+    }
+  } catch (baErr) {
+    console.error('[book-accept] offer auto-accept failed (booking kept):', baErr && baErr.message);
   }
 
   // Notify GP + practice — best-effort, must not throw past the caller's response.

@@ -44,10 +44,23 @@ describe('offer-review.html — post-accept interview path (G1 + G3)', () => {
     expect(offerHtml).toMatch(/postAcceptInterviewBtn[\s\S]*?\/pages\/secure-interview\?applicationId=/);
   });
 
-  it('re-fetches /api/career/my-offer after a successful accept', () => {
-    expect(offerHtml).toContain('function refreshPostAcceptInterview');
-    expect(offerHtml).toContain('refreshPostAcceptInterview();');
-    expect(offerHtml).toMatch(/refreshPostAcceptInterview[\s\S]*?\/api\/career\/my-offer/);
+  it('renders the post-accept interview state from the server my-offer payload (no client accept re-fetch)', () => {
+    // Owner rule (2026-07-23): booking an interview time IS the acceptance, so
+    // offer-review no longer POSTs /api/career/offer/accept and no longer
+    // re-fetches after a client accept. The celebration panel is populated from
+    // the my-offer payload on load whenever the server reports the offer accepted.
+    expect(offerHtml).toContain('function renderPostAcceptInterview');
+    expect(offerHtml).toContain('renderPostAcceptInterview(data);');
+    expect(offerHtml).toMatch(/my-offer[\s\S]*?renderOffer\(data\)/);
+  });
+
+  it('the invitation-state CTA links to secure-interview (booking IS acceptance) — no accept POST', () => {
+    // The primary "Your Decision" CTA is a plain link to the scheduler; there is
+    // no /api/career/offer/accept call anywhere on the page. Decline still posts.
+    expect(offerHtml).not.toContain('/api/career/offer/accept');
+    expect(offerHtml).toContain('id="chooseInterviewTimeBtn"');
+    expect(offerHtml).toMatch(/chooseInterviewTimeBtn[\s\S]*?\/pages\/secure-interview\?applicationId=/);
+    expect(offerHtml).toContain('/api/career/offer/decline');
   });
 
   it('guards the booked Zoom link to https only', () => {

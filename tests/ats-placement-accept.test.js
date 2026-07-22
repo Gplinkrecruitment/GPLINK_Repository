@@ -150,6 +150,10 @@ const db = {
     { id: 'offer-app-staff', application_id: 'app-staff', user_id: GP3.userId, career_role_id: 'role-1', practice_id: 'p1', job_title: 'General Practitioner — VR', practice_name: 'Greenslopes Family Medical', billing_split: '65 / 35', sessions_per_week: '6', compensation_range: '$300k+ estimated', start_date: '2026-10-01', status: 'sent', sent_by: SUPER_EMAIL, sent_at: NOW, created_at: NOW }
   ],
   ats_stage_events: [],
+  // Booking an interview IS the acceptance (owner rule 2026-07-23): a fresh
+  // /api/career/offer/accept now REQUIRES a booked (or completed) interview for
+  // the application. Seeded per-test below for the fresh-accept fixtures.
+  scheduled_calls: [],
   registration_tasks: [],
   task_timeline: [],
   placements: [
@@ -451,8 +455,36 @@ describe('offer_contract download fix', () => {
 // state secured write, and no "placement is secured"/"placement confirmed"
 // emails. The heavy placement machinery (finalizeInAppPlacement) now belongs
 // solely to the staff paths (see the staff-placement suite below).
+// Seeds a booked interview row so the accept endpoint's book-first guard is
+// satisfied. Booking is normally what auto-accepts the offer, so a fresh accept
+// with a pre-seeded booking exercises the RECOVERY path (a booking landed but
+// the best-effort offer flip didn't fire) — the accept still flips 'sent' →
+// 'accepted'.
+function seedBookedInterview(appId, userId) {
+  db.scheduled_calls.push({
+    id: 'sc-' + appId, application_id: appId, user_id: userId,
+    meeting_kind: 'interview', status: 'booked', scheduled_at: NOW,
+    zoom_join_url: 'https://zoom.example/' + appId, created_at: NOW
+  });
+}
+
 describe('POST /api/career/offer/accept — books the interview (never a placement)', () => {
-  it('accepts the interview invitation with no placement side-effects', async () => {
+  it('a fresh accept with NO booked interview is refused (409 book_first, zero writes)', async () => {
+    const appBefore = JSON.stringify(db.gp_applications.find((a) => a.id === 'app-1'));
+    const offerBefore = JSON.stringify(db.ats_offers.find((o) => o.application_id === 'app-1'));
+    const sendersBefore = senderEmails().length;
+    const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-1' });
+    expect(r.status).toBe(409);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.code).toBe('book_first');
+    // Zero writes: neither the application row nor the offer moved, no email.
+    expect(JSON.stringify(db.gp_applications.find((a) => a.id === 'app-1'))).toBe(appBefore);
+    expect(JSON.stringify(db.ats_offers.find((o) => o.application_id === 'app-1'))).toBe(offerBefore);
+    expect(senderEmails().length).toBe(sendersBefore);
+  });
+
+  it('accepts the interview invitation with no placement side-effects (once a slot is booked)', async () => {
+    seedBookedInterview('app-1', GP.userId); // booking is how the invitation is accepted
     const sendersBefore = senderEmails().length;
     const placementsBefore = db.placements.length;
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-1' });
@@ -719,6 +751,7 @@ describe('POST /api/career/offer/accept — repeat on an already-accepted offer'
 // ── 4d. No-applicationId fallback still picks the offer-lane application ───
 describe('POST /api/career/offer/accept — no applicationId in the body', () => {
   it('books the interview on the (single) offer-lane application', async () => {
+    seedBookedInterview('app-10', GP5.userId); // booking satisfies the book-first guard
     const sendersBefore = senderEmails().length;
     const r = await gpPost('/api/career/offer/accept', {}, GP5);
     expect(r.status).toBe(200);
@@ -765,6 +798,7 @@ describe('POST /api/ats/placement — staff path still finalizes the placement',
 describe('placements migration not applied — accept has no placements dependency', () => {
   it('accept still books the interview even when the placements table is absent', async () => {
     simulateMissingPlacements = true;
+    seedBookedInterview('app-6', GP3.userId); // book-first guard (queries scheduled_calls, not placements)
     const r = await gpPost('/api/career/offer/accept', { applicationId: 'app-6' }, GP3);
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);

@@ -280,6 +280,14 @@ describe('G6 — GP told the interview is confirmed on in-app self-accept', () =
   const interviewConfirm = () => gpEmails((s) => /interview confirmed/i.test(s));
 
   it('accepts the interview invitation and emails the GP once — never a placement', async () => {
+    // Owner rule (2026-07-23): a fresh accept now requires a booked interview
+    // (booking is how the invitation is accepted). Seed one so this accept
+    // exercises the recovery path (booking landed, offer still 'sent').
+    db.scheduled_calls.push({
+      id: 'sc-gap-1', application_id: 'app-gap-1', user_id: GP.userId,
+      meeting_kind: 'interview', status: 'booked', scheduled_at: NOW,
+      zoom_join_url: 'https://zoom.example/app-gap-1', created_at: NOW
+    });
     const beforeInterview = interviewConfirm().length;
     const beforeSecured = secured().length;
     const beforePractice = practiceConfirm().length;
