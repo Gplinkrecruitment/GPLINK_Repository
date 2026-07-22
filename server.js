@@ -31457,6 +31457,92 @@ async function sendGpCongratsEmail(userId, applicationId, practiceName) {
   ]);
 }
 
+// Owner (2026-07-23): the GP's congratulations-and-book email must fire EXACTLY
+// once per application — at the first moment BOTH the practice's approval AND
+// their interview availability exist — so the doctor can book straight from the
+// email. Every path that could complete that pair calls this (the practice
+// approve endpoint, the availability endpoint, and the two staff-accept paths);
+// each call is a quiet no-op until all conditions hold. The one-shot
+// gp_applications.booking_invite_sent_at stamp (written BEFORE the send, rolled
+// back on a hard send failure — mirrors sendPostInterviewDecisionEmail)
+// guarantees a single send under any call ordering. Never throws; returns
+// { ok:true } when it sent, else { ok:false, skipped:<reason> }.
+async function maybeSendInterviewBookingInvite(applicationId) {
+  var id = String(applicationId || '').trim();
+  if (!id) return { ok: false, skipped: 'missing_application_id' };
+
+  var ctx = null;
+  try { ctx = await atsGetApplicationContext(id); } catch (e) { ctx = null; }
+  var app = ctx && ctx.app;
+  if (!app) return { ok: false, skipped: 'application_not_found' };
+
+  // Interview-stage only — never a terminal (withdrawn/secured) or a
+  // pre-interview application. 'interview_scheduled' is included for the race
+  // where the GP books the very instant this is computed.
+  var statusKey = normalizeCareerApplicationStatusKey(app.status);
+  if (statusKey !== 'interview' && statusKey !== 'interview_scheduled') {
+    return { ok: false, skipped: 'not_interview_stage' };
+  }
+  // One-shot: already sent (or a concurrent caller stamped it first).
+  if (app.booking_invite_sent_at) return { ok: false, skipped: 'already_sent' };
+  // Identity must be revealed (my-offer + booking surface unmasked) before we
+  // send a congratulations that names the practice.
+  if (app.revealed !== true) return { ok: false, skipped: 'not_revealed' };
+
+  // The practice's interview availability must actually exist — resolve the
+  // interview row exactly the way POST .../availability resolves interviewRef
+  // (findInterviewForApplication → full row) and require non-empty windows.
+  var interviewRef = await findInterviewForApplication(id);
+  if (!interviewRef) return { ok: false, skipped: 'no_interview_row' };
+  var fullRow = await resolveFullInterviewRow(interviewRef);
+  var windows = fullRow && fullRow.practice_availability_windows;
+  if (!Array.isArray(windows) || windows.length < 1) return { ok: false, skipped: 'no_windows' };
+
+  var practiceName = (ctx && ctx.practiceName) || app.practice_name || '';
+
+  // Write-then-send: stamp FIRST so a concurrent caller short-circuits on
+  // 'already_sent', then NULL it back if the congrats send genuinely throws.
+  var stampIso = new Date().toISOString();
+  var stamped = await patchApplicationDecisionFields(id, { booking_invite_sent_at: stampIso, updated_at: stampIso });
+  if (!stamped) return { ok: false, skipped: 'stamp_failed' };
+
+  try {
+    await sendGpCongratsEmail(ctx && ctx.userId, id, practiceName);
+  } catch (sendErr) {
+    console.warn('[booking-invite] congrats send failed, rolling back stamp for app', id, ':', sendErr && sendErr.message);
+    await patchApplicationDecisionFields(id, { booking_invite_sent_at: null }).catch(function () {});
+    return { ok: false, skipped: 'send_failed' };
+  }
+
+  // WhatsApp nudge — moved here from the availability handler so it fires
+  // exactly once (alongside the email), and is best-effort: a failure never
+  // rolls back the stamp (the email is the primary channel). Same build as the
+  // old availability block: phone from user_profiles + a one-tap slot deep link.
+  try {
+    var waUserId = ctx && ctx.userId;
+    if (waUserId && isSupabaseDbConfigured() && process.env.DOUBLETICK_API_KEY) {
+      var waRes = await supabaseDbRequest('user_profiles', 'select=phone,first_name&user_id=eq.' + encodeURIComponent(waUserId) + '&limit=1');
+      var waRow = (waRes.ok && Array.isArray(waRes.data) && waRes.data[0]) ? waRes.data[0] : null;
+      if (waRow && waRow.phone) {
+        var dtPhone = normalizePhone(waRow.phone);
+        if (dtPhone) {
+          var waFirst = waRow.first_name || 'there';
+          var waSecureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(id);
+          var waMsg = 'Hi ' + waFirst + ', your interview times are ready to choose — pick a slot here: ' + waSecureUrl;
+          fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: dtPhone, body: waMsg }),
+            signal: AbortSignal.timeout(10000)
+          }).catch(function (e) { console.warn('[booking-invite] GP WA notify failed (ignored):', e && e.message); });
+        }
+      }
+    }
+  } catch (waErr) { console.warn('[booking-invite] WA nudge error (ignored):', waErr && waErr.message); }
+
+  return { ok: true };
+}
+
 // G6: congratulate the GP on their OWN in-app acceptance (self-accept via
 // POST /api/career/offer/accept). Identity is already revealed once the offer
 // is accepted, so the real practice name is fine here. Mirrors the
@@ -32354,6 +32440,48 @@ function validatePracticeAvailabilityWindows(windows) {
     if (w.fromMin < 0 || w.toMin <= w.fromMin || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
   }
   return null;
+}
+
+// Canonicalize + persist a practice's availability windows onto the interview
+// scheduled_calls row. Shared by POST .../decision (approve) and
+// POST .../availability so BOTH endpoints store windows identically — same
+// viewer_tz validation/handling, same canonical {date,fromMin,toMin[,tz]} shape
+// (extra request keys stripped), same 'received' status + received_at stamp.
+// Returns { ok:true, count } on success, { ok:false } on a failed DB write.
+async function savePracticeAvailabilityWindows(interviewRef, windows, viewerTz) {
+  if (!interviewRef) return { ok: false };
+  // The submitting contact's browser timezone. Validated hard (shape regex +
+  // Intl probe) and silently dropped when invalid, so a tampered value can
+  // never poison the scheduler. When valid it is stored WITH each window (inside
+  // the same JSONB) and the scheduler interprets the wall-clock windows in THAT
+  // tz instead of the state guess.
+  var availViewerTz = interviewMeetings.sanitizeViewerTz(viewerTz);
+  // Store ONLY the canonical scheduler shape — never persist extra keys that
+  // rode in on the public request body (they would land verbatim in
+  // scheduled_calls and could confuse the slot builder downstream). The tz key
+  // is server-validated above, NOT a client passthrough.
+  var canonicalWindows = (Array.isArray(windows) ? windows : []).map(function (w) {
+    var cw = { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
+    if (availViewerTz) cw.tz = availViewerTz;
+    return cw;
+  });
+  var nowIso = new Date().toISOString();
+  var patch = {
+    practice_availability_windows: canonicalWindows,
+    practice_availability_status: 'received',
+    practice_availability_received_at: nowIso,
+    updated_at: nowIso
+  };
+  if (isSupabaseDbConfigured()) {
+    var availWriteRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(interviewRef.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+    if (!availWriteRes || !availWriteRes.ok) return { ok: false };
+  } else {
+    Object.assign(interviewRef, patch);
+    saveDbState();
+  }
+  return { ok: true, count: canonicalWindows.length };
 }
 
 // Best-effort practice email send.  A missing transport, empty address, or any
@@ -38005,6 +38133,18 @@ async function handleApi(req, res, pathname) {
         return;
       }
 
+      // Owner (2026-07-23): approving now REQUIRES the practice's interview
+      // availability in the SAME request — the GP's congratulations-and-book
+      // email fires ONLY once times exist, so the doctor can book straight from
+      // it. FRESH path only; the already-approved short-circuits above
+      // deliberately never demand windows (a stale replay stays a quiet no-op).
+      const approveWindows = body && body.windows;
+      const approveWindowsError = validatePracticeAvailabilityWindows(approveWindows);
+      if (approveWindowsError) {
+        sendJson(res, 400, { ok: false, code: 'windows_required', message: 'Please choose at least one interview time window before approving.' });
+        return;
+      }
+
       const ctx = await atsGetApplicationContext(appRow.id);
 
       // The practice approving IS their acceptance of this candidate — reveal
@@ -38037,7 +38177,14 @@ async function handleApi(req, res, pathname) {
       if (stageTarget) {
         await atsUpdateApplicationStageRow(appRow.id, stageTarget, undefined, 'practice_approve');
       }
-      await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+      const approveInterviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
+      if (!approveInterviewRef) { sendJson(res, 502, { ok: false, message: 'Could not resolve the interview row.' }); return; }
+      // Persist the practice's chosen times onto the interview row EXACTLY the
+      // way POST .../availability does (shared helper — same canonical shape +
+      // viewer_tz handling), so the congrats-and-book email below has real
+      // slots to deep-link to.
+      const approveSaveWin = await savePracticeAvailabilityWindows(approveInterviewRef, approveWindows, body && body.viewer_tz);
+      if (!approveSaveWin.ok) { sendJson(res, 502, { ok: false, message: 'Could not save your interview times — please try again.' }); return; }
 
       const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
       const practiceName = (ctx && ctx.practiceName) || '';
@@ -38045,26 +38192,25 @@ async function handleApi(req, res, pathname) {
 
       // Notifications are best-effort — a Resend outage must never turn an
       // otherwise-successful approve into a failed request for the practice.
-      // Ops gets a status email here; the GP gets a single congratulatory
-      // booking email below (via sendGpCongratsEmail) with a deep-link to the
-      // secure-interview page — that page handles the no-slots-yet state
-      // gracefully if the practice hasn't supplied availability yet.
+      // Ops gets a status email here; the GP gets the single congratulatory
+      // booking email below (via maybeSendInterviewBookingInvite) with a
+      // deep-link to the secure-interview page — the practice's times are now
+      // on file, so the doctor can book straight from that email.
       sendEmail({
         to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
-        subject: 'Practice approved ' + gpName + ', awaiting their interview times',
+        subject: 'Practice approved ' + gpName + ' and shared interview times',
         from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
         html: buildCareerEmailHtml({
           title: 'Practice approved a candidate',
-          body: esc(practiceName) + ' approved ' + esc(gpName) + ' for ' + esc(roleTitle) + '. Awaiting the practice\'s interview availability.'
+          body: esc(practiceName) + ' approved ' + esc(gpName) + ' for ' + esc(roleTitle) + ' and shared their interview availability. ' + esc(gpName) + ' can book straight from their congratulations email.'
         })
       }).catch(function (err) { console.warn('[practice-decision] ops notify email failed:', err && err.message); });
 
-      // Owner (2026-07-23): congratulate the GP the moment they make it to the
-      // interview stage, with a booking deep-link — the availability email
-      // ("your times are ready") follows separately once the practice shares
-      // windows. Awaited: fire-and-forget gets dropped on Vercel.
-      try { await sendGpCongratsEmail(ctx && ctx.userId, String(appRow.id), practiceName); }
-      catch (cgErr) { console.warn('[practice-decision] GP congrats notify failed (ignored):', cgErr && cgErr.message); }
+      // Owner (2026-07-23): approval + times both exist now → fire the single
+      // congratulations-and-book email (deep-linked to the slot picker) exactly
+      // once. Guarded/awaited (fire-and-forget gets dropped on Vercel's freeze).
+      try { await maybeSendInterviewBookingInvite(String(appRow.id)); }
+      catch (cgErr) { console.warn('[practice-decision] booking invite failed (ignored):', cgErr && cgErr.message); }
 
       sendJson(res, 200, { ok: true, decision: 'approved' });
       return;
@@ -38138,90 +38284,24 @@ async function handleApi(req, res, pathname) {
     const interviewRef = await ensureInterviewRowForApplication(appRow.id, ctx, 'practice_decision');
     if (!interviewRef) { sendJson(res, 502, { ok: false, message: 'Could not resolve the interview row.' }); return; }
 
-    const nowIso = new Date().toISOString();
-    // The submitting contact's browser timezone (viewer_tz, from
-    // Intl.DateTimeFormat().resolvedOptions().timeZone on the decision page).
-    // Validated hard — shape regex + Intl probe — and silently dropped when
-    // invalid, so a tampered value can never poison the scheduler. When valid
-    // it is stored WITH each window (inside the same JSONB) and the scheduler
-    // interprets the wall-clock windows in THAT tz instead of the state guess.
-    const availViewerTz = interviewMeetings.sanitizeViewerTz(body && body.viewer_tz);
-    // Store ONLY the canonical scheduler shape — never persist extra keys that
-    // rode in on the public request body (they would land verbatim in
-    // scheduled_calls and could confuse the slot builder downstream). The tz
-    // key is server-validated above, NOT a client passthrough.
-    const canonicalWindows = windows.map(function (w) {
-      var cw = { date: w.date, fromMin: w.fromMin, toMin: w.toMin };
-      if (availViewerTz) cw.tz = availViewerTz;
-      return cw;
-    });
-    const patch = {
-      practice_availability_windows: canonicalWindows,
-      practice_availability_status: 'received',
-      practice_availability_received_at: nowIso,
-      updated_at: nowIso
-    };
-    if (isSupabaseDbConfigured()) {
-      const availWriteRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(interviewRef.id), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
-      });
-      // The whole point of this endpoint is to persist the practice's times —
-      // if that write failed, tell the practice so they retry, and do NOT fire
-      // the GP "your slots are ready" notify off an unsaved availability.
-      if (!availWriteRes || !availWriteRes.ok) {
-        sendJson(res, 502, { ok: false, message: 'Something went wrong saving your times — please try again.' });
-        return;
-      }
-    } else {
-      Object.assign(interviewRef, patch);
-      saveDbState();
+    // Persist via the shared helper (same canonical shape + viewer_tz handling
+    // as the approve path). The whole point of this endpoint is to save the
+    // practice's times — if that write failed, tell them so they retry, and do
+    // NOT fire any GP notify off an unsaved availability.
+    const availSaveWin = await savePracticeAvailabilityWindows(interviewRef, windows, body && body.viewer_tz);
+    if (!availSaveWin.ok) {
+      sendJson(res, 502, { ok: false, message: 'Something went wrong saving your times — please try again.' });
+      return;
     }
 
-    // Notify the GP — best-effort, mirrors ingestPracticeAvailabilityReply's
-    // step-4 notify block (WhatsApp + email "your interview times are ready").
-    (async () => {
-      try {
-        const gpUserId = ctx && ctx.userId;
-        if (!gpUserId || !isSupabaseDbConfigured()) return;
-        const pRes = await supabaseDbRequest('user_profiles', 'select=phone,email,first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
-        const pRow = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
-        if (!pRow) return;
-        const firstName = pRow.first_name || 'there';
-        // appRow.id is the gp_applications PK the practice token resolved to —
-        // and exactly the id /api/career/interview/slots expects. (interviewRef
-        // here only carries {id,status}, and atsGetApplicationContext exposes no
-        // applicationId key, so both of those resolve to '' — use appRow.id.)
-        const gpAppId = String((appRow && appRow.id) || (ctx && ctx.app && ctx.app.id) || '');
-        const secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(gpAppId);
-        // Carry the deep link in the WhatsApp copy so "pick a slot" is one tap.
-        const notifyMsg = 'Hi ' + firstName + ', your interview times are ready to choose — pick a slot here: ' + secureUrl;
-        if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
-          const dtPhone = normalizePhone(pRow.phone);
-          if (dtPhone) {
-            fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-              method: 'POST',
-              headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
-              signal: AbortSignal.timeout(10000)
-            }).catch((e) => console.warn('[practice-decision] GP WA notify failed (ignored):', e && e.message));
-          }
-        }
-        // Email gets a real CTA button (buildCareerEmailHtml) that deep-links to
-        // the slot picker, instead of the old bare-text "open the app" line.
-        if (isEmailConfigured()) {
-          sendGpNotificationEmail(gpUserId,
-            'Your interview slots are ready',
-            'Your interview times are ready, {{name}}',
-            'The practice has shared when they can meet. Tap below to choose the time that suits you, your Registration Support Officer joins you, so you are never in the room alone.',
-            'Choose your interview time',
-            secureUrl,
-            'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
-          ).catch((e) => console.warn('[practice-decision] GP email notify failed (ignored):', e && e.message));
-        }
-      } catch (notifyErr) {
-        console.warn('[practice-decision] availability notify error (ignored):', notifyErr && notifyErr.message);
-      }
-    })();
+    // Fire the single GP congratulations-and-book notification (email + push +
+    // in-app + WhatsApp) — but only at the first moment approval AND times both
+    // exist, so this also covers the staff-accept-first-then-times-later
+    // ordering. It silently no-ops on a re-submission (booking_invite_sent_at
+    // already set from the approve moment), so "add more times" never re-emails.
+    // Awaited (Vercel freeze-after-response would drop a fire-and-forget).
+    try { await maybeSendInterviewBookingInvite(String(appRow.id)); }
+    catch (notifyErr) { console.warn('[practice-decision] availability booking invite failed (ignored):', notifyErr && notifyErr.message); }
 
     sendJson(res, 200, { ok: true, windowsSaved: Array.isArray(windows) ? windows.length : 0 });
     return;
@@ -63642,8 +63722,11 @@ Return ONLY valid JSON with no markdown formatting:
       notes: 'Admin placed this GP with the practice'
     });
     if (!aaOfferSaved) console.error('[ats admin apply] could not save the auto-offer for application', aaCreated.id);
-    await sendGpCongratsEmail(aaUserId, String(aaCreated.id), aaJob.practice_name || '')
-      .catch(function (e) { console.error('[ats admin apply] congrats email failed for app', aaCreated.id, ':', e && e.message); });
+    // Owner (2026-07-23): the congratulations-and-book email fires only once the
+    // practice's interview times exist. Admin placement records the acceptance
+    // now; this skips until times are supplied, then sends once. Guarded/awaited.
+    await maybeSendInterviewBookingInvite(String(aaCreated.id))
+      .catch(function (e) { console.error('[ats admin apply] booking invite failed for app', aaCreated.id, ':', e && e.message); });
     sendJson(res, 200, { ok: true, application: atsApplicationToCard(aaCreated, null), job_title: aaJob.title, already: false });
     return;
   }
@@ -63681,18 +63764,17 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    var acPracticeName = acCtx.practiceName || (acReveal.offer && acReveal.offer.practice_name) || '';
-
     // Kanban → 'offer' via the same forward-only rule as POST /api/ats/offer:
     // a later stage is never yanked backwards and terminal lanes
     // ('hired' / 'not_proceeding') never move.
     var acTarget = atsPracticeUtil.planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'offer');
     if (acTarget) await atsUpdateApplicationStageRow(acAppId, acTarget, undefined, 'practice_accept');
 
-    if (acCtx.userId) {
-      await sendGpCongratsEmail(acCtx.userId, acAppId, acPracticeName)
-        .catch(function (e) { console.error('[ats accept] congrats email failed for app', acAppId, ':', e && e.message); });
-    }
+    // Owner (2026-07-23): the congratulations-and-book email waits for the
+    // practice's interview times — this records the acceptance; the invite sends
+    // once times land (skips here when none exist yet). Guarded/awaited.
+    await maybeSendInterviewBookingInvite(acAppId)
+      .catch(function (e) { console.error('[ats accept] booking invite failed for app', acAppId, ':', e && e.message); });
 
     sendJson(res, 200, { ok: true });
     return;

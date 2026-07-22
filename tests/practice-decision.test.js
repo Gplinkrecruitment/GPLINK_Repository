@@ -11,6 +11,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirnameTest = path.dirname(fileURLToPath(import.meta.url));
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 let server, port, sbServer, sbPort, resendServer, resendPort;
@@ -37,7 +42,8 @@ const db = {
     { user_id: 'u-e2e-7', email: 'e2e.booker@example.com', first_name: 'Endto', last_name: 'End', registration_country: 'uk' },
     { user_id: 'u-secured-8', email: 'secured.eight@example.com', first_name: 'Secured', last_name: 'Eight', registration_country: 'uk' },
     { user_id: 'u-forward-9', email: 'forward.nine@example.com', first_name: 'Forward', last_name: 'Nine', registration_country: 'uk' },
-    { user_id: 'u-congrats-10', email: 'congrats.ten@example.com', first_name: 'Congrats', last_name: 'Ten', registration_country: 'uk' }
+    { user_id: 'u-congrats-10', email: 'congrats.ten@example.com', first_name: 'Congrats', last_name: 'Ten', registration_country: 'uk' },
+    { user_id: 'u-nowin-11', email: 'nowin.eleven@example.com', first_name: 'Nowin', last_name: 'Eleven', registration_country: 'uk' }
   ],
   user_state: [],
   career_roles: [
@@ -59,7 +65,10 @@ const db = {
     // approve link is ever clicked — regression fixture for the forward-only
     // stage guard.
     { id: 'app-tok-9', user_id: 'u-forward-9', career_role_id: 'role-1', status: 'applied', ats_stage: 'offer', practice_action_token: 'tok-test-forward9', applied_at: NOW },
-    { id: 'app-tok-10', user_id: 'u-congrats-10', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-congrats10', applied_at: NOW }
+    { id: 'app-tok-10', user_id: 'u-congrats-10', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-congrats10', applied_at: NOW },
+    // Owner (2026-07-23): approving now REQUIRES interview windows in the same
+    // request — this fixture drives the "approve without windows → 400" gate.
+    { id: 'app-tok-11', user_id: 'u-nowin-11', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-nowin11', applied_at: NOW }
   ],
   registration_cases: [],
   practices: [],
@@ -287,8 +296,12 @@ describe('POST /api/practice/application/decision — approve', () => {
     expect(res.body).toEqual({ ok: false, code: 'not_found' });
   });
 
-  it('marks the application and creates the interview row (status stays requested, not defaulted)', async () => {
-    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-abc123', action: 'approve' } });
+  it('marks the application, creates the interview row, and stores the supplied windows (approve now carries availability)', async () => {
+    // Owner (2026-07-23): approval REQUIRES interview windows in the same request,
+    // so they are stored on the interview row immediately (status → received).
+    const res = await httpReq('POST', '/api/practice/application/decision', {
+      body: { token: 'tok-test-abc123', action: 'approve', windows: [{ date: AVAIL_DATE_1, fromMin: 540, toMin: 1020 }] }
+    });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'approved' });
 
@@ -297,12 +310,31 @@ describe('POST /api/practice/application/decision — approve', () => {
     expect(row.status).toBe('interview');
     expect(row.ats_stage).toBe('interview');
     expect(typeof row.practice_decision_at).toBe('string');
+    // One-shot booking-invite stamp is set (approval + times both exist now).
+    expect(typeof row.booking_invite_sent_at).toBe('string');
 
     const interview = db.scheduled_calls.find((r) => r.meeting_kind === 'interview' && String(r.application_id) === String(row.id));
     expect(interview).toBeTruthy();
-    expect(interview.practice_availability_status).toBe('requested');
+    expect(interview.practice_availability_status).toBe('received');
+    expect(interview.practice_availability_windows).toHaveLength(1);
     expect(typeof interview.correlation_token).toBe('string');
     expect(interview.correlation_token.length).toBeGreaterThan(0);
+  });
+
+  it('rejects an approve with NO interview windows (400 windows_required) and changes nothing', async () => {
+    const capturedBefore = resendCaptured.length;
+    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-nowin11', action: 'approve' } });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ ok: false, code: 'windows_required', message: 'Please choose at least one interview time window before approving.' });
+
+    // The application is untouched — no decision, no status move, no interview row.
+    const row = db.gp_applications.find((a) => a.id === 'app-tok-11');
+    expect(row.practice_decision).toBeUndefined();
+    expect(row.status).toBe('applied');
+    expect(row.booking_invite_sent_at).toBeUndefined();
+    expect(db.scheduled_calls.some((r) => String(r.application_id) === 'app-tok-11')).toBe(false);
+    // And no email of any kind fired off a rejected approve.
+    expect(resendCaptured.length).toBe(capturedBefore);
   });
 
   it('is idempotent — a second approve on the same token does not duplicate the interview row or re-decide', async () => {
@@ -334,8 +366,10 @@ describe('POST /api/practice/application/decision — approve', () => {
 // guaranteed to already be in resendCaptured by the time the HTTP response
 // lands.
 describe('POST /api/practice/application/decision — approve sends the GP congrats/booking email', () => {
-  it('fresh approve sends exactly one congrats email with the secure-interview deep-link', async () => {
-    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-congrats10', action: 'approve' } });
+  it('fresh approve WITH windows sends exactly one congrats email, saves the windows, and stamps the one-shot invite', async () => {
+    const res = await httpReq('POST', '/api/practice/application/decision', {
+      body: { token: 'tok-test-congrats10', action: 'approve', windows: [{ date: AVAIL_DATE_1, fromMin: 540, toMin: 600 }, { date: AVAIL_DATE_2, fromMin: 600, toMin: 720 }] }
+    });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'approved' });
 
@@ -344,15 +378,39 @@ describe('POST /api/practice/application/decision — approve sends the GP congr
       && m.subject && String(m.subject).includes('Congratulations'));
     expect(congratsEmails.length).toBe(1);
     expect(String(congratsEmails[0].html)).toContain('/pages/secure-interview?applicationId=');
+
+    // Windows are stored on the interview row and the one-shot stamp is set.
+    const row = db.gp_applications.find((a) => a.id === 'app-tok-10');
+    expect(typeof row.booking_invite_sent_at).toBe('string');
+    const interview = db.scheduled_calls.find((r) => r.meeting_kind === 'interview' && r.application_id === 'app-tok-10');
+    expect(interview.practice_availability_windows).toHaveLength(2);
+    expect(interview.practice_availability_status).toBe('received');
   });
 
-  it('repeat approve click on the same token does not send a second congrats email (idempotent short-circuit)', async () => {
+  it('repeat approve click on the same token does not send a second congrats email (idempotent short-circuit, no windows needed)', async () => {
     const before = resendCaptured.filter((m) => m && m.to && [].concat(m.to).includes('congrats.ten@example.com')).length;
 
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-congrats10', action: 'approve' } });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'approved', already: true });
 
+    const after = resendCaptured.filter((m) => m && m.to && [].concat(m.to).includes('congrats.ten@example.com')).length;
+    expect(after).toBe(before);
+  });
+
+  it('a later availability re-POST updates the windows but does NOT re-send the congrats email (one-shot honoured)', async () => {
+    const before = resendCaptured.filter((m) => m && m.to && [].concat(m.to).includes('congrats.ten@example.com')).length;
+
+    const res = await httpReq('POST', '/api/practice/application/availability', {
+      body: { token: 'tok-test-congrats10', windows: [{ date: AVAIL_DATE_1, fromMin: 480, toMin: 1080 }] }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, windowsSaved: 1 });
+
+    // Windows were updated to the new single window …
+    const interview = db.scheduled_calls.find((r) => r.meeting_kind === 'interview' && r.application_id === 'app-tok-10');
+    expect(interview.practice_availability_windows).toHaveLength(1);
+    // … but no second congrats email fired (booking_invite_sent_at already set).
     const after = resendCaptured.filter((m) => m && m.to && [].concat(m.to).includes('congrats.ten@example.com')).length;
     expect(after).toBe(before);
   });
@@ -383,7 +441,9 @@ describe('POST /api/practice/application/decision — approve on a stale link (a
   });
 
   it('does not drag ats_stage backward when the card already advanced to the offer lane', async () => {
-    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-forward9', action: 'approve' } });
+    const res = await httpReq('POST', '/api/practice/application/decision', {
+      body: { token: 'tok-test-forward9', action: 'approve', windows: [{ date: AVAIL_DATE_1, fromMin: 540, toMin: 600 }] }
+    });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'approved' });
 
@@ -428,7 +488,9 @@ describe('email transport resilience — a Resend outage must never fail the req
     // for the wrong reason (mode reset before the delayed send actually fires).
     const capturedBefore = resendCaptured.length;
     resendMode = 'error';
-    const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-resil999', action: 'approve' } });
+    const res = await httpReq('POST', '/api/practice/application/decision', {
+      body: { token: 'tok-test-resil999', action: 'approve', windows: [{ date: AVAIL_DATE_1, fromMin: 540, toMin: 600 }] }
+    });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'approved' });
     const row = db.gp_applications.find((a) => a.id === 'app-tok-4');
@@ -565,7 +627,7 @@ describe('CRITICAL — GP can book after practice approval (full end-to-end)', (
     //    NEVER revealed the practice or created an offer, so the GP booking
     //    endpoints (gated on canRevealPracticeIdentity) 403'd forever.
     const approve = await httpReq('POST', '/api/practice/application/decision', {
-      body: { token: 'tok-test-e2e-7', action: 'approve' } });
+      body: { token: 'tok-test-e2e-7', action: 'approve', windows: [{ date: futureDate(3), fromMin: 0, toMin: 1440 }] } });
     expect(approve.status).toBe(200);
     expect(approve.body).toEqual({ ok: true, decision: 'approved' });
     // The reveal + in-app offer must now exist.
@@ -608,5 +670,16 @@ describe('rate limiting (shared practice-decision-ip budget across all three end
       if (res.status === 429) { sawRateLimited = true; break; }
     }
     expect(sawRateLimited).toBe(true);
+  });
+});
+
+// Filesystem-only (no HTTP — added AFTER the rate-limit test so it spends no
+// budget): the one-shot booking-invite stamp column must ship as a migration.
+describe('migration — booking_invite_sent_at one-shot stamp column', () => {
+  it('adds gp_applications.booking_invite_sent_at (idempotent)', () => {
+    const migPath = path.join(__dirnameTest, '..', 'supabase', 'migrations', '20260723090000_booking_invite_stamp.sql');
+    const sql = fs.readFileSync(migPath, 'utf8');
+    expect(sql).toMatch(/alter table public\.gp_applications/i);
+    expect(sql).toMatch(/add column if not exists booking_invite_sent_at timestamptz/i);
   });
 });

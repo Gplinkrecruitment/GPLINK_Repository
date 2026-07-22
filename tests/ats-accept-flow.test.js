@@ -9,13 +9,14 @@
 //  1. POST /api/ats/application/accept → gp_applications.revealed=true +
 //     practice_submission_status='client_approved', an ats_offers row (status
 //     'sent', billing_split from the role's intake), stage → 'offer' (actor
-//     'practice_accept'), and exactly ONE congrats email deep-linking to
-//     /pages/secure-interview?applicationId=….
+//     'practice_accept'). Owner (2026-07-23): the congratulations-and-book email
+//     no longer fires here — it is DEFERRED until the practice's interview times
+//     exist (maybeSendInterviewBookingInvite), so the GP can book from it.
 //  2. Idempotent second call → {ok:true, already:true}, no duplicate email.
 //  3. 404 for an unknown application id.
 //  4. Admin apply (POST /api/ats/application) now writes origin:'admin_applied'
-//     + revealed:true, creates its own offer record and sends the same
-//     congrats email.
+//     + revealed:true and creates its own offer record; the congrats email is
+//     likewise DEFERRED until interview times exist.
 //  5. GET /api/career/my-offer for the accepted application returns
 //     revealed:true + interviewBookable:true + the real practice name; an
 //     application that hasn't been accepted stays masked.
@@ -342,8 +343,14 @@ describe('POST /api/ats/application/accept', () => {
     expect(r.status).toBe(404);
   });
 
-  it('reveals identity, records the offer, advances the stage and congratulates the GP once', async () => {
+  it('reveals identity, records the offer, advances the stage — and DEFERS the congrats email until interview times exist', async () => {
+    // Owner (2026-07-23): the congratulations-and-book email must fire ONLY once
+    // the practice's interview availability exists (so the GP can book straight
+    // from it). A staff accept records the acceptance (reveal + offer + stage)
+    // but no times yet, so maybeSendInterviewBookingInvite correctly skips — no
+    // email, no push. The email lands later, from the availability moment.
     const before = resendCalls.length;
+    const fcmBefore = fcmCalls.length;
     const r = await atsPost('/api/ats/application/accept?id=app-acc-1');
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
@@ -366,15 +373,10 @@ describe('POST /api/ats/application/accept', () => {
     expect(ev).toBeTruthy();
     expect(ev.to_stage).toBe('offer');
 
+    // No congrats email or push at accept time — it waits for the times.
     const sends = resendCalls.slice(before);
-    expect(sends.length).toBe(1);
-    expect(sends[0].body.to).toContain(GP.email);
-    expect(String(sends[0].body.subject)).toMatch(/congratulations/i);
-    expect(String(sends[0].body.html)).toContain('/pages/secure-interview?applicationId=app-acc-1');
-    expect(String(sends[0].body.html)).toContain('Secure My Interview');
-    expect(String(sends[0].body.html)).toContain('Greenslopes Family Medical');
-
-    expect(fcmCalls.some((c) => c.endpoint === 'https://push.example.test/acc-1')).toBe(true);
+    expect(sends.length).toBe(0);
+    expect(fcmCalls.length).toBe(fcmBefore);
   });
 
   it('is idempotent on a second call (already revealed + offer on file)', async () => {
@@ -420,8 +422,8 @@ describe('GET /api/career/my-offer — reveal + interviewBookable', () => {
   });
 });
 
-describe('Admin apply (POST /api/ats/application) auto-reveals + congratulates', () => {
-  it('creates the application with origin admin_applied + revealed:true, records an offer and emails the GP', async () => {
+describe('Admin apply (POST /api/ats/application) auto-reveals + records offer (congrats deferred to times)', () => {
+  it('creates the application with origin admin_applied + revealed:true, records an offer, and DEFERS the congrats email until interview times exist', async () => {
     const before = resendCalls.length;
     const r = await atsPost('/api/ats/application', { user_id: GP3.userId, career_role_id: 'role-1' });
     expect(r.status).toBe(200);
@@ -440,12 +442,12 @@ describe('Admin apply (POST /api/ats/application) auto-reveals + congratulates',
     expect(offer.notes).toBe('Admin placed this GP with the practice');
     expect(offer.user_id).toBe(GP3.userId);
 
+    // Owner (2026-07-23): no congrats email at admin-apply time — the practice's
+    // interview availability doesn't exist yet, so the booking invite is deferred.
     const sends = resendCalls.slice(before);
-    expect(sends.length).toBe(1);
-    expect(sends[0].body.to).toContain(GP3.email);
-    expect(String(sends[0].body.html)).toContain('/pages/secure-interview?applicationId=' + appId);
+    expect(sends.length).toBe(0);
 
-    // The GP now sees the revealed, interview-bookable offer too.
+    // The GP still sees the revealed, interview-bookable offer straight away.
     const my = await gpGet('/api/career/my-offer?applicationId=' + appId, GP3);
     expect(my.body.revealed).toBe(true);
     expect(my.body.interviewBookable).toBe(true);
@@ -465,9 +467,11 @@ describe('accept hardening (review round)', () => {
     expect(app.revealed).toBe(true);      // the reveal itself still lands
     // No practice_accept stage event was written (no stage change happened).
     expect(db.ats_stage_events.some((e) => e.application_id === 'app-acc-hired' && e.actor === 'practice_accept')).toBe(false);
-    // The offer + congrats email still fire (first acceptance for this app).
+    // The offer record still lands (reveal itself succeeds) …
     expect(db.ats_offers.some((o) => o.application_id === 'app-acc-hired' && o.status === 'sent')).toBe(true);
-    expect(resendCalls.length - before).toBe(1);
+    // … but no congrats email fires: this app is terminal (placement_secured)
+    // AND has no interview times, so the booking invite correctly skips.
+    expect(resendCalls.length - before).toBe(0);
   });
 
   it('never stomps an offer the doctor already accepted', async () => {

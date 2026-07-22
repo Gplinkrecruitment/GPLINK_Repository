@@ -212,6 +212,12 @@
   var ctx = null;
   var rowCount = 0;
   var availabilityInitialized = false;
+  // 'approve'  → the times picker is shown as the SECOND step of approving, and
+  //              its submit POSTs the decision endpoint (action:'approve' +
+  //              windows) so approval and availability land in one request.
+  // 'availability' → the app is already approved; submit POSTs the standalone
+  //              availability endpoint (the later "add more times" path).
+  var availabilitySubmitMode = 'availability';
 
   // ── Viewer timezone (owner req: clearly show what timezone they are booking
   // in). The browser's device tz is the contact's "current location"; it is
@@ -411,12 +417,21 @@
   // ---- state transitions ----
   function enterApprove() { show(el.approve); }
 
-  function enterAvailability() {
+  function enterAvailability(mode) {
+    availabilitySubmitMode = (mode === 'approve') ? 'approve' : 'availability';
     if (!availabilityInitialized) {
       addWindowRow();
       addWindowRow();
       availabilityInitialized = true;
     }
+    // Relabel the submit for the mode: in approve mode the single click BOTH
+    // confirms the times AND approves the candidate. Clear dataset.label so the
+    // busy/restore logic re-captures the new text.
+    el.submitWindowsBtn.textContent = (availabilitySubmitMode === 'approve')
+      ? 'Confirm times & approve candidate'
+      : 'Send interview times';
+    delete el.submitWindowsBtn.dataset.label;
+    showMsg(el.availMsg, '', false);
     show(el.availability);
   }
 
@@ -438,7 +453,9 @@
       return;
     }
     if (ctx.decision === 'approved' && !ctx.availabilitySubmitted) {
-      enterAvailability();
+      // Already approved (e.g. via a staff path) but no times yet — the standalone
+      // "add times" path posts the availability endpoint, not a fresh approve.
+      enterAvailability('availability');
       return;
     }
     if (ctx.availabilitySubmitted) {
@@ -474,29 +491,12 @@
   }
 
   // ---- button handlers ----
+  // Approving now REVEALS the times picker first (no request yet) — the practice
+  // must supply interview availability as PART of approving, so the GP's
+  // congratulations-and-book email can go out with real slots to choose from.
   el.approveBtn.addEventListener('click', function () {
     showMsg(el.approveMsg, '', false);
-    setBusy(el.approveBtn, true);
-    fetch('/api/practice/application/decision', {
-      method: 'POST',
-      credentials: 'omit',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token, action: 'approve' })
-    })
-      .then(parseJsonResponse)
-      .then(function (res) {
-        setBusy(el.approveBtn, false);
-        if (res.status === 200 && res.data && res.data.ok) { enterAvailability(); return; }
-        if (res.status === 429) { showMsg(el.approveMsg, 'Too many attempts — please wait a few minutes and try again.', true); return; }
-        if (res.status === 404) { showError('invalid'); return; }
-        var wdApprove = withdrawnMessage(res);
-        if (wdApprove) { showError('withdrawn', wdApprove); return; }
-        showMsg(el.approveMsg, retryMessage(), true);
-      })
-      .catch(function () {
-        setBusy(el.approveBtn, false);
-        showMsg(el.approveMsg, retryMessage(), true);
-      });
+    enterAvailability('approve');
   });
 
   el.addWindowBtn.addEventListener('click', function () { addWindowRow(); });
@@ -506,16 +506,31 @@
     if (result.error) { showMsg(el.availMsg, result.error, true); return; }
     showMsg(el.availMsg, '', false);
     setBusy(el.submitWindowsBtn, true);
-    fetch('/api/practice/application/availability', {
+
+    // Approve mode → one request approves AND stores the times. Availability
+    // mode (already approved) → the standalone add-times endpoint.
+    var isApproveMode = (availabilitySubmitMode === 'approve');
+    var endpoint = isApproveMode ? '/api/practice/application/decision' : '/api/practice/application/availability';
+    var payload = isApproveMode
+      ? { token: token, action: 'approve', windows: result.windows, viewer_tz: viewerTz || undefined }
+      : { token: token, windows: result.windows, viewer_tz: viewerTz || undefined };
+
+    fetch(endpoint, {
       method: 'POST',
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token, windows: result.windows, viewer_tz: viewerTz || undefined })
+      body: JSON.stringify(payload)
     })
       .then(parseJsonResponse)
       .then(function (res) {
         setBusy(el.submitWindowsBtn, false);
         if (res.status === 200 && res.data && res.data.ok) {
+          // Idempotent already-approved (another path approved first) is still a
+          // success — show a handled state without demanding anything more.
+          if (res.data.already) {
+            showDone('This candidate has already been approved — no further action is needed.');
+            return;
+          }
           showDone('Thanks! ' + (ctx && ctx.gpName ? ctx.gpName : 'The candidate') + " will confirm one of your times — you'll get a calendar invitation automatically.");
           return;
         }
@@ -523,8 +538,10 @@
         if (res.status === 404) { showError('invalid'); return; }
         var wdAvail = withdrawnMessage(res);
         if (wdAvail) { showError('withdrawn', wdAvail); return; }
+        // Approve mode's new server gate (windows_required) + any other 400.
+        if (res.status === 400) { showMsg(el.availMsg, (res.data && res.data.message) || 'Please choose at least one interview time before approving.', true); return; }
+        // Availability mode only: the application isn't approved yet.
         if (res.status === 409) { showMsg(el.availMsg, "This application isn't approved yet — please refresh the page and try again.", true); return; }
-        if (res.status === 400 && res.data && res.data.message) { showMsg(el.availMsg, res.data.message, true); return; }
         showMsg(el.availMsg, retryMessage(), true);
       })
       .catch(function () {
