@@ -6998,6 +6998,17 @@
       if (driveFolder) html += '<a class="ceo-gp-drive-link" href="' + escAttr(driveFolder) + '" target="_blank" rel="noopener" style="margin-left:' + (docCaseId ? '12px' : 'auto') + '">Open Drive folder</a>';
       html += '</div>';
 
+      // Section 0 — Identity document (CEO-only; server omits this field entirely
+      // for RSOs/staff, so this section simply never renders for them).
+      if (gpDocs.identityDocument) {
+        var idDoc = gpDocs.identityDocument;
+        html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Identity document</span></div>';
+        html += '<div class="ceo-doc-checklist"><div class="ceo-doc-check-item">';
+        html += '<span class="ceo-doc-check-label" style="flex:1">' + esc(idDoc.file_name || 'Identity document') + '</span>';
+        html += '<a class="ceo-gp-drive-link" href="' + escAttr(idDoc.view_url) + '" target="_blank" rel="noopener">View</a>';
+        html += '</div></div></div>';
+      }
+
       // Section 1 — Direct to AHPRA (checklist).
       var ahpraDone = ahpra.filter(function(d) { return d.status !== 'pending'; }).length;
       html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Direct to AHPRA</span><span class="ceo-doc-section-count">' + ahpraDone + ' / ' + ahpra.length + '</span></div>';

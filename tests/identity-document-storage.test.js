@@ -20,4 +20,12 @@ describe('identity document persistence (source contract)', () => {
     // and it must file into the Drive ID subfolder
     expect(SRC).toMatch(/driveDocFolders\.ID_FOLDER/);
   });
+  it('gp-documents exposes identityDocument only under a CEO gate', () => {
+    expect(SRC).toMatch(/function canViewIdentity\(/);
+    expect(SRC).toMatch(/canViewIdentity\(gdAdminCtx\)/);
+    // built from a signed URL over the identity user_documents row
+    expect(SRC).toMatch(/document_key=eq\.identity/);
+    expect(SRC).toMatch(/supabaseStorageCreateSignedUrl/);
+    expect(SRC).toMatch(/identityDocument:/);
+  });
 });

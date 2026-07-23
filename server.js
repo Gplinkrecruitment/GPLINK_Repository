@@ -10973,6 +10973,11 @@ function isSuperAdminRole(role) {
   return normalizeAdminRole(role) === 'super_admin';
 }
 
+// The identity document is viewable by CEO (super_admin) and ATS users
+// (consultant) only — never RSOs. ATS surfaces gate via requireAtsSession; admin
+// surfaces gate with this predicate.
+function canViewIdentity(ctx) { return isSuperAdminRole(ctx && ctx.role); }
+
 function getAdminRoleLabel(role) {
   const normalized = normalizeAdminRole(role);
   if (normalized === 'super_admin') return 'Super Admin';
@@ -52177,13 +52182,28 @@ Return ONLY valid JSON with no markdown formatting:
         return true;
       });
 
+      // Onboarding identity document: CEO (super_admin) only, never RSOs. Signed
+      // URL is generated fresh per request so it is never cached/stored client-side.
+      var gdIdentity = null;
+      if (canViewIdentity(gdAdminCtx)) {
+        var idDocRes = await supabaseDbRequest('user_documents',
+          'select=file_name,file_url,storage_path,storage_bucket,updated_at&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=eq.identity&order=updated_at.desc&limit=1');
+        var idRow = (idDocRes.ok && Array.isArray(idDocRes.data) && idDocRes.data[0]) ? idDocRes.data[0] : null;
+        var idPath = idRow ? String(idRow.storage_path || idRow.file_url || '').trim() : '';
+        if (idRow && idPath) {
+          var idUrl = await supabaseStorageCreateSignedUrl(idRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, idPath, idRow.file_name || 'identity');
+          if (idUrl) gdIdentity = { file_name: idRow.file_name || 'Identity document', view_url: idUrl, updated_at: idRow.updated_at || '' };
+        }
+      }
+
       sendJson(res, 200, {
         ok: true,
         country: gdCountry,
         directToAhpra: gdDirectToAhpra,
         preparedByCandidate: gdPreparedByCandidate,
         preparedByGpLink: gdPreparedByGpLink,
-        otherFiles: gdOtherFiles
+        otherFiles: gdOtherFiles,
+        identityDocument: gdIdentity
       });
 
     } catch (gdErr) {

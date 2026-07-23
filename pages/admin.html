@@ -3191,6 +3191,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!gpDocs)return '<div class="empty">Loading\u2026</div>';
     var h='';
 
+    // Section 0: Identity document -- CEO-only (super_admin). The server omits
+    // this field entirely for RSO/staff sessions, so this section simply never
+    // renders for them; no client-side role check needed.
+    if(gpDocs.identityDocument){
+      var idDoc=gpDocs.identityDocument;
+      h+='<div class="doc-section">';
+      h+='<div class="doc-section-header"><span class="doc-section-title">Identity document</span></div>';
+      h+='<div class="doc-checklist"><div class="doc-checklist-item">';
+      h+='<span class="doc-checklist-label" style="flex:1">'+esc(idDoc.file_name||'Identity document')+'</span>';
+      h+='<a class="btn sm" href="'+escAttr(idDoc.view_url)+'" target="_blank" rel="noopener">View</a>';
+      h+='</div></div></div>';
+    }
+
     // Section 1: Direct to AHPRA (checkboxes — user marks these as requested, no file upload)
     var ahpra=gpDocs.directToAhpra||[];
     var ahpraCount=ahpra.filter(function(d){return d.status!=='pending';}).length;
