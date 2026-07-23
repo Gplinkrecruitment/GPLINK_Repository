@@ -83,13 +83,17 @@
   .job-profile-row .rk{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut);font-weight:700;}
   .job-profile-row .rv{font-size:14.5px;font-weight:650;color:var(--ink-2);}
   .job-profile-map{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
-  /* pointer-events:none locks the embed so it can't be panned/zoomed — the
-     pin/ring/label overlay is anchored to the container centre, so the map
-     centre must stay fixed on the suburb for the pin to keep marking it. */
-  .job-profile-map iframe{width:100%;height:220px;border:0;display:block;pointer-events:none;}
-  .job-profile-map .map-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);z-index:1;pointer-events:none;}
-  .job-profile-map .map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);z-index:2;pointer-events:none;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
-  .job-profile-map .map-label{position:absolute;left:50%;top:calc(50% + 13px);transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;z-index:2;pointer-events:none;}
+  /* Interactive map surface: a real google.maps.Map (pan + zoom). The branded
+     pin below is an OverlayView re-projected to the suburb on every move, so it
+     stays LOCKED to the suburb while the map pans underneath it. */
+  .job-profile-map-canvas{width:100%;height:220px;background:#e9eef5;}
+  /* Fallback only (JS-map disabled / geocode failed): the raw Google embed,
+     which carries its own suburb pin and is itself pan/zoomable. */
+  .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
+  .job-profile-map .jpm-marker{position:absolute;width:0;height:0;pointer-events:none;z-index:2;}
+  .job-profile-map .jpm-marker .map-ring{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);}
+  .job-profile-map .jpm-marker .map-pin{position:absolute;left:0;top:0;transform:translate(-50%,-100%);line-height:0;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
+  .job-profile-map .jpm-marker .map-label{position:absolute;left:0;top:9px;transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;}
   .job-profile-mapnote{font-size:11px;color:var(--mut);margin:8px 0 0;}
 
   .job-handles{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
@@ -235,10 +239,8 @@
             <h2>Practice profile</h2>
             <div class="job-profile-rows" id="jobProfileRows"></div>
             <div class="job-profile-map" id="jobProfileMap" hidden>
-              <iframe id="jobProfileMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Suburb map"></iframe>
-              <span class="map-ring"></span>
-              <span class="map-pin"><svg width="28" height="37" viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2f6bff"/><circle cx="15" cy="15" r="6" fill="white"/></svg></span>
-              <span class="map-label" id="jobProfileMapLabel"></span>
+              <div class="job-profile-map-canvas" id="jobProfileMapCanvas" aria-label="Suburb map"></div>
+              <iframe id="jobProfileMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Suburb map" hidden></iframe>
             </div>
             <p class="job-profile-mapnote">Pinned to the suburb. The exact address is shared once there is mutual interest.</p>
           </div>
@@ -317,6 +319,7 @@
   var profileWrap = document.getElementById("jobProfile");
   var profileRowsEl = document.getElementById("jobProfileRows");
   var profileMapWrap = document.getElementById("jobProfileMap");
+  var profileMapCanvasEl = document.getElementById("jobProfileMapCanvas");
   var profileMapFrameEl = document.getElementById("jobProfileMapFrame");
   var relatedWrap = document.getElementById("jobRelated");
   var relatedGrid = document.getElementById("jobRelatedGrid");
@@ -458,22 +461,129 @@
     }).join('');
 
     if (job.suburb) {
-      // Suburb-level embed centred on the suburb; the pin/ring/label overlay
-      // sits at map centre. The iframe is pan/zoom-locked (pointer-events:none
-      // in CSS) so the map centre never leaves the suburb and the pin always
-      // marks it — otherwise panning would drag the map out from under the
-      // fixed overlay (never the exact address; public site).
-      var mapQuery = job.suburb + (job.location_state ? ' ' + job.location_state : '');
-      profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=13&output=embed';
-      var mapLabelEl = document.getElementById('jobProfileMapLabel');
-      if (mapLabelEl) mapLabelEl.textContent = job.suburb + (job.location_state ? ', ' + job.location_state : '');
       profileMapWrap.hidden = false;
+      renderSuburbMap(job.suburb, job.location_state);
     } else {
       profileMapWrap.hidden = true;
       profileMapFrameEl.removeAttribute('src');
     }
 
     profileWrap.hidden = false;
+  }
+
+  // ── Interactive suburb map (pan + zoom) with a branded pin LOCKED to the
+  // suburb ──────────────────────────────────────────────────────────────────
+  // The pin has to live INSIDE the map (an OverlayView re-projected to the
+  // suburb's lat/lng on every pan/zoom) so it stays on the suburb as the map
+  // moves — an absolutely-positioned overlay on top of the box would just float
+  // at screen-centre. Never the exact address: we only ever geocode the suburb
+  // (public, no-session marketing site; the real address is never sent here).
+  // Falls back to the raw Google embed (its own suburb pin, also pan/zoomable)
+  // when the browser Maps key is unset or the geocode fails, so the map area is
+  // never blank.
+  var mapsApiPromise = null;
+  var pendingSuburbMapQuery = '';
+  // Google calls this global on a key/referrer auth failure — which happens
+  // AFTER new maps.Map() (so try/catch can't see it). Swap to the raw embed so
+  // the visitor never sees Google's "can't load Google Maps" error tile.
+  window.gm_authFailure = function () {
+    if (pendingSuburbMapQuery) showSuburbMapFallback(pendingSuburbMapQuery);
+  };
+  function loadGoogleMapsApi() {
+    if (window.google && window.google.maps) return Promise.resolve(window.google.maps);
+    if (mapsApiPromise) return mapsApiPromise;
+    mapsApiPromise = fetch('/api/public/maps-config').then(function (res) {
+      return res.ok ? res.json() : null;
+    }).then(function (cfg) {
+      var apiKey = cfg && cfg.enabled && cfg.apiKey ? String(cfg.apiKey) : '';
+      if (!apiKey) throw new Error('maps_disabled');
+      if (window.google && window.google.maps) return window.google.maps;
+      return new Promise(function (resolve, reject) {
+        var cbName = '__gpSiteJobMapsReady';
+        window[cbName] = function () { resolve(window.google && window.google.maps ? window.google.maps : null); };
+        var s = document.createElement('script');
+        s.async = true;
+        s.defer = true;
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&v=weekly&callback=' + cbName;
+        s.onerror = function () { reject(new Error('maps_script_failed')); };
+        document.head.appendChild(s);
+      });
+    });
+    return mapsApiPromise;
+  }
+
+  // OverlayView factory (defined lazily so google.maps exists first). Draws the
+  // branded ring + pin + label at the suburb's pixel position on every redraw.
+  function makeSuburbPin(maps, latLng, labelText) {
+    function SuburbPin() { this.latLng = latLng; this.div = null; }
+    SuburbPin.prototype = new maps.OverlayView();
+    SuburbPin.prototype.onAdd = function () {
+      var d = document.createElement('div');
+      d.className = 'jpm-marker';
+      d.innerHTML =
+        '<span class="map-ring"></span>' +
+        '<span class="map-pin"><svg width="28" height="37" viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2f6bff"/><circle cx="15" cy="15" r="6" fill="white"/></svg></span>' +
+        '<span class="map-label">' + escapeHtml(labelText) + '</span>';
+      this.div = d;
+      this.getPanes().floatPane.appendChild(d);
+    };
+    SuburbPin.prototype.draw = function () {
+      if (!this.div) return;
+      var proj = this.getProjection();
+      if (!proj) return;
+      var p = proj.fromLatLngToDivPixel(this.latLng);
+      if (!p) return;
+      this.div.style.left = p.x + 'px';
+      this.div.style.top = p.y + 'px';
+    };
+    SuburbPin.prototype.onRemove = function () {
+      if (this.div && this.div.parentNode) this.div.parentNode.removeChild(this.div);
+      this.div = null;
+    };
+    return new SuburbPin();
+  }
+
+  function showSuburbMapFallback(mapQuery) {
+    if (profileMapCanvasEl) profileMapCanvasEl.hidden = true;
+    if (!profileMapFrameEl) return;
+    profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=13&output=embed';
+    profileMapFrameEl.hidden = false;
+  }
+
+  var suburbMapToken = 0;
+  function renderSuburbMap(suburb, state) {
+    var mapQuery = suburb + (state ? ' ' + state : '');
+    var labelText = suburb + (state ? ', ' + state : '');
+    var token = ++suburbMapToken;
+    pendingSuburbMapQuery = mapQuery;
+    if (!profileMapCanvasEl) { showSuburbMapFallback(mapQuery); return; }
+    loadGoogleMapsApi().then(function (maps) {
+      if (!maps || token !== suburbMapToken) return;
+      return new Promise(function (resolve) {
+        new maps.Geocoder().geocode({ address: mapQuery, region: 'au' }, function (results, status) {
+          var loc = (status === 'OK' && results && results[0] && results[0].geometry) ? results[0].geometry.location : null;
+          resolve(loc);
+        });
+      }).then(function (loc) {
+        if (token !== suburbMapToken) return;
+        if (!loc) { showSuburbMapFallback(mapQuery); return; }
+        if (profileMapFrameEl) { profileMapFrameEl.hidden = true; profileMapFrameEl.removeAttribute('src'); }
+        profileMapCanvasEl.hidden = false;
+        var map = new maps.Map(profileMapCanvasEl, {
+          center: loc,
+          zoom: 13,
+          gestureHandling: 'cooperative',
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
+          clickableIcons: false
+        });
+        makeSuburbPin(maps, loc, labelText).setMap(map);
+      });
+    }).catch(function () {
+      if (token === suburbMapToken) showSuburbMapFallback(mapQuery);
+    });
   }
 
   // Blue app icons for the practice-profile rows, keyed by label. Falls back to
