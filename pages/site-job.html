@@ -83,7 +83,10 @@
   .job-profile-row .rk{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut);font-weight:700;}
   .job-profile-row .rv{font-size:14.5px;font-weight:650;color:var(--ink-2);}
   .job-profile-map{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
-  .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
+  /* pointer-events:none locks the embed so it can't be panned/zoomed — the
+     pin/ring/label overlay is anchored to the container centre, so the map
+     centre must stay fixed on the suburb for the pin to keep marking it. */
+  .job-profile-map iframe{width:100%;height:220px;border:0;display:block;pointer-events:none;}
   .job-profile-map .map-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);z-index:1;pointer-events:none;}
   .job-profile-map .map-pin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);z-index:2;pointer-events:none;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
   .job-profile-map .map-label{position:absolute;left:50%;top:calc(50% + 13px);transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;z-index:2;pointer-events:none;}
@@ -99,14 +102,26 @@
 
   .job-related h2{font-size:17px;font-weight:730;color:var(--ink-2);margin:0 0 14px;}
   .job-related-grid{display:grid;grid-template-columns:1fr;gap:14px;}
-  .job-related-card{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;
-    padding:16px 18px;text-decoration:none;color:inherit;
+  .job-related-card{display:flex;gap:14px;align-items:stretch;background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:14px;text-decoration:none;color:inherit;
     transition:transform .3s ease, border-color .3s ease, box-shadow .3s ease;}
   .job-related-card:hover{transform:translateY(-3px);border-color:var(--teal);
     box-shadow:0 16px 32px -24px rgba(13,58,79,.4);}
   .job-related-card:focus-visible{outline:2px solid var(--teal);outline-offset:2px;}
-  .jrc-title{font-size:15px;font-weight:700;color:var(--ink-2);margin-bottom:3px;}
+  .jrc-hero{flex:0 0 104px;width:104px;border-radius:10px;overflow:hidden;background:#eef3ff;align-self:stretch;}
+  .jrc-hero img{width:100%;height:100%;min-height:92px;object-fit:cover;display:block;transition:transform .5s ease;}
+  .job-related-card:hover .jrc-hero img{transform:scale(1.04);}
+  .jrc-body{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1;}
+  .jrc-title{font-size:15px;font-weight:700;color:var(--ink-2);}
   .jrc-meta{font-size:12.5px;color:var(--mut-2);}
+  .jrc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:1px;}
+  .jrc-chips .chip{background:#f0f5fa;border:1px solid var(--line);color:var(--mut);font-size:11.5px;font-weight:640;
+    padding:3px 9px;border-radius:999px;}
+  .jrc-chips .chip.dpa{background:#e8f7ee;border-color:#c5ecd4;color:#0e7a45;}
+  .jrc-income{font-size:13px;font-weight:700;color:var(--teal);margin-top:1px;}
+  @media (max-width:520px){
+    .jrc-hero{flex-basis:84px;width:84px;}
+  }
 
   /* ---------- sidebar apply card ---------- */
   .job-apply-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:26px;
@@ -320,11 +335,32 @@
     var a = document.createElement("a");
     a.className = "job-related-card";
     a.href = "/jobs/view?id=" + id;
-    a.innerHTML =
+
+    // Billing type + DPA as chips (same visual language as the main jobs list).
+    var chips = [];
+    if (job.billing_model) chips.push(chipHtml(job.billing_model));
+    if (job.dpa) chips.push(chipHtml("DPA", "dpa"));
+
+    // "Income" = headline earnings when present, else the income guarantee from
+    // the owner-supplied package terms (same source the detail page uses).
+    var pt = (job.packageTerms && typeof job.packageTerms === "object") ? job.packageTerms : {};
+    var income = job.earnings_text || pt.incomeGuarantee || "";
+
+    var html = "";
+    // Suburb photo thumbnail (career_roles.header_image_url) — matches the card grid.
+    if (job.header_image_url) {
+      html += '<div class="jrc-hero"><img src="' + escapeHtml(job.header_image_url) + '" alt="" loading="lazy"></div>';
+    }
+    html += '<div class="jrc-body">' +
       '<div class="jrc-title">' + escapeHtml(job.title || "GP role") + "</div>" +
       '<div class="jrc-meta">' + escapeHtml(job.display_label || "") +
       (job.display_label && job.location_label ? " &middot; " : "") +
       escapeHtml(job.location_label || "") + "</div>";
+    if (chips.length) html += '<div class="jrc-chips">' + chips.join("") + "</div>";
+    if (income) html += '<div class="jrc-income">' + escapeHtml(income) + "</div>";
+    html += "</div>";
+
+    a.innerHTML = html;
     return a;
   }
 
@@ -384,8 +420,10 @@
 
     if (job.suburb) {
       // Suburb-level embed centred on the suburb; the pin/ring/label overlay
-      // sits at map centre, so it always marks the suburb and stays put as the
-      // visitor pans the iframe (never the exact address; public site).
+      // sits at map centre. The iframe is pan/zoom-locked (pointer-events:none
+      // in CSS) so the map centre never leaves the suburb and the pin always
+      // marks it — otherwise panning would drag the map out from under the
+      // fixed overlay (never the exact address; public site).
       var mapQuery = job.suburb + (job.location_state ? ' ' + job.location_state : '');
       profileMapFrameEl.src = 'https://www.google.com/maps?q=' + encodeURIComponent(mapQuery) + '&z=13&output=embed';
       var mapLabelEl = document.getElementById('jobProfileMapLabel');
