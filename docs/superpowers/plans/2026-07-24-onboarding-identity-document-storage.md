@@ -131,14 +131,14 @@ async function mirrorIdentityToDrive(userId, payload) {
 }
 ```
 
-- [ ] **Step 4: Wire persistence into the verify-identity handler.** In `POST /api/ai/verify-identity`, just before `sendJson(res, 200, { ok: true, verification });`, persist the received image. Resolve the user id from the session using the same helper other authed endpoints use (grep for `getSessionUserId(` / `session.userId` / `session.user_id` and reuse it). Persist regardless of name-match (a mismatch is a name-change signal, not a rejection), as long as a readable image was received:
+- [ ] **Step 4: Wire persistence into the verify-identity handler.** In `POST /api/ai/verify-identity`, just before `sendJson(res, 200, { ok: true, verification });`, persist the received image. **The app session has NO user_id field** — resolve it exactly as the sibling `/api/onboarding-documents` endpoint does (server.js:49728): `getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(verifyEmail)` (`verifyEmail` is already computed in this handler). Persist regardless of name-match (a mismatch is a name-change signal, not a rejection), as long as a readable image was received:
 
 ```js
       // Persist the ID (store + Drive) so CEO/ATS can verify the doctor is real.
       // Fire-and-persist BEFORE responding (Vercel freezes the function after the
       // response). Never blocks the verification result on a storage failure.
       try {
-        const idUserId = getSessionUserId(session); // reuse existing session→userId resolver
+        const idUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(verifyEmail);
         if (idUserId) {
           await saveIdentityDocumentForUser(idUserId, {
             fileDataUrl: 'data:' + mediaType + ';base64,' + aiImageBase64,
