@@ -185,6 +185,10 @@
 
   function runTour() {
     if (!C || !S || C.isActive()) return;
+    // tryAuto arms this via setTimeout — the screen can be taken over inside
+    // that window (e.g. the frame redirects to the onboarding gateway), so
+    // re-check the guards at fire time, not just at decision time.
+    if (guarded()) return;
     var steps = buildSteps();
     if (!steps.length) return;
     broadcastCoachActive(true);
