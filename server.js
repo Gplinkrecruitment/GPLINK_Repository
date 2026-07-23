@@ -21493,6 +21493,121 @@ async function getPublicJobsRows(fetcher = getActivePublicJobRowsLive) {
   return liveRows;
 }
 
+// ── Practice map (GET /api/public/practice-map) ─────────────────────────────
+// Powers the interactive Australia map on the public /jobs page: every open
+// role, masked exactly like /api/public/jobs (same mapCareerRoleRowToPublicJob
+// → sanitizePublicJob path, so never a practice name/address), plus the
+// suburb's lat/lng and the compact fields the map sidebar shows. Coordinates
+// come from the SAME keyless, cached geocoder the job-advert maps use
+// (career_suburb_geo_cache → Nominatim) — no Google Geocoding key needed.
+let _practiceMapCache = null; // { data, at }
+const PRACTICE_MAP_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function normalizeAuStateCode(value) {
+  const t = String(value || '').trim().toUpperCase();
+  const map = {
+    'NEW SOUTH WALES': 'NSW', 'VICTORIA': 'VIC', 'QUEENSLAND': 'QLD',
+    'WESTERN AUSTRALIA': 'WA', 'SOUTH AUSTRALIA': 'SA', 'TASMANIA': 'TAS',
+    'AUSTRALIAN CAPITAL TERRITORY': 'ACT', 'NORTHERN TERRITORY': 'NT'
+  };
+  return map[t] || t;
+}
+function suburbGeoKey(suburb, state) {
+  return String(suburb || '').trim().toLowerCase() + '|' + String(state || '').trim().toUpperCase();
+}
+// One query for every successfully-geocoded suburb, so the map build is a
+// single cache read + in-memory match instead of N per-suburb lookups.
+async function readAllSuccessfulSuburbGeo() {
+  if (!isSupabaseDbConfigured()) return {};
+  const result = await supabaseDbRequest(
+    'career_suburb_geo_cache',
+    'select=suburb,state_code,latitude,longitude&geocode_status=eq.success&limit=5000'
+  );
+  const out = {};
+  if (result.ok && Array.isArray(result.data)) {
+    for (const r of result.data) {
+      const lat = parseCareerCoordinate(r.latitude);
+      const lng = parseCareerCoordinate(r.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) out[suburbGeoKey(r.suburb, r.state_code)] = { lat, lng };
+    }
+  }
+  return out;
+}
+function mapPracticeIncome(job) {
+  const pt = (job.packageTerms && typeof job.packageTerms === 'object') ? job.packageTerms : {};
+  return String(job.earnings_text || pt.incomeGuarantee || pt.earnings || '').trim();
+}
+function mapPracticeBenefits(job) {
+  const out = [];
+  const perks = Array.isArray(job.aiPerks) ? job.aiPerks.filter((p) => p && p.label && p.value) : [];
+  perks.forEach((p) => out.push({ label: String(p.label), value: String(p.value) }));
+  if (!out.length) {
+    const pt = (job.packageTerms && typeof job.packageTerms === 'object') ? job.packageTerms : {};
+    if (pt.incomeGuarantee) out.push({ label: 'Income guarantee', value: String(pt.incomeGuarantee) });
+    if (pt.agreementBonus) out.push({ label: 'Sign-on bonus', value: String(pt.agreementBonus).split('\n')[0].trim() });
+    if (job.visa || pt.visaSponsorship) out.push({ label: 'Visa sponsorship', value: 'Available' });
+    if (pt.supervision) out.push({ label: 'Supervision', value: 'Available' });
+  }
+  return out.slice(0, 4);
+}
+function shapeMapPractice(job, state, coords) {
+  return {
+    id: job.id, suburb: job.suburb, state,
+    lat: coords.lat, lng: coords.lng,
+    title: job.title || 'GP role', display: job.display_label || '',
+    billing: job.billing_model || '', income: mapPracticeIncome(job),
+    benefits: mapPracticeBenefits(job), img: job.header_image_url || ''
+  };
+}
+async function buildPracticeMapData(fetcher = getActivePublicJobRowsLive) {
+  const now = Date.now();
+  if (_practiceMapCache && (now - _practiceMapCache.at) < PRACTICE_MAP_CACHE_TTL_MS) {
+    return _practiceMapCache.data;
+  }
+  const rows = await getPublicJobsRows(fetcher);
+  const jobs = (Array.isArray(rows) ? rows : [])
+    .map(mapCareerRoleRowToPublicJob)
+    .map(sanitizePublicJob)
+    .filter((j) => j && j.suburb);
+  const geoMap = await readAllSuccessfulSuburbGeo();
+  const practices = [];
+  const misses = [];
+  for (const j of jobs) {
+    const st = normalizeAuStateCode(j.location_state);
+    const coords = geoMap[suburbGeoKey(j.suburb, st)];
+    if (coords) practices.push(shapeMapPractice(j, st, coords));
+    else misses.push({ job: j, st, key: suburbGeoKey(j.suburb, st) });
+  }
+  // Bounded inline geocode for suburbs never geocoded before (cache-first, so
+  // warmed suburbs never reach here). Deduped, small concurrency — new suburbs
+  // are rare and this result is itself cached for PRACTICE_MAP_CACHE_TTL_MS.
+  const uniqMiss = [];
+  const seenMiss = new Set();
+  for (const m of misses) { if (!seenMiss.has(m.key)) { seenMiss.add(m.key); uniqMiss.push(m); } }
+  const resolvedByKey = {};
+  const CONCURRENCY = 4;
+  for (let i = 0; i < uniqMiss.length; i += CONCURRENCY) {
+    const batch = uniqMiss.slice(i, i + CONCURRENCY);
+    // eslint-disable-next-line no-await-in-loop
+    const settled = await Promise.all(batch.map(async (m) => {
+      try {
+        const c = await resolveCareerSuburbCoordinates({ suburb: m.job.suburb, state: m.st, country: 'Australia' });
+        const lat = c ? parseCareerCoordinate(c.latitude) : null;
+        const lng = c ? parseCareerCoordinate(c.longitude) : null;
+        return (Number.isFinite(lat) && Number.isFinite(lng)) ? { key: m.key, coords: { lat, lng } } : null;
+      } catch (geoErr) { return null; }
+    }));
+    settled.forEach((s) => { if (s) resolvedByKey[s.key] = s.coords; });
+  }
+  for (const m of misses) {
+    const coords = resolvedByKey[m.key];
+    if (coords) practices.push(shapeMapPractice(m.job, m.st, coords));
+  }
+  _practiceMapCache = { data: practices, at: now };
+  return practices;
+}
+function __resetPracticeMapCacheForTest() { _practiceMapCache = null; }
+
 // Test-only cache accessors — Supabase is never configured in unit tests, so
 // getActivePublicJobRowsLive() always returns null there. These let tests
 // seed/inspect _publicJobsRowsCache directly (e.g. to simulate an expired
@@ -37113,6 +37228,19 @@ async function handleApi(req, res, pathname) {
       }
     } catch (geoErr) {
       sendJson(res, 200, { ok: false });
+    }
+    return;
+  }
+
+  // Every open role with its suburb coordinates for the /jobs Australia map.
+  // Masked identically to /api/public/jobs (never a practice name or exact
+  // address) + the compact fields the map's sidebar shows. Keyless, cached.
+  if (pathname === '/api/public/practice-map' && req.method === 'GET') {
+    try {
+      const practices = await buildPracticeMapData();
+      sendJson(res, 200, { ok: true, practices }, PUBLIC_CONFIG_CACHE_HEADERS);
+    } catch (mapErr) {
+      sendJson(res, 200, { ok: false, practices: [] });
     }
     return;
   }

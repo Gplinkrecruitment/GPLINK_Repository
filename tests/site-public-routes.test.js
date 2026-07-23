@@ -484,4 +484,15 @@ describe('public map endpoints', () => {
     expect(body.ok).toBe(false);
     expect(body.error).toBe('suburb_required');
   });
+
+  it('GET /api/public/practice-map returns a practices array for the Australia map', async () => {
+    const res = await get('/api/public/practice-map');
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.raw);
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.practices)).toBe(true);
+    // No Supabase in this harness, so the list is empty — but the contract is
+    // that whatever it returns is masked map objects (never a practice name).
+    expect(res.raw).not.toMatch(/practice_name|practiceName|"address"/);
+  });
 });

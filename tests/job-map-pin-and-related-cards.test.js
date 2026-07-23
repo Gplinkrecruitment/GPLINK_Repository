@@ -30,6 +30,7 @@ const ROOT = path.join(__dirname, '..');
 
 const siteJob = fs.readFileSync(path.join(ROOT, 'pages', 'site-job.html'), 'utf8');
 const appJob = fs.readFileSync(path.join(ROOT, 'pages', 'job.html'), 'utf8');
+const siteJobs = fs.readFileSync(path.join(ROOT, 'pages', 'site-jobs.html'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
 const relatedCardFn = (siteJob.match(/function buildRelatedCard\(job\)\s*\{[\s\S]*?\n  \}/) || [''])[0];
@@ -77,6 +78,45 @@ describe('area map: keyless Leaflet, interactive, pin locked to the suburb', () 
     // CSP must permit the Leaflet CDN (style) and the raster tiles (img).
     expect(server).toMatch(/KEYLESS_MAP_CSP_STYLE_SOURCES/);
     expect(server).toMatch(/basemaps\.cartocdn\.com/);
+  });
+});
+
+describe('/jobs Australia practice map section', () => {
+  it('has the map section that "falls off" the search bar (finder wraps the form + map)', () => {
+    // Form tag must stay exactly as tests elsewhere assert, now inside the finder.
+    expect(siteJobs).toMatch(/<div class="jobs-finder">/);
+    expect(siteJobs).toMatch(/<form class="jobs-filter-card" id="jobSearch">/);
+    expect(siteJobs).toMatch(/id="jobsMapShell"/);
+    expect(siteJobs).toMatch(/id="pmap"/);
+  });
+
+  it('renders a keyless clustered Leaflet map fed by /api/public/practice-map', () => {
+    expect(siteJobs).toMatch(/\/api\/public\/practice-map/);
+    expect(siteJobs).toMatch(/leaflet@1\.9\.4\/dist\//);
+    expect(siteJobs).toMatch(/leaflet\.markercluster@1\.5\.3/);
+    expect(siteJobs).toMatch(/basemaps\.cartocdn\.com/);
+    expect(siteJobs).toMatch(/markerClusterGroup/);
+    // Opens on all of Australia.
+    expect(siteJobs).toMatch(/center:\s*\[-2[0-9](\.\d+)?\s*,\s*13[0-9](\.\d+)?\]/);
+    // Never Google Maps here either.
+    expect(siteJobs).not.toMatch(/maps\.googleapis\.com\/maps\/api\/js/);
+  });
+
+  it('pin sidebar shows suburb photo, income, benefits and a real job link', () => {
+    expect(siteJobs).toMatch(/id="pmapPhoto"/);
+    expect(siteJobs).toMatch(/id="pmapIncome"/);
+    expect(siteJobs).toMatch(/id="pmapBenefits"/);
+    expect(siteJobs).toMatch(/'\/jobs\/view\?id='\s*\+\s*encodeURIComponent\(p\.id\)/);
+    // Sidebar is a bottom sheet on mobile.
+    expect(siteJobs).toMatch(/@media\(max-width:760px\)\{[\s\S]*\.pmap-detail\{[^}]*translateY/);
+  });
+
+  it('server builds the masked, keyless practice-map payload', () => {
+    expect(server).toMatch(/\/api\/public\/practice-map/);
+    expect(server).toMatch(/function buildPracticeMapData/);
+    // Same mask path as /api/public/jobs (mapCareerRoleRowToPublicJob -> sanitize).
+    expect(server).toMatch(/mapCareerRoleRowToPublicJob/);
+    expect(server).toMatch(/readAllSuccessfulSuburbGeo/);
   });
 });
 
