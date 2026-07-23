@@ -132,6 +132,27 @@
   .job-apply-card .btn.ghost.dark{background:#fff;color:var(--teal);border:1px solid var(--line);box-shadow:none;}
   .job-apply-card .btn.ghost.dark:hover{background:var(--teal-soft);}
 
+  /* ---------- locked practice-name teaser (members only) ----------
+     SECURITY: the real practice name is NEVER rendered here and never reaches
+     this public page — PUBLIC_JOB_FIELDS (server.js) omits practice_name, so
+     the payload carries only masked fields. The blurred text below is a FIXED
+     DECOY held in the markup; inspecting or un-blurring the DOM reveals nothing
+     real. Do not wire any job field into it. */
+  .job-locked{background:linear-gradient(180deg,#fff,var(--teal-soft));border:1px solid var(--line);
+    border-radius:var(--r);padding:20px 22px;margin:2px 0 24px;display:flex;flex-direction:column;gap:12px;}
+  .job-locked-head{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;font-weight:730;
+    letter-spacing:.07em;text-transform:uppercase;color:var(--teal);}
+  .job-locked-name{position:relative;display:flex;align-items:center;gap:11px;}
+  .job-locked-name .decoy{font-size:23px;font-weight:800;color:var(--ink-2);filter:blur(8px);
+    user-select:none;-webkit-user-select:none;pointer-events:none;white-space:nowrap;}
+  .job-locked-name .lock{flex:none;width:34px;height:34px;border-radius:50%;background:var(--teal);
+    color:#fff;display:grid;place-items:center;box-shadow:0 6px 16px -6px rgba(17,109,255,.7);}
+  .job-locked-note{margin:0;font-size:14px;color:var(--ink);line-height:1.55;}
+  .job-locked-note b{color:var(--ink-2);}
+  .job-locked .btn{align-self:flex-start;}
+  @media(max-width:560px){.job-locked .btn{align-self:stretch;justify-content:center;}
+    .job-locked-name .decoy{font-size:20px;}}
+
   /* ---------- not found / error ---------- */
   .job-not-found{grid-column:1/-1;text-align:center;background:var(--card);border:1px solid var(--line);
     border-radius:var(--r);padding:clamp(40px,6vw,64px) 24px;}
@@ -185,6 +206,24 @@
           <img class="job-hero-img" id="jobHeroImg" hidden alt="">
           <h1 id="jobTitle"></h1>
           <p class="job-meta-line" id="jobMeta"></p>
+
+          <!-- Locked practice-name teaser. The name is a DECOY only — the real
+               practice name is never sent to this public page (see the CSS note
+               and PUBLIC_JOB_FIELDS in server.js). Static markup: identical for
+               every role, no job data is wired in. -->
+          <div class="job-locked">
+            <div class="job-locked-head">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              Practice name
+            </div>
+            <div class="job-locked-name">
+              <span class="lock" aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+              <span class="decoy" aria-hidden="true">██████ █████████</span>
+            </div>
+            <p class="job-locked-note"><b>Only GP Link members can see the practice name.</b> Create a free account to unlock which practice this role is with, see the exact location, and apply in a couple of taps.</p>
+            <a class="btn primary" href="/pages/signin?signup=1&next=/pages/career">Create a free account to see it <span class="arr">→</span></a>
+          </div>
+
           <div class="job-chips" id="jobChips"></div>
           <div class="job-earnings" id="jobEarnings" hidden>
             <span class="je-label">Earnings</span>
