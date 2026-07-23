@@ -7302,6 +7302,63 @@ async function saveAccountCareerDocumentForUser(userId, payload) {
   return mapAccountCareerDocumentRow(payload.type, result.data[0]);
 }
 
+function buildIdentityDocumentStoragePath(userId) {
+  return ['users', sanitizeStoragePathSegment(userId, 80), 'identity', 'current'].join('/');
+}
+
+// Persist an onboarding identity document: Supabase storage object + a
+// user_documents row keyed 'identity' (full storage tuple so CEO/ATS can sign a
+// view URL), then mirror privately into the GP's Drive "ID" subfolder. Country is
+// stored lowercased but callers retrieve country-agnostically. Never creates a
+// doc-review task — the ID is not a qualification.
+async function saveIdentityDocumentForUser(userId, payload) {
+  if (!payload || !userId || !isSupabaseDbConfigured()) return null;
+  const country = String(payload.country || '').trim().toLowerCase() || 'zz';
+  const storagePath = buildIdentityDocumentStoragePath(userId);
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
+  if (!uploaded) return null;
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: country,
+        document_key: 'identity',
+        status: 'uploaded',
+        file_name: payload.fileName || 'identity',
+        file_url: storagePath,
+        storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+        storage_path: storagePath,
+        mime_type: payload.mimeType || 'application/octet-stream',
+        file_size: payload.fileSize || 0,
+        updated_at: new Date().toISOString()
+      }]
+    }
+  );
+  const row = (result.ok && Array.isArray(result.data) && result.data[0]) ? result.data[0] : null;
+  // Mirror privately into the "ID" Drive subfolder (best-effort; no-op without creds).
+  try { await mirrorIdentityToDrive(userId, payload); } catch (e) { console.error('[identity] drive mirror failed:', e.message); }
+  return row;
+}
+
+// Best-effort private Drive mirror of the identity image into the per-GP "ID" subfolder.
+async function mirrorIdentityToDrive(userId, payload) {
+  if (!isGoogleDriveConfigured()) return;
+  const caseRes = await supabaseDbRequest('registration_cases', 'select=id,google_drive_folder_id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  const gpCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+  if (!gpCase) return;
+  const folderId = await ensureGPDriveFolder(gpCase.id, null, null);
+  if (!folderId) return;
+  const parsed = parseDataUrlPayload(payload.fileDataUrl);
+  if (!parsed || !parsed.buffer) return;
+  const idFolderId = await ensureDocTypeSubfolder(folderId, driveDocFolders.ID_FOLDER, null);
+  const ext = ((parsed.mimeType || payload.mimeType || 'image/jpeg').split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+  await uploadPrivateToGoogleDrive(idFolderId || folderId, 'ID — ' + (payload.fileName || ('identity.' + ext)), parsed.buffer, parsed.mimeType || payload.mimeType, 'id_private');
+}
+
 // Careers profile gate (Task 3). Distinct document_keys from the onboarding
 // CV (cv_signed_dated): 'career_cv' (AI-checked) and 'career_cover_letter'
 // (shared with the existing Account-page cover letter slot — same key/country
@@ -47573,6 +47630,22 @@ Return ONLY valid JSON with no markdown formatting:
           verification.issues.push('We could not confidently match the full name on your ID to your account or verified documents. Please upload a clearer photo showing the full name.');
         }
       }
+
+      // Persist the ID (store + Drive) so CEO/ATS can verify the doctor is real.
+      // Fire-and-persist BEFORE responding (Vercel freezes the function after the
+      // response). Never blocks the verification result on a storage failure.
+      try {
+        const idUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(verifyEmail);
+        if (idUserId) {
+          await saveIdentityDocumentForUser(idUserId, {
+            fileDataUrl: 'data:' + mediaType + ';base64,' + aiImageBase64,
+            mimeType: mediaType,
+            fileName: 'identity.' + ((mediaType.split('/')[1] || 'jpg').replace('jpeg', 'jpg')),
+            fileSize: 0,
+            country: '' // resolved country-agnostically on retrieval; saveIdentityDocumentForUser falls back to 'zz'
+          });
+        }
+      } catch (idStoreErr) { console.error('[ID Verify] persist failed:', idStoreErr.message); }
 
       sendJson(res, 200, { ok: true, verification });
     } catch (fetchErr) {
