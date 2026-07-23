@@ -980,8 +980,14 @@
       if (redirectOthers !== undefined) body.redirect_others = redirectOthers;
       ATS.api('/api/ats/placement', { method: 'POST', body: body }).then(function (res) {
         if (res && res.ok) {
-          var redirectedNote = (typeof res.redirected === 'number' && res.redirected > 0)
-            ? ' · ' + res.redirected + ' other GP(s) redirected' : '';
+          var redirectedNote = '';
+          if (typeof res.redirected === 'number' && res.redirected > 0) {
+            redirectedNote = ' · ' + res.redirected + ' other GP(s) redirected';
+          } else if (res.positions && res.positions.full === false && res.positions.needed > 1) {
+            // Multi-GP opening: this placement did not fill the last seat, so
+            // the opening stays open and the other candidates were kept live.
+            redirectedNote = ' · ' + res.positions.hired + ' of ' + res.positions.needed + ' hired, opening stays open';
+          }
           ATS.toast('Placement secured — the doctor has been notified.' + redirectedNote);
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
           window.atsOpenCandidate(c.case_id);

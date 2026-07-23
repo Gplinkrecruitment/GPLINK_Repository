@@ -132,7 +132,7 @@ const practicePipeline = require('./lib/practice-pipeline');
 const errorFix = require('./lib/error-fix-proposals.js');
 // Approved proposal -> validated edit -> branch -> pull request (pure logic).
 const errorFixExec = require('./lib/error-fix-executor.js');
-const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation } = require('./lib/practice-intake-logic');
+const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation, parseGpsNeeded, computeJobFill } = require('./lib/practice-intake-logic');
 const { lookupDpa } = require('./lib/dpa-lookup');
 const aiCandidateJobMatch = require('./lib/ai-candidate-job-match.js');
 const { buildWriteupPrompt, parseWriteupResponse, scrubWriteup, maskIdentity } = require('./lib/job-writeup.js');
@@ -30432,6 +30432,52 @@ async function sendPostInterviewDecisionEmail(applicationId) {
   }
 }
 
+// ── Multi-GP openings: keep them open until every seat is hired ──────────────
+// A practice can ask for more than one GP on the intake form (gps_needed). The
+// opening must NOT close, and its other candidates must NOT be redirected, until
+// that many are hired. Two things close an opening — the job_status='filled'
+// flip and the redirectOthersForJob fan-out — and BOTH are now gated on the
+// opening being full. Non-intake or single-GP openings parse to a target of 1,
+// so they fill on the first hire exactly as before.
+function jobPositionsNeeded(roleRow) {
+  var details = roleRow && roleRow.details;
+  var raw = (details && typeof details === 'object') ? details.gps_needed : null;
+  return parseGpsNeeded(raw);
+}
+
+// Live count of GPs in the 'Hired' lane on a job (ats_stage='hired'). A secured
+// placement always lands in this lane too, so it is counted.
+async function atsJobHiredCount(jobId) {
+  if (!jobId) return 0;
+  try {
+    if (isSupabaseDbConfigured()) {
+      var res = await supabaseDbRequest('gp_applications',
+        'select=id&career_role_id=eq.' + encodeURIComponent(jobId) + '&ats_stage=eq.hired&limit=1000');
+      return (res.ok && Array.isArray(res.data)) ? res.data.length : 0;
+    }
+    return (dbState.atsApplications || []).filter(function (a) {
+      return a && String(a.career_role_id) === String(jobId) && a.ats_stage === 'hired';
+    }).length;
+  } catch (e) {
+    console.error('[ats] hired-count failed for job', jobId, ':', e && e.message);
+    return 0;
+  }
+}
+
+// { needed, hired, isFull, remaining, roleRow } for an opening. Pass the role
+// row when you already have it to avoid a refetch. isFull is the single gate
+// used by every close/redirect path.
+async function atsJobFillState(roleRowOrId) {
+  var roleRow = (roleRowOrId && typeof roleRowOrId === 'object') ? roleRowOrId : null;
+  var jobId = roleRow ? roleRow.id : roleRowOrId;
+  if (!roleRow && jobId) { try { roleRow = await atsGetJobRow(jobId); } catch (e) { roleRow = null; } }
+  var hired = await atsJobHiredCount(jobId);
+  var raw = (roleRow && roleRow.details && typeof roleRow.details === 'object') ? roleRow.details.gps_needed : null;
+  var fill = computeJobFill(raw, hired);
+  fill.roleRow = roleRow;
+  return fill;
+}
+
 async function redirectOthersForJob(jobId, hiredAppId) {
   var result = { redirected: 0, skipped: 0, errors: [] };
   if (!jobId || !isSupabaseDbConfigured()) return result;
@@ -31735,10 +31781,16 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     console.error('[placement] placements insert failed for app', targetApp.id, ':', plErr && plErr.message);
   }
 
-  // (7) Internal (in-app) jobs are filled by this acceptance.
+  // (7) Internal (in-app) jobs are filled by this acceptance — but only once the
+  // opening has all the GPs the practice asked for. A multi-GP opening stays
+  // 'open' after the first placement so its remaining seats can still be filled.
+  // This app is already at ats_stage 'hired' (step 2), so it is counted.
   try {
     if (roleRow && roleRow.provider === 'internal_ats' && roleRow.job_status !== 'filled') {
-      await atsUpdateJobRow(roleRow.id, { job_status: 'filled' });
+      var plFill = await atsJobFillState(roleRow);
+      if (plFill.isFull) {
+        await atsUpdateJobRow(roleRow.id, { job_status: 'filled' });
+      }
     }
   } catch (jobErr) {
     console.error('[placement] job fill update failed for role', targetApp.career_role_id, ':', jobErr && jobErr.message);
@@ -63669,17 +63721,30 @@ Return ONLY valid JSON with no markdown formatting:
     // via redirect_others:true (the ATS confirm dialog's "Yes, send" path).
     // Without the flag: hiring behaves exactly as before this task.
     var apRedirected = 0;
+    var apPositions = null;
     var apJustHired = !!(updatedAP && newStage === 'hired' && upAP.prevStage !== 'hired' && bodyAP.redirect_others === true);
     if (apJustHired) {
       try {
-        var apRedirectRes = await redirectOthersForJob(updatedAP.career_role_id, apId);
-        apRedirected = (apRedirectRes && apRedirectRes.redirected) || 0;
+        // Multi-GP guard: only close the opening + redirect the other candidates
+        // once this hire fills the last seat the practice asked for. Hiring GP 1
+        // of 3 leaves the opening open and everyone else live.
+        var apFill = await atsJobFillState(updatedAP.career_role_id);
+        apPositions = { needed: apFill.needed, hired: apFill.hired, full: apFill.isFull };
+        if (apFill.isFull) {
+          try {
+            if (apFill.roleRow && apFill.roleRow.provider === 'internal_ats' && apFill.roleRow.job_status !== 'filled') {
+              await atsUpdateJobRow(updatedAP.career_role_id, { job_status: 'filled' });
+            }
+          } catch (apFillErr) { console.error('[ats] job fill flip failed for job', updatedAP.career_role_id, ':', apFillErr && apFillErr.message); }
+          var apRedirectRes = await redirectOthersForJob(updatedAP.career_role_id, apId);
+          apRedirected = (apRedirectRes && apRedirectRes.redirected) || 0;
+        }
       } catch (apRedirectErr) {
         console.error('[ats] redirect-others failed for job', updatedAP.career_role_id, ':', apRedirectErr && apRedirectErr.message);
       }
     }
     sendJson(res, 200, Object.assign({ ok: true, application: updatedAP ? atsApplicationToCard(updatedAP, null) : null },
-      apJustHired ? { redirected: apRedirected } : {}));
+      apJustHired ? { redirected: apRedirected, positions: apPositions } : {}));
     return;
   }
 
@@ -64081,10 +64146,18 @@ Return ONLY valid JSON with no markdown formatting:
     // not_proceeding — nobody is emailed twice).
     var plcWantRedirect = !!(bodyPlc && bodyPlc.redirect_others === true);
     var plcRedirected = 0;
+    var plcPositions = null;
     if (plcWantRedirect) {
       try {
-        var plcRedirectRes = await redirectOthersForJob(plcApp.career_role_id, plcAppId);
-        plcRedirected = (plcRedirectRes && plcRedirectRes.redirected) || 0;
+        // Multi-GP guard (same rule as the kanban-hire path): only redirect the
+        // remaining candidates once this placement fills the last seat. The
+        // job_status flip itself was already gated inside finalizeInAppPlacement.
+        var plcFill = await atsJobFillState(plcApp.career_role_id);
+        plcPositions = { needed: plcFill.needed, hired: plcFill.hired, full: plcFill.isFull };
+        if (plcFill.isFull) {
+          var plcRedirectRes = await redirectOthersForJob(plcApp.career_role_id, plcAppId);
+          plcRedirected = (plcRedirectRes && plcRedirectRes.redirected) || 0;
+        }
       } catch (plcRedirectErr) {
         console.error('[ats] redirect-others failed for job', plcApp.career_role_id, ':', plcRedirectErr && plcRedirectErr.message);
       }
@@ -64094,7 +64167,7 @@ Return ONLY valid JSON with no markdown formatting:
       applicationId: plcAppId,
       ats_stage: plcResult.nextStage ? 'hired' : (plcResult.storedStage || 'hired'),
       placement_secured: true
-    }, plcWantRedirect ? { redirected: plcRedirected } : {}));
+    }, plcWantRedirect ? { redirected: plcRedirected, positions: plcPositions } : {}));
     return;
   }
 
@@ -67050,6 +67123,25 @@ module.exports.__testUtils = {
     if (!key) return;
     dbState.users = dbState.users || {};
     dbState.users[key] = Object.assign({ email: key }, patch || {});
+    saveDbState();
+  },
+  // Multi-GP opening headcount gate.
+  jobPositionsNeeded,
+  atsJobHiredCount,
+  atsJobFillState,
+  // Test-only: seed local-JSON atsJobs/atsApplications so atsJobFillState can be
+  // exercised end to end without a live Supabase (local mode only).
+  __seedAtsFillState: function (job, apps) {
+    dbState.atsJobs = dbState.atsJobs || [];
+    dbState.atsApplications = dbState.atsApplications || [];
+    if (job) dbState.atsJobs.push(job);
+    (Array.isArray(apps) ? apps : []).forEach(function (a) { dbState.atsApplications.push(a); });
+    saveDbState();
+  },
+  __setAtsAppStageForTest: function (appId, stage) {
+    (dbState.atsApplications || []).forEach(function (a) {
+      if (String(a.id) === String(appId)) a.ats_stage = stage;
+    });
     saveDbState();
   },
   listOnboardingReminders,

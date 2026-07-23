@@ -577,7 +577,15 @@
   }
 
   function redirectedSuffix(d) {
-    return (d && typeof d.redirected === 'number' && d.redirected > 0) ? (' · ' + d.redirected + ' GP(s) redirected') : '';
+    if (d && typeof d.redirected === 'number' && d.redirected > 0) return ' · ' + d.redirected + ' GP(s) redirected';
+    // Multi-GP opening: this hire did not fill the last seat, so the opening
+    // stays open and the other candidates were kept live. Tell staff where it
+    // stands rather than silently leaving them wondering.
+    var p = d && d.positions;
+    if (p && p.full === false && p.needed > 1) {
+      return ' · ' + p.hired + ' of ' + p.needed + ' hired, opening stays open';
+    }
+    return '';
   }
 
   // AI Matching (Task 7, spec §9): late-withdrawal reason capture. Moving a
@@ -754,6 +762,10 @@
       renderBoard();
       renderBoardMeta();
       if (d && d.redirected) A.toast(d.redirected + ' GP(s) redirected');
+      else {
+        var dp = d && d.positions;
+        if (dp && dp.full === false && dp.needed > 1) A.toast(dp.hired + ' of ' + dp.needed + ' hired, opening stays open');
+      }
     });
   }
 

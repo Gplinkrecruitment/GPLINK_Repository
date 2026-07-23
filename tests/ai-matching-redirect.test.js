@@ -93,7 +93,7 @@ describe('AI Matching Task 6 — source wiring', () => {
   });
 
   it('pages/ceo-dashboard.html loads the bumped ceo-ats-jobs.js cache buster', () => {
-    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20260718a"></script>');
+    expect(dashboardHtml).toContain('<script src="/js/ceo-ats-jobs.js?v=20260724a"></script>');
   });
 
   // ── Review-fix wiring (the two REAL fill paths + hardening) ────────────────
@@ -155,7 +155,7 @@ describe('AI Matching Task 6 — source wiring', () => {
   });
 
   it('pages/ceo-dashboard.html loads the bumped ceo-ats-candidates.js cache buster', () => {
-    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260721[a-z]"><\/script>/);
+    expect(dashboardHtml).toMatch(/<script src="\/js\/ceo-ats-candidates\.js\?v=20260724[a-z]"><\/script>/);
     expect(dashboardHtml).not.toContain('ceo-ats-candidates.js?v=20260707e'); // pre-fix pin superseded
   });
 
