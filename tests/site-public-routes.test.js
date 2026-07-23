@@ -463,3 +463,36 @@ describe('marketing site never claims "no documents" (Task 16, Change 2 regressi
     });
   }
 });
+
+// Public map support endpoints for the job-advert maps (site-job.html + job.html).
+// The browser Maps key is authorized for the Maps JS API but not Geocoding, so
+// the client centres its map via /api/public/suburb-geo instead of the Geocoder.
+describe('public map endpoints', () => {
+  it('GET /api/public/maps-config returns the browser-key config as JSON', async () => {
+    const res = await get('/api/public/maps-config');
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.raw);
+    expect(body.ok).toBe(true);
+    expect(typeof body.enabled).toBe('boolean');
+    expect(typeof body.apiKey).toBe('string');
+  });
+
+  it('GET /api/public/suburb-geo without a suburb is a 400 ok:false (input validation)', async () => {
+    const res = await get('/api/public/suburb-geo');
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.raw);
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('suburb_required');
+  });
+
+  it('GET /api/public/practice-map returns a practices array for the Australia map', async () => {
+    const res = await get('/api/public/practice-map');
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.raw);
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.practices)).toBe(true);
+    // No Supabase in this harness, so the list is empty — but the contract is
+    // that whatever it returns is masked map objects (never a practice name).
+    expect(res.raw).not.toMatch(/practice_name|practiceName|"address"/);
+  });
+});

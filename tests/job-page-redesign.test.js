@@ -89,12 +89,25 @@ describe('job.html — redesign (2026-07)', () => {
     expect(fn[0]).toContain('at-headline');
   });
 
-  it('map keeps the fixed center-pin overlay and adds a suburb pin label (never the exact address pre-reveal)', () => {
+  it('map is interactive (pan/zoom) with the branded pin locked to the suburb, keeping the suburb pin label (never the exact address pre-reveal)', () => {
     const fn = html.match(/function buildMapHtml\(role\) \{[\s\S]*?\n  \}/);
     expect(fn).toBeTruthy();
+    // Pin label preserved (never the exact address pre-reveal) — now carried on
+    // the map figure as data-map-pinlabel for the Leaflet pin to render.
     expect(fn[0]).toContain('getRoleMapPinLabel');
-    expect(fn[0]).toContain('at-map-pinlabel');
-    expect(fn[0]).toContain('at-map-overlay');
+    expect(fn[0]).toContain('data-map-pinlabel');
+    // buildMapHtml emits a real interactive map canvas wired up after render.
+    expect(fn[0]).toContain('data-at-map');
+    expect(html).toContain('function initAtMaps(');
+    // The branded pin is a keyless Leaflet divIcon anchored to the suburb's
+    // lat/lng, so it stays on the suburb as the map moves. Not Google Maps.
+    const pinFn = html.match(/function atMakePinIcon\([\s\S]*?\n  \}/);
+    expect(pinFn).toBeTruthy();
+    expect(pinFn[0]).toContain('at-pin');
+    expect(pinFn[0]).toContain('at-map-pinlabel');
+    expect(pinFn[0]).toContain('L.divIcon');
+    expect(html).toContain('L.map(');
+    expect(html).not.toContain('maps.googleapis.com/maps/api/js');
   });
 
   it('no raw emoji in the new perk/practice-facts/name-on-acceptance icon markup — svg only', () => {

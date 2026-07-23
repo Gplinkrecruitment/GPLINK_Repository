@@ -673,7 +673,7 @@ describe('funnel line — solid through the pipeline, dashed through suggestions
 
 describe('cache buster + dead CSS pruned', () => {
   it('ceo-dashboard.html loads the bumped matching script, and only that tag', () => {
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260719a');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
   });
   it('ceo-dashboard.html loads the bumped board stylesheet (a stale pin serves pre-board CSS from cache)', () => {

@@ -76,7 +76,8 @@
     ensureDelegation();
     currentQuery = '';
     panel.innerHTML = ATS.loadingHtml('Loading practices…');
-    fetchPractices(currentQuery).then(function (d) {
+    // SWR: paint the cached directory instantly, then repaint from the network.
+    ATS.swr('/api/ats/practices', function (d) {
       renderDirectory(panel, d || {});
     });
   }

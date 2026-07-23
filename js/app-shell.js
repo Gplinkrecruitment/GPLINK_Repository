@@ -1281,6 +1281,9 @@
       chromePreemptiveHide = false;
       if (mobileNavEl) mobileNavEl.style.display = "none";
       if (desktopHostEl) desktopHostEl.style.display = "none";
+      // Onboarding owns the whole screen — a walkthrough tour/pointer anchored
+      // to the nav we just hid would strand its tooltip over the gateway.
+      try { if (window.gpCoach && window.gpCoach.cancel) window.gpCoach.cancel(); } catch (e) {}
     }
 
     // The preemptive boot hide (see chromePreemptiveHide) only applies while
@@ -1729,6 +1732,10 @@
       chromePreemptiveHide = false; // explicit hide supersedes the boot guess
       if (mobileNavEl) mobileNavEl.style.display = "none";
       if (desktopHostEl) desktopHostEl.style.display = "none";
+      // A page hiding the chrome is taking over the screen (onboarding
+      // gateway, PEP pathway) — kill any active coach overlay so its tooltip
+      // can't float over the takeover, anchored to the nav we just hid.
+      try { if (window.gpCoach && window.gpCoach.cancel) window.gpCoach.cancel(); } catch (e) {}
       return;
     }
     if (event.data.type === "gp-shell-show-chrome") {

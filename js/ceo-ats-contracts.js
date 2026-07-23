@@ -81,7 +81,7 @@
   function fetchAndRender() {
     var el = document.getElementById('contracts-list');
     if (el) el.innerHTML = ATS.loadingHtml('Loading contracts…');
-    ATS.api('/api/ceo/contracts').then(function (d) {
+    ATS.swr('/api/ceo/contracts', function (d) {
       var listEl = document.getElementById('contracts-list');
       if (!listEl) return;
       if (!d || !d.ok) { listEl.innerHTML = ATS.emptyHtml('Could not load contracts.'); return; }

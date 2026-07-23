@@ -44,4 +44,24 @@ describe('shell wiring', () => {
     expect(navBlock).toContain('offsetParent');
     expect(navBlock).toMatch(/isShown\(el\) \? el : null/);
   });
+  it('runTour re-checks guarded() after its arm delay', () => {
+    // tryAuto checks guarded() then arms runTour via setTimeout — the screen
+    // can be taken over (onboarding gateway) inside that window, so runTour
+    // must re-check before painting the overlay.
+    const js = read('js/gp-walkthrough-shell.js');
+    const block = js.slice(js.indexOf('function runTour'), js.indexOf('function tryAuto'));
+    expect(block).toContain('guarded()');
+  });
+  it('shell cancels an active coach when onboarding takes over the screen', () => {
+    const js = read('js/app-shell.js');
+    const hideStart = js.indexOf('event.data.type === "gp-shell-hide-chrome"');
+    const hideEnd = js.indexOf('event.data.type === "gp-shell-show-chrome"');
+    expect(hideStart).toBeGreaterThan(-1);
+    const hideBlock = js.slice(hideStart, hideEnd);
+    expect(hideBlock, 'gp-shell-hide-chrome handler cancels the coach').toContain('gpCoach.cancel');
+    const navStart = js.indexOf('var isOnboarding');
+    expect(navStart).toBeGreaterThan(-1);
+    const navBlock = js.slice(navStart, navStart + 600);
+    expect(navBlock, 'navigateTo onboarding branch cancels the coach').toContain('gpCoach.cancel');
+  });
 });

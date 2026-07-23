@@ -28,6 +28,7 @@
   // ---------- browser-only below (never called at module load) ----------
   var STYLE_ID = 'gp-coach-styles';
   var active = false;
+  var activeCancel = null; // teardown for the current run — no onDone/onSkip
   function doc() { return typeof document !== 'undefined' ? document : null; }
 
   function ensureStyles() {
@@ -125,6 +126,7 @@
         if (settled) return; // this run only ever tears down once
         settled = true;
         active = false;
+        activeCancel = null;
         detachPointerClick();
         window.removeEventListener('resize', reposition, true);
         window.removeEventListener('scroll', reposition, true);
@@ -180,6 +182,15 @@
           if (fresh) curTarget = fresh; else return;
         }
         var r = curTarget.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) {
+          // Target hidden mid-run (e.g. nav chrome hidden because the
+          // onboarding gateway took the screen): its rect collapses to 0x0 at
+          // the viewport origin, which would strand the spotlight in the
+          // top-left corner over whatever now owns the screen. End quietly —
+          // no onDone/onSkip, so nothing is marked and the tour re-arms later.
+          cleanup('lost');
+          return;
+        }
         var rect = { left: r.left, top: r.top, width: r.width, height: r.height };
         // Sliver guard: a collapsed/empty-state target (near-zero height or
         // width) would leave an invisible spotlight. Expand the rect, centered,
@@ -241,6 +252,7 @@
           });
         });
       }
+      activeCancel = function () { cleanup('cancel'); };
       window.addEventListener('resize', reposition, true);
       window.addEventListener('scroll', reposition, true);
       d.addEventListener('keydown', onKey, true);
@@ -249,6 +261,10 @@
   }
 
   function isActive() { return active; }
+  // Tear down the current run without invoking onDone/onSkip (nothing gets
+  // marked seen/done). For screen takeovers: the shell calls this when the
+  // onboarding gateway hides the nav chrome. Safe no-op when idle.
+  function cancel() { if (activeCancel) activeCancel(); }
 
-  return { computePlacement: computePlacement, run: run, isActive: isActive, waitForElement: waitForElement };
+  return { computePlacement: computePlacement, run: run, isActive: isActive, cancel: cancel, waitForElement: waitForElement };
 });

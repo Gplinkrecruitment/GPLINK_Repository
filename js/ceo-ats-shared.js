@@ -45,6 +45,9 @@
   // Fetch JSON from a same-origin endpoint. Returns parsed body or { ok:false }.
   function api(path, opts) {
     opts = opts || {};
+    // Any mutation invalidates the SWR cache namespace (see gpSwr in the CEO
+    // dashboard's inline script) — converted views revalidate on next paint.
+    if (window.__gpSwr && opts.method && opts.method !== 'GET') { try { window.__gpSwr.purge(); } catch (e) { /* ignore */ } }
     var init = { method: opts.method || 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
     if (opts.body !== undefined) {
       init.headers['Content-Type'] = 'application/json';
@@ -53,6 +56,22 @@
     return fetch(path, init).then(function (r) {
       return r.json().catch(function () { return { ok: false, status: r.status }; });
     }).catch(function () { return { ok: false, message: 'Network error' }; });
+  }
+
+  // SWR wrapper over api() — same contract as the dashboard's gpSwr(): onData
+  // (payload, fromCache) runs up to twice, once synchronously with the cached
+  // payload (if any), then with the network result. Storage lives in the CEO
+  // dashboard's window.__gpSwr helpers (sessionStorage); when absent (module
+  // loaded standalone) this degrades to a plain network fetch.
+  function swr(path, onData) {
+    var S = window.__gpSwr;
+    var cached = S ? S.read(path) : null;
+    if (cached) { try { onData(cached, true); } catch (e) { /* ignore */ } }
+    return api(path).then(function (d) {
+      if (S) { if (d && d.ok) S.write(path, d); else S.drop(path); }
+      onData(d, false);
+      return d;
+    });
   }
 
   function toast(msg) {
@@ -95,7 +114,7 @@
   window.ATS = {
     esc: esc, escAttr: escAttr, initials: initials, avatarColor: avatarColor,
     flag: flag, countryLabel: countryLabel, bandClass: bandClass, bandLabel: bandLabel,
-    api: api, toast: toast, setOverlay: setOverlay,
+    api: api, swr: swr, toast: toast, setOverlay: setOverlay,
     loadingHtml: loadingHtml, emptyHtml: emptyHtml, intentChip: intentChip,
     role: role, isConsultant: isConsultant,
     activeTab: 'registration'
@@ -159,10 +178,11 @@
       showMaster(item.getAttribute('data-mtab'));
     });
     window.addEventListener('hashchange', applyHash);
-    // Populate the count chips once (lightweight).
-    api('/api/ceo/candidates').then(function (d) { var el = document.getElementById('masterCandCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.candidates ? d.candidates.length : ''); });
-    api('/api/ats/jobs').then(function (d) { var el = document.getElementById('masterJobsCount'); if (el && d && d.ok) el.textContent = d.open_count != null ? d.open_count : (d.jobs ? d.jobs.length : ''); });
-    api('/api/ats/practices').then(function (d) { var el = document.getElementById('masterPracCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.practices ? d.practices.length : ''); });
+    // Populate the count chips once (lightweight). SWR: cached counts paint
+    // instantly, then the network result overwrites them.
+    swr('/api/ceo/candidates', function (d) { var el = document.getElementById('masterCandCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.candidates ? d.candidates.length : ''); });
+    swr('/api/ats/jobs', function (d) { var el = document.getElementById('masterJobsCount'); if (el && d && d.ok) el.textContent = d.open_count != null ? d.open_count : (d.jobs ? d.jobs.length : ''); });
+    swr('/api/ats/practices', function (d) { var el = document.getElementById('masterPracCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.practices ? d.practices.length : ''); });
     // Honour an initial deep-link hash (used by tab links + screenshots).
     applyHash();
   }

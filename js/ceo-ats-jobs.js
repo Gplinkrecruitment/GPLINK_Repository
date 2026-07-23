@@ -246,7 +246,7 @@
     var listEl = el('atsJobList');
     if (listEl) listEl.innerHTML = A.loadingHtml('Loading jobs…');
     var f = currentJobFilters();
-    A.api(buildJobsPath(f)).then(function (d) {
+    A.swr(buildJobsPath(f), function (d) {
       var list = el('atsJobList');
       if (!list) return;
       if (!d || !d.ok) { list.innerHTML = A.emptyHtml('Could not load jobs.'); return; }

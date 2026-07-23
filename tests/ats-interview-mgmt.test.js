@@ -433,6 +433,6 @@ describe('UI static pins', () => {
   it('ceo-dashboard bumps the cache-busters for the changed ATS scripts', () => {
     const html = read('pages/ceo-dashboard.html');
     expect(html).toContain('ceo-ats-candidates.js?v=20260724b');
-    expect(html).toContain('ceo-ats-meetings.js?v=20260717b');
+    expect(html).toContain('ceo-ats-meetings.js?v=20260724b');
   });
 });

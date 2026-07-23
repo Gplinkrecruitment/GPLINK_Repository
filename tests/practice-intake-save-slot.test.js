@@ -461,3 +461,40 @@ describe('practice intake — the group promotion is provisional', () => {
     expect(html).toMatch(/autoPromoted = !!d\.autoPromoted/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// "How many GPs" is a number picker (stepper), not a dropdown.
+// ---------------------------------------------------------------------------
+describe('practice intake — GPs-needed number picker', () => {
+  it('replaced the <select> with a stepper (minus / value / plus)', () => {
+    expect(html).not.toMatch(/<select id="gps_needed">/);
+    expect(html).toMatch(/class="stepper"/);
+    expect(html).toMatch(/data-action="gps-dec"/);
+    expect(html).toMatch(/data-action="gps-inc"/);
+    // The chosen number still lives on #gps_needed so captureCur/gate2 are unchanged.
+    expect(html).toMatch(/<input type="hidden" id="gps_needed"/);
+  });
+
+  it('defaults to 1 and wires the stepper buttons', () => {
+    expect(extractFn(html, 'freshCur')).toMatch(/gps_needed:\s*'1'/);
+    // Delegated click handler routes the buttons.
+    expect(html).toMatch(/case 'gps-inc': bumpGps\(1\)/);
+    expect(html).toMatch(/case 'gps-dec': bumpGps\(-1\)/);
+  });
+
+  it('clamps the value to 1..10 (pure logic)', () => {
+    const gpsFromValue = new Function(
+      'var GPS_MIN=1,GPS_MAX=10;' + extractFn(html, 'gpsFromValue') + 'return gpsFromValue;'
+    )();
+    expect(gpsFromValue('')).toBe(1);
+    expect(gpsFromValue('0')).toBe(1);
+    expect(gpsFromValue('3')).toBe(3);
+    expect(gpsFromValue('99')).toBe(10);
+    expect(gpsFromValue('5+')).toBe(5);   // legacy draft value tolerated
+    expect(gpsFromValue(null)).toBe(1);
+  });
+
+  it('no longer claims one intake creates only one vacancy (stale pre-multi-GP copy)', () => {
+    expect(html).not.toMatch(/one intake creates only one vacancy/i);
+  });
+});

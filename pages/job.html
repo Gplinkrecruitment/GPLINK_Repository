@@ -516,14 +516,17 @@
       background: var(--gp-surface-sunken, #f8fafd);
       box-shadow: var(--gp-shadow-sm);
     }
-    /* pointer-events:none locks the embed so it can't be panned/zoomed — the
-       centred .at-pin overlay stays glued to the container centre, so the map
-       centre must stay on the suburb/exact point for the pin to keep marking
-       it. The sibling "Open in Maps ↗" link (auto pointer-events) still works. */
-    .at-map iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; pointer-events: none; }
-    .at-map-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-    .at-map-overlay.at-map-overlay--fuzzy { background: radial-gradient(circle at 50% 50%, rgba(37, 99, 235, .14), rgba(37, 99, 235, .04) 44%, transparent 62%); }
-    .at-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+    /* Interactive map surface: a keyless Leaflet map (CARTO/OSM tiles, pan+zoom).
+       The branded pin is a Leaflet divIcon (.at-mk) anchored to the point's
+       lat/lng, so it stays LOCKED as the map pans/zooms. Not Google Maps — its
+       key is referrer-restricted (breaks on preview) + no Geocoding. */
+    .at-map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .at-map .leaflet-container { font: inherit; background: var(--gp-surface-sunken, #f8fafd); }
+    /* Fallback only (Leaflet/coords failed): the raw Google embed, which carries
+       its own pin and is itself pan/zoomable. */
+    .at-map-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+    .at-mk { pointer-events: none; }
+    .at-pin { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
     .at-ring {
       width: 60px;
       height: 60px;
@@ -686,12 +689,13 @@
     .at-prow-k { font-size: 11px; letter-spacing: .03em; text-transform: uppercase; color: var(--gp-faint, #94a3b8); font-weight: 700; }
     .at-prow-v { margin-top: 1px; font-size: 14.5px; font-weight: 650; color: var(--gp-ink, #0f172a); }
 
-    /* ── Map pin label (mockup: .pinlabel) — dark tag fixed just below the
-       existing .at-pin overlay, never the exact address pre-reveal. ── */
+    /* ── Map pin label (mockup: .pinlabel) — dark tag just below the .at-pin,
+       inside the .at-mk overlay so it tracks the point, never the exact address
+       pre-reveal. left/top are relative to the marker's projected origin. ── */
     .at-map-pinlabel {
       position: absolute;
-      left: 50%;
-      top: calc(50% + 20px);
+      left: 0;
+      top: 20px;
       transform: translateX(-50%);
       background: #0f1b2d;
       color: #fff;
@@ -1854,37 +1858,51 @@
       '<div class="at-rv at-rv3">' + block + note + '</div>';
   }
 
-  /* ── Area map: fuzzy pre-reveal, exact post-reveal ── */
+  /* ── Area map: interactive (pan + zoom) with a branded pin LOCKED to the
+     suburb pre-reveal / exact point post-reveal. The pin lives INSIDE the map
+     (an OverlayView re-projected on every move, wired by initAtMaps() after
+     render) so it stays on the point as the map moves. Falls back to the raw
+     Google embed (its own pin, also pan/zoomable) when the browser Maps key is
+     unset or the geocode fails, so the map area is never blank. ── */
   function buildMapHtml(role) {
     const revealed = !!(role && role.revealed && role.revealedMapQuery);
     const query = revealed ? role.revealedMapQuery : (role && role.mapQuery);
     if (!query) return "";
     const zoom = revealed ? 15 : 13;
-    const src = "https://www.google.com/maps?q=" + encodeURIComponent(query) + "&z=" + zoom + "&output=embed";
+    const fallbackSrc = "https://www.google.com/maps?q=" + encodeURIComponent(query) + "&z=" + zoom + "&output=embed";
     const suburb = getRoleSuburbLabel(role);
     const caption = revealed
       ? "Exact location" + (role.realPracticeName ? " · " + role.realPracticeName : "")
       : suburb + " area — exact address shared on acceptance";
-    // Redesign (2026-07): dark pin-label tag anchored just below the fixed
-    // pin (mockup's .pinlabel), e.g. "Erina, NSW 2250" — never the exact
-    // address pre-reveal, only the same suburb/state already used for the
-    // caption below.
+    // Redesign (2026-07): dark pin-label tag anchored just below the pin
+    // (mockup's .pinlabel), e.g. "Erina, NSW 2250" — never the exact address
+    // pre-reveal, only the same suburb/state already used for the caption.
     const pinLabel = getRoleMapPinLabel(role);
-    const pinLabelHtml = pinLabel ? '<span class="at-map-pinlabel">' + escapeHtml(pinLabel) + '</span>' : "";
-    const overlay = revealed
-      ? '<span class="at-map-overlay"><span class="at-pin"><span class="at-ring at-ring--exact"><span class="at-dotpin at-dotpin--exact"></span></span></span>' + pinLabelHtml + '</span>'
-      : '<span class="at-map-overlay at-map-overlay--fuzzy"><span class="at-pin"><span class="at-ring"><span class="at-dotpin"></span></span></span>' + pinLabelHtml + '</span>';
-    // AI Matching (Task 7): revealed-only "Open in Maps ↗" link, same pattern
-    // career.html's match card uses (a real maps.google.com link, opened in
-    // a new tab — distinct from the embed iframe's src above).
+    const suburbName = getRoleSuburbLabel(role);
+    const stateCode = getRoleStateCode(role);
+    // AI Matching (Task 7): revealed-only "Open in Maps ↗" link — a real
+    // maps.google.com link opened in a new tab (sibling of the map, unaffected
+    // by the map's own gestures).
     const openMapsLink = revealed
       ? '<a class="at-map-open" href="https://www.google.com/maps?q=' + encodeURIComponent(query) + '" target="_blank" rel="noopener noreferrer">Open in Maps ↗</a>'
       : '';
+    // data-* carry everything initAtMaps() needs to build the interactive map
+    // and its OverlayView pin (or, on failure, the fallback embed). Suburb +
+    // state feed the keyless /api/public/suburb-geo lookup (the Maps key can't
+    // geocode); revealed (exact-address) maps use the embed, which geocodes the
+    // exact point server-side.
     return '<div class="at-sech">The area</div>' +
       '<div class="at-rv at-rv4">' +
-        '<figure class="at-map" style="margin:0">' +
-          '<iframe src="' + escapeHtml(src) + '" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role area map"></iframe>' +
-          overlay +
+        '<figure class="at-map" style="margin:0" data-at-map' +
+          ' data-map-query="' + escapeHtml(query) + '"' +
+          ' data-map-suburb="' + escapeHtml(suburbName || '') + '"' +
+          ' data-map-state="' + escapeHtml(stateCode && stateCode !== 'AU' ? stateCode : '') + '"' +
+          ' data-map-zoom="' + zoom + '"' +
+          ' data-map-revealed="' + (revealed ? '1' : '0') + '"' +
+          ' data-map-pinlabel="' + escapeHtml(pinLabel || '') + '"' +
+          ' data-map-fallback="' + escapeHtml(fallbackSrc) + '">' +
+          '<div class="at-map-canvas"></div>' +
+          '<iframe class="at-map-frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role area map" hidden></iframe>' +
           openMapsLink +
           '<figcaption class="at-map-caption">' + escapeHtml(caption) + '</figcaption>' +
         '</figure>' +
@@ -1892,6 +1910,119 @@
           ? '<p class="at-map-address">' + AT_PIN_SVG + escapeHtml(role.practiceAddress) + '</p>'
           : "") +
       '</div>';
+  }
+
+  // ── Interactive area map + branded pin ─────────────────────────────────────
+  // Keyless Leaflet map with CARTO/OSM tiles — NOT Google Maps (its browser key
+  // is referrer-restricted, e.g. "RefererNotAllowedMapError" on preview, and
+  // isn't authorized for Geocoding). The pin is a Leaflet divIcon anchored to
+  // the point's lat/lng, so it stays locked as the map pans/zooms. Suburb coords
+  // come from our own keyless /api/public/suburb-geo (suburb-level only).
+  // Fallback to the raw embed keeps the map working if Leaflet/lookup fails.
+  var atLeafletPromise = null;
+  var atGeocodeCache = {};
+  var atMapInstances = [];
+  function atLoadLeaflet() {
+    if (window.L && window.L.map) return Promise.resolve(window.L);
+    if (atLeafletPromise) return atLeafletPromise;
+    atLeafletPromise = new Promise(function (resolve, reject) {
+      // Resolve only when BOTH the CSS (tile positioning depends on it) and the
+      // JS are ready; treat a CSS load error as "ready" so JS still runs.
+      var cssReady = false, jsReady = false;
+      function maybeDone() { if (cssReady && jsReady && window.L && window.L.map) resolve(window.L); }
+      var link = document.querySelector('link[data-leaflet]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+        link.setAttribute('data-leaflet', '1');
+        link.onload = function () { cssReady = true; maybeDone(); };
+        link.onerror = function () { cssReady = true; maybeDone(); };
+        document.head.appendChild(link);
+      } else { cssReady = true; }
+      var existing = document.querySelector('script[data-leaflet]');
+      if (existing) {
+        if (window.L && window.L.map) { jsReady = true; maybeDone(); return; }
+        existing.addEventListener('load', function () { jsReady = true; maybeDone(); });
+        existing.addEventListener('error', function () { reject(new Error('leaflet_failed')); });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+      s.setAttribute('data-leaflet', '1');
+      s.onload = function () { jsReady = true; maybeDone(); };
+      s.onerror = function () { reject(new Error('leaflet_failed')); };
+      document.head.appendChild(s);
+    });
+    return atLeafletPromise;
+  }
+  // Suburb coordinates from our own keyless endpoint (Supabase cache -> Nominatim).
+  function atFetchSuburbCoords(suburb, state) {
+    var key = suburb + '|' + state;
+    if (atGeocodeCache[key]) return Promise.resolve(atGeocodeCache[key]);
+    var params = 'suburb=' + encodeURIComponent(suburb) + (state ? '&state=' + encodeURIComponent(state) : '');
+    return fetch('/api/public/suburb-geo?' + params).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (d) {
+      var coords = (d && d.ok && isFinite(d.lat) && isFinite(d.lng)) ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
+      if (coords) atGeocodeCache[key] = coords;
+      return coords;
+    }).catch(function () { return null; });
+  }
+  function atMakePinIcon(L, revealed, pinLabel) {
+    var ringCls = revealed ? 'at-ring at-ring--exact' : 'at-ring';
+    var dotCls = revealed ? 'at-dotpin at-dotpin--exact' : 'at-dotpin';
+    return L.divIcon({
+      className: 'at-mk',
+      html: '<span class="at-pin"><span class="' + ringCls + '"><span class="' + dotCls + '"></span></span></span>' +
+        (pinLabel ? '<span class="at-map-pinlabel">' + escapeHtml(pinLabel) + '</span>' : ''),
+      iconSize: [0, 0],
+      iconAnchor: [0, 0]
+    });
+  }
+  function atMapFallback(fig) {
+    var canvas = fig.querySelector('.at-map-canvas');
+    var frame = fig.querySelector('.at-map-frame');
+    if (canvas) canvas.style.display = 'none';
+    if (frame) { frame.src = fig.getAttribute('data-map-fallback') || ''; frame.hidden = false; }
+  }
+  function initAtMaps() {
+    // A fresh render replaces the map DOM, so tear down any prior Leaflet maps.
+    while (atMapInstances.length) { try { atMapInstances.pop().remove(); } catch (e) { /* noop */ } }
+    var figs = document.querySelectorAll('figure.at-map[data-at-map]');
+    Array.prototype.forEach.call(figs, function (fig) {
+      if (fig.getAttribute('data-map-init') === '1') return;
+      fig.setAttribute('data-map-init', '1');
+      var suburb = fig.getAttribute('data-map-suburb') || '';
+      var state = fig.getAttribute('data-map-state') || '';
+      var zoom = parseInt(fig.getAttribute('data-map-zoom'), 10) || 13;
+      var revealed = fig.getAttribute('data-map-revealed') === '1';
+      var pinLabel = fig.getAttribute('data-map-pinlabel') || '';
+      var canvas = fig.querySelector('.at-map-canvas');
+      // Revealed = exact address: the embed geocodes the precise point
+      // server-side (our keyless lookup is suburb-level only), so use it there.
+      if (revealed || !suburb || !canvas) { atMapFallback(fig); return; }
+      Promise.all([atLoadLeaflet(), atFetchSuburbCoords(suburb, state)]).then(function (out) {
+        var L = out[0], coords = out[1];
+        if (!canvas.isConnected) return;
+        if (!L || !coords) { atMapFallback(fig); return; }
+        var map = L.map(canvas, {
+          center: [coords.lat, coords.lng],
+          zoom: zoom,
+          scrollWheelZoom: false,
+          zoomControl: true,
+          attributionControl: true
+        });
+        atMapInstances.push(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          subdomains: 'abcd',
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        }).addTo(map);
+        L.marker([coords.lat, coords.lng], { icon: atMakePinIcon(L, revealed, pinLabel), interactive: false, keyboard: false }).addTo(map);
+        window.requestAnimationFrame(function () { map.invalidateSize(); });
+      }).catch(function () { atMapFallback(fig); });
+    });
   }
 
   /* ── AI Matching (Task 7): blue "matched" banner + "Why this matches you"
@@ -2387,6 +2518,7 @@
       buildMapHtml(role) +
       buildOfferSupportHtml();
     if (accepted) renderSched();
+    requestAnimationFrame(initAtMaps);
   }
 
   /* ── Inline scheduler — mirrors secure-interview.html's loadSlots/bookSlot ── */
@@ -2685,6 +2817,7 @@
       const fill = document.getElementById("pbarFill");
       const panel = dbodyEl.querySelector(".at-priority");
       if (fill && panel) fill.style.width = panel.getAttribute("data-band-pct") + "%";
+      initAtMaps();
     });
   }
 

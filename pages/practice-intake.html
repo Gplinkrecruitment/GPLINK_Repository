@@ -92,6 +92,12 @@
   .seg button:hover{border-color:var(--ink-3)}
   .seg button.sel{background:var(--brand);border-color:var(--brand);color:#fff}
   .seg.urg button.sel{background:var(--good);border-color:var(--good)}
+  /* "How many GPs" number picker (stepper). */
+  .stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff}
+  .stepper button{width:52px;height:46px;border:0;background:#fff;font-size:23px;font-weight:500;color:var(--brand);cursor:pointer;font-family:inherit;line-height:1;display:grid;place-items:center;transition:background .12s}
+  .stepper button:hover:not(:disabled){background:var(--brand-soft)}
+  .stepper button:disabled{color:var(--ink-3);opacity:.45;cursor:default}
+  .stepper .step-val{min-width:66px;height:46px;display:grid;place-items:center;text-align:center;font-size:17px;font-weight:700;color:var(--ink);border-left:1px solid var(--line);border-right:1px solid var(--line);font-variant-numeric:tabular-nums}
 
   .prac{background:#fafbfd;border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:9px}
   .prac .top{display:flex;align-items:center;gap:11px}
@@ -401,14 +407,16 @@
 
       <div class="row">
         <div class="f">
-          <label for="gps_needed">How many GPs do you need? <span class="must">REQUIRED</span>
-            <span class="tip">?<span>Each GP you need becomes its own search. If you say 3, we source 3. Today, one intake creates only one vacancy.</span></span>
+          <label id="gpsLbl">How many GPs do you need? <span class="must">REQUIRED</span>
+            <span class="tip">?<span>Each GP is a seat on this opening. If you say 3, the opening stays open until all 3 are hired, so you never lose your other candidates when the first one starts.</span></span>
           </label>
-          <select id="gps_needed">
-            <option value="" selected>Choose…</option>
-            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-            <option value="4">4</option><option value="5+">5+</option>
-          </select>
+          <div class="stepper" role="group" aria-labelledby="gpsLbl">
+            <button type="button" id="gpsDec" data-action="gps-dec" aria-label="One fewer GP">&minus;</button>
+            <span class="step-val" id="gpsVal" aria-live="polite">1</span>
+            <button type="button" id="gpsInc" data-action="gps-inc" aria-label="One more GP">+</button>
+          </div>
+          <input type="hidden" id="gps_needed" value="1">
+          <p class="hint">We keep the opening open until every seat is filled.</p>
         </div>
         <div class="f">
           <label for="employment_type">Full-time or part-time? <span class="must">REQUIRED</span>
@@ -920,7 +928,7 @@
       address: '', suburb: '', state: '', postcode: '', nearest_city: '', general_location: '',
       latitude: null, longitude: null, google_place_id: '', manual: false,
       dpa: null, dpaSuggested: null, dpaCatchment: null, mmm: null,
-      urgency: '', gps_needed: '', employment_type: '',
+      urgency: '', gps_needed: '1', employment_type: '',
       intro_text: '', role_summary: '', incentives: '', earnings_text: '', visa_sponsorship: '',
       website: '', gp_count: '', years_operating: '', ownership: '', nursing_on_site: '',
       supervision_available: '', intro_video_url: '',
@@ -935,6 +943,33 @@
 
   function boolFromSelect(v) { if (v === 'yes') return true; if (v === 'no') return false; return ''; }
   function boolToSelect(v) { return v === true ? 'yes' : (v === false ? 'no' : ''); }
+
+  // "How many GPs" is a number picker (stepper), not a dropdown. The chosen
+  // number lives on the hidden #gps_needed input so captureCur / paintCur /
+  // gate2 read it exactly like the old <select> did. Range 1–10, default 1.
+  var GPS_MIN = 1, GPS_MAX = 10;
+  function gpsFromValue(v) {
+    var m = String(v == null ? '' : v).match(/\d+/);
+    var n = m ? parseInt(m[0], 10) : GPS_MIN;
+    if (!isFinite(n) || n < GPS_MIN) n = GPS_MIN;
+    if (n > GPS_MAX) n = GPS_MAX;
+    return n;
+  }
+  function syncGpsStepper() {
+    var el = $('gps_needed'); if (!el) return;
+    var n = gpsFromValue(el.value);
+    var valEl = $('gpsVal'); if (valEl) valEl.textContent = String(n);
+    var dec = $('gpsDec'); if (dec) dec.disabled = n <= GPS_MIN;
+    var inc = $('gpsInc'); if (inc) inc.disabled = n >= GPS_MAX;
+  }
+  function setGps(n) {
+    if (n < GPS_MIN) n = GPS_MIN;
+    if (n > GPS_MAX) n = GPS_MAX;
+    var el = $('gps_needed'); if (el) el.value = String(n);
+    syncGpsStepper();
+    gate2(); persistSoon();
+  }
+  function bumpGps(delta) { setGps(gpsFromValue($('gps_needed') ? $('gps_needed').value : GPS_MIN) + delta); }
 
   // captureCur() pulls every plain form-control field into `cur` by element
   // ID, same convention the original single-step page used to build its
@@ -953,6 +988,7 @@
     boolFieldIds.forEach(function (id) { var el = $(id); if (el) el.value = boolToSelect(cur[id]); });
     textFieldIds.forEach(function (id) { var el = $(id); if (el) el.value = cur[id] || ''; });
     $('state').value = cur.state || '';
+    syncGpsStepper();
   }
 
   // ---------------------------------------------------------------------
@@ -1233,8 +1269,8 @@
   if (siteInput) siteInput.addEventListener('input', function () { gate3(); persistSoon(); });
   $('billing_style').addEventListener('change', gate1);
   $('percentage_split').addEventListener('input', function () { gate1(); persistSoon(); });
-  $('gps_needed').addEventListener('change', function () { gate2(); persistSoon(); });
   $('employment_type').addEventListener('change', function () { gate2(); persistSoon(); });
+  syncGpsStepper(); // reflect the default (1) on the stepper at startup
 
   // ---------------------------------------------------------------------
   // Steps
@@ -1557,6 +1593,7 @@
     var buttons = document.querySelectorAll('#urg button');
     for (var i = 0; i < buttons.length; i++) buttons[i].classList.remove('sel');
     document.querySelectorAll('#p2 select, #p3 input, #p3 textarea, #p3 select').forEach(function (el) { el.value = ''; });
+    if ($('gps_needed')) { $('gps_needed').value = '1'; syncGpsStepper(); } // stepper isn't a <select>; reset to the default
     $('p1h').textContent = 'Tell us about this practice';
     resetLocation();
     gate2();
@@ -1929,6 +1966,8 @@
       case 'cancel-entry': cancelEntry(); break;
       // Choosing from the segment is deliberate, so the group no longer needs
       // to prove itself by gaining a second clinic.
+      case 'gps-dec': bumpGps(-1); break;
+      case 'gps-inc': bumpGps(1); break;
       case 'set-mode': autoPromoted = false; setMode(el.getAttribute('data-value')); break;
       case 'keep-only': keepOnly(Number(idx)); break;
       case 'cancel-solo-pick': cancelSoloPick(); break;

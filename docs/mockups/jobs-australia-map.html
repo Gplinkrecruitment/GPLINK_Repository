@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview · GP jobs map of Australia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --ink:#2b5672; --ink-2:#14324c; --teal:#116dff; --teal-soft:#e8f2ff;
+    --bg:#f7fafd; --card:#fff; --line:#dce6ee; --mut:#456a85; --mut-2:#64829b;
+    --sky:#7db2ff; --r:18px;
+    --shadow-card:0 30px 70px -40px rgba(13,40,70,.55);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{font-family:"Figtree",system-ui,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;}
+  a{color:inherit;}
+  .container{max-width:1200px;margin:0 auto;padding:0 24px;}
+
+  /* ---------- nav ---------- */
+  .nav{background:#fff;border-bottom:1px solid var(--line);}
+  .nav-in{display:flex;align-items:center;gap:22px;height:66px;}
+  .nav-logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--ink-2);text-decoration:none;}
+  .nav-logo b{color:var(--teal);}
+  .nav-links{display:flex;gap:6px;font-size:14px;font-weight:590;color:var(--ink);margin:0 auto;}
+  .nav-links a{padding:8px 12px;border-radius:8px;text-decoration:none;}
+  .nav-links a.active{color:var(--teal);}
+  .nav-links a:hover{color:var(--teal);}
+  .nav-cta{background:var(--teal);color:#fff;font-weight:700;font-size:14px;padding:10px 18px;border-radius:11px;text-decoration:none;box-shadow:0 14px 30px -14px rgba(17,109,255,.7);}
+  .nav-signin{font-weight:600;color:var(--mut);text-decoration:none;font-size:14px;}
+
+  /* ---------- hero ---------- */
+  .hero{background:var(--ink-2);color:#fff;padding:clamp(44px,6vw,66px) 0 210px;position:relative;overflow:hidden;}
+  .hero::before{content:"";position:absolute;width:520px;height:520px;border-radius:50%;right:-140px;top:-190px;
+    background:radial-gradient(circle,rgba(17,109,255,.42),transparent 68%);}
+  .hero::after{content:"";position:absolute;inset:0;background:
+    radial-gradient(1100px 400px at 12% -10%,rgba(125,178,255,.16),transparent 60%);}
+  .hero .container{position:relative;z-index:1;}
+  .eyebrow{display:inline-flex;align-items:center;gap:11px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+    font-weight:700;color:var(--sky);margin-bottom:18px;}
+  .eyebrow::before{content:"";width:28px;height:2px;background:var(--sky);}
+  .hero h1{font-size:clamp(32px,4.6vw,52px);line-height:1.04;letter-spacing:-.025em;font-weight:800;margin:0 0 .28em;}
+  .hero .count{font-size:15.5px;color:#b9d4ff;margin:0;}
+  .hero .count b{color:#fff;font-weight:700;}
+  .hero .count .dot{opacity:.5;margin:0 .55em;}
+
+  /* ---------- the search + map unit that "falls off" the search bar ---------- */
+  .finder{position:relative;z-index:2;margin-top:34px;margin-bottom:-150px;background:var(--card);
+    border-radius:20px;box-shadow:var(--shadow-card);border:1px solid rgba(220,230,238,.9);overflow:hidden;}
+  .search-row{display:grid;grid-template-columns:1.6fr 1fr 1fr auto;gap:16px;padding:20px 22px;align-items:end;
+    position:relative;z-index:3;background:#fff;border-bottom:1px solid var(--line);}
+  .field{display:flex;flex-direction:column;gap:7px;min-width:0;}
+  .field label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--mut-2);}
+  .field input,.field select{font:inherit;font-size:15px;color:var(--ink-2);font-weight:600;background:#fff;
+    border:1.5px solid var(--line);border-radius:12px;padding:13px 14px;outline:none;appearance:none;width:100%;}
+  .field input::placeholder{color:#9db4c6;font-weight:500;}
+  .field input:focus,.field select:focus{border-color:var(--teal);box-shadow:0 0 0 4px var(--teal-soft);}
+  .field.sel{position:relative;}
+  .field.sel::after{content:"▾";position:absolute;right:14px;bottom:13px;color:var(--mut-2);pointer-events:none;font-size:13px;}
+  .btn-search{align-self:end;background:var(--teal);color:#fff;font-weight:730;font-size:15px;border:0;border-radius:12px;
+    padding:14px 26px;cursor:pointer;box-shadow:0 16px 30px -14px rgba(17,109,255,.75);transition:transform .2s,box-shadow .2s;height:48px;}
+  .btn-search:hover{transform:translateY(-2px);box-shadow:0 22px 38px -16px rgba(17,109,255,.85);}
+
+  /* the map drops down from the search bar */
+  .map-shell{position:relative;height:576px;background:#e9eef5;
+    transform-origin:top center;animation:dropOpen .9s cubic-bezier(.16,1,.3,1) both;}
+  @keyframes dropOpen{
+    from{clip-path:inset(0 0 100% 0);opacity:.4;}
+    to{clip-path:inset(0 0 0 0);opacity:1;}
+  }
+  #map{position:absolute;inset:0;width:100%;height:100%;z-index:1;}
+  .leaflet-container{font:inherit;background:#dfe7f0;}
+  .map-caption{position:absolute;left:16px;top:14px;z-index:500;display:flex;align-items:center;gap:9px;
+    background:rgba(255,255,255,.94);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:999px;
+    padding:8px 15px 8px 12px;font-size:13px;font-weight:650;color:var(--ink-2);box-shadow:0 8px 22px -14px rgba(13,40,70,.4);}
+  .map-caption .dotmark{width:11px;height:11px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px rgba(17,109,255,.2);}
+  .map-caption b{color:var(--teal);}
+  .map-hint{position:absolute;right:16px;bottom:16px;z-index:500;font-size:12px;color:var(--mut);
+    background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:999px;padding:6px 12px;}
+
+  /* branded pins */
+  .gp-pin-wrap{background:none;border:0;}
+  .gp-pin{position:relative;width:30px;height:40px;cursor:pointer;}
+  .gp-pin .drop{position:absolute;inset:0;transform:translateY(-16px);opacity:0;
+    animation:pinDrop .5s cubic-bezier(.2,1.3,.4,1) forwards;filter:drop-shadow(0 4px 5px rgba(13,40,70,.35));
+    transition:transform .18s ease;}
+  @keyframes pinDrop{to{transform:translateY(0);opacity:1;}}
+  .gp-pin:hover .drop{transform:translateY(-4px);}
+  .gp-pin .drop svg{display:block;width:30px;height:40px;}
+  .gp-pin.is-active .drop{animation:none;transform:translateY(-3px) scale(1.18);z-index:5;
+    filter:drop-shadow(0 8px 12px rgba(17,109,255,.5));}
+  .gp-pin.is-active::after{content:"";position:absolute;left:50%;top:34px;width:34px;height:14px;transform:translateX(-50%);
+    background:radial-gradient(ellipse,rgba(17,109,255,.35),transparent 70%);}
+
+  /* ---------- detail sidebar ---------- */
+  .detail{position:absolute;top:0;right:0;bottom:0;width:min(384px,86%);z-index:600;background:#fff;
+    box-shadow:-24px 0 60px -34px rgba(13,40,70,.5);transform:translateX(102%);
+    transition:transform .5s cubic-bezier(.16,1,.3,1);display:flex;flex-direction:column;overflow:hidden;}
+  .detail.open{transform:translateX(0);}
+  .detail-photo{position:relative;height:186px;flex:none;background:#dfe7f0;overflow:hidden;}
+  .detail-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+  .detail-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(10,28,48,.72),transparent 55%);}
+  .detail-photo .loc{position:absolute;left:18px;bottom:14px;z-index:2;color:#fff;}
+  .detail-photo .loc .sub{font-size:20px;font-weight:800;letter-spacing:-.01em;line-height:1.1;}
+  .detail-photo .loc .st{font-size:12.5px;font-weight:600;opacity:.9;display:flex;align-items:center;gap:6px;margin-top:3px;}
+  .detail-close{position:absolute;top:12px;right:12px;z-index:3;width:34px;height:34px;border-radius:50%;border:0;cursor:pointer;
+    background:rgba(255,255,255,.92);color:var(--ink-2);font-size:19px;line-height:1;display:grid;place-items:center;
+    box-shadow:0 6px 16px -8px rgba(0,0,0,.4);transition:transform .15s;}
+  .detail-close:hover{transform:scale(1.08);}
+  .detail-body{padding:18px 20px 20px;overflow:auto;display:flex;flex-direction:column;gap:16px;flex:1;}
+  .detail-title{font-size:14.5px;font-weight:600;color:var(--mut);line-height:1.35;}
+  .income-block{background:linear-gradient(120deg,var(--teal-soft),#eef6ff);border:1px solid #d3e6ff;border-radius:14px;padding:14px 16px;}
+  .income-block .k{font-size:11px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--mut-2);}
+  .income-block .v{font-size:23px;font-weight:800;color:var(--teal);letter-spacing:-.01em;margin-top:2px;}
+  .bene-h{font-size:11px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--mut-2);margin:2px 0 -4px;}
+  .bene{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line);}
+  .bene:last-of-type{border-bottom:0;}
+  .bene .ic{flex:none;width:30px;height:30px;border-radius:9px;background:var(--teal-soft);color:var(--teal);display:grid;place-items:center;margin-top:1px;}
+  .bene .ic svg{width:16px;height:16px;}
+  .bene .bt{display:flex;flex-direction:column;gap:1px;}
+  .bene .bl{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut-2);font-weight:700;}
+  .bene .bv{font-size:14px;font-weight:600;color:var(--ink-2);line-height:1.35;}
+  .detail-cta{margin-top:auto;padding-top:4px;}
+  .detail-cta a{display:flex;align-items:center;justify-content:center;gap:9px;background:var(--teal);color:#fff;
+    font-weight:730;font-size:15px;text-decoration:none;border-radius:13px;padding:15px;
+    box-shadow:0 18px 34px -16px rgba(17,109,255,.8);transition:transform .2s,box-shadow .2s;}
+  .detail-cta a:hover{transform:translateY(-2px);box-shadow:0 24px 42px -18px rgba(17,109,255,.9);}
+  .detail-cta a .arr{transition:transform .2s;}
+  .detail-cta a:hover .arr{transform:translateX(4px);}
+  .detail-sub{text-align:center;font-size:12px;color:var(--mut-2);margin-top:9px;}
+
+  .below{padding:190px 0 80px;}
+  .below h2{font-size:19px;font-weight:730;color:var(--ink-2);}
+  .below p{color:var(--mut);font-size:14.5px;max-width:640px;line-height:1.6;}
+
+  @media(max-width:820px){
+    .search-row{grid-template-columns:1fr 1fr;}
+    .btn-search{grid-column:1/-1;}
+    .nav-links{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-in container">
+    <a class="nav-logo" href="#">GP <b>Link</b></a>
+    <nav class="nav-links">
+      <a href="#">For GPs</a><a href="#" class="active">Jobs</a><a href="#">Visa</a>
+      <a href="#">The app</a><a href="#">Employers</a><a href="#">About</a><a href="#">FAQ</a>
+    </nav>
+    <a class="nav-signin" href="#">Sign in</a>
+    <a class="nav-cta" href="#">Create free account</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div class="eyebrow">GP Jobs</div>
+    <h1>GP jobs across Australia</h1>
+    <p class="count"><b id="countRoles">48</b> practices hiring <span class="dot">·</span> updated daily <span class="dot">·</span> explore the map below</p>
+
+    <div class="finder">
+      <div class="search-row">
+        <div class="field">
+          <label>Keyword or suburb</label>
+          <input type="text" placeholder="e.g. Bondi, mixed billing, DPA…">
+        </div>
+        <div class="field sel">
+          <label>State / Territory</label>
+          <select><option>All of Australia</option><option>NSW</option><option>VIC</option><option>QLD</option><option>WA</option><option>SA</option><option>ACT</option></select>
+        </div>
+        <div class="field sel">
+          <label>Position type</label>
+          <select><option>All positions</option><option>Full time</option><option>Part time</option><option>Permanent</option></select>
+        </div>
+        <button class="btn-search">Search</button>
+      </div>
+
+      <div class="map-shell">
+        <div id="map"></div>
+        <div class="map-caption"><span class="dotmark"></span><b id="capCount">48</b>&nbsp;practices across Australia · tap a pin</div>
+        <div class="map-hint">Scroll to zoom · drag to explore</div>
+
+        <aside class="detail" id="detail" aria-hidden="true">
+          <div class="detail-photo">
+            <button class="detail-close" id="detailClose" aria-label="Close">×</button>
+            <img id="dPhoto" alt="">
+            <div class="loc">
+              <div class="sub" id="dSub">Suburb</div>
+              <div class="st"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span id="dState">State</span></div>
+            </div>
+          </div>
+          <div class="detail-body">
+            <div class="detail-title" id="dTitle"></div>
+            <div class="income-block">
+              <div class="k">Expected income</div>
+              <div class="v" id="dIncome">—</div>
+            </div>
+            <div id="dBeneWrap">
+              <div class="bene-h">What's on offer</div>
+              <div id="dBenefits"></div>
+            </div>
+            <div class="detail-cta">
+              <a id="dJob" href="#" target="_blank" rel="noopener">Open job opening <span class="arr">→</span></a>
+              <div class="detail-sub">Takes 2 minutes to apply with a free account</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="below">
+  <div class="container">
+    <h2>Every open role, right where it is</h2>
+    <p>The map above shows every practice currently hiring through GP Link. Below this section, the same roles continue as the familiar card list — the map is an extra way in, not a replacement.</p>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  var PRACTICES = [{"id":"internal_ats:ats_mrxkeqsyhnvqz7q","suburb":"Erina","state":"NSW","lat":-33.44,"lng":151.3927778,"title":"DPA - Erina (Central Coast) - Mixed Billing","display":"Mixed Billing · DPA · near Central Coast","billing":"mixed","income":"800k-900k","benefits":[{"label":"Income guarantee","value":"$200 per hour minimum for the first 3 months"},{"label":"Relocation","value":"$10,000 relocation package"},{"label":"Accommodation","value":"4 weeks' accommodation provided on arrival"},{"label":"Airport pickup","value":"Airport pickup and assistance finding local schools"}],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Sunset_over_Port_Phillip_at_Frankston_Pier_%28September_2015%29.jpg/1920px-Sunset_over_Port_Phillip_at_Frankston_Pier_%28September_2015%29.jpg"},{"id":"zoho_recruit:11734000000934182","suburb":"Erina","state":"NSW","lat":-33.44,"lng":151.3927778,"title":"DPA - Erina - Private Billing","display":"DPA · near Erina","billing":"Private Billing","income":"","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Sydney/Sydney%201.jpg"},{"id":"internal_ats:ats_spectrum_rainbow","suburb":"Mandurah","state":"WA","lat":-32.5302495,"lng":115.7208782,"title":"DPA - Mandurah - Mixed Billing","display":"DPA · near Mandurah","billing":"Mixed Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Mandurah_Foreshore_1.jpg/1920px-Mandurah_Foreshore_1.jpg"},{"id":"internal_ats:ats_spectrum_connolly","suburb":"Butler","state":"WA","lat":-31.6356944,"lng":115.7003262,"title":"DPA - Perth - Mixed Billing","display":"DPA · near Perth","billing":"Mixed Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Butler_Station%2C_Western_Australia%2C_August_2021_01.jpg/1920px-Butler_Station%2C_Western_Australia%2C_August_2021_01.jpg"},{"id":"internal_ats:ats_spectrum_theheights","suburb":"Alexander Heights","state":"WA","lat":-31.8271578,"lng":115.865815,"title":"DPA - Perth - Mixed Billing","display":"DPA · near Perth","billing":"Mixed Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/2/2c/OIC_alex_hts_shops_2a.jpg"},{"id":"internal_ats:ats_mrozw98emlvl08p","suburb":"Erina","state":"NSW","lat":-33.44,"lng":151.3927778,"title":"DPA - Erina (Central Coast) - Mixed Billing","display":"Mixed Billing · DPA · near Central Coast","billing":"mixed","income":"800k-900k","benefits":[{"label":"Income guarantee","value":"$200 per hour minimum for the first 3 months"},{"label":"Relocation","value":"$25,000 relocation package"},{"label":"Accommodation","value":"Provided for the first 3 months"}],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/suburbs/erina/1784386857798.jpg"},{"id":"internal_ats:ats_spectrum_mandurah","suburb":"Mandurah","state":"WA","lat":-32.5302495,"lng":115.7208782,"title":"DPA - Mandurah - Private Billing","display":"DPA · near Mandurah","billing":"Private Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/d/d7/Mandurah_railway_and_Kwinana_Freeway_como.JPG"},{"id":"internal_ats:ats_spectrum_pearsall","suburb":"Pearsall","state":"WA","lat":-31.780478,"lng":115.8189561,"title":"DPA - Perth - Mixed Billing","display":"DPA · near Perth","billing":"Mixed Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/b/bd/Wanneroo_-_Road_board_building_tile.jpg"},{"id":"zoho_recruit:11734000000799739","suburb":"Kenwick","state":"WA","lat":-32.033881,"lng":115.9847507,"title":"DPA - Kenwick - Bulk Billing","display":"DPA · near Kenwick","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Perth/Perth%205.jpg"},{"id":"zoho_recruit:11734000000799677","suburb":"Thornlie Perth","state":"WA","lat":-32.0473367,"lng":115.9523821,"title":"DPA - Thornlie Perth - Bulk Billing","display":"DPA · near Thornlie Perth","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Perth/Perth%206%20%281%29.jpg"},{"id":"zoho_recruit:11734000000799768","suburb":"Wattle Grove","state":"WA","lat":-31.99295,"lng":115.9823,"title":"DPA - Wattle Grove - Mixed Billing","display":"DPA · near Wattle Grove","billing":"Mixed Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Perth/Perth%207.jpg"},{"id":"zoho_recruit:11734000000799224","suburb":"Perth","state":"WA","lat":-31.9558967,"lng":115.8605784,"title":"DPA - Perth - Bulk Billing","display":"DPA · near Perth","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Perth/Perth%202.jpg"},{"id":"zoho_recruit:11734000000821574","suburb":"Charlestown","state":"NSW","lat":-32.9640725,"lng":151.6939632,"title":"DPA - Charlestown - Bulk Billing","display":"DPA · near Charlestown","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Sydney/Sydney%207.jpg"},{"id":"zoho_recruit:11734000000821575","suburb":"Corrimal","state":"NSW","lat":-34.3757279,"lng":150.9048557,"title":"DPA - Corrimal - Bulk Billing","display":"DPA · near Corrimal","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Sydney/Sydney%203.jpg"},{"id":"zoho_recruit:11734000000821584","suburb":"Karratha","state":"WA","lat":-20.7370067,"lng":116.8478592,"title":"DPA - Karratha - Bulk Billing","display":"DPA · near Karratha","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Hearsons_cove_1_%287618757992%29.jpg/1920px-Hearsons_cove_1_%287618757992%29.jpg"},{"id":"zoho_recruit:11734000000821586","suburb":"Melton","state":"VIC","lat":-37.6835714,"lng":144.5828446,"title":"DPA - Melton - Bulk Billing","display":"DPA · near Melton","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Melbourne/Melbourne%205.jpg"},{"id":"zoho_recruit:11734000000821570","suburb":"Kurri Kurri","state":"NSW","lat":-32.8175039,"lng":151.4833649,"title":"DPA - Kurri Kurri - Bulk Billing","display":"DPA · near Kurri Kurri","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Newcastle_Ocean_Baths_-_Little_pool_towards_south.jpg/1920px-Newcastle_Ocean_Baths_-_Little_pool_towards_south.jpg"},{"id":"zoho_recruit:11734000000821580","suburb":"Ballarat","state":"VIC","lat":-37.5623013,"lng":143.8605645,"title":"DPA - Ballarat - Bulk Billing","display":"DPA · near Ballarat","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Ballarat_Ascot_street_south.jpg/1920px-Ballarat_Ascot_street_south.jpg"},{"id":"zoho_recruit:11734000000821592","suburb":"Rockingham","state":"WA","lat":-32.3006647,"lng":115.7393915,"title":"DPA - Rockingham - Bulk Billing","display":"DPA · near Rockingham","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Perth/Perth%209.jpg"},{"id":"zoho_recruit:11734000000821582","suburb":"Belconnen","state":"ACT","lat":-35.2274338,"lng":149.0431454,"title":"DPA - Belconnen - Bulk Billing","display":"DPA · near Belconnen","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Canberra_%28AU%29%2C_Commonwealth_Avenue_Bridge_--_2019_--_1811.jpg/1920px-Canberra_%28AU%29%2C_Commonwealth_Avenue_Bridge_--_2019_--_1811.jpg"},{"id":"zoho_recruit:11734000000821589","suburb":"Port Macquarie","state":"NSW","lat":-31.4299499,"lng":152.9103525,"title":"DPA - Port Macquarie - Bulk Billing","display":"DPA · near Port Macquarie","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/f/fc/Dawn_on_Shelly_Beach%2C_Sea_Acres_National_Park%2C_Port_Macquarie_NSW.jpg"},{"id":"zoho_recruit:11734000000821576","suburb":"Craigieburn","state":"VIC","lat":-37.6022613,"lng":144.9430882,"title":"DPA - Craigieburn - Bulk Billing","display":"DPA · near Craigieburn","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Melbourne/Melbourne%202.jpg"},{"id":"zoho_recruit:11734000000821598","suburb":"Victoria Point","state":"QLD","lat":-27.5843003,"lng":153.300364,"title":"DPA - Victoria Point - Bulk Billing","display":"DPA · near Victoria Point","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/G.J._Walter_Park_Araucaria_heterophylla_trees.jpg/1920px-G.J._Walter_Park_Araucaria_heterophylla_trees.jpg"},{"id":"zoho_recruit:11734000000821578","suburb":"Deception Bay","state":"QLD","lat":-27.1931635,"lng":153.0274736,"title":"DPA - Deception Bay - Bulk Billing","display":"DPA · near Deception Bay","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Full_Moon_over_Redcliffe_Jetty_26May2021-2%3D_%2851203331582%29.jpg/1920px-Full_Moon_over_Redcliffe_Jetty_26May2021-2%3D_%2851203331582%29.jpg"},{"id":"zoho_recruit:11734000000821577","suburb":"Dapto","state":"NSW","lat":-34.4930354,"lng":150.7918029,"title":"DPA - Dapto - Bulk Billing","display":"DPA · near Dapto","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Sydney/Sydney%206.jpg"},{"id":"zoho_recruit:11734000000821585","suburb":"Beenleigh","state":"QLD","lat":-27.7159492,"lng":153.2022293,"title":"DPA - Beenleigh - Bulk Billing","display":"DPA · near Beenleigh","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Surfers_Paradise%2C_Gold_Coast%2C_Australia_%28Ank_Kumar%29_01.jpg/1920px-Surfers_Paradise%2C_Gold_Coast%2C_Australia_%28Ank_Kumar%29_01.jpg"},{"id":"zoho_recruit:11734000000821588","suburb":"Pialba","state":"QLD","lat":-25.281161,"lng":152.8330071,"title":"DPA - Pialba - Bulk Billing","display":"DPA · near Pialba","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Hervey_Bay_Sunrise_-_panoramio.jpg/1920px-Hervey_Bay_Sunrise_-_panoramio.jpg"},{"id":"zoho_recruit:11734000000821601","suburb":"Springfield","state":"QLD","lat":-27.6540497,"lng":152.908847,"title":"DPA - Springfield - Bulk Billing","display":"DPA · near Springfield","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Brisbane_skyline_from_Kangaroo_Point.jpg/1920px-Brisbane_skyline_from_Kangaroo_Point.jpg"},{"id":"zoho_recruit:11734000000821583","suburb":"Gladstone","state":"QLD","lat":-23.8431724,"lng":151.256132,"title":"DPA - Gladstone - Bulk Billing","display":"DPA · near Gladstone","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/c/cc/Gladstone_CBD_%26_East_Shores.jpg/1920px-Gladstone_CBD_%26_East_Shores.jpg"},{"id":"zoho_recruit:11734000000821590","suburb":"North Ipswich","state":"QLD","lat":-27.5939016,"lng":152.7624266,"title":"DPA - North Ipswich - Bulk Billing","display":"DPA · near North Ipswich","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Lions_Lookout_rotunda%2C_Queen%27s_Park%2C_Ipswich.jpg/1920px-Lions_Lookout_rotunda%2C_Queen%27s_Park%2C_Ipswich.jpg"},{"id":"zoho_recruit:11734000000821581","suburb":"Bunbury","state":"WA","lat":-33.3267797,"lng":115.636698,"title":"DPA - Bunbury - Bulk Billing","display":"DPA · near Bunbury","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Views_south_of_Bunbury_from_Marlston_Hill_Lookout%2C_October_2023_02.jpg/1920px-Views_south_of_Bunbury_from_Marlston_Hill_Lookout%2C_October_2023_02.jpg"},{"id":"zoho_recruit:11734000000821596","suburb":"Greenway","state":"ACT","lat":-35.4158082,"lng":149.0648149,"title":"DPA - Greenway - Bulk Billing","display":"DPA · near Greenway","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Canberra_%28AU%29%2C_Commonwealth_Avenue_Bridge_--_2019_--_1811.jpg/1920px-Canberra_%28AU%29%2C_Commonwealth_Avenue_Bridge_--_2019_--_1811.jpg"},{"id":"zoho_recruit:11734000000821595","suburb":"Toowoomba","state":"QLD","lat":-27.5610193,"lng":151.953351,"title":"DPA - Toowoomba - Bulk Billing","display":"DPA · near Toowoomba","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Toowoomba_Queens_Park_Botanic_Gardens_01.jpg/1920px-Toowoomba_Queens_Park_Botanic_Gardens_01.jpg"},{"id":"zoho_recruit:11734000000821573","suburb":"Kensington","state":"QLD","lat":-24.9133821,"lng":152.3177014,"title":"DPA - Kensington - Bulk Billing","display":"DPA · near Kensington","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Toowoomba_Queens_Park_Botanic_Gardens_01.jpg/1920px-Toowoomba_Queens_Park_Botanic_Gardens_01.jpg"},{"id":"zoho_recruit:11734000000821591","suburb":"North Rockhampton","state":"QLD","lat":-23.3488439,"lng":150.5253344,"title":"DPA - North Rockhampton - Bulk Billing","display":"DPA · near North Rockhampton","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/A_view_across_the_Fitzroy_River.jpg/1920px-A_view_across_the_Fitzroy_River.jpg"},{"id":"zoho_recruit:11734000000821571","suburb":"Caboolture","state":"QLD","lat":-27.0839336,"lng":152.9510863,"title":"DPA - Caboolture - Bulk Billing","display":"DPA · near Caboolture","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Coolum_Beach.jpg/1920px-Coolum_Beach.jpg"},{"id":"zoho_recruit:11734000000821602","suburb":"Wyoming","state":"NSW","lat":-33.4066667,"lng":151.3594444,"title":"DPA - Wyoming - Bulk Billing","display":"DPA · near Wyoming","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Sydney/Sydney%202.jpg"},{"id":"zoho_recruit:11734000000821579","suburb":"Elizabeth","state":"SA","lat":-34.7202612,"lng":138.6693371,"title":"DPA - Elizabeth - Bulk Billing","display":"DPA · near Elizabeth","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Adelaide_Convention_Centre-Wide_view.jpg/1920px-Adelaide_Convention_Centre-Wide_view.jpg"},{"id":"zoho_recruit:11734000000821587","suburb":"Narre Warren","state":"VIC","lat":-38.0275167,"lng":145.3037408,"title":"DPA - Narre Warren - Bulk Billing","display":"DPA · near Narre Warren","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Melbourne/Melbourne%206.jpg"},{"id":"zoho_recruit:11734000000821600","suburb":"Dubbo","state":"NSW","lat":-32.2478964,"lng":148.6026502,"title":"DPA - Dubbo - Bulk Billing","display":"DPA · near Dubbo","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Macquarie_Street%2C_Dubbo%2C_2017_%2803%29.jpg/1920px-Macquarie_Street%2C_Dubbo%2C_2017_%2803%29.jpg"},{"id":"zoho_recruit:11734000000821593","suburb":"Secret Harbour","state":"WA","lat":-32.4009024,"lng":115.7529313,"title":"DPA - Secret Harbour - Bulk Billing","display":"DPA · near Secret Harbour","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/5/50/Scarborough_Beach_Panorama3.jpg/1920px-Scarborough_Beach_Panorama3.jpg"},{"id":"zoho_recruit:11734000000821569","suburb":"Cessnock","state":"NSW","lat":-32.8316667,"lng":151.3511111,"title":"DPA - Cessnock - Bulk Billing","display":"DPA · near Cessnock","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Sydney/Sydney%208.jpg"},{"id":"zoho_recruit:11734000000821572","suburb":"Boulder","state":"WA","lat":-30.774675,"lng":121.4883268,"title":"DPA - Boulder - Bulk Billing","display":"DPA · near Boulder","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Hannan_Street%2C_Kalgoorlie%2C_2018_%2803%29.jpg/1920px-Hannan_Street%2C_Kalgoorlie%2C_2018_%2803%29.jpg"},{"id":"zoho_recruit:11734000000821594","suburb":"Springfield","state":"QLD","lat":-27.6540497,"lng":152.908847,"title":"DPA - Springfield - Bulk Billing","display":"DPA · near Springfield","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Brisbane_skyline_from_Kangaroo_Point.jpg/1920px-Brisbane_skyline_from_Kangaroo_Point.jpg"},{"id":"internal_ats:ats_carrara_gp","suburb":"Carrara","state":"QLD","lat":-28.02077,"lng":153.3683962,"title":"Non-DPA - Gold Coast - Bulk Billing","display":"Non-DPA · near Gold Coast","billing":"Bulk Billing","income":"$700k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Hickey_Way_Carrara%2C_Queensland.jpg/1920px-Hickey_Way_Carrara%2C_Queensland.jpg"},{"id":"zoho_recruit:11734000000821599","suburb":"Werribee","state":"VIC","lat":-37.8995007,"lng":144.6609036,"title":"DPA - Werribee - Bulk Billing","display":"DPA · near Werribee","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://rqrqcfxalkvzwbedvsjs.supabase.co/storage/v1/object/public/career-hero-images/Melbourne/Melbourne%203.jpg"},{"id":"zoho_recruit:11734000000821597","suburb":"Tweed Heads South","state":"NSW","lat":-28.2003,"lng":153.5349368,"title":"DPA - Tweed Heads South - Bulk Billing","display":"DPA · near Tweed Heads South","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Surfers_Paradise%2C_Gold_Coast%2C_Australia_%28Ank_Kumar%29_01.jpg/1920px-Surfers_Paradise%2C_Gold_Coast%2C_Australia_%28Ank_Kumar%29_01.jpg"},{"id":"zoho_recruit:11734000000821603","suburb":"Frankston","state":"VIC","lat":-38.1457064,"lng":145.1263742,"title":"DPA - Frankston - Bulk Billing","display":"DPA · near Frankston","billing":"Bulk Billing","income":"$500k","benefits":[],"img":"https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Sunset_over_Port_Phillip_at_Frankston_Pier_%28September_2015%29.jpg/1920px-Sunset_over_Port_Phillip_at_Frankston_Pier_%28September_2015%29.jpg"}];
+
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];});}
+  var STATE_FULL={NSW:"New South Wales",VIC:"Victoria",QLD:"Queensland",WA:"Western Australia",SA:"South Australia",ACT:"Australian Capital Territory",TAS:"Tasmania",NT:"Northern Territory"};
+  function prettyIncome(v){v=String(v||"").trim();if(!v)return"Shared on application";if(/^\d+k(-\d+k)?$/i.test(v))return"$"+v.replace(/k/gi,"k");return v;}
+
+  var BENE_ICON={
+    income:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>',
+    reloc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/></svg>',
+    home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7"/><path d="M5 9v11h14V9"/></svg>',
+    visa:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>',
+    dot:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/></svg>'
+  };
+  function beneIcon(label){var l=String(label||"").toLowerCase();
+    if(l.indexOf("income")!==-1||l.indexOf("guarantee")!==-1||l.indexOf("bonus")!==-1)return BENE_ICON.income;
+    if(l.indexOf("reloc")!==-1)return BENE_ICON.reloc;
+    if(l.indexOf("accom")!==-1||l.indexOf("housing")!==-1)return BENE_ICON.home;
+    if(l.indexOf("visa")!==-1)return BENE_ICON.visa;
+    return BENE_ICON.dot;}
+
+  var PIN_SVG='<svg viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#116dff"/><circle cx="15" cy="15" r="6" fill="#fff"/></svg>';
+
+  var map=L.map('map',{center:[-27.6,134.0],zoom:4,scrollWheelZoom:true,zoomControl:true,attributionControl:true,minZoom:3});
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
+    subdomains:'abcd',maxZoom:19,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map);
+
+  var detailEl=document.getElementById('detail');
+  var activeMarker=null;
+  function openDetail(p,marker){
+    if(activeMarker){var pe=activeMarker._icon&&activeMarker._icon.querySelector('.gp-pin');if(pe)pe.classList.remove('is-active');}
+    activeMarker=marker;
+    var pe=marker._icon&&marker._icon.querySelector('.gp-pin');if(pe)pe.classList.add('is-active');
+    document.getElementById('dPhoto').src=p.img||'';
+    document.getElementById('dSub').textContent=p.suburb;
+    document.getElementById('dState').textContent=STATE_FULL[p.state]||p.state;
+    document.getElementById('dTitle').textContent=p.display||p.title||'';
+    document.getElementById('dIncome').textContent=prettyIncome(p.income);
+    var bw=document.getElementById('dBenefits');
+    var benes=(p.benefits||[]).filter(function(b){return b&&b.label&&b.value;}).slice(0,3);
+    if(benes.length){
+      bw.innerHTML=benes.map(function(b){return '<div class="bene"><span class="ic">'+beneIcon(b.label)+'</span><span class="bt"><span class="bl">'+esc(b.label)+'</span><span class="bv">'+esc(b.value)+'</span></span></div>';}).join('');
+      document.getElementById('dBeneWrap').style.display='';
+    }else{document.getElementById('dBeneWrap').style.display='none';}
+    document.getElementById('dJob').href='/jobs/view?id='+encodeURIComponent(p.id);
+    detailEl.classList.add('open');detailEl.setAttribute('aria-hidden','false');
+    map.panTo([p.lat,p.lng],{animate:true,duration:.5});
+  }
+  function closeDetail(){
+    detailEl.classList.remove('open');detailEl.setAttribute('aria-hidden','true');
+    if(activeMarker){var pe=activeMarker._icon&&activeMarker._icon.querySelector('.gp-pin');if(pe)pe.classList.remove('is-active');activeMarker=null;}
+  }
+  document.getElementById('detailClose').addEventListener('click',closeDetail);
+  map.on('click',closeDetail);
+
+  var allMarkers=[];
+  PRACTICES.forEach(function(p,i){
+    if(!isFinite(p.lat)||!isFinite(p.lng))return;
+    var icon=L.divIcon({
+      className:'gp-pin-wrap',
+      html:'<div class="gp-pin"><span class="drop" style="animation-delay:'+(300+i*22)+'ms">'+PIN_SVG+'</span></div>',
+      iconSize:[30,40],iconAnchor:[15,40]
+    });
+    var m=L.marker([p.lat,p.lng],{icon:icon,riseOnHover:true}).addTo(map);
+    m.on('click',function(e){L.DomEvent.stopPropagation(e);openDetail(p,m);});
+    allMarkers[i]=m;
+  });
+
+  document.getElementById('countRoles').textContent=PRACTICES.length;
+  document.getElementById('capCount').textContent=PRACTICES.length;
+  setTimeout(function(){map.invalidateSize();},200);
+
+  // Preview helper only: #open auto-opens a sample practice's sidebar so the
+  // detail panel can be shown in a static screenshot (no effect on real use).
+  if(location.hash==='#open'){
+    setTimeout(function(){
+      var pref=PRACTICES.filter(function(p){return (p.benefits||[]).length&&p.img;})[0]||PRACTICES[0];
+      var mk=allMarkers[PRACTICES.indexOf(pref)];
+      if(mk)openDetail(pref,mk);
+    },700);
+  }
+</script>
+</body>
+</html>

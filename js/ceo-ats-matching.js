@@ -757,7 +757,7 @@
     var isGp = state.direction === 'gps';
     var path = '/api/ats/matching/board?direction=' + (isGp ? 'gps' : 'positions');
     if (isGp && state.filters.q) path += '&q=' + encodeURIComponent(state.filters.q);
-    A.api(path).then(function (d) {
+    A.swr(path, function (d) {
       if (!d || !d.ok) { state.boardData = null; renderBoard(); return; }
       state.boardData = d;
       if (!isGp) { state.positionsKpis = d.kpis || null; state.positionsFilled = d.filled || null; }
