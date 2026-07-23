@@ -155,6 +155,7 @@ var consultLead = require('./lib/consult-lead.js');
 // to avoid any const-ordering hazard. See docs/superpowers/specs/2026-07-14-meta-ads-gp-funnel-design.md §7.
 const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
 const careerIntro = require('./lib/career-intro.js');
+const { identityRetentionDue } = require('./lib/identity-retention.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
@@ -8032,6 +8033,7 @@ const CRON_SCHEDULES = {
   'call-reminders': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
   'detect-no-shows': { schedule: '*/10 * * * *', cadenceMinutes: 10 },
   'purge-accounts': { schedule: '0 4 * * *', cadenceMinutes: 1440 },
+  'purge-identity-docs': { schedule: '0 4 * * *', cadenceMinutes: 1440 },
   'check-model-updates': { schedule: '0 5 * * 1', cadenceMinutes: 10080 },
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
@@ -36905,6 +36907,64 @@ async function handleApi(req, res, pathname) {
     }
     console.log('[purge-accounts] due=' + rows.length + ' purged=' + purged + ' retained=' + retained + ' dryRun=' + (!enabled) + ' candidates=' + JSON.stringify(candidates));
     sendJson(res, 200, { ok: true, due: rows.length, purged, retained, dryRun: !enabled });
+    return;
+  }
+
+  // ── Cron: purge stored onboarding identity documents once retention expires —
+  //    6 months after placement (silent legal-retention window) OR 12 months of
+  //    GP inactivity, whichever comes first. Auto-erase is ON by default; set
+  //    IDENTITY_PURGE_DISABLED=true to make it a dry-run (log only, no purge).
+  //    The due/not-due decision is the pure fn identityRetentionDue() from
+  //    lib/identity-retention.js (unit-tested in tests/identity-retention.test.js). ──
+  if (req.method === 'GET' && pathname === '/api/cron/purge-identity-docs') {
+    const idpToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(idpToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', due: 0, purged: 0 }); return; }
+    const idpEnabled = String(process.env.IDENTITY_PURGE_DISABLED || '').trim() !== 'true';
+    const idpDocs = await supabaseDbRequest('user_documents', 'select=user_id&document_key=eq.identity');
+    const idpRows = idpDocs.ok && Array.isArray(idpDocs.data) ? idpDocs.data : [];
+    // Dedupe — a GP can (in theory) carry more than one identity row.
+    const idpUserIds = Array.from(new Set(idpRows.map(function (r) { return r && r.user_id; }).filter(Boolean)));
+    const idpNowMs = Date.now();
+    let idpDue = 0, idpPurged = 0;
+    const idpByReason = { placement: 0, inactivity: 0 };
+    const idpCandidates = [];
+    for (const idpUserId of idpUserIds) {
+      // Placement anchor: the GP's most-recently-updated HIRED gp_applications row.
+      // gp_applications has NO created_at column — never select it; use applied_at.
+      const idpHired = await supabaseDbRequest('gp_applications',
+        'select=updated_at,applied_at&user_id=eq.' + encodeURIComponent(idpUserId) +
+        '&status=eq.hired&order=updated_at.desc&limit=1');
+      const idpHiredRow = idpHired.ok && Array.isArray(idpHired.data) ? idpHired.data[0] : null;
+      const idpPlacedAt = idpHiredRow ? (idpHiredRow.updated_at || idpHiredRow.applied_at) : null;
+      const idpPlacedAtMs = idpPlacedAt ? new Date(idpPlacedAt).getTime() : 0;
+
+      // Last-active anchor: user_state.updated_at, fallback user_profiles.updated_at
+      // (same derivation enumerateIncompleteOnboardingGps() uses).
+      const idpState = await supabaseDbRequest('user_state', 'select=updated_at&user_id=eq.' + encodeURIComponent(idpUserId) + '&limit=1');
+      const idpStateRow = idpState.ok && Array.isArray(idpState.data) ? idpState.data[0] : null;
+      let idpLastActive = idpStateRow && idpStateRow.updated_at;
+      if (!idpLastActive) {
+        const idpProf = await supabaseDbRequest('user_profiles', 'select=updated_at&user_id=eq.' + encodeURIComponent(idpUserId) + '&limit=1');
+        const idpProfRow = idpProf.ok && Array.isArray(idpProf.data) ? idpProf.data[0] : null;
+        idpLastActive = idpProfRow && idpProfRow.updated_at;
+      }
+      const idpLastActiveMs = idpLastActive ? new Date(idpLastActive).getTime() : 0;
+
+      const idpDecision = identityRetentionDue({ placedAtMs: idpPlacedAtMs, lastActiveMs: idpLastActiveMs, nowMs: idpNowMs });
+      if (!idpDecision.due) continue;
+      idpDue++;
+      idpByReason[idpDecision.reason] = (idpByReason[idpDecision.reason] || 0) + 1;
+      idpCandidates.push(idpUserId);
+      if (idpEnabled) {
+        try { await purgeStoredIdentityDocument(idpUserId); idpPurged++; }
+        catch (e) { console.error('[purge-identity-docs] purge failed for', idpUserId, e && e.message); }
+      }
+    }
+    // No batch cap — every identity row found is evaluated and (if due) purged
+    // in this single run, same as purge-accounts above.
+    console.log('[purge-identity-docs] due=' + idpDue + ' purged=' + idpPurged + ' byReason=' + JSON.stringify(idpByReason) + ' dryRun=' + (!idpEnabled) + ' candidates=' + JSON.stringify(idpCandidates));
+    sendJson(res, 200, { ok: true, due: idpDue, purged: idpPurged, byReason: idpByReason, dryRun: !idpEnabled });
     return;
   }
 
