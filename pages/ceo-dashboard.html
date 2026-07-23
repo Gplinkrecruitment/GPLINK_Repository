@@ -7002,10 +7002,12 @@
       // for RSOs/staff, so this section simply never renders for them).
       if (gpDocs.identityDocument) {
         var idDoc = gpDocs.identityDocument;
+        var idGpUserId = (gpDetailCache && gpDetailCache.case && gpDetailCache.case.user_id) || '';
         html += '<div class="ceo-doc-section"><div class="ceo-doc-section-head"><span class="ceo-doc-section-title">Identity document</span></div>';
         html += '<div class="ceo-doc-checklist"><div class="ceo-doc-check-item">';
         html += '<span class="ceo-doc-check-label" style="flex:1">' + esc(idDoc.file_name || 'Identity document') + '</span>';
         html += '<a class="ceo-gp-drive-link" href="' + escAttr(idDoc.view_url) + '" target="_blank" rel="noopener">View</a>';
+        if (idGpUserId) html += '<button type="button" class="btn btn-red" style="margin-left:8px" onclick="ceoDeleteIdentityDoc(event, \'' + esc(idGpUserId) + '\')">Delete ID</button>';
         html += '</div></div></div>';
       }
 
@@ -7153,6 +7155,25 @@
         } else {
           showToast('Error: ' + ((d && (d.message || d.error)) || 'Unknown error'), 'error');
         }
+      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+    }
+
+    // GP Documents action: on-request deletion of the onboarding identity document
+    // (CEO-only card, so no extra client-side role check needed — the server gate
+    // is authoritative). Removes every stored copy: Supabase storage object, the
+    // "identity" user_documents row, the Drive "ID — " file(s), and the legacy
+    // user_profiles fields. Reuses POST /api/admin/gp-identity-delete { user_id }.
+    function ceoDeleteIdentityDoc(event, gpUserId) {
+      if (event) event.stopPropagation();
+      if (!gpUserId) return;
+      if (!confirm('Permanently delete this GP\'s stored ID document? This removes it from storage and Google Drive and cannot be undone.')) return;
+      apiFetch('/api/admin/gp-identity-delete', {
+        method: 'POST',
+        body: { user_id: gpUserId }
+      }).then(function(d) {
+        if (!d || !d.ok) { showToast((d && d.message) || 'Delete failed', 'error'); return; }
+        showToast('ID document deleted', 'success');
+        refreshGpDocuments();
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
     }
 

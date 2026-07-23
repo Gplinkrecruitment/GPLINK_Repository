@@ -3182,12 +3182,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(gpDocs===undefined)loadGpDocuments(c.user_id,c.id);
     var h='';
     h+='<div id="driveFilesList">';
-    h+=renderCategorizedDocuments(gpDocs,c.id);
+    h+=renderCategorizedDocuments(gpDocs,c.id,c.user_id);
     h+='</div>';
     return h;
   }
 
-  function renderCategorizedDocuments(gpDocs,caseId){
+  function renderCategorizedDocuments(gpDocs,caseId,gpUserId){
     if(!gpDocs)return '<div class="empty">Loading\u2026</div>';
     var h='';
 
@@ -3201,6 +3201,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='<div class="doc-checklist"><div class="doc-checklist-item">';
       h+='<span class="doc-checklist-label" style="flex:1">'+esc(idDoc.file_name||'Identity document')+'</span>';
       h+='<a class="btn sm" href="'+escAttr(idDoc.view_url)+'" target="_blank" rel="noopener">View</a>';
+      if(gpUserId)h+='<button type="button" class="btn sm red" style="margin-left:8px" onclick="vaDeleteIdentityDoc(event, \''+esc(gpUserId)+'\', \''+esc(caseId||'')+'\')">Delete ID</button>';
       h+='</div></div></div>';
     }
 
@@ -3514,7 +3515,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       S.va.gpDetailCache[userId].driveFiles=new Array(totalFiles);
       var listEl=document.getElementById("driveFilesList");
       if(listEl&&S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents"){
-        listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments,caseId);
+        listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments,caseId,userId);
       }
     }catch(err){console.error("[VA] loadGpDocuments failed",err);}
   }
@@ -3522,6 +3523,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   async function loadGpDriveFiles(userId,caseId){
     // Redirect to the new categorized loader
     return loadGpDocuments(userId,caseId);
+  }
+
+  // On-request deletion of the onboarding identity document (CEO-only card,
+  // so no extra client-side role check needed -- the server gate is
+  // authoritative). Removes every stored copy: Supabase storage object, the
+  // "identity" user_documents row, the Drive "ID -- " file(s), and the legacy
+  // user_profiles fields. Reuses POST /api/admin/gp-identity-delete { user_id },
+  // then re-fetches the documents panel so the card disappears.
+  async function vaDeleteIdentityDoc(event,gpUserId,caseId){
+    if(event)event.stopPropagation();
+    if(!gpUserId)return;
+    if(!confirm("Permanently delete this GP's stored ID document? This removes it from storage and Google Drive and cannot be undone."))return;
+    try{
+      const r=await fetch("/api/admin/gp-identity-delete",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({user_id:gpUserId})});
+      const d=await r.json().catch(()=>({}));
+      if(!d||!d.ok){showOpsToast((d&&d.message)||"Delete failed","red");return;}
+      showOpsToast("ID document deleted");
+      if(S.va.gpDetailCache[gpUserId])delete S.va.gpDetailCache[gpUserId].gpDocuments;
+      if(caseId)loadGpDocuments(gpUserId,caseId);
+    }catch(err){showOpsToast(err.message||"Network error","red");}
   }
 
   function renderCandidateDetail(cand){

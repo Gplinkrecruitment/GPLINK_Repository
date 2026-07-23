@@ -6,6 +6,7 @@ import fs from 'fs';
 const SRC = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const JS = readFileSync(new URL('../js/ceo-ats-candidates.js', import.meta.url), 'utf8');
 const DASHBOARD_HTML = readFileSync(new URL('../pages/ceo-dashboard.html', import.meta.url), 'utf8');
+const ADMIN_HTML = readFileSync(new URL('../pages/admin.html', import.meta.url), 'utf8');
 
 describe('identity document persistence (source contract)', () => {
   it('defines saveIdentityDocumentForUser writing a user_documents identity row', () => {
@@ -88,11 +89,17 @@ describe('ATS candidate file — viewable ID (Task 5, http harness)', () => {
     return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
   }
 
-  function httpReq(method, p, { cookie, host } = {}) {
+  function httpReq(method, p, { cookie, host, body } = {}) {
     return new Promise((resolve, reject) => {
       const headers = {};
       if (cookie) headers.Cookie = cookie;
       if (host) headers.Host = host;
+      let payload = null;
+      if (body !== undefined) {
+        payload = JSON.stringify(body);
+        headers['Content-Type'] = 'application/json';
+        headers['Content-Length'] = Buffer.byteLength(payload);
+      }
       const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -102,7 +109,9 @@ describe('ATS candidate file — viewable ID (Task 5, http harness)', () => {
           resolve({ status: res.statusCode, body: parsed });
         });
       });
-      r.on('error', reject); r.end();
+      r.on('error', reject);
+      if (payload) r.write(payload);
+      r.end();
     });
   }
 
@@ -153,4 +162,92 @@ describe('ATS candidate file — viewable ID (Task 5, http harness)', () => {
     expect(r.status).toBe(403);
     expect(String(r.body && r.body.message || '')).toMatch(/ATS access/i);
   });
+
+  // Task 6: POST /api/admin/gp-identity-delete, reusing this same running
+  // server/host config. Note: server.js's admin-host allowlists (and AUTH_SECRET)
+  // are read once into module-level consts on first `import('../server.js')` in
+  // this process, so a second beforeAll block in this file setting fresh
+  // SUPER_ADMIN_ALLOWED_HOSTS/ADMIN_ALLOWED_HOSTS/AUTH_SECRET env vars would be
+  // silently ignored by Node's ESM module cache (the module doesn't re-evaluate).
+  // These delete-endpoint checks therefore live in this describe, against the
+  // SUPER_HOST/ADMIN_HOST that are actually wired up.
+  it('no session at all on the super-admin host is 401 (unauthenticated) for gp-identity-delete', async () => {
+    const r = await httpReq('POST', '/api/admin/gp-identity-delete', { host: SUPER_HOST, body: { user_id: 'u-1' } });
+    expect(r.status).toBe(401);
+  });
+
+  it('an authenticated RSO ("admin" role) session is 403 on gp-identity-delete (proves canViewIdentity/CEO-only gate)', async () => {
+    const r = await httpReq('POST', '/api/admin/gp-identity-delete', {
+      host: ADMIN_HOST,
+      cookie: adminCookieFor(ADMIN_EMAIL, 'admin'),
+      body: { user_id: 'u-1' }
+    });
+    expect(r.status).toBe(403);
+    expect(String(r.body && r.body.message || '')).toMatch(/CEO\/ATS access/i);
+  });
 });
+
+describe('identity document deletion (Task 6, source contract)', () => {
+  it('defines an idempotent purge helper and a CEO-gated delete endpoint', () => {
+    expect(SRC).toMatch(/function purgeStoredIdentityDocument\(/);
+    expect(SRC).toMatch(/\/api\/admin\/gp-identity-delete/);
+    expect(SRC).toMatch(/canViewIdentity\(/); // reused as the delete gate
+  });
+  it('purgeStoredIdentityDocument removes every stored copy, each step in its own try/catch', () => {
+    const fn = SRC.match(/async function purgeStoredIdentityDocument\([\s\S]*?\n\}\n/);
+    expect(fn).toBeTruthy();
+    const body = fn[0];
+    // 1) Supabase storage object, at the identity storage path
+    expect(body).toMatch(/supabaseStorageDeleteObject\(SUPABASE_DOCUMENT_BUCKET, buildIdentityDocumentStoragePath\(userId\)\)/);
+    // 2) Drive "ID — " file(s)
+    expect(body).toMatch(/deleteIdentityDriveFiles\(userId\)/);
+    // 3) the identity user_documents row
+    expect(body).toMatch(/'user_documents'[\s\S]*?document_key=eq\.identity[\s\S]*?method: 'DELETE'/);
+    // 4) legacy user_profiles fields cleared
+    expect(body).toMatch(/id_copy_data_url: ''/);
+    expect(body).toMatch(/id_copy_name: ''/);
+    // every step wrapped so a single failure never throws out of the helper
+    const tryCatchCount = (body.match(/try \{/g) || []).length;
+    expect(tryCatchCount).toBeGreaterThanOrEqual(4);
+    // idempotent / guarded when unconfigured
+    expect(body).toMatch(/if \(!userId \|\| !isSupabaseDbConfigured\(\)\) return \{ removed: false \}/);
+    expect(body).toMatch(/return \{ removed: true \}/);
+  });
+  it('deleteIdentityDriveFiles scans both the candidate root and the ID subfolder for "ID — " files', () => {
+    const fn = SRC.match(/async function deleteIdentityDriveFiles\([\s\S]*?\n\}\n/);
+    expect(fn).toBeTruthy();
+    const body = fn[0];
+    expect(body).toMatch(/ensureGPDriveFolder\(/);
+    expect(body).toMatch(/ensureDocTypeSubfolder\(folderId, driveDocFolders\.ID_FOLDER, null\)/);
+    expect(body).toMatch(/drive\.files\.list\(/);
+    expect(body).toMatch(/supportsAllDrives: true/);
+    expect(body).toMatch(/includeItemsFromAllDrives: true/);
+    expect(body).toMatch(/\/\^ID — \//);
+    expect(body).toMatch(/deleteGoogleDriveFile\(f\.id\)/);
+    // silent no-op without Drive creds
+    expect(body).toMatch(/if \(!isGoogleDriveConfigured\(\)/);
+  });
+  it('the delete endpoint is CEO-gated, requires user_id, purges, and audit-logs', () => {
+    const block = SRC.match(/if \(req\.method === 'POST' && pathname === '\/api\/admin\/gp-identity-delete'\)[\s\S]*?\n {2}\}\n/);
+    expect(block).toBeTruthy();
+    expect(block[0]).toMatch(/requireAdminSession\(req, res\)/);
+    expect(block[0]).toMatch(/if \(!canViewIdentity\(idDelCtx\)\) \{ sendJson\(res, 403,/);
+    expect(block[0]).toMatch(/Missing user_id\./);
+    expect(block[0]).toMatch(/purgeStoredIdentityDocument\(targetUserId\)/);
+    expect(block[0]).toMatch(/logAdminAction\(req, idDelCtx, 'identity_deleted',/);
+    expect(block[0]).toMatch(/sendJson\(res, 200, \{ ok: true, removed:/);
+  });
+  it('pages/ceo-dashboard.html renders a Delete ID button wired to the delete endpoint', () => {
+    expect(DASHBOARD_HTML).toMatch(/function ceoDeleteIdentityDoc\(/);
+    expect(DASHBOARD_HTML).toMatch(/>Delete ID</);
+    expect(DASHBOARD_HTML).toMatch(/\/api\/admin\/gp-identity-delete/);
+    expect(DASHBOARD_HTML).toMatch(/confirm\(/);
+  });
+  it('pages/admin.html renders a Delete ID button wired to the delete endpoint', () => {
+    expect(ADMIN_HTML).toMatch(/function vaDeleteIdentityDoc\(/);
+    expect(ADMIN_HTML).toMatch(/>Delete ID</);
+    expect(ADMIN_HTML).toMatch(/\/api\/admin\/gp-identity-delete/);
+    expect(ADMIN_HTML).toMatch(/confirm\(/);
+  });
+});
+

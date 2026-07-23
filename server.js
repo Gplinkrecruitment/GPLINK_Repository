@@ -7359,6 +7359,48 @@ async function mirrorIdentityToDrive(userId, payload) {
   await uploadPrivateToGoogleDrive(idFolderId || folderId, 'ID — ' + (payload.fileName || ('identity.' + ext)), parsed.buffer, parsed.mimeType || payload.mimeType, 'id_private');
 }
 
+// Best-effort private-Drive cleanup for the on-request delete flow: removes
+// every "ID — " file for this GP, checking BOTH the candidate root folder
+// (legacy location, before organizeCaseDrive files it away) AND the ID
+// subfolder (current location) — mirrors the dual-location scan already used
+// by reconcileGpDrive's ID-mirror step, so nothing is left behind regardless
+// of where the file currently sits. Silent no-op without Drive creds/case/folder.
+async function deleteIdentityDriveFiles(userId) {
+  if (!isGoogleDriveConfigured() || !userId) return;
+  const caseRes = await supabaseDbRequest('registration_cases', 'select=id,google_drive_folder_id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  const gpCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+  if (!gpCase) return;
+  const folderId = await ensureGPDriveFolder(gpCase.id, null, null);
+  if (!folderId) return;
+  const drive = await getGoogleDriveClient();
+  if (!drive) return;
+  const idFolderId = await ensureDocTypeSubfolder(folderId, driveDocFolders.ID_FOLDER, null);
+  const rootList = await drive.files.list({ q: "'" + folderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true });
+  const idFolderList = idFolderId
+    ? await drive.files.list({ q: "'" + idFolderId + "' in parents and trashed=false", fields: 'files(id,name)', pageSize: 50, supportsAllDrives: true, includeItemsFromAllDrives: true })
+    : { data: { files: [] } };
+  const allIdCandidates = (rootList.data.files || []).concat(idFolderList.data.files || []);
+  const idFiles = allIdCandidates.filter(function (f) { return /^ID — /.test(f.name || ''); });
+  for (const f of idFiles) {
+    try { await deleteGoogleDriveFile(f.id); } catch (e) { console.error('[identity purge] drive file delete failed:', f.id, e.message); }
+  }
+}
+
+// Remove every stored copy of a GP's identity document. Idempotent; Drive/legacy
+// steps no-op when unconfigured/empty.
+async function purgeStoredIdentityDocument(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return { removed: false };
+  // 1) storage object
+  try { await supabaseStorageDeleteObject(SUPABASE_DOCUMENT_BUCKET, buildIdentityDocumentStoragePath(userId)); } catch (e) { console.error('[identity purge] storage:', e.message); }
+  // 2) Drive "ID — " file(s) in the personal folder + ID subfolder
+  try { await deleteIdentityDriveFiles(userId); } catch (e) { console.error('[identity purge] drive:', e.message); }
+  // 3) user_documents identity row(s)
+  try { await supabaseDbRequest('user_documents', 'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.identity', { method: 'DELETE' }); } catch (e) { console.error('[identity purge] row:', e.message); }
+  // 4) legacy profile fields
+  try { await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { id_copy_data_url: '', id_copy_name: '', updated_at: new Date().toISOString() } }); } catch (e) { console.error('[identity purge] profile:', e.message); }
+  return { removed: true };
+}
+
 // Careers profile gate (Task 3). Distinct document_keys from the onboarding
 // CV (cv_signed_dated): 'career_cv' (AI-checked) and 'career_cover_letter'
 // (shared with the existing Account-page cover letter slot — same key/country
@@ -52210,6 +52252,25 @@ Return ONLY valid JSON with no markdown formatting:
       console.error('[gp-documents] Error:', gdErr.message);
       sendJson(res, 500, { ok: false, message: 'Failed to load documents.' });
     }
+    return;
+  }
+
+  // ── On-request identity-document deletion (CEO/super_admin only; RSOs/staff
+  // 403 via canViewIdentity, the same gate that hides the card from them in
+  // gp-documents above). Removes the Supabase storage object, the "identity"
+  // user_documents row, any Drive "ID — " file(s), and clears the legacy
+  // user_profiles fields — see purgeStoredIdentityDocument. Audit-logged so
+  // there's a record of who deleted whose ID and when.
+  if (req.method === 'POST' && pathname === '/api/admin/gp-identity-delete') {
+    const idDelCtx = requireAdminSession(req, res);
+    if (!idDelCtx) return;
+    if (!canViewIdentity(idDelCtx)) { sendJson(res, 403, { ok: false, message: 'CEO/ATS access required.' }); return; }
+    let idDelBody; try { idDelBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const targetUserId = String((idDelBody && idDelBody.user_id) || '').trim();
+    if (!targetUserId) { sendJson(res, 400, { ok: false, message: 'Missing user_id.' }); return; }
+    const idDelOut = await purgeStoredIdentityDocument(targetUserId);
+    await logAdminAction(req, idDelCtx, 'identity_deleted', { targetType: 'gp', targetId: targetUserId });
+    sendJson(res, 200, { ok: true, removed: idDelOut.removed });
     return;
   }
 
