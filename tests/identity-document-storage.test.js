@@ -13,9 +13,11 @@ describe('identity document persistence (source contract)', () => {
   it('verify-identity persists on a successful read (calls saveIdentityDocumentForUser)', () => {
     expect(SRC).toMatch(/saveIdentityDocumentForUser\(/);
   });
-  it('identity is stored to Drive ID subfolder, never as a doc-review task', () => {
+  it('identity persistence never creates a doc-review task', () => {
+    const fn = SRC.match(/async function saveIdentityDocumentForUser\([\s\S]*?\n}\n/);
+    expect(fn).toBeTruthy();
+    expect(fn[0]).not.toMatch(/_createRegTask|createDocReviewTask/);
+    // and it must file into the Drive ID subfolder
     expect(SRC).toMatch(/driveDocFolders\.ID_FOLDER/);
-    // guard: identity persistence must not enrol the ID into qualification review
-    expect(SRC).not.toMatch(/createDocumentReview\([^)]*identity/);
   });
 });
