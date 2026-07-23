@@ -516,14 +516,16 @@
       background: var(--gp-surface-sunken, #f8fafd);
       box-shadow: var(--gp-shadow-sm);
     }
-    /* Interactive map surface: a real google.maps.Map (pan + zoom). The branded
-       pin is an OverlayView (.at-mk) re-projected to the point on every move, so
-       it stays LOCKED to the suburb/exact point while the map pans underneath. */
+    /* Interactive map surface: a keyless Leaflet map (CARTO/OSM tiles, pan+zoom).
+       The branded pin is a Leaflet divIcon (.at-mk) anchored to the point's
+       lat/lng, so it stays LOCKED as the map pans/zooms. Not Google Maps — its
+       key is referrer-restricted (breaks on preview) + no Geocoding. */
     .at-map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    /* Fallback only (Maps key unset / geocode failed): the raw Google embed,
-       which carries its own pin and is itself pan/zoomable. */
+    .at-map .leaflet-container { font: inherit; background: var(--gp-surface-sunken, #f8fafd); }
+    /* Fallback only (Leaflet/coords failed): the raw Google embed, which carries
+       its own pin and is itself pan/zoomable. */
     .at-map-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
-    .at-mk { position: absolute; width: 0; height: 0; z-index: 2; pointer-events: none; }
+    .at-mk { pointer-events: none; }
     .at-pin { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
     .at-ring {
       width: 60px;
@@ -1910,43 +1912,51 @@
       '</div>';
   }
 
-  // ── Interactive area map + branded OverlayView pin ─────────────────────────
-  // Shared across every buildMapHtml() render. The pin is an OverlayView so it
-  // re-projects to the point on each pan/zoom (an absolute overlay would just
-  // float at container centre). Geocodes only the query the card already
-  // carries (suburb pre-reveal; exact address post-reveal). Fallback to the raw
-  // embed keeps the map working with no Maps key / a failed geocode.
-  var atMapsApiPromise = null;
+  // ── Interactive area map + branded pin ─────────────────────────────────────
+  // Keyless Leaflet map with CARTO/OSM tiles — NOT Google Maps (its browser key
+  // is referrer-restricted, e.g. "RefererNotAllowedMapError" on preview, and
+  // isn't authorized for Geocoding). The pin is a Leaflet divIcon anchored to
+  // the point's lat/lng, so it stays locked as the map pans/zooms. Suburb coords
+  // come from our own keyless /api/public/suburb-geo (suburb-level only).
+  // Fallback to the raw embed keeps the map working if Leaflet/lookup fails.
+  var atLeafletPromise = null;
   var atGeocodeCache = {};
-  // Google calls this global on a key/referrer auth failure — which happens
-  // AFTER new maps.Map() (so try/catch can't see it). Swap every map to its raw
-  // embed so the visitor never sees Google's "can't load Google Maps" tile.
-  window.gm_authFailure = function () {
-    Array.prototype.forEach.call(document.querySelectorAll('figure.at-map[data-at-map]'), atMapFallback);
-  };
-  function atLoadMapsApi() {
-    if (window.google && window.google.maps) return Promise.resolve(window.google.maps);
-    if (atMapsApiPromise) return atMapsApiPromise;
-    atMapsApiPromise = fetch('/api/public/maps-config').then(function (r) {
-      return r.ok ? r.json() : null;
-    }).then(function (cfg) {
-      var apiKey = cfg && cfg.enabled && cfg.apiKey ? String(cfg.apiKey) : '';
-      if (!apiKey) throw new Error('maps_disabled');
-      if (window.google && window.google.maps) return window.google.maps;
-      return new Promise(function (resolve, reject) {
-        var cb = '__gpJobMapsReady';
-        window[cb] = function () { resolve(window.google && window.google.maps ? window.google.maps : null); };
-        var s = document.createElement('script');
-        s.async = true; s.defer = true;
-        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&v=weekly&callback=' + cb;
-        s.onerror = function () { reject(new Error('maps_failed')); };
-        document.head.appendChild(s);
-      });
+  var atMapInstances = [];
+  function atLoadLeaflet() {
+    if (window.L && window.L.map) return Promise.resolve(window.L);
+    if (atLeafletPromise) return atLeafletPromise;
+    atLeafletPromise = new Promise(function (resolve, reject) {
+      // Resolve only when BOTH the CSS (tile positioning depends on it) and the
+      // JS are ready; treat a CSS load error as "ready" so JS still runs.
+      var cssReady = false, jsReady = false;
+      function maybeDone() { if (cssReady && jsReady && window.L && window.L.map) resolve(window.L); }
+      var link = document.querySelector('link[data-leaflet]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+        link.setAttribute('data-leaflet', '1');
+        link.onload = function () { cssReady = true; maybeDone(); };
+        link.onerror = function () { cssReady = true; maybeDone(); };
+        document.head.appendChild(link);
+      } else { cssReady = true; }
+      var existing = document.querySelector('script[data-leaflet]');
+      if (existing) {
+        if (window.L && window.L.map) { jsReady = true; maybeDone(); return; }
+        existing.addEventListener('load', function () { jsReady = true; maybeDone(); });
+        existing.addEventListener('error', function () { reject(new Error('leaflet_failed')); });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+      s.setAttribute('data-leaflet', '1');
+      s.onload = function () { jsReady = true; maybeDone(); };
+      s.onerror = function () { reject(new Error('leaflet_failed')); };
+      document.head.appendChild(s);
     });
-    return atMapsApiPromise;
+    return atLeafletPromise;
   }
-  // Suburb coordinates from our own keyless endpoint (the Maps key is not
-  // authorized for Google's Geocoding service, so the client never geocodes).
+  // Suburb coordinates from our own keyless endpoint (Supabase cache -> Nominatim).
   function atFetchSuburbCoords(suburb, state) {
     var key = suburb + '|' + state;
     if (atGeocodeCache[key]) return Promise.resolve(atGeocodeCache[key]);
@@ -1959,33 +1969,16 @@
       return coords;
     }).catch(function () { return null; });
   }
-  function atMakePin(maps, latLng, revealed, pinLabel) {
-    function Pin() { this.div = null; }
-    Pin.prototype = new maps.OverlayView();
-    Pin.prototype.onAdd = function () {
-      var d = document.createElement('div');
-      d.className = 'at-mk';
-      var ringCls = revealed ? 'at-ring at-ring--exact' : 'at-ring';
-      var dotCls = revealed ? 'at-dotpin at-dotpin--exact' : 'at-dotpin';
-      d.innerHTML = '<span class="at-pin"><span class="' + ringCls + '"><span class="' + dotCls + '"></span></span></span>' +
-        (pinLabel ? '<span class="at-map-pinlabel">' + escapeHtml(pinLabel) + '</span>' : '');
-      this.div = d;
-      this.getPanes().floatPane.appendChild(d);
-    };
-    Pin.prototype.draw = function () {
-      if (!this.div) return;
-      var proj = this.getProjection();
-      if (!proj) return;
-      var p = proj.fromLatLngToDivPixel(latLng);
-      if (!p) return;
-      this.div.style.left = p.x + 'px';
-      this.div.style.top = p.y + 'px';
-    };
-    Pin.prototype.onRemove = function () {
-      if (this.div && this.div.parentNode) this.div.parentNode.removeChild(this.div);
-      this.div = null;
-    };
-    return new Pin();
+  function atMakePinIcon(L, revealed, pinLabel) {
+    var ringCls = revealed ? 'at-ring at-ring--exact' : 'at-ring';
+    var dotCls = revealed ? 'at-dotpin at-dotpin--exact' : 'at-dotpin';
+    return L.divIcon({
+      className: 'at-mk',
+      html: '<span class="at-pin"><span class="' + ringCls + '"><span class="' + dotCls + '"></span></span></span>' +
+        (pinLabel ? '<span class="at-map-pinlabel">' + escapeHtml(pinLabel) + '</span>' : ''),
+      iconSize: [0, 0],
+      iconAnchor: [0, 0]
+    });
   }
   function atMapFallback(fig) {
     var canvas = fig.querySelector('.at-map-canvas');
@@ -1994,6 +1987,8 @@
     if (frame) { frame.src = fig.getAttribute('data-map-fallback') || ''; frame.hidden = false; }
   }
   function initAtMaps() {
+    // A fresh render replaces the map DOM, so tear down any prior Leaflet maps.
+    while (atMapInstances.length) { try { atMapInstances.pop().remove(); } catch (e) { /* noop */ } }
     var figs = document.querySelectorAll('figure.at-map[data-at-map]');
     Array.prototype.forEach.call(figs, function (fig) {
       if (fig.getAttribute('data-map-init') === '1') return;
@@ -2007,22 +2002,25 @@
       // Revealed = exact address: the embed geocodes the precise point
       // server-side (our keyless lookup is suburb-level only), so use it there.
       if (revealed || !suburb || !canvas) { atMapFallback(fig); return; }
-      Promise.all([atLoadMapsApi(), atFetchSuburbCoords(suburb, state)]).then(function (out) {
-        var maps = out[0], coords = out[1];
+      Promise.all([atLoadLeaflet(), atFetchSuburbCoords(suburb, state)]).then(function (out) {
+        var L = out[0], coords = out[1];
         if (!canvas.isConnected) return;
-        if (!maps || !coords) { atMapFallback(fig); return; }
-        var center = new maps.LatLng(coords.lat, coords.lng);
-        var map = new maps.Map(canvas, {
-          center: center,
+        if (!L || !coords) { atMapFallback(fig); return; }
+        var map = L.map(canvas, {
+          center: [coords.lat, coords.lng],
           zoom: zoom,
-          gestureHandling: 'cooperative',
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
+          scrollWheelZoom: false,
           zoomControl: true,
-          clickableIcons: false
+          attributionControl: true
         });
-        atMakePin(maps, center, revealed, pinLabel).setMap(map);
+        atMapInstances.push(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          subdomains: 'abcd',
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        }).addTo(map);
+        L.marker([coords.lat, coords.lng], { icon: atMakePinIcon(L, revealed, pinLabel), interactive: false, keyboard: false }).addTo(map);
+        window.requestAnimationFrame(function () { map.invalidateSize(); });
       }).catch(function () { atMapFallback(fig); });
     });
   }

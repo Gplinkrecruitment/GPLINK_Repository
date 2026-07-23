@@ -10750,6 +10750,13 @@ const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
 const GOOGLE_MAPS_CSP_SCRIPT_SOURCES = " https://*.googleapis.com https://*.gstatic.com *.google.com https://*.ggpht.com *.googleusercontent.com blob: 'unsafe-eval'";
 const GOOGLE_MAPS_CSP_CONNECT_SOURCES = " https://*.googleapis.com *.google.com https://*.gstatic.com data: blob:";
 const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com data:';
+// Keyless job-advert map (Leaflet + CARTO/OSM raster tiles). Used instead of
+// Google Maps for the suburb pin because the Google browser key is restricted
+// to specific referrer domains (breaks on preview.mygplink.com.au etc.) and
+// isn't authorized for Geocoding. Leaflet CSS/JS load from jsdelivr (already in
+// script-src); the raster tiles are plain <img> requests to CARTO/OSM.
+const KEYLESS_MAP_CSP_STYLE_SOURCES = ' https://cdn.jsdelivr.net';
+const KEYLESS_MAP_CSP_IMAGE_SOURCES = ' https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
@@ -10760,14 +10767,14 @@ const SECURITY_HEADERS = {
     "default-src 'self'",
     // /start's Calendly embed loads assets.calendly.com's widget script and iframes calendly.com — see script-src/frame-src below.
     `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://assets.calendly.com${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com${KEYLESS_MAP_CSP_STYLE_SOURCES}`,
     "font-src 'self' https://fonts.gstatic.com",
     // Housing/relocation listing images (career page Relocation Explorer):
     // Domain API media comes back on *.domainstatic.com.au + bucket-api.domain.com.au
     // (see pickDomainImageUrl/resizeDomainImageUrl), the built-in fallback listings
     // use images.unsplash.com (buildLifestyleImage + career.html seeds), and the
     // seeded Homely listings use www.homely.com.au.
-    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au`,
+    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES}${KEYLESS_MAP_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
     "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com",

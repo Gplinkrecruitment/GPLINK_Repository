@@ -34,18 +34,18 @@ const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
 const relatedCardFn = (siteJob.match(/function buildRelatedCard\(job\)\s*\{[\s\S]*?\n  \}/) || [''])[0];
 
-describe('area map: interactive (pan/zoom) with pin locked to the suburb', () => {
-  it('public advert (site-job.html) renders a real google.maps.Map, not a locked embed', () => {
-    // A real interactive map, keyed from the public maps-config endpoint.
-    expect(siteJob).toMatch(/\/api\/public\/maps-config/);
-    expect(siteJob).toMatch(/new maps\.Map\(/);
-    expect(siteJob).toMatch(/gestureHandling:\s*'cooperative'/);
-    // The pin is an OverlayView re-projected to the suburb on every move.
-    expect(siteJob).toMatch(/OverlayView/);
-    expect(siteJob).toMatch(/fromLatLngToDivPixel/);
-    // Coordinates come from OUR keyless endpoint — the Maps key is NOT authorized
-    // for Google's Geocoding service, so the client must never call the Geocoder.
+describe('area map: keyless Leaflet, interactive, pin locked to the suburb', () => {
+  it('public advert (site-job.html) uses keyless Leaflet + CARTO tiles, not Google Maps', () => {
+    // Real interactive Leaflet map, no API key (Google key is referrer-restricted
+    // + not authorized for Geocoding, so it breaks across domains like preview).
+    expect(siteJob).toMatch(/leaflet@1\.9\.4\/dist\/leaflet\.js/);
+    expect(siteJob).toMatch(/L\.map\(/);
+    expect(siteJob).toMatch(/L\.divIcon\(/);
+    expect(siteJob).toMatch(/basemaps\.cartocdn\.com/);
+    // Coordinates from OUR keyless endpoint; never Google Maps JS / Geocoder.
     expect(siteJob).toMatch(/\/api\/public\/suburb-geo/);
+    expect(siteJob).not.toMatch(/maps\.googleapis\.com\/maps\/api\/js/);
+    expect(siteJob).not.toMatch(/new maps\.Map\(/);
     expect(siteJob).not.toMatch(/new maps\.Geocoder/);
     // The old "lock the iframe so a centred overlay stays put" hack is gone.
     expect(siteJob).not.toMatch(/\.job-profile-map iframe\{[^}]*pointer-events:\s*none/);
@@ -53,16 +53,16 @@ describe('area map: interactive (pan/zoom) with pin locked to the suburb', () =>
     expect(siteJob).toMatch(/showSuburbMapFallback/);
   });
 
-  it('in-app advert (job.html) renders a real google.maps.Map, not a locked embed', () => {
-    expect(appJob).toMatch(/\/api\/public\/maps-config/);
-    expect(appJob).toMatch(/new maps\.Map\(/);
-    expect(appJob).toMatch(/gestureHandling:\s*'cooperative'/);
-    expect(appJob).toMatch(/OverlayView/);
-    expect(appJob).toMatch(/fromLatLngToDivPixel/);
+  it('in-app advert (job.html) uses keyless Leaflet + CARTO tiles, not Google Maps', () => {
+    expect(appJob).toMatch(/leaflet@1\.9\.4\/dist\/leaflet\.js/);
+    expect(appJob).toMatch(/L\.map\(/);
+    expect(appJob).toMatch(/L\.divIcon\(/);
+    expect(appJob).toMatch(/basemaps\.cartocdn\.com/);
     expect(appJob).toMatch(/\/api\/public\/suburb-geo/);
-    expect(appJob).not.toMatch(/new maps\.Geocoder/);
-    // buildMapHtml now emits a map canvas wired up by initAtMaps(), not a
-    // centred absolute overlay pin over a locked iframe.
+    expect(appJob).not.toMatch(/maps\.googleapis\.com\/maps\/api\/js/);
+    expect(appJob).not.toMatch(/new maps\.Map\(/);
+    // buildMapHtml emits a map canvas wired up by initAtMaps(), not a centred
+    // absolute overlay pin over a locked iframe.
     expect(appJob).toMatch(/data-at-map/);
     expect(appJob).toMatch(/function initAtMaps\(/);
     expect(appJob).not.toMatch(/\.at-map iframe \{[^}]*pointer-events:\s*none/);
@@ -70,10 +70,13 @@ describe('area map: interactive (pan/zoom) with pin locked to the suburb', () =>
     expect(appJob).toMatch(/function atMapFallback\(/);
   });
 
-  it('server exposes the keyless suburb-geo endpoint backing the maps', () => {
+  it('server exposes the keyless suburb-geo endpoint + allows the tile/library hosts in CSP', () => {
     expect(server).toMatch(/\/api\/public\/suburb-geo/);
     // Reuses the cached, keyless suburb geocoder (Supabase cache -> Nominatim).
     expect(server).toMatch(/resolveCareerSuburbCoordinates\(\{\s*suburb,\s*state,\s*country\s*\}\)/);
+    // CSP must permit the Leaflet CDN (style) and the raster tiles (img).
+    expect(server).toMatch(/KEYLESS_MAP_CSP_STYLE_SOURCES/);
+    expect(server).toMatch(/basemaps\.cartocdn\.com/);
   });
 });
 

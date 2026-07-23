@@ -83,17 +83,21 @@
   .job-profile-row .rk{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut);font-weight:700;}
   .job-profile-row .rv{font-size:14.5px;font-weight:650;color:var(--ink-2);}
   .job-profile-map{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);}
-  /* Interactive map surface: a real google.maps.Map (pan + zoom). The branded
-     pin below is an OverlayView re-projected to the suburb on every move, so it
-     stays LOCKED to the suburb while the map pans underneath it. */
+  /* Interactive map surface: a keyless Leaflet map (CARTO/OSM tiles, pan+zoom).
+     The branded pin is a Leaflet divIcon (.jpm-pin) anchored to the suburb's
+     lat/lng, so it stays LOCKED to the suburb as the map moves. Not Google Maps
+     — the Google key is referrer-restricted (breaks on preview) + no Geocoding. */
   .job-profile-map-canvas{width:100%;height:220px;background:#e9eef5;}
-  /* Fallback only (JS-map disabled / geocode failed): the raw Google embed,
-     which carries its own suburb pin and is itself pan/zoomable. */
+  .job-profile-map .leaflet-container{width:100%;height:220px;font:inherit;}
+  /* Fallback only (Leaflet/coords failed): the raw Google embed, which carries
+     its own suburb pin and is itself pan/zoomable. */
   .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
-  .job-profile-map .jpm-marker{position:absolute;width:0;height:0;pointer-events:none;z-index:2;}
-  .job-profile-map .jpm-marker .map-ring{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);}
-  .job-profile-map .jpm-marker .map-pin{position:absolute;left:0;top:0;transform:translate(-50%,-100%);line-height:0;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
-  .job-profile-map .jpm-marker .map-label{position:absolute;left:0;top:9px;transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;}
+  /* .jpm-pin is Leaflet's 0x0 marker element positioned at the suburb; the
+     ring/pin/label are absolutely placed relative to that anchor point. */
+  .job-profile-map .jpm-pin{pointer-events:none;}
+  .job-profile-map .jpm-pin .map-ring{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);}
+  .job-profile-map .jpm-pin .map-pin{position:absolute;left:0;top:0;transform:translate(-50%,-100%);line-height:0;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
+  .job-profile-map .jpm-pin .map-label{position:absolute;left:0;top:9px;transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;}
   .job-profile-mapnote{font-size:11px;color:var(--mut);margin:8px 0 0;}
 
   .job-handles{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 26px;margin-bottom:32px;}
@@ -473,74 +477,62 @@
 
   // ── Interactive suburb map (pan + zoom) with a branded pin LOCKED to the
   // suburb ──────────────────────────────────────────────────────────────────
-  // The pin has to live INSIDE the map (an OverlayView re-projected to the
-  // suburb's lat/lng on every pan/zoom) so it stays on the suburb as the map
-  // moves — an absolutely-positioned overlay on top of the box would just float
-  // at screen-centre. Never the exact address: we only ever geocode the suburb
-  // (public, no-session marketing site; the real address is never sent here).
-  // Falls back to the raw Google embed (its own suburb pin, also pan/zoomable)
-  // when the browser Maps key is unset or the geocode fails, so the map area is
-  // never blank.
-  var mapsApiPromise = null;
-  var pendingSuburbMapQuery = '';
-  // Google calls this global on a key/referrer auth failure — which happens
-  // AFTER new maps.Map() (so try/catch can't see it). Swap to the raw embed so
-  // the visitor never sees Google's "can't load Google Maps" error tile.
-  window.gm_authFailure = function () {
-    if (pendingSuburbMapQuery) showSuburbMapFallback(pendingSuburbMapQuery);
-  };
-  function loadGoogleMapsApi() {
-    if (window.google && window.google.maps) return Promise.resolve(window.google.maps);
-    if (mapsApiPromise) return mapsApiPromise;
-    mapsApiPromise = fetch('/api/public/maps-config').then(function (res) {
-      return res.ok ? res.json() : null;
-    }).then(function (cfg) {
-      var apiKey = cfg && cfg.enabled && cfg.apiKey ? String(cfg.apiKey) : '';
-      if (!apiKey) throw new Error('maps_disabled');
-      if (window.google && window.google.maps) return window.google.maps;
-      return new Promise(function (resolve, reject) {
-        var cbName = '__gpSiteJobMapsReady';
-        window[cbName] = function () { resolve(window.google && window.google.maps ? window.google.maps : null); };
-        var s = document.createElement('script');
-        s.async = true;
-        s.defer = true;
-        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&v=weekly&callback=' + cbName;
-        s.onerror = function () { reject(new Error('maps_script_failed')); };
-        document.head.appendChild(s);
-      });
+  // Keyless Leaflet map with CARTO/OSM raster tiles — NOT Google Maps. The
+  // Google browser key is restricted to specific referrer domains (works on
+  // app.mygplink.com.au, 401s "RefererNotAllowedMapError" on preview) and isn't
+  // authorized for Geocoding, so it can't reliably render across domains.
+  // Leaflet needs no key, so the branded pin renders everywhere. The pin is a
+  // Leaflet divIcon anchored to the suburb's lat/lng, so it stays locked to the
+  // suburb as the map pans/zooms. Coordinates come from our own keyless endpoint
+  // (/api/public/suburb-geo) — suburb-level only, never the exact address
+  // (public, no-session marketing site). Falls back to the raw Google embed
+  // (its own pin, also pan/zoomable) if Leaflet or the lookup fails.
+  var leafletPromise = null;
+  function loadLeaflet() {
+    if (window.L && window.L.map) return Promise.resolve(window.L);
+    if (leafletPromise) return leafletPromise;
+    leafletPromise = new Promise(function (resolve, reject) {
+      // Resolve only when BOTH the CSS (tile positioning depends on it) and the
+      // JS are ready; treat a CSS load error as "ready" so JS still runs.
+      var cssReady = false, jsReady = false;
+      function maybeDone() { if (cssReady && jsReady && window.L && window.L.map) resolve(window.L); }
+      var link = document.querySelector('link[data-leaflet]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+        link.setAttribute('data-leaflet', '1');
+        link.onload = function () { cssReady = true; maybeDone(); };
+        link.onerror = function () { cssReady = true; maybeDone(); };
+        document.head.appendChild(link);
+      } else { cssReady = true; }
+      var existing = document.querySelector('script[data-leaflet]');
+      if (existing) {
+        if (window.L && window.L.map) { jsReady = true; maybeDone(); return; }
+        existing.addEventListener('load', function () { jsReady = true; maybeDone(); });
+        existing.addEventListener('error', function () { reject(new Error('leaflet_failed')); });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+      s.setAttribute('data-leaflet', '1');
+      s.onload = function () { jsReady = true; maybeDone(); };
+      s.onerror = function () { reject(new Error('leaflet_failed')); };
+      document.head.appendChild(s);
     });
-    return mapsApiPromise;
+    return leafletPromise;
   }
 
-  // OverlayView factory (defined lazily so google.maps exists first). Draws the
-  // branded ring + pin + label at the suburb's pixel position on every redraw.
-  function makeSuburbPin(maps, latLng, labelText) {
-    function SuburbPin() { this.latLng = latLng; this.div = null; }
-    SuburbPin.prototype = new maps.OverlayView();
-    SuburbPin.prototype.onAdd = function () {
-      var d = document.createElement('div');
-      d.className = 'jpm-marker';
-      d.innerHTML =
+  function makeSuburbPinIcon(L, labelText) {
+    return L.divIcon({
+      className: 'jpm-pin',
+      html:
         '<span class="map-ring"></span>' +
         '<span class="map-pin"><svg width="28" height="37" viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2f6bff"/><circle cx="15" cy="15" r="6" fill="white"/></svg></span>' +
-        '<span class="map-label">' + escapeHtml(labelText) + '</span>';
-      this.div = d;
-      this.getPanes().floatPane.appendChild(d);
-    };
-    SuburbPin.prototype.draw = function () {
-      if (!this.div) return;
-      var proj = this.getProjection();
-      if (!proj) return;
-      var p = proj.fromLatLngToDivPixel(this.latLng);
-      if (!p) return;
-      this.div.style.left = p.x + 'px';
-      this.div.style.top = p.y + 'px';
-    };
-    SuburbPin.prototype.onRemove = function () {
-      if (this.div && this.div.parentNode) this.div.parentNode.removeChild(this.div);
-      this.div = null;
-    };
-    return new SuburbPin();
+        '<span class="map-label">' + escapeHtml(labelText) + '</span>',
+      iconSize: [0, 0],
+      iconAnchor: [0, 0]
+    });
   }
 
   function showSuburbMapFallback(mapQuery) {
@@ -550,8 +542,8 @@
     profileMapFrameEl.hidden = false;
   }
 
-  // Suburb coordinates come from our own keyless endpoint (the Maps key is not
-  // authorized for Google's Geocoding service), so the client never geocodes.
+  // Suburb coordinates come from our own keyless endpoint (Supabase cache ->
+  // Nominatim), so the client never depends on a Google Geocoding key.
   function fetchSuburbCoords(suburb, state) {
     var params = 'suburb=' + encodeURIComponent(suburb) + (state ? '&state=' + encodeURIComponent(state) : '');
     return fetch('/api/public/suburb-geo?' + params).then(function (r) {
@@ -560,31 +552,36 @@
       return (d && d.ok && isFinite(d.lat) && isFinite(d.lng)) ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
     }).catch(function () { return null; });
   }
+
   var suburbMapToken = 0;
+  var suburbMapInstance = null;
   function renderSuburbMap(suburb, state) {
     var mapQuery = suburb + (state ? ' ' + state : '');
     var labelText = suburb + (state ? ', ' + state : '');
     var token = ++suburbMapToken;
-    pendingSuburbMapQuery = mapQuery;
     if (!profileMapCanvasEl) { showSuburbMapFallback(mapQuery); return; }
-    Promise.all([loadGoogleMapsApi(), fetchSuburbCoords(suburb, state)]).then(function (out) {
-      var maps = out[0], coords = out[1];
+    Promise.all([loadLeaflet(), fetchSuburbCoords(suburb, state)]).then(function (out) {
+      var L = out[0], coords = out[1];
       if (token !== suburbMapToken) return;
-      if (!maps || !coords) { showSuburbMapFallback(mapQuery); return; }
-      var center = new maps.LatLng(coords.lat, coords.lng);
+      if (!L || !coords) { showSuburbMapFallback(mapQuery); return; }
       if (profileMapFrameEl) { profileMapFrameEl.hidden = true; profileMapFrameEl.removeAttribute('src'); }
       profileMapCanvasEl.hidden = false;
-      var map = new maps.Map(profileMapCanvasEl, {
-        center: center,
+      if (suburbMapInstance) { suburbMapInstance.remove(); suburbMapInstance = null; }
+      var map = L.map(profileMapCanvasEl, {
+        center: [coords.lat, coords.lng],
         zoom: 13,
-        gestureHandling: 'cooperative',
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
+        scrollWheelZoom: false,
         zoomControl: true,
-        clickableIcons: false
+        attributionControl: true
       });
-      makeSuburbPin(maps, center, labelText).setMap(map);
+      suburbMapInstance = map;
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd',
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      }).addTo(map);
+      L.marker([coords.lat, coords.lng], { icon: makeSuburbPinIcon(L, labelText), interactive: false, keyboard: false }).addTo(map);
+      window.requestAnimationFrame(function () { if (suburbMapInstance === map) map.invalidateSize(); });
     }).catch(function () {
       if (token === suburbMapToken) showSuburbMapFallback(mapQuery);
     });
