@@ -1520,7 +1520,7 @@
       statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Confirming your identity...</div>';
       actionsEl.style.display = "none";
     } else if (status === "verified") {
-      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity confirmed — your document has been deleted.</div>';
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity confirmed. Your ID is stored securely.</div>';
       actionsEl.style.display = "none";
     } else if (status === "failed") {
       const issues = humanizeScanIssues((idState.issues && idState.issues.length) ? idState.issues : ["Verification failed"], { mode: "identity" });
