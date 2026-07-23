@@ -151,7 +151,19 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
 
   it('the filtered results-count header replaces the numeric count with the unlock message', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toContain('Top match shown. Create a free account to unlock the rest');
+    expect(res.raw).toContain('Top matches shown. Create a free account to unlock the rest');
+  });
+
+  it('shows the top FILTERED_TOP_MATCHES real cards (not just one) before the wall', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('var FILTERED_TOP_MATCHES = 5;');
+    // fetches the top N (not 1) real matches from the API
+    expect(res.raw).toContain('fetch(buildApiUrl(0, FILTERED_TOP_MATCHES))');
+    expect(res.raw).toMatch(/function renderFilteredMatches\(list\)/);
+    // first card is the badged top match; the rest render as normal job cards
+    expect(res.raw).toMatch(
+      /grid\.appendChild\(buildTopMatchCard\(list\[0\]\)\);\s*\n\s*for \(var i = 1; i < list\.length; i\+\+\) grid\.appendChild\(buildJobCard\(list\[i\]\)\);/
+    );
   });
 
   it('never prints a specific numeric claim about hidden/matching roles', async () => {
@@ -238,10 +250,10 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
     expect(res.raw).toContain('label + " match your filters" : label + " available right now"');
   });
 
-  // Review fix: when a filtered search's total is <= 1, there is nothing
-  // hidden to unlock — so no locked teaser cards, no "unlock the rest"
-  // panel/header, just the one real match plus an honest, modest signup
-  // panel about widening the search to future/unadvertised roles.
+  // Review fix: when a filtered search's total is <= FILTERED_TOP_MATCHES,
+  // every public match is already on screen — so no locked teaser cards, no
+  // "unlock the rest" panel/header, just the real matches plus an honest,
+  // modest signup panel about widening the search to future/unadvertised roles.
   it('renders a single-match panel with the exact required honest copy (no fake teasers)', async () => {
     const res = await get('/jobs');
     expect(res.raw).toMatch(/function buildSingleMatchPanel/);
@@ -253,21 +265,22 @@ describe('GET /jobs — filtered-search conversion flow (Task 17, static source 
     expect(res.raw).toContain('advertised publicly.');
   });
 
-  it('the single-match header reports an honest "1 matching role found" count', async () => {
+  it('the all-shown header reports an honest count (1 vs N matching roles found)', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toMatch(/function renderSingleMatch/);
+    expect(res.raw).toMatch(/function renderAllMatches/);
     expect(res.raw).toContain('"1 matching role found"');
+    expect(res.raw).toContain('list.length + " matching roles found"');
   });
 
-  it('branches on total>1 vs total<=1 instead of always rendering teasers', async () => {
+  it('branches on total>shown.length vs total<=shown.length instead of always rendering teasers', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toMatch(/if \(total > 1\) \{\s*\n\s*renderFilteredMatch\(job\);\s*\n\s*\} else \{\s*\n\s*renderSingleMatch\(job\);\s*\n\s*\}/);
+    expect(res.raw).toMatch(/if \(total > shown\.length\) \{\s*\n\s*renderFilteredMatches\(shown\);\s*\n\s*\} else \{\s*\n\s*renderAllMatches\(shown\);\s*\n\s*\}/);
   });
 
-  it('the single-match path renders no locked teaser cards and no teaser load-more pagination', async () => {
+  it('the all-shown path renders no locked teaser cards and no teaser load-more pagination', async () => {
     const res = await get('/jobs');
     expect(res.raw).toMatch(
-      /function renderSingleMatch\(job\) \{[\s\S]*?grid\.appendChild\(buildSingleMatchPanel\(\)\);\s*\n\s*paginationEl\.innerHTML = "";\s*\n\s*\}/
+      /function renderAllMatches\(list\) \{[\s\S]*?grid\.appendChild\(buildSingleMatchPanel\(\)\);\s*\n\s*paginationEl\.innerHTML = "";\s*\n\s*\}/
     );
   });
 });

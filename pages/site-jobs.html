@@ -236,6 +236,10 @@
   var TEASER_BATCH = 24;
   var TEASER_CTA_AFTER = 4;
   var FILTERED_LOAD_MORE_MAX = 2;
+  // How many REAL matching roles a logged-out visitor sees before the signup
+  // wall on a filtered search. The first is badged "Top match"; the rest show
+  // as normal cards. Set to 1 to restore the original single-teaser flow.
+  var FILTERED_TOP_MATCHES = 5;
   var LOCK_ICON_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">' +
     '<rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.6"/>' +
     '<path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
@@ -548,18 +552,24 @@
     paginationEl.appendChild(btn);
   }
 
-  function renderFilteredMatch(job) {
-    if (resultsCountEl) resultsCountEl.textContent = "Top match shown. Create a free account to unlock the rest";
+  // Filtered search with MORE public matches than we reveal (total > shown):
+  // show the top few real cards (first badged "Top match", the rest as normal
+  // cards), then the locked teasers + signup wall. "unlock the rest" is honest
+  // here because real matches genuinely remain hidden.
+  function renderFilteredMatches(list) {
+    if (resultsCountEl) resultsCountEl.textContent = "Top matches shown. Create a free account to unlock the rest";
     grid.innerHTML = "";
-    grid.appendChild(buildTopMatchCard(job));
+    grid.appendChild(buildTopMatchCard(list[0]));
+    for (var i = 1; i < list.length; i++) grid.appendChild(buildJobCard(list[i]));
     appendTeaserBatch(TEASER_BATCH, TEASER_CTA_AFTER);
     filteredLoadMoreCount = 0;
     renderFilteredLoadMore();
   }
 
-  // total<=1: there is nothing hidden to unlock, so no locked teaser cards
-  // and no "unlock the rest" claim - just the one real match plus an honest
-  // invitation to widen the search to roles that aren't live/public yet.
+  // total<=FILTERED_TOP_MATCHES: every public match is already on screen, so
+  // there is nothing hidden to unlock - no locked teaser cards and no "unlock
+  // the rest" claim, just the real matches plus an honest invitation to widen
+  // the search to roles that aren't live/public yet.
   function buildSingleMatchPanel() {
     var wrap = document.createElement("div");
     wrap.className = "job-card single-match-panel";
@@ -571,10 +581,19 @@
     return wrap;
   }
 
-  function renderSingleMatch(job) {
-    if (resultsCountEl) resultsCountEl.textContent = "1 matching role found";
+  // Filtered search whose ENTIRE public result set fits on screen (total <=
+  // FILTERED_TOP_MATCHES): show every real match (first badged "Top match"),
+  // an honest count, and the modest widen-the-search panel. No fake teasers
+  // and no "unlock the rest" - there is genuinely nothing hidden.
+  function renderAllMatches(list) {
+    if (resultsCountEl) {
+      resultsCountEl.textContent = list.length === 1
+        ? "1 matching role found"
+        : list.length + " matching roles found";
+    }
     grid.innerHTML = "";
-    grid.appendChild(buildTopMatchCard(job));
+    grid.appendChild(buildTopMatchCard(list[0]));
+    for (var i = 1; i < list.length; i++) grid.appendChild(buildJobCard(list[i]));
     grid.appendChild(buildSingleMatchPanel());
     paginationEl.innerHTML = "";
   }
@@ -633,7 +652,7 @@
     if (resultsCountEl) resultsCountEl.textContent = "Loading roles…";
     paginationEl.innerHTML = "";
 
-    fetch(buildApiUrl(0, 1)).then(function (res) {
+    fetch(buildApiUrl(0, FILTERED_TOP_MATCHES)).then(function (res) {
       if (!res.ok) throw new Error("bad status");
       return res.json();
     }).then(function (data) {
@@ -647,10 +666,11 @@
         return;
       }
       total = Number(data.total) || 0;
-      if (total > 1) {
-        renderFilteredMatch(job);
+      var shown = data.jobs.slice(0, FILTERED_TOP_MATCHES);
+      if (total > shown.length) {
+        renderFilteredMatches(shown);
       } else {
-        renderSingleMatch(job);
+        renderAllMatches(shown);
       }
     }).catch(function () {
       if (resultsCountEl) resultsCountEl.textContent = "Could not load roles";
