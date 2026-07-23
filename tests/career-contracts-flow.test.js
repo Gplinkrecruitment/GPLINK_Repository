@@ -1516,7 +1516,7 @@ describe('CEO Contracts tab UI (Task 12)', () => {
   });
 
   it('loads the contracts tab script with a cache-busted src', () => {
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260722b');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260724b');
   });
 
   it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {

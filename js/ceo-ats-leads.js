@@ -159,7 +159,7 @@
     var qs = '?filter=' + encodeURIComponent(state.filter) +
       (state.q ? '&q=' + encodeURIComponent(state.q) : '') +
       '&limit=' + PAGE_SIZE + '&offset=' + offset;
-    ATS.api('/api/ceo/leads' + qs).then(function (d) {
+    var handle = function (d) {
       var el = document.getElementById('lead-list');
       if (!el) return;
       // Only overwrite the chip counts on a good response — an error must not
@@ -172,7 +172,12 @@
       state.loaded = state.loaded.concat(batch);
       state.total = (typeof d.total === 'number') ? d.total : state.loaded.length;
       renderLeads(el);
-    });
+    };
+    // SWR only for fresh loads: the handler resets state.loaded, so running it
+    // twice (cache, then network) is safe. An append ("Show more") page must run
+    // exactly once or the batch would be concatenated twice — keep it plain.
+    if (append) ATS.api('/api/ceo/leads' + qs).then(handle);
+    else ATS.swr('/api/ceo/leads' + qs, handle);
   }
 
   function renderLeads(el) {

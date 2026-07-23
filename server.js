@@ -180,6 +180,13 @@ const SCHOOLS_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const API_RATE_WINDOW_MS = 60 * 1000; // 1 minute window for general API rate limiting
 const API_RATE_MAX_REQUESTS = 30; // max 30 requests per minute per user
 const _apiRateLimitStore = new Map(); // userId -> [timestamps]
+// Per-lambda throttle for /api/admin/gp-documents Drive reconciles: caseId -> ms timestamp of
+// the last reconcileGpDrive pass that completed WITHOUT throwing in this process. Vercel keeps
+// warm lambda instances alive between requests, so repeat Documents views within the TTL skip
+// the (slow, idempotent) reconcile entirely. Cold starts wipe the map, so the first view on any
+// instance still reconciles, and the daily organize-drive cron is the backstop for the rest.
+const _gpDocsReconcileAt = new Map(); // caseId -> ms of last successful reconcile (this lambda)
+const GP_DOCS_RECONCILE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const VISA_STAGES = ['nomination', 'lodgement', 'processing', 'granted', 'refused'];
 // GP-facing field allowlists for /api/visa/status. visa_applications rows carry
 // internal admin data (the `notes` JSONB includes admin author emails, plus
@@ -52020,53 +52027,94 @@ Return ONLY valid JSON with no markdown formatting:
     if (!(await ensureAdminCaseAccess(gdAdminCtx, await fetchCaseAssignmentById(gdCaseId), res))) return;
 
     try {
-      // 1. Get case + user info
+      // 1. Get case + user info. This one stays FIRST (not in the batch below) because every
+      // other read needs gdCaseId validated and gdUserId from the case row.
       var gdCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,google_drive_folder_id,stage&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
       var gdCase = gdCaseRes.ok && Array.isArray(gdCaseRes.data) && gdCaseRes.data[0] ? gdCaseRes.data[0] : null;
       if (!gdCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
       var gdUserId = gdCase.user_id;
 
-      // 2. Get user's country from state or profile
-      var gdStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
+      // 2. Batch EVERY independent read into one parallel wave. These used to run one-by-one
+      // (state → profile → user_documents → practice_doc_ops → Drive-id map → alt-CV docs →
+      // alt-request task), each its own network round-trip; none depends on another's result,
+      // only on gdCaseId/gdUserId which we already have.
+      // NOTE: user_documents is fetched WITHOUT the country_code filter here (the country isn't
+      // known until state + profile resolve) and filtered in JS just below — identical semantics
+      // to the old country_code=eq.<country> filter, because user_documents stores country_code
+      // lowercase-normalized (the same values normalizeDocumentCountry produces).
+      var [gdStateRes, gdProfRes, gdUserDocsRes, gdPracticeOps, _gdIdMap, _altCvRes, _altReqRes] = await Promise.all([
+        supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1'),
+        supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1'),
+        supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(gdUserId)),
+        _ensurePracticeDocOps(gdCaseId),
+        // Shared Drive-id → docKey maps (union of user_documents + practice_pack tasks +
+        // task_documents + practice_doc_ops). SAME source of truth organizeCaseDrive files by, so
+        // filing and display can never disagree. .expected = doc keys the case actually has.
+        buildCaseDriveIdMap(gdCaseId, gdUserId),
+        // Alt supervisor CV placeholder rows (consumed by the alt-supervisor card block below).
+        // IMPORTANT: use %25 (URL-encoded %). supabaseDbRequest concatenates the
+        // query string into the URL raw, so a bare % produces a malformed filter
+        // → HTTP 500 → the card silently never renders (this was the bug: the
+        // placeholder existed in the DB but the section showed "5/5" with no card).
+        supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%25&order=document_key.asc'),
+        // The alt-CV request-email task is per-case (one email asks for every named alternate),
+        // so look its status up once here. Non-fatal on failure, exactly like the old inline
+        // try/catch it replaces — a null result just leaves the status blank.
+        supabaseDbRequest('registration_tasks', 'select=status&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.alt_supervisor_cv_request&order=created_at.desc&limit=1')
+          .catch(function (_altReqErr) { console.error('[gp-documents] alt request task lookup failed (non-fatal):', _altReqErr.message); return null; })
+      ]);
+
+      // 3. Get user's country from state or profile (both just resolved in the batch)
       var gdUserState = gdStateRes.ok && Array.isArray(gdStateRes.data) && gdStateRes.data[0] && typeof gdStateRes.data[0].state === 'object' ? gdStateRes.data[0].state : {};
-      var gdProfRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
       var gdProf = gdProfRes.ok && Array.isArray(gdProfRes.data) && gdProfRes.data[0] ? gdProfRes.data[0] : {};
       // Normalize country — state values may be double-stringified (e.g. "\"United Kingdom\"")
       var _gdRawCountry = gdProf.registration_country || gdUserState.gp_selected_country || 'uk';
       if (typeof _gdRawCountry === 'string') { try { var _p = JSON.parse(_gdRawCountry); if (typeof _p === 'string') _gdRawCountry = _p; } catch(e){} }
       var gdCountry = normalizeDocumentCountry(_gdRawCountry) || 'uk';
 
-      // 3. Build document template list for this country
+      // 4. Build document template list for this country
       var gdShared = GP_DOCUMENT_META.shared || [];
       var gdCountryDocs = GP_DOCUMENT_META[gdCountry] || [];
       var gdAllDocs = gdShared.concat(gdCountryDocs);
 
-      // 4. Get user_documents from DB
-      // user_documents stores country_code lowercase; gdCountry is already normalized.
-      var gdUserDocsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(gdUserId) + '&country_code=eq.' + encodeURIComponent(gdCountry));
-      var gdUserDocs = gdUserDocsRes.ok && Array.isArray(gdUserDocsRes.data) ? gdUserDocsRes.data : [];
+      // 5. This GP's documents for this country (JS filter of the batched fetch above —
+      // user_documents stores country_code lowercase; gdCountry is already normalized).
+      var gdUserDocs = (gdUserDocsRes.ok && Array.isArray(gdUserDocsRes.data) ? gdUserDocsRes.data : []).filter(function(d) { return d && d.country_code === gdCountry; });
       var gdUserDocsByKey = {};
       gdUserDocs.forEach(function(d) { if (d && d.document_key) gdUserDocsByKey[d.document_key] = d; });
 
-      // 5. Get user_state document prep status (values may be stringified JSON)
+      // 6. Get user_state document prep status (values may be stringified JSON)
       var _gdDocPrepRaw = gdUserState.gp_documents_prep || gdUserState.gp_prepared_docs || {};
       var gdDocPrep = typeof _gdDocPrepRaw === 'string' ? (function(){ try { return JSON.parse(_gdDocPrepRaw); } catch(e){ return {}; } })() : _gdDocPrepRaw;
       var gdDocPrepDocs = gdDocPrep.docs || gdDocPrep || {};
 
-      // 6. Get practice_doc_ops
-      var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
+      // Alt-CV batch results (used by the alt-supervisor card block further down)
+      var _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
+      var _altReqStatus = '';
+      if (_altReqRes && _altReqRes.ok && Array.isArray(_altReqRes.data) && _altReqRes.data[0]) _altReqStatus = _altReqRes.data[0].status || '';
 
       // 7. Get Drive files
       // Reconcile this GP's Drive lifecycle (create Users/Candidates/Archived if missing, place/move the
       // personal folder, mirror accepted docs). AWAITED on purpose: this app runs on Vercel serverless,
       // which freezes the function after the response is sent, so fire-and-forget background work would
       // never run. Idempotent, so repeat views are cheap once docs are mirrored.
+      // THROTTLE: skip the reconcile (and its folder-id re-read) when this lambda instance already
+      // reconciled this case successfully < 10 minutes ago. Safe because the reconcile is
+      // idempotent, the FIRST view per lambda always reconciles (the memo is per-process and
+      // empty on cold start), and the daily organize-drive cron is the backstop for the rest.
       if (isGoogleDriveConfigured()) {
-        try { await reconcileGpDrive(gdCaseId); } catch (_rcErr) { console.error('[gp-documents] reconcile failed (non-fatal):', _rcErr.message); }
-        try {
-          var _rcRefresh = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
-          if (_rcRefresh.ok && Array.isArray(_rcRefresh.data) && _rcRefresh.data[0]) gdCase.google_drive_folder_id = _rcRefresh.data[0].google_drive_folder_id;
-        } catch (_e) {}
+        var _gdLastReconcileAt = _gpDocsReconcileAt.get(gdCaseId) || 0;
+        if ((Date.now() - _gdLastReconcileAt) >= GP_DOCS_RECONCILE_TTL_MS) {
+          try {
+            await reconcileGpDrive(gdCaseId);
+            // Stamp ONLY after a reconcile that didn't throw — a failed pass must retry next view.
+            _gpDocsReconcileAt.set(gdCaseId, Date.now());
+          } catch (_rcErr) { console.error('[gp-documents] reconcile failed (non-fatal):', _rcErr.message); }
+          try {
+            var _rcRefresh = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
+            if (_rcRefresh.ok && Array.isArray(_rcRefresh.data) && _rcRefresh.data[0]) gdCase.google_drive_folder_id = _rcRefresh.data[0].google_drive_folder_id;
+          } catch (_e) {}
+        }
       }
       var gdDriveFiles = [];   // top-level children (files + per-document subfolders)
       var gdScanFiles = [];    // top-level files + every subfolder's files — the full match pool
@@ -52085,27 +52133,33 @@ Return ONLY valid JSON with no markdown formatting:
             // Files now live in per-document subfolders, so the match pool MUST include subfolder
             // contents — a filename-only doc moved into "Section G" / "Offer / Contract" is otherwise
             // unfindable (no stored id to fetch by, no longer at the top level).
+            // List every subfolder IN PARALLEL (this used to await one files.list per subfolder).
+            // Promise.all preserves input order, so _gdPool — and therefore gdScanFiles ordering,
+            // the sort below, and card binding — is identical to the old sequential loop. Each
+            // listing keeps its own failure handling: a .catch that logs and contributes an empty
+            // array, matching the old per-subfolder try/catch.
+            var _gdSubfolders = gdDriveFiles.filter(function (f) { return f.mimeType === _GD_FOLDER; });
+            var _gdSubLists = await Promise.all(_gdSubfolders.map(function (_sf) {
+              return gdDrive.files.list({
+                q: "'" + _sf.id + "' in parents and trashed = false",
+                fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
+                pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true
+              }).then(function (_sfRes) {
+                return (_sfRes.data.files || []).filter(function (f) { return f.mimeType !== _GD_FOLDER; });
+              }).catch(function (_sfErr) {
+                console.error('[gp-documents] subfolder list failed:', _sfErr.message);
+                return [];
+              });
+            }));
             var _gdPool = [gdDriveFiles];
-            for (var _sfi = 0; _sfi < gdDriveFiles.length; _sfi++) {
-              if (gdDriveFiles[_sfi].mimeType !== _GD_FOLDER) continue;
-              try {
-                var _sfRes = await gdDrive.files.list({
-                  q: "'" + gdDriveFiles[_sfi].id + "' in parents and trashed = false",
-                  fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
-                  pageSize: 200, supportsAllDrives: true, includeItemsFromAllDrives: true
-                });
-                _gdPool.push((_sfRes.data.files || []).filter(function (f) { return f.mimeType !== _GD_FOLDER; }));
-              } catch (_sfErr) { console.error('[gp-documents] subfolder list failed:', _sfErr.message); }
-            }
+            for (var _sfi = 0; _sfi < _gdSubLists.length; _sfi++) _gdPool.push(_gdSubLists[_sfi]);
             gdScanFiles = Array.prototype.concat.apply([], _gdPool);
           }
         } catch (gdDriveErr) { console.error('[gp-documents] Drive error:', gdDriveErr.message); }
       }
 
-      // 8. Shared Drive-id → docKey maps (union of user_documents + practice_pack tasks +
-      // task_documents + practice_doc_ops). SAME source of truth organizeCaseDrive files by, so
-      // filing and display can never disagree. .expected = doc keys the case actually has.
-      var _gdIdMap = await buildCaseDriveIdMap(gdCaseId, gdUserId);
+      // 8. Shared Drive-id → docKey maps — _gdIdMap already resolved in the batch above
+      // (buildCaseDriveIdMap). Just unpack it here.
       var gdDriveIdToDocKey = _gdIdMap.idToDocKey;
       var gdDocKeyToDriveId = _gdIdMap.docKeyToId;
 
@@ -52131,6 +52185,40 @@ Return ONLY valid JSON with no markdown formatting:
         } catch (_gfErr) { console.error('[gp-documents] fetch-by-id failed for', fileId + ':', _gfErr.message); return null; }
       }
 
+      // Ops rows keyed by document key — needed both for the id pre-resolution just below and
+      // for the Prepared by GP LINK loop further down.
+      var gdOpsMap = {};
+      gdPracticeOps.forEach(function(op) {
+        if (op && op.document_key) gdOpsMap[op.document_key] = op;
+      });
+
+      // Pre-resolve every stored Drive file id IN PARALLEL before the categorize loops. This used
+      // to await gdFetchById one call at a time inside three loops (categorize via
+      // userDoc.google_drive_file_id, the GP LINK fallback via ops.google_drive_file_id /
+      // gdDocKeyToDriveId, and the alt-CV loop via aDoc.google_drive_file_id) — serializing a
+      // Drive API round-trip per pool miss. Collect the EXACT candidate ids those loops consult,
+      // resolve them all at once, and let the loops do synchronous Map lookups instead.
+      // gdFetchById already short-circuits via the gdScanFiles pool (no API call on a hit) and
+      // never throws (returns null on failure), so Promise.all is safe and only genuine misses
+      // hit the Drive API. Binding logic, order, and gdMatchedDriveIds bookkeeping are unchanged.
+      var _gdIdCandidates = new Set();
+      for (var _pri = 0; _pri < gdAllDocs.length; _pri++) {
+        var _prUserDoc = gdUserDocsByKey[gdAllDocs[_pri].key];
+        if (_prUserDoc && _prUserDoc.google_drive_file_id) _gdIdCandidates.add(_prUserDoc.google_drive_file_id);
+      }
+      for (var _prj = 0; _prj < GP_LINK_DOCUMENT_META.length; _prj++) {
+        var _prOps = gdOpsMap[GP_LINK_DOCUMENT_META[_prj].key];
+        var _prKnownId = (_prOps && _prOps.google_drive_file_id) || gdDocKeyToDriveId[GP_LINK_DOCUMENT_META[_prj].key] || null;
+        if (_prKnownId) _gdIdCandidates.add(_prKnownId);
+      }
+      for (var _prk = 0; _prk < _altCvUserDocs.length; _prk++) {
+        if (_altCvUserDocs[_prk] && _altCvUserDocs[_prk].google_drive_file_id) _gdIdCandidates.add(_altCvUserDocs[_prk].google_drive_file_id);
+      }
+      var _gdIdCandidateList = Array.from(_gdIdCandidates);
+      var _gdResolvedById = new Map(); // fileId -> Drive file | null
+      var _gdResolvedFiles = await Promise.all(_gdIdCandidateList.map(function (_rid) { return gdFetchById(_rid); }));
+      for (var _prm = 0; _prm < _gdIdCandidateList.length; _prm++) _gdResolvedById.set(_gdIdCandidateList[_prm], _gdResolvedFiles[_prm]);
+
       // 9. Categorize
       var gdMatchedDriveIds = new Set();
       var gdDirectToAhpra = [];
@@ -52138,7 +52226,7 @@ Return ONLY valid JSON with no markdown formatting:
       var gdPreparedByGpLink = [];
 
       // Direct to AHPRA + Prepared by Candidate
-      // Use for...of so we can await gdFetchById for files now living in subfolders.
+      // Drive lookups are synchronous map hits — the ids were pre-resolved in parallel above.
       for (var _gdi = 0; _gdi < gdAllDocs.length; _gdi++) {
         var doc = gdAllDocs[_gdi];
         var userDoc = gdUserDocsByKey[doc.key];
@@ -52157,7 +52245,7 @@ Return ONLY valid JSON with no markdown formatting:
           entry.flag_reason = userDoc.flag_reason || '';
           // Resolve Drive file (may be in a per-document subfolder after organisation).
           if (userDoc.google_drive_file_id) {
-            var _entryDf = await gdFetchById(userDoc.google_drive_file_id);
+            var _entryDf = _gdResolvedById.get(userDoc.google_drive_file_id) || null;
             if (_entryDf) { entry.drive_file = _entryDf; gdMatchedDriveIds.add(_entryDf.id); }
           }
         }
@@ -52166,11 +52254,7 @@ Return ONLY valid JSON with no markdown formatting:
         else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
       }
 
-      // Prepared by GP LINK
-      var gdOpsMap = {};
-      gdPracticeOps.forEach(function(op) {
-        if (op && op.document_key) gdOpsMap[op.document_key] = op;
-      });
+      // Prepared by GP LINK (gdOpsMap built above, before the id pre-resolution)
 
       // Precompute each scan file's docKey via the SHARED resolver (stored id → "ID —" name →
       // corroborated filename) so cards and the sweep agree, a card binds to its real file wherever
@@ -52193,11 +52277,12 @@ Return ONLY valid JSON with no markdown formatting:
           if (!_cf || _cf.mimeType === _GD_FOLDER || gdMatchedDriveIds.has(_cf.id)) continue;
           if (gdFileToDocKey.get(_cf.id) === doc.key) { driveFile = _cf; gdMatchedDriveIds.add(_cf.id); break; }
         }
-        // Attempt 3: fetch by stored Drive file ID (works when file is in a subfolder).
+        // Attempt 3: stored Drive file ID (works when file is in a subfolder) — pre-resolved
+        // in parallel above, so this is a synchronous map hit.
         if (!driveFile) {
           var _knownId = (ops && ops.google_drive_file_id) || gdDocKeyToDriveId[doc.key] || null;
           if (_knownId) {
-            driveFile = await gdFetchById(_knownId);
+            driveFile = _gdResolvedById.get(_knownId) || null;
             if (driveFile) gdMatchedDriveIds.add(driveFile.id);
           }
         }
@@ -52220,28 +52305,17 @@ Return ONLY valid JSON with no markdown formatting:
       // tracks the collection lifecycle so the RSO can see what's outstanding:
       //   pending (alternate detected) → requested (request email sent) →
       //   under review (CV arrived) → completed (CV approved + delivered).
-      // IMPORTANT: use %25 (URL-encoded %). supabaseDbRequest concatenates the
-      // query string into the URL raw, so a bare % produces a malformed filter
-      // → HTTP 500 → the card silently never renders (this was the bug: the
-      // placeholder existed in the DB but the section showed "5/5" with no card).
-      var _altCvRes = await supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%25&order=document_key.asc');
-      var _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
+      // _altCvUserDocs and _altReqStatus (the per-case request-email task status
+      // applied to each placeholder) were both fetched in the batched wave up top.
       if (_altCvUserDocs.length > 0) {
-        // The request-email task is per-case (one email asks for every named
-        // alternate), so look it up once and apply to each placeholder.
-        var _altReqStatus = '';
-        try {
-          var _altReqRes = await supabaseDbRequest('registration_tasks', 'select=status&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.alt_supervisor_cv_request&order=created_at.desc&limit=1');
-          if (_altReqRes.ok && Array.isArray(_altReqRes.data) && _altReqRes.data[0]) _altReqStatus = _altReqRes.data[0].status || '';
-        } catch (_altReqErr) { console.error('[gp-documents] alt request task lookup failed (non-fatal):', _altReqErr.message); }
         var _altCardStatus = require('./lib/sppa-alt-supervisor-request.js').altCvCardStatus;
         for (var _aci = 0; _aci < _altCvUserDocs.length; _aci++) {
           var aDoc = _altCvUserDocs[_aci];
           var driveFile = null;
           if (aDoc.google_drive_file_id) {
-            // Use the shared helper: checks top-level listing first, then fetches by id
+            // Pre-resolved above via the shared helper: listing pool first, then fetch by id
             // (covers both the old Alternative Supervisor CVs subfolder and the new Alternate Supervisor CV subfolder).
-            driveFile = await gdFetchById(aDoc.google_drive_file_id);
+            driveFile = _gdResolvedById.get(aDoc.google_drive_file_id) || null;
             if (driveFile) gdMatchedDriveIds.add(driveFile.id);
           }
           // Placeholder rows carry the supervisor's name as file_name (no file
@@ -61285,7 +61359,7 @@ Return ONLY valid JSON with no markdown formatting:
     var ceoCtx = requireCeoSession(req, res);
     if (!ceoCtx) return;
 
-    var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes, interviewCallsRes] = await Promise.all([
+    var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes, interviewCallsRes, escDedicatedRes, escTimelineRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
       // F11a (audit 2026-07-20): cap must match the tasks drilldown (limit=10000
       // there too) — the old limit=1000, ordered newest-first, silently dropped
@@ -61301,7 +61375,15 @@ Return ONLY valid JSON with no markdown formatting:
       // Modern GP-facing interview bookings live in scheduled_calls, NOT
       // career_interviews (F1) — same booked/completed union the interview-cap
       // counter (countMonthlyCareerInterviews) already uses.
-      supabaseDbRequest('scheduled_calls', 'select=application_id&meeting_kind=eq.interview&status=in.(booked,completed)&limit=5000')
+      supabaseDbRequest('scheduled_calls', 'select=application_id&meeting_kind=eq.interview&status=in.(booked,completed)&limit=5000'),
+      // Dedicated escalated-task fetch — independent of the capped open-task list
+      // above, so old escalations are never sliced out of it (#53). Consumed by the
+      // Escalations section further down; batched here to save two round-trips.
+      supabaseDbRequest('registration_tasks',
+        'select=id,case_id,status,title,escalated_reason,escalated_at,escalated_by,related_stage,priority&status=eq.escalated&order=escalated_at.desc.nullslast&limit=' + ceoActions.ESCALATION_FETCH_LIMIT),
+      // Timeline fallback for pre-migration escalations (event_type=escalation) —
+      // also consumed by the Escalations section further down.
+      supabaseDbRequest('task_timeline', 'select=task_id,case_id,detail,actor,created_at,title&event_type=eq.escalation&order=created_at.desc&limit=50')
     ]);
 
     var allCasesRaw = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
@@ -61368,9 +61450,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Escalations — search ALL tasks (not just filtered) since escalations must always be visible
     // Check both: tasks with status='escalated' (post-migration) AND timeline fallback (pre-migration)
-    // Fetch escalations independently so old ones are never sliced out of the capped open-task list (#53).
-    var escDedicatedRes = await supabaseDbRequest('registration_tasks',
-      'select=id,case_id,status,title,escalated_reason,escalated_at,escalated_by,related_stage,priority&status=eq.escalated&order=escalated_at.desc.nullslast&limit=' + ceoActions.ESCALATION_FETCH_LIMIT);
+    // Both fetches (escDedicatedRes + escTimelineRes) came back in the initial Promise.all batch.
     var escDedicatedTasks = (escDedicatedRes.ok && Array.isArray(escDedicatedRes.data)) ? escDedicatedRes.data : [];
     var allCaseMap = {};
     for (var acmi = 0; acmi < allCasesRaw.length; acmi++) { allCaseMap[allCasesRaw[acmi].id] = allCasesRaw[acmi]; }
@@ -61387,7 +61467,6 @@ Return ONLY valid JSON with no markdown formatting:
       };
     });
     // Fallback: find unresolved escalation timeline events for tasks not already captured
-    var escTimelineRes = await supabaseDbRequest('task_timeline', 'select=task_id,case_id,detail,actor,created_at,title&event_type=eq.escalation&order=created_at.desc&limit=50');
     var escTimelineEvents = (escTimelineRes.ok && Array.isArray(escTimelineRes.data)) ? escTimelineRes.data : [];
     // Identify resolved escalations by the EXACT CEO resolve event title, not substring on free text (#54).
     var resolvedTaskIds = new Set();

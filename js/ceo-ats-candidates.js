@@ -308,7 +308,7 @@
       '&sort=' + encodeURIComponent(state.sort || 'intent') +
       '&ats_bucket=' + encodeURIComponent(state.ats_bucket || '') +
       (state.fresh_applied ? '&fresh_applied=1' : '');
-    ATS.api('/api/ceo/candidates' + qs).then(function (d) {
+    ATS.swr('/api/ceo/candidates' + qs, function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away (e.g. opened a candidate)
       if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load candidates.'); return; }
@@ -373,7 +373,7 @@
   function fetchAndRenderNewApplications() {
     var t0 = document.getElementById('ats-cand-table');
     if (t0) t0.innerHTML = ATS.loadingHtml('Loading new applications…');
-    ATS.api('/api/ats/new-applications').then(function (d) {
+    ATS.swr('/api/ats/new-applications', function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return; // navigated away
       if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load new applications.'); return; }
@@ -459,7 +459,7 @@
   function fetchAndRenderWaitingOnPractice() {
     var t0 = document.getElementById('ats-cand-table');
     if (t0) t0.innerHTML = ATS.loadingHtml('Loading waiting-on-practice…');
-    ATS.api('/api/ats/waiting-on-practice').then(function (d) {
+    ATS.swr('/api/ats/waiting-on-practice', function (d) {
       var t = document.getElementById('ats-cand-table');
       if (!t) return;
       if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load the tracker.'); return; }
@@ -544,7 +544,7 @@
   }
 
   function fetchAttention() {
-    ATS.api('/api/ats/attention').then(function (d) {
+    ATS.swr('/api/ats/attention', function (d) {
       attentionSummary = (d && d.ok)
         ? d
         : { new_applications: 0, declined_offers: 0, interviews_awaiting: 0 };
@@ -590,7 +590,7 @@
   }
 
   function fetchPipelineSummary() {
-    ATS.api('/api/ceo/pipeline-summary').then(function (d) {
+    ATS.swr('/api/ceo/pipeline-summary', function (d) {
       if (!d || !d.ok) {
         pipelineSummary = null;
         var w = document.getElementById('ats-pipeline-widget');

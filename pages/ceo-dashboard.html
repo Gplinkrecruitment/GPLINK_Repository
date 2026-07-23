@@ -1651,9 +1651,33 @@
     }
 
     /* ── API Helpers ── */
+
+    /* ── SWR cache (stale-while-revalidate) ──
+       Users are in AU, the API in US East — every GET costs ~0.5-1.5s. Paint the
+       last-known payload from sessionStorage immediately, then ALWAYS revalidate
+       over the network and repaint, so no view ever shows stale data without a
+       live refresh in flight (polling loops keep exact freshness).
+       sessionStorage on purpose (NOT localStorage): cached PII must die with the
+       tab. Only ok:true payloads are cached; entries >400KB are skipped; quota
+       errors clear the gpSwr namespace and retry once. */
+    var GP_SWR_NS = 'gpSwr1:ceo:';
+    function gpSwrRead(path) { try { var raw = sessionStorage.getItem(GP_SWR_NS + path); if (!raw) return null; var e = JSON.parse(raw); if (!e || !e.d || (Date.now() - (e.t || 0)) > 86400000) return null; return e.d; } catch (err) { return null; } }
+    function gpSwrWrite(path, data) { try { var raw = JSON.stringify({ t: Date.now(), d: data }); if (raw.length > 400000) { gpSwrDrop(path); return; } try { sessionStorage.setItem(GP_SWR_NS + path, raw); } catch (quotaErr) { gpSwrPurge(); try { sessionStorage.setItem(GP_SWR_NS + path, raw); } catch (err2) {} } } catch (err) {} }
+    function gpSwrDrop(path) { try { sessionStorage.removeItem(GP_SWR_NS + path); } catch (err) {} }
+    function gpSwrPurge() { try { for (var i = sessionStorage.length - 1; i >= 0; i--) { var k = sessionStorage.key(i); if (k && k.indexOf('gpSwr1:') === 0) sessionStorage.removeItem(k); } } catch (err) {} }
+    // gpSwr(path, onData) — onData(payload, fromCache) runs up to twice: once
+    // synchronously with the cached payload (if any), then with the network
+    // result. Returns the network promise so .then/.catch chains keep working.
+    function gpSwr(path, onData) { var cached = gpSwrRead(path); if (cached) { try { onData(cached, true); } catch (err) {} } return apiFetch(path).then(function (d) { if (d && d.ok) gpSwrWrite(path, d); else gpSwrDrop(path); onData(d, false); return d; }); }
+    // Expose for the ATS modules (js/ceo-ats-*.js load after this inline script).
+    window.__gpSwr = { read: gpSwrRead, write: gpSwrWrite, drop: gpSwrDrop, purge: gpSwrPurge };
+
     function apiFetch(path, opts) {
       var o = opts || {};
       o.credentials = 'same-origin';
+      // Any mutation invalidates the whole SWR namespace — cheap and safe, since
+      // every converted view still revalidates over the network on next paint.
+      if (o.method && o.method !== 'GET') gpSwrPurge();
       if (o.body && typeof o.body === 'object' && !(o.body instanceof FormData)) {
         o.headers = o.headers || {};
         o.headers['Content-Type'] = 'application/json';
@@ -2168,7 +2192,7 @@
     }
     function loadConversionFunnel() {
       var p = currentPeriod || 'all';
-      apiFetch('/api/ceo/conversion-funnel?period=' + encodeURIComponent(p)).then(function (d) {
+      gpSwr('/api/ceo/conversion-funnel?period=' + encodeURIComponent(p), function (d) {
         if (!d.ok) return;
         funnelData = d;
         var body = document.getElementById('conversionFunnelBody');
@@ -2205,7 +2229,7 @@
     }
     function loadSourceAttribution() {
       var p = currentPeriod || 'all';
-      apiFetch('/api/ceo/source-attribution?period=' + encodeURIComponent(p)).then(function (d) {
+      gpSwr('/api/ceo/source-attribution?period=' + encodeURIComponent(p), function (d) {
         if (!d.ok) return;
         sourceData = d;
         var body = document.getElementById('sourcesBody');
@@ -2266,7 +2290,7 @@
     function loadPepWaitlist() {
       var body = document.getElementById('pepWaitlistBody');
       if (!body) return;
-      apiFetch('/api/ceo/pep-waitlist').then(function (d) {
+      gpSwr('/api/ceo/pep-waitlist', function (d) {
         var b = document.getElementById('pepWaitlistBody');
         if (b) b.innerHTML = renderPepWaitlistBody(d);
         var c = document.getElementById('wlPepCount');
@@ -2303,7 +2327,7 @@
     function loadOnbWaitlist() {
       var body = document.getElementById('onbWaitlistBody');
       if (!body) return;
-      apiFetch('/api/ceo/onboarding-incomplete').then(function (d) {
+      gpSwr('/api/ceo/onboarding-incomplete', function (d) {
         var b = document.getElementById('onbWaitlistBody');
         if (b) b.innerHTML = renderOnbWaitlistBody(d);
         var c = document.getElementById('wlOnbCount');
@@ -2642,7 +2666,7 @@
       var periodParam = currentPeriod ? 'period=' + currentPeriod : '';
       var paramStr = [param, periodParam].filter(Boolean).join('&');
       var url = '/api/ceo/drilldown/' + section + (paramStr ? '?' + paramStr : '');
-      apiFetch(url).then(function(d) {
+      gpSwr(url, function(d) {
         if (!d.ok) {
           panel.innerHTML = '<div class="drilldown-empty">Failed to load: ' + esc(d.message || 'Unknown error') + '</div>';
           return;
@@ -2777,10 +2801,13 @@
     var rsoRosterCache = null;
     function loadRsoRoster() {
       if (rsoRosterCache) return Promise.resolve(rsoRosterCache);
-      return apiFetch('/api/ceo/rsos').then(function(d) {
+      // SWR: the cached payload populates rsoRosterCache immediately, but callers
+      // still await the network result so they always get the fresh roster.
+      return gpSwr('/api/ceo/rsos', function(d) {
         rsoRosterCache = (d && d.ok && Array.isArray(d.rsos)) ? d.rsos : [];
+      }).then(function() {
         return rsoRosterCache;
-      }).catch(function() { rsoRosterCache = []; return rsoRosterCache; });
+      }).catch(function() { rsoRosterCache = rsoRosterCache || []; return rsoRosterCache; });
     }
 
     /* Reassign RSO */
@@ -2993,7 +3020,7 @@
     function refreshDashboard() {
       lastRefreshAt = Date.now();
       var periodParam = currentPeriod ? '?period=' + currentPeriod : '';
-      return apiFetch('/api/ceo/dashboard' + periodParam).then(function(d) {
+      return gpSwr('/api/ceo/dashboard' + periodParam, function(d) {
         if (d.ok) {
           renderDashboard(d);
         } else if (!dashboardData) {
@@ -3012,7 +3039,7 @@
     }
 
     function refreshTrends() {
-      return apiFetch('/api/ceo/trends').then(function(d) {
+      return gpSwr('/api/ceo/trends', function(d) {
         if (d.ok) {
           trendsData = d;
           // Re-render if dashboard data exists (to show trend arrows)
@@ -3221,10 +3248,27 @@
       // Fetch the stats roster (/api/ceo/rsos) and the full management roster
       // (/api/admin/rsos) in parallel. Either can fail independently — we degrade
       // gracefully rather than failing the whole screen.
-      var ceoP = apiFetch('/api/ceo/rsos').then(function(d) { return d; }).catch(function() { return null; });
-      var adminP = apiFetch('/api/admin/rsos?include_inactive=1').then(function(d) { return d; }).catch(function() { return null; });
+      // SWR wrinkle: this loader renders from Promise.all (both payloads at once),
+      // so the per-call onData callbacks are no-ops — the cached-paint benefit
+      // comes from renderRsoOversightFromPayloads below being called twice: once
+      // with the cached pair (if both are cached), then with the network pair.
+      var cachedCeo = gpSwrRead('/api/ceo/rsos');
+      var cachedAdmin = gpSwrRead('/api/admin/rsos?include_inactive=1');
+      if (cachedCeo && cachedAdmin) {
+        try { renderRsoOversightFromPayloads(cachedCeo, cachedAdmin); } catch (e) {}
+      }
+      var ceoP = gpSwr('/api/ceo/rsos', function() {}).then(function(d) { return d; }).catch(function() { return null; });
+      var adminP = gpSwr('/api/admin/rsos?include_inactive=1', function() {}).then(function(d) { return d; }).catch(function() { return null; });
       Promise.all([ceoP, adminP]).then(function(res) {
-        var ceoD = res[0], adminD = res[1];
+        renderRsoOversightFromPayloads(res[0], res[1]);
+      });
+    }
+    // Render the RSO oversight screen from the two roster payloads (either may be
+    // null/not-ok — we degrade gracefully rather than failing the whole screen).
+    function renderRsoOversightFromPayloads(ceoD, adminD) {
+      var c = document.getElementById('rsoContent');
+      if (!c) return;
+      try {
         if ((!ceoD || !ceoD.ok) && (!adminD || !adminD.ok)) {
           c.innerHTML = '<div class="drilldown-empty">Failed to load RSOs: ' + esc((ceoD && ceoD.message) || (adminD && adminD.message) || 'Unknown error') + '</div>';
           return;
@@ -3291,7 +3335,7 @@
           });
         }
         renderRsoOversight(merged);
-      }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
+      } catch (e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; }
     }
 
     function renderRsoOversight(rsos) {
@@ -3958,7 +4002,7 @@
       var bugStrip = document.getElementById('techBugsStrip');
       var errStrip = document.getElementById('techErrStrip');
       if (bugStrip) {
-        apiFetch('/api/ceo/technical/system-bugs?status=open').then(function(d) {
+        gpSwr('/api/ceo/technical/system-bugs?status=open', function(d) {
           if (!bugStrip) return;
           if (!d || !d.ok || !d.summary) { bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-na">unavailable</span>'; return; }
           var s = d.summary;
@@ -3968,7 +4012,7 @@
         }).catch(function() { if (bugStrip) bugStrip.innerHTML = '<span class="ceo-tech-strip-label">Open bugs</span> <span class="ceo-tech-strip-na">unavailable</span>'; });
       }
       if (errStrip) {
-        apiFetch('/api/ceo/technical/client-errors?status=open').then(function(d) {
+        gpSwr('/api/ceo/technical/client-errors?status=open', function(d) {
           if (!errStrip) return;
           if (!d || !d.ok || !d.summary) { errStrip.innerHTML = '<span class="ceo-tech-strip-label">Client errors</span> <span class="ceo-tech-strip-na">unavailable</span>'; return; }
           var s = d.summary;
@@ -3981,7 +4025,7 @@
       // proposals API cannot be read we must not imply there is nothing to approve.
       var fixStrip = document.getElementById('techFixStrip');
       if (fixStrip) {
-        apiFetch('/api/ceo/error-fix-proposals?status=proposed').then(function(d) {
+        gpSwr('/api/ceo/error-fix-proposals?status=proposed', function(d) {
           if (!fixStrip) return;
           if (!d || !d.ok || !Array.isArray(d.proposals)) {
             fixStrip.innerHTML = '<span class="ceo-tech-strip-label">Fixes to approve</span> <span class="ceo-tech-strip-na">unavailable</span>';
@@ -4039,7 +4083,7 @@
       var c = document.getElementById('techContent');
       if (!c) return;
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading errors…</div></div>';
-      apiFetch('/api/ceo/technical/client-errors?status=' + encodeURIComponent(errView.status)).then(function (d) {
+      gpSwr('/api/ceo/technical/client-errors?status=' + encodeURIComponent(errView.status), function (d) {
         c = document.getElementById('techContent');
         if (!c) return;
         if (!d || !d.ok) {
@@ -4679,7 +4723,7 @@
       var c = document.getElementById('techContent');
       if (!c) return;
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading bugs…</div></div>';
-      apiFetch('/api/ceo/technical/system-bugs?status=' + encodeURIComponent(sbStatus)).then(function (d) {
+      gpSwr('/api/ceo/technical/system-bugs?status=' + encodeURIComponent(sbStatus), function (d) {
         c = document.getElementById('techContent');
         if (!c) return;
         var html = errViewHead('Code-scan bugs');
@@ -4739,7 +4783,7 @@
     function openRsoDetail(rsoId) {
       var c = document.getElementById('rsoContent');
       c.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:24px;height:24px;border-width:3px;margin:24px auto"></div><div style="text-align:center">Loading RSO...</div></div>';
-      apiFetch('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/summary').then(function(d) {
+      gpSwr('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/summary', function(d) {
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         var rso = d.rso || {};
         var gps = d.gps || [];
@@ -4815,7 +4859,7 @@
       gpTimelineCache = null;
       gpDocumentsCache = null;
       gpCallsSubTab = 'upcoming';
-      apiFetch('/api/admin/case?id=' + encodeURIComponent(caseId)).then(function(d) {
+      gpSwr('/api/admin/case?id=' + encodeURIComponent(caseId), function(d) {
         if (!d || !d.ok) { c.innerHTML = '<div class="drilldown-empty">Failed: ' + esc((d && d.message) || 'Unknown error') + '</div>'; return; }
         gpDetailCache = { caseId: caseId, rsoId: rsoId, case: d.case || {}, tasks: d.tasks || [], timeline: d.timeline || [] };
         var cs = gpDetailCache.case;
@@ -6386,6 +6430,10 @@
     // re-fetches via loadGpDocuments because the cache was just cleared).
     function refreshGpDocuments() {
       gpDocumentsCache = null;
+      // Also drop the SWR copy of the exact URL loadGpDocuments fetches, so a doc
+      // mutation can never repaint the stale pre-mutation list from sessionStorage.
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (caseId) gpSwrDrop('/api/admin/gp-documents?case_id=' + encodeURIComponent(caseId));
       if (gpDetailTab === 'documents') renderGpDocumentsTab();
     }
 
@@ -7069,7 +7117,7 @@
 
     // Fetch GET /api/admin/gp-documents?case_id=<caseId>, normalize, cache, render.
     function loadGpDocuments(caseId) {
-      apiFetch('/api/admin/gp-documents?case_id=' + encodeURIComponent(caseId)).then(function(d) {
+      gpSwr('/api/admin/gp-documents?case_id=' + encodeURIComponent(caseId), function(d) {
         // Guard against a stale response after the user switched GP files.
         if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
         if (!d || !d.ok) {
@@ -7436,7 +7484,7 @@
 
     // Fetch GET /api/admin/calls?case_id=<caseId>, cache, render.
     function loadGpCalls(caseId) {
-      apiFetch('/api/admin/calls?case_id=' + encodeURIComponent(caseId)).then(function(d) {
+      gpSwr('/api/admin/calls?case_id=' + encodeURIComponent(caseId), function(d) {
         // Guard against a stale response after the user switched GP files.
         if (!gpDetailCache || gpDetailCache.caseId !== caseId) return;
         if (!d || !d.ok) {
@@ -7768,7 +7816,7 @@
 
     // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
     function loadRsoOps(rsoId) {
-      apiFetch('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/ops').then(function(d) {
+      gpSwr('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/ops', function(d) {
         var board = document.getElementById('ceoOpsBoard');
         if (!board) return;
         if (!d || !d.ok) {
@@ -7862,7 +7910,7 @@
 
     // Fetch + render this RSO's scheduled calls into #ceoCallsBoard, grouped by status.
     function loadRsoCalls(rsoId) {
-      apiFetch('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/calls').then(function(d) {
+      gpSwr('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/calls', function(d) {
         var board = document.getElementById('ceoCallsBoard');
         if (!board) return;
         if (!d || !d.ok) {
@@ -7992,7 +8040,7 @@
     // grouped into Open (status open) and Resolved (status closed).
     function loadRsoSupport(rsoId) {
       ceoSupportRsoId = rsoId;
-      apiFetch('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/support').then(function(d) {
+      gpSwr('/api/ceo/rso/' + encodeURIComponent(rsoId) + '/support', function(d) {
         var board = document.getElementById('ceoSupportBoard');
         if (!board) return;
         if (!d || !d.ok) {
@@ -8183,14 +8231,14 @@
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices / Matching) -->
   <script src="/js/guide-panel.js?v=20260708b"></script>
-  <script src="/js/ceo-ats-shared.js?v=20260717a"></script>
+  <script src="/js/ceo-ats-shared.js?v=20260724b"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260724a"></script>
-  <script src="/js/ceo-ats-jobs.js?v=20260724a"></script>
-  <script src="/js/ceo-ats-practices.js?v=20260719a"></script>
-  <script src="/js/ceo-ats-meetings.js?v=20260717b"></script>
-  <script src="/js/ceo-ats-matching.js?v=20260719a"></script>
-  <script src="/js/ceo-ats-leads.js?v=20260719a"></script>
-  <script src="/js/ceo-ats-contracts.js?v=20260722b"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260724b"></script>
+  <script src="/js/ceo-ats-jobs.js?v=20260724b"></script>
+  <script src="/js/ceo-ats-practices.js?v=20260724b"></script>
+  <script src="/js/ceo-ats-meetings.js?v=20260724b"></script>
+  <script src="/js/ceo-ats-matching.js?v=20260724b"></script>
+  <script src="/js/ceo-ats-leads.js?v=20260724b"></script>
+  <script src="/js/ceo-ats-contracts.js?v=20260724b"></script>
 </body>
 </html>

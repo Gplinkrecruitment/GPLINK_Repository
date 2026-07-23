@@ -1535,6 +1535,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return _povFetch(input, init);
     };
   }
+  /* SWR cache: AU→US-East round trips cost ~0.5-1.5s, so paint the last-known
+     payload from sessionStorage immediately and ALWAYS revalidate + repaint.
+     sessionStorage (not localStorage) so cached PII dies with the tab. Only
+     ok:true payloads cached; >400KB skipped; quota errors purge the namespace. */
+  const GP_SWR_NS='gpSwr1:admin:';
+  function gpSwrRead(p){try{const raw=sessionStorage.getItem(GP_SWR_NS+p);if(!raw)return null;const e=JSON.parse(raw);if(!e||!e.d||(Date.now()-(e.t||0))>86400000)return null;return e.d;}catch{return null;}}
+  function gpSwrWrite(p,d){try{const raw=JSON.stringify({t:Date.now(),d});if(raw.length>400000){gpSwrDrop(p);return;}try{sessionStorage.setItem(GP_SWR_NS+p,raw);}catch{gpSwrPurge();try{sessionStorage.setItem(GP_SWR_NS+p,raw);}catch{}}}catch{}}
+  function gpSwrDrop(p){try{sessionStorage.removeItem(GP_SWR_NS+p);}catch{}}
+  function gpSwrPurge(){try{for(let i=sessionStorage.length-1;i>=0;i--){const k=sessionStorage.key(i);if(k&&k.indexOf('gpSwr1:')===0)sessionStorage.removeItem(k);}}catch{}}
+  /* Boot-snapshot guard: snapshot only restores for the SAME signed-in operator
+     (S.viewer.email from loadSession) in the SAME View-as-RSO POV context. */
+  function gpSwrCtx(){try{var em=String(S.viewer&&S.viewer.email||"");if(!em)return null;return (em+"|"+(POV.active?String(POV.email||""):"")).toLowerCase();}catch{return null;}}
+  function gpSwrSnapshotBoot(){var ctx=gpSwrCtx();if(!ctx){gpSwrDrop('bootSnapshot');return;}
+    /* Super-admin-only triage state (S.va.unmatchedDocs / S.va.incomingQuestions) is deliberately NOT snapshotted. */
+    gpSwrWrite('bootSnapshot',{ctx:ctx,dashboard:S.dashboard,cases:S.cases,tasks:S.tasks,visaCases:S.visaCases,pbsCases:S.pbsCases,vaDashboard:S.va.dashboard,vaAccounts:S._vaAccounts});}
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"tools",filter:"all",query:"",expanded:{},refreshTimer:null,pendingRender:false,
     fStage:"",fRso:"",fCountry:"",fAge:"",fMine:false,
@@ -1966,7 +1981,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
   async function loadSession(){
     try{const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));
-    if(!d.authenticated){window.location.href="/pages/admin-signin";return false;}
+    if(!d.authenticated){gpSwrPurge();window.location.href="/pages/admin-signin";return false;}
     const profile=d.profile||d.session||{};
     const adminRole=profile.adminRole||profile.role||"";
     S.viewer=Object.assign({},profile,{role:adminRole,roleLabel:adminRole==="super_admin"?"Super Admin":"Admin"});
@@ -1991,7 +2006,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
 
   /* \u2550\u2550 Data Loading \u2550\u2550 */
-  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
+  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){gpSwrPurge();window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
   async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
   async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
   async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
@@ -2091,6 +2106,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     try{
       await Promise.all(jobs.map(function(job){return runAdminLoadJob(job[0],job[1]);}));
+      /* SWR: persist the fresh boot payload (silent 15s refreshes too) so the next page load paints instantly. */
+      try{gpSwrSnapshotBoot();}catch{}
       /* When silent (auto-refresh), skip destructive re-render if user is interacting */
       if(silent&&isUserInteracting()){S.pendingRender=true;return;}
       /* Silent auto-refresh: only update lightweight stats - never rebuild panels/tables
@@ -3143,9 +3160,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderGpNotesPane(c){
-    const cache=S.va.gpDetailCache[c.user_id]||{};
+    let cache=S.va.gpDetailCache[c.user_id]||{};
+    /* loadGpTimeline seeds cache.timeline synchronously from the SWR cache when
+       available, so re-read AFTER kicking it off. */
+    if(!cache.timeline)loadGpTimeline(c.user_id,c.id);
+    cache=S.va.gpDetailCache[c.user_id]||{};
     const timeline=cache.timeline;
-    if(!timeline)loadGpTimeline(c.user_id,c.id);
     const tickets=(S.va.dashboard&&S.va.dashboard.open_tickets)?S.va.dashboard.open_tickets.filter(t=>t.user_id===c.user_id):[];
     const notes=timeline?timeline.filter(ev=>ev.event_type==='note'):[];
     const otherEvents=timeline?timeline.filter(ev=>ev.event_type!=='note'):[];
@@ -3166,10 +3186,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return h;
   }
   async function loadGpTimeline(userId,caseId){
+    var url="/api/admin/case?id="+encodeURIComponent(caseId);
+    /* SWR: seed the in-memory timeline synchronously from sessionStorage so the
+       caller's in-flight render paints it (no renderDetail here — the caller is
+       already rendering); the network fetch below ALWAYS revalidates + repaints. */
+    var cached=gpSwrRead(url);
+    if(cached&&cached.ok&&Array.isArray(cached.timeline)){
+      S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
+      if(S.va.gpDetailCache[userId].timeline===undefined)S.va.gpDetailCache[userId].timeline=cached.timeline;
+    }
     try{
-      const r=await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{credentials:"same-origin"});
+      const r=await fetch(url,{credentials:"same-origin"});
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok){
+        gpSwrWrite(url,d);
         S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
         S.va.gpDetailCache[userId].timeline=Array.isArray(d.timeline)?d.timeline:[];
         if(S.view==="gps"&&S.selectedCaseId===caseId)renderDetail();
@@ -3178,8 +3208,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function renderGpDocumentsPane(c){
     var cache=S.va.gpDetailCache[c.user_id]||{};
+    /* loadGpDocuments seeds cache.gpDocuments synchronously from the SWR cache
+       (when a cached payload exists), so re-read AFTER kicking it off. */
+    if(cache.gpDocuments===undefined)loadGpDocuments(c.user_id,c.id);
+    cache=S.va.gpDetailCache[c.user_id]||{};
     var gpDocs=cache.gpDocuments;
-    if(gpDocs===undefined)loadGpDocuments(c.user_id,c.id);
     var h='';
     h+='<div id="driveFilesList">';
     h+=renderCategorizedDocuments(gpDocs,c.id);
@@ -3488,9 +3521,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return (bytes/1048576).toFixed(1)+'MB';
   }
   async function loadGpDocuments(userId,caseId){
-    try{
-      var r=await fetch("/api/admin/gp-documents?case_id="+encodeURIComponent(caseId),{credentials:"same-origin"});
-      var d=await r.json().catch(function(){return {};});
+    var url="/api/admin/gp-documents?case_id="+encodeURIComponent(caseId);
+    function applyGpDocs(d){
       S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
       S.va.gpDetailCache[userId].gpDocuments=d&&d.ok?d:{ directToAhpra:[], preparedByCandidate:[], preparedByGpLink:[], otherFiles:[] };
       // Also cache Drive files count for the tab badge
@@ -3503,6 +3535,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(listEl&&S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents"){
         listEl.innerHTML=renderCategorizedDocuments(S.va.gpDetailCache[userId].gpDocuments,caseId);
       }
+    }
+    /* SWR: seed the in-memory cache synchronously from sessionStorage (caller's
+       render paints it instantly), then ALWAYS revalidate over the network below. */
+    var cached=gpSwrRead("/api/admin/gp-documents?case_id="+encodeURIComponent(caseId));
+    if(cached&&cached.ok&&(S.va.gpDetailCache[userId]||{}).gpDocuments===undefined){try{applyGpDocs(cached);}catch(e){}}
+    try{
+      var r=await fetch(url,{credentials:"same-origin"});
+      var d=await r.json().catch(function(){return {};});
+      if(d&&d.ok)gpSwrWrite(url,d);
+      applyGpDocs(d);
     }catch(err){console.error("[VA] loadGpDocuments failed",err);}
   }
 
@@ -4350,6 +4392,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try{
       const res=await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(fields)});
       if(!res.ok)throw new Error('HTTP '+res.status);
+      gpSwrDrop("/api/admin/case?id="+encodeURIComponent(caseId));
       if(btn){btn.textContent='Saved ✓';btn.style.background='#16a34a';}
       await loadAll(true);
     }catch(err){
@@ -4391,6 +4434,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
 
       if(input)input.value="";
+      gpSwrDrop("/api/admin/case?id="+encodeURIComponent(caseId));
       if(c&&S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].timeline;
       renderDetail();
     }catch(err){console.error("[VA] Note creation failed:",err);}
@@ -6771,6 +6815,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             const c=S.cases.find(x=>x.id===caseId);
             if(c){
               if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].driveFiles;
+              gpSwrDrop("/api/admin/gp-documents?case_id="+encodeURIComponent(caseId));
               loadGpDriveFiles(c.user_id,caseId);
             }
           }else{
@@ -6799,6 +6844,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var c=S.cases.find(function(x){return x.id===caseId;});
         if(c){
           if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].gpDocuments;
+          gpSwrDrop("/api/admin/gp-documents?case_id="+encodeURIComponent(caseId));
           loadGpDocuments(c.user_id,caseId);
         }
       }
@@ -6869,7 +6915,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
     document.getElementById("pdfEditorOverlay").addEventListener("click",function(e){if(e.target===document.getElementById("pdfEditorOverlay"))closePdfEditor();});
-    document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
+    document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}gpSwrPurge();window.location.href="/pages/admin-signin";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
     /* ── Security: two-factor authentication (Phase 6 C1) ─────────────── */
@@ -7402,7 +7448,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     renderInterviewsPanel();
     try{
       const r=await fetch("/api/admin/career/interviews",{credentials:"same-origin"});
-      if(r.status===401){window.location.href="/pages/admin-signin";return;}
+      if(r.status===401){gpSwrPurge();window.location.href="/pages/admin-signin";return;}
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok&&Array.isArray(d.interviews)){S.interviews.list=d.interviews;}
     }catch{}
@@ -7655,7 +7701,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(_preservedDetail){S.va.gpDetailCache[_preservedDetail.uid]=_preservedDetail.data;}
     try{
       const r=await fetch("/api/admin/va/dashboard",{credentials:"same-origin"});
-      if(r.status===401){window.location.href="/pages/admin-signin";return;}
+      if(r.status===401){gpSwrPurge();window.location.href="/pages/admin-signin";return;}
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok){
         S.va.dashboard=d;
@@ -7739,7 +7785,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try{
       const params=new URLSearchParams({source:S.va.supportSource,status:S.va.supportStatus});
       const r=await fetch("/api/admin/va/support?"+params,{credentials:"same-origin"});
-      if(r.status===401){window.location.href="/pages/admin-signin";return;}
+      if(r.status===401){gpSwrPurge();window.location.href="/pages/admin-signin";return;}
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok){S.va.supportItems=d.items||[];}
       else{S.va.supportItems=[];toast((d&&d.message)||"Failed to load support items","red");}
@@ -9290,6 +9336,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var _allowedViews=["tools","gps","support","guide","scheduled_calls"];
       if(viewParam && !gpParam && _allowedViews.indexOf(viewParam)>=0){
         S.view=viewParam;
+      }
+    }catch(e){}
+    /* SWR boot: restore the last snapshot (same operator + same POV only) and paint
+       instantly; loadAll() below still fetches everything fresh and repaints. */
+    try{
+      var _snap=gpSwrRead('bootSnapshot');
+      if(_snap){
+        var _ctx=gpSwrCtx();
+        if(_ctx&&_snap.ctx===_ctx){
+          if(_snap.dashboard)S.dashboard=_snap.dashboard;
+          if(Array.isArray(_snap.cases))S.cases=_snap.cases;
+          if(Array.isArray(_snap.tasks))S.tasks=_snap.tasks;
+          if(Array.isArray(_snap.visaCases))S.visaCases=_snap.visaCases;
+          if(Array.isArray(_snap.pbsCases))S.pbsCases=_snap.pbsCases;
+          if(_snap.vaDashboard){S.va.dashboard=_snap.vaDashboard;S.va.loading=false;}
+          if(Array.isArray(_snap.vaAccounts))S._vaAccounts=_snap.vaAccounts;
+          try{renderAdminView();}catch(e){}
+        }else{
+          gpSwrDrop('bootSnapshot');
+        }
       }
     }catch(e){}
     loadAll();

@@ -165,7 +165,7 @@
   function fetchAndRender() {
     var listEl = document.getElementById('mtg-list');
     if (listEl) listEl.innerHTML = ATS.loadingHtml('Loading meetings…');
-    ATS.api('/api/ceo/meetings?kind=' + encodeURIComponent(state.kind)).then(function (d) {
+    ATS.swr('/api/ceo/meetings?kind=' + encodeURIComponent(state.kind), function (d) {
       var el = document.getElementById('mtg-list');
       if (!el) return;
       if (!d || !d.ok) { el.innerHTML = ATS.emptyHtml('Could not load meetings.'); return; }
