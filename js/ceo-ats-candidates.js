@@ -1426,11 +1426,14 @@
       docDef.map(function (d) {
         var has = !!docs[d.k];
         // A6: the CV is the one document consultants can actually open (the RSO
-        // file is hidden from them). When present it becomes a "View CV" link;
-        // ID/passport stays a plain uploaded/not-uploaded pill (never exposed).
+        // file is hidden from them). When present it becomes a "View CV" link.
+        // A6b: the onboarding identity document (ID/passport) is now viewable
+        // by the same CEO + ATS-consultant audience via a "View ID" link.
         var right;
         if (d.k === 'cv' && has) {
           right = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-cv-view" data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '">View CV</button>';
+        } else if (d.k === 'idDoc' && has) {
+          right = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view" data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '">View ID</button>';
         } else {
           right = has ? '<span class="ats-pill green">Uploaded</span>' : '<span class="ats-pill muted">Not uploaded</span>';
         }
@@ -1464,6 +1467,14 @@
     var userId = btn.getAttribute('data-user-id') || '';
     var q = caseId ? ('case_id=' + encodeURIComponent(caseId)) : ('user_id=' + encodeURIComponent(userId));
     openSignedDoc('/api/ats/candidate-cv?' + q, btn, 'Could not open the CV.');
+  }
+
+  // A6b: open the candidate's onboarding identity document (CEO + consultant).
+  function viewCandidateId(btn) {
+    var caseId = btn.getAttribute('data-case-id') || '';
+    var userId = btn.getAttribute('data-user-id') || '';
+    var q = caseId ? ('case_id=' + encodeURIComponent(caseId)) : ('user_id=' + encodeURIComponent(userId));
+    openSignedDoc('/api/ats/candidate-id?' + q, btn, 'Could not open the ID.');
   }
 
   function viewOfferContract(appId, btn) {
@@ -1628,6 +1639,9 @@
       // A6: open the candidate's CV (consultant-accessible).
       var cvBtn = e.target.closest('.ats-cv-view');
       if (cvBtn) { viewCandidateCv(cvBtn); return; }
+      // A6b: open the candidate's onboarding identity document (consultant-accessible).
+      var idBtn = e.target.closest('.ats-id-view');
+      if (idBtn) { viewCandidateId(idBtn); return; }
       // A7b: open the offer's stored contract.
       var ocBtn = e.target.closest('.ats-offer-contract');
       if (ocBtn) { viewOfferContract(ocBtn.getAttribute('data-app-id'), ocBtn); return; }

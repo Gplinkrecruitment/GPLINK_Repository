@@ -32629,7 +32629,7 @@ async function atsGetDocFlagsProd(userId) {
     cv: present(function (r) { return r.document_key === 'cv_signed_dated'; }) || !!String(prof.cv_file_name || '').trim(),
     coverLetter: present(function (r) { return r.document_key === 'career_cover_letter'; }),
     primaryDegree: present(function (r) { return r.document_key === 'primary_medical_degree' || r.document_key === 'onboarding_primary_med_degree'; }),
-    idDoc: !!String(prof.id_copy_data_url || '').trim() || !!String(prof.id_copy_name || '').trim()
+    idDoc: present(function (r) { return r.document_key === 'identity'; }) || !!String(prof.id_copy_data_url || '').trim() || !!String(prof.id_copy_name || '').trim()
   };
 }
 
@@ -64148,6 +64148,43 @@ Return ONLY valid JSON with no markdown formatting:
       detail: cvCaseId ? { case_id: String(cvCaseId).slice(0, 120) } : {}
     });
     sendJson(res, 200, { ok: true, url: cvUrl, file_name: cvRow.file_name || 'CV.pdf' });
+    return;
+  }
+
+  // ---- A6b: ATS candidate identity-document access --------------------------
+  // Returns a short-lived signed URL for the candidate's onboarding identity
+  // document (the ID/passport captured during onboarding — see
+  // saveIdentityDocumentForUser). Same guard as candidate-cv: CEO
+  // (super_admin) + ATS consultants only; RSOs never reach this route.
+  if (pathname === '/api/ats/candidate-id' && req.method === 'GET') {
+    var ctxID = requireAtsSession(req, res); if (!ctxID) return;
+    var idCaseId = url.searchParams.get('case_id') || url.searchParams.get('caseId') || '';
+    var idUserId = url.searchParams.get('user_id') || url.searchParams.get('userId') || '';
+    var idResolvedUserId = String(idUserId || '').trim();
+    if (!idResolvedUserId && idCaseId) {
+      if (isSupabaseDbConfigured()) {
+        var idCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(idCaseId) + '&limit=1');
+        idResolvedUserId = (idCaseRes.ok && Array.isArray(idCaseRes.data) && idCaseRes.data[0] && idCaseRes.data[0].user_id) || '';
+      } else {
+        var idLocal = (dbState.atsCandidates || []).find(function (r) { return String(r.id) === String(idCaseId) || String(r.user_id) === String(idCaseId); });
+        idResolvedUserId = idLocal ? (idLocal.user_id || '') : '';
+      }
+    }
+    if (!idResolvedUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 404, { ok: false, message: 'No ID on file for this doctor.' }); return; }
+    var idDocRes2 = await supabaseDbRequest('user_documents',
+      'select=file_name,file_url,storage_path,storage_bucket&user_id=eq.' + encodeURIComponent(idResolvedUserId) + '&document_key=eq.identity&order=updated_at.desc&limit=1');
+    var idRow2 = (idDocRes2.ok && Array.isArray(idDocRes2.data) && idDocRes2.data[0]) ? idDocRes2.data[0] : null;
+    var idPath2 = idRow2 ? String(idRow2.storage_path || idRow2.file_url || '').trim() : '';
+    if (!idRow2 || !idPath2) { sendJson(res, 404, { ok: false, message: 'No ID on file for this doctor.' }); return; }
+    var idUrl2 = await supabaseStorageCreateSignedUrl(idRow2.storage_bucket || SUPABASE_DOCUMENT_BUCKET, idPath2, idRow2.file_name || 'identity');
+    if (!idUrl2) { sendJson(res, 502, { ok: false, message: 'Could not create a link to the ID.' }); return; }
+    // C3 audit breadth: WHO was issued a signed URL to WHOSE identity document.
+    await logAdminAction(req, ctxID, 'ats_id_viewed', {
+      targetType: 'gp', targetId: idResolvedUserId,
+      detail: idCaseId ? { case_id: String(idCaseId).slice(0, 120) } : {}
+    });
+    sendJson(res, 200, { ok: true, url: idUrl2, file_name: idRow2.file_name || 'identity' });
     return;
   }
 
