@@ -30,6 +30,7 @@ const ROOT = path.join(__dirname, '..');
 
 const siteJob = fs.readFileSync(path.join(ROOT, 'pages', 'site-job.html'), 'utf8');
 const appJob = fs.readFileSync(path.join(ROOT, 'pages', 'job.html'), 'utf8');
+const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
 const relatedCardFn = (siteJob.match(/function buildRelatedCard\(job\)\s*\{[\s\S]*?\n  \}/) || [''])[0];
 
@@ -42,7 +43,10 @@ describe('area map: interactive (pan/zoom) with pin locked to the suburb', () =>
     // The pin is an OverlayView re-projected to the suburb on every move.
     expect(siteJob).toMatch(/OverlayView/);
     expect(siteJob).toMatch(/fromLatLngToDivPixel/);
-    expect(siteJob).toMatch(/new maps\.Geocoder\(\)/);
+    // Coordinates come from OUR keyless endpoint — the Maps key is NOT authorized
+    // for Google's Geocoding service, so the client must never call the Geocoder.
+    expect(siteJob).toMatch(/\/api\/public\/suburb-geo/);
+    expect(siteJob).not.toMatch(/new maps\.Geocoder/);
     // The old "lock the iframe so a centred overlay stays put" hack is gone.
     expect(siteJob).not.toMatch(/\.job-profile-map iframe\{[^}]*pointer-events:\s*none/);
     // Graceful fallback to the raw embed keeps the map area from going blank.
@@ -55,7 +59,8 @@ describe('area map: interactive (pan/zoom) with pin locked to the suburb', () =>
     expect(appJob).toMatch(/gestureHandling:\s*'cooperative'/);
     expect(appJob).toMatch(/OverlayView/);
     expect(appJob).toMatch(/fromLatLngToDivPixel/);
-    expect(appJob).toMatch(/new maps\.Geocoder\(\)/);
+    expect(appJob).toMatch(/\/api\/public\/suburb-geo/);
+    expect(appJob).not.toMatch(/new maps\.Geocoder/);
     // buildMapHtml now emits a map canvas wired up by initAtMaps(), not a
     // centred absolute overlay pin over a locked iframe.
     expect(appJob).toMatch(/data-at-map/);
@@ -63,6 +68,12 @@ describe('area map: interactive (pan/zoom) with pin locked to the suburb', () =>
     expect(appJob).not.toMatch(/\.at-map iframe \{[^}]*pointer-events:\s*none/);
     expect(appJob).not.toMatch(/class="at-map-overlay/);
     expect(appJob).toMatch(/function atMapFallback\(/);
+  });
+
+  it('server exposes the keyless suburb-geo endpoint backing the maps', () => {
+    expect(server).toMatch(/\/api\/public\/suburb-geo/);
+    // Reuses the cached, keyless suburb geocoder (Supabase cache -> Nominatim).
+    expect(server).toMatch(/resolveCareerSuburbCoordinates\(\{\s*suburb,\s*state,\s*country\s*\}\)/);
   });
 });
 

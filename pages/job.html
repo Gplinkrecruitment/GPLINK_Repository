@@ -1876,6 +1876,8 @@
     // (mockup's .pinlabel), e.g. "Erina, NSW 2250" — never the exact address
     // pre-reveal, only the same suburb/state already used for the caption.
     const pinLabel = getRoleMapPinLabel(role);
+    const suburbName = getRoleSuburbLabel(role);
+    const stateCode = getRoleStateCode(role);
     // AI Matching (Task 7): revealed-only "Open in Maps ↗" link — a real
     // maps.google.com link opened in a new tab (sibling of the map, unaffected
     // by the map's own gestures).
@@ -1883,11 +1885,16 @@
       ? '<a class="at-map-open" href="https://www.google.com/maps?q=' + encodeURIComponent(query) + '" target="_blank" rel="noopener noreferrer">Open in Maps ↗</a>'
       : '';
     // data-* carry everything initAtMaps() needs to build the interactive map
-    // and its OverlayView pin (or, on failure, the fallback embed).
+    // and its OverlayView pin (or, on failure, the fallback embed). Suburb +
+    // state feed the keyless /api/public/suburb-geo lookup (the Maps key can't
+    // geocode); revealed (exact-address) maps use the embed, which geocodes the
+    // exact point server-side.
     return '<div class="at-sech">The area</div>' +
       '<div class="at-rv at-rv4">' +
         '<figure class="at-map" style="margin:0" data-at-map' +
           ' data-map-query="' + escapeHtml(query) + '"' +
+          ' data-map-suburb="' + escapeHtml(suburbName || '') + '"' +
+          ' data-map-state="' + escapeHtml(stateCode && stateCode !== 'AU' ? stateCode : '') + '"' +
           ' data-map-zoom="' + zoom + '"' +
           ' data-map-revealed="' + (revealed ? '1' : '0') + '"' +
           ' data-map-pinlabel="' + escapeHtml(pinLabel || '') + '"' +
@@ -1938,15 +1945,19 @@
     });
     return atMapsApiPromise;
   }
-  function atGeocode(maps, query) {
-    if (atGeocodeCache[query]) return Promise.resolve(atGeocodeCache[query]);
-    return new Promise(function (resolve) {
-      new maps.Geocoder().geocode({ address: query, region: 'au' }, function (results, status) {
-        var loc = (status === 'OK' && results && results[0] && results[0].geometry) ? results[0].geometry.location : null;
-        if (loc) atGeocodeCache[query] = loc;
-        resolve(loc);
-      });
-    });
+  // Suburb coordinates from our own keyless endpoint (the Maps key is not
+  // authorized for Google's Geocoding service, so the client never geocodes).
+  function atFetchSuburbCoords(suburb, state) {
+    var key = suburb + '|' + state;
+    if (atGeocodeCache[key]) return Promise.resolve(atGeocodeCache[key]);
+    var params = 'suburb=' + encodeURIComponent(suburb) + (state ? '&state=' + encodeURIComponent(state) : '');
+    return fetch('/api/public/suburb-geo?' + params).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (d) {
+      var coords = (d && d.ok && isFinite(d.lat) && isFinite(d.lng)) ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
+      if (coords) atGeocodeCache[key] = coords;
+      return coords;
+    }).catch(function () { return null; });
   }
   function atMakePin(maps, latLng, revealed, pinLabel) {
     function Pin() { this.div = null; }
@@ -1987,29 +1998,31 @@
     Array.prototype.forEach.call(figs, function (fig) {
       if (fig.getAttribute('data-map-init') === '1') return;
       fig.setAttribute('data-map-init', '1');
-      var query = fig.getAttribute('data-map-query') || '';
+      var suburb = fig.getAttribute('data-map-suburb') || '';
+      var state = fig.getAttribute('data-map-state') || '';
       var zoom = parseInt(fig.getAttribute('data-map-zoom'), 10) || 13;
       var revealed = fig.getAttribute('data-map-revealed') === '1';
       var pinLabel = fig.getAttribute('data-map-pinlabel') || '';
       var canvas = fig.querySelector('.at-map-canvas');
-      if (!query || !canvas) { atMapFallback(fig); return; }
-      atLoadMapsApi().then(function (maps) {
-        if (!maps || !canvas.isConnected) return;
-        return atGeocode(maps, query).then(function (loc) {
-          if (!canvas.isConnected) return;
-          if (!loc) { atMapFallback(fig); return; }
-          var map = new maps.Map(canvas, {
-            center: loc,
-            zoom: zoom,
-            gestureHandling: 'cooperative',
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            zoomControl: true,
-            clickableIcons: false
-          });
-          atMakePin(maps, loc, revealed, pinLabel).setMap(map);
+      // Revealed = exact address: the embed geocodes the precise point
+      // server-side (our keyless lookup is suburb-level only), so use it there.
+      if (revealed || !suburb || !canvas) { atMapFallback(fig); return; }
+      Promise.all([atLoadMapsApi(), atFetchSuburbCoords(suburb, state)]).then(function (out) {
+        var maps = out[0], coords = out[1];
+        if (!canvas.isConnected) return;
+        if (!maps || !coords) { atMapFallback(fig); return; }
+        var center = new maps.LatLng(coords.lat, coords.lng);
+        var map = new maps.Map(canvas, {
+          center: center,
+          zoom: zoom,
+          gestureHandling: 'cooperative',
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
+          clickableIcons: false
         });
+        atMakePin(maps, center, revealed, pinLabel).setMap(map);
       }).catch(function () { atMapFallback(fig); });
     });
   }

@@ -37079,6 +37079,37 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Suburb-level coordinates for the job-advert maps. The browser Maps key is
+  // authorized for the Maps JavaScript API but NOT the Geocoding service, so the
+  // client can't geocode the suburb itself — this returns the same keyless,
+  // cached suburb coordinates the career hero lookup uses (Supabase cache first,
+  // then Nominatim). Suburb-level only (never an exact address), so it is safe
+  // on the unauthenticated public site. Heavily cacheable — same suburb, same
+  // answer — so repeat views are a cache hit and never re-geocode.
+  if (pathname === '/api/public/suburb-geo' && req.method === 'GET') {
+    const geoUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const suburb = String(geoUrl.searchParams.get('suburb') || '').trim();
+    const state = String(geoUrl.searchParams.get('state') || '').trim();
+    const country = String(geoUrl.searchParams.get('country') || 'Australia').trim() || 'Australia';
+    if (!suburb) {
+      sendJson(res, 400, { ok: false, error: 'suburb_required' });
+      return;
+    }
+    try {
+      const coords = await resolveCareerSuburbCoordinates({ suburb, state, country });
+      const lat = coords ? parseCareerCoordinate(coords.latitude) : null;
+      const lng = coords ? parseCareerCoordinate(coords.longitude) : null;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        sendJson(res, 200, { ok: true, lat, lng }, PUBLIC_CONFIG_CACHE_HEADERS);
+      } else {
+        sendJson(res, 200, { ok: false }, PUBLIC_CONFIG_CACHE_HEADERS);
+      }
+    } catch (geoErr) {
+      sendJson(res, 200, { ok: false });
+    }
+    return;
+  }
+
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
     sendJson(res, 200, { ok: true });

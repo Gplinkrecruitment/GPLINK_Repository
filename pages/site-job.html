@@ -550,6 +550,16 @@
     profileMapFrameEl.hidden = false;
   }
 
+  // Suburb coordinates come from our own keyless endpoint (the Maps key is not
+  // authorized for Google's Geocoding service), so the client never geocodes.
+  function fetchSuburbCoords(suburb, state) {
+    var params = 'suburb=' + encodeURIComponent(suburb) + (state ? '&state=' + encodeURIComponent(state) : '');
+    return fetch('/api/public/suburb-geo?' + params).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (d) {
+      return (d && d.ok && isFinite(d.lat) && isFinite(d.lng)) ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
+    }).catch(function () { return null; });
+  }
   var suburbMapToken = 0;
   function renderSuburbMap(suburb, state) {
     var mapQuery = suburb + (state ? ' ' + state : '');
@@ -557,30 +567,24 @@
     var token = ++suburbMapToken;
     pendingSuburbMapQuery = mapQuery;
     if (!profileMapCanvasEl) { showSuburbMapFallback(mapQuery); return; }
-    loadGoogleMapsApi().then(function (maps) {
-      if (!maps || token !== suburbMapToken) return;
-      return new Promise(function (resolve) {
-        new maps.Geocoder().geocode({ address: mapQuery, region: 'au' }, function (results, status) {
-          var loc = (status === 'OK' && results && results[0] && results[0].geometry) ? results[0].geometry.location : null;
-          resolve(loc);
-        });
-      }).then(function (loc) {
-        if (token !== suburbMapToken) return;
-        if (!loc) { showSuburbMapFallback(mapQuery); return; }
-        if (profileMapFrameEl) { profileMapFrameEl.hidden = true; profileMapFrameEl.removeAttribute('src'); }
-        profileMapCanvasEl.hidden = false;
-        var map = new maps.Map(profileMapCanvasEl, {
-          center: loc,
-          zoom: 13,
-          gestureHandling: 'cooperative',
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
-          zoomControl: true,
-          clickableIcons: false
-        });
-        makeSuburbPin(maps, loc, labelText).setMap(map);
+    Promise.all([loadGoogleMapsApi(), fetchSuburbCoords(suburb, state)]).then(function (out) {
+      var maps = out[0], coords = out[1];
+      if (token !== suburbMapToken) return;
+      if (!maps || !coords) { showSuburbMapFallback(mapQuery); return; }
+      var center = new maps.LatLng(coords.lat, coords.lng);
+      if (profileMapFrameEl) { profileMapFrameEl.hidden = true; profileMapFrameEl.removeAttribute('src'); }
+      profileMapCanvasEl.hidden = false;
+      var map = new maps.Map(profileMapCanvasEl, {
+        center: center,
+        zoom: 13,
+        gestureHandling: 'cooperative',
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        zoomControl: true,
+        clickableIcons: false
       });
+      makeSuburbPin(maps, center, labelText).setMap(map);
     }).catch(function () {
       if (token === suburbMapToken) showSuburbMapFallback(mapQuery);
     });
