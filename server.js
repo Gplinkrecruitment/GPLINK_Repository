@@ -283,7 +283,12 @@ const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-
 const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 // AI Matching (candidate <-> job ranking, lib/ai-candidate-job-match.js) — env-pinned,
 // defaults to the shared model so it can be tuned independently later.
-const ANTHROPIC_MATCH_MODEL = String(process.env.ANTHROPIC_MATCH_MODEL || ANTHROPIC_MODEL).trim() || ANTHROPIC_MODEL;
+// Match ranking defaults to Haiku 4.5, NOT the (Opus) ANTHROPIC_MODEL: ranking a
+// batch of jobs must finish inside the 30s per-call timeout and the 60s function
+// budget. Opus was too slow (~40s/batch) and its reply overran the token cap, so
+// rankings silently degraded to blank scores/reasons. Haiku is fast, fits the
+// budget, ~5x cheaper, and ample for this bounded comparison. Override with env.
+const ANTHROPIC_MATCH_MODEL = String(process.env.ANTHROPIC_MATCH_MODEL || 'claude-haiku-4-5').trim() || 'claude-haiku-4-5';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Anthropic Messages endpoint — env-overridable so tests can point new AI
 // call sites at a local emulator. Existing call sites keep their inline URL.
