@@ -17,7 +17,7 @@
 <link rel="stylesheet" href="/css/site.css?v=20260717a">
 <style>
   /* ---------- compact jobs hero ---------- */
-  .jobs-hero{background:var(--ink-2);color:#fff;padding:clamp(46px,7vw,72px) 0 clamp(30px,4vw,40px);position:relative;overflow:hidden;}
+  .jobs-hero{background:var(--ink-2);color:#fff;padding:clamp(46px,7vw,72px) 0 clamp(96px,12vw,128px);position:relative;overflow:hidden;}
   .jobs-hero::before{content:"";position:absolute;width:460px;height:460px;border-radius:50%;
     background:radial-gradient(circle,rgba(78,183,245,.22),transparent 68%);top:-200px;right:-140px;}
   .jobs-hero .container{position:relative;z-index:1;}
@@ -44,16 +44,29 @@
   @media(max-width:760px){.jobs-filter-card{grid-template-columns:1fr 1fr}.jobs-filter-card .kw{grid-column:1/-1}.jobs-filter-card .go{grid-column:1/-1}}
 
   /* ---------- interactive Australia map that "falls off" the search bar ---------- */
-  .jobs-finder{background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 34px 74px -40px rgba(9,25,45,.7);position:relative;z-index:1;}
-  /* the search form becomes the top row of the finder card (its own card
-     styling is neutralised; the map hangs directly below it) */
-  .jobs-finder .jobs-filter-card{background:#fff;border-radius:0;box-shadow:none;border-bottom:1px solid var(--line);padding:18px;}
-  .jobs-map-shell{position:relative;height:clamp(390px,52vh,560px);background:#e9eef5;
+  /* Its own band (NOT inside the overflow-clipped hero); pulled up so the search
+     bar still bridges onto the navy hero, while the map + card sit below. */
+  /* clip the off-screen (closed) card horizontally so it can't widen the page,
+     while keeping vertical overflow visible so an open card can spill DOWN */
+  .jobs-finder-band{position:relative;z-index:5;margin-top:calc(-1 * clamp(70px,9vw,104px));overflow-x:clip;overflow-y:visible;}
+  .jobs-finder{position:relative;background:#fff;border-radius:18px;box-shadow:0 34px 74px -40px rgba(9,25,45,.7);}
+  /* the search form is the top row of the finder card (rounded top corners) */
+  .jobs-finder .jobs-filter-card{position:relative;z-index:3;background:#fff;border-radius:18px 18px 0 0;box-shadow:none;border-bottom:1px solid var(--line);padding:18px;}
+  /* map SIZING box — overflow:visible so the detail card can spill BELOW it */
+  .jobs-map-shell{position:relative;height:clamp(390px,52vh,560px);}
+  /* the map itself is clipped to rounded bottom corners in this frame; the
+     "drop" reveal clips only the map, never the detail card that grows past it */
+  .pmap-frame{position:absolute;inset:0;overflow:hidden;border-radius:0 0 18px 18px;background:#e9eef5;
     animation:pmapDrop 1s cubic-bezier(.16,1,.3,1) both;transform-origin:top center;}
   @keyframes pmapDrop{from{clip-path:inset(0 0 100% 0);}to{clip-path:inset(0 0 0 0);}}
-  @media(prefers-reduced-motion:reduce){.jobs-map-shell{animation:none;}}
+  @media(prefers-reduced-motion:reduce){.pmap-frame{animation:none;}}
   .pmap{position:absolute;inset:0;z-index:1;}
   .jobs-map-shell .leaflet-container{font:inherit;background:#dfe7f0;}
+  /* hide the prominent corner map branding; a tiny credit stays (OSM/CARTO
+     licences require attribution) but small + subtle, not the blue box. */
+  .jobs-map-shell .leaflet-control-attribution{font-size:10px;line-height:1.3;background:rgba(255,255,255,.5);
+    box-shadow:none;color:rgba(30,60,90,.5);padding:1px 6px;border-radius:5px 0 0 0;}
+  .jobs-map-shell .leaflet-control-attribution a{color:rgba(30,60,90,.6);}
   .pmap-cap{position:absolute;left:14px;top:12px;z-index:500;display:flex;align-items:center;gap:8px;
     background:rgba(255,255,255,.95);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:999px;
     padding:7px 14px 7px 11px;font-size:12.5px;font-weight:650;color:var(--ink-2);box-shadow:0 8px 22px -14px rgba(9,25,45,.4);}
@@ -74,11 +87,15 @@
     display:grid;place-items:center;border:3px solid #fff;box-shadow:0 7px 18px -6px rgba(17,109,255,.75);}
   .pmap-cluster.lg > div{width:46px;height:46px;font-size:15px;}
 
-  /* detail sidebar — right on desktop, bottom sheet on mobile */
-  .pmap-detail{position:absolute;top:0;right:0;bottom:0;width:min(372px,88%);z-index:600;background:#fff;
-    box-shadow:-24px 0 60px -34px rgba(9,25,45,.5);transform:translateX(103%);transition:transform .5s cubic-bezier(.16,1,.3,1);
-    display:flex;flex-direction:column;overflow:hidden;}
-  .pmap-detail.open{transform:translateX(0);}
+  /* detail card — right panel (desktop) / bottom sheet (mobile). It GROWS to
+     fit its content (min = map height) and floats DOWN over the next section,
+     so the whole card (incl. the Open-job button) shows without scrolling. */
+  .pmap-detail{position:absolute;top:0;right:0;width:min(372px,90%);min-height:100%;height:max-content;
+    max-height:calc(100vh - 66px);z-index:600;background:#fff;border-radius:0 0 16px 16px;
+    box-shadow:-6px 26px 64px -30px rgba(9,25,45,.6);transform:translateX(103%);opacity:0;
+    transition:transform .5s cubic-bezier(.16,1,.3,1),opacity .3s ease;
+    display:flex;flex-direction:column;overflow:hidden;pointer-events:none;}
+  .pmap-detail.open{transform:translateX(0);opacity:1;pointer-events:auto;}
   .pmap-photo{position:relative;height:172px;flex:none;background:#dfe7f0;overflow:hidden;}
   .pmap-photo img{width:100%;height:100%;object-fit:cover;display:block;}
   .pmap-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(9,22,40,.76),transparent 56%);}
@@ -108,10 +125,19 @@
   .pmap-cta a:hover .arr{transform:translateX(4px);}
   .pmap-cta .sub{text-align:center;font-size:11.5px;color:var(--mut-2);margin-top:8px;}
   @media(max-width:760px){
-    .pmap-detail{top:auto;left:0;right:0;bottom:0;width:100%;max-height:80%;transform:translateY(103%);border-radius:16px 16px 0 0;}
+    /* slightly shorter map on phones so the card (which sits below it) peeks
+       into view instead of opening entirely below the fold */
+    .jobs-map-shell{height:clamp(290px,38vh,380px);}
+    /* the card sits BELOW the map (so the map stays visible + usable) and floats
+       over the next section; content-height, gentle drop-in, all corners rounded */
+    .pmap-detail{top:100%;left:0;right:0;width:100%;min-height:0;height:max-content;max-height:none;margin-top:10px;
+      border-radius:16px;box-shadow:0 26px 60px -24px rgba(9,25,45,.55);transform:translateY(16px);}
     .pmap-detail.open{transform:translateY(0);}
+    .pmap-detail .pmap-photo{border-radius:16px 16px 0 0;}
     .pmap-detail .pmap-x{background:rgba(255,255,255,.96);}
   }
+  /* the tapped card floats over the results below it */
+  .jobs-results{position:relative;z-index:1;}
 
   /* ---------- results ---------- */
   .results-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:8px;}
@@ -250,6 +276,14 @@
     <div class="eyebrow reveal">GP jobs</div>
     <h1 data-split="0.3">GP jobs across Australia</h1>
     <p class="count-line" id="heroCountLine">Loading current openings…</p>
+  </div>
+</section>
+
+<!-- The finder (search + map) lives in its OWN band, not inside the
+     overflow-clipped hero, so a tapped practice card can float DOWN over the
+     next section instead of being cut off at the map's edge. -->
+<section class="jobs-finder-band">
+  <div class="container">
     <div class="jobs-finder">
       <form class="jobs-filter-card" id="jobSearch">
         <label class="kw">Keyword or suburb
@@ -277,9 +311,11 @@
            suburb photo, income, benefits and a link to the real job page. Keyless
            Leaflet + CARTO tiles (no Google Maps key needed), clustered by area. -->
       <div class="jobs-map-shell" id="jobsMapShell">
-        <div class="pmap" id="pmap" aria-label="Map of GP practices hiring across Australia"></div>
-        <div class="pmap-cap"><span class="cdot"></span><b id="pmapCount">—</b>&nbsp;practices across Australia · tap a pin</div>
-        <div class="pmap-loading" id="pmapLoading">Loading the map…</div>
+        <div class="pmap-frame">
+          <div class="pmap" id="pmap" aria-label="Map of GP practices hiring across Australia"></div>
+          <div class="pmap-cap"><span class="cdot"></span><b id="pmapCount">—</b>&nbsp;practices across Australia · tap a pin</div>
+          <div class="pmap-loading" id="pmapLoading">Loading the map…</div>
+        </div>
 
         <aside class="pmap-detail" id="pmapDetail" aria-hidden="true">
           <div class="pmap-photo">
@@ -866,8 +902,11 @@
     loadLibs().then(function(L){
       if(!L||!L.markerClusterGroup){fail();return;}
       var map=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:true,zoomControl:true,attributionControl:true,worldCopyJump:true});
+      // Drop the prominent "Leaflet" prefix + flag; keep only the small OSM/CARTO
+      // credit the tile licences require (styled tiny + subtle in CSS).
+      map.attributionControl.setPrefix(false);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,
-        attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+        attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(map);
       map.on('click',closeDetail);
       var cluster=L.markerClusterGroup({
         showCoverageOnHover:false,maxClusterRadius:46,spiderfyOnMaxZoom:true,
