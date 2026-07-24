@@ -31322,11 +31322,22 @@ async function atsBuildGpMatchInputs(userIds) {
     ((sRes.ok && sRes.data) || []).forEach(function (s) { stateMap[s.user_id] = _parseStateVal(s.state); });
   }
 
+  // hasCv counts EITHER CV document the app recognises, matching the same
+  // "career_cv first, legacy cv_signed_dated fallback" resolution used when
+  // attaching a GP's CV to an application (see the CV lookup in POST
+  // /api/career/apply / practice-facing CV resolve):
+  //   - 'career_cv'       — the AI-verified CAREERS-profile CV that POST
+  //                         /api/career/apply requires before a GP can apply.
+  //   - 'cv_signed_dated' — the older registration-file signed CV (legacy).
+  // Previously this checked ONLY cv_signed_dated, which wrongly reported
+  // 'no_cv' for every GP who had uploaded their careers CV (and could already
+  // apply / be matched) but had not also filed the separate registration
+  // signed CV — silently hiding real, matchable candidates from the board.
   var cvSet = {};
   for (var di = 0; di < ids.length; di += 200) {
     var dChunk = ids.slice(di, di + 200);
     var dRes = await supabaseDbRequest('user_documents',
-      'select=user_id&user_id=in.(' + encodeURIComponent(_atsInList(dChunk)) + ')&document_key=eq.cv_signed_dated&status=eq.uploaded&limit=500');
+      'select=user_id&user_id=in.(' + encodeURIComponent(_atsInList(dChunk)) + ')&document_key=in.(career_cv,cv_signed_dated)&status=in.(uploaded,approved)&limit=500');
     ((dRes.ok && dRes.data) || []).forEach(function (d) { cvSet[d.user_id] = true; });
   }
 

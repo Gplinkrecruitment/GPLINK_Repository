@@ -468,11 +468,16 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
       { user_id: SEARCH, state: { gp_onboarding_complete: true, account_status: 'active' } },
       { user_id: BLOCKED, state: { gp_onboarding_complete: true, account_status: 'active', gp_career_state: { career_secured: true } } }
     );
+    // The board's hasCv gate counts EITHER CV the app recognises: the primary
+    // AI-verified CAREERS CV ('career_cv', what POST /api/career/apply requires)
+    // OR the legacy registration 'cv_signed_dated'. Seed a MIX so this proves
+    // both grant eligibility — OLD carries only the legacy CV (regression guard),
+    // the rest carry the careers CV (the bug: careers-CV GPs were being hidden).
     db.user_documents.push(
       { id: 'cv-old', user_id: OLD, document_key: 'cv_signed_dated', status: 'uploaded' },
-      { id: 'cv-new', user_id: NEWC, document_key: 'cv_signed_dated', status: 'uploaded' },
-      { id: 'cv-search', user_id: SEARCH, document_key: 'cv_signed_dated', status: 'uploaded' },
-      { id: 'cv-blocked', user_id: BLOCKED, document_key: 'cv_signed_dated', status: 'uploaded' }
+      { id: 'cv-new', user_id: NEWC, document_key: 'career_cv', status: 'uploaded' },
+      { id: 'cv-search', user_id: SEARCH, document_key: 'career_cv', status: 'uploaded' },
+      { id: 'cv-blocked', user_id: BLOCKED, document_key: 'career_cv', status: 'uploaded' }
     );
     db.gp_applications.push({
       id: 'app-cand-live', user_id: LIVE, career_role_id: 'job-cand',
