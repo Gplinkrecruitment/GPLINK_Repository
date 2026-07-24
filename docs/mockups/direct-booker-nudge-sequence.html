@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GP Link — Signup nudge sequence (touches 2–6)</title>
+<style>
+  body { margin:0; background:#e4e9f2; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .wrap { max-width:660px; margin:0 auto; padding:24px 16px 60px; }
+  .seqtitle { text-align:center; color:#0f172a; font-size:15px; font-weight:800; margin:8px 0 4px; }
+  .seqsub { text-align:center; color:#64748b; font-size:12.5px; margin:0 0 20px; }
+  .tag { display:inline-block; background:#1e293b; color:#fff; font-size:11px; font-weight:800; letter-spacing:.04em; padding:5px 11px; border-radius:999px; margin:26px 0 8px; }
+  .headstrip { background:#fff; border-radius:12px 12px 0 0; border-bottom:1px solid #eef2f7; padding:12px 16px; }
+  .fromline { font-size:13px; color:#0f172a; font-weight:700; }
+  .subjline { font-size:14px; color:#0f172a; font-weight:800; margin:6px 0 2px; }
+  .preline { font-size:12.5px; color:#94a3b8; }
+  .microlabel { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:#94a3b8; font-weight:800; margin-bottom:5px; }
+  .card { background:#fff; border-radius:0 0 12px 12px; padding:26px 26px 22px; box-shadow:0 4px 14px rgba(2,6,23,0.07); }
+  .brand { text-align:center; margin-bottom:16px; }
+  .brand .badge { display:inline-block; vertical-align:middle; width:28px; height:28px; line-height:28px; border-radius:8px; background:#6366f1; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; font-weight:800; font-size:12px; text-align:center; }
+  .brand .name { display:inline-block; vertical-align:middle; margin-left:7px; font-size:17px; font-weight:800; color:#0f172a; }
+  .eyebrow { font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:#2563eb; margin-bottom:9px; }
+  .eyebrow.amber { color:#c2410c; }
+  h2.mail { font-size:20px; line-height:1.28; font-weight:800; color:#0f172a; margin:0 0 12px; }
+  p.body { font-size:14.5px; color:#334155; line-height:1.6; margin:0 0 16px; }
+  /* progress bar (sunk-cost reinforcement) */
+  .dots { margin:0 0 16px; }
+  .dots td { text-align:center; vertical-align:middle; }
+  .dot { width:22px; height:22px; line-height:22px; border-radius:50%; font-size:11px; font-weight:800; margin:0 auto; }
+  .dot.done { background:#16a34a; color:#fff; }
+  .dot.here { background:#2563eb; color:#fff; box-shadow:0 0 0 4px #dbeafe; }
+  .dot.next { background:#fff; border:2px solid #cbd5e1; color:#94a3b8; line-height:18px; }
+  .bar { height:3px; background:#e2e8f0; }
+  .bar.fill { background:#16a34a; }
+  .proglabel { font-size:12px; color:#475569; text-align:center; margin:0 0 18px; }
+  .proglabel b { color:#1d4ed8; }
+  /* loss-aversion tick list */
+  .ticks { background:#f8fafc; border:1px solid #eef2f7; border-radius:11px; padding:14px 16px; margin:0 0 18px; }
+  .ticks .h { font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:#64748b; font-weight:800; margin-bottom:9px; }
+  .ticks p { font-size:13.5px; color:#334155; margin:0 0 7px; line-height:1.5; }
+  .ticks p:last-child { margin-bottom:0; }
+  .ticks .x { color:#16a34a; font-weight:800; }
+  /* scarcity box */
+  .scarcity { background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:12px 15px; margin:0 0 18px; }
+  .scarcity p { font-size:13px; color:#9a3412; line-height:1.55; margin:0; }
+  /* social proof */
+  .social { font-size:12.5px; color:#64748b; line-height:1.55; text-align:center; margin:0 0 4px; }
+  .cta { text-align:center; margin:6px 0 4px; }
+  .cta a { display:inline-block; padding:14px 34px; background:#2563eb; color:#fff; font-weight:800; font-size:15px; text-decoration:none; border-radius:11px; box-shadow:0 5px 14px rgba(37,99,235,0.32); }
+  .cta .micro { font-size:12px; color:#94a3b8; margin-top:10px; }
+  .foot { text-align:center; font-size:11.5px; color:#a3adbb; line-height:1.6; margin:16px 4px 0; }
+  .foot a { color:#94a3b8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="seqtitle">GP Link · Signup nudge sequence</div>
+  <div class="seqsub">Touch 1 (post-booking) is the full email you approved. Touches 2–5 below use the same tactics — progress/sunk-cost, scarcity, social proof, loss aversion, personalisation, one CTA. Each stops the moment they create an account.</div>
+
+  <!-- ============ TOUCH 2 — AFTER THE CALL ============ -->
+  <div class="tag">TOUCH 2 · sent the day after their call</div>
+  <div class="headstrip">
+    <div class="microlabel">Inbox</div>
+    <div class="fromline">GP Link &lt;hello@mygplink.com.au&gt;</div>
+    <div class="subjline">Great speaking with you, Faraz — you're 1 step from your plan 📋</div>
+    <div class="preline">Your notes and roadmap are saved and waiting. Two minutes and they're yours.</div>
+  </div>
+  <div class="card">
+    <div class="brand"><span class="badge">GP</span><span class="name">GP Link</span></div>
+    <div class="eyebrow">After your consultation</div>
+    <h2 class="mail">That's the conversation done, Faraz. Don't lose the momentum.</h2>
+    <p class="body">You've now done the two hardest things most doctors never do — <strong>deciding</strong>, and <strong>showing up</strong>. Everything we covered on the call (your next steps, our notes, your personalised registration plan) is saved and waiting. Creating your account is all that stands between you and the plan.</p>
+    <!-- progress -->
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" class="dots"><tr>
+      <td width="20%"><div class="dot done">✓</div></td>
+      <td width="20%"><div class="dot here">2</div></td>
+      <td width="20%"><div class="dot next">3</div></td>
+      <td width="20%"><div class="dot next">4</div></td>
+      <td width="20%"><div class="dot next">5</div></td>
+    </tr></table>
+    <div class="proglabel">You're on <b>step 2 of 5</b> — one step from unlocking everything.</div>
+    <div class="cta">
+      <a href="https://app.mygplink.com.au/pages/signup?email=farazsonde88%40gmail.com&ref=consult-t2">Open my account &amp; notes →</a>
+      <div class="micro">Your call summary is waiting · Free · We already have your details</div>
+    </div>
+    <p class="social" style="margin-top:16px">Join the UK, Irish &amp; NZ-trained GPs registering with GP Link every week.</p>
+    <div class="foot">GP Link Australia · You booked a consultation with us. <a href="#">Unsubscribe</a></div>
+  </div>
+
+  <!-- ============ TOUCH 3 — WEEK 1 ============ -->
+  <div class="tag">TOUCH 3 · Week 1</div>
+  <div class="headstrip">
+    <div class="microlabel">Inbox</div>
+    <div class="fromline">GP Link &lt;hello@mygplink.com.au&gt;</div>
+    <div class="subjline">Faraz, your roadmap is built — every week it waits is a week from Brisbane</div>
+    <div class="preline">AHPRA, AMC and visa turned into one simple checklist. It just needs you.</div>
+  </div>
+  <div class="card">
+    <div class="brand"><span class="badge">GP</span><span class="name">GP Link</span></div>
+    <div class="eyebrow">Your roadmap · Week 1</div>
+    <h2 class="mail">The scary part — AHPRA, AMC, visa — is already solved for you.</h2>
+    <p class="body">Most doctors lose <em>months</em> to the registration maze. We've turned it into a step-by-step checklist that tells you exactly what to do next — done <strong>with</strong> you, not by you. It's built, personalised to your call, and sitting in your account right now.</p>
+    <div class="ticks">
+      <div class="h">Waiting inside your account</div>
+      <p><span class="x">✓</span> &nbsp;Your consultation notes &amp; next steps</p>
+      <p><span class="x">✓</span> &nbsp;Your AHPRA / AMC / visa checklist</p>
+      <p><span class="x">✓</span> &nbsp;GP roles matched to you</p>
+    </div>
+    <div class="proglabel">You're <b>1 step</b> from all of it — step 2 of 5, create your account.</div>
+    <div class="cta">
+      <a href="https://app.mygplink.com.au/pages/signup?email=farazsonde88%40gmail.com&ref=consult-t3">See my roadmap →</a>
+      <div class="micro">2 minutes · Free · We already have your details</div>
+    </div>
+    <p class="social" style="margin-top:16px">Places in each intake are limited so every doctor gets hands-on support.</p>
+    <div class="foot">GP Link Australia · You booked a consultation with us. <a href="#">Unsubscribe</a></div>
+  </div>
+
+  <!-- ============ TOUCH 4 — WEEK 2 ============ -->
+  <div class="tag">TOUCH 4 · Week 2</div>
+  <div class="headstrip">
+    <div class="microlabel">Inbox</div>
+    <div class="fromline">GP Link &lt;hello@mygplink.com.au&gt;</div>
+    <div class="subjline">A GP role in Brisbane you'll want to see — before it's taken</div>
+    <div class="preline">Members see and get matched to real roles first. Right now, you can't.</div>
+  </div>
+  <div class="card">
+    <div class="brand"><span class="badge">GP</span><span class="name">GP Link</span></div>
+    <div class="eyebrow amber">Opportunities · Week 2</div>
+    <h2 class="mail">You mentioned Brisbane. Practices there are hiring right now.</h2>
+    <p class="body">Real GP roles — with income, location and hours — are matched to members <strong>every week</strong>, including in the areas you asked about. The doctors who land the best roles are simply the ones already in the door when a match appears.</p>
+    <div class="scarcity"><p><strong>⏳ Roles fill fast.</strong> You can only see them, and be matched to them, from inside your account.</p></div>
+    <div class="cta">
+      <a href="https://app.mygplink.com.au/pages/signup?email=farazsonde88%40gmail.com&ref=consult-t4">See roles matched to me →</a>
+      <div class="micro">Free · Matched to exactly what you told us on your call</div>
+    </div>
+    <p class="social" style="margin-top:16px">GPs who started right where you are now are already being matched to practices.</p>
+    <div class="foot">GP Link Australia · You booked a consultation with us. <a href="#">Unsubscribe</a></div>
+  </div>
+
+  <!-- ============ TOUCH 5 — WEEK 3 ============ -->
+  <div class="tag">TOUCH 5 · Week 3</div>
+  <div class="headstrip">
+    <div class="microlabel">Inbox</div>
+    <div class="fromline">GP Link &lt;hello@mygplink.com.au&gt;</div>
+    <div class="subjline">We're holding your place, Faraz — but not forever ⏳</div>
+    <div class="preline">You told us you're ready. This just makes it official.</div>
+  </div>
+  <div class="card">
+    <div class="brand"><span class="badge">GP</span><span class="name">GP Link</span></div>
+    <div class="eyebrow amber">Your place · Week 3</div>
+    <h2 class="mail">Your spot in this intake is still open — for now.</h2>
+    <p class="body">We take a limited number of doctors at a time so nobody's registration gets rushed. You booked a call and told us <strong>you're ready to move to Australia</strong> — that already earned you a place. But we can't hold it open indefinitely while other doctors are waiting to start.</p>
+    <div class="scarcity"><p><strong>⏳ Limited places this intake.</strong> Yours is reserved while it lasts — claiming your account locks it in.</p></div>
+    <div class="cta">
+      <a href="https://app.mygplink.com.au/pages/signup?email=farazsonde88%40gmail.com&ref=consult-t5">Claim my place →</a>
+      <div class="micro">2 minutes · Free · No obligation</div>
+    </div>
+    <p class="social" style="margin-top:16px">You've already said you're ready — you're further ahead than most who start.</p>
+    <div class="foot">GP Link Australia · You booked a consultation with us. <a href="#">Unsubscribe</a></div>
+  </div>
+
+
+</div>
+</body>
+</html>

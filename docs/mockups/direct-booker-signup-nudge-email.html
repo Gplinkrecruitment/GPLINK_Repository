@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GP Link — Post-consultation signup nudge (mockup)</title>
+<style>
+  /* PREVIEW-ONLY chrome. The email body below uses inline styles only, so what
+     you approve is exactly what ships. */
+  body { margin:0; background:#e4e9f2; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .inbox { max-width:640px; margin:0 auto; padding:28px 16px 60px; }
+  .inbox-head { background:#fff; border-radius:14px 14px 0 0; border-bottom:1px solid #e2e8f0; padding:16px 20px; }
+  .inbox-row { display:flex; align-items:center; gap:10px; font-size:13px; color:#475569; }
+  .inbox-avatar { width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; }
+  .inbox-from { font-weight:700; color:#0f172a; font-size:14px; }
+  .inbox-subject { font-size:15px; font-weight:700; color:#0f172a; margin:10px 0 2px; }
+  .inbox-preheader { font-size:13px; color:#64748b; }
+  .label { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#94a3b8; font-weight:700; margin-bottom:8px; }
+</style>
+</head>
+<body>
+  <div class="inbox">
+    <!-- ============ PREVIEW CHROME (not part of the email) ============ -->
+    <div class="inbox-head">
+      <div class="label">Inbox preview</div>
+      <div class="inbox-row">
+        <div class="inbox-avatar">GP</div>
+        <div>
+          <div class="inbox-from">GP Link &lt;hello@mygplink.com.au&gt;</div>
+          <div style="color:#94a3b8">to farazsonde88@gmail.com</div>
+        </div>
+      </div>
+      <div class="inbox-subject">Faraz, you’ve done the hard part — your Australia move starts here 🇦🇺</div>
+      <div class="inbox-preheader">You booked your call and told us your goal. Your free account picks up exactly where you left off…</div>
+    </div>
+
+    <!-- ============ EMAIL BODY (inline styles only — ships as-is) ============ -->
+    <div style="background:#f0f4fa;padding:0;border-radius:0 0 14px 14px;overflow:hidden">
+    <div style="max-width:600px;margin:0 auto;padding:28px 16px 8px">
+
+      <!-- Brand header -->
+      <div style="text-align:center;margin-bottom:18px">
+        <span style="display:inline-block;vertical-align:middle;width:34px;height:34px;line-height:34px;border-radius:9px;background:#6366f1;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:800;font-size:14px;text-align:center">GP</span>
+        <span style="display:inline-block;vertical-align:middle;margin-left:8px;font-size:20px;font-weight:800;color:#0f172a">GP Link</span>
+      </div>
+
+      <!-- Card -->
+      <div style="background:#fff;border-radius:16px;padding:32px 30px;box-shadow:0 4px 16px rgba(2,6,23,0.08)">
+
+        <!-- Eyebrow -->
+        <div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#2563eb;margin-bottom:10px">Your Australia journey has started</div>
+
+        <!-- Headline -->
+        <h1 style="font-size:24px;line-height:1.25;font-weight:800;color:#0f172a;margin:0 0 14px">Faraz, you’ve already cleared the biggest hurdle.</h1>
+
+        <!-- Sub -->
+        <p style="font-size:15px;color:#334155;line-height:1.65;margin:0 0 22px">
+          Booking a consultation and telling us you’re ready to practise in Australia is the step most doctors <em>think</em> about for years and never take. <strong>You’ve taken it.</strong> The hardest part is behind you — now let’s turn that decision into a clear, guided plan.
+        </p>
+
+        <!-- Progress tracker -->
+        <div style="background:#f8fafc;border:1px solid #e8eef7;border-radius:14px;padding:20px 20px 6px;margin:0 0 24px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#64748b;margin-bottom:16px">Where you are right now</div>
+
+          <!-- Step: done -->
+          <div style="margin-bottom:14px">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>
+              <td style="width:30px;vertical-align:top">
+                <div style="width:24px;height:24px;line-height:24px;border-radius:50%;background:#16a34a;color:#fff;text-align:center;font-size:13px;font-weight:800">✓</div>
+              </td>
+              <td style="vertical-align:top;padding-left:10px">
+                <div style="font-size:14px;font-weight:700;color:#0f172a">Consultation booked</div>
+                <div style="font-size:13px;color:#64748b;line-height:1.5">Done — 26 Jul, 11:00pm. You’re on the calendar.</div>
+              </td>
+            </tr></table>
+          </div>
+
+          <!-- Step: current -->
+          <div style="margin-bottom:14px;background:#eef4ff;border:1px solid #cfe0ff;border-radius:10px;padding:12px 12px">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>
+              <td style="width:30px;vertical-align:top">
+                <div style="width:24px;height:24px;line-height:24px;border-radius:50%;background:#2563eb;color:#fff;text-align:center;font-size:12px;font-weight:800">2</div>
+              </td>
+              <td style="vertical-align:top;padding-left:10px">
+                <div style="font-size:14px;font-weight:800;color:#1d4ed8">Create your free account &nbsp;·&nbsp; <span style="font-weight:700">you’re here</span></div>
+                <div style="font-size:13px;color:#334155;line-height:1.5">2 minutes. Unlocks your roadmap and saves your call notes to your file.</div>
+              </td>
+            </tr></table>
+          </div>
+
+          <!-- Steps: upcoming -->
+          <div style="margin-bottom:14px">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>
+              <td style="width:30px;vertical-align:top">
+                <div style="width:24px;height:24px;line-height:22px;border-radius:50%;background:#fff;border:2px solid #cbd5e1;color:#94a3b8;text-align:center;font-size:12px;font-weight:800">3</div>
+              </td>
+              <td style="vertical-align:top;padding-left:10px">
+                <div style="font-size:14px;font-weight:700;color:#334155">Matched to a practice</div>
+                <div style="font-size:13px;color:#94a3b8;line-height:1.5">Real roles that fit you — like the Brisbane role you mentioned.</div>
+              </td>
+            </tr></table>
+          </div>
+
+          <div style="margin-bottom:14px">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>
+              <td style="width:30px;vertical-align:top">
+                <div style="width:24px;height:24px;line-height:22px;border-radius:50%;background:#fff;border:2px solid #cbd5e1;color:#94a3b8;text-align:center;font-size:12px;font-weight:800">4</div>
+              </td>
+              <td style="vertical-align:top;padding-left:10px">
+                <div style="font-size:14px;font-weight:700;color:#334155">Guided registration</div>
+                <div style="font-size:13px;color:#94a3b8;line-height:1.5">AHPRA, AMC &amp; visa — done <em>with</em> you, step by step.</div>
+              </td>
+            </tr></table>
+          </div>
+
+          <div style="margin-bottom:8px">
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>
+              <td style="width:30px;vertical-align:top">
+                <div style="width:24px;height:24px;line-height:22px;border-radius:50%;background:#fff;border:2px solid #cbd5e1;color:#94a3b8;text-align:center;font-size:12px;font-weight:800">5</div>
+              </td>
+              <td style="vertical-align:top;padding-left:10px">
+                <div style="font-size:14px;font-weight:700;color:#334155">Working in Australia</div>
+                <div style="font-size:13px;color:#94a3b8;line-height:1.5">The reason you booked the call in the first place.</div>
+              </td>
+            </tr></table>
+          </div>
+        </div>
+
+        <!-- Primary CTA -->
+        <div style="text-align:center;margin:8px 0 10px">
+          <a href="https://app.mygplink.com.au/pages/signup?email=farazsonde88%40gmail.com&ref=consult" style="display:inline-block;padding:16px 40px;background:#2563eb;color:#fff;font-weight:800;font-size:16px;text-decoration:none;border-radius:12px;box-shadow:0 6px 16px rgba(37,99,235,0.35)">Create my free account →</a>
+          <div style="font-size:12.5px;color:#64748b;margin-top:12px">Takes 2 minutes · Free · We’ve already got your details from your booking</div>
+        </div>
+
+        <!-- Consistency / sunk-cost nudge -->
+        <div style="border-left:4px solid #2563eb;background:#f8fafc;padding:14px 16px;margin:22px 0 6px;border-radius:0 8px 8px 0">
+          <p style="font-size:14px;color:#334155;line-height:1.6;margin:0">
+            You already told us your goal — <strong>a GP role in Brisbane, 3.5 years CCT, ready to make the move.</strong> Your account simply picks up where your call leaves off, so nothing you’ve shared gets lost.
+          </p>
+        </div>
+
+        <!-- Benefits -->
+        <div style="margin:24px 0 6px">
+          <div style="font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#64748b;margin-bottom:12px">What your account unlocks</div>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-bottom:12px"><tr>
+            <td style="width:26px;vertical-align:top;font-size:16px">🗂️</td>
+            <td style="padding-left:8px;font-size:14px;color:#334155;line-height:1.55">Your consultation notes and personalised next steps, saved to your file.</td>
+          </tr></table>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-bottom:12px"><tr>
+            <td style="width:26px;vertical-align:top;font-size:16px">🧭</td>
+            <td style="padding-left:8px;font-size:14px;color:#334155;line-height:1.55">A registration roadmap that tells you exactly what to do next — no guesswork.</td>
+          </tr></table>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-bottom:2px"><tr>
+            <td style="width:26px;vertical-align:top;font-size:16px">🏥</td>
+            <td style="padding-left:8px;font-size:14px;color:#334155;line-height:1.55">Real GP roles across Australia, matched to what you’re looking for.</td>
+          </tr></table>
+        </div>
+
+        <!-- Scarcity / urgency -->
+        <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin:22px 0 6px">
+          <p style="font-size:13.5px;color:#9a3412;line-height:1.6;margin:0">
+            <strong>⏳ We take a limited number of doctors each intake</strong> so every registration gets hands-on support. Creating your account now holds your place in the current cohort.
+          </p>
+        </div>
+
+        <!-- Social proof -->
+        <p style="font-size:13px;color:#64748b;line-height:1.6;margin:20px 0 0;text-align:center">
+          Join the UK, Irish and NZ-trained GPs already registering with GP Link.
+        </p>
+
+        <!-- Sign-off -->
+        <p style="font-size:14px;color:#334155;line-height:1.65;margin:22px 0 0">
+          See you on the inside,<br>
+          <strong>The GP Link Team</strong>
+        </p>
+
+        <!-- Secondary reassurance link -->
+        <p style="font-size:12.5px;color:#94a3b8;line-height:1.6;margin:22px 0 0;border-top:1px solid #e2e8f0;padding-top:16px">
+          Prefer to keep your call and decide later? No problem — your consultation is still booked and we’ll see you then. This is just here whenever you’re ready to get a head start.
+        </p>
+      </div>
+
+      <!-- Footer -->
+      <p style="text-align:center;font-size:12px;color:#94a3b8;line-height:1.6;margin:16px 0 0">
+        GP Link Australia · <a href="https://app.mygplink.com.au" style="color:#64748b">app.mygplink.com.au</a><br>
+        You’re receiving this because you booked a consultation with GP Link.
+        <a href="#" style="color:#94a3b8;text-decoration:underline">Unsubscribe</a>
+      </p>
+
+    </div>
+    </div>
+    <!-- ============ /EMAIL BODY ============ -->
+  </div>
+</body>
+</html>

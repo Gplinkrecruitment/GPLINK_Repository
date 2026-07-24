@@ -176,16 +176,45 @@ describe('nextConsultNudge', () => {
     const done = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }] }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...done, nowMs: t0 + 90 * D })).toBe(null);
   });
-  it('booked: switches to booked_no_signup anchored at call_booked_at; not_booked stops', () => {
-    const consult = { call_booked: true, call_booked_at: new Date(t0 + 1 * H).toISOString(), nudges: [] };
-    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 + 2 * D })).toBe(null);
-    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 + 1 * H + 3 * D + 1 })).toEqual({ seq: 'booked_no_signup', step: 0 });
+  it('booked: touch 0 fires right after booking (anchored at call_booked_at)', () => {
+    const bookedAt = t0 + 1 * H;
+    const consult = { call_booked: true, call_booked_at: new Date(bookedAt).toISOString(), nudges: [] };
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: bookedAt })).toEqual({ seq: 'booked_no_signup', step: 0 });
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: bookedAt - 1 })).toBe(null);
   });
-  it('stopped / screened / unqualified leads never nudge', () => {
+  it('booked: touch 1 waits until 20h AFTER the call, not the booking', () => {
+    const bookedAt = t0;
+    const callAt = t0 + 5 * D; // the call is 5 days after they booked
+    const consult = { call_booked: true, call_booked_at: new Date(bookedAt).toISOString(), nudges: [{ seq: 'booked_no_signup', step: 0 }] };
+    const input = { consult, createdAtMs: t0, callAtMs: callAt };
+    expect(nextConsultNudge({ ...input, nowMs: bookedAt + 3 * D })).toBe(null);        // call not happened yet
+    expect(nextConsultNudge({ ...input, nowMs: callAt + 19 * H })).toBe(null);         // just before 20h post-call
+    expect(nextConsultNudge({ ...input, nowMs: callAt + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 1 });
+  });
+  it('booked: weekly touches 2–4 anchor on the call time (7/14/21 days)', () => {
+    const callAt = t0 + 5 * D;
+    const mk = (steps) => ({ consult: { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: steps.map((s) => ({ seq: 'booked_no_signup', step: s })) }, createdAtMs: t0, callAtMs: callAt });
+    expect(nextConsultNudge({ ...mk([0, 1]), nowMs: callAt + 6 * D })).toBe(null);
+    expect(nextConsultNudge({ ...mk([0, 1]), nowMs: callAt + 7 * D })).toEqual({ seq: 'booked_no_signup', step: 2 });
+    expect(nextConsultNudge({ ...mk([0, 1, 2]), nowMs: callAt + 14 * D })).toEqual({ seq: 'booked_no_signup', step: 3 });
+    expect(nextConsultNudge({ ...mk([0, 1, 2, 3]), nowMs: callAt + 21 * D })).toEqual({ seq: 'booked_no_signup', step: 4 });
+    // all five sent → nothing more, ever
+    expect(nextConsultNudge({ ...mk([0, 1, 2, 3, 4]), nowMs: callAt + 400 * D })).toBe(null);
+  });
+  it('booked: an UNQUALIFIED (never-screened direct) booker STILL gets the drip', () => {
+    const bookedAt = t0 + 1 * H;
+    const consult = { call_booked: true, qualified: false, call_booked_at: new Date(bookedAt).toISOString(), nudges: [] };
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: bookedAt })).toEqual({ seq: 'booked_no_signup', step: 0 });
+  });
+  it('booked: the call anchor falls back to the booking time when callAtMs is unknown', () => {
+    const consult = { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: [{ seq: 'booked_no_signup', step: 0 }] };
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 1 });
+  });
+  it('stopped / screened leads never nudge; unqualified stops ONLY the not_booked funnel', () => {
     const late = t0 + 10 * D;
     expect(nextConsultNudge({ consult: { stopped: 'signed_up', nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
-    expect(nextConsultNudge({ consult: { screened_out: true, nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
-    expect(nextConsultNudge({ consult: { qualified: false, nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
+    expect(nextConsultNudge({ consult: { screened_out: true, call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null);
+    expect(nextConsultNudge({ consult: { qualified: false, nudges: [] }, createdAtMs: t0, nowMs: late })).toBe(null); // not booked → stays gated
   });
 });
 
@@ -201,12 +230,11 @@ describe('isConsultExhausted', () => {
       nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
     })).toBe(true);
   });
-  it('booked_no_signup: exhausted once both steps 0 and 1 are recorded', () => {
-    expect(isConsultExhausted({ call_booked: true, nudges: [{ seq: 'booked_no_signup', step: 0 }] })).toBe(false);
-    expect(isConsultExhausted({
-      call_booked: true,
-      nudges: [{ seq: 'booked_no_signup', step: 0 }, { seq: 'booked_no_signup', step: 1 }],
-    })).toBe(true);
+  it('booked_no_signup: exhausted only once all 5 steps (0–4) are recorded', () => {
+    const upTo = (n) => Array.from({ length: n + 1 }, (_, s) => ({ seq: 'booked_no_signup', step: s }));
+    expect(isConsultExhausted({ call_booked: true, nudges: upTo(0) })).toBe(false);
+    expect(isConsultExhausted({ call_booked: true, nudges: upTo(3) })).toBe(false);
+    expect(isConsultExhausted({ call_booked: true, nudges: upTo(4) })).toBe(true);
   });
   it('a finished not_booked run is NOT exhausted once call_booked flips the applicable sequence', () => {
     const consult = {
@@ -214,10 +242,11 @@ describe('isConsultExhausted', () => {
       nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
     };
     expect(isConsultExhausted(consult)).toBe(false);
-    // Only exhausted once the NOW-applicable booked_no_signup steps are sent too.
+    // Only exhausted once the NOW-applicable booked_no_signup steps (all 5) are sent too.
+    const allBooked = Array.from({ length: 5 }, (_, s) => ({ seq: 'booked_no_signup', step: s }));
     expect(isConsultExhausted({
       call_booked: true,
-      nudges: consult.nudges.concat([{ seq: 'booked_no_signup', step: 0 }, { seq: 'booked_no_signup', step: 1 }]),
+      nudges: consult.nudges.concat(allBooked),
     })).toBe(true);
   });
 });

@@ -452,26 +452,31 @@ describe('captureCalendlyDirectBookerLead — nudge safety', () => {
     expect(lead.metadata.consult.call_booked_at).toBe(NOW);
   });
 
-  it('SAFETY: the lead is NOT qualified, so the nudge cron skips it', async () => {
+  it('the direct booker is still marked never-screened / not-qualified (lead data unchanged)', async () => {
     const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
-    expect(lead.metadata.consult.qualified).toBeFalsy();
     expect(lead.metadata.consult.qualified).not.toBe(true);
-    // The cron's own gate: `if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) continue;`
-    const cn = lead.metadata.consult;
-    expect(cn.stopped || cn.screened_out || cn.qualified !== true).toBe(true);
+    expect(lead.metadata.consult.not_screened).toBe(true);
+    // screened_out (an explicit "I'm not a GP") is the one signal that STILL stops the drip.
+    expect(lead.metadata.consult.screened_out).toBeFalsy();
   });
 
-  it('SAFETY: nextConsultNudge never returns a due nudge, however long we wait', async () => {
+  it('now GETS the signup drip: booking a call opens booked_no_signup regardless of screening', async () => {
     const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
     const createdAtMs = Date.parse(lead.created_at);
-    // Well past every threshold in both sequences (max is 7 days).
-    [1, 3, 49, 24 * 30].forEach((hours) => {
-      expect(consultLead.nextConsultNudge({
-        consult: lead.metadata.consult,
-        createdAtMs,
-        nowMs: createdAtMs + hours * 60 * 60 * 1000
-      })).toBeNull();
-    });
+    const bookedAtMs = Date.parse(lead.metadata.consult.call_booked_at);
+    // Touch 0 fires right after booking even though they were never screened / not qualified.
+    expect(consultLead.nextConsultNudge({
+      consult: lead.metadata.consult, createdAtMs, nowMs: bookedAtMs
+    })).toEqual({ seq: 'booked_no_signup', step: 0 });
+  });
+
+  it('SAFETY: a booker who was screened and FAILED (screened_out) still never nudges', async () => {
+    const lead = await testUtils.findSiteEnquiryByEmail(NEW_EMAIL);
+    const failed = { ...lead.metadata.consult, screened_out: true };
+    const createdAtMs = Date.parse(lead.created_at);
+    expect(consultLead.nextConsultNudge({
+      consult: failed, createdAtMs, nowMs: createdAtMs + 30 * 24 * 60 * 60 * 1000
+    })).toBeNull();
   });
 
   it('never issues a consult token to someone who was not screened', async () => {

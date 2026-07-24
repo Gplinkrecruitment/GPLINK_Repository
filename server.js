@@ -149,6 +149,7 @@ const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
+var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 // apex/www (mygplink.com.au) still serve the LEGACY site until the DNS cutover — only
 // app.mygplink.com.au is guaranteed to serve /start, so consult-lead links must not
 // depend on the apex. process.env read directly here (not the APP_BASE_URL const below)
@@ -20191,6 +20192,7 @@ async function handleCalendlyInviteeCreated(payload) {
     // row (double-up on the Meetings tab, and a phantom no-show for the cron). Cancel the stale
     // slot(s) before recording the new one so at most one active consultation survives per booker.
     await supersedeActiveDirectConsultations(email, inviteeUri);
+    await ensureLeadBookedCallAt(email, scheduledAt, now);
     await createScheduledCallFromDirectCalendlyBooking({
       nowIso: now,
       email,
@@ -20226,6 +20228,8 @@ async function handleCalendlyInviteeCreated(payload) {
     method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: callPatch
   });
   console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
+  // Anchor the signup drip on the real call time for a screened booker's pre-existing lead.
+  await ensureLeadBookedCallAt(email, scheduledAt, now);
 
   // Update linked registration_tasks
   const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
@@ -20317,6 +20321,63 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
   await captureCalendlyDirectBookerLead(d);
 }
 
+// Stamp the call time (scheduled_at) + booked flag onto whatever consult lead exists for
+// this booker's email, so the post-consultation signup drip (booked_no_signup) can anchor
+// its "after your call" + weekly touches on the ACTUAL call — not the booking time. Covers
+// the screened /start booker (whose lead pre-exists, so captureCalendlyDirectBookerLead
+// early-returns without call_at) and reschedules (call_at tracks the new slot). Fills gaps
+// only — never resurrects a stopped/unsubscribed/signed_up sequence. Best-effort.
+async function ensureLeadBookedCallAt(email, scheduledAt, nowIso) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em || !isSupabaseDbConfigured()) return;
+  try {
+    const lead = await findSiteEnquiryByEmail(em);
+    if (!lead || !lead.metadata || !lead.metadata.consult) return;
+    const c = lead.metadata.consult;
+    const patch = {};
+    if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
+    if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso; }
+    if (!Object.keys(patch).length) return;
+    const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
+    await updateSiteEnquiryRow(lead.id, { metadata: md });
+  } catch (e) { console.warn('[calendly] ensureLeadBookedCallAt error for', em, ':', e && e.message); }
+}
+
+// When a GP signs up (or logs in), attach any prior direct consultation booked with THEIR OWN
+// account email — and its AI summary — to their account so it surfaces on their GP file (which
+// reads meetings by case_id). Authorization is holding an authenticated session for that email;
+// this app uses soft email-verification (users are signed in before confirming), so being logged
+// in AS the email is the gate, not a separate email_confirmed_at check. Matches only unlinked
+// (user_id IS NULL) non-cancelled CEO consultations, so registration-flow calls / interviews
+// (which already carry a user_id) are never touched. Idempotent: once linked the row no longer
+// matches `user_id IS NULL`, so re-running is a cheap no-op. Best-effort.
+async function backfillPriorConsultationsForUser(userId, email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!userId || !em || !isSupabaseDbConfigured()) return 0;
+  try {
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=id&invitee_email=eq.' + encodeURIComponent(em) +
+      '&user_id=is.null&meeting_kind=eq.consultation&status=neq.cancelled&limit=50');
+    const rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!rows.length) return 0;
+    // Attach to the GP's registration case so the call lands on their file/timeline.
+    const caseRes = await supabaseDbRequest('registration_cases',
+      'select=id&user_id=eq.' + encodeURIComponent(userId) + '&order=created_at.asc&limit=1');
+    const caseId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].id : null;
+    const now = new Date().toISOString();
+    let linked = 0;
+    for (const row of rows) {
+      const patch = { user_id: userId, updated_at: now };
+      if (caseId) patch.case_id = caseId;
+      const up = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      });
+      if (up.ok) { linked++; console.log('[backfill] Linked prior consultation', row.id, '→ user', userId, caseId ? '(case ' + caseId + ')' : ''); }
+    }
+    return linked;
+  } catch (e) { console.warn('[backfill] error for', em, ':', e && e.message); return 0; }
+}
+
 // Captures a direct booker as a lead so they are visible in the leads view, and so the
 // Meetings tab can resolve their NAME (scheduled_calls has no gp_name column and this
 // row has no user_id to read a profile from). Best-effort — a failure here must not
@@ -20352,6 +20413,9 @@ async function captureCalendlyDirectBookerLead(d) {
     });
     row.metadata.consult.call_booked = true;
     row.metadata.consult.call_booked_at = d.nowIso;
+    // The actual call time (Calendly slot) — anchors the "after your call" + weekly
+    // touches of the signup drip (lib/consult-lead.js booked_no_signup schedule).
+    if (d.scheduledAt) row.metadata.consult.call_at = d.scheduledAt;
     // buildConsultLeadRow flags every unqualified lead screened_out, which here would
     // read as "we asked and turned them down". We never asked — they booked straight off
     // the Calendly link. Both stay unqualified (so both stay nudge-ineligible), but the
@@ -22328,12 +22392,34 @@ async function sendConsultMagicLinkEmail(row) {
 async function sendConsultNudgeEmail(row, due) {
   const consult = row.metadata.consult;
   const displayName = consultLead.consultDisplayName(row.name);
+  const signupUrl = CONSULT_START_BASE + '/pages/signin?signup=1&email=' + encodeURIComponent(row.email);
+  const unsubUrl = buildMarketingUnsubUrl(row.email);
+  const unsubFooter = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>';
+
+  // booked_no_signup = the post-consultation signup drip (they booked a call but
+  // never made an account). Rich, tactic-driven copy from lib/booker-nudge-email.js,
+  // rendered through the shared shell so the header/footer/brand stay identical.
+  if (due.seq === 'booked_no_signup') {
+    const firstName = String(row.name || '').trim().split(/\s+/)[0] || '';
+    const nudge = bookerNudgeEmail.buildBookerNudgeEmail(due.step, {
+      firstName: firstName, displayName: displayName, signupUrl: signupUrl, unsubscribeUrl: unsubUrl
+    });
+    const signupRef = bookerNudgeEmail.withRef(signupUrl, due.step);
+    return sendEmail({
+      to: row.email,
+      subject: nudge.subject,
+      html: buildCareerEmailHtml({ bodyHtml: nudge.bodyHtml, footer: unsubFooter }),
+      text: nudge.subject + '\n\nCreate your free GP Link account: ' + signupRef + '\n\nUnsubscribe: ' + unsubUrl,
+      category: 'marketing',
+      from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+    });
+  }
+
+  // not_booked = the pre-booking "come back and book a call" nudge (unchanged).
   const bookUrl = consult.token
     ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
     : CONSULT_START_BASE + '/start#book';
-  const signupUrl = CONSULT_START_BASE + '/pages/signin?signup=1&email=' + encodeURIComponent(row.email);
   const copy = consultLead.consultNudgeCopy(due.seq, due.step, { displayName, bookUrl, signupUrl });
-  const unsubUrl = buildMarketingUnsubUrl(row.email);
   return sendEmail({
     to: row.email,
     subject: copy.subject,
@@ -22344,7 +22430,7 @@ async function sendConsultNudgeEmail(row, due) {
       ctaUrl: copy.ctaUrl,
       secondaryCtaText: copy.secondaryCtaText,
       secondaryCtaUrl: copy.secondaryCtaUrl,
-      footer: '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
+      footer: unsubFooter
     }),
     text: copy.body + '\n\n' + copy.ctaText + ': ' + copy.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
     category: 'marketing',
@@ -34978,10 +35064,16 @@ async function handleApi(req, res, pathname) {
         }
         var cnConsult = cnMeta.consult;
         cnScanned++;
-        if (cnConsult.stopped || cnConsult.screened_out || cnConsult.qualified !== true) { cnSkipped++; continue; }
+        // Qualified-gate applies to the pre-booking funnel ONLY. A booked lead (screened
+        // OR a never-screened direct Calendly booker) gets the signup drip regardless of
+        // qualification — booking a call is the strongest intent there is. screened_out (an
+        // explicit "not a GP") still stops them.
+        if (cnConsult.stopped || cnConsult.screened_out || (cnConsult.qualified !== true && !cnConsult.call_booked)) { cnSkipped++; continue; }
+        var cnCallAtMs = cnConsult.call_at ? new Date(cnConsult.call_at).getTime() : NaN;
         var cnDue = consultLead.nextConsultNudge({
           consult: cnConsult,
           createdAtMs: new Date(cnRow.created_at).getTime(),
+          callAtMs: cnCallAtMs,
           nowMs: Date.now()
         });
         // Nothing due right now. Either the active sequence is fully sent —
@@ -36556,9 +36648,12 @@ async function handleApi(req, res, pathname) {
     upsertLocalUserFromSupabaseUser(signupUser);
     await ensureSupabaseUserProfile(signupUser);
 
-    // Ensure the registration case exists in the background.
+    // Ensure the registration case exists in the background, then attach any consultation
+    // this person booked BEFORE creating their account (the exact "booked, then signed up
+    // later" case) to their new file by matching their signup email.
     if (signupUserId) {
       _ensureRegCase(signupUserId)
+        .then(() => backfillPriorConsultationsForUser(signupUserId, email))
         .catch(err => console.error('[signup] Case setup failed:', err && err.message));
     }
 
@@ -36726,9 +36821,11 @@ async function handleApi(req, res, pathname) {
       if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at) {
         sendWelcomeEmail(supaUserId).catch(err => console.error('[Email] Welcome failed:', err.message));
       }
-      // Ensure the registration case exists in the background.
+      // Ensure the registration case exists in the background, then attach any prior direct
+      // consultation (+ its AI summary) booked with this account's email to their file.
       if (supaUserId) {
         _ensureRegCase(supaUserId)
+          .then(() => backfillPriorConsultationsForUser(supaUserId, email))
           .catch(err => console.error('[login] Case setup failed:', err && err.message));
       }
       const bootstrapResult = resolveFastAuthBootstrap(email, {
