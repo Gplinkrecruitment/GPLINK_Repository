@@ -21,6 +21,10 @@ const RSO_CONSULT_ID     = 'sc_rso_con_' + RUN_ID;
 const CEO_DRAFT_ID       = 'sc_ceo_dft_' + RUN_ID;
 // An unsolicited Calendly booking: no user_id / case_id, name only knowable via the lead row.
 const CEO_DIRECT_ID      = 'sc_ceo_dir_' + RUN_ID;
+// An OLDER duplicate of the same direct booking (the GP re-booked / rescheduled the public
+// Calendly link, leaving a stale 'booked' row). The Meetings tab must collapse it into the
+// newest one (CEO_DIRECT_ID) rather than show the same person twice.
+const CEO_DIRECT_DUP_ID  = 'sc_ceo_dirdup_' + RUN_ID;
 const DIRECT_EMAIL       = 'khaleedmahmoud1211@gmail.com';
 // The lead row carries ip + user_agent in metadata — exactly as the real capture
 // paths write them — so the privacy assertion has something real to catch.
@@ -178,6 +182,26 @@ beforeAll(async () => {
       meeting_summary: null,
       created_at: '2026-07-16T09:00:00.000Z',
       updated_at: '2026-07-16T09:00:00.000Z'
+    },
+    {
+      // Stale duplicate: same booker, an EARLIER slot they rescheduled away from. Still
+      // status='booked' (the cancel webhook never landed). Must be collapsed into CEO_DIRECT_ID.
+      id: CEO_DIRECT_DUP_ID,
+      meeting_kind: 'consultation',
+      host_kind: 'ceo',
+      application_id: null,
+      case_id: null,
+      user_id: null,
+      stage: null,
+      status: 'booked',
+      invitee_email: DIRECT_EMAIL,
+      timezone: 'Australia/Sydney',
+      duration_minutes: 30,
+      scheduled_at: '2026-07-18T04:30:00.000Z',
+      booked_at: '2026-07-14T09:00:00.000Z',
+      meeting_summary: null,
+      created_at: '2026-07-14T09:00:00.000Z',
+      updated_at: '2026-07-14T09:00:00.000Z'
     }
   ];
   // The lead row captured at booking time — the ONLY place this person's name,
@@ -231,7 +255,18 @@ describe('GET /api/ceo/meetings — kind=all', () => {
     expect(ids).toContain(CEO_DIRECT_ID);          // unsolicited booking, still the CEO's meeting
     expect(ids).not.toContain(RSO_CONSULT_ID);    // RSO-owned, must be excluded
     expect(ids).not.toContain(CEO_DRAFT_ID);       // abandoned draft, must be excluded
+    expect(ids).not.toContain(CEO_DIRECT_DUP_ID);  // stale re-booked duplicate, collapsed into CEO_DIRECT_ID
     expect(res.body.meetings.length).toBe(3);
+  });
+
+  it('collapses a rescheduled / re-booked duplicate to the newest booking (no double-up)', async () => {
+    const res = await call('GET', '/api/ceo/meetings?kind=all');
+    expect(res.status).toBe(200);
+    const forBooker = (res.body.meetings || []).filter((m) => m.invitee_email === DIRECT_EMAIL);
+    // Two 'booked' rows exist for this booker in the DB; only the latest may surface.
+    expect(forBooker.length).toBe(1);
+    expect(forBooker[0].id).toBe(CEO_DIRECT_ID);            // newest booked_at wins
+    expect(forBooker[0].scheduled_at).toBe('2026-07-20T04:30:00.000Z');
   });
 
   it('each meeting has is_interview and meeting_kind_label fields (normalizeMeetingForApi applied)', async () => {

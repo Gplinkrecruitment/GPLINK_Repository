@@ -1605,6 +1605,50 @@ function normalizeScheduledCallForApi(callRecord) {
   };
 }
 
+// Collapse superseded / duplicate meetings for the CEO "Meetings" tab so a reschedule or a
+// double-booking never renders twice. When a GP reschedules or re-books the public Calendly
+// consultation link the old scheduled_calls row can survive as a second status='booked' row
+// (Calendly's cancel webhook can be lost or arrive out of order) — this leaves exactly one row
+// per meeting on screen. Pure (no DB); order of the kept rows is preserved.
+//
+// Rule: group rows by (person + meeting_kind + application_id). "Person" is user_id when set,
+// otherwise the lowercased invitee_email; rows with neither are unidentifiable and always kept.
+// Within a group that has any ACTIVE (invited/booked) row, keep only the single most-recently-
+// booked active row, drop the other actives, and drop cancelled siblings (the superseded slot) —
+// but keep completed / no_show rows as genuine history. Groups with no active row (a standalone
+// cancellation, a past no-show, a completed call) are left intact.
+// Keep IDENTICAL to the copy in server-test-helpers.js.
+function dedupeMeetingRowsForDisplay(rows) {
+  if (!Array.isArray(rows)) return [];
+  const ACTIVE = { invited: 1, booked: 1 };
+  function groupKey(r) {
+    const uid = r.user_id ? 'u:' + r.user_id : '';
+    const em = uid ? '' : String(r.invitee_email || '').trim().toLowerCase();
+    if (!uid && !em) return null; // unidentifiable → never grouped, always kept
+    return (uid || 'e:' + em) + '|' + (r.meeting_kind || 'consultation') + '|' + (r.application_id || '');
+  }
+  function ts(r) {
+    const v = Date.parse(r.booked_at || r.scheduled_at || r.updated_at || r.created_at || '');
+    return Number.isFinite(v) ? v : 0;
+  }
+  // Winning active row per group = the most recent booking action.
+  const winners = {};
+  rows.forEach(function (r) {
+    const k = groupKey(r);
+    if (!k || !ACTIVE[r.status]) return;
+    if (!winners[k] || ts(r) > ts(winners[k])) winners[k] = r;
+  });
+  return rows.filter(function (r) {
+    const k = groupKey(r);
+    if (!k) return true;                        // unidentifiable → keep
+    const winner = winners[k];
+    if (!winner) return true;                   // group is pure history → keep as-is
+    if (ACTIVE[r.status]) return r === winner;  // among actives, keep only the winner
+    if (r.status === 'cancelled') return false; // superseded old slot → hide
+    return true;                                // completed / no_show → real history, keep
+  });
+}
+
 function verifyCalendlySignature(signatureHeader, rawBody, secret) {
   if (!signatureHeader || !secret) return false;
   const timestampCandidates = [];
@@ -20136,6 +20180,12 @@ async function handleCalendlyInviteeCreated(payload) {
   // Nobody invited this person, so there is no row to update — create one instead of
   // dropping the booking on the floor (it would never reach the CEO Meetings tab).
   if (!callRecord) {
+    // A direct public booking. If this person already has an active (invited/booked) direct
+    // consultation, this new event is a reschedule / re-book — Calendly's cancel webhook can be
+    // lost or arrive out of order, so the old slot would otherwise linger as a second 'booked'
+    // row (double-up on the Meetings tab, and a phantom no-show for the cron). Cancel the stale
+    // slot(s) before recording the new one so at most one active consultation survives per booker.
+    await supersedeActiveDirectConsultations(email, inviteeUri);
     await createScheduledCallFromDirectCalendlyBooking({
       nowIso: now,
       email,
@@ -20185,6 +20235,43 @@ async function handleCalendlyInviteeCreated(payload) {
       }
     });
     console.log('[calendly invitee.created] Updated registration_task', registrationTaskId, '→ waiting');
+  }
+}
+
+// Cancel any still-active (invited/booked) DIRECT public consultations for this email before a
+// fresh direct booking is recorded, so a reschedule / re-book never leaves a duplicate 'booked'
+// row behind. Tightly scoped to anonymous direct bookings (user_id IS NULL, host_kind='ceo',
+// meeting_kind='consultation') so it can never touch a registration-flow call or an interview.
+// The old row's calendly_invitee_uri is cleared (moved to calendly_old_invitee_uri) so a late
+// Calendly cancel webhook for that invitee no longer matches and can't resurrect it. Best-effort:
+// the webhook must still answer 200 to Calendly, so a failure here never throws.
+async function supersedeActiveDirectConsultations(email, newInviteeUri) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em || !isSupabaseDbConfigured()) return;
+  try {
+    let q = 'select=id,calendly_invitee_uri&invitee_email=eq.' + encodeURIComponent(em) +
+      '&meeting_kind=eq.consultation&host_kind=eq.ceo&user_id=is.null&status=in.(invited,booked)';
+    // Guard against a webhook retry that already inserted the new row: never cancel it.
+    if (newInviteeUri) q += '&calendly_invitee_uri=neq.' + encodeURIComponent(newInviteeUri);
+    const r = await supabaseDbRequest('scheduled_calls', q);
+    const rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!rows.length) return;
+    const now = new Date().toISOString();
+    for (const row of rows) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(row.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: {
+          status: 'cancelled',
+          cancelled_at: now,
+          calendly_old_invitee_uri: row.calendly_invitee_uri || null,
+          calendly_invitee_uri: null,
+          updated_at: now
+        }
+      });
+      console.log('[calendly invitee.created] Superseded stale direct consultation', row.id, 'for', em);
+    }
+  } catch (e) {
+    console.warn('[calendly invitee.created] supersede error for', em, ':', e && e.message);
   }
 }
 
@@ -66081,6 +66168,8 @@ Return ONLY valid JSON with no markdown formatting:
         if (mtgKind !== 'all' && r.meeting_kind !== mtgKind) return false;
         return true;
       });
+      // Collapse superseded / duplicate active bookings (reschedule left an old 'booked' row).
+      mtgLocalRows = dedupeMeetingRowsForDisplay(mtgLocalRows);
       var mtgLocalLeadRows = {};
       (dbState.siteEnquiries || []).forEach(function (l) {
         var lem = String(l.email || '').trim().toLowerCase();
@@ -66107,6 +66196,9 @@ Return ONLY valid JSON with no markdown formatting:
     mtgAllRows = mtgAllRows.filter(function (r) {
       return !(r.status === 'cancelled' && !r.scheduled_at && !r.booked_at);
     });
+    // Collapse superseded / duplicate active bookings so a reschedule or re-book never shows
+    // twice (the old slot's 'booked' row lingers when Calendly's cancel webhook is lost/reordered).
+    mtgAllRows = dedupeMeetingRowsForDisplay(mtgAllRows);
     // Resolve gp_name from user_profiles by user_id (registration_cases has no gp_name column).
     // Batch into one user_id=in.(...) query to avoid N+1.
     var mtgUserIds = [];

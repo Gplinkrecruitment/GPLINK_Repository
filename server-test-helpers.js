@@ -210,6 +210,50 @@ function normalizeScheduledCallForApi(callRecord) {
   };
 }
 
+// Collapse superseded / duplicate meetings for the CEO "Meetings" tab so a reschedule or a
+// double-booking never renders twice. When a GP reschedules or re-books the public Calendly
+// consultation link the old scheduled_calls row can survive as a second status='booked' row
+// (Calendly's cancel webhook can be lost or arrive out of order) — this leaves exactly one row
+// per meeting on screen. Pure (no DB); order of the kept rows is preserved.
+//
+// Rule: group rows by (person + meeting_kind + application_id). "Person" is user_id when set,
+// otherwise the lowercased invitee_email; rows with neither are unidentifiable and always kept.
+// Within a group that has any ACTIVE (invited/booked) row, keep only the single most-recently-
+// booked active row, drop the other actives, and drop cancelled siblings (the superseded slot) —
+// but keep completed / no_show rows as genuine history. Groups with no active row (a standalone
+// cancellation, a past no-show, a completed call) are left intact.
+// Keep IDENTICAL to the copy in server.js.
+function dedupeMeetingRowsForDisplay(rows) {
+  if (!Array.isArray(rows)) return [];
+  const ACTIVE = { invited: 1, booked: 1 };
+  function groupKey(r) {
+    const uid = r.user_id ? 'u:' + r.user_id : '';
+    const em = uid ? '' : String(r.invitee_email || '').trim().toLowerCase();
+    if (!uid && !em) return null; // unidentifiable → never grouped, always kept
+    return (uid || 'e:' + em) + '|' + (r.meeting_kind || 'consultation') + '|' + (r.application_id || '');
+  }
+  function ts(r) {
+    const v = Date.parse(r.booked_at || r.scheduled_at || r.updated_at || r.created_at || '');
+    return Number.isFinite(v) ? v : 0;
+  }
+  // Winning active row per group = the most recent booking action.
+  const winners = {};
+  rows.forEach(function (r) {
+    const k = groupKey(r);
+    if (!k || !ACTIVE[r.status]) return;
+    if (!winners[k] || ts(r) > ts(winners[k])) winners[k] = r;
+  });
+  return rows.filter(function (r) {
+    const k = groupKey(r);
+    if (!k) return true;                        // unidentifiable → keep
+    const winner = winners[k];
+    if (!winner) return true;                   // group is pure history → keep as-is
+    if (ACTIVE[r.status]) return r === winner;  // among actives, keep only the winner
+    if (r.status === 'cancelled') return false; // superseded old slot → hide
+    return true;                                // completed / no_show → real history, keep
+  });
+}
+
 function verifyCalendlySignature(signatureHeader, rawBody, secret) {
   if (!signatureHeader || !secret) return false;
   const timestampCandidates = [];
@@ -267,6 +311,7 @@ module.exports = {
   buildScheduledCallNotificationPatch,
   getScheduledCallRegistrationTaskId,
   normalizeScheduledCallForApi,
+  dedupeMeetingRowsForDisplay,
   verifyCalendlySignature,
   verifyZoomWebhookSignature,
   buildZoomValidationResponse
