@@ -94,22 +94,52 @@ describe('GET /api/public/jobs (HTTP)', () => {
 });
 
 describe('GET /api/public/stats (HTTP)', () => {
-  it('is 200 with no session cookie and returns the exact static SITE_STATS constants', async () => {
+  it('is 200 with no session cookie and returns the static SITE_STATS + weekly jobsCount', async () => {
     const res = await get('/api/public/stats');
     expect(res.status).toBe(200);
-    expect(res.json).toEqual({
-      ok: true,
-      jobsCount: 240, // static owner-set figure (no live computation any more)
-      locations: 230,
-      avgPlacementDays: 22,
-      gpsPlaced: 150,
-      satisfaction: 100
-    });
+    expect(res.json.ok).toBe(true);
+    // The non-jobs figures stay static owner-set constants.
+    expect(res.json.locations).toBe(230);
+    expect(res.json.avgPlacementDays).toBe(22);
+    expect(res.json.gpsPlaced).toBe(150);
+    expect(res.json.satisfaction).toBe(100);
+    // jobsCount is now the weekly-deterministic marketing headline (241–260),
+    // re-rolled each week — no longer the static 240.
+    expect(Number.isInteger(res.json.jobsCount)).toBe(true);
+    expect(res.json.jobsCount).toBeGreaterThanOrEqual(241);
+    expect(res.json.jobsCount).toBeLessThanOrEqual(260);
   });
 
   it('jobsCount is always a number', async () => {
     const res = await get('/api/public/stats');
     expect(typeof res.json.jobsCount).toBe('number');
+  });
+});
+
+describe('getWeeklyPublicJobsTotal — weekly-deterministic marketing headline', () => {
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+
+  it('always returns an integer in 241–260', () => {
+    for (let w = 0; w < 120; w++) {
+      const n = testUtils.getWeeklyPublicJobsTotal(w * WEEK);
+      expect(Number.isInteger(n)).toBe(true);
+      expect(n).toBeGreaterThanOrEqual(241);
+      expect(n).toBeLessThanOrEqual(260);
+    }
+  });
+
+  it('is stable anywhere within one week', () => {
+    const base = 2600 * WEEK; // arbitrary week
+    const v = testUtils.getWeeklyPublicJobsTotal(base);
+    expect(testUtils.getWeeklyPublicJobsTotal(base + 1)).toBe(v);
+    expect(testUtils.getWeeklyPublicJobsTotal(base + WEEK - 1)).toBe(v);
+  });
+
+  it('re-rolls across weeks (not a constant)', () => {
+    const base = 2600 * WEEK;
+    const seen = new Set();
+    for (let i = 0; i < 40; i++) seen.add(testUtils.getWeeklyPublicJobsTotal(base + i * WEEK));
+    expect(seen.size).toBeGreaterThan(1);
   });
 });
 

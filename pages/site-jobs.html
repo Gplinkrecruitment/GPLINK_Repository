@@ -320,7 +320,7 @@
       <div class="jobs-map-shell" id="jobsMapShell">
         <div class="pmap-frame">
           <div class="pmap" id="pmap" aria-label="Map of GP practices hiring across Australia"></div>
-          <div class="pmap-cap"><span class="cdot"></span><span class="pmap-cap-t"><b id="pmapCount">—</b> practices with public advertisement &middot; 90% exclusive to members</span></div>
+          <div class="pmap-cap"><span class="cdot"></span><span class="pmap-cap-t"><b id="pmapCount">—</b> practices with public advertisement &middot; <span id="pmapExcl">90%</span> exclusive to members</span></div>
           <div class="pmap-loading" id="pmapLoading">Loading the map…</div>
         </div>
 
@@ -904,7 +904,7 @@
     shell.style.display='none';
   }
 
-  function boot(practices){
+  function boot(practices, weeklyTotal){
     if(!practices.length){fail();return;}
     loadLibs().then(function(L){
       if(!L||!L.markerClusterGroup){fail();return;}
@@ -928,6 +928,14 @@
       });
       map.addLayer(cluster);
       document.getElementById('pmapCount').textContent=practices.length;
+      // Member-exclusive split: of the weekly headline R roles, practices.length
+      // (A) are publicly advertised here; the rest — (R−A)/R — are exclusive to
+      // members. Falls back to the static 90% if R is missing/nonsensical.
+      var R=Number(weeklyTotal);
+      if(isFinite(R)&&R>practices.length){
+        var pct=Math.max(1,Math.min(99,Math.round((R-practices.length)/R*100)));
+        var ex=document.getElementById('pmapExcl');if(ex)ex.textContent=pct+'%';
+      }
       var cap=document.querySelector('.pmap-cap');if(cap)cap.style.display='';
       var loading=document.getElementById('pmapLoading');if(loading)loading.classList.add('hide');
       setTimeout(function(){map.invalidateSize();},250);
@@ -936,7 +944,7 @@
 
   // Fetch every practice with coordinates, then build the map.
   fetch('/api/public/practice-map').then(function(r){return r.ok?r.json():null;}).then(function(d){
-    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[]);
+    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal);
   }).catch(fail);
 })();
 </script>

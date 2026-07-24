@@ -11548,7 +11548,10 @@
       const options = new Set();
       roleData.forEach((role) => {
         const value = String(role && role.billing ? role.billing : "").trim();
-        if (value) options.add(value);
+        // "Billing to be confirmed" is the placeholder for roles with no billing
+        // model yet (server mapCareerRoleRowToClient fallback) — it's not a real
+        // billing category, so it must never be an option in the filter dropdown.
+        if (value && value !== "Billing to be confirmed") options.add(value);
       });
       return Array.from(options).sort((a, b) => a.localeCompare(b));
     }

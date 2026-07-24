@@ -21508,6 +21508,22 @@ function parseCareerRolePublicId(publicId) {
 // served verbatim by GET /api/public/stats. There is no live computation and
 // no admin editor — the website tab that used to edit these was removed.
 const SITE_STATS = { jobsCount: 240, locations: 230, avgPlacementDays: 22, gpsPlaced: 150, satisfaction: 100 };
+// Public marketing "jobs available" headline. Deterministic per week (stable
+// all week, re-rolls each week) so every visitor sees the SAME figure and the
+// homepage stat, the /jobs hero, the About stat and the map's member-exclusive
+// split all agree. Range 241–260 inclusive. Never Math.random — that would
+// flicker per request and desync the pages / the exclusivity percentage. Weeks
+// roll on the Unix-epoch boundary (~Thursday); "changes each week" is all that
+// matters, not which day. The real public-practice count (A) is compared to
+// this number (R): A/R is shown-to-public, (R−A)/R is exclusive-to-members.
+function getWeeklyPublicJobsTotal(nowMs = Date.now()) {
+  const weekIndex = Math.floor(nowMs / (7 * 24 * 60 * 60 * 1000));
+  let h = (weekIndex ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return 241 + (h % 20); // 241..260
+}
 // practice_name is NEVER whitelisted here — the marketing site (no session,
 // no reveal gate) must only ever see the masked title/display_label. See
 // canRevealPracticeIdentity() below for the session-gated in-app equivalent.
@@ -37521,7 +37537,11 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/public/practice-map' && req.method === 'GET') {
     try {
       const practices = await buildPracticeMapData();
-      sendJson(res, 200, { ok: true, practices }, PUBLIC_CONFIG_CACHE_HEADERS);
+      // weeklyTotal (R) lets the map caption derive the member-exclusive split:
+      // of R roles, `practices.length` (A) are publicly advertised, (R−A)/R are
+      // exclusive to members. Computed per-request (not from the 10-min practices
+      // cache) so it can't straddle a week boundary stale.
+      sendJson(res, 200, { ok: true, practices, weeklyTotal: getWeeklyPublicJobsTotal() }, PUBLIC_CONFIG_CACHE_HEADERS);
     } catch (mapErr) {
       sendJson(res, 200, { ok: false, practices: [] });
     }
@@ -37561,9 +37581,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/public/stats' && req.method === 'GET') {
-    // Static marketing-site figures — served verbatim from SITE_STATS. No live
-    // computation and no owner override (the admin website tab was removed).
-    sendJson(res, 200, Object.assign({ ok: true }, SITE_STATS));
+    // Marketing-site figures. locations/avgPlacementDays/etc are static owner-set
+    // constants; jobsCount is the weekly-deterministic headline (241–260, same
+    // for all visitors within a week) so the homepage/About/jobs surfaces agree.
+    sendJson(res, 200, Object.assign({ ok: true }, SITE_STATS, { jobsCount: getWeeklyPublicJobsTotal() }));
     return;
   }
 
@@ -67704,6 +67725,7 @@ module.exports.__testUtils = {
   __setPublicJobsRowsCacheForTest,
   PUBLIC_JOBS_COUNT_CACHE_TTL_MS,
   SITE_STATS,
+  getWeeklyPublicJobsTotal,
   mapEmploymentTypeToSchema,
   buildJobPostingJsonLd,
   injectJobSeoIntoHtml,

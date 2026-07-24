@@ -111,13 +111,17 @@ describe('/jobs Australia practice map section', () => {
     expect(siteJobs).toMatch(/@media\(max-width:760px\)\{[\s\S]*\.pmap-detail\{[^}]*translateY/);
   });
 
-  it('captions the public map as publicly-advertised practices, member-exclusive hook', () => {
-    // 2026-07-25 copy: the public map shows only the openly-advertised roles,
-    // with the "90% exclusive to members" line as the membership hook. The old
-    // "practices across Australia" caption is gone.
+  it('captions the public map with a DYNAMIC member-exclusive split', () => {
+    // 2026-07-25: the public map shows only the openly-advertised roles; the
+    // exclusive % is no longer hardcoded — it's derived from the weekly headline
+    // total R vs the shown practice count A as (R−A)/R, with a 90% fallback.
     expect(siteJobs).toContain('practices with public advertisement');
-    expect(siteJobs).toContain('90% exclusive to members');
+    expect(siteJobs).toContain('id="pmapExcl"');
+    expect(siteJobs).toContain('exclusive to members');
     expect(siteJobs).not.toContain('practices across Australia · tap a pin');
+    // weeklyTotal (R) flows from the practice-map payload into the split calc.
+    expect(siteJobs).toContain('d&&d.weeklyTotal');
+    expect(siteJobs).toMatch(/\(R-practices\.length\)\/R/);
   });
 
   it('server builds the masked, keyless practice-map payload', () => {
@@ -126,6 +130,9 @@ describe('/jobs Australia practice map section', () => {
     // Same mask path as /api/public/jobs (mapCareerRoleRowToPublicJob -> sanitize).
     expect(server).toMatch(/mapCareerRoleRowToPublicJob/);
     expect(server).toMatch(/readAllSuccessfulSuburbGeo/);
+    // Weekly headline total (241–260) exposed so the map can derive the split.
+    expect(server).toMatch(/function getWeeklyPublicJobsTotal/);
+    expect(server).toMatch(/weeklyTotal:\s*getWeeklyPublicJobsTotal\(\)/);
   });
 });
 

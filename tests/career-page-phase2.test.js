@@ -41,6 +41,15 @@ describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
     expect(html).not.toContain("Jobs I'm eligible for");
   });
 
+  it('billing filter never offers the "Billing to be confirmed" placeholder', () => {
+    // getRoleBillingOptions() must drop the no-billing-model placeholder so it
+    // can't appear as a selectable billing category in the dropdown.
+    const start = html.indexOf('function getRoleBillingOptions');
+    expect(start).toBeGreaterThan(-1);
+    const fn = html.slice(start, start + 800);
+    expect(fn).toContain('value !== "Billing to be confirmed"');
+  });
+
   it('has the masked-identity locked ribbon treatment on cards', () => {
     expect(html).toContain('NAME ON ACCEPTANCE');
     expect(html).toContain('at-mblur');
