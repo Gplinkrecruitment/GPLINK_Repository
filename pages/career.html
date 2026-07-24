@@ -7887,6 +7887,77 @@
     html.dark-mode .at-rearn { color: #e8eefb; }
     html.dark-mode .at-empty b { color: #e8eefb; }
     html.dark-mode .at-blur-overlay { background: rgba(11, 19, 34, .45); color: #c2dbff; }
+
+    /* ── Interactive Australia practice map (keyless Leaflet + CARTO + clustering).
+       Same feature as the public /jobs map, themed with gp-tokens. Pins open the
+       in-app job page. ── */
+    .cmap-wrap{position:relative;z-index:2;margin:0 0 22px;background:var(--gp-surface);border:1px solid var(--gp-border);
+      border-radius:var(--gp-r-lg,18px);box-shadow:var(--gp-shadow-sm);overflow-x:clip;overflow-y:visible;}
+    .cmap-head{display:flex;align-items:center;gap:9px;padding:13px 17px;border-bottom:1px solid var(--gp-border);
+      border-radius:var(--gp-r-lg,18px) var(--gp-r-lg,18px) 0 0;flex-wrap:wrap;}
+    .cmap-head .cdot{width:10px;height:10px;border-radius:50%;background:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.18);flex:none;}
+    .cmap-head b{color:var(--gp-ink);font-size:14px;font-weight:700;}
+    .cmap-head b span{color:#2563eb;}
+    .cmap-head .sub{color:var(--gp-muted);font-size:12px;margin-left:auto;}
+    .cmap-shell{position:relative;height:clamp(340px,46vh,480px);}
+    .cmap-frame{position:absolute;inset:0;overflow:hidden;border-radius:0 0 var(--gp-r-lg,18px) var(--gp-r-lg,18px);background:#e9eef5;
+      animation:cmapDrop 1s cubic-bezier(.16,1,.3,1) both;transform-origin:top center;}
+    @keyframes cmapDrop{from{clip-path:inset(0 0 100% 0);}to{clip-path:inset(0 0 0 0);}}
+    @media(prefers-reduced-motion:reduce){.cmap-frame{animation:none;}}
+    .cmap{position:absolute;inset:0;z-index:1;}
+    .cmap-shell .leaflet-container{font:inherit;background:#dfe7f0;}
+    .cmap-shell .leaflet-control-attribution{font-size:10px;line-height:1.3;background:rgba(255,255,255,.5);box-shadow:none;color:rgba(30,60,90,.5);padding:1px 6px;border-radius:5px 0 0 0;}
+    .cmap-shell .leaflet-control-attribution a{color:rgba(30,60,90,.6);}
+    .cmap-loading{position:absolute;inset:0;z-index:400;display:grid;place-items:center;color:var(--gp-muted);font-size:14px;font-weight:600;background:#eef3f8;}
+    .cmap-loading.hide{display:none;}
+    .cmap-pin-wrap{background:none;border:0;}
+    .cmap-pin{position:relative;width:30px;height:40px;cursor:pointer;}
+    .cmap-pin .pd{position:absolute;inset:0;filter:drop-shadow(0 4px 5px rgba(9,25,45,.35));transition:transform .18s ease;}
+    .cmap-pin:hover .pd{transform:translateY(-4px);}
+    .cmap-pin .pd svg{display:block;width:30px;height:40px;}
+    .cmap-pin.on .pd{transform:translateY(-3px) scale(1.18);filter:drop-shadow(0 8px 12px rgba(37,99,235,.5));}
+    .cmap-cluster{background:none!important;}
+    .cmap-cluster > div{width:38px;height:38px;border-radius:50%;background:#2563eb;color:#fff;font-weight:800;font-size:13.5px;display:grid;place-items:center;border:3px solid #fff;box-shadow:0 7px 18px -6px rgba(37,99,235,.75);}
+    .cmap-cluster.lg > div{width:46px;height:46px;font-size:15px;}
+    /* detail card: right panel (desktop, grows DOWN over the list) / below map (mobile).
+       flex-basis:auto + display:block on mobile so WebKit never collapses it. */
+    .cmap-detail{position:absolute;top:0;right:0;width:min(360px,90%);min-height:100%;height:auto;max-height:calc(100vh - 40px);z-index:600;
+      background:var(--gp-surface);border-radius:0 0 16px 16px;box-shadow:-6px 26px 64px -30px rgba(9,25,45,.55);
+      transform:translateX(103%);opacity:0;transition:transform .5s cubic-bezier(.16,1,.3,1),opacity .3s ease;
+      display:flex;flex-direction:column;overflow:hidden;pointer-events:none;}
+    .cmap-detail.open{transform:translateX(0);opacity:1;pointer-events:auto;}
+    .cmap-photo{position:relative;height:168px;flex:none;background:#dfe7f0;overflow:hidden;}
+    .cmap-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+    .cmap-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(9,22,40,.76),transparent 56%);}
+    .cmap-photo .loc{position:absolute;left:16px;bottom:12px;z-index:2;color:#fff;}
+    .cmap-photo .loc .s{font-size:18px;font-weight:800;letter-spacing:-.01em;line-height:1.1;}
+    .cmap-photo .loc .t{font-size:12px;font-weight:600;opacity:.92;margin-top:3px;display:flex;gap:5px;align-items:center;}
+    .cmap-x{position:absolute;top:11px;right:11px;z-index:3;width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;background:rgba(255,255,255,.94);color:#1f2b43;font-size:18px;line-height:1;display:grid;place-items:center;box-shadow:0 6px 16px -8px rgba(0,0,0,.4);}
+    .cmap-body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:14px;flex:1 1 auto;}
+    .cmap-role{font-size:14px;font-weight:600;color:var(--gp-muted);line-height:1.35;}
+    .cmap-inc{background:var(--gp-surface-sunken);border:1px solid var(--gp-border);border-radius:13px;padding:13px 15px;}
+    .cmap-inc .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--gp-faint);}
+    .cmap-inc .v{font-size:22px;font-weight:800;color:#2563eb;letter-spacing:-.01em;margin-top:2px;}
+    .cmap-bh{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--gp-faint);margin-bottom:-4px;}
+    .cmap-bene{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--gp-border);}
+    .cmap-bene:last-child{border-bottom:0;}
+    .cmap-bene .i{flex:none;width:29px;height:29px;border-radius:8px;background:rgba(37,99,235,.1);color:#2563eb;display:grid;place-items:center;margin-top:1px;}
+    .cmap-bene .i svg{width:15px;height:15px;}
+    .cmap-bene .bl{font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--gp-faint);font-weight:700;}
+    .cmap-bene .bv{font-size:13.5px;font-weight:600;color:var(--gp-ink);line-height:1.34;}
+    .cmap-cta{margin-top:auto;}
+    .cmap-cta button{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;background:#2563eb;color:#fff;font-weight:730;font-size:15px;border:0;border-radius:12px;padding:14px;cursor:pointer;box-shadow:0 16px 32px -16px rgba(37,99,235,.8);transition:transform .2s;}
+    .cmap-cta button:hover{transform:translateY(-2px);}
+    .cmap-cta .sub{text-align:center;font-size:11.5px;color:var(--gp-faint);margin-top:8px;}
+    @media(max-width:760px){
+      .cmap-shell{height:clamp(280px,38vh,360px);}
+      .cmap-detail{display:block;top:100%;left:0;right:0;width:100%;min-height:0;height:auto;max-height:none;margin-top:10px;
+        border-radius:16px;box-shadow:0 26px 60px -24px rgba(9,25,45,.5);transform:translateY(16px);}
+      .cmap-detail.open{transform:translateY(0);}
+      .cmap-detail .cmap-photo{border-radius:16px 16px 0 0;}
+    }
+    html.dark-mode .cmap-loading{background:#1a2332;}
+    html.dark-mode .cmap-shell .leaflet-control-attribution{background:rgba(20,28,42,.5);color:rgba(180,200,225,.6);}
   </style>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/media/icons/gp-link-icon-180.png" />
@@ -7952,6 +8023,34 @@
       </section>
 
       <section class="view-panel is-active" data-view-panel="browse">
+        <!-- Interactive Australia map of every open practice; tap a pin for the
+             suburb photo, income, benefits and a link to the in-app job page.
+             Keyless Leaflet + CARTO tiles + clustering (same as public /jobs). -->
+        <section class="cmap-wrap" id="careerMapWrap" aria-label="Practices across Australia on a map">
+          <div class="cmap-head"><span class="cdot"></span><b><span id="cmapCount">—</span> practices across Australia</b><span class="sub">Tap a pin to preview a role</span></div>
+          <div class="cmap-shell" id="careerMapShell">
+            <div class="cmap-frame">
+              <div class="cmap" id="careerMap" aria-label="Map of GP practices hiring across Australia"></div>
+              <div class="cmap-loading" id="cmapLoading">Loading the map…</div>
+            </div>
+            <aside class="cmap-detail" id="cmapDetail" aria-hidden="true">
+              <div class="cmap-photo">
+                <button class="cmap-x" id="cmapClose" aria-label="Close">&times;</button>
+                <img id="cmapPhoto" alt="" loading="lazy">
+                <div class="loc">
+                  <div class="s" id="cmapSub">Suburb</div>
+                  <div class="t"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span id="cmapState">State</span></div>
+                </div>
+              </div>
+              <div class="cmap-body">
+                <div class="cmap-role" id="cmapRole"></div>
+                <div class="cmap-inc"><div class="k">Expected income</div><div class="v" id="cmapIncome">&mdash;</div></div>
+                <div id="cmapBeneWrap"><div class="cmap-bh">What's on offer</div><div id="cmapBenefits"></div></div>
+                <div class="cmap-cta"><button type="button" id="cmapOpen">Open job opening <span aria-hidden="true">&rarr;</span></button><div class="sub">Opens the full role in the app</div></div>
+              </div>
+            </aside>
+          </div>
+        </section>
         <div id="positionFilledSection"></div>
         <div id="teamMatchesSection" class="at-match-section" hidden></div>
         <div class="at-list" id="recommendedRoles"></div>
@@ -13437,6 +13536,120 @@
         handleMatchDeepLink();
       }).catch(function () {});
     })();
+  </script>
+
+  <!-- Interactive Australia practice map (keyless Leaflet + CARTO + clustering).
+       Self-contained; lazy-loads its libs; opens the in-app job page on tap. -->
+  <script>
+  (function () {
+    "use strict";
+    var shell = document.getElementById('careerMapShell');
+    var mapEl = document.getElementById('careerMap');
+    if (!shell || !mapEl) return;
+
+    function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c];});}
+    var STATE_FULL={NSW:"New South Wales",VIC:"Victoria",QLD:"Queensland",WA:"Western Australia",SA:"South Australia",ACT:"Australian Capital Territory",TAS:"Tasmania",NT:"Northern Territory"};
+    function prettyIncome(v){v=String(v||"").trim();if(!v)return"Shared on application";if(/^\$?\d+k(\s*-\s*\d+k)?$/i.test(v))return v.charAt(0)==='$'?v:('$'+v);return v;}
+    var BI={
+      income:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>',
+      reloc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/></svg>',
+      home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-7 9 7"/><path d="M5 9v11h14V9"/></svg>',
+      visa:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg>',
+      dot:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/></svg>'
+    };
+    function beneIcon(label){var l=String(label||"").toLowerCase();
+      if(l.indexOf("income")!==-1||l.indexOf("guarantee")!==-1||l.indexOf("bonus")!==-1)return BI.income;
+      if(l.indexOf("reloc")!==-1)return BI.reloc;
+      if(l.indexOf("accom")!==-1||l.indexOf("housing")!==-1)return BI.home;
+      if(l.indexOf("visa")!==-1)return BI.visa;
+      return BI.dot;}
+    var PIN='<svg viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2563eb"/><circle cx="15" cy="15" r="6" fill="#fff"/></svg>';
+
+    function loadCss(href){
+      if(document.querySelector('link[data-cmap="'+href+'"]'))return Promise.resolve();
+      return new Promise(function(res){var l=document.createElement('link');l.rel='stylesheet';l.href=href;l.setAttribute('data-cmap',href);l.onload=function(){res();};l.onerror=function(){res();};document.head.appendChild(l);});
+    }
+    function loadScript(src){
+      return new Promise(function(res,rej){var ex=document.querySelector('script[data-cmap="'+src+'"]');
+        if(ex){if(ex.getAttribute('data-loaded'))res();else{ex.addEventListener('load',function(){res();});ex.addEventListener('error',function(){rej();});}return;}
+        var s=document.createElement('script');s.src=src;s.setAttribute('data-cmap',src);
+        s.onload=function(){s.setAttribute('data-loaded','1');res();};s.onerror=function(){rej();};document.head.appendChild(s);});
+    }
+    var LF='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
+    var MC='https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/';
+    function loadLibs(){
+      return Promise.all([loadCss(LF+'leaflet.css'),loadCss(MC+'MarkerCluster.css')])
+        .then(function(){return loadScript(LF+'leaflet.js');})
+        .then(function(){return loadScript(MC+'leaflet.markercluster.js');})
+        .then(function(){return window.L;});
+    }
+
+    var detailEl=document.getElementById('cmapDetail');
+    var activePin=null, currentId='';
+    function setActive(el){if(activePin)activePin.classList.remove('on');activePin=el||null;if(activePin)activePin.classList.add('on');}
+    function openDetail(p,mk){
+      currentId=p.id||'';
+      var el=mk._icon&&mk._icon.querySelector('.cmap-pin');setActive(el);
+      document.getElementById('cmapPhoto').src=p.img||'';
+      document.getElementById('cmapSub').textContent=p.suburb||'';
+      document.getElementById('cmapState').textContent=STATE_FULL[p.state]||p.state||'';
+      document.getElementById('cmapRole').textContent=p.display||p.title||'';
+      document.getElementById('cmapIncome').textContent=prettyIncome(p.income);
+      var bw=document.getElementById('cmapBenefits');
+      var benes=(p.benefits||[]).filter(function(b){return b&&b.label&&b.value;}).slice(0,3);
+      if(benes.length){
+        bw.innerHTML=benes.map(function(b){return '<div class="cmap-bene"><span class="i">'+beneIcon(b.label)+'</span><span><span class="bl">'+esc(b.label)+'</span><br><span class="bv">'+esc(b.value)+'</span></span></div>';}).join('');
+        document.getElementById('cmapBeneWrap').style.display='';
+      }else{document.getElementById('cmapBeneWrap').style.display='none';}
+      detailEl.classList.add('open');detailEl.setAttribute('aria-hidden','false');
+    }
+    function closeDetail(){detailEl.classList.remove('open');detailEl.setAttribute('aria-hidden','true');setActive(null);}
+    document.getElementById('cmapClose').addEventListener('click',closeDetail);
+    // Open the full role in the app: shell route when embedded, else direct nav.
+    document.getElementById('cmapOpen').addEventListener('click',function(){
+      if(!currentId)return;
+      var route='/pages/job?id='+encodeURIComponent(currentId);
+      if(document.documentElement.classList.contains('gp-shell-embedded')&&window.parent!==window&&window.parent.gpShellNavigate){
+        try{window.parent.gpShellNavigate(route);return;}catch(e){}
+      }
+      window.location.href='job?id='+encodeURIComponent(currentId);
+    });
+
+    function fail(){var w=document.getElementById('careerMapWrap');if(w)w.style.display='none';}
+
+    function boot(practices){
+      if(!practices.length){fail();return;}
+      loadLibs().then(function(L){
+        if(!L||!L.markerClusterGroup){fail();return;}
+        var map=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:false,zoomControl:true,attributionControl:true,worldCopyJump:true});
+        map.attributionControl.setPrefix(false);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,
+          attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(map);
+        map.on('click',closeDetail);
+        var cluster=L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:46,spiderfyOnMaxZoom:true,
+          iconCreateFunction:function(c){var n=c.getChildCount();return L.divIcon({html:'<div>'+n+'</div>',className:'cmap-cluster'+(n>=25?' lg':''),iconSize:[38,38]});}});
+        practices.forEach(function(p){
+          if(!isFinite(p.lat)||!isFinite(p.lng))return;
+          var icon=L.divIcon({className:'cmap-pin-wrap',html:'<div class="cmap-pin"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
+          var m=L.marker([p.lat,p.lng],{icon:icon,riseOnHover:true});
+          m.on('click',function(e){if(L.DomEvent)L.DomEvent.stopPropagation(e);openDetail(p,m);});
+          cluster.addLayer(m);
+        });
+        map.addLayer(cluster);
+        document.getElementById('cmapCount').textContent=practices.length;
+        var loading=document.getElementById('cmapLoading');if(loading)loading.classList.add('hide');
+        // Keep the map sized correctly through tab switches / panel show-hide.
+        var fix=function(){try{map.invalidateSize();}catch(e){}};
+        setTimeout(fix,250);
+        if(typeof ResizeObserver==='function'){try{new ResizeObserver(fix).observe(shell);}catch(e){}}
+        window.addEventListener('resize',fix);
+      }).catch(fail);
+    }
+
+    fetch('/api/public/practice-map',{credentials:'same-origin'}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+      boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[]);
+    }).catch(fail);
+  })();
   </script>
 </body>
 </html>

@@ -90,7 +90,7 @@
   /* detail card — right panel (desktop) / bottom sheet (mobile). It GROWS to
      fit its content (min = map height) and floats DOWN over the next section,
      so the whole card (incl. the Open-job button) shows without scrolling. */
-  .pmap-detail{position:absolute;top:0;right:0;width:min(372px,90%);min-height:100%;height:max-content;
+  .pmap-detail{position:absolute;top:0;right:0;width:min(372px,90%);min-height:100%;height:auto;
     max-height:calc(100vh - 66px);z-index:600;background:#fff;border-radius:0 0 16px 16px;
     box-shadow:-6px 26px 64px -30px rgba(9,25,45,.6);transform:translateX(103%);opacity:0;
     transition:transform .5s cubic-bezier(.16,1,.3,1),opacity .3s ease;
@@ -105,7 +105,10 @@
   .pmap-x{position:absolute;top:11px;right:11px;z-index:3;width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;
     background:rgba(255,255,255,.94);color:var(--ink-2);font-size:18px;line-height:1;display:grid;place-items:center;box-shadow:0 6px 16px -8px rgba(0,0,0,.4);}
   .pmap-x:hover{transform:scale(1.08);}
-  .pmap-body{padding:16px 18px 18px;overflow:auto;display:flex;flex-direction:column;gap:14px;flex:1;}
+  /* flex-basis:auto (NOT 0) so WebKit/Safari includes the body's content in the
+     card's auto height — otherwise the card collapses to the photo and clips
+     the income/benefits/button. */
+  .pmap-body{padding:16px 18px 18px;overflow:auto;display:flex;flex-direction:column;gap:14px;flex:1 1 auto;}
   .pmap-role{font-size:14px;font-weight:600;color:var(--mut);line-height:1.35;}
   .pmap-inc{background:linear-gradient(120deg,var(--teal-soft),#eef6ff);border:1px solid #cfe3ff;border-radius:13px;padding:13px 15px;}
   .pmap-inc .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--mut-2);}
@@ -129,11 +132,13 @@
        into view instead of opening entirely below the fold */
     .jobs-map-shell{height:clamp(290px,38vh,380px);}
     /* the card sits BELOW the map (so the map stays visible + usable) and floats
-       over the next section; content-height, gentle drop-in, all corners rounded */
-    .pmap-detail{top:100%;left:0;right:0;width:100%;min-height:0;height:max-content;max-height:none;margin-top:10px;
+       over the next section. display:block (not flex) so the photo + body stack
+       in normal flow at full content height — no WebKit flex-basis collapse. */
+    .pmap-detail{display:block;top:100%;left:0;right:0;width:100%;min-height:0;height:auto;max-height:none;margin-top:10px;
       border-radius:16px;box-shadow:0 26px 60px -24px rgba(9,25,45,.55);transform:translateY(16px);}
     .pmap-detail.open{transform:translateY(0);}
     .pmap-detail .pmap-photo{border-radius:16px 16px 0 0;}
+    .pmap-detail .pmap-body{overflow:visible;}
     .pmap-detail .pmap-x{background:rgba(255,255,255,.96);}
   }
   /* the tapped card floats over the results below it */
