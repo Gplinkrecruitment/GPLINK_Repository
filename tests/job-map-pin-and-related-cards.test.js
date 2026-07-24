@@ -119,9 +119,16 @@ describe('/jobs Australia practice map section', () => {
     expect(siteJobs).toContain('id="pmapExcl"');
     expect(siteJobs).toContain('exclusive to members');
     expect(siteJobs).not.toContain('practices across Australia · tap a pin');
-    // weeklyTotal (R) flows from the practice-map payload into the split calc.
+    // weeklyTotal (R) + the true public total (A) flow from the practice-map
+    // payload; the split is (R−A)/R.
     expect(siteJobs).toContain('d&&d.weeklyTotal');
-    expect(siteJobs).toMatch(/\(R-practices\.length\)\/R/);
+    expect(siteJobs).toContain('d&&d.total');
+    expect(siteJobs).toMatch(/\(R-A\)\/R/);
+    // Caption count = the true public-roles total (matches the "N roles
+    // available right now" list), NOT the geocodable pin subset — so the two
+    // numbers can never contradict each other.
+    expect(siteJobs).toMatch(/A=Number\(total\)/);
+    expect(siteJobs).toContain("pmapCount').textContent=A");
   });
 
   it('server builds the masked, keyless practice-map payload', () => {
@@ -133,6 +140,9 @@ describe('/jobs Australia practice map section', () => {
     // Weekly headline total (241–260) exposed so the map can derive the split.
     expect(server).toMatch(/function getWeeklyPublicJobsTotal/);
     expect(server).toMatch(/weeklyTotal:\s*getWeeklyPublicJobsTotal\(\)/);
+    // Payload also carries the true public-roles total (== the /jobs list count)
+    // so the caption states it, never the geocodable-pin subset.
+    expect(server).toMatch(/practices, total, weeklyTotal/);
   });
 });
 

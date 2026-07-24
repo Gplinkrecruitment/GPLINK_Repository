@@ -37634,11 +37634,19 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/public/practice-map' && req.method === 'GET') {
     try {
       const practices = await buildPracticeMapData();
-      // weeklyTotal (R) lets the map caption derive the member-exclusive split:
-      // of R roles, `practices.length` (A) are publicly advertised, (R−A)/R are
-      // exclusive to members. Computed per-request (not from the 10-min practices
-      // cache) so it can't straddle a week boundary stale.
-      sendJson(res, 200, { ok: true, practices, weeklyTotal: getWeeklyPublicJobsTotal() }, PUBLIC_CONFIG_CACHE_HEADERS);
+      // `total` = ALL publicly-advertised roles (A), the SAME figure the /jobs
+      // list shows as "N roles available right now" (buildPublicJobsResponse
+      // total, no filters == getPublicJobsRows().length — shared cache, so the
+      // two can never disagree). The map only PINS the geocodable subset
+      // (practices.length ≤ total), but the caption must state the true public
+      // count so it doesn't contradict the list below it.
+      const publicRows = await getPublicJobsRows();
+      const total = Array.isArray(publicRows) ? publicRows.length : practices.length;
+      // weeklyTotal (R) drives the member-exclusive split: of R roles, `total`
+      // (A) are publicly advertised, (R−A)/R are exclusive to members. Computed
+      // per-request (not from the 10-min practices cache) so it can't straddle a
+      // week boundary stale.
+      sendJson(res, 200, { ok: true, practices, total, weeklyTotal: getWeeklyPublicJobsTotal() }, PUBLIC_CONFIG_CACHE_HEADERS);
     } catch (mapErr) {
       sendJson(res, 200, { ok: false, practices: [] });
     }

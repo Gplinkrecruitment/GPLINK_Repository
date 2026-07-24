@@ -904,7 +904,7 @@
     shell.style.display='none';
   }
 
-  function boot(practices, weeklyTotal){
+  function boot(practices, weeklyTotal, total){
     if(!practices.length){fail();return;}
     loadLibs().then(function(L){
       if(!L||!L.markerClusterGroup){fail();return;}
@@ -927,13 +927,20 @@
         cluster.addLayer(m);
       });
       map.addLayer(cluster);
-      document.getElementById('pmapCount').textContent=practices.length;
-      // Member-exclusive split: of the weekly headline R roles, practices.length
-      // (A) are publicly advertised here; the rest — (R−A)/R — are exclusive to
-      // members. Falls back to the static 90% if R is missing/nonsensical.
+      // A = the TRUE count of publicly-advertised roles — the SAME number the
+      // "N roles available right now" list below shows. The map only pins the
+      // geocodable subset (practices.length ≤ A), so the caption must state A,
+      // not the pin count, or it contradicts the list. Fall back to the pin
+      // count only if total is missing/smaller.
+      var A=Number(total);
+      if(!isFinite(A)||A<practices.length)A=practices.length;
+      document.getElementById('pmapCount').textContent=A;
+      // Member-exclusive split: of the weekly headline R roles, A are publicly
+      // advertised; the rest — (R−A)/R — are exclusive to members. Falls back to
+      // the static 90% if R is missing/nonsensical.
       var R=Number(weeklyTotal);
-      if(isFinite(R)&&R>practices.length){
-        var pct=Math.max(1,Math.min(99,Math.round((R-practices.length)/R*100)));
+      if(isFinite(R)&&R>A){
+        var pct=Math.max(1,Math.min(99,Math.round((R-A)/R*100)));
         var ex=document.getElementById('pmapExcl');if(ex)ex.textContent=pct+'%';
       }
       var cap=document.querySelector('.pmap-cap');if(cap)cap.style.display='';
@@ -944,7 +951,7 @@
 
   // Fetch every practice with coordinates, then build the map.
   fetch('/api/public/practice-map').then(function(r){return r.ok?r.json():null;}).then(function(d){
-    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal);
+    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total);
   }).catch(fail);
 })();
 </script>
