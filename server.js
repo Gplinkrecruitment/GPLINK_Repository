@@ -97,6 +97,7 @@ const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const documentRequirements = require('./lib/document-requirements.js');
+const { selectStaleSummaryCases } = require('./lib/summary-refresh.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -8087,6 +8088,7 @@ async function respondServerError(res, err, context) {
 // (overdue / never-run) jobs. Keep in sync with vercel.json.
 const CRON_SCHEDULES = {
   'process-gmail': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  'refresh-summaries': { schedule: '*/30 * * * *', cadenceMinutes: 30 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -51753,11 +51755,16 @@ Return ONLY valid JSON with no markdown formatting:
   // ── AI Candidate Summary ──
   if (pathname === '/api/admin/candidate-summary' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    const adminCtx = requireAdminSession(req, res);
-    if (!adminCtx) return;
     const caseId = url.searchParams.get('case_id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
-    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
+    // Auth: an admin session OR a valid cron secret. The /api/cron/refresh-summaries
+    // background refresher calls this endpoint (Bearer CRON_SECRET, force=1) to
+    // regenerate stale summaries without a human opening the card.
+    if (!isValidCronSecret(getBearerToken(req))) {
+      const adminCtx = requireAdminSession(req, res);
+      if (!adminCtx) return;
+      if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
+    }
 
     if (!ANTHROPIC_API_KEY) {
       sendJson(res, 503, { ok: false, error: 'AI service not configured.' });
@@ -52074,6 +52081,38 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 500, { ok: false, error: 'Summary generation failed.' });
       }
     }
+    return;
+  }
+
+  // ── Cron: auto-refresh stale candidate summaries ──
+  // Keeps the matcher's "background" (ai_handover_summary) current without a human
+  // opening each card. Change-detection via selectStaleSummaryCases (lib/summary-refresh.js):
+  // only regenerates cases with new activity since their last summary (or missing/aged),
+  // bounded per run + AI-budget-guarded, by calling the candidate-summary generator
+  // (Bearer CRON_SECRET, force=1). Both match directions only READ the cached summary,
+  // so this is the single place freshness is paid for.
+  if (pathname === '/api/cron/refresh-summaries' && (req.method === 'POST' || req.method === 'GET')) {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured() || !ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: true, message: 'Not configured', refreshed: 0 }); return; }
+    const rsStart = Date.now();
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: true, message: 'AI budget reached', refreshed: 0 }); return; }
+    const rsRes = await supabaseDbRequest('registration_cases', 'select=id,updated_at,last_gp_activity_at,ai_handover_summary&status=eq.active&limit=500');
+    const rsCases = (rsRes.ok && Array.isArray(rsRes.data)) ? rsRes.data : [];
+    const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 5) });
+    const rsHost = String(req.headers.host || '').trim();
+    let rsRefreshed = 0, rsFailed = 0, rsSkipped = 0;
+    for (let rsi = 0; rsi < rsStale.length; rsi++) {
+      // Stay comfortably inside the 60s function budget; each summary takes several seconds.
+      if (!rsHost || Date.now() - rsStart > 50000) { rsSkipped = rsStale.length - rsi; break; }
+      try {
+        const rr = await fetch('https://' + rsHost + '/api/admin/candidate-summary?case_id=' + encodeURIComponent(rsStale[rsi].id) + '&force=1',
+          { headers: { authorization: 'Bearer ' + _CRON_SECRET_PRIMARY } });
+        if (rr && rr.ok) rsRefreshed++; else rsFailed++;
+      } catch (e) { rsFailed++; }
+      if (!(await checkAnthropicBudget())) { rsSkipped = Math.max(0, rsStale.length - rsi - 1); break; }
+    }
+    await recordCronRun('refresh-summaries', 'ok', { refreshed: rsRefreshed, failed: rsFailed, skipped: rsSkipped, stale: rsStale.length, scanned: rsCases.length }, Date.now() - rsStart).catch(function () {});
+    sendJson(res, 200, { ok: true, refreshed: rsRefreshed, failed: rsFailed, skipped: rsSkipped, stale: rsStale.length, scanned: rsCases.length });
     return;
   }
 

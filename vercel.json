@@ -25,7 +25,8 @@
     { "path": "/api/cron/owner-digest", "schedule": "0 21 * * 0" },
     { "path": "/api/cron/error-digest", "schedule": "40 21 * * *" },
     { "path": "/api/cron/error-fix-analysis", "schedule": "10 21 * * *" },
-    { "path": "/api/cron/error-fix-execute", "schedule": "25 * * * *" }
+    { "path": "/api/cron/error-fix-execute", "schedule": "25 * * * *" },
+    { "path": "/api/cron/refresh-summaries", "schedule": "*/30 * * * *" }
   ],
   "builds": [
     {
