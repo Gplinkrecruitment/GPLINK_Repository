@@ -290,6 +290,12 @@ const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-op
 // rankings silently degraded to blank scores/reasons. Haiku is fast, fits the
 // budget, ~5x cheaper, and ample for this bounded comparison. Override with env.
 const ANTHROPIC_MATCH_MODEL = String(process.env.ANTHROPIC_MATCH_MODEL || 'claude-haiku-4-5').trim() || 'claude-haiku-4-5';
+// AI candidate handover summary (the "background" that feeds matching). Sonnet 5:
+// strong at distilling messy comms (emails/WhatsApp/interview notes) into an accurate
+// summary, CHEAPER than the old Opus default ($3/$15 vs $5/$25), and only runs per-GP
+// (not per job), so quality-here-matters/cost-there-matters. Override with env.
+// ⚠️ Sonnet 5 rejects `temperature` (400) — the summary call must not send it.
+const ANTHROPIC_SUMMARY_MODEL = String(process.env.ANTHROPIC_SUMMARY_MODEL || 'claude-sonnet-5').trim() || 'claude-sonnet-5';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 // Anthropic Messages endpoint — env-overridable so tests can point new AI
 // call sites at a local emulator. Existing call sites keep their inline URL.
@@ -31502,8 +31508,12 @@ async function atsBuildGpMatchInputs(userIds) {
     var reg = caseMap[uid] || {};
     var handover = reg.ai_handover_summary;
     var handoverText = '';
-    if (handover && typeof handover === 'object') handoverText = handover.overview || handover.key_history || '';
-    else if (typeof handover === 'string') handoverText = handover;
+    if (handover && typeof handover === 'object') {
+      // Feed BOTH the overview (who they are + match-relevant preferences) and the
+      // key_history (their journey/engagement) so the matcher has real signal, not
+      // just one line. lib/_gpForPrompt caps this at 1500 chars.
+      handoverText = [handover.overview, handover.key_history].filter(Boolean).join(' — ');
+    } else if (typeof handover === 'string') handoverText = handover;
 
     out[uid] = {
       userId: uid,
@@ -51960,7 +51970,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       // 4. Call Claude
-      var summarySystemPrompt = 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 2-3 sentence summary for the RSO. Lead with who they are, current stage, and what needs attention right now. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
+      var summarySystemPrompt = 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
 
       var summaryController = new AbortController();
       var summaryTimeout = setTimeout(function() { summaryController.abort(); }, 90000);
@@ -51974,9 +51984,9 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          // ⚠️ Sonnet 5 rejects `temperature`/`top_p` (400) — do NOT re-add sampling params here.
+          model: ANTHROPIC_SUMMARY_MODEL,
           max_tokens: 4096,
-          temperature: 0,
           system: [{ type: 'text', text: summarySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: prompt }]
         })
@@ -52050,7 +52060,7 @@ Return ONLY valid JSON with no markdown formatting:
         ok: true,
         summary: summary,
         meta: {
-          model: ANTHROPIC_MODEL,
+          model: ANTHROPIC_SUMMARY_MODEL,
           generated_at: new Date().toISOString(),
           input_tokens: inputTokens,
           output_tokens: outputTokens
