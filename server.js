@@ -13068,9 +13068,9 @@ function getSessionEmail(session) {
 }
 
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
-  'smithmiller1234@gmail.com': '2026-09-30T23:59:59.000Z',
-  'khaleedmahmoudcrypto1211@gmail.com.au': '2026-09-30T23:59:59.000Z',
-  'khaleedmahmoudcrypto1211@gmail.com': '2026-09-30T23:59:59.000Z'
+  // Khaleed's "crypto" test GP account bypass removed 2026-07-24 now that he is past
+  // onboarding — he navigates the app as a real GP with all registration gateways enforced.
+  'smithmiller1234@gmail.com': '2026-09-30T23:59:59.000Z'
 };
 
 function isBypassLockEmail(email) {
