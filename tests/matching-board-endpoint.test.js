@@ -443,7 +443,10 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
       published_at: daysAgo(10), created_at: daysAgo(10)
     });
     db.user_profiles.push(
-      { user_id: BLOCKED, email: 'blocked@test.local', first_name: 'Blocked', last_name: 'Placed' }
+      { user_id: BLOCKED, email: 'blocked@test.local', first_name: 'Blocked', last_name: 'Placed' },
+      // OLD is onboarded via the CANONICAL server-set marker (onboarding_completed_at),
+      // carrying NO gp_onboarding_complete flag in user_state — proves that path.
+      { user_id: OLD, email: 'old@test.local', first_name: 'Old', last_name: 'Filler', onboarding_completed_at: daysAgo(19) }
     );
     db.registration_cases.push(
       { id: 'case-cand-live', user_id: LIVE, created_at: daysAgo(3) },
@@ -463,9 +466,14 @@ describe('GET /api/ats/matching/board?direction=gps', () => {
     // eligibility block is 'placed' — and has no signal, so it must be
     // excluded from the rows entirely.
     db.user_state.push(
-      { user_id: OLD, state: { gp_onboarding_complete: true, account_status: 'active' } },
-      { user_id: NEWC, state: { gp_onboarding_complete: true, account_status: 'active' } },
-      { user_id: SEARCH, state: { gp_onboarding_complete: true, account_status: 'active' } },
+      // OLD: NO gp_onboarding_complete flag — onboarded purely via the profile's
+      // onboarding_completed_at (above).
+      { user_id: OLD, state: { account_status: 'active' } },
+      // NEWC/SEARCH: gp_onboarding_complete is the STRING "true" — the real shape
+      // that round-trips through localStorage. The old `=== true` boolean check
+      // wrongly excluded these (regression guard for the onboarding-flag fix).
+      { user_id: NEWC, state: { gp_onboarding_complete: 'true', account_status: 'active' } },
+      { user_id: SEARCH, state: { gp_onboarding_complete: 'true', account_status: 'active' } },
       { user_id: BLOCKED, state: { gp_onboarding_complete: true, account_status: 'active', gp_career_state: { career_secured: true } } }
     );
     // The board's hasCv gate counts EITHER CV the app recognises: the primary

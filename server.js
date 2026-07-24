@@ -31310,7 +31310,7 @@ async function atsBuildGpMatchInputs(userIds) {
   for (var pi = 0; pi < ids.length; pi += 200) {
     var pChunk = ids.slice(pi, pi + 200);
     var pRes = await supabaseDbRequest('user_profiles',
-      'select=user_id,first_name,last_name,email,registration_country,preferred_city,target_arrival_date,who_moving,children_count,qualification_country&user_id=in.(' + encodeURIComponent(_atsInList(pChunk)) + ')&limit=500');
+      'select=user_id,first_name,last_name,email,registration_country,preferred_city,target_arrival_date,who_moving,children_count,qualification_country,onboarding_completed_at&user_id=in.(' + encodeURIComponent(_atsInList(pChunk)) + ')&limit=500');
     ((pRes.ok && pRes.data) || []).forEach(function (p) { profileMap[p.user_id] = p; });
   }
 
@@ -31402,7 +31402,16 @@ async function atsBuildGpMatchInputs(userIds) {
       userId: uid,
       name: [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || 'Candidate',
       email: prof.email || '',
-      onboardingComplete: state.gp_onboarding_complete === true,
+      // Canonical marker is user_profiles.onboarding_completed_at (server-set
+      // once at completion). Also accept the client-synced gp_onboarding_complete
+      // flag in EITHER form — it round-trips through localStorage, so real rows
+      // store the STRING "true", not boolean true. The old `=== true` check
+      // therefore matched NO real GP (localStorage strings), silently emptying
+      // the "eligible, no-signal" pool so the board only ever showed GPs with a
+      // live application or cached ranking.
+      onboardingComplete: !!prof.onboarding_completed_at
+        || state.gp_onboarding_complete === true
+        || state.gp_onboarding_complete === 'true',
       hasCv: cvSet[uid] === true,
       placed: !!(placedByState || placedByApp),
       liveApplicationRoleIds: liveJobIds,
