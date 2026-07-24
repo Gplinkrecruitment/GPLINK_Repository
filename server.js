@@ -36319,7 +36319,12 @@ async function handleApi(req, res, pathname) {
 
   if (!enforceMutationOrigin(req, res)) return;
 
-  if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
+  // Admin routes are 404'd off non-admin hosts (don't reveal them). EXCEPT a request
+  // carrying a valid cron secret: the /api/cron/refresh-summaries background job
+  // self-calls /api/admin/candidate-summary on the production host (not the admin
+  // host), and each admin route still enforces its own auth after this, so a trusted
+  // cron request may pass the host gate.
+  if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req) && !isValidCronSecret(getBearerToken(req))) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
     return;
   }

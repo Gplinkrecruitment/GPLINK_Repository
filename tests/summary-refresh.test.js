@@ -62,6 +62,10 @@ describe('/api/cron/refresh-summaries — registered + scheduled', () => {
     expect(serverSrc).toMatch(/if \(!isValidCronSecret\(getBearerToken\(req\)\)\) \{\s*const adminCtx = requireAdminSession/);
   });
 
+  it('the admin-host guard exempts cron requests (so the self-call to candidate-summary is not 404d off the admin host)', () => {
+    expect(serverSrc).toContain("if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req) && !isValidCronSecret(getBearerToken(req)))");
+  });
+
   it('has a vercel cron entry', () => {
     const entry = vercelJson.crons.find((c) => c.path === '/api/cron/refresh-summaries');
     expect(entry).toBeTruthy();
