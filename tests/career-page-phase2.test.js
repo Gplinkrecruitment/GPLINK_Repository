@@ -31,13 +31,14 @@ describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
     expect(html).toMatch(/>Offers</);
   });
 
-  it('has the three dropdown filters (eligibility, billing, location)', () => {
-    expect(html).toContain('id="heroEligibilitySelect"');
+  it('has the billing + location filters, with the eligibility toggle removed', () => {
     expect(html).toContain('id="heroBillingSelect"');
     expect(html).toContain('id="heroLocationSelect"');
-    // Eligibility options per the Atlas mockup
-    expect(html).toContain("Jobs I'm eligible for");
-    expect(html).toContain('All roles');
+    // The eligibility dropdown was removed 2026-07-25: a GP is only ever shown
+    // roles they're eligible for, so there is nothing to toggle. Its markup and
+    // the "Jobs I'm eligible for" / "All roles" options must be gone.
+    expect(html).not.toContain('id="heroEligibilitySelect"');
+    expect(html).not.toContain("Jobs I'm eligible for");
   });
 
   it('has the masked-identity locked ribbon treatment on cards', () => {
@@ -116,5 +117,34 @@ describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
   it('applying happens on the job detail page — no in-page apply endpoint call', () => {
     expect(html).not.toContain('/api/career/apply');
     expect(html).not.toContain('applyForRole');
+  });
+});
+
+// The in-app Australia map (2026-07-25) must (a) label its count as the number
+// of practices the GP is eligible for, not "across Australia", and (b) narrow
+// its pins to whatever roles survive the current filters/search — never the
+// full public catalogue. The list render publishes the visible role-id set and
+// the map script intersects PINNABLE against it.
+describe('career.html — filter-driven eligible-practice map', () => {
+  it('captions the map with the eligible-practice count, not "across Australia"', () => {
+    expect(html).toContain('practices you&rsquo;re eligible for');
+    expect(html).not.toContain('practices across Australia');
+  });
+
+  it('the role list publishes its filtered ids to the map on every render', () => {
+    // renderRoles -> syncCareerMap publishes the id set + pokes the map hook.
+    expect(html).toContain('syncCareerMap(roles)');
+    expect(html).toMatch(/function syncCareerMap\(roles\)/);
+    expect(html).toContain('window.__careerVisibleRoleIds');
+    expect(html).toContain('window.__careerMapApply');
+  });
+
+  it('the map rebuilds its pins from the visible id set (intersection, not all)', () => {
+    expect(html).toMatch(/window\.__careerMapApply\s*=\s*function\(ids\)\{VISIBLE=toIdSet\(ids\);renderPins\(\);\}/);
+    expect(html).toContain('function renderPins()');
+    // A pin is skipped when its id is filtered out of the visible set.
+    expect(html).toContain('if(VISIBLE && !VISIBLE[String(p.id)])return;');
+    // Count reflects what's actually shown after filtering.
+    expect(html).toContain("cEl.textContent=shown");
   });
 });

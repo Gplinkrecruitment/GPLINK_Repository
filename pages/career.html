@@ -7243,16 +7243,13 @@
     .at-tabs button.on .at-badge { background: var(--at-sky); color: var(--at-navy0); }
     .at-filters {
       display: grid;
-      /* minmax(0, …) lets the selects shrink below their longest option text;
-         bare 1fr tracks min at auto and blow the row out to ~413px on phones. */
+      /* Two filters (billing, location) since the eligibility toggle was removed
+         — a GP only ever sees eligible roles. minmax(0, …) lets the selects
+         shrink below their longest option text; bare 1fr tracks min at auto and
+         blow the row out to ~413px on phones. */
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 8px;
       margin-top: 12px;
-    }
-    .at-filters .at-sel:first-child { grid-column: 1 / -1; }
-    @media (min-width: 560px) {
-      .at-filters { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); }
-      .at-filters .at-sel:first-child { grid-column: auto; }
     }
     .at-sel { position: relative; }
     .at-sel select {
@@ -8010,12 +8007,6 @@
             <button type="button" data-career-tab="applications">Offers<span class="at-badge" id="offersTabBadge" hidden></span></button>
           </nav>
           <div class="at-filters" id="careerFilters">
-            <div class="at-sel hasval">
-              <select id="heroEligibilitySelect" aria-label="Filter by eligibility">
-                <option value="elig">Jobs I'm eligible for</option>
-                <option value="all">All roles</option>
-              </select>
-            </div>
             <div class="at-sel"><select id="heroBillingSelect" aria-label="Filter by billing type"></select></div>
             <div class="at-sel"><select id="heroLocationSelect" aria-label="Filter by location"></select></div>
           </div>
@@ -8027,7 +8018,7 @@
              suburb photo, income, benefits and a link to the in-app job page.
              Keyless Leaflet + CARTO tiles + clustering (same as public /jobs). -->
         <section class="cmap-wrap" id="careerMapWrap" aria-label="Practices across Australia on a map">
-          <div class="cmap-head"><span class="cdot"></span><b><span id="cmapCount">—</span> practices across Australia</b><span class="sub">Tap a pin to preview a role</span></div>
+          <div class="cmap-head"><span class="cdot"></span><b><span id="cmapCount">—</span> practices you&rsquo;re eligible for</b><span class="sub">Tap a pin to preview a role</span></div>
           <div class="cmap-shell" id="careerMapShell">
             <div class="cmap-frame">
               <div class="cmap" id="careerMap" aria-label="Map of GP practices hiring across Australia"></div>
@@ -9256,7 +9247,7 @@
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
         filterSearch: typeof source.filterSearch === "string" ? source.filterSearch : fallback.filterSearch,
-        filterEligibility: source.filterEligibility === "all" ? "all" : "elig",
+        filterEligibility: "elig",
         filterChips: Array.isArray(source.filterChips) ? source.filterChips.filter(c => typeof c === "string") : fallback.filterChips,
         showSavedOnly: hasLockedPlacement ? false : source.showSavedOnly === true,
         savedJobs: Array.isArray(source.savedJobs)
@@ -9302,7 +9293,6 @@
     const pageHeroSubtitleEl = document.getElementById("pageHeroSubtitle");
     const heroLocationSelectEl = document.getElementById("heroLocationSelect");
     const heroBillingSelectEl = document.getElementById("heroBillingSelect");
-    const heroEligibilitySelectEl = document.getElementById("heroEligibilitySelect");
     const careerTabsEl = document.getElementById("careerTabs");
     const careerFiltersEl = document.getElementById("careerFilters");
     const savedTabBadgeEl = document.getElementById("savedTabBadge");
@@ -11580,12 +11570,8 @@
     function renderSearchFilterControls() {
       setSelectOptions(heroLocationSelectEl, getRoleLocationOptions(), "Anywhere", careerState.filterLocation);
       setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing", careerState.filterBilling);
-      if (heroEligibilitySelectEl) {
-        heroEligibilitySelectEl.value = careerState.filterEligibility === "all" ? "all" : "elig";
-      }
       syncSelectAccent(heroLocationSelectEl, !!heroLocationSelectEl.value);
       syncSelectAccent(heroBillingSelectEl, !!heroBillingSelectEl.value);
-      syncSelectAccent(heroEligibilitySelectEl, careerState.filterEligibility !== "all");
       const heroSearchInputEl = document.getElementById("heroSearchInput");
       const heroSearchClearEl = document.getElementById("heroSearchClear");
       if (heroSearchInputEl && heroSearchInputEl.value !== (careerState.filterSearch || "")) {
@@ -12466,6 +12452,21 @@
         : buildAtlasEmptyHtml("filters");
       rolesEmptyStateEl.classList.toggle("is-visible", (roles.qualifyingCount != null ? roles.qualifyingCount : roles.length) === 0);
       recommendedRolesEl.innerHTML = roles.map((role) => buildRoleCardHtml(role)).join("");
+      syncCareerMap(roles);
+    }
+
+    // Keep the Australia map in step with the role list: the pins the GP sees
+    // are exactly the roles that survive the current filters/search (never the
+    // full public catalogue). The map script (below the app script) reads this
+    // published id list, so ordering between the two is race-safe.
+    function syncCareerMap(roles) {
+      try {
+        const ids = (roles || [])
+          .filter((r) => r && !r.blurred && r.id != null)
+          .map((r) => String(r.id));
+        window.__careerVisibleRoleIds = ids;
+        if (typeof window.__careerMapApply === "function") window.__careerMapApply(ids);
+      } catch (e) { /* map is best-effort; never break the list render */ }
     }
 
     // One Atlas row per application. Offer-received rows get the green accent
@@ -12950,14 +12951,6 @@
         persistCareerState();
         renderPage();
         window.scrollTo({ top: 0, behavior: "smooth" });
-      });
-    }
-
-    if (heroEligibilitySelectEl) {
-      heroEligibilitySelectEl.addEventListener("change", () => {
-        careerState.filterEligibility = heroEligibilitySelectEl.value === "all" ? "all" : "elig";
-        persistCareerState();
-        renderPage();
       });
     }
 
@@ -13617,29 +13610,61 @@
 
     function fail(){var w=document.getElementById('careerMapWrap');if(w)w.style.display='none';}
 
+    // Map plumbing lives at module scope so the app's filter changes can rebuild
+    // the pins without re-creating the whole map. PINNABLE = every practice that
+    // has coordinates; VISIBLE = the id-set the app wants shown (undefined until
+    // the first sync, null means "show all").
+    var Lref=null, MAP=null, CLUSTER=null, PINNABLE=[], VISIBLE;
+
+    function toIdSet(ids){return Array.isArray(ids)?ids.reduce(function(a,x){a[String(x)]=1;return a;},{}):null;}
+
+    // Rebuild the cluster from PINNABLE, keeping only ids in VISIBLE (null => all).
+    // Called on first boot and again every time the GP's filters change the list,
+    // so the pins the doctor sees always match the roles listed below the map.
+    function renderPins(){
+      if(!CLUSTER||!Lref)return;
+      CLUSTER.clearLayers();
+      var shown=0, present={};
+      PINNABLE.forEach(function(p){
+        if(VISIBLE && !VISIBLE[String(p.id)])return;
+        var icon=Lref.divIcon({className:'cmap-pin-wrap',html:'<div class="cmap-pin"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
+        var m=Lref.marker([p.lat,p.lng],{icon:icon,riseOnHover:true});
+        m.on('click',function(e){if(Lref.DomEvent)Lref.DomEvent.stopPropagation(e);openDetail(p,m);});
+        CLUSTER.addLayer(m);
+        shown++; present[String(p.id)]=1;
+      });
+      var cEl=document.getElementById('cmapCount');if(cEl)cEl.textContent=shown;
+      // If the open preview was filtered out, close it so the card can't show a
+      // practice that's no longer on the map.
+      if(currentId && !present[currentId])closeDetail();
+    }
+
+    // The app calls this whenever the filtered role list changes (see
+    // syncCareerMap in the app script). Defined before the fetch so a sync that
+    // lands while the map libs are still loading is remembered, not lost.
+    window.__careerMapApply=function(ids){VISIBLE=toIdSet(ids);renderPins();};
+
     function boot(practices){
       if(!practices.length){fail();return;}
       loadLibs().then(function(L){
         if(!L||!L.markerClusterGroup){fail();return;}
-        var map=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:false,zoomControl:true,attributionControl:true,worldCopyJump:true});
-        map.attributionControl.setPrefix(false);
+        Lref=L;
+        MAP=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:false,zoomControl:true,attributionControl:true,worldCopyJump:true});
+        MAP.attributionControl.setPrefix(false);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,
-          attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(map);
-        map.on('click',closeDetail);
-        var cluster=L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:46,spiderfyOnMaxZoom:true,
+          attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(MAP);
+        MAP.on('click',closeDetail);
+        CLUSTER=L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:46,spiderfyOnMaxZoom:true,
           iconCreateFunction:function(c){var n=c.getChildCount();return L.divIcon({html:'<div>'+n+'</div>',className:'cmap-cluster'+(n>=25?' lg':''),iconSize:[38,38]});}});
-        practices.forEach(function(p){
-          if(!isFinite(p.lat)||!isFinite(p.lng))return;
-          var icon=L.divIcon({className:'cmap-pin-wrap',html:'<div class="cmap-pin"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
-          var m=L.marker([p.lat,p.lng],{icon:icon,riseOnHover:true});
-          m.on('click',function(e){if(L.DomEvent)L.DomEvent.stopPropagation(e);openDetail(p,m);});
-          cluster.addLayer(m);
-        });
-        map.addLayer(cluster);
-        document.getElementById('cmapCount').textContent=practices.length;
+        MAP.addLayer(CLUSTER);
+        PINNABLE=practices.filter(function(p){return isFinite(p.lat)&&isFinite(p.lng);});
+        // Seed the initial filter from whatever the app already published while
+        // the libraries were loading; null (show all) is the safe fallback.
+        if(typeof VISIBLE==='undefined')VISIBLE=toIdSet(window.__careerVisibleRoleIds);
+        renderPins();
         var loading=document.getElementById('cmapLoading');if(loading)loading.classList.add('hide');
         // Keep the map sized correctly through tab switches / panel show-hide.
-        var fix=function(){try{map.invalidateSize();}catch(e){}};
+        var fix=function(){try{MAP.invalidateSize();}catch(e){}};
         setTimeout(fix,250);
         if(typeof ResizeObserver==='function'){try{new ResizeObserver(fix).observe(shell);}catch(e){}}
         window.addEventListener('resize',fix);

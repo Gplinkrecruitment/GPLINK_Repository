@@ -111,6 +111,15 @@ describe('/jobs Australia practice map section', () => {
     expect(siteJobs).toMatch(/@media\(max-width:760px\)\{[\s\S]*\.pmap-detail\{[^}]*translateY/);
   });
 
+  it('captions the public map as publicly-advertised practices, member-exclusive hook', () => {
+    // 2026-07-25 copy: the public map shows only the openly-advertised roles,
+    // with the "90% exclusive to members" line as the membership hook. The old
+    // "practices across Australia" caption is gone.
+    expect(siteJobs).toContain('practices with public advertisement');
+    expect(siteJobs).toContain('90% exclusive to members');
+    expect(siteJobs).not.toContain('practices across Australia · tap a pin');
+  });
+
   it('server builds the masked, keyless practice-map payload', () => {
     expect(server).toMatch(/\/api\/public\/practice-map/);
     expect(server).toMatch(/function buildPracticeMapData/);
