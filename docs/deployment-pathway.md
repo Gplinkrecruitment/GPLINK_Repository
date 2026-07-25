@@ -53,19 +53,23 @@ EOF
 
 ---
 
-## Step 4 — Push
+## Step 4 — Push (this deploys)
 
 ```bash
-git push origin main
+git push origin main          # from a worktree branch: git push origin HEAD:main
 ```
 
-**Do not rely on the push triggering a deployment.** The GitHub Action (`vercel-deploy.yml`) calls a deploy hook that redeploys a stale commit (`2685559`). It has been broken since April 2026. The push ensures the code is on GitHub but does **not** deploy it.
+**Pushing to `main` auto-deploys to production.** The native Vercel↔GitHub integration builds the exact commit you pushed and promotes it to production (aliased to `app.mygplink.com.au`, and since the 2026-07-26 cutover, `www.mygplink.com.au` + the apex). A push to any *other* branch produces a preview deployment instead, not production.
+
+Verified 2026-07-26 against Vercel's own deployment log (`list_deployments`): **every** `main` commit over the prior two days produced a `target: production`, `state: READY` deployment sourced from **git** (never the CLI) — e.g. `2e75eb7`, `87b7c8b`, `e3c7391`, `b969666`, `abf87a0`. Give it ~1–2 min, then verify (Step 6). **No manual deploy step is required for the normal flow.**
+
+> ⚠️ Historical note — do not confuse two different mechanisms. An OLD path (the GitHub Action `vercel-deploy.yml` calling a Vercel *deploy hook*) was broken — it redeployed a stale commit `2685559` — and is deliberately disabled (`workflow_dispatch` only, do NOT re-enable). That deploy **hook** is a *different thing* from the native git integration above, which works. Earlier revisions of this doc said "the push does not deploy — use the CLI"; that is **no longer true**.
 
 ---
 
-## Step 5 — Deploy via Vercel CLI
+## Step 5 — Deploy via Vercel CLI (fallback only)
 
-The **only** reliable deployment method is the Vercel CLI. The deploy hook and GitHub integration webhook are both broken.
+Not needed for the normal flow — Step 4 deploys. Use the CLI only to force a redeploy **without** a new commit, or if the git integration is ever confirmed down. The deploy hook remains broken; the CLI is the fallback, git push to `main` is the default.
 
 ### Vercel CLI location
 
@@ -134,23 +138,23 @@ If you need more frequent execution, use GitHub Actions (see `.github/workflows/
 ### Build Warnings
 The Vercel build shows TypeScript errors from `supabase/functions/normalize-scan-image/index.ts`. These are Deno-specific imports (`npm:` specifiers, `Deno.serve`) that the Vercel TypeScript checker doesn't understand. They are **non-blocking** — the deployment succeeds despite these warnings.
 
-### Broken Deploy Hook
-The deploy hook (`manual-deploy` / `uERMhHFt41`) redeploys from a cached/stale commit rather than fetching the latest from GitHub. **Do not use it for production deploys.** Always use `vercel --prod` from the CLI.
+### Broken Deploy Hook (NOT the git integration)
+The deploy **hook** (`manual-deploy` / `uERMhHFt41`) redeploys from a cached/stale commit rather than fetching the latest from GitHub. **Do not use the hook.** This is a separate mechanism from the native Vercel↔GitHub integration, which *does* deploy the exact pushed commit — see Step 4. Normal deploy = `git push origin main`; the CLI (`vercel --prod`) is only a fallback.
 
 ---
 
 ## Quick Reference
 
 ```bash
-# Full deploy sequence (copy-paste ready)
-cd "/Users/khaleed/GP LINK APP (Visual Studio)"
-git add <files>
+# Full deploy sequence (copy-paste ready) — git push IS the deploy
+git add <files>                 # specific files only, never git add -A
 git commit -m "$(cat <<'EOF'
 type: description
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
-git push origin main
-NODE_TLS_REJECT_UNAUTHORIZED=0 /usr/local/Cellar/node@18/18.20.8/bin/vercel --prod --yes
+git push origin main            # from a worktree branch: git push origin HEAD:main
+# → Vercel auto-builds & promotes this commit to production (~1–2 min). Verify with Step 6.
+# The Vercel CLI (Step 5) is a fallback, not part of the normal flow.
 ```
