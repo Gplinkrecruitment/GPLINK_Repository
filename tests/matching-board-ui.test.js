@@ -384,6 +384,87 @@ describe('corporate groups — opening name leads, group is a tile (owner call 2
   });
 });
 
+// Same owner call, GPs direction (2026-07-26). This side kept reading
+// practice_name straight off the entry, so a GP ranked against five ForHealth
+// openings got five identical "ForHealth Group" rows with no way to tell the
+// openings apart. The board endpoint's gps-direction entries carry the same
+// {title, practice_name} pair as the positions side (server.js builds both
+// from career_roles), so they go through mbPracticeDisplay too — except there
+// is no practice_id in that payload, so the corporation rides along as a
+// muted pill rather than a click-through tile.
+describe('corporate groups — GPs direction leads with the practice too (owner call 2026-07-26)', () => {
+  const forHealth = (roleId, opening, score) => ({
+    career_role_id: roleId,
+    title: `General Practitioner || ${opening}`,
+    practice_name: 'ForHealth Group',
+    score,
+    reasons: ['GB qualification aligns with the sponsorship pathway'],
+    chips: ['DPA eligible role'],
+  });
+  // ranking is non-null whenever suggestions[] is populated — the endpoint
+  // builds both from the same match_cache row — and mbGpTrackHtml swaps the
+  // whole track for a "Run AI ranking" button when neither is present.
+  const corpGpRow = (overrides) => Object.assign({
+    gp: { user_id: 'gp1', name: 'Dr Sana Mirza', email: 'sana@test.local', days_on_books: 1 },
+    live: [],
+    suggestions: [
+      forHealth('r-1', 'Greenway Medical Centre', 50),
+      forHealth('r-2', 'North Ipswich Family Practice', 48),
+      forHealth('r-3', 'Beenleigh Medical Centre', 48),
+    ],
+    ranking: { generated_at: hoursAgo(4), age_hours: 4, excluded_count: 0 },
+  }, overrides || {});
+
+  it('ranked-match rows name the distinct openings, not one repeated corporation', () => {
+    const html = MB.mbExpandHtml(corpGpRow(), {}, NOW);
+    expect(html).toContain('Greenway Medical Centre');
+    expect(html).toContain('North Ipswich Family Practice');
+    expect(html).toContain('Beenleigh Medical Centre');
+    expect(html).not.toMatch(/ats-mb-exname">ForHealth Group /);
+  });
+  it('keeps the corporation visible as a muted, non-clickable pill', () => {
+    const html = MB.mbExpandHtml(corpGpRow(), {}, NOW);
+    expect(html).toContain('🏢 ForHealth Group');
+    expect(html).not.toContain('data-mb-open-practice');
+  });
+  it('collapsed funnel chips use the opening name as well', () => {
+    const html = MB.mbGpTrackHtml(corpGpRow(), NOW);
+    expect(html).toContain('Greenway Medical Centre');
+    expect(html).not.toContain('ForHealth Group');
+  });
+  it('live (already-sent) entries follow the same rule', () => {
+    const r = corpGpRow({
+      suggestions: [],
+      live: [{ application_id: 'a1', career_role_id: 'r-9', title: 'General Practitioner || Springfield Health Hub', practice_name: 'ForHealth Group', ats_stage: 'interview', stage_updated_at: hoursAgo(4), match: null }],
+    });
+    expect(MB.mbGpTrackHtml(r, NOW)).toContain('Springfield Health Hub');
+    expect(MB.mbGpTrackHtml(r, NOW)).not.toContain('ForHealth Group');
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('Springfield Health Hub');
+    expect(html).toContain('🏢 ForHealth Group');
+  });
+  it('independent practices are unchanged and get no group pill', () => {
+    const r = corpGpRow({ suggestions: [{ career_role_id: 'r-5', title: 'General Practitioner || Bay Village Medical Centre', practice_name: 'Bay village medical centre', score: 71, reasons: [], chips: [] }] });
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('Bay village medical centre');
+    expect(html).not.toContain('🏢');
+  });
+  it('legacy titles without the || separator still fall back to practice_name', () => {
+    const r = corpGpRow({ suggestions: [{ career_role_id: 'r-6', title: 'General Practitioner', practice_name: 'Sunrise Medical', score: 60, reasons: [], chips: [] }] });
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('Sunrise Medical');
+    expect(html).not.toContain('🏢');
+  });
+  it('escapes HTML in both the opening name and the group pill', () => {
+    const r = corpGpRow({ suggestions: [{ career_role_id: 'r-7', title: 'GP || <script>z</script> Clinic', practice_name: '<b>Corp</b> Group', score: 10, reasons: [], chips: [] }] });
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).not.toContain('<script>z</script>');
+    expect(html).not.toContain('<b>Corp</b>');
+    expect(html).toContain('&lt;script&gt;z&lt;/script&gt; Clinic');
+    expect(html).toContain('&lt;b&gt;Corp&lt;/b&gt; Group');
+  });
+});
+
 describe('GPs -> Positions (flip) urgency + track', () => {
   function gpRow(overrides) {
     return Object.assign({ gp: { user_id: 'gp1', name: 'Dr Sana Mirza', email: 'sana@test.local', days_on_books: 5 }, live: [], suggestions: [], ranking: null }, overrides || {});

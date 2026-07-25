@@ -30086,6 +30086,31 @@ function _matchFinalCallTimeLabel(expiresAtIso, nowDate) {
   } catch (e) { return ''; }
 }
 
+// Server-side twin of mbPracticeDisplay() in js/ceo-ats-matching.js. Corporate
+// groups (ForHealth, GP West Group, …) post many openings under one
+// practice_name — and the practices row behind practice_id is the CORPORATION,
+// not the clinic — so the opening's own name only exists after the legacy "||"
+// separator in career_roles.title. Matching surfaces lead with the opening and
+// treat the corporation as secondary (owner call 2026-07-12, extended to the
+// GP-facing surfaces 2026-07-26). Splitting here also keeps the raw "||" out of
+// GP-facing copy, which used to render verbatim in the match email.
+function atsJobDisplayNames(jobRow, practiceRow) {
+  var j = jobRow || {};
+  var p = practiceRow || {};
+  var raw = String(j.title || '');
+  var idx = raw.indexOf('||');
+  var role = (idx === -1 ? raw : raw.slice(0, idx)).trim();
+  var opening = idx === -1 ? '' : raw.slice(idx + 2).trim();
+  var norm = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); };
+  var owner = String(p.name || j.practice_name || '').trim();
+  var isGroup = !!(opening && owner && norm(opening) !== norm(owner));
+  return {
+    practice: (isGroup ? opening : (owner || opening || '')).trim(),
+    role: role,
+    group: isGroup ? owner : ''
+  };
+}
+
 // Builds the match notification email (mockup docs/mockups/matching/
 // matching-email-popup-v3.html + the v5 urgency box), as email-safe HTML
 // (every style inlined — no external/embedded <style> block, since mail
@@ -30113,8 +30138,9 @@ function buildMatchEmailHtml(row, job, practice, opts) {
     ? row.match_reasons.reasons : [];
   var jobRow = job || {};
   var practiceRow = practice || {};
-  var practiceName = _matchEmailEsc(practiceRow.name || jobRow.practice_name || 'the practice');
-  var jobTitle = _matchEmailEsc(jobRow.title || 'General Practitioner');
+  var names = atsJobDisplayNames(jobRow, practiceRow);
+  var practiceName = _matchEmailEsc(names.practice || 'the practice');
+  var jobTitle = _matchEmailEsc(names.role || 'General Practitioner');
   var billingModel = String(jobRow.billing_model || '').trim();
   var roleLine = jobTitle + (billingModel ? ' — ' + _matchEmailEsc(billingModel) : '');
   var city = String(jobRow.location_city || '').trim();
@@ -30296,7 +30322,7 @@ async function sendMatchEmail(applicationRow, opts) {
     if (!gp || !gp.email) return { ok: false, error: 'gp_not_found' };
     var rso = await resolveAssignedRsoForCareerEmail(applicationRow.user_id);
     var fromOpts = buildRsoEmailFromOpts(rso);
-    var practiceName = String((practice && practice.name) || job.practice_name || '').trim();
+    var practiceName = atsJobDisplayNames(job, practice).practice;
     var city = String(job.location_city || '').trim();
     var state = String(job.location_state || '').trim();
     var subjectLoc = [city, state].filter(Boolean).join(' ');
@@ -67727,6 +67753,7 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   _createRegTask,
+  atsJobDisplayNames,
   supportDisplayName,
   isWithinGroupingWindow,
   extractEmailAddress,

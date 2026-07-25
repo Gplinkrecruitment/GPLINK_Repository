@@ -193,7 +193,7 @@
     return { name: s.name, score: s.score, cls: 'sugg', sub: 'Suggested', dimmed: true, dataId: s.user_id };
   }
   function mbGpLiveNode(l, nowMs) {
-    var label = l.practice_name || l.title || 'Role';
+    var label = mbPracticeDisplay(l).heading;
     if (l.ats_stage === 'shortlisted') {
       var sub = mbMatchSubLabel(l.match, nowMs);
       return { name: label, score: l.match ? l.match.score : null, cls: sub.cls, sub: sub.text, dataId: l.career_role_id };
@@ -203,7 +203,7 @@
     return { name: label, score: null, cls: meta.cls, sub: subText, dataId: l.career_role_id };
   }
   function mbGpSuggestionNode(s) {
-    return { name: s.practice_name || s.title || 'Role', score: s.score, cls: 'sugg', sub: 'Suggested', dimmed: true, dataId: s.career_role_id };
+    return { name: mbPracticeDisplay(s).heading, score: s.score, cls: 'sugg', sub: 'Suggested', dimmed: true, dataId: s.career_role_id };
   }
 
   /* ============================================================
@@ -302,6 +302,9 @@
   // one practice_name; the opening's own name lives after the legacy "||"
   // separator in the title. The board leads with the opening and shows the
   // group as a small click-through tile instead (owner call 2026-07-12).
+  // Both directions go through this: on the GPs side every ranked row for a
+  // corporate GP otherwise read as the same "ForHealth Group" headline, so the
+  // list gave no way to tell the openings apart (owner call 2026-07-26).
   function mbPracticeDisplay(job) {
     job = job || {};
     var raw = String(job.title || '');
@@ -321,6 +324,15 @@
   function mbGroupTileHtml(disp, job) {
     if (!disp.groupName || !job.practice_id) return '';
     return '<button type="button" class="ats-mb-corp" data-mb-open-practice="' + A.escAttr(job.practice_id) + '">🏢 ' + A.esc(disp.groupName) + '</button>';
+  }
+
+  // GPs-direction counterpart of mbGroupTileHtml. The board endpoint's job
+  // entries carry no practice_id (see the suggestions/live mapping), so the
+  // owning corporation rides along as a muted, non-clickable pill — present
+  // for context, never the headline.
+  function mbGroupPillHtml(disp) {
+    if (!disp || !disp.groupName) return '';
+    return ' <span class="ats-pill muted">🏢 ' + A.esc(disp.groupName) + '</span>';
   }
 
   // ctx: { expandedId, runningIds, nowMs } — a subset of the module's state
@@ -574,7 +586,8 @@
   /* ---------------- expand panel ---------------- */
 
   function mbExpandPipelineRowHtml(entry, isGp, nowMs) {
-    var name = isGp ? (entry.practice_name || entry.title || 'Role') : (entry.name || '—');
+    var disp = isGp ? mbPracticeDisplay(entry) : null;
+    var name = isGp ? disp.heading : (entry.name || '—');
     var openId = isGp ? entry.career_role_id : entry.user_id;
     var initials = A.initials(name);
     var color = A.avatarColor(name);
@@ -598,7 +611,7 @@
       '<div class="ats-mb-exrow">' +
         '<div class="ats-mb-exgav" style="background:' + color + '">' + A.esc(initials) + '</div>' +
         '<div class="ats-mb-exbody">' +
-          '<div class="ats-mb-exname">' + A.esc(name) + scorePill + ' <span class="ats-pill muted">' + A.esc(stageLabel) + '</span></div>' +
+          '<div class="ats-mb-exname">' + A.esc(name) + scorePill + ' <span class="ats-pill muted">' + A.esc(stageLabel) + '</span>' + mbGroupPillHtml(disp) + '</div>' +
           '<div class="ats-mb-exsub">' + A.esc(subInfo) + '</div>' +
         '</div>' +
         '<div class="ats-mb-exactions">' + extendBtn + openBtn + '</div>' +
@@ -607,7 +620,8 @@
   }
 
   function mbExpandSuggestionRowHtml(entry, isGp, checked) {
-    var name = isGp ? (entry.practice_name || entry.title || 'Role') : (entry.name || '—');
+    var disp = isGp ? mbPracticeDisplay(entry) : null;
+    var name = isGp ? disp.heading : (entry.name || '—');
     var id = isGp ? entry.career_role_id : entry.user_id;
     var initials = A.initials(name);
     var color = A.avatarColor(name);
@@ -618,7 +632,7 @@
         '<input type="checkbox" class="ats-mb-excb" data-mb-cb="' + A.escAttr(id) + '"' + (checked ? ' checked' : '') + ' />' +
         '<div class="ats-mb-exgav" style="background:' + color + '">' + A.esc(initials) + '</div>' +
         '<div class="ats-mb-exbody">' +
-          '<div class="ats-mb-exname">' + A.esc(name) + ' <span class="ats-pill ' + (entry.score >= 85 ? 'green' : 'blue') + '">' + (entry.score == null ? '—' : A.esc(entry.score)) + ' match</span></div>' +
+          '<div class="ats-mb-exname">' + A.esc(name) + ' <span class="ats-pill ' + (entry.score >= 85 ? 'green' : 'blue') + '">' + (entry.score == null ? '—' : A.esc(entry.score)) + ' match</span>' + mbGroupPillHtml(disp) + '</div>' +
           (reasons ? ('<div class="ats-mb-ticks">' + reasons + '</div>') : '') +
           (chips ? ('<div class="ats-mb-chips">' + chips + '</div>') : '') +
         '</div>' +
@@ -836,7 +850,8 @@
   function mbSuggestionTitle(row, id, isGp) {
     if (!isGp) return (row.job && row.job.title) || 'this role';
     var s = (row.suggestions || []).filter(function (x) { return String(x.career_role_id) === String(id); })[0];
-    return (s && (s.title || s.practice_name)) || 'this role';
+    if (!s || !(s.title || s.practice_name)) return 'this role';
+    return mbPracticeDisplay(s).heading;
   }
 
   function mbShortlistToast(results) {

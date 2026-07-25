@@ -468,6 +468,62 @@ describe('buildMatchEmailHtml', () => {
   });
 });
 
+// Corporate groups (ForHealth, GP West Group, …) post many openings under one
+// practice_name, and the practices row behind practice_id is the CORPORATION —
+// so the clinic the GP is actually matched to only exists after the legacy "||"
+// separator in career_roles.title. Matching surfaces lead with that opening
+// (owner call 2026-07-12 for the board, extended to the GP-facing email
+// 2026-07-26). atsJobDisplayNames is the server twin of mbPracticeDisplay in
+// js/ceo-ats-matching.js — keep the two in sync.
+describe('atsJobDisplayNames — practice, never the corporation', () => {
+  const names = (job, practice) => serverModule.__testUtils.atsJobDisplayNames(job, practice);
+
+  it('leads with the opening name when the practice row is the corporation', () => {
+    const n = names({ title: 'General Practitioner || Greenway Medical Centre', practice_name: 'ForHealth Group' }, { name: 'ForHealth Group' });
+    expect(n.practice).toBe('Greenway Medical Centre');
+    expect(n.role).toBe('General Practitioner');
+    expect(n.group).toBe('ForHealth Group');
+  });
+  it('splits the role off so the raw "||" never reaches GP-facing copy', () => {
+    expect(names({ title: 'GP — Mixed Billing || North Ipswich Family Practice' }, {}).role).toBe('GP — Mixed Billing');
+    expect(names({ title: 'GP — Mixed Billing || North Ipswich Family Practice' }, {}).practice).toBe('North Ipswich Family Practice');
+  });
+  it('independent practices keep the stored practice_name casing and get no group', () => {
+    const n = names({ title: 'General Practitioner || Bay Village Medical Centre', practice_name: 'Bay village medical centre' }, {});
+    expect(n.practice).toBe('Bay village medical centre');
+    expect(n.group).toBe('');
+  });
+  it('legacy titles without the separator behave exactly as before', () => {
+    const n = names({ title: 'General Practitioner — Mixed Billing', practice_name: 'Coral Coast Family Practice' }, { name: 'Coral Coast Family Practice' });
+    expect(n.practice).toBe('Coral Coast Family Practice');
+    expect(n.role).toBe('General Practitioner — Mixed Billing');
+    expect(n.group).toBe('');
+  });
+  it('is null-safe and leaves the callers to apply their own fallbacks', () => {
+    expect(names(null, null)).toEqual({ practice: '', role: '', group: '' });
+    expect(names({}, {})).toEqual({ practice: '', role: '', group: '' });
+    // A trailing separator with nothing after it is not an opening name.
+    expect(names({ title: 'GP ||', practice_name: 'Corp' }, {}).practice).toBe('Corp');
+  });
+});
+
+describe('match email — a corporate GP sees the clinic, not the corporation', () => {
+  const corpRow = {
+    id: 'app-corp-1',
+    match_reasons: { reasons: ['Greenway is close to your preferred suburb'] },
+    match_expires_at: iso(NOW + 3 * 86400000),
+  };
+  const corpJob = { title: 'General Practitioner || Greenway Medical Centre', practice_name: 'ForHealth Group', location_city: 'Canberra', location_state: 'ACT' };
+  const corpPractice = { name: 'ForHealth Group' };
+
+  it('names the clinic in the body and never leaks the "||" separator', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(corpRow, corpJob, corpPractice, { gpLastName: 'Okafor' });
+    expect(html).toContain('Greenway Medical Centre');
+    expect(html).not.toContain('General Practitioner || Greenway Medical Centre');
+    expect(html).toContain('General Practitioner');
+  });
+});
+
 describe('sendMatchEmail', () => {
   it('sends the normal-variant subject with practice name + city/state', async () => {
     const row = tableOf('gp_applications').find((a) => a.id === 'app-view-1');
