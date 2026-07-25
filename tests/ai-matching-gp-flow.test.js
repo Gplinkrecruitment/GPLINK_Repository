@@ -499,6 +499,16 @@ describe('atsJobDisplayNames — practice, never the corporation', () => {
     expect(n.role).toBe('General Practitioner — Mixed Billing');
     expect(n.group).toBe('');
   });
+  // The masked position-filled card (ai-matching-redirect.test.js) blanks
+  // practiceName behind the reveal gate but still ships jobTitle. An unsplit
+  // corporate title names the clinic right there in the job title, so the
+  // split is what keeps the gate honest for BOTH fields.
+  it('keeps the clinic out of the role, so a masked card cannot leak it via jobTitle', () => {
+    const n = names({ title: 'General Practitioner || Coral Coast Family Practice', practice_name: 'ForHealth Group' }, {});
+    expect(n.role).toBe('General Practitioner');
+    expect(n.role).not.toContain('Coral Coast Family Practice');
+    expect(n.practice).toBe('Coral Coast Family Practice');
+  });
   it('is null-safe and leaves the callers to apply their own fallbacks', () => {
     expect(names(null, null)).toEqual({ practice: '', role: '', group: '' });
     expect(names({}, {})).toEqual({ practice: '', role: '', group: '' });

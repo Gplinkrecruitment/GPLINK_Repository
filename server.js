@@ -41657,7 +41657,16 @@ async function handleApi(req, res, pathname) {
       const practice = mmPracticeById[job.practice_id] || {};
       const reasons = (r.match_reasons && typeof r.match_reasons === 'object' && !Array.isArray(r.match_reasons) && Array.isArray(r.match_reasons.reasons))
         ? r.match_reasons.reasons : [];
-      const mmPracticeName = practice.name || job.practice_name || r.practice_name || '';
+      // Lead with the clinic, never the corporation, and keep the raw "||" out
+      // of the card — same rule as the board and the match email. The
+      // gp_applications fallbacks go through the splitter too: job_title is
+      // copied verbatim from career_roles.title at shortlist time, separator
+      // and all.
+      const mmNames = atsJobDisplayNames(
+        { title: job.title || r.job_title || '', practice_name: job.practice_name || r.practice_name || '' },
+        practice
+      );
+      const mmPracticeName = mmNames.practice || '';
       // Task 6 (2026-07-11 matching-board): the card's map preview + "Open in
       // Maps" link need a query string — same address /api/career/role uses
       // for revealedMapQuery, falling back to the practice name when no
@@ -41674,7 +41683,7 @@ async function handleApi(req, res, pathname) {
       return {
         applicationId: r.id, roleId: mmRoleId, score: (r.match_score != null ? r.match_score : null),
         reasons, expiresAt: r.match_expires_at || null, seenAt: r.match_seen_at || null, matchedAt: r.matched_at || null,
-        jobTitle: job.title || r.job_title || '', practiceName: mmPracticeName,
+        jobTitle: mmNames.role || '', practiceName: mmPracticeName,
         website: practice.website || '', introVideoUrl: practice.intro_video_url || '', headerImageUrl: job.header_image_url || '',
         locationCity: job.location_city || '', locationState: job.location_state || '', dpa: job.dpa === true,
         mapQuery: mmMapQuery
@@ -41693,11 +41702,20 @@ async function handleApi(req, res, pathname) {
       // offer:null is exact for a not_proceeding row (an accepted offer would
       // have made them the hire, not a redirect) and fail-closed regardless.
       const mmFilledRevealed = practicePipeline.canRevealPracticeIdentityCore({ application: r, offer: null });
+      // No practices row is loaded on this branch, so the owner is whatever
+      // career_roles.practice_name holds. jobTitle goes through the same split
+      // because an unsplit title ("General Practitioner || Greenway Medical
+      // Centre") would name the clinic on a card whose practiceName is
+      // deliberately masked — the reveal gate has to hold for BOTH fields.
+      const mmFilledNames = atsJobDisplayNames(
+        { title: job.title || r.job_title || '', practice_name: job.practice_name || r.practice_name || '' },
+        {}
+      );
       const mmFilledPracticeName = mmFilledRevealed
-        ? (job.practice_name || r.practice_name || '')
+        ? (mmFilledNames.practice || '')
         : _redirectAltPracticeName(job);
       return {
-        applicationId: r.id, practiceName: mmFilledPracticeName, jobTitle: job.title || r.job_title || '',
+        applicationId: r.id, practiceName: mmFilledPracticeName, jobTitle: mmFilledNames.role || '',
         locationCity: job.location_city || '', locationState: job.location_state || '', alternatives: alt
       };
     });
