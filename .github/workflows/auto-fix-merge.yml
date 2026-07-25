@@ -1,14 +1,24 @@
-# Auto-merge gate for the AI bug-fix pipeline.
+# Auto-merge gate for agent-opened pull requests.
 #
-# The executor (server.js -> dispatchApprovedFixProposal) opens a pull request
-# on an `autofix/*` branch. This workflow decides whether that PR may merge on
-# its own. It merges ONLY when every one of these holds:
+# Two producers feed this gate:
+#
+#   * the AI bug-fix executor (server.js -> dispatchApprovedFixProposal), which
+#     opens PRs on `autofix/*` and applies its OWN `safe-auto` label when
+#     risk_class === 'safe_auto';
+#   * interactive agent sessions, which open PRs on `worktree-*` and NEVER
+#     self-label — a person adds `safe-auto` when they want it to land (owner
+#     call 2026-07-26). Until then the PR simply sits open, which is condition 3
+#     doing its job, not a failure.
+#
+# This workflow decides whether such a PR may merge on its own. It merges ONLY
+# when every one of these holds:
 #
 #   1. the "CI Tests" workflow concluded `success` for exactly this commit;
-#   2. the branch is `autofix/*`;
-#   3. the PR is labelled `safe-auto` (the executor applies that label only when
-#      risk_class === 'safe_auto' — a `needs_review` proposal is labelled
-#      `needs-review` instead and can therefore NEVER reach the merge call);
+#   2. the branch is `autofix/*` or `worktree-*`;
+#   3. the PR is labelled `safe-auto` — for `autofix/*` the executor applies it
+#      only for a `safe_auto` risk class (a `needs_review` proposal is labelled
+#      `needs-review` instead and can therefore NEVER reach the merge call); for
+#      `worktree-*` only a human applies it;
 #   4. the PR comes from a branch in THIS repository, not a fork;
 #   5. the PR was opened by the expected account;
 #   6. the PR's head SHA is the SHA that CI actually tested;
@@ -62,7 +72,10 @@ jobs:
     # spinning a runner for every unrelated CI run in the repo.
     if: >
       github.event.workflow_run.event == 'pull_request' &&
-      startsWith(github.event.workflow_run.head_branch, 'autofix/') &&
+      (
+        startsWith(github.event.workflow_run.head_branch, 'autofix/') ||
+        startsWith(github.event.workflow_run.head_branch, 'worktree-')
+      ) &&
       github.event.workflow_run.head_repository.full_name == github.repository
 
     steps:
