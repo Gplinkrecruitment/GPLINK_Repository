@@ -206,9 +206,25 @@ describe('nextConsultNudge', () => {
     const consult = { call_booked: true, qualified: false, call_booked_at: new Date(bookedAt).toISOString(), nudges: [] };
     expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: bookedAt })).toEqual({ seq: 'booked_no_signup', step: 0 });
   });
-  it('booked: the call anchor falls back to the booking time when callAtMs is unknown', () => {
+  it('booked: an UNKNOWN call time DEFERS the call-anchored steps (never falls back to booking)', () => {
+    // Regression — a direct Calendly booker whose lead carried call_booked but no call_at
+    // was told "that's the conversation done" ~20h after BOOKING, two days before the call
+    // actually happened. No call time ⇒ nothing is "after the call" ⇒ nothing is due.
     const consult = { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: [{ seq: 'booked_no_signup', step: 0 }] };
-    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 1 });
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 + 20 * H })).toBe(null);
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 + 400 * D })).toBe(null);
+    // Non-finite anchors are treated the same as absent — an unparseable call_at must not
+    // resurrect the booking-time fallback via NaN comparisons.
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: NaN, nowMs: t0 + 20 * H })).toBe(null);
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: Date.parse('not-a-date'), nowMs: t0 + 20 * H })).toBe(null);
+    // …and once the call time is known, step 1 schedules off THAT, not the booking.
+    const callAt = t0 + 3 * D;
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: callAt, nowMs: t0 + 20 * H })).toBe(null);
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: callAt, nowMs: callAt + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 1 });
+  });
+  it('booked: step 0 still fires with no call time (it is booking-anchored, not call-anchored)', () => {
+    const consult = { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: [] };
+    expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: t0 })).toEqual({ seq: 'booked_no_signup', step: 0 });
   });
   it('stopped / screened leads never nudge; unqualified stops ONLY the not_booked funnel', () => {
     const late = t0 + 10 * D;
