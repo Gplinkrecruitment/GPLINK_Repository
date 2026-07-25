@@ -52,6 +52,24 @@ describe('maskIdentity — the safety backstop', () => {
     expect(maskIdentity('An established practice on the NSW Central Coast.', { practiceName: 'Erina Medical Centre' }))
       .toBe('An established practice on the NSW Central Coast.');
   });
+  it('does NOT strip a bare city/suburb address — a public place name is not a street', () => {
+    // Regression: address stored as just "Perth, WA" (no street) used to be
+    // split to street="Perth" and blanket-removed, corrupting the public card.
+    expect(maskIdentity('Based in Perth, WA with easy access.', { address: 'Perth, WA' }))
+      .toBe('Based in Perth, WA with easy access.');
+    expect(maskIdentity('A role in the Gold Coast area.', { address: 'Gold Coast, QLD' }))
+      .toBe('A role in the Gold Coast area.');
+  });
+  it('keeps a hero-image path intact when the address is a bare city (the broken-image bug)', () => {
+    const url = 'https://x.supabase.co/storage/v1/object/public/career-hero-images/Perth/Perth 1.jpg';
+    expect(maskIdentity(url, { practiceName: 'GP West Group', address: 'Perth, WA' })).toBe(url);
+    expect(maskIdentity('DPA - Perth - Bulk Billing', { practiceName: 'GP West Group', address: 'Perth, WA' }))
+      .toBe('DPA - Perth - Bulk Billing');
+  });
+  it('still strips a real street line even without a house number', () => {
+    expect(maskIdentity('Come to Erina Valley Rd today.', { address: 'Erina Valley Rd, Erina NSW 2250' }))
+      .not.toMatch(/Erina Valley Rd/);
+  });
 });
 
 describe('scrubWriteup', () => {
