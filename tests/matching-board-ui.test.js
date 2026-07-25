@@ -415,6 +415,42 @@ describe('corporate groups — GPs direction leads with the practice too (owner 
     ranking: { generated_at: hoursAgo(4), age_hours: 4, excluded_count: 0 },
   }, overrides || {});
 
+  // The shape 40 of the 64 live rows actually have: no separator, the clinic
+  // alone in title, the corporation in practice_name. These are the rows in the
+  // reported screenshot, and a position-based "||" split does nothing for them.
+  const bareClinic = (roleId, clinic, score) => ({
+    career_role_id: roleId, title: clinic, practice_name: 'ForHealth Group',
+    score, reasons: [], chips: [],
+  });
+  it('bare clinic titles beat a corporate practice_name (the shape most rows have)', () => {
+    const r = corpGpRow({
+      suggestions: [
+        bareClinic('r-a', 'Young Street Medical & Dental Centre', 42),
+        bareClinic('r-b', 'Springfield Medical & Dental Centre', 41),
+      ],
+    });
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('Young Street Medical &amp; Dental Centre');
+    expect(html).toContain('Springfield Medical &amp; Dental Centre');
+    expect(html).not.toMatch(/ats-mb-exname">ForHealth Group /);
+    expect(html).toContain('🏢 ForHealth Group');
+  });
+  it('a bare role title still falls back to practice_name, never headlines the role', () => {
+    const r = corpGpRow({
+      suggestions: [{ career_role_id: 'r-c', title: 'General Practitioner', practice_name: 'The Doctors Werribee', score: 60, reasons: [], chips: [] }],
+    });
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('The Doctors Werribee');
+    expect(html).not.toMatch(/ats-mb-exname">General Practitioner /);
+  });
+  it('clinic-first "||" titles headline the clinic, not the role', () => {
+    const r = corpGpRow({
+      suggestions: [{ career_role_id: 'r-d', title: 'Thornton Medical Centre || General Practitioner', practice_name: 'Thornton Medical Centre', score: 55, reasons: [], chips: [] }],
+    });
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('Thornton Medical Centre');
+    expect(html).not.toMatch(/ats-mb-exname">General Practitioner /);
+  });
   it('ranked-match rows name the distinct openings, not one repeated corporation', () => {
     const html = MB.mbExpandHtml(corpGpRow(), {}, NOW);
     expect(html).toContain('Greenway Medical Centre');

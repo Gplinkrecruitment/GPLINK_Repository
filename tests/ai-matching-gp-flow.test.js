@@ -478,6 +478,35 @@ describe('buildMatchEmailHtml', () => {
 describe('atsJobDisplayNames — practice, never the corporation', () => {
   const names = (job, practice) => serverModule.__testUtils.atsJobDisplayNames(job, practice);
 
+  // The dominant real shape: 40 of the 64 live career_roles rows look like
+  // this — no separator at all, the clinic sitting alone in title, the
+  // corporation in practice_name. Every ForHealth and Spectrum row is one of
+  // these, and they are exactly the rows that rendered as a wall of identical
+  // "ForHealth Group" headlines.
+  it('uses a bare clinic title over a corporate practice_name (the common case)', () => {
+    const n = names({ title: 'Young Street Medical & Dental Centre', practice_name: 'ForHealth Group' }, { name: 'ForHealth Group' });
+    expect(n.practice).toBe('Young Street Medical & Dental Centre');
+    expect(n.group).toBe('ForHealth Group');
+  });
+  it('does NOT mistake a bare role title for a clinic name', () => {
+    // practice_name is the clinic here — the title carries no clinic at all.
+    expect(names({ title: 'General Practitioner', practice_name: 'The Doctors Werribee' }, {}).practice).toBe('The Doctors Werribee');
+    expect(names({ title: 'DPA - Erina (Central Coast) - Mixed Billing', practice_name: 'Erina Medical Centre' }, {}).practice).toBe('Erina Medical Centre');
+  });
+  // The separator appears in BOTH orders in live data, so position cannot
+  // decide which half is the clinic — which half reads as a job title does.
+  it('handles "clinic || role" as well as "role || clinic"', () => {
+    const roleFirst = names({ title: 'General Practitioner || Carrara Family Practice', practice_name: 'Carrara Family Practice' }, {});
+    expect(roleFirst.practice).toBe('Carrara Family Practice');
+    expect(roleFirst.role).toBe('General Practitioner');
+
+    const clinicFirst = names({ title: 'Thornton Medical Centre || General Practitioner', practice_name: 'Thornton Medical Centre' }, {});
+    expect(clinicFirst.practice).toBe('Thornton Medical Centre');
+    expect(clinicFirst.role).toBe('General Practitioner');
+    // The regression this replaces: the old position-based split returned the
+    // second half blindly, so a clinic-first title headlined as the job title.
+    expect(clinicFirst.practice).not.toBe('General Practitioner');
+  });
   it('leads with the opening name when the practice row is the corporation', () => {
     const n = names({ title: 'General Practitioner || Greenway Medical Centre', practice_name: 'ForHealth Group' }, { name: 'ForHealth Group' });
     expect(n.practice).toBe('Greenway Medical Centre');

@@ -30126,27 +30126,45 @@ function _matchFinalCallTimeLabel(expiresAtIso, nowDate) {
   } catch (e) { return ''; }
 }
 
-// Server-side twin of mbPracticeDisplay() in js/ceo-ats-matching.js. Corporate
-// groups (ForHealth, GP West Group, …) post many openings under one
-// practice_name — and the practices row behind practice_id is the CORPORATION,
-// not the clinic — so the opening's own name only exists after the legacy "||"
-// separator in career_roles.title. Matching surfaces lead with the opening and
-// treat the corporation as secondary (owner call 2026-07-12, extended to the
-// GP-facing surfaces 2026-07-26). Splitting here also keeps the raw "||" out of
-// GP-facing copy, which used to render verbatim in the match email.
+// Server-side twin of mbPracticeDisplay() in js/ceo-ats-matching.js — see the
+// row survey in that function's comment for why the rule is shaped this way.
+//
+// Short version: for a corporate group the practices row behind practice_id is
+// the CORPORATION (every ForHealth role shares one practice_id), so the clinic
+// name exists only in career_roles.title. The "||" separator is on under a
+// third of rows and appears in both orders, so which half is the clinic is
+// decided by which half reads as a job title — not by position. Unrecognised
+// shapes fall back to practice_name, i.e. the historical behaviour.
+//
+// Splitting here also keeps the raw "||" out of GP-facing copy, which used to
+// render verbatim in the match email.
+var ATS_ROLEISH = /^\s*(?:vr\s+)?(?:general\s+practitioner|gp)\b|^\s*dpa\s*[-–—]|\bbilling\b/i;
+var ATS_CLINICISH = /medical|clinic|practice|health|surgery|doctors|centre|center/i;
+
+function atsSplitJobTitle(raw) {
+  var idx = raw.indexOf('||');
+  if (idx !== -1) {
+    var a = raw.slice(0, idx).trim();
+    var b = raw.slice(idx + 2).trim();
+    if (ATS_ROLEISH.test(a) && !ATS_ROLEISH.test(b)) return { clinic: b, role: a };
+    if (ATS_ROLEISH.test(b) && !ATS_ROLEISH.test(a)) return { clinic: a, role: b };
+    return { clinic: b, role: a };
+  }
+  if (ATS_ROLEISH.test(raw)) return { clinic: '', role: raw };
+  if (ATS_CLINICISH.test(raw)) return { clinic: raw, role: '' };
+  return { clinic: '', role: raw };
+}
+
 function atsJobDisplayNames(jobRow, practiceRow) {
   var j = jobRow || {};
   var p = practiceRow || {};
-  var raw = String(j.title || '');
-  var idx = raw.indexOf('||');
-  var role = (idx === -1 ? raw : raw.slice(0, idx)).trim();
-  var opening = idx === -1 ? '' : raw.slice(idx + 2).trim();
+  var parts = atsSplitJobTitle(String(j.title || '').trim());
   var norm = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); };
   var owner = String(p.name || j.practice_name || '').trim();
-  var isGroup = !!(opening && owner && norm(opening) !== norm(owner));
+  var isGroup = !!(parts.clinic && owner && norm(parts.clinic) !== norm(owner));
   return {
-    practice: (isGroup ? opening : (owner || opening || '')).trim(),
-    role: role,
+    practice: (isGroup ? parts.clinic : (owner || parts.clinic || '')).trim(),
+    role: parts.role,
     group: isGroup ? owner : ''
   };
 }

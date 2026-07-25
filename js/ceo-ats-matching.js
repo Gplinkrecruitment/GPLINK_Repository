@@ -298,26 +298,57 @@
     );
   }
 
-  // Corporate groups (ForHealth, GP West Group, …) post many openings under
-  // one practice_name; the opening's own name lives after the legacy "||"
-  // separator in the title. The board leads with the opening and shows the
-  // group as a small click-through tile instead (owner call 2026-07-12).
-  // Both directions go through this: on the GPs side every ranked row for a
-  // corporate GP otherwise read as the same "ForHealth Group" headline, so the
-  // list gave no way to tell the openings apart (owner call 2026-07-26).
+  // Which name is the CLINIC and which is the corporation, over career_roles
+  // rows as they actually are (surveyed across all 64 live rows 2026-07-26):
+  //
+  //   40  no separator, title IS the clinic, practice_name is the corporation
+  //       ("Young Street Medical & Dental Centre" / "ForHealth Group") — every
+  //       ForHealth and Spectrum row shares ONE practice_id, so the practices
+  //       table has no per-clinic record and the title is the only place the
+  //       clinic name exists;
+  //   13  "role || clinic"  ("General Practitioner || Carrara Family Practice");
+  //    5  "clinic || role"  ("Perfect Medical Care || General Practitioner");
+  //    5  no separator, title is a role, practice_name is the clinic;
+  //    1  title and practice_name identical.
+  //
+  // So the separator is present on under a third of rows and appears in BOTH
+  // orders — position cannot decide which half is which. What does decide it is
+  // whether a part reads as a job title. Everything else falls back to
+  // practice_name, i.e. today's behaviour, so an unrecognised shape can only
+  // ever be as wrong as it already was.
+  //
+  // Keep in sync with atsJobDisplayNames() in server.js.
+  var MB_ROLEISH = /^\s*(?:vr\s+)?(?:general\s+practitioner|gp)\b|^\s*dpa\s*[-–—]|\bbilling\b/i;
+  var MB_CLINICISH = /medical|clinic|practice|health|surgery|doctors|centre|center/i;
+
+  function mbSplitTitle(raw) {
+    var idx = raw.indexOf('||');
+    if (idx !== -1) {
+      var a = raw.slice(0, idx).trim();
+      var b = raw.slice(idx + 2).trim();
+      // Whichever half is the job title identifies the other as the clinic. If
+      // that is ambiguous, fall back to the historical "role || clinic" order.
+      if (MB_ROLEISH.test(a) && !MB_ROLEISH.test(b)) return { clinic: b, role: a };
+      if (MB_ROLEISH.test(b) && !MB_ROLEISH.test(a)) return { clinic: a, role: b };
+      return { clinic: b, role: a };
+    }
+    if (MB_ROLEISH.test(raw)) return { clinic: '', role: raw };
+    if (MB_CLINICISH.test(raw)) return { clinic: raw, role: '' };
+    return { clinic: '', role: raw };
+  }
+
   function mbPracticeDisplay(job) {
     job = job || {};
-    var raw = String(job.title || '');
-    var idx = raw.indexOf('||');
-    var role = (idx === -1 ? raw : raw.slice(0, idx)).trim();
-    var opening = idx === -1 ? '' : raw.slice(idx + 2).trim();
+    var parts = mbSplitTitle(String(job.title || '').trim());
     var norm = function (s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); };
-    var pname = job.practice_name || '';
-    var isGroup = !!(opening && pname && norm(opening) !== norm(pname));
+    var owner = String(job.practice_name || '').trim();
+    // Only call it a group when the clinic and the owner are genuinely
+    // different names — an independent practice names itself in both fields.
+    var isGroup = !!(parts.clinic && owner && norm(parts.clinic) !== norm(owner));
     return {
-      heading: (isGroup ? opening : (pname || opening || role)) || 'Practice',
-      sub: role,
-      groupName: isGroup ? pname : ''
+      heading: (isGroup ? parts.clinic : (owner || parts.clinic || parts.role)) || 'Practice',
+      sub: parts.role,
+      groupName: isGroup ? owner : ''
     };
   }
 
