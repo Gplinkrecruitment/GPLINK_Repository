@@ -20351,6 +20351,46 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso) {
   } catch (e) { console.warn('[calendly] ensureLeadBookedCallAt error for', em, ':', e && e.message); }
 }
 
+// Recover a booked lead's missing call time from scheduled_calls. ensureLeadBookedCallAt
+// only stamps call_at on a LIVE Calendly webhook, so leads booked before that shipped —
+// and any lead whose slot changed outside the webhook path (e.g. an admin dedupe that
+// cancels a duplicate row) — carry call_booked with no call_at. nextConsultNudge now
+// defers every "after your call" step while the call time is unknown, so without this
+// backfill those leads would silently stall. Reads the soonest FUTURE non-cancelled
+// consultation, else the most recent past one, and persists it so the lookup is a
+// one-time cost per lead. Returns the ISO call time, or '' when there is no live call
+// (correct: nothing is "after" a call that isn't happening). Best-effort.
+async function backfillLeadCallAtFromCalls(leadRow) {
+  const em = String((leadRow && leadRow.email) || '').trim().toLowerCase();
+  if (!em || !isSupabaseDbConfigured()) return '';
+  if (!leadRow.metadata || !leadRow.metadata.consult) return '';
+  try {
+    const nowIso = new Date().toISOString();
+    const base = 'select=scheduled_at&invitee_email=eq.' + encodeURIComponent(em) +
+      '&meeting_kind=eq.consultation&status=neq.cancelled&scheduled_at=not.is.null';
+    // Soonest upcoming call first; a lead mid-drip with a future slot must anchor on
+    // THAT slot, not on a stale earlier one.
+    let r = await supabaseDbRequest('scheduled_calls',
+      base + '&scheduled_at=gte.' + encodeURIComponent(nowIso) + '&order=scheduled_at.asc&limit=1');
+    let rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    if (!rows.length) {
+      r = await supabaseDbRequest('scheduled_calls', base + '&order=scheduled_at.desc&limit=1');
+      rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    }
+    const callAt = rows.length ? String(rows[0].scheduled_at || '') : '';
+    if (!callAt) return '';
+    const c = leadRow.metadata.consult;
+    const md = Object.assign({}, leadRow.metadata, { consult: Object.assign({}, c, { call_at: callAt }) });
+    const up = await updateSiteEnquiryRow(leadRow.id, { metadata: md });
+    // Only claim the anchor once it is durably stored — a failed write would otherwise
+    // let this run send a call-anchored nudge that the next run can't reproduce.
+    if (!up) { console.warn('[ConsultNudge] call_at backfill write failed for', em); return ''; }
+    leadRow.metadata = md;
+    console.log('[ConsultNudge] Backfilled call_at', callAt, 'for', em);
+    return callAt;
+  } catch (e) { console.warn('[ConsultNudge] call_at backfill error for', em, ':', e && e.message); return ''; }
+}
+
 // When a GP signs up (or logs in), attach any prior direct consultation booked with THEIR OWN
 // account email — and its AI summary — to their account so it surfaces on their GP file (which
 // reads meetings by case_id). Authorization is holding an authenticated session for that email;
@@ -35081,6 +35121,15 @@ async function handleApi(req, res, pathname) {
         // qualification — booking a call is the strongest intent there is. screened_out (an
         // explicit "not a GP") still stops them.
         if (cnConsult.stopped || cnConsult.screened_out || (cnConsult.qualified !== true && !cnConsult.call_booked)) { cnSkipped++; continue; }
+        // A booked lead with no call_at can't have its "after your call" steps scheduled
+        // (nextConsultNudge defers them), so recover the slot from scheduled_calls first.
+        // Persisted by the helper, so this costs one lookup per lead, not one per hour.
+        if (cnConsult.call_booked && !cnConsult.call_at) {
+          var cnBackfilled = await backfillLeadCallAtFromCalls(cnRow);
+          // Re-point BOTH locals at the rewritten metadata — every later write in this
+          // iteration spreads cnMeta, so a stale reference would drop call_at again.
+          if (cnBackfilled) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
+        }
         var cnCallAtMs = cnConsult.call_at ? new Date(cnConsult.call_at).getTime() : NaN;
         var cnDue = consultLead.nextConsultNudge({
           consult: cnConsult,
