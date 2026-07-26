@@ -112,28 +112,58 @@
       text-align: center;
     }
 
-    .social-row {
+    /* Sits below the primary submit button, separated by an "or" rule. Full-width
+       buttons with a visible label rather than bare icons — a lone unlabelled glyph
+       gave no clue what it did, and "Continue with Google" is also what Google's own
+       branding guidance asks for. */
+    .social-divider {
       display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      color: var(--gp-muted);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .social-divider::before,
+    .social-divider::after {
+      content: "";
+      flex: 1 1 auto;
+      height: 1px;
+      background: var(--gp-border);
+    }
+
+    .social-row {
+      display: grid;
       gap: 10px;
-      margin-bottom: 6px;
+      margin-top: 12px;
     }
 
     .social-btn {
-      border: 1px solid var(--gp-blue-border);
-      border-radius: var(--gp-r-pill);
-      width: 44px;
-      min-height: 36px;
+      border: 1px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-md);
+      width: 100%;
+      min-height: 46px;
       background: var(--gp-surface);
-      color: var(--gp-blue-ink);
+      color: var(--gp-ink);
       font: inherit;
-      font-size: 13px;
-      font-weight: 700;
+      font-size: 14px;
+      font-weight: 600;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0;
+      gap: 10px;
+      padding: 0 18px;
       transition: border-color var(--gp-dur-fast) var(--gp-ease), background-color var(--gp-dur-fast) var(--gp-ease), transform var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
+    }
+
+    .social-btn[disabled] {
+      opacity: 0.55;
+      cursor: default;
     }
 
     .social-btn:hover {
@@ -148,9 +178,10 @@
     }
 
     .social-icon {
-      width: 17px;
-      height: 17px;
+      width: 18px;
+      height: 18px;
       display: block;
+      flex: 0 0 auto;
     }
 
     .sr-only {
@@ -772,24 +803,6 @@
       <h1 class="auth-title">Start your journey</h1>
       <p class="auth-sub">Your pathway to practising in Australia begins here.</p>
 
-      <div class="social-row" role="group" aria-label="Social sign up">
-        <button class="social-btn" id="appleSignupBtn" type="button" aria-label="Continue with Apple">
-          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d="M16.84 12.32c.02 2.29 2.02 3.05 2.04 3.06-.02.05-.32 1.1-1.06 2.19-.64.94-1.3 1.88-2.35 1.9-1.03.02-1.36-.61-2.54-.61-1.18 0-1.55.59-2.52.63-1.01.04-1.78-1.01-2.42-1.95-1.31-1.9-2.3-5.36-.96-7.69.67-1.15 1.87-1.88 3.18-1.9 1-.02 1.95.67 2.54.67.59 0 1.69-.83 2.85-.71.49.02 1.86.2 2.74 1.5-.07.04-1.64.96-1.63 2.91zM15.2 5.06c.54-.65.91-1.56.81-2.46-.78.03-1.72.52-2.28 1.17-.5.58-.94 1.5-.82 2.38.87.07 1.75-.44 2.29-1.09z"/>
-          </svg>
-          <span class="sr-only">Apple</span>
-        </button>
-        <button class="social-btn" id="googleSignupBtn" type="button" aria-label="Continue with Google">
-          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.26-.96 2.32-2.04 3.03l3.29 2.55c1.92-1.77 3.03-4.38 3.03-7.47 0-.71-.06-1.39-.18-2.05H12z"/>
-            <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.29-2.55c-.91.61-2.08.97-3.32.97-2.55 0-4.7-1.72-5.47-4.03H3.13v2.63A9.98 9.98 0 0 0 12 22z"/>
-            <path fill="#4285F4" d="M6.53 13.96A5.99 5.99 0 0 1 6.22 12c0-.68.12-1.34.31-1.96V7.41H3.13A9.98 9.98 0 0 0 2 12c0 1.61.39 3.13 1.13 4.59l3.4-2.63z"/>
-            <path fill="#FBBC05" d="M12 5.99c1.47 0 2.78.51 3.82 1.52l2.86-2.86C16.96 3.05 14.7 2 12 2A9.98 9.98 0 0 0 3.13 7.41l3.4 2.63C7.3 7.71 9.45 5.99 12 5.99z"/>
-          </svg>
-          <span class="sr-only">Google</span>
-        </button>
-      </div>
-
       <form class="auth-form" id="signUpForm" novalidate>
         <div class="field two-col">
           <div>
@@ -839,6 +852,26 @@
         </div>
 
         <button class="submit-btn" id="signupSubmitBtn" type="submit">CREATE ACCOUNT</button>
+
+        <div class="social-divider">or</div>
+        <div class="social-row" role="group" aria-label="Sign up with a social account">
+          <button class="social-btn" id="appleSignupBtn" type="button">
+            <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M16.84 12.32c.02 2.29 2.02 3.05 2.04 3.06-.02.05-.32 1.1-1.06 2.19-.64.94-1.3 1.88-2.35 1.9-1.03.02-1.36-.61-2.54-.61-1.18 0-1.55.59-2.52.63-1.01.04-1.78-1.01-2.42-1.95-1.31-1.9-2.3-5.36-.96-7.69.67-1.15 1.87-1.88 3.18-1.9 1-.02 1.95.67 2.54.67.59 0 1.69-.83 2.85-.71.49.02 1.86.2 2.74 1.5-.07.04-1.64.96-1.63 2.91zM15.2 5.06c.54-.65.91-1.56.81-2.46-.78.03-1.72.52-2.28 1.17-.5.58-.94 1.5-.82 2.38.87.07 1.75-.44 2.29-1.09z"/>
+            </svg>
+            <span>Continue with Apple</span>
+          </button>
+          <button class="social-btn" id="googleSignupBtn" type="button">
+            <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.26-.96 2.32-2.04 3.03l3.29 2.55c1.92-1.77 3.03-4.38 3.03-7.47 0-.71-.06-1.39-.18-2.05H12z"/>
+              <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.29-2.55c-.91.61-2.08.97-3.32.97-2.55 0-4.7-1.72-5.47-4.03H3.13v2.63A9.98 9.98 0 0 0 12 22z"/>
+              <path fill="#4285F4" d="M6.53 13.96A5.99 5.99 0 0 1 6.22 12c0-.68.12-1.34.31-1.96V7.41H3.13A9.98 9.98 0 0 0 2 12c0 1.61.39 3.13 1.13 4.59l3.4-2.63z"/>
+              <path fill="#FBBC05" d="M12 5.99c1.47 0 2.78.51 3.82 1.52l2.86-2.86C16.96 3.05 14.7 2 12 2A9.98 9.98 0 0 0 3.13 7.41l3.4 2.63C7.3 7.71 9.45 5.99 12 5.99z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+        </div>
+
         <p class="status" id="signUpStatus" role="status" aria-live="polite"></p>
       </form>
     </div>
@@ -847,24 +880,6 @@
       <img class="auth-brand gp-reveal gp-reveal-1" src="../media/images/gp-link-logo.png" alt="GP Link" />
       <h1 class="auth-title gp-reveal gp-reveal-2">Welcome back</h1>
       <p class="auth-sub gp-reveal gp-reveal-2">Pick up exactly where you left off.</p>
-
-      <div class="social-row gp-reveal gp-reveal-3" role="group" aria-label="Social sign in">
-        <button class="social-btn" id="appleSigninBtn" type="button" aria-label="Continue with Apple">
-          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d="M16.84 12.32c.02 2.29 2.02 3.05 2.04 3.06-.02.05-.32 1.1-1.06 2.19-.64.94-1.3 1.88-2.35 1.9-1.03.02-1.36-.61-2.54-.61-1.18 0-1.55.59-2.52.63-1.01.04-1.78-1.01-2.42-1.95-1.31-1.9-2.3-5.36-.96-7.69.67-1.15 1.87-1.88 3.18-1.9 1-.02 1.95.67 2.54.67.59 0 1.69-.83 2.85-.71.49.02 1.86.2 2.74 1.5-.07.04-1.64.96-1.63 2.91zM15.2 5.06c.54-.65.91-1.56.81-2.46-.78.03-1.72.52-2.28 1.17-.5.58-.94 1.5-.82 2.38.87.07 1.75-.44 2.29-1.09z"/>
-          </svg>
-          <span class="sr-only">Apple</span>
-        </button>
-        <button class="social-btn" id="googleSigninBtn" type="button" aria-label="Continue with Google">
-          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.26-.96 2.32-2.04 3.03l3.29 2.55c1.92-1.77 3.03-4.38 3.03-7.47 0-.71-.06-1.39-.18-2.05H12z"/>
-            <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.29-2.55c-.91.61-2.08.97-3.32.97-2.55 0-4.7-1.72-5.47-4.03H3.13v2.63A9.98 9.98 0 0 0 12 22z"/>
-            <path fill="#4285F4" d="M6.53 13.96A5.99 5.99 0 0 1 6.22 12c0-.68.12-1.34.31-1.96V7.41H3.13A9.98 9.98 0 0 0 2 12c0 1.61.39 3.13 1.13 4.59l3.4-2.63z"/>
-            <path fill="#FBBC05" d="M12 5.99c1.47 0 2.78.51 3.82 1.52l2.86-2.86C16.96 3.05 14.7 2 12 2A9.98 9.98 0 0 0 3.13 7.41l3.4 2.63C7.3 7.71 9.45 5.99 12 5.99z"/>
-          </svg>
-          <span class="sr-only">Google</span>
-        </button>
-      </div>
 
       <form class="auth-form gp-reveal gp-reveal-4" id="signInForm" novalidate>
         <div class="field">
@@ -881,6 +896,26 @@
 
         <button class="forgot-link" id="forgotPasswordBtn" type="button">Forgot password?</button>
         <button class="submit-btn" id="signinSubmitBtn" type="submit">SIGN IN</button>
+
+        <div class="social-divider">or</div>
+        <div class="social-row" role="group" aria-label="Sign in with a social account">
+          <button class="social-btn" id="appleSigninBtn" type="button">
+            <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M16.84 12.32c.02 2.29 2.02 3.05 2.04 3.06-.02.05-.32 1.1-1.06 2.19-.64.94-1.3 1.88-2.35 1.9-1.03.02-1.36-.61-2.54-.61-1.18 0-1.55.59-2.52.63-1.01.04-1.78-1.01-2.42-1.95-1.31-1.9-2.3-5.36-.96-7.69.67-1.15 1.87-1.88 3.18-1.9 1-.02 1.95.67 2.54.67.59 0 1.69-.83 2.85-.71.49.02 1.86.2 2.74 1.5-.07.04-1.64.96-1.63 2.91zM15.2 5.06c.54-.65.91-1.56.81-2.46-.78.03-1.72.52-2.28 1.17-.5.58-.94 1.5-.82 2.38.87.07 1.75-.44 2.29-1.09z"/>
+            </svg>
+            <span>Continue with Apple</span>
+          </button>
+          <button class="social-btn" id="googleSigninBtn" type="button">
+            <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.26-.96 2.32-2.04 3.03l3.29 2.55c1.92-1.77 3.03-4.38 3.03-7.47 0-.71-.06-1.39-.18-2.05H12z"/>
+              <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.29-2.55c-.91.61-2.08.97-3.32.97-2.55 0-4.7-1.72-5.47-4.03H3.13v2.63A9.98 9.98 0 0 0 12 22z"/>
+              <path fill="#4285F4" d="M6.53 13.96A5.99 5.99 0 0 1 6.22 12c0-.68.12-1.34.31-1.96V7.41H3.13A9.98 9.98 0 0 0 2 12c0 1.61.39 3.13 1.13 4.59l3.4-2.63z"/>
+              <path fill="#FBBC05" d="M12 5.99c1.47 0 2.78.51 3.82 1.52l2.86-2.86C16.96 3.05 14.7 2 12 2A9.98 9.98 0 0 0 3.13 7.41l3.4 2.63C7.3 7.71 9.45 5.99 12 5.99z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+        </div>
+
         <p class="status" id="signInStatus" role="status" aria-live="polite"></p>
       </form>
     </div>
@@ -964,9 +999,13 @@
       const btn = document.getElementById(spec.id);
       if (btn) btn.remove();
     });
-    // If every provider is off, the row would collapse to an empty gap above the form.
+    // If every provider is off, hide the row and its "or" rule too — otherwise the
+    // divider is left stranded under the submit button with nothing beneath it.
     document.querySelectorAll(".social-row").forEach((row) => {
-      if (!row.querySelector(".social-btn")) row.hidden = true;
+      if (row.querySelector(".social-btn")) return;
+      row.hidden = true;
+      const divider = row.previousElementSibling;
+      if (divider && divider.classList.contains("social-divider")) divider.hidden = true;
     });
     const oauthButtons = oauthButtonSpecs
       .filter((spec) => OAUTH_PROVIDERS[spec.provider])
