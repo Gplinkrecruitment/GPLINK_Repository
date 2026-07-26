@@ -6323,12 +6323,11 @@ async function matchEmailToCase(emailAddresses, vaEmail, threadId) {
 
   var userIds = casesRes.data.map(function(c) { return c.user_id; });
   if (userIds.length === 0) return [];
-  var profilesRes = await supabaseDbRequest('user_profiles',
-    'select=user_id,email&user_id=in.(' + userIds.join(',') + ')');
+  var profileRows = await supabaseDbRequestByIds('user_profiles', userIds, function (inList) {
+    return 'select=user_id,email&user_id=in.(' + inList + ')&limit=' + SUPABASE_IN_CHUNK_SIZE;
+  });
   var profileMap = {};
-  if (profilesRes.ok && Array.isArray(profilesRes.data)) {
-    profilesRes.data.forEach(function(p) { profileMap[p.user_id] = (p.email || '').toLowerCase(); });
-  }
+  profileRows.forEach(function(p) { profileMap[p.user_id] = (p.email || '').toLowerCase(); });
 
   var matches = [];
   for (var ci = 0; ci < casesRes.data.length; ci++) {
@@ -10727,7 +10726,10 @@ async function enumerateIncompleteOnboardingGps() {
     var onbAdminIds = await getAdminUserIdSet();
     var onbProfRes = await supabaseDbRequest('user_profiles',
       'select=user_id,email,first_name,last_name,account_status,onboarding_completed_at,registration_country,created_at,updated_at' +
-      '&onboarding_completed_at=is.null&limit=2000');
+      // Every GP who signed up but never finished the wizard sits here until they
+      // finish or are purged, so this fills faster than total GP count — a big
+      // ad campaign can park thousands. Past the cap they'd never be nudged.
+      '&onboarding_completed_at=is.null&limit=10000');
     var onbProfs = (onbProfRes.ok && Array.isArray(onbProfRes.data)) ? onbProfRes.data : [];
     onbProfs = onbProfs.filter(function (p) {
       var st = String(p.account_status || 'active').toLowerCase();
@@ -31490,6 +31492,68 @@ function _atsInList(ids) {
   return ids.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
 }
 
+// Maximum ids to put in a single PostgREST `in.(...)` filter.
+//
+// The whole id list travels in the URL, so an unchunked list of case/user ids
+// grows the request until Supabase rejects it outright. Measured against prod
+// 2026-07-27: 650 UUIDs → HTTP 200, 700 → HTTP 400 (~26KB URL). supabaseDbRequest
+// turns any non-2xx into `ok:false`, and every caller of these list queries falls
+// back to `[]` — so past ~650 active GPs the CEO task views would have silently
+// rendered "no tasks" rather than erroring. Same silent-400 class as
+// docs/…/supabase schema drift: a broken query looks like an empty result.
+//
+// 200 ids keeps each request around 8KB, well inside the limit, and matches the
+// batch size atsBuildGpMatchInputs already uses.
+const SUPABASE_IN_CHUNK_SIZE = 200;
+
+// Row cap shared by the CEO open-task KPI fetch and its drilldowns. These MUST
+// stay identical or the tile and the list it opens disagree (see F11a, audit
+// 2026-07-20). ~4 open tasks per active GP, so this covers >10k GPs.
+const CEO_OPEN_TASK_ROW_CAP = 50000;
+
+// Run one `in.(...)` query per chunk of ids and concatenate the rows.
+// buildQuery receives the URL-encoded, quoted id list for its chunk.
+// Returns rows only — a failed chunk contributes nothing, matching the
+// `ok ? data : []` fallback every existing caller already used.
+async function supabaseDbRequestByIds(table, ids, buildQuery, opts) {
+  var unique = Array.from(new Set(
+    (ids || []).filter(function (v) { return v != null && v !== ''; }).map(String)
+  ));
+  var cap = (opts && opts.cap != null) ? opts.cap : Infinity;
+  var out = [];
+  for (var ci = 0; ci < unique.length && out.length < cap; ci += SUPABASE_IN_CHUNK_SIZE) {
+    var chunk = unique.slice(ci, ci + SUPABASE_IN_CHUNK_SIZE);
+    var r = await supabaseDbRequest(table, buildQuery(encodeURIComponent(_atsInList(chunk))));
+    if (r.ok && Array.isArray(r.data)) out = out.concat(r.data);
+  }
+  return (cap === Infinity) ? out : out.slice(0, cap);
+}
+
+// Mirrors `order=applied_at.desc` for chunked gp_applications fetches. Sort the
+// merged rows THEN slice to the original cap, so the cap still means "newest N
+// overall" and not "newest N of whichever chunk came back first".
+function _appliedAtDesc(rows) {
+  return rows.sort(function (a, b) {
+    return (Date.parse((b && b.applied_at) || '') || 0) - (Date.parse((a && a.applied_at) || '') || 0);
+  });
+}
+
+// Mirrors PostgREST's `order=priority.asc,created_at.desc` in JS. A chunked
+// fetch only orders rows WITHIN each chunk, so the merged list has to be
+// re-sorted or the drilldown would list tasks grouped by chunk. priority is a
+// text column (low/normal/high/urgent), so ascending is alphabetical — odd, but
+// it is the existing behaviour and this keeps it byte-identical. Postgres sorts
+// NULLs last on ASC.
+function _ceoOpenTaskSort(rows) {
+  return rows.sort(function (a, b) {
+    var ap = a ? a.priority : null, bp = b ? b.priority : null;
+    if (ap == null && bp != null) return 1;
+    if (bp == null && ap != null) return -1;
+    if (ap != null && bp != null && String(ap) !== String(bp)) return String(ap) < String(bp) ? -1 : 1;
+    return (Date.parse((b && b.created_at) || '') || 0) - (Date.parse((a && a.created_at) || '') || 0);
+  });
+}
+
 // Batch-build { userId -> gp match-input object } for checkMatchEligibility +
 // the AI ranking prompt. Every gate mirrors an EXISTING server-side check
 // rather than re-deriving new logic:
@@ -45265,11 +45329,10 @@ async function handleApi(req, res, pathname) {
         const allRoleIds = [];
         for (const c of centres) for (const jo of c.job_openings) allRoleIds.push(jo.id);
         if (allRoleIds.length) {
-          const appsResult = await supabaseDbRequest(
-            'gp_applications',
-            'select=id,user_id,career_role_id,status,applied_at&career_role_id=in.(' + allRoleIds.join(',') + ')&order=applied_at.desc&limit=500'
-          );
-          const apps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
+          const apps = _appliedAtDesc(await supabaseDbRequestByIds(
+            'gp_applications', allRoleIds,
+            (inList) => 'select=id,user_id,career_role_id,status,applied_at&career_role_id=in.(' + inList + ')&order=applied_at.desc&limit=500'
+          )).slice(0, 500);
           const appsByRole = {};
           for (const a of apps) {
             const rid = String(a.career_role_id);
@@ -45326,11 +45389,10 @@ async function handleApi(req, res, pathname) {
       const roleTitleMap = {};
       for (const r of roleRows) roleTitleMap[String(r.id)] = r.title || 'General Practitioner';
 
-      const appsResult = await supabaseDbRequest(
-        'gp_applications',
-        'select=id,user_id,career_role_id,status,applied_at&career_role_id=in.(' + roleIds.join(',') + ')&order=applied_at.desc&limit=200'
-      );
-      const apps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
+      const apps = _appliedAtDesc(await supabaseDbRequestByIds(
+        'gp_applications', roleIds,
+        (inList) => 'select=id,user_id,career_role_id,status,applied_at&career_role_id=in.(' + inList + ')&order=applied_at.desc&limit=200'
+      )).slice(0, 200);
 
       const enriched = [];
       for (const app of apps.slice(0, 100)) {
@@ -52212,9 +52274,14 @@ Return ONLY valid JSON with no markdown formatting:
     if (!isSupabaseDbConfigured() || !ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: true, message: 'Not configured', refreshed: 0 }); return; }
     const rsStart = Date.now();
     if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: true, message: 'AI budget reached', refreshed: 0 }); return; }
-    const rsRes = await supabaseDbRequest('registration_cases', 'select=id,updated_at,last_gp_activity_at,ai_handover_summary&status=eq.active&limit=500');
+    // Scan cap was 500: active cases past that were never even considered, so
+    // those GPs' summaries were never generated at all. Per-run cap was 5
+    // (= 240/day at the :00/:30 schedule), which could not keep a few hundred
+    // active GPs current. 25 makes the 50s time-box below the binding limit
+    // rather than the cap. Both stay env-tunable.
+    const rsRes = await supabaseDbRequest('registration_cases', 'select=id,updated_at,last_gp_activity_at,ai_handover_summary&status=eq.active&limit=' + Number(process.env.SUMMARY_REFRESH_SCAN || 5000));
     const rsCases = (rsRes.ok && Array.isArray(rsRes.data)) ? rsRes.data : [];
-    const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 5) });
+    const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 25) });
     const rsHost = String(req.headers.host || '').trim();
     let rsRefreshed = 0, rsFailed = 0, rsSkipped = 0;
     for (let rsi = 0; rsi < rsStale.length; rsi++) {
@@ -61475,7 +61542,7 @@ Return ONLY valid JSON with no markdown formatting:
     var [fullRosterRows, rsoCasesRes, rsoTasksRes] = await Promise.all([
       loadRsoTeam({ includeInactive: true }),
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=2000')
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=' + CEO_OPEN_TASK_ROW_CAP)
     ]);
     var rosterRows = fullRosterRows.filter(function (r) { return r.active !== false; });
 
@@ -61577,7 +61644,7 @@ Return ONLY valid JSON with no markdown formatting:
     var [sumRoster, sumCasesRes, sumTasksRes] = await Promise.all([
       loadRsoTeam({ includeInactive: true }),
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=2000')
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=' + CEO_OPEN_TASK_ROW_CAP)
     ]);
 
     var sumAllCases = (sumCasesRes.ok && Array.isArray(sumCasesRes.data)) ? sumCasesRes.data : [];
@@ -61612,11 +61679,10 @@ Return ONLY valid JSON with no markdown formatting:
     var userIds = rsoCases.map(function (c) { return c.user_id; }).filter(Boolean);
     var profileMap = {};
     if (userIds.length > 0) {
-      var profRes = await supabaseDbRequest('user_profiles',
-        'select=user_id,email,first_name,last_name,phone&user_id=in.(' + userIds.join(',') + ')');
-      if (profRes.ok && Array.isArray(profRes.data)) {
-        profRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
-      }
+      var profRows = await supabaseDbRequestByIds('user_profiles', userIds, function (inList) {
+        return 'select=user_id,email,first_name,last_name,phone&user_id=in.(' + inList + ')&limit=' + SUPABASE_IN_CHUNK_SIZE;
+      });
+      profRows.forEach(function (p) { profileMap[p.user_id] = p; });
     }
 
     var gps = rsoCases.map(function (c) {
@@ -61662,7 +61728,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Active tasks (same statuses as the admin ops queue), excluding caseless whatsapp_help.
     var opsTasksRes = await supabaseDbRequest('registration_tasks',
-      'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc&limit=2000');
+      'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc&limit=' + CEO_OPEN_TASK_ROW_CAP);
     var opsTasks = (opsTasksRes.ok && Array.isArray(opsTasksRes.data) ? opsTasksRes.data : []).filter(function (t) {
       return !(t.task_type === 'whatsapp_help' && !t.case_id);
     });
@@ -61978,11 +62044,11 @@ Return ONLY valid JSON with no markdown formatting:
 
     var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes, interviewCallsRes, escDedicatedRes, escTimelineRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      // F11a (audit 2026-07-20): cap must match the tasks drilldown (limit=10000
-      // there too) — the old limit=1000, ordered newest-first, silently dropped
-      // the OLDEST (= most overdue) open tasks from the KPI while the drilldown
-      // still listed them.
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=created_at.desc&limit=10000'),
+      // F11a (audit 2026-07-20): cap must match the tasks drilldown
+      // (CEO_OPEN_TASK_ROW_CAP there too) — the old limit=1000, ordered
+      // newest-first, silently dropped the OLDEST (= most overdue) open tasks
+      // from the KPI while the drilldown still listed them.
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=created_at.desc&limit=' + CEO_OPEN_TASK_ROW_CAP),
       // F11b (audit 2026-07-20): match the tickets drilldown cap (limit=1000).
       supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=1000'),
       supabaseDbRequest('gp_applications', 'select=*'),
@@ -62154,7 +62220,12 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Velocity — compute avg days between stage transitions
     // Fetch title too for fallback parsing of old events without metadata
-    var timelineRes = await supabaseDbRequest('task_timeline', 'select=case_id,created_at,metadata,title&event_type=eq.stage_change&order=case_id.asc,created_at.asc&limit=2000');
+    // Stage-duration metrics read EVERY stage_change ever recorded (no time
+    // window), so this cap is consumed by history as well as by GP count —
+    // roughly 10-20 rows per GP over a full journey. limit=2000 silently
+    // under-reported stage durations from only a few hundred GPs. 20000 covers
+    // ~1-2k GPs; revisit (or add a time window) when scaling past that.
+    var timelineRes = await supabaseDbRequest('task_timeline', 'select=case_id,created_at,metadata,title&event_type=eq.stage_change&order=case_id.asc,created_at.asc&limit=20000');
     var stageEvents = (timelineRes.ok && Array.isArray(timelineRes.data)) ? timelineRes.data : [];
     var VELOCITY_STAGE_LABELS = { myintealth: 'MyIntealth', amc: 'AMC Portfolio', career: 'Secure Placement', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement' };
     var STAGE_PAIRS = [
@@ -62307,8 +62378,9 @@ Return ONLY valid JSON with no markdown formatting:
       var dCaseIds = dCases.map(function(c) { return c.id; });
       var dTasks = [];
       if (dCaseIds.length > 0) {
-        var dTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + dCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')');
-        dTasks = (dTasksRes.ok && Array.isArray(dTasksRes.data)) ? dTasksRes.data : [];
+        dTasks = await supabaseDbRequestByIds('registration_tasks', dCaseIds, function (inList) {
+          return 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + inList + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=' + CEO_OPEN_TASK_ROW_CAP;
+        }, { cap: CEO_OPEN_TASK_ROW_CAP });
       }
       var dTaskCountByCase = {};
       for (var dti = 0; dti < dTasks.length; dti++) { dTaskCountByCase[dTasks[dti].case_id] = (dTaskCountByCase[dTasks[dti].case_id] || 0) + 1; }
@@ -62352,11 +62424,13 @@ Return ONLY valid JSON with no markdown formatting:
       if (tActiveCaseIds.length > 0) {
         // Fetch all open-work tasks for active cases, then bucket in JS via the lib (#1/#30)
         // F11a (audit 2026-07-20): explicit cap kept IDENTICAL to the dashboard
-        // KPI fetch (limit=10000) so tile and drilldown can never diverge on a
-        // server-side row bound.
-        var tQuery = 'select=*&case_id=in.(' + tActiveCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc&limit=10000';
-        var tTasksRes = await supabaseDbRequest('registration_tasks', tQuery);
-        var tAllOpen = (tTasksRes.ok && Array.isArray(tTasksRes.data)) ? tTasksRes.data : [];
+        // KPI fetch (CEO_OPEN_TASK_ROW_CAP there too) so tile and drilldown can
+        // never diverge on a server-side row bound.
+        // Chunked (2026-07-27): the case_id list used to go into one URL, which
+        // Supabase rejected past ~650 active cases — silently emptying this list.
+        var tAllOpen = _ceoOpenTaskSort(await supabaseDbRequestByIds('registration_tasks', tActiveCaseIds, function (inList) {
+          return 'select=*&case_id=in.(' + inList + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&order=priority.asc,created_at.desc&limit=' + CEO_OPEN_TASK_ROW_CAP;
+        }, { cap: CEO_OPEN_TASK_ROW_CAP }));
         if (tStatusFilter === 'overdue') {
           tTaskList = tAllOpen.filter(function(t) { return ceoMetrics.isOverdue(t, dTodayStr); });
         } else if (tStatusFilter === 'open') {
@@ -62530,8 +62604,9 @@ Return ONLY valid JSON with no markdown formatting:
       var rdCases = rdActiveCases.filter(function(c) { return rdCaseIdSet[c.id]; });
       var rdTasks = [];
       if (rdCaseIds.length > 0) {
-        var rdTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + rdCaseIds.join(',') + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')');
-        rdTasks = (rdTasksRes.ok && Array.isArray(rdTasksRes.data)) ? rdTasksRes.data : [];
+        rdTasks = await supabaseDbRequestByIds('registration_tasks', rdCaseIds, function (inList) {
+          return 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + inList + ')&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=' + CEO_OPEN_TASK_ROW_CAP;
+        }, { cap: CEO_OPEN_TASK_ROW_CAP });
       }
       var rdOpenByCase = {}, rdOverdueByCase = {};
       for (var rdti = 0; rdti < rdTasks.length; rdti++) {
@@ -62562,8 +62637,9 @@ Return ONLY valid JSON with no markdown formatting:
       var vaCaseIds = vaCases.map(function(c) { return c.id; });
       var vaTasks = [];
       if (vaCaseIds.length > 0) {
-        var vaTRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=in.(' + vaCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
-        vaTasks = (vaTRes.ok && Array.isArray(vaTRes.data)) ? vaTRes.data : [];
+        vaTasks = await supabaseDbRequestByIds('registration_tasks', vaCaseIds, function (inList) {
+          return 'select=*&case_id=in.(' + inList + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&limit=' + CEO_OPEN_TASK_ROW_CAP;
+        }, { cap: CEO_OPEN_TASK_ROW_CAP });
       }
       var vaItems = vaCases.map(function(c) {
         return {
