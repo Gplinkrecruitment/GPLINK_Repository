@@ -946,8 +946,32 @@
     const signupSubmitBtnEl = document.getElementById("signupSubmitBtn");
     const forgotPasswordBtnEl = document.getElementById("forgotPasswordBtn");
     const signupCountryDialEl = document.getElementById("signupCountryDial");
-    const oauthButtonIds = ["appleSigninBtn", "googleSigninBtn", "appleSignupBtn", "googleSignupBtn"];
-    const oauthButtons = oauthButtonIds.map((id) => document.getElementById(id)).filter(Boolean);
+    // Which OAuth providers are actually turned on in Supabase. A button for a provider
+    // that is switched off there can only ever fail ("provider is not enabled"), so we
+    // drop it from the page entirely rather than showing a dead control.
+    // Apple stays off until the Apple Developer Program membership is paid and the
+    // provider is configured (Services ID + signed client secret). Flip it to true then
+    // — the buttons and their click handlers come back with no other change needed.
+    const OAUTH_PROVIDERS = { google: true, apple: false };
+    const oauthButtonSpecs = [
+      { id: "appleSigninBtn", provider: "apple" },
+      { id: "googleSigninBtn", provider: "google" },
+      { id: "appleSignupBtn", provider: "apple" },
+      { id: "googleSignupBtn", provider: "google" }
+    ];
+    oauthButtonSpecs.forEach((spec) => {
+      if (OAUTH_PROVIDERS[spec.provider]) return;
+      const btn = document.getElementById(spec.id);
+      if (btn) btn.remove();
+    });
+    // If every provider is off, the row would collapse to an empty gap above the form.
+    document.querySelectorAll(".social-row").forEach((row) => {
+      if (!row.querySelector(".social-btn")) row.hidden = true;
+    });
+    const oauthButtons = oauthButtonSpecs
+      .filter((spec) => OAUTH_PROVIDERS[spec.provider])
+      .map((spec) => document.getElementById(spec.id))
+      .filter(Boolean);
     const BOOTSTRAP_STATE_KEYS = [
       "gp_epic_progress",
       "gp_amc_progress",
@@ -1379,16 +1403,33 @@
       clearErrors("signup");
     }
 
+    function oauthProviderLabel(provider) {
+      if (provider === "apple") return "Apple";
+      if (provider === "facebook") return "Facebook";
+      return "Google";
+    }
+
+    // Supabase's own wording ("Unsupported provider: provider is not enabled") is
+    // meaningless to a GP, and it points them at nothing they can do. Every failure
+    // here has the same practical answer: use email and password instead.
+    function oauthErrorMessage(provider, rawMessage) {
+      const raw = String(rawMessage || "");
+      if (/not enabled|unsupported provider/i.test(raw)) {
+        return `${oauthProviderLabel(provider)} sign-in isn't available right now. Please sign in with your email and password.`;
+      }
+      return raw || `Unable to start ${oauthProviderLabel(provider)} sign-in. Please try your email and password.`;
+    }
+
     async function startOAuth(provider) {
       try {
         const client = await ensureSupabaseClient();
         const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
-        setStatus(activeStatusEl, `Redirecting to ${provider === "apple" ? "Apple" : "Google"}...`);
+        setStatus(activeStatusEl, `Redirecting to ${oauthProviderLabel(provider)}...`);
         const redirectTo = `${window.location.origin}/pages/signin.html`
           + (GP_SIGNIN_NEXT ? ("?next=" + encodeURIComponent(GP_SIGNIN_NEXT)) : "");
         const { error } = await client.auth.signInWithOAuth({ provider, options: { redirectTo } });
         if (error) {
-          setStatus(activeStatusEl, error.message || "Unable to start OAuth sign-in.", "error");
+          setStatus(activeStatusEl, oauthErrorMessage(provider, error.message), "error");
         }
       } catch (err) {
         const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
@@ -1757,10 +1798,11 @@
       });
     }
 
-    document.getElementById("appleSigninBtn").addEventListener("click", () => startOAuth("apple"));
-    document.getElementById("googleSigninBtn").addEventListener("click", () => startOAuth("google"));
-    document.getElementById("appleSignupBtn").addEventListener("click", () => startOAuth("apple"));
-    document.getElementById("googleSignupBtn").addEventListener("click", () => startOAuth("google"));
+    // Buttons for switched-off providers were removed above, so they are skipped here.
+    oauthButtonSpecs.forEach((spec) => {
+      const btn = document.getElementById(spec.id);
+      if (btn) btn.addEventListener("click", () => startOAuth(spec.provider));
+    });
 
     function pickCountryDialFromLocale() {
       const locale = (navigator.language || "en-AU").toUpperCase();
