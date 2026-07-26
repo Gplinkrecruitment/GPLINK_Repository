@@ -37,7 +37,7 @@ describe('AI Matching Task 3 — client wiring (source regex)', () => {
   it('ceo-dashboard.html loads ceo-ats-matching.js with the current cache buster', () => {
     // Bumped by the Task 5 (2026-07-11) matching-board rewrite — see
     // tests/matching-board-ui.test.js for the full board-rewrite coverage.
-    expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260724b"><\/script>/);
+    expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260727a"><\/script>/);
   });
 
   it("js/ceo-ats-shared.js MASTER_PANELS includes 'matching'", () => {

@@ -790,7 +790,12 @@ describe('funnel line — solid through the pipeline, dashed through suggestions
 
 describe('cache buster + dead CSS pruned', () => {
   it('ceo-dashboard.html loads the bumped matching script, and only that tag', () => {
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260724b');
+    // Bumped to 20260727a with the shape-based practice-name rule. The file
+    // deployed fine without this, but browsers keep serving the copy they
+    // cached under the OLD query string, so the fix was invisible in the UI
+    // until the URL changed — the version token IS the delivery mechanism.
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260727a');
+    expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
   });
   it('ceo-dashboard.html loads the bumped board stylesheet (a stale pin serves pre-board CSS from cache)', () => {
