@@ -33756,13 +33756,25 @@ async function handleApi(req, res, pathname) {
   await preloadSessionEpochForRequest(req);
 
   if (pathname === '/api/health' && req.method === 'GET') {
+    // `commit` is the ONLY field here that tracks what is actually deployed —
+    // `build` is a hand-typed string that has been stale since June and cannot
+    // answer "did my push go out?". Vercel injects VERCEL_GIT_COMMIT_SHA at
+    // build time, so comparing this against `git rev-parse origin/main`
+    // settles it in one request, from outside, with no dashboard and no token
+    // (added 2026-07-27 after a fix was reported "live" that had not reached
+    // anyone). Public on purpose: every surface this app changes sits behind
+    // sign-in, so without it a deploy can only be confirmed by a human
+    // eyeballing the UI. A commit SHA on a private repo discloses nothing
+    // usable on its own.
     sendJson(res, 200, {
       ok: true,
       status: 'healthy',
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString(),
-      build: '20260617-ceo-notes'
+      build: '20260617-ceo-notes',
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || 'unknown',
+      branch: process.env.VERCEL_GIT_COMMIT_REF || 'unknown'
     });
     return;
   }

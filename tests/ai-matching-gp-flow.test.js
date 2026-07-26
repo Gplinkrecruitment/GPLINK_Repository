@@ -1111,3 +1111,43 @@ describe('review minor — popup reserve strip derives from expiresAt', () => {
     expect(popupSrc).toContain("reserveInnerHtml = 'for <span class=\"gpmp-cd-u\">5 days</span>'");
   });
 });
+
+// Added 2026-07-27. Every surface this app ships sits behind sign-in, so after
+// a push there was no way — for a person or a session — to confirm from
+// outside which commit production was actually running. `build` is a
+// hand-typed string, stale since June, so it cannot answer that. Vercel
+// injects VERCEL_GIT_COMMIT_SHA at build time; surfacing it on the existing
+// public health endpoint makes "did my push go live?" a single request.
+describe('GET /api/health — reports the deployed commit', () => {
+  it('returns the build-time commit sha and branch alongside the existing fields', async () => {
+    const prevSha = process.env.VERCEL_GIT_COMMIT_SHA;
+    const prevRef = process.env.VERCEL_GIT_COMMIT_REF;
+    process.env.VERCEL_GIT_COMMIT_SHA = 'abc123def4567890';
+    process.env.VERCEL_GIT_COMMIT_REF = 'main';
+    try {
+      const r = await httpReq('GET', '/api/health');
+      expect(r.status).toBe(200);
+      expect(r.body.ok).toBe(true);
+      expect(r.body.commit).toBe('abc123def4567890');
+      expect(r.body.branch).toBe('main');
+      // Existing consumers must keep working.
+      expect(r.body.status).toBe('healthy');
+      expect(typeof r.body.serverTime).toBe('string');
+    } finally {
+      if (prevSha === undefined) delete process.env.VERCEL_GIT_COMMIT_SHA; else process.env.VERCEL_GIT_COMMIT_SHA = prevSha;
+      if (prevRef === undefined) delete process.env.VERCEL_GIT_COMMIT_REF; else process.env.VERCEL_GIT_COMMIT_REF = prevRef;
+    }
+  });
+
+  it('degrades to "unknown" off-platform rather than throwing or omitting the field', async () => {
+    const prevSha = process.env.VERCEL_GIT_COMMIT_SHA;
+    delete process.env.VERCEL_GIT_COMMIT_SHA;
+    try {
+      const r = await httpReq('GET', '/api/health');
+      expect(r.status).toBe(200);
+      expect(r.body.commit).toBe('unknown');
+    } finally {
+      if (prevSha !== undefined) process.env.VERCEL_GIT_COMMIT_SHA = prevSha;
+    }
+  });
+});
