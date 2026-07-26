@@ -7104,11 +7104,17 @@ async function upsertPreparedDocumentRow(userId, payload, storagePath) {
     user_id: userId,
     country_code: payload.country,
     document_key: payload.key,
-    status: 'uploaded',
+    // A doctor's own upload lands 'uploaded' and waits for review. An admin
+    // filing it has already eyeballed it, so that path passes 'approved'.
+    status: payload.status || 'uploaded',
     file_name: payload.fileName,
     file_url: storagePath,
     updated_at: payload.updatedAt
   };
+  if (payload.reviewedBy) {
+    saveBody.reviewed_by = payload.reviewedBy;
+    saveBody.reviewed_at = payload.updatedAt;
+  }
   const explicitExpiry = sanitizeExpiryDateIso(payload.expiresAt);
   const defaultExpiry = defaultDocumentExpiryIso(payload.key, payload.updatedAt);
   if (explicitExpiry || defaultExpiry) {
@@ -60969,10 +60975,11 @@ Return ONLY valid JSON with no markdown formatting:
   // Documents list and the AHPRA download pack all pick it up with no extra
   // wiring.
   //
-  // Deliberately does NOT create a doc_review task: a staff member filing the
-  // document IS the human review, and a task here would ask the RSO to review
-  // their own upload. The row lands 'uploaded', so the existing approve/reject
-  // flow still applies.
+  // Deliberately does NOT create a doc_review task, and lands the row APPROVED:
+  // a staff member filing the document IS the human review. Queuing it for
+  // review would ask the RSO to approve their own upload, and leaving it
+  // 'uploaded' would park a document staff have already accepted in a pending
+  // state that nothing else ever clears.
   if (pathname === '/api/admin/candidate-doc/finalize' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const cdfCtx = requireAdminSession(req, res);
@@ -61011,7 +61018,10 @@ Return ONLY valid JSON with no markdown formatting:
       key: cdfDocKey,
       fileName: cdfCheck.sanitisedFileName || cdfFileName,
       mimeType: cdfMime,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      // Auto-approved: staff filing the document is the review step.
+      status: 'approved',
+      reviewedBy: cdfCtx.email || 'GP Link admin'
     }, cdfTarget.storagePath);
     if (!cdfSaved) { sendJson(res, 502, { ok: false, message: 'Failed to record the document.' }); return; }
 

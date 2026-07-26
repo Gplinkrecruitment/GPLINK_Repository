@@ -207,13 +207,16 @@ describe('admin upload into Prepared by Candidate placeholders', () => {
     expect(doc.country_code).toBe('uk');
     expect(doc.file_url).toBe(STORAGE_PATH);
     expect(doc.file_name).toBe('Degree.pdf');
-    // Lands 'uploaded' so the existing approve/reject flow still applies.
-    expect(doc.status).toBe('uploaded');
-    // Records that staff filed it rather than the doctor.
+    // Auto-approved: staff filing the document IS the review step, so it must
+    // NOT sit in a pending state nothing else will ever clear.
+    expect(doc.status).toBe('approved');
+    // Records who filed and approved it, rather than the doctor.
+    expect(doc.reviewed_by).toBe(SUPER_EMAIL);
+    expect(doc.reviewed_at).toBeTruthy();
     expect(String(doc.review_notes || '')).toContain(SUPER_EMAIL);
   });
 
-  it('replaces an existing document and clears the previous rejection verdict', async () => {
+  it('replaces a REJECTED document and flips it clean to approved', async () => {
     const doc = db.user_documents.find((d) => d.user_id === GP.userId && d.document_key === DOC_KEY);
     Object.assign(doc, { status: 'rejected', rejection_reason: 'Not certified', flag_reason: 'name_mismatch' });
 
@@ -224,8 +227,9 @@ describe('admin upload into Prepared by Candidate placeholders', () => {
     const rows = db.user_documents.filter((d) => d.user_id === GP.userId && d.document_key === DOC_KEY);
     expect(rows.length).toBe(1);
     expect(rows[0].file_name).toBe('Degree-v2.pdf');
-    expect(rows[0].status).toBe('uploaded');
-    // A new file must not inherit the old file's rejection badge.
+    expect(rows[0].status).toBe('approved');
+    // A new file must not inherit the old file's rejection — neither the
+    // reason nor the flag_reason, which overrides the badge in the admin UI.
     expect(rows[0].rejection_reason).toBe('');
     expect(rows[0].flag_reason).toBeNull();
   });
