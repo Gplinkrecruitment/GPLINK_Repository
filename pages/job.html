@@ -719,6 +719,24 @@
     }
     .at-applybar[hidden] { display: none; }
     .at-applybar .at-abin { max-width: 720px; margin: 0 auto; display: flex; gap: 9px; align-items: stretch; }
+    /* Secondary, deliberately quiet — declining is a real option but never
+       the one we nudge toward. */
+    .at-bdecline {
+      display: block;
+      max-width: 720px;
+      margin: 8px auto 0;
+      width: 100%;
+      background: none;
+      border: 0;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gp-muted, #64748b);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .at-bdecline:disabled { opacity: .6; cursor: default; }
     .at-bsave {
       flex: none;
       width: 52px;
@@ -1252,6 +1270,9 @@
       </button>
       <button class="at-bapply" id="applyBtn" type="button"></button>
     </div>
+    <!-- Only shown for a live AI match: accepting is a choice, so declining
+         has to be reachable from the same place (owner report 2026-07-27). -->
+    <button class="at-bdecline" id="matchDeclineBtn" type="button" hidden>Not the right fit — decline</button>
   </div>
 
   <!-- Toast -->
@@ -1513,6 +1534,7 @@
   const errorTextEl = document.getElementById("errorText");
   const stickyEl = document.getElementById("stickyActions");
   const applyBtnEl = document.getElementById("applyBtn");
+  const matchDeclineBtnEl = document.getElementById("matchDeclineBtn");
   const saveBtnEl = document.getElementById("saveBtn");
 
   let currentRole = null;
@@ -1523,7 +1545,11 @@
   let applyState = "idle";
   // Terminal guard outcomes must survive re-renders: when the enriched detail
   // render lands after a guard fired, the bar must NOT reset back to idle.
-  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding"];
+  // previously_withdrawn belongs here for the same reason as the rest: once
+  // the doctor has withdrawn or declined, re-deriving the bar from isApplied()
+  // on the next render would flip it back to "✓ Submitted" — and the page
+  // already states elsewhere that retrying can never succeed.
+  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn"];
   let heroImageLookupRequestId = 0;
 
   /* ── Offer-mode state (Phase 2 Task 4) ── */
@@ -1597,11 +1623,21 @@
   // still open a job page they were matched on via a plain, non-match link)
   // and re-checks the countdown client-side so a stale cached payload can't
   // show the banner/sticky-accept past expiry.
+  // A live match is a property of the ROW, not of how the GP arrived. This
+  // used to also require the url's ?match= to equal the applicationId, which
+  // meant a doctor who reached the practice page any other way — from the
+  // email's practice-profile link, from their saved list, by searching — saw
+  // none of the match UI. Worse, the practice-side shortlist creates a
+  // gp_applications row, so isApplied() was true and the page told them
+  // "Application received / ✓ Submitted" for something they never applied to
+  // and still had to answer (owner report 2026-07-27).
+  //
+  // GET /api/career/role only attaches role.match for a live, shortlisted,
+  // non-expired match belonging to THIS user and role, so the row itself is
+  // already the correct gate; the expiry re-check below is belt and braces.
   function getActiveMatch(role) {
     const match = role && role.match;
     if (!match || !match.applicationId) return null;
-    const urlMatchId = getMatchIdFromUrl();
-    if (!urlMatchId || String(match.applicationId) !== urlMatchId) return null;
     if (formatMatchCountdown(match.expiresAt).expired) return null;
     return match;
   }
@@ -2800,7 +2836,11 @@
     // ABOVE the practice facts) -> benefits -> The practice facts panel ->
     // video -> map -> match -> support.
     dbodyEl.innerHTML =
-      (isApplied(role.id) ? buildReceivedHtml() : "") +
+      // A pending match is NOT a submitted application — the row exists
+      // because the practice side shortlisted them, and the ball is still in
+      // the doctor's court. Showing "Application received" here would be a
+      // plain untruth, so the match banner takes the slot instead.
+      (isApplied(role.id) && !getActiveMatch(role) ? buildReceivedHtml() : "") +
       buildPracticeIdentityHtml(role) +
       buildUrgencyHtml(role) +
       buildPackageCellsHtml(role) +
@@ -2843,7 +2883,9 @@
     // Never reset a terminal guard outcome (already_placed/closed/
     // not_qualified/onboarding) back to idle when a later render lands.
     if (applyState !== "applying" && !TERMINAL_APPLY_STATES.includes(applyState)) {
-      applyState = isApplied(role.id) ? "applied" : "idle";
+      // Same rule as the banner: a live match keeps the bar on "idle" so it
+      // paints "Accept this match" rather than the terminal "✓ Submitted".
+      applyState = (isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle";
     }
     paintApply();
     updateSaveButton();
@@ -2922,6 +2964,11 @@
     applyBtnEl.className = spec.cls;
     applyBtnEl.innerHTML = spec.html;
     applyBtnEl.disabled = spec.disabled;
+    // Decline only belongs next to a live, still-answerable match — not once
+    // they've accepted (applyState leaves idle) and not on an ordinary role.
+    if (matchDeclineBtnEl) {
+      matchDeclineBtnEl.hidden = !(activeMatch && applyState === "idle");
+    }
   }
 
   function updateSaveButton() {
@@ -3240,6 +3287,48 @@
   declineCancelBtnEl.addEventListener("click", closeDeclineConfirm);
   declineOverlayEl.addEventListener("click", (event) => { if (event.target === declineOverlayEl) closeDeclineConfirm(); });
   declineConfirmBtnEl.addEventListener("click", declineOffer);
+
+  // Declining a live AI match. Distinct from declineOffer above, which
+  // answers an interview OFFER (/api/career/offer/*); this answers the match
+  // itself via the same endpoint js/match-popup.js uses, so the row ends up in
+  // exactly the state the popup would have left it in.
+  async function declineActiveMatch() {
+    const activeMatch = getActiveMatch(currentRole);
+    if (!activeMatch || !matchDeclineBtnEl) return;
+    if (!window.confirm("Decline this match? We'll let the practice know you're not proceeding.")) return;
+    matchDeclineBtnEl.disabled = true;
+    matchDeclineBtnEl.textContent = "Declining…";
+    try {
+      const res = await fetch("/api/career/match/respond", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: activeMatch.applicationId, action: "decline" })
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true) {
+        matchDeclineBtnEl.disabled = false;
+        matchDeclineBtnEl.textContent = "Not the right fit — decline";
+        showToast((data && data.message) || "Could not decline just now — please try again.");
+        return;
+      }
+      // The match is answered: drop the match block so every match surface
+      // (banner, ticks, accept bar, this button) stops rendering, then repaint.
+      if (currentRole) currentRole.match = null;
+      matchDeclineBtnEl.hidden = true;
+      matchDeclineBtnEl.disabled = false;
+      matchDeclineBtnEl.textContent = "Not the right fit — decline";
+      applyState = "previously_withdrawn";
+      renderRole(currentRole, renderContext);
+      showToast("Declined — thanks for letting us know.");
+    } catch (err) {
+      matchDeclineBtnEl.disabled = false;
+      matchDeclineBtnEl.textContent = "Not the right fit — decline";
+      showToast("Could not decline just now — please try again.");
+    }
+  }
+
+  if (matchDeclineBtnEl) matchDeclineBtnEl.addEventListener("click", declineActiveMatch);
 
   // Identity vault: tap → shake + explainer (mockup interaction).
   dbodyEl.addEventListener("click", (event) => {

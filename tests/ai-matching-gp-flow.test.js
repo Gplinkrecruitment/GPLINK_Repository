@@ -450,6 +450,33 @@ describe('buildMatchEmailHtml', () => {
     expect(withoutStoredReason).not.toMatch(/\$\d/);
   });
 
+  // The email offered no way into the in-app practice profile — only the
+  // accept CTA and the practice's own external website. A doctor who wanted to
+  // read the profile before answering had to go looking for it (owner report
+  // 2026-07-27). The link carries ?match= so the page opens in match mode.
+  it('links to the in-app practice profile for this opening', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(
+      baseRow,
+      { ...job, provider: 'internal_ats', provider_role_id: '93104' },
+      practice,
+      { gpLastName: 'Okafor' }
+    );
+    expect(html).toContain('See full practice profile');
+    // The destination is percent-encoded inside signin's ?next=, so decode
+    // before asserting rather than matching the raw attribute.
+    const href = (html.match(/<a href="([^"]+)"[^>]*>See full practice profile<\/a>/) || [])[1] || '';
+    expect(href).toContain('/pages/signin?next=');
+    const decoded = decodeURIComponent(href);
+    expect(decoded).toContain('/pages/job?id=internal_ats:93104');
+    expect(decoded).toContain('match=' + baseRow.id);
+    // Still secondary to the accept CTA, which must remain.
+    expect(html).toContain('Accept this match');
+  });
+  it('omits the profile link when the role has no public id to link to', () => {
+    const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, { title: 'X Medical Centre' }, {}, {});
+    expect(html).not.toContain('See full practice profile');
+    expect(html).not.toContain('/pages/job?id=');
+  });
   it('omits the photo strip, website link, and video block when absent', () => {
     const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, {}, {}, {});
     expect(html).not.toContain('<img');

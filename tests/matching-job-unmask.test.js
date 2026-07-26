@@ -84,13 +84,48 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(jobHtml.slice(idxWhy, idxWhy + 200)).toContain('getActiveMatch(role)');
   });
 
-  it('getActiveMatch requires role.match, the url ?match= param to match it, AND a non-expired countdown', () => {
+  // Was: "requires ... the url ?match= param to match it". Dropped 2026-07-27.
+  // A live match belongs to the ROW, not to how the doctor arrived. Requiring
+  // the deep-link param meant anyone reaching the page another way (the
+  // email's new practice-profile link, a saved role, search) saw no match UI —
+  // and because the practice-side shortlist creates a gp_applications row,
+  // isApplied() was true and the page claimed "Application received /
+  // ✓ Submitted" for something they had never applied to and still owed an
+  // answer on. GET /api/career/role only attaches role.match for a live,
+  // shortlisted, non-expired match owned by this user, so the row is the gate.
+  it('getActiveMatch requires role.match and a non-expired countdown — NOT the url ?match= param', () => {
     const idx = jobHtml.indexOf('function getActiveMatch(role) {');
     expect(idx).toBeGreaterThan(-1);
     const fnSrc = jobHtml.slice(idx, idx + 500);
-    expect(fnSrc).toContain('getMatchIdFromUrl()');
-    expect(fnSrc).toContain('String(match.applicationId) !== urlMatchId');
+    expect(fnSrc).toContain('match.applicationId');
     expect(fnSrc).toContain('formatMatchCountdown(match.expiresAt).expired');
+    expect(fnSrc).not.toContain('getMatchIdFromUrl()');
+    expect(fnSrc).not.toContain('urlMatchId');
+  });
+
+  it('a pending match outranks the applied state — no "Application received", no "✓ Submitted"', () => {
+    // The banner slot and the sticky-bar state both defer to getActiveMatch,
+    // so a shortlisted-but-unanswered row can never render as submitted.
+    expect(jobHtml).toContain('isApplied(role.id) && !getActiveMatch(role) ? buildReceivedHtml() : ""');
+    expect(jobHtml).toContain('applyState = (isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle"');
+  });
+
+  it('a live match offers decline next to accept, via match/respond', () => {
+    expect(jobHtml).toContain('id="matchDeclineBtn"');
+    expect(jobHtml).toContain('Not the right fit — decline');
+    const idx = jobHtml.indexOf('async function declineActiveMatch() {');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = jobHtml.slice(idx, idx + 1400);
+    expect(fnSrc).toContain('/api/career/match/respond');
+    expect(fnSrc).toContain('action: "decline"');
+    // Only shown while the match is still answerable.
+    expect(jobHtml).toContain('matchDeclineBtnEl.hidden = !(activeMatch && applyState === "idle")');
+  });
+
+  it('previously_withdrawn is terminal, so a declined match cannot repaint as submitted', () => {
+    const idx = jobHtml.indexOf('const TERMINAL_APPLY_STATES =');
+    const line = jobHtml.slice(idx, idx + 200);
+    expect(line).toContain('previously_withdrawn');
   });
 
   it('job.html sticky bar relabels to "Accept this match" with the verbatim countdown sub-line, without a new accept call', () => {

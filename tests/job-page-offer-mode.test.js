@@ -126,7 +126,10 @@ describe('job.html — offer mode wiring (Phase 2 Task 4)', () => {
   it('folded minor: terminal apply-guard states are never reset back to idle', () => {
     expect(html).toContain('TERMINAL_APPLY_STATES');
     expect(html).toMatch(/applyState !== "applying" && !TERMINAL_APPLY_STATES\.includes\(applyState\)/);
-    expect(html).toMatch(/\["already_placed", "closed", "not_qualified", "onboarding"\]/);
+    // previously_withdrawn joined the list 2026-07-27: declining a match sets
+    // it, and without it the next render would re-derive the bar from
+    // isApplied() and flip a declined row back to "✓ Submitted".
+    expect(html).toMatch(/\["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn"\]/);
   });
 
   it('folded minor: shell clearance fallback is 70px (matches career.html)', () => {

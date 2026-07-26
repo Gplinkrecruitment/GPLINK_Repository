@@ -30222,6 +30222,15 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   // fresh encodeURIComponent call (not string-appended onto acceptUrl) so the
   // querystring is correctly escaped regardless of what's inside `next`.
   var needTimeUrl = APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career?match=' + applicationId + '&needtime=1');
+  // "See full practice profile" — the in-app role page for THIS opening, not
+  // the practice's own website (that's the separate 🌐 link further down).
+  // The email previously offered no way into the profile at all, so a doctor
+  // wanting to read up before answering had to go hunting for it (owner report
+  // 2026-07-27). Carries ?match= so the page opens in match mode directly.
+  var profileRoleId = makeCareerRoleId(jobRow.provider, jobRow.provider_role_id);
+  var profileUrl = (jobRow.provider_role_id)
+    ? (APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/job?id=' + profileRoleId + '&match=' + applicationId))
+    : '';
   var expiresLabel = (row && row.match_expires_at) ? _matchWeekdayDateLabel(row.match_expires_at) : '';
 
   // NOTE: every stored URL below passes BOTH gates — _matchSafeUrl (http(s)
@@ -30300,7 +30309,13 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   var acceptButtonLabel = finalCall ? 'Accept before it expires' : (reminder ? 'Review &amp; accept my match' : 'Accept this match');
   var acceptButtonHtml =
     '<a href="' + _matchEmailEsc(acceptUrl) + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">' + acceptButtonLabel + '</a>' +
-    '<div style="text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:4px;">One tap — no forms, no cover letter.</div>';
+    '<div style="text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:4px;">One tap — no forms, no cover letter.</div>' +
+    // Reading the full profile before answering is a reasonable thing to want,
+    // and the email had no route to it. Outlined rather than filled so it
+    // stays clearly secondary to the accept CTA above.
+    (profileUrl
+      ? '<a href="' + _matchEmailEsc(profileUrl) + '" style="display:block;text-align:center;color:#1d4ed8;font-weight:600;text-decoration:none;font-size:13.5px;padding:12px 32px;border-radius:12px;margin:10px 0 4px;background:#f8fafc;border:1px solid #cbd5e1;">See full practice profile</a>'
+      : '');
 
   // Secondary action: the reminder's low-key "not the right fit" opt-out
   // link (same deep link — a later task reads the decline intent once the
