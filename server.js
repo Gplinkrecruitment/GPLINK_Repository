@@ -6708,6 +6708,23 @@ function normalizeDocumentCountry(value) {
   return '';
 }
 
+// Which country's document set a GP's cards and uploads belong to. Kept as one
+// shared resolver because user_documents rows are keyed by
+// (user_id, document_key, country_code): a caller that resolves the country even
+// slightly differently writes a row the reading card never looks up, so the
+// upload silently vanishes. State values can also arrive double-stringified
+// (e.g. "\"United Kingdom\""). Defaults to 'uk'.
+function resolveGpDocumentCountry(profileCountry, stateCountry) {
+  let raw = profileCountry || stateCountry || 'uk';
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'string') raw = parsed;
+    } catch (e) { /* not JSON-wrapped — use the raw value */ }
+  }
+  return normalizeDocumentCountry(raw) || 'uk';
+}
+
 function sanitizeStoredDocumentPayload(body, allowedKeys) {
   const input = body && typeof body === 'object' ? body : {};
   const country = normalizeDocumentCountry(input.country);
@@ -7002,6 +7019,29 @@ function buildAccountCareerDocumentDownloadUrl(type) {
   return `/api/account-career-documents/download?type=${encodeURIComponent(type)}`;
 }
 
+// Where an admin-filed candidate document belongs: the GP behind `caseId`, the
+// country their "Prepared by Candidate" cards are rendered from, and the Storage
+// path both are keyed to. Shared by the sign-upload and finalize steps so the
+// bytes and the row can never end up under different countries.
+// Returns null when the case (or its user) can't be resolved.
+async function resolveCandidateDocTarget(caseId, docKey) {
+  if (!caseId || !docKey || !isSupabaseDbConfigured()) return null;
+  const caseRes = await supabaseDbRequest('registration_cases',
+    'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  const userId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].user_id : '';
+  if (!userId) return null;
+  const [profRes, stateRes] = await Promise.all([
+    supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+    supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1')
+  ]);
+  const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+  let state = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0]) ? stateRes.data[0].state : null;
+  if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
+  if (!state || typeof state !== 'object') state = {};
+  const country = resolveGpDocumentCountry(prof.registration_country, state.gp_selected_country);
+  return { userId, country, storagePath: buildPreparedDocumentStoragePath(userId, country, docKey) };
+}
+
 async function listPreparedDocumentRows(userId, country) {
   const normalizedCountry = normalizeDocumentCountry(country);
   if (!normalizedCountry || !userId || !isSupabaseDbConfigured()) return [];
@@ -7047,6 +7087,15 @@ async function savePreparedDocumentForUser(userId, _email, payload) {
   const storagePath = buildPreparedDocumentStoragePath(userId, payload.country, payload.key);
   const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
   if (!uploaded) return null;
+  return upsertPreparedDocumentRow(userId, payload, storagePath);
+}
+
+// Record a prepared document that is ALREADY sitting at `storagePath`. Split out
+// of savePreparedDocumentForUser so the admin upload can put the bytes in Storage
+// via a signed URL (no request-body size limit) and still produce an identical
+// row — one writer, so the two paths can't drift apart.
+async function upsertPreparedDocumentRow(userId, payload, storagePath) {
+  if (!payload || !userId || !storagePath || !isSupabaseDbConfigured()) return null;
 
   // F3 expiry capture: an explicit expiry (GP-entered or AI-extracted) wins;
   // otherwise renewal-sensitive doc types get the default validity window.
@@ -52732,10 +52781,9 @@ Return ONLY valid JSON with no markdown formatting:
       // 3. Get user's country from state or profile (both just resolved in the batch)
       var gdUserState = gdStateRes.ok && Array.isArray(gdStateRes.data) && gdStateRes.data[0] && typeof gdStateRes.data[0].state === 'object' ? gdStateRes.data[0].state : {};
       var gdProf = gdProfRes.ok && Array.isArray(gdProfRes.data) && gdProfRes.data[0] ? gdProfRes.data[0] : {};
-      // Normalize country — state values may be double-stringified (e.g. "\"United Kingdom\"")
-      var _gdRawCountry = gdProf.registration_country || gdUserState.gp_selected_country || 'uk';
-      if (typeof _gdRawCountry === 'string') { try { var _p = JSON.parse(_gdRawCountry); if (typeof _p === 'string') _gdRawCountry = _p; } catch(e){} }
-      var gdCountry = normalizeDocumentCountry(_gdRawCountry) || 'uk';
+      // Shared with the admin candidate-doc upload endpoints so a filed document
+      // always lands under the country_code these cards read back.
+      var gdCountry = resolveGpDocumentCountry(gdProf.registration_country, gdUserState.gp_selected_country);
 
       // 4. Build document template list for this country
       var gdShared = GP_DOCUMENT_META.shared || [];
@@ -60878,6 +60926,111 @@ Return ONLY valid JSON with no markdown formatting:
 
     await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
     sendJson(res, 200, { ok: true, message: 'Document uploaded.', driveFileId: driveFileId });
+    return;
+  }
+
+  // ── Admin: file a CANDIDATE-prepared document on the doctor's behalf ─────────
+  // The "Prepared by Candidate" cards hold the doctor's own uploads, but staff
+  // routinely receive these by email or WhatsApp and previously had no way to
+  // file them without asking the doctor to re-upload.
+  //
+  // Uploads go DIRECT to Supabase Storage via a signed URL rather than as base64
+  // in the request body: these are usually scans, and a multi-MB certificate
+  // exceeds the serverless request-body limit before the function even runs
+  // (the same reason the offer/contract flow works this way). Step 1 mints the
+  // URL; the browser PUTs the file; step 2 records the row.
+  if (pathname === '/api/admin/candidate-doc/sign-upload' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const cdsCtx = requireAdminSession(req, res);
+    if (!cdsCtx) return;
+    let cdsBody;
+    try { cdsBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const cdsCaseId = String(cdsBody.case_id || '').trim();
+    const cdsDocKey = String(cdsBody.document_key || '').trim();
+    if (!cdsCaseId || !cdsDocKey) { sendJson(res, 400, { ok: false, message: 'case_id and document_key required.' }); return; }
+    // RSOs are server-scoped to their assigned GPs (fail-closed); CEO is exempt.
+    if (!(await ensureAdminCaseAccess(cdsCtx, await fetchCaseAssignmentById(cdsCaseId), res))) return;
+    // Only the doctor's own "prepared by you" slots — never an institution-direct
+    // or GP-Link-pack key, which have their own flows.
+    if (!PREPARED_DOCUMENT_KEYS.has(cdsDocKey)) { sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return; }
+
+    const cdsTarget = await resolveCandidateDocTarget(cdsCaseId, cdsDocKey);
+    if (!cdsTarget) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    // upsert: replacing an existing document must overwrite, not 409 (the bug
+    // that broke every offer/contract re-upload).
+    const cdsUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, cdsTarget.storagePath, { upsert: true });
+    if (!cdsUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
+    sendJson(res, 200, { ok: true, uploadUrl: cdsUrl, storagePath: cdsTarget.storagePath, country: cdsTarget.country });
+    return;
+  }
+
+  // Step 2 — the browser has PUT the file to Storage. Validate the stored bytes
+  // and write the user_documents row, so the admin card, the doctor's My
+  // Documents list and the AHPRA download pack all pick it up with no extra
+  // wiring.
+  //
+  // Deliberately does NOT create a doc_review task: a staff member filing the
+  // document IS the human review, and a task here would ask the RSO to review
+  // their own upload. The row lands 'uploaded', so the existing approve/reject
+  // flow still applies.
+  if (pathname === '/api/admin/candidate-doc/finalize' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const cdfCtx = requireAdminSession(req, res);
+    if (!cdfCtx) return;
+    let cdfBody;
+    try { cdfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const cdfCaseId = String(cdfBody.case_id || '').trim();
+    const cdfDocKey = String(cdfBody.document_key || '').trim();
+    const cdfFileName = String(cdfBody.file_name || '').trim();
+    if (!cdfCaseId || !cdfDocKey || !cdfFileName) {
+      sendJson(res, 400, { ok: false, message: 'case_id, document_key, and file_name required.' }); return;
+    }
+    if (!(await ensureAdminCaseAccess(cdfCtx, await fetchCaseAssignmentById(cdfCaseId), res))) return;
+    if (!PREPARED_DOCUMENT_KEYS.has(cdfDocKey)) { sendJson(res, 400, { ok: false, message: 'Invalid document_key.' }); return; }
+
+    const cdfTarget = await resolveCandidateDocTarget(cdfCaseId, cdfDocKey);
+    if (!cdfTarget) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    // Read back what actually landed in Storage — the browser PUT is outside our
+    // control, so the bytes are only trusted after we've seen them ourselves.
+    const cdfStored = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, cdfTarget.storagePath);
+    if (!cdfStored || !cdfStored.buffer || !cdfStored.buffer.length) {
+      sendJson(res, 502, { ok: false, message: 'Uploaded file could not be read back. Please try again.' }); return;
+    }
+    const cdfMime = String(cdfBody.mime_type || '').trim() || cdfStored.mimeType || 'application/octet-stream';
+    const cdfCheck = validateFileUpload(cdfStored.buffer, cdfMime, cdfFileName);
+    if (!cdfCheck.valid) {
+      // Reject the row AND bin the bytes, so a blocked file can't linger in
+      // Storage at the slot's path and be served by a later read.
+      await supabaseStorageDeleteObject(SUPABASE_DOCUMENT_BUCKET, cdfTarget.storagePath);
+      sendJson(res, 400, { ok: false, message: cdfCheck.errors[0] || 'File validation failed.' }); return;
+    }
+
+    const cdfSaved = await upsertPreparedDocumentRow(cdfTarget.userId, {
+      country: cdfTarget.country,
+      key: cdfDocKey,
+      fileName: cdfCheck.sanitisedFileName || cdfFileName,
+      mimeType: cdfMime,
+      updatedAt: new Date().toISOString()
+    }, cdfTarget.storagePath);
+    if (!cdfSaved) { sendJson(res, 502, { ok: false, message: 'Failed to record the document.' }); return; }
+
+    // Note who filed it, and clear any verdict left over from the file this one
+    // replaced so a new document never inherits the old one's rejection badge.
+    const cdfLabel = getDocumentLabelForKey(cdfDocKey) || cdfDocKey;
+    await supabaseDbRequest('user_documents',
+      'user_id=eq.' + encodeURIComponent(cdfTarget.userId)
+      + '&document_key=eq.' + encodeURIComponent(cdfDocKey)
+      + '&country_code=eq.' + encodeURIComponent(cdfTarget.country),
+      { method: 'PATCH', body: {
+        review_notes: 'Uploaded by ' + (cdfCtx.email || 'GP Link admin') + ' on the candidate’s behalf.',
+        rejection_reason: '',
+        flag_reason: null
+      } });
+
+    await _logCaseEvent(cdfCaseId, null, 'system',
+      cdfCheck.sanitisedFileName + ' uploaded for ' + cdfLabel, 'Filed by staff on the candidate’s behalf', cdfCtx.email);
+    sendJson(res, 200, { ok: true, message: 'Document uploaded.' });
     return;
   }
 

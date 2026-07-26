@@ -3358,12 +3358,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Needs review</span>';
     }
     var badgeHtml=flagBadgeHtml||('<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>');
+    /* File a document the doctor sent by email/WhatsApp straight into its slot,
+       instead of asking them to re-upload. Same control as the GP LINK cards;
+       the .doc-upload-btn class is what stops the click opening the viewer. */
+    var uploadHtml=caseId
+      ?('<label class="doc-upload-btn" title="Upload this document for the candidate">'+(hasFile?'↑ Replace':'+ Upload')+'<input type="file" data-candidate-doc-upload="'+esc(doc.key)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic"></label>')
+      :'';
     return '<div class="'+cls+'"'+viewAttrs+'>'
       +thumbHtml
       +'<div class="doc-placeholder-info">'
       +'<div class="doc-placeholder-label" title="'+esc(doc.label)+'">'+esc(doc.label)+'</div>'
       +badgeHtml
       +metaHtml
+      +uploadHtml
       +'</div></div>';
   }
 
@@ -6592,7 +6599,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const rb=e.target.closest("[data-rollback-stage]");if(rb){rollbackStage(rb.getAttribute("data-rollback-stage"),rb.getAttribute("data-rollback-email"),rb.getAttribute("data-rollback-current"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       /* Drive document preview overlay */
-      if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
+      if(e.target.closest("[data-gplink-doc-upload]")||e.target.closest("[data-candidate-doc-upload]")||e.target.closest(".doc-upload-btn"))return;
       const dvc=e.target.closest("[data-doc-view-url]");
       if(dvc){
         openDocViewer(dvc.getAttribute("data-doc-view-url")||"",dvc.getAttribute("data-doc-view-label")||"Document");
@@ -6937,6 +6944,69 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       };
       reader.readAsDataURL(file);
     });
+    /* Candidate placeholder doc upload — file a doctor's own document for them.
+       Goes direct to Storage via a signed URL (scans are routinely several MB,
+       which a JSON body can't carry), then finalizes to record the row. */
+    document.addEventListener("change",function(e){
+      var input=e.target.closest("[data-candidate-doc-upload]");
+      if(!input)return;
+      e.stopPropagation();
+      var docKey=input.getAttribute("data-candidate-doc-upload");
+      var file=input.files&&input.files[0];
+      var caseId=S.selectedCaseId;
+      if(!file||!docKey||!caseId)return;
+      var label=input.closest(".doc-upload-btn");
+      var hadFile=!!(label&&label.textContent.indexOf("Replace")>=0);
+      if(label)label.textContent="Uploading…";
+      function onCandidateDocFailed(msg){
+        showOpsToast(msg||"Upload failed","red");
+        resetCandidateDocUploadLabel(label,docKey,hadFile);
+      }
+      (async function(){
+        try{
+          var sr=await fetch("/api/admin/candidate-doc/sign-upload",{
+            method:"POST",credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({case_id:caseId,document_key:docKey})
+          });
+          var sd=await sr.json().catch(function(){return {};});
+          if(!sd||!sd.ok||!sd.uploadUrl){onCandidateDocFailed(sd&&sd.message);return;}
+          var pr=await fetch(sd.uploadUrl,{
+            method:"PUT",
+            headers:{"Content-Type":file.type||"application/octet-stream","x-upsert":"true"},
+            body:file
+          });
+          if(!pr.ok){onCandidateDocFailed("Upload failed ("+pr.status+")");return;}
+          var fr=await fetch("/api/admin/candidate-doc/finalize",{
+            method:"POST",credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({case_id:caseId,document_key:docKey,file_name:file.name,mime_type:file.type||"",file_size:file.size})
+          });
+          var fd=await fr.json().catch(function(){return {};});
+          if(!fd||!fd.ok){onCandidateDocFailed(fd&&fd.message);return;}
+          showOpsToast("Document uploaded");
+          var c=S.cases.find(function(x){return x.id===caseId;});
+          if(c){
+            if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].gpDocuments;
+            gpSwrDrop("/api/admin/gp-documents?case_id="+encodeURIComponent(caseId));
+            loadGpDocuments(c.user_id,caseId);
+          }
+        }catch(err){
+          console.error("[VA] candidate doc upload failed:",err);
+          onCandidateDocFailed();
+        }
+      })();
+    });
+    function resetCandidateDocUploadLabel(label,docKey,hasFile){
+      if(!label)return;
+      while(label.firstChild)label.removeChild(label.firstChild);
+      label.appendChild(document.createTextNode(hasFile?"↑ Replace":"+ Upload"));
+      var nextInput=document.createElement("input");
+      nextInput.type="file";
+      nextInput.setAttribute("data-candidate-doc-upload",String(docKey||""));
+      nextInput.accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic";
+      label.appendChild(nextInput);
+    }
     function resetGpLinkDocUploadLabel(label,docKey,hasFile){
       if(!label)return;
       while(label.firstChild)label.removeChild(label.firstChild);
