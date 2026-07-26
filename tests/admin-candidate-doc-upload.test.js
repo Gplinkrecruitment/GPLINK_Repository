@@ -38,6 +38,27 @@ const db = {
 const storage = new Map();
 
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
+
+// Postgres rejects a non-uuid value in a uuid column with 22P02 and the WHOLE
+// write fails. An untyped emulator happily stores anything, which once hid a
+// real production break: the admin's EMAIL was written into
+// user_documents.reviewed_by (a uuid column), so every upload would have 502'd
+// while the tests stayed green. Mirror the type check for the columns that
+// production code writes dynamically.
+// Kept deliberately narrow — fixture ids like 'u-gp-cd-1' are not uuids and
+// are fine; this guards the values the SERVER chooses, not the test's.
+const UUID_COLUMNS = { user_documents: ['reviewed_by'] };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function uuidColumnViolation(table, obj) {
+  for (const col of (UUID_COLUMNS[table] || [])) {
+    const v = obj ? obj[col] : undefined;
+    if (v === undefined || v === null) continue;
+    if (!UUID_RE.test(String(v))) {
+      return { code: '22P02', details: null, hint: null, message: `invalid input syntax for type uuid: "${v}"` };
+    }
+  }
+  return null;
+}
 function buildMatcher(params) {
   const filters = [];
   for (const [k, v] of params.entries()) {
@@ -89,6 +110,11 @@ function startEmulator() {
       if (req.method === 'POST') {
         const body = JSON.parse((await readBody()).toString('utf8') || 'null');
         const incoming = Array.isArray(body) ? body : (body ? [body] : []);
+        const tableName = decodeURIComponent(m[1]);
+        for (const r of incoming) {
+          const bad = uuidColumnViolation(tableName, r);
+          if (bad) { sendJson(400, bad); return; }
+        }
         const conflictCol = u.searchParams.get('on_conflict');
         const saved = incoming.map((r) => {
           if (conflictCol) {
@@ -103,6 +129,8 @@ function startEmulator() {
       }
       if (req.method === 'PATCH') {
         const patch = JSON.parse((await readBody()).toString('utf8') || 'null');
+        const patchBad = uuidColumnViolation(decodeURIComponent(m[1]), patch);
+        if (patchBad) { sendJson(400, patchBad); return; }
         const matched = rows.filter(matches);
         matched.forEach((row) => Object.assign(row, patch || {}));
         sendJson(200, matched); return;
@@ -210,9 +238,10 @@ describe('admin upload into Prepared by Candidate placeholders', () => {
     // Auto-approved: staff filing the document IS the review step, so it must
     // NOT sit in a pending state nothing else will ever clear.
     expect(doc.status).toBe('approved');
-    // Records who filed and approved it, rather than the doctor.
-    expect(doc.reviewed_by).toBe(SUPER_EMAIL);
     expect(doc.reviewed_at).toBeTruthy();
+    // Attribution goes in review_notes, NOT reviewed_by: that column is a uuid,
+    // so writing an admin email there 22P02s and fails the entire upload.
+    expect(doc.reviewed_by == null).toBe(true);
     expect(String(doc.review_notes || '')).toContain(SUPER_EMAIL);
   });
 
@@ -272,6 +301,19 @@ describe('admin upload into Prepared by Candidate placeholders', () => {
   it('404s an unknown case instead of writing a stray document', async () => {
     const r = await adminPost('/api/admin/candidate-doc/sign-upload', { case_id: 'case-does-not-exist', document_key: DOC_KEY });
     expect(r.status).toBe(404);
+  });
+
+  // Proves the safety net above is armed. Without it the emulator accepted an
+  // email in the uuid column `reviewed_by`, the suite stayed green, and the
+  // upload 502'd in production against real Postgres.
+  it('emulator rejects a non-uuid in a uuid column, exactly as Postgres does', async () => {
+    const res = await fetch(`http://127.0.0.1:${sbPort}/rest/v1/user_documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ user_id: GP.userId, document_key: 'cv_signed_dated', reviewed_by: 'admin@example.com' }])
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('22P02');
   });
 
   it('requires an admin session', async () => {

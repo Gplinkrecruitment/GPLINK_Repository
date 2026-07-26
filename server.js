@@ -7111,10 +7111,10 @@ async function upsertPreparedDocumentRow(userId, payload, storagePath) {
     file_url: storagePath,
     updated_at: payload.updatedAt
   };
-  if (payload.reviewedBy) {
-    saveBody.reviewed_by = payload.reviewedBy;
-    saveBody.reviewed_at = payload.updatedAt;
-  }
+  // Stamp WHEN it was reviewed, never WHO: `reviewed_by` is a uuid column, so
+  // writing an admin's email there fails the whole upsert with a 22P02 and the
+  // upload 502s. The admin who filed it is named in review_notes instead.
+  if (payload.reviewedAt) saveBody.reviewed_at = payload.reviewedAt;
   const explicitExpiry = sanitizeExpiryDateIso(payload.expiresAt);
   const defaultExpiry = defaultDocumentExpiryIso(payload.key, payload.updatedAt);
   if (explicitExpiry || defaultExpiry) {
@@ -61021,7 +61021,7 @@ Return ONLY valid JSON with no markdown formatting:
       updatedAt: new Date().toISOString(),
       // Auto-approved: staff filing the document is the review step.
       status: 'approved',
-      reviewedBy: cdfCtx.email || 'GP Link admin'
+      reviewedAt: new Date().toISOString()
     }, cdfTarget.storagePath);
     if (!cdfSaved) { sendJson(res, 502, { ok: false, message: 'Failed to record the document.' }); return; }
 
