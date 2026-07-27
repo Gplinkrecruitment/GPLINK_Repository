@@ -2,7 +2,13 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260728a";
+  // 20260728b: the CSP img-src fix (dcd3249) that unblocked the Supabase
+  // storage hero images ships in a RESPONSE HEADER, and PAGE_CACHE stores whole
+  // responses — headers included. 20260728a was already live when that fix
+  // deployed, so app pages kept being served from cache with the OLD CSP and
+  // the career page still showed broken practice photos while the marketing
+  // site (never precached) looked fixed. Bumping purges + re-precaches.
+  var VERSION = "20260728b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
