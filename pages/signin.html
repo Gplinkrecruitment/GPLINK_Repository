@@ -1505,7 +1505,14 @@
         const client = await ensureSupabaseClient();
         const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
         setStatus(activeStatusEl, `Redirecting to ${oauthProviderLabel(provider)}...`);
-        const redirectTo = `${window.location.origin}/pages/signin.html`
+        // Return to the extension-less path: /pages/signin.html answers 302 and bounces
+        // here anyway. The token comes back in the URL fragment, which is never sent to
+        // the server, so it only survives that hop because the browser re-attaches it —
+        // reliable in desktop browsers, less so in the embedded ones inside Gmail,
+        // LinkedIn and WhatsApp, where a dropped fragment reads as "OAuth sign-in
+        // failed" for no visible reason. The server-side recovery and email-confirm
+        // links already point at /pages/signin; this was the one straggler.
+        const redirectTo = `${window.location.origin}/pages/signin`
           + (GP_SIGNIN_NEXT ? ("?next=" + encodeURIComponent(GP_SIGNIN_NEXT)) : "");
         const { error } = await client.auth.signInWithOAuth({ provider, options: { redirectTo } });
         if (error) {
