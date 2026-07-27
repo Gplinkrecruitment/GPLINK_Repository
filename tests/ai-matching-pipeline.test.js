@@ -375,3 +375,46 @@ describe('practice acceptance lands on Interview, not Offer', () => {
     expect(serverSrc).toContain("planAtsStageReconciliation(cdApp.ats_stage || '', 'offer')");
   });
 });
+
+// A practice turning a doctor down used to be silent: no email, no stage move,
+// and their other openings stayed on the doctor's careers page as if nothing
+// had happened. Owner call 2026-07-28.
+describe('practice turn-down closes out and clears the practice away', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const turnDown = serverSrc.slice(serverSrc.indexOf("// action === 'turn_down'."), serverSrc.indexOf("sendJson(res, 200, { ok: true, decision: 'turned_down' });"));
+
+  it('closes the application so the candidate falls back to Unassociated or their next live one', () => {
+    expect(turnDown).toContain("status: 'not_proceeding'");
+    expect(turnDown).toContain('atsPracticeUtil.ATS_REJECT_STAGE');
+    expect(turnDown).toContain("'practice_turn_down'");
+  });
+
+  it('tells the doctor, without naming a reason or saying "rejected"', () => {
+    expect(turnDown).toContain('gone with another candidate');
+    expect(turnDown).toContain('sendGpNotificationEmail');
+    expect(turnDown).toContain('pushCareerNotificationToUser');
+    // Assert on the doctor-facing copy itself, not the surrounding comments.
+    const bodyStart = turnDown.indexOf('const tdBody');
+    const tdBody = turnDown.slice(bodyStart, turnDown.indexOf(';', bodyStart));
+    expect(tdBody).not.toContain('rejected');
+    expect(tdBody).not.toContain('unsuccessful');
+    // The practice's stated reason goes to the team only, never to the doctor.
+    expect(tdBody).not.toContain('reason');
+  });
+
+  it('hides that practice\'s roles from the doctor\'s careers page', () => {
+    expect(serverSrc).toContain('async function _rolesHiddenByPracticeTurnDown(userId)');
+    expect(serverSrc).toContain('practice_decision=eq.turned_down');
+    // Applied inside the visibility gate, before the DPA blur — a hidden role
+    // must not come back as a stub that still reveals the role exists.
+    const gate = serverSrc.slice(serverSrc.indexOf('async function _applyGpRoleVisibilityGate'), serverSrc.indexOf('async function _applyGpRoleVisibilityGate') + 1600);
+    expect(gate).toContain('_rolesHiddenByPracticeTurnDown(userId)');
+    expect(gate.indexOf('_rolesHiddenByPracticeTurnDown')).toBeLessThan(gate.indexOf('buildRedactedRoleStub'));
+  });
+
+  it('fails OPEN if the lookup breaks — a blank careers page would be worse', () => {
+    const fn = serverSrc.slice(serverSrc.indexOf('async function _rolesHiddenByPracticeTurnDown'), serverSrc.indexOf('async function _applyGpRoleVisibilityGate'));
+    expect(fn).toContain('return new Set()');
+    expect(fn).toContain('catch');
+  });
+});

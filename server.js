@@ -3780,10 +3780,63 @@ async function _resolveGpJobsProfile(userId, email) {
 // identifying details of roles they legally can't be placed into.
 //
 // Never mutates the input roles — some callers pass shared cached objects.
+// Practices that have turned THIS doctor down. Showing their other openings
+// back on the careers page reads as if nothing happened, and re-applying can
+// only end the same way (owner call 2026-07-28). Returns a Set of career_role
+// ids belonging to any practice that turned them down — practice_id where the
+// role has one (a corporate group's whole estate hides together, which is the
+// intent: the group said no), falling back to practice_name.
+async function _rolesHiddenByPracticeTurnDown(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return new Set();
+  try {
+    var appsRes = await supabaseDbRequest('gp_applications',
+      'select=career_role_id&practice_decision=eq.turned_down&user_id=eq.' + encodeURIComponent(userId) + '&limit=500');
+    var roleIds = ((appsRes.ok && Array.isArray(appsRes.data)) ? appsRes.data : [])
+      .map(function (a) { return a && a.career_role_id; }).filter(Boolean);
+    if (!roleIds.length) return new Set();
+
+    var turnedRes = await supabaseDbRequest('career_roles',
+      'select=id,practice_id,practice_name&id=in.(' + encodeURIComponent(roleIds.join(',')) + ')&limit=500');
+    var turnedRows = (turnedRes.ok && Array.isArray(turnedRes.data)) ? turnedRes.data : [];
+    var byId = new Set(), byName = new Set();
+    turnedRows.forEach(function (r) {
+      if (r && r.practice_id) byId.add(String(r.practice_id));
+      else if (r && r.practice_name) byName.add(String(r.practice_name).trim().toLowerCase());
+    });
+    if (!byId.size && !byName.size) return new Set();
+
+    var allRes = await supabaseDbRequest('career_roles', 'select=id,practice_id,practice_name&limit=2000');
+    var allRows = (allRes.ok && Array.isArray(allRes.data)) ? allRes.data : [];
+    var hidden = new Set();
+    allRows.forEach(function (r) {
+      if (!r) return;
+      var pid = r.practice_id ? String(r.practice_id) : '';
+      var pname = String(r.practice_name || '').trim().toLowerCase();
+      if ((pid && byId.has(pid)) || (pname && byName.has(pname))) hidden.add(String(r.id));
+    });
+    return hidden;
+  } catch (e) {
+    // Fail OPEN: a lookup failure must not blank the careers page. The worst
+    // case is a doctor briefly seeing a practice that passed on them, which is
+    // exactly today's behaviour.
+    console.warn('[career-roles] turn-down hide lookup failed:', e && e.message);
+    return new Set();
+  }
+}
+
 async function _applyGpRoleVisibilityGate(clientRoles, userId, email) {
   var list = Array.isArray(clientRoles) ? clientRoles : [];
   try {
     var gpProfile = await _resolveGpJobsProfile(userId, email);
+    // Drop turned-down practices before the DPA gate — a hidden role should
+    // not reappear as a blurred stub, which would still show it exists.
+    var hiddenRoleIds = await _rolesHiddenByPracticeTurnDown(userId);
+    if (hiddenRoleIds.size) {
+      list = list.filter(function (r) {
+        var raw = r && (r.careerRoleId != null ? r.careerRoleId : r.id);
+        return !(raw != null && hiddenRoleIds.has(String(raw).replace(/^.*:/, '')));
+      });
+    }
     var gated = list.map(function (r) {
       var verdict = practicePipeline.gpQualifiesForRole({ dpa: r.dpa }, { australiaTrained: gpProfile.australiaTrained });
       return Object.assign({}, r, {
@@ -39109,11 +39162,19 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // action === 'turn_down'. No ATS stage exists for a rejection
-    // (ATS_STAGES has no 'rejected'/'not_proceeding' lane reachable from
-    // here) — status/ats_stage are deliberately left untouched, and the team
-    // follows up with the GP personally instead of an automated decline
-    // email (kinder, and avoids a robotic rejection landing unannounced).
+    // action === 'turn_down'.
+    //
+    // This used to leave status/ats_stage untouched and send the GP nothing —
+    // the team followed up personally. Owner call 2026-07-28 reversed that: a
+    // turned-down application now closes itself, tells the doctor, and takes
+    // the practice off their board. Leaving the row live was also its own
+    // problem — the candidate stayed parked in Submitted on a dead
+    // application, so the board could not show what they were actually
+    // waiting on.
+    //
+    // Closing it is what returns them to Unassociated (or to whatever other
+    // live application they have): the candidate's lane is derived from their
+    // non-terminal applications, so a terminal row simply stops counting.
     const reason = String((body && body.reason) || '').trim().slice(0, 500);
     const ctx = await atsGetApplicationContext(appRow.id);
     const patched = await patchApplicationDecisionFields(appRow.id, {
@@ -39127,6 +39188,33 @@ async function handleApi(req, res, pathname) {
     const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
     const gpName = (ctx && ctx.gpName) || 'the candidate';
     const practiceName = (ctx && ctx.practiceName) || '';
+
+    // Close the application. Same terminal move the post-interview decline
+    // (POST /api/practice/offer/decision) and the GP's own withdraw already
+    // use, so there is one way a dead application looks, not three.
+    try {
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appRow.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'not_proceeding', updated_at: nowIso }
+      });
+      const tdStage = atsPracticeUtil.planAtsStageReconciliation(appRow.ats_stage || '', atsPracticeUtil.ATS_REJECT_STAGE);
+      if (tdStage) await atsUpdateApplicationStageRow(appRow.id, tdStage, undefined, 'practice_turn_down', 'practice_declined_pre_interview');
+    } catch (e) { console.warn('[practice-decision] turn-down close failed:', e && e.message); }
+
+    // Tell the doctor. Deliberately never names a reason and never says
+    // "rejected" — the practice's reason is for the team, not for them.
+    const tdGpUserId = (ctx && ctx.userId) || appRow.user_id || null;
+    try {
+      if (tdGpUserId) {
+        const tdTitle = 'An update on your application';
+        const tdBody = 'This practice has gone with another candidate this time. That is disappointing, and it is not a reflection on you — your profile stayed strong through every round, and the timing simply favoured someone else. Your Registration Support Officer is already looking at where you go next and will be in touch.';
+        await Promise.all([
+          pushCareerNotificationToUser(tdGpUserId, { type: 'info', title: tdTitle, body: tdBody }).catch(() => {}),
+          sendPushNotification(tdGpUserId, { title: tdTitle, body: tdBody, data: { type: 'career', action: 'practice_turned_down' } }).catch(() => {}),
+          sendGpNotificationEmail(tdGpUserId, tdTitle + ' — GP Link', tdTitle, tdBody, 'See my other matches', APP_BASE_URL + '/pages/career.html', 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
+        ]);
+      }
+    } catch (e) { console.warn('[practice-decision] turn-down GP notify failed:', e && e.message); }
 
     sendEmail({
       to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',

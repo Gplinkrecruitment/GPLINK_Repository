@@ -455,7 +455,7 @@ describe('POST /api/practice/application/decision — approve on a stale link (a
 });
 
 describe('POST /api/practice/application/decision — turn_down', () => {
-  it('records decision + reason on a second application without touching status/ats_stage', async () => {
+  it('records decision + reason and CLOSES the application', async () => {
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-def456', action: 'turn_down', reason: 'Position filled' } });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, decision: 'turned_down' });
@@ -463,10 +463,12 @@ describe('POST /api/practice/application/decision — turn_down', () => {
     const row = db.gp_applications.find((a) => a.practice_action_token === 'tok-test-def456');
     expect(row.practice_decision).toBe('turned_down');
     expect(row.practice_decision_reason).toBe('Position filled');
-    // No 'rejected'/'not_proceeding' stage exists in ATS_STAGES — status and
-    // ats_stage must be left exactly as they were (still 'applied').
-    expect(row.status).toBe('applied');
-    expect(row.ats_stage).toBeUndefined();
+    // Owner call 2026-07-28: a turn-down now closes the application rather
+    // than leaving it live. Leaving it open parked the candidate in Submitted
+    // on a dead application, so the board could not show what they were
+    // actually waiting on — closing it is what returns them to Unassociated,
+    // or to whatever other live application they have.
+    expect(row.status).toBe('not_proceeding');
 
     // No interview row should ever be created for a turn-down.
     const interview = db.scheduled_calls.find((r) => String(r.application_id) === String(row.id));
