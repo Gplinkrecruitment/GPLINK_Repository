@@ -65000,10 +65000,18 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Kanban → 'offer' via the same forward-only rule as POST /api/ats/offer:
-    // a later stage is never yanked backwards and terminal lanes
-    // ('hired' / 'not_proceeding') never move.
-    var acTarget = atsPracticeUtil.planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'offer');
+    // Kanban → 'interview' via the same forward-only rule as POST
+    // /api/ats/offer: a later stage is never yanked backwards and terminal
+    // lanes ('hired' / 'not_proceeding') never move.
+    //
+    // The practice accepting means "we want to interview this doctor" — the
+    // record this creates IS the interview invitation, and the very next line
+    // waits on the practice's interview times. 'offer' is reserved for a real
+    // job offer, which is set by /api/ceo/contract/decision when the contract
+    // goes out (owner call 2026-07-28). This now matches the practice's own
+    // POST /api/practice/application/decision, which already targeted
+    // 'interview' — the two routes record the same event and disagreed.
+    var acTarget = atsPracticeUtil.planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'interview');
     if (acTarget) await atsUpdateApplicationStageRow(acAppId, acTarget, undefined, 'practice_accept');
 
     // Owner (2026-07-23): the congratulations-and-book email waits for the

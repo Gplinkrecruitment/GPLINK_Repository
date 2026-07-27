@@ -368,10 +368,17 @@ describe('POST /api/ats/application/accept', () => {
     expect(offer.notes).toBe('Practice accepted — interview invitation');
     expect(offer.user_id).toBe(GP.userId);
 
-    expect(app.ats_stage).toBe('offer');
+    // Owner call 2026-07-28: the practice accepting means "we want to
+    // interview this doctor" — the record above IS the interview invitation
+    // (note its own notes field: "Practice accepted — interview invitation")
+    // and the very next step waits on the practice's interview times. 'offer'
+    // is now reserved for a real job offer, set when the contract goes out.
+    // This also brings the staff route into line with the practice's own
+    // decision endpoint, which already targeted 'interview'.
+    expect(app.ats_stage).toBe('interview');
     const ev = db.ats_stage_events.find((e) => e.application_id === 'app-acc-1' && e.actor === 'practice_accept');
     expect(ev).toBeTruthy();
-    expect(ev.to_stage).toBe('offer');
+    expect(ev.to_stage).toBe('interview');
 
     // No congrats email or push at accept time — it waits for the times.
     const sends = resendCalls.slice(before);

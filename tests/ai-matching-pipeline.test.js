@@ -348,3 +348,30 @@ describe('careers page keeps a revealed practice name', () => {
     expect(careerHtml).toContain('location: liveRole.location');
   });
 });
+
+// The practice accepting means "we want to interview this doctor" — the record
+// it creates IS the interview invitation, and the flow immediately waits on the
+// practice's interview times. 'offer' is reserved for a real job offer, set
+// when the contract goes out (owner call 2026-07-28).
+describe('practice acceptance lands on Interview, not Offer', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  it('the staff-side accept targets interview', () => {
+    const idx = serverSrc.indexOf("if (pathname === '/api/ats/application/accept'");
+    expect(idx).toBeGreaterThan(-1);
+    const handler = serverSrc.slice(idx, idx + 4000);
+    expect(handler).toContain("planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'interview')");
+    expect(handler).not.toContain("planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'offer')");
+  });
+
+  it('agrees with the practice\'s own decision endpoint, which already targeted interview', () => {
+    const idx = serverSrc.indexOf("if (pathname === '/api/practice/application/decision'");
+    const handler = serverSrc.slice(idx, idx + 12000);
+    expect(handler).toContain("planAtsStageReconciliation(appRow.ats_stage || '', 'interview')");
+  });
+
+  it('a real contract offer still moves to offer', () => {
+    // /api/ceo/contract/decision sends the actual contract — that IS an offer.
+    expect(serverSrc).toContain("planAtsStageReconciliation(cdApp.ats_stage || '', 'offer')");
+  });
+});
