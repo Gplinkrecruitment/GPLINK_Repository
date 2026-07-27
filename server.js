@@ -11023,6 +11023,16 @@ function crossCheckDocumentName(docName, profileName, verifiedNames) {
 }
 
 const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
+// Storage objects are reachable on TWO hosts: the project host
+// (<ref>.supabase.co) and any Supabase custom domain. Production runs
+// SUPABASE_URL=https://login.mygplink.com.au, so CSP_SUPABASE_ORIGIN only ever
+// whitelisted the custom domain — while career_roles.header_image_url rows were
+// written with the project host by scripts run against a local .env. Result:
+// 24 of 64 job listings had their hero image silently blocked by CSP (the other
+// 38 point at upload.wikimedia.org, which is why only *some* cards looked broken).
+// Whitelisting the project-host wildcard covers both spellings of the same
+// bucket. img-src only — this grants no script or connect privilege.
+const CSP_SUPABASE_STORAGE_SOURCES = ' https://*.supabase.co';
 const GOOGLE_MAPS_CSP_SCRIPT_SOURCES = " https://*.googleapis.com https://*.gstatic.com *.google.com https://*.ggpht.com *.googleusercontent.com blob: 'unsafe-eval'";
 const GOOGLE_MAPS_CSP_CONNECT_SOURCES = " https://*.googleapis.com *.google.com https://*.gstatic.com data: blob:";
 const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com data:';
@@ -11050,7 +11060,7 @@ const SECURITY_HEADERS = {
     // (see pickDomainImageUrl/resizeDomainImageUrl), the built-in fallback listings
     // use images.unsplash.com (buildLifestyleImage + career.html seeds), and the
     // seeded Homely listings use www.homely.com.au.
-    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES}${KEYLESS_MAP_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au`,
+    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${CSP_SUPABASE_STORAGE_SOURCES}${GOOGLE_MAPS_CSP_IMAGE_SOURCES}${KEYLESS_MAP_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org https://*.domainstatic.com.au https://bucket-api.domain.com.au https://images.unsplash.com https://www.homely.com.au`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
     "frame-src 'self' blob: *.google.com https://scribehow.com https://calendly.com",
