@@ -35904,6 +35904,68 @@ async function handleApi(req, res, pathname) {
           } else { pdErrors.push({ id: pdApp.id, error: 'send_failed' }); }
         } catch (eS) { pdErrors.push({ id: pdApp.id, error: 'send_error' }); }
       }
+      // ── Pass B: silence AFTER the interview ────────────────────────────
+      // Pass A only selects ats_stage in (submitted, reviewing), so it stops
+      // watching the moment a candidate reaches interview. A practice that
+      // interviews someone and then goes quiet was chased by nobody — the
+      // doctor sat on "awaiting the practice's decision" indefinitely, which
+      // is the worst place in the funnel to be forgotten (owner call
+      // 2026-07-28).
+      //
+      // status='interview_completed' IS the waiting state: it is stamped when
+      // the interview ends, and any decision moves it off (not_proceeding on a
+      // decline, 'offer' when the contract goes out), so decided rows fall out
+      // of this query on their own — the same self-limiting property Pass A has.
+      //
+      // Cadence mirrors Pass A (day 3, day 5, escalate at 7) and is derived
+      // from timestamps rather than practice_reminder_count, because that
+      // counter was already spent pre-interview and would otherwise suppress
+      // every post-interview chase. Comparing the stamps against
+      // interview_completed_at is what separates this round from that one.
+      var piRes = await supabaseDbRequest('gp_applications',
+        'select=*&status=eq.interview_completed&limit=500');
+      var piRows = (piRes.ok && Array.isArray(piRes.data)) ? piRes.data : [];
+      for (var pii = 0; pii < piRows.length && pdSent < pdCap; pii++) {
+        var piApp = piRows[pii];
+        if (!piApp.interview_completed_at) continue;
+        var piDoneMs = new Date(piApp.interview_completed_at).getTime();
+        if (!piDoneMs) continue;
+        var piDays = Math.floor((Date.now() - piDoneMs) / 86400000);
+        var piLastMs = piApp.last_practice_reminder_at ? new Date(piApp.last_practice_reminder_at).getTime() : 0;
+        var piFlagMs = piApp.practice_chase_flagged_at ? new Date(piApp.practice_chase_flagged_at).getTime() : 0;
+
+        // Day 7+: hand it to a person. A flag left over from the pre-interview
+        // round must not suppress this one, hence the compare against the
+        // interview rather than a bare null check.
+        if (piDays >= 7 && piFlagMs < piDoneMs) {
+          try {
+            var piLab7 = await atsResolveAppLabels(piApp);
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(piApp.id), { method: 'PATCH', body: { practice_chase_flagged_at: new Date().toISOString() } });
+            await sendEmail({
+              to: GP_OWNER_EMAIL,
+              subject: 'Chase needed: ' + piLab7.practiceLabel + ' has not decided on ' + piLab7.gpName + ' ' + piDays + ' days after interview',
+              html: buildCareerEmailHtml({ title: 'A practice has gone quiet after an interview', bodyHtml: '<p><b>' + String(piLab7.practiceLabel).replace(/</g, '&lt;') + '</b> interviewed ' + String(piLab7.gpName).replace(/</g, '&lt;') + ' for the ' + String(piLab7.roleLabel).replace(/</g, '&lt;') + ' ' + piDays + ' days ago and still hasn’t said yes or no. Reminders have gone out — worth a personal call. The doctor has been waiting this whole time.</p>' }),
+              text: piLab7.practiceLabel + ' interviewed ' + piLab7.gpName + ' for the ' + piLab7.roleLabel + ' ' + piDays + ' days ago and still has not decided. Worth a personal call.',
+              from: { email: REGISTRATION_HUB_EMAIL || GP_OWNER_EMAIL, name: 'GP Link' }
+            });
+            pdChase++;
+          } catch (ep7) { pdErrors.push({ id: piApp.id, error: 'post_interview_chase_failed' }); }
+          continue; // past day 7 a person owns it, not the cron
+        }
+        if (pdWeekend) continue; // same weekend rule as Pass A
+        var piFirstDue = piDays >= 3 && piLastMs < piDoneMs;
+        var piSecondDue = piDays >= 5 && piLastMs >= piDoneMs && (Date.now() - piLastMs) >= 2 * 86400000;
+        if (!piFirstDue && !piSecondDue) continue;
+        try {
+          // Re-send the SAME post-interview decision email the practice already
+          // has — same ask, same token-authed accept/decline links — rather
+          // than inventing a second message they would have to reconcile.
+          await sendPostInterviewDecisionEmail(piApp.id);
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(piApp.id), { method: 'PATCH', body: { last_practice_reminder_at: new Date().toISOString() } });
+          pdSent++;
+        } catch (epS) { pdErrors.push({ id: piApp.id, error: 'post_interview_send_error' }); }
+      }
+
       await recordCronRun('practice-decision-reminders', 'ok', 'sent=' + pdSent + ' chase=' + pdChase, Date.now() - pdStart);
       sendJson(res, 200, { ok: true, reminders_sent: pdSent, chase_flagged: pdChase, errors: pdErrors.length });
     } catch (ePD) {
@@ -40044,7 +40106,10 @@ async function handleApi(req, res, pathname) {
         await Promise.all([
           pushCareerNotificationToUser(cdGpUserId, { type: 'success', title: cdTitle, body: cdBodyMsg }).catch(() => {}),
           sendPushNotification(cdGpUserId, { title: cdTitle, body: cdBodyMsg, data: { type: 'career', action: 'contract_ready', url: cdNextPath } }).catch(() => {}),
-          sendGpNotificationEmail(cdGpUserId, cdTitle + ' — GP Link', cdTitle, cdBodyMsg, 'Review your contract', APP_BASE_URL + cdNextPath,
+          // "Accept position" (owner call 2026-07-28) — the contract has passed
+          // AI review and CEO approval before reaching them, so the step in
+          // front of the doctor is accepting it, not reviewing it again.
+          sendGpNotificationEmail(cdGpUserId, cdTitle + ' — GP Link', cdTitle, cdBodyMsg, 'Accept position', APP_BASE_URL + cdNextPath,
             'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
         ]);
       }
@@ -40217,6 +40282,25 @@ async function handleApi(req, res, pathname) {
         }).catch((err) => { console.warn('[ceo contract-change-decision] practice email failed (ignored):', err && err.message); });
       }
 
+      // Tell the doctor too. Their card already switches to "The practice is
+      // considering your requested change" off the practice_review status, but
+      // nothing reached them out of the app — so from their side asking for a
+      // change looked identical to being ignored (owner call 2026-07-28). No
+      // accept CTA here on purpose: the terms are in flux, so the only honest
+      // action is to look, not to commit.
+      const chdRelGpUserId = chdContract.user_id || null;
+      if (chdRelGpUserId) {
+        const chdRelTitle = 'Your contract change is with the practice';
+        const chdRelBody = 'We have passed your requested change to the practice and asked them to confirm. We will let you know as soon as they respond — you do not need to do anything right now.';
+        const chdRelPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(chdContract.application_id || ''));
+        await Promise.all([
+          pushCareerNotificationToUser(chdRelGpUserId, { type: 'info', title: chdRelTitle, body: chdRelBody }).catch(() => {}),
+          sendPushNotification(chdRelGpUserId, { title: chdRelTitle, body: chdRelBody, data: { type: 'career', action: 'contract_change_released', url: chdRelPath } }).catch(() => {}),
+          sendGpNotificationEmail(chdRelGpUserId, chdRelTitle + ' — GP Link', chdRelTitle, chdRelBody, 'View position', APP_BASE_URL + chdRelPath,
+            'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
+        ]);
+      }
+
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -40239,7 +40323,10 @@ async function handleApi(req, res, pathname) {
       await Promise.all([
         pushCareerNotificationToUser(chdGpUserId, { type: 'info', title: chdTitle, body: chdBodyMsg }).catch(() => {}),
         sendPushNotification(chdGpUserId, { title: chdTitle, body: chdBodyMsg, data: { type: 'career', action: 'contract_change_declined', url: chdNextPath } }).catch(() => {}),
-        sendGpNotificationEmail(chdGpUserId, chdTitle + ' — GP Link', chdTitle, chdBodyMsg, 'Review your contract', APP_BASE_URL + chdNextPath,
+        // "Accept position" rather than "Review your contract" (owner call
+        // 2026-07-28): the change has been answered and the contract stands as
+        // sent, so accepting is the actual next step, not another review pass.
+        sendGpNotificationEmail(chdGpUserId, chdTitle + ' — GP Link', chdTitle, chdBodyMsg, 'Accept position', APP_BASE_URL + chdNextPath,
           'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
       ]);
     }

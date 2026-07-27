@@ -418,3 +418,42 @@ describe('practice turn-down closes out and clears the practice away', () => {
     expect(fn).toContain('catch');
   });
 });
+
+// Pass A of practice-decision-reminders only watches ats_stage in
+// (submitted, reviewing), so it stopped the moment a candidate reached
+// interview. A practice that interviewed someone and went quiet was chased by
+// nobody, while the doctor sat on "awaiting the practice's decision" — the
+// worst place in the funnel to be forgotten (owner call 2026-07-28).
+describe('post-interview silence gets chased', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const cron = serverSrc.slice(
+    serverSrc.indexOf("if (req.method === 'GET' && pathname === '/api/cron/practice-decision-reminders')"),
+    serverSrc.indexOf("if (req.method === 'GET' && pathname === '/api/cron/chase-nonresponders')")
+  );
+
+  it('selects the post-interview waiting state, which decisions move rows off', () => {
+    expect(cron).toContain("'select=*&status=eq.interview_completed&limit=500'");
+  });
+
+  it('re-sends the SAME decision email rather than inventing a second one', () => {
+    expect(cron).toContain('sendPostInterviewDecisionEmail(piApp.id)');
+  });
+
+  it('mirrors pass A: day 3, day 5, escalate at 7, and skips weekends', () => {
+    expect(cron).toContain('piDays >= 3');
+    expect(cron).toContain('piDays >= 5');
+    expect(cron).toContain('piDays >= 7');
+    expect(cron).toContain('if (pdWeekend) continue;');
+  });
+
+  it('a stale pre-interview flag cannot suppress the post-interview escalation', () => {
+    // Compared against the interview, not a bare null check — the same row may
+    // already carry a flag from the submission round.
+    expect(cron).toContain('piFlagMs < piDoneMs');
+    expect(cron).toContain('piLastMs < piDoneMs');
+  });
+
+  it('shares pass A\'s send cap so one run cannot flood', () => {
+    expect(cron).toContain('pdSent < pdCap');
+  });
+});
