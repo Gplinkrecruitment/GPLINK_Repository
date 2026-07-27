@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Work in flight — read before starting
+
+Read the handover FIRST if your task touches the area it covers. Each one records
+what is already live, what was deliberately decided (so you don't "fix" it back),
+verified data shapes, and what is still broken.
+
+- **AI matching / careers page / post-interview flow** →
+  [`docs/superpowers/handovers/2026-07-28-matching-flow-handover.md`](docs/superpowers/handovers/2026-07-28-matching-flow-handover.md)
+  — all live as of `7f353e0`. Biggest open gap: interviews not held over Zoom
+  never stamp `interview_completed`, so the practice is never asked for a
+  decision and the doctor waits forever, silently.
+
+Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
+
 ## Non-Negotiable Rules
 
 1. **NEVER LIE.** If something isn't working, say so. If you don't know, say so.
