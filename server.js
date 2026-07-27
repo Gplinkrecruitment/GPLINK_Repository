@@ -7035,6 +7035,27 @@ function buildSupabaseStoragePublicUrl(bucket, objectPath) {
   return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(bucketName)}/${encodeSupabaseObjectPath(pathName)}`;
 }
 
+// Storage objects answer on two hosts: the Supabase PROJECT host
+// (<ref>.supabase.co) and the configured custom domain. Rows written by scripts
+// running off a local .env stored the project host, so listings served images
+// from a third-party-looking domain that is trivially blocked by iOS content
+// blockers / Private Relay / corporate DNS — the practice photos then render as
+// broken thumbnails with nothing wrong server-side (the URL still returns 200).
+//
+// Rewriting to SUPABASE_URL's origin serves every image from the same
+// first-party domain the app already talks to, so nothing outside our control
+// gets a say. No-op when SUPABASE_URL is the project host anyway (local/dev).
+function normalizeSupabaseStorageUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw || !CSP_SUPABASE_ORIGIN) return raw;
+  let parsed;
+  try { parsed = new URL(raw); } catch { return raw; }
+  if (!/(^|\.)supabase\.co$/i.test(parsed.host)) return raw;
+  if (!parsed.pathname.startsWith('/storage/v1/')) return raw;
+  if (parsed.origin === CSP_SUPABASE_ORIGIN) return raw;
+  return CSP_SUPABASE_ORIGIN + parsed.pathname + parsed.search;
+}
+
 function mapPreparedDocumentRow(row, signedUrl = '') {
   if (!row || typeof row !== 'object') return null;
   return {
@@ -21592,7 +21613,7 @@ function mapCareerRoleRowToClient(row) {
     // masked name — it is NEVER the real practice name. Falls back to the
     // existing Zoho-derived publicHeadline, then a generic label.
     practiceName: (row && row.masked_title) ? String(row.masked_title) : (gpLinkMeta.publicHeadline || 'Confidential GP practice'),
-    headerImageUrl: (row && row.header_image_url) ? String(row.header_image_url) : '',
+    headerImageUrl: normalizeSupabaseStorageUrl((row && row.header_image_url) ? String(row.header_image_url) : ''),
     // nearest_city ONLY — location_city holds the suburb, so falling back to it
     // produced "near Erina", i.e. the suburb the title already names.
     displayLabel: practicePipeline.buildMaskedDisplayLabel({
@@ -21643,7 +21664,7 @@ function mapCareerRoleRowToClient(row) {
       ? String(row.employment_type)
       : (row && row.provider === 'internal_ats' ? 'Live opening via GP Link' : 'Live opening via Zoho Recruit'),
     locationSummary: gpLinkMeta.locationSummary || '',
-    heroImageUrl: gpLinkMeta.heroImageUrl || '',
+    heroImageUrl: normalizeSupabaseStorageUrl(gpLinkMeta.heroImageUrl || ''),
     heroImageSourceUrl: gpLinkMeta.heroImageSourceUrl || '',
     heroImageCredit: gpLinkMeta.heroImageCredit || '',
     mapQuery: gpLinkMeta.mapQuery || '',
@@ -21814,7 +21835,7 @@ function mapCareerRoleRowToPublicJob(row) {
       nearestCity: (row && row.nearest_city) || '',
       suburb: (row && row.suburb) || ''
     }),
-    header_image_url: row && row.header_image_url ? String(row.header_image_url) : '',
+    header_image_url: normalizeSupabaseStorageUrl(row && row.header_image_url ? String(row.header_image_url) : ''),
     suburb: row && row.suburb ? String(row.suburb) : '',
     nearest_city: row && row.nearest_city ? String(row.nearest_city) : '',
     location_label: locationLabel || 'Australia',
@@ -41038,7 +41059,7 @@ async function handleApi(req, res, pathname) {
         const mappedRole = heroReadyRow ? mapCareerRoleRowToClient(heroReadyRow) : null;
         sendJson(res, 200, {
           ok: true,
-          heroImageUrl: mappedRole && mappedRole.heroImageUrl ? mappedRole.heroImageUrl : '',
+          heroImageUrl: normalizeSupabaseStorageUrl(mappedRole && mappedRole.heroImageUrl ? mappedRole.heroImageUrl : ''),
           heroImageSourceUrl: mappedRole && mappedRole.heroImageSourceUrl ? mappedRole.heroImageSourceUrl : '',
           heroImageCredit: mappedRole && mappedRole.heroImageCredit ? mappedRole.heroImageCredit : '',
           status: mappedRole && mappedRole.heroImageUrl ? 'success' : 'unavailable'
@@ -41060,7 +41081,7 @@ async function handleApi(req, res, pathname) {
 
     sendJson(res, 200, {
       ok: true,
-      heroImageUrl: resolved.heroImageUrl,
+      heroImageUrl: normalizeSupabaseStorageUrl(resolved.heroImageUrl),
       heroImageSourceUrl: resolved.heroImageSourceUrl,
       heroImageCredit: resolved.heroImageCredit,
       status: resolved.heroImageStatus
