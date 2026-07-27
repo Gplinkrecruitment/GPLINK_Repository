@@ -12533,8 +12533,15 @@
       const isContractChangesRequested = application.contractStage === "changes_requested";
       const isContractPracticeReview = application.contractStage === "practice_review";
 
+      // A live match the doctor has not answered yet. Checked FIRST: every
+      // branch below describes something that has already happened to an
+      // application, and none of it is true here — the ball is still in their
+      // court (owner report 2026-07-28).
+      const isPendingMatch = actionStatusKey === "matched";
+
       let ribbon = "";
-      if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
+      if (isPendingMatch) ribbon = '<span class="at-rstatus at-rstatus--offer">MATCHED</span>';
+      else if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
       else if (isFinalising) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER ACCEPTED</span>';
       else if (isNotProceeding) ribbon = '<span class="at-rstatus at-rstatus--muted">NOT PROCEEDING</span>';
       else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
@@ -12553,7 +12560,9 @@
       else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
       let metaLine = "";
-      if (application.isPlacementSecured) {
+      if (isPendingMatch) {
+        metaLine = "Your team matched you to this practice — open it to accept or decline before it expires.";
+      } else if (application.isPlacementSecured) {
         metaLine = "Placement secured \u2014 open your placement for the full details.";
       } else if (isFinalising) {
         metaLine = "We're finalising the paperwork \u2014 your placement page unlocks shortly.";
@@ -13213,6 +13222,20 @@
         const app = careerState.applications.find(a => a && ((a.id && a.id === appId) || (a.roleId && a.roleId === appRoleId)));
         if (app) {
           try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch {}
+        }
+        // A live, unanswered match must NOT open the application tracker. That
+        // page is a pipeline view — Applied → Under Review → Interview → Offer
+        // — and every one of those steps is untrue for someone who has not
+        // answered yet. Send them to the practice page instead, which carries
+        // the accept/decline actions (owner report 2026-07-28).
+        if (app && String(app.status || "").trim().toLowerCase() === "matched") {
+          const matchRoute = "/pages/job?id=" + encodeURIComponent(appRoleId) + "&match=" + encodeURIComponent(appId);
+          if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
+            window.parent.gpShellNavigate(matchRoute);
+          } else {
+            window.location.href = "job?id=" + encodeURIComponent(appRoleId) + "&match=" + encodeURIComponent(appId);
+          }
+          return;
         }
         const detailRoute = "/pages/application-detail?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
         if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {

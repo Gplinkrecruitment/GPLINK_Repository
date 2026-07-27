@@ -457,3 +457,50 @@ describe('post-interview silence gets chased', () => {
     expect(cron).toContain('pdSent < pdCap');
   });
 });
+
+// Fixing the stored status was necessary but not sufficient: the server
+// re-derived a presentation status on the way out, and with no 'shortlisted'
+// branch the row fell through to the 'applied' default — which is literally
+// where "Application submitted" and the Applied→Under Review→… timeline came
+// from on the doctor's screen (owner report 2026-07-28).
+describe('a pending match presents as matched, not applied', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+  const detailHtml = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
+  const mapper = serverSrc.slice(
+    serverSrc.indexOf('function buildInternalCareerStatusPresentation'),
+    serverSrc.indexOf("return { status: 'applied', statusLabel: 'Application submitted'")
+  );
+
+  it('the presentation mapper answers "matched" before falling through to applied', () => {
+    expect(mapper).toContain("stage === 'shortlisted' && !row.match_outcome");
+    expect(mapper).toContain("status: 'matched'");
+    expect(mapper).toContain('accept or decline');
+  });
+
+  it('an ANSWERED match no longer counts as pending', () => {
+    // match_outcome is what closes it — accepted rows move to ats_stage
+    // 'applied' anyway, but a declined/expired row must not resurface here.
+    expect(mapper).toContain('!row.match_outcome');
+  });
+
+  it('the careers card leads with MATCHED and its own copy', () => {
+    expect(careerHtml).toContain('const isPendingMatch = actionStatusKey === "matched"');
+    expect(careerHtml).toContain('at-rstatus--offer">MATCHED');
+    expect(careerHtml).toContain('open it to accept or decline before it expires');
+  });
+
+  it('tapping a pending match opens the practice page, not the application tracker', () => {
+    expect(careerHtml).toContain('String(app.status || "").trim().toLowerCase() === "matched"');
+    expect(careerHtml).toContain('"/pages/job?id=" + encodeURIComponent(appRoleId) + "&match=" + encodeURIComponent(appId)');
+  });
+
+  it('the tracker bounces a pending match before drawing a false timeline', () => {
+    const idx = detailHtml.indexOf('function renderApplication(app) {');
+    const head = detailHtml.slice(idx, idx + 1400);
+    expect(head).toContain('=== "matched"');
+    // Redirect must come BEFORE the content is unhidden, or the wrong timeline
+    // flashes up first.
+    expect(head.indexOf('=== "matched"')).toBeLessThan(head.indexOf('appContent").hidden = false'));
+  });
+});

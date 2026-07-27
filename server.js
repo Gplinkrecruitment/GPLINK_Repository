@@ -18691,6 +18691,17 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
   if (stage === 'submitted') {
     return { status: 'submitted', statusLabel: 'Sent to the practice', statusTone: 'review', offerPending: false };
   }
+  // A live match the doctor has not answered. ats_stage 'shortlisted' with no
+  // match_outcome means the ball is in THEIR court — it is not an application
+  // and must never present as one. With no branch here the row fell through to
+  // the 'applied' default below, which is literally where "Application
+  // submitted" came from on every doctor-facing surface, including the
+  // application tracker's timeline (owner report 2026-07-28). Fixing the
+  // stored status alone was not enough: this mapper re-derived the wrong
+  // answer on the way out.
+  if (stage === 'shortlisted' && !row.match_outcome) {
+    return { status: 'matched', statusLabel: 'Matched to you — accept or decline', statusTone: 'review', offerPending: false };
+  }
   return { status: 'applied', statusLabel: 'Application submitted', statusTone: 'review', offerPending: false };
 }
 

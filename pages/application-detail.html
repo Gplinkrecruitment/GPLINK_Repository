@@ -1218,6 +1218,26 @@
 
       function renderApplication(app) {
         latestApp = app;
+
+        // This page is a pipeline tracker: Applied → Under Review → Interview
+        // → Offer → Secured. For a live match the doctor has not answered,
+        // every one of those steps is untrue — they have not applied to
+        // anything. career.html no longer links here for that case, but a back
+        // button, a bookmark or an old notification still can, so bounce to the
+        // practice page where accept/decline actually live (owner report
+        // 2026-07-28). Guard runs BEFORE anything is drawn, so the false
+        // timeline never flashes up.
+        if (normalizeStatusKey(app && (app.rawStatus || app.status)) === "matched") {
+          var matchRoleId = (app && (app.roleId || (app.role && app.role.id))) || roleId || "";
+          var matchTarget = "job?id=" + encodeURIComponent(matchRoleId) + "&match=" + encodeURIComponent(appId);
+          if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
+            window.parent.gpShellNavigate("/pages/" + matchTarget);
+          } else {
+            window.location.replace(matchTarget);
+          }
+          return;
+        }
+
         document.getElementById("loadingState").hidden = true;
         document.getElementById("appContent").hidden = false;
 
