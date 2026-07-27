@@ -7104,6 +7104,16 @@ async function resolveCandidateDocTarget(caseId, docKey) {
     'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
   const userId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].user_id : '';
   if (!userId) return null;
+  const country = await resolveGpDocumentCountryForUser(userId);
+  return { userId, country, storagePath: buildPreparedDocumentStoragePath(userId, country, docKey) };
+}
+
+// The GP's document country, from their profile/state. Extracted so the upload
+// target, the documents list and the document PREVIEW all resolve it identically
+// — a divergence here files or reads a document under a country the other side
+// never looks at, and the upload then "vanishes" with no error.
+async function resolveGpDocumentCountryForUser(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return 'uk';
   const [profRes, stateRes] = await Promise.all([
     supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
     supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1')
@@ -7112,8 +7122,7 @@ async function resolveCandidateDocTarget(caseId, docKey) {
   let state = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0]) ? stateRes.data[0].state : null;
   if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
   if (!state || typeof state !== 'object') state = {};
-  const country = resolveGpDocumentCountry(prof.registration_country, state.gp_selected_country);
-  return { userId, country, storagePath: buildPreparedDocumentStoragePath(userId, country, docKey) };
+  return resolveGpDocumentCountry(prof.registration_country, state.gp_selected_country);
 }
 
 async function listPreparedDocumentRows(userId, country) {
@@ -7185,6 +7194,17 @@ async function upsertPreparedDocumentRow(userId, payload, storagePath) {
     file_url: storagePath,
     updated_at: payload.updatedAt
   };
+  // Record WHERE and WHAT, not just the name. Readers are split between
+  // `storage_path` and `file_url` (some check storage_path alone), and the row
+  // was landing with mime_type '' and file_size 0 — so a filed document reported
+  // no type and no size to every downstream consumer (Drive mirror, AHPRA pack,
+  // the doctor's own documents list).
+  saveBody.storage_path = storagePath;
+  saveBody.storage_bucket = SUPABASE_DOCUMENT_BUCKET;
+  if (payload.mimeType) saveBody.mime_type = payload.mimeType;
+  if (Number.isFinite(Number(payload.fileSize)) && Number(payload.fileSize) > 0) {
+    saveBody.file_size = Number(payload.fileSize);
+  }
   // Stamp WHEN it was reviewed, never WHO: `reviewed_by` is a uuid column, so
   // writing an admin's email there fails the whole upsert with a 22P02 and the
   // upload 502s. The admin who filed it is named in review_notes instead.
@@ -58313,12 +58333,29 @@ Return ONLY valid JSON with no markdown formatting:
     };
 
     // 1. A user_documents row with a stored file.
-    const gdpRowRes = await supabaseDbRequest('user_documents',
-      'select=*&user_id=eq.' + encodeURIComponent(gdpUserId) + '&document_key=eq.' + encodeURIComponent(gdpKey) + '&limit=1');
-    const gdpRow = gdpRowRes.ok && Array.isArray(gdpRowRes.data) && gdpRowRes.data[0] ? gdpRowRes.data[0] : null;
-    if (gdpRow && (gdpRow.storage_path || gdpRow.file_url)) {
-      const s = await supabaseStorageCreateSignedUrl(gdpRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, gdpRow.storage_path || gdpRow.file_url, '');
-      if (s && await gdpStream(s)) return;
+    //    A GP can hold SEVERAL rows for one document_key — the table is keyed
+    //    (user_id, document_key, country_code), and mixed-case country codes split
+    //    them further ('AU' vs 'uk'). The old query took `limit=1` with NO country
+    //    filter, so it returned an arbitrary row: for a GP with a careers CV under
+    //    'AU' (whose object had since been removed) and the real prepared CV under
+    //    'uk', it picked the AU row, failed to stream it, and reported "No document
+    //    is stored for this slot yet" while the freshly uploaded file sat unread.
+    //    Prefer the row for the GP's resolved document country, then the newest of
+    //    the rest, and actually TRY each one — a row pointing at a dead path must
+    //    not mask a sibling row that has the file.
+    const gdpRowsRes = await supabaseDbRequest('user_documents',
+      'select=*&user_id=eq.' + encodeURIComponent(gdpUserId) + '&document_key=eq.' + encodeURIComponent(gdpKey));
+    const gdpRows = gdpRowsRes.ok && Array.isArray(gdpRowsRes.data) ? gdpRowsRes.data : [];
+    const gdpWithFile = gdpRows.filter((row) => row && (row.storage_path || row.file_url));
+    if (gdpWithFile.length) {
+      const gdpCountry = await resolveGpDocumentCountryForUser(gdpUserId);
+      const gdpRank = (row) => (normalizeDocumentCountry(row.country_code) === gdpCountry ? 0 : 1);
+      gdpWithFile.sort((a, b) => gdpRank(a) - gdpRank(b)
+        || String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+      for (const row of gdpWithFile) {
+        const s = await supabaseStorageCreateSignedUrl(row.storage_bucket || SUPABASE_DOCUMENT_BUCKET, row.storage_path || row.file_url, '');
+        if (s && await gdpStream(s)) return;
+      }
     }
 
     // 2. Original onboarding upload (separate key namespace).
@@ -61261,6 +61298,9 @@ Return ONLY valid JSON with no markdown formatting:
       key: cdfDocKey,
       fileName: cdfCheck.sanitisedFileName || cdfFileName,
       mimeType: cdfMime,
+      // The bytes we actually read back from Storage — not the size the browser
+      // claimed, which is unverified and was landing as 0.
+      fileSize: cdfStored.buffer.length,
       updatedAt: new Date().toISOString(),
       // Auto-approved: staff filing the document is the review step.
       status: 'approved',

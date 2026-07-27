@@ -94,6 +94,14 @@ function startEmulator() {
         if (mm && req.method === 'DELETE') { storage.delete(decodeURIComponent(mm[1])); sendJson(200, {}); return; }
         mm = u.pathname.match(/^\/storage\/v1\/object\/sign\/(.+)$/);
         if (mm && req.method === 'POST') { sendJson(200, { signedURL: '/object/sign/' + mm[1] + '?token=dl' }); return; }
+        // Reading back through a signed DOWNLOAD url — what the document preview does.
+        // A missing object 404s here exactly as Storage would, which is what lets a row
+        // pointing at a dead path be told apart from one that really has the file.
+        if (mm && req.method === 'GET') {
+          const buf = storage.get(decodeURIComponent(mm[1]));
+          if (!buf) { res.writeHead(404); res.end('not found'); return; }
+          res.writeHead(200, { 'Content-Type': 'application/pdf' }); res.end(buf); return;
+        }
         sendJson(404, { message: 'storage not found' }); return;
       }
 
@@ -321,6 +329,56 @@ describe('admin upload into Prepared by Candidate placeholders', () => {
       const r = await httpReq('POST', p, { host: SUPER_HOST, body: { case_id: CASE_ID, document_key: DOC_KEY, file_name: 'x.pdf' } });
       expect([401, 403]).toContain(r.status);
     }
+  });
+
+  // A multi-page scan must survive the round trip byte-for-byte: the doctor's CV runs
+  // to several pages, and a preview that truncates it is worse than one that fails.
+  it('stores and serves a multi-page document unchanged', async () => {
+    const key = 'mrcgp_certified';
+    const pages = ['%PDF-1.4', '1 0 obj<</Type/Page>>endobj', '2 0 obj<</Type/Page>>endobj',
+      '3 0 obj<</Type/Page>>endobj', 'x'.repeat(40000), '%%EOF'].join('\n');
+    const body = Buffer.from(pages, 'utf8');
+    const { fin } = await uploadCandidateDoc(key, 'Multi page CV.pdf', body);
+    expect(fin.status).toBe(200);
+    const r = await httpReq('GET', '/api/admin/gp-document-preview?case_id=' + CASE_ID + '&key=' + key,
+      { host: SUPER_HOST, cookie: adminCookie() });
+    expect(r.status).toBe(200);
+    expect(Buffer.byteLength(r.raw, 'utf8')).toBe(body.length);
+    expect(r.raw).toContain('3 0 obj');
+  });
+
+  // The live 2026-07-28 failure: the GP held TWO cv_signed_dated rows — a careers CV
+  // under country 'AU' whose Storage object no longer existed, and the real prepared CV
+  // under 'uk'. The preview asked for `limit=1` with NO country filter, got the AU row,
+  // failed to stream its dead path, and told staff "No document is stored for this slot
+  // yet" while the freshly uploaded PDF sat unread.
+  it('previews the row for the GP country even when another country row points at a dead path', async () => {
+    const key = 'cv_signed_dated';
+    const deadPath = 'users/' + GP.userId + '/account-career-documents/au/' + key + '/current';
+    tableOf('user_documents').unshift({
+      id: 1, user_id: GP.userId, document_key: key, country_code: 'AU',
+      file_name: 'Careers CV.pdf', status: 'under_review',
+      file_url: deadPath, storage_path: deadPath, storage_bucket: 'gp-link-documents',
+      updated_at: '2026-06-01T00:00:00.000Z'
+    });
+    expect(storage.has('gp-link-documents/' + deadPath)).toBe(false); // nothing behind it
+
+    await uploadCandidateDoc(key, 'Adobe Scan.pdf', PDF('the real signed cv'));
+    const r = await httpReq('GET', '/api/admin/gp-document-preview?case_id=' + CASE_ID + '&key=' + key,
+      { host: SUPER_HOST, cookie: adminCookie() });
+    expect(r.status).toBe(200);
+    expect(r.raw).toContain('the real signed cv');
+  });
+
+  it('records where the file is, what type it is and how big it is', async () => {
+    const key = 'cct_certified';
+    const body = PDF('cct scan');
+    await uploadCandidateDoc(key, 'CCT.pdf', body);
+    const row = tableOf('user_documents').find((d) => d.document_key === key);
+    expect(row.storage_path).toBe('users/' + GP.userId + '/prepared-documents/uk/' + key + '/current');
+    expect(row.storage_bucket).toBeTruthy();
+    expect(row.mime_type).toBe('application/pdf');
+    expect(row.file_size).toBe(body.length); // the bytes read back, not the browser's claim
   });
 
   // The 401 used to be `{ok:false, authenticated:false}` with NO message — the only
