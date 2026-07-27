@@ -31409,7 +31409,11 @@ async function countMonthlyCareerInterviews(userId, monthStart, monthEnd) {
 async function acceptShortlistedMatchRow(row, userId, actorEmail, profile) {
   var job = row.career_role_id ? await atsGetJobRow(row.career_role_id) : null;
   var nowIso = new Date().toISOString();
-  var patch = { ats_stage: 'applied', match_outcome: 'accepted', ats_stage_updated_at: nowIso, applied_at: nowIso, updated_at: nowIso };
+  // status moves here, not at shortlist time — accepting the match IS the
+  // moment the doctor applies. Paired with the explicit status:'shortlisted'
+  // on the shortlist insert; without both halves a matched row would either
+  // claim to be applied too early or never become applied at all.
+  var patch = { status: 'applied', ats_stage: 'applied', match_outcome: 'accepted', ats_stage_updated_at: nowIso, applied_at: nowIso, updated_at: nowIso };
   var upd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(row.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
   var updatedRow = (upd.ok && Array.isArray(upd.data) && upd.data[0]) ? upd.data[0] : Object.assign({}, row, patch);
   await atsRecordStageEvent(row.id, 'shortlisted', 'applied', actorEmail || '');
@@ -64705,6 +64709,14 @@ Return ONLY valid JSON with no markdown formatting:
       var msInsertRow = {
         user_id: msUserId, career_role_id: msJob.id,
         provider_role_id: msJob.provider_role_id || ('ats_' + atsLocalId('')),
+        // `status` defaults to 'applied' in the schema, so a shortlist that
+        // never set it created a row claiming the doctor had applied before
+        // they had seen it. The internal board reads ats_stage and was right;
+        // every GP-facing screen reads status and told them "Application
+        // submitted / under review" for something still awaiting their answer
+        // (owner report 2026-07-27). Set it explicitly here; the accept path
+        // moves it to 'applied' at the moment they actually apply.
+        status: 'shortlisted',
         ats_stage: 'shortlisted', origin: 'ai_matched', revealed: true,
         job_title: msJob.title, practice_name: msJob.practice_name || '',
         match_score: msCacheEntry ? msCacheEntry.score : null,

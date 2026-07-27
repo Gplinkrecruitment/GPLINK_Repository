@@ -9235,7 +9235,22 @@
             .filter((job) => job && (roleIds.has(job.roleId) || job.isPlacementSecured === true))
             .map((job) => {
               const liveRole = roleMap.get(job.roleId);
-              return normalizeCareerApplication(liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job);
+              if (!liveRole) return normalizeCareerApplication(job);
+              // The roles list is the PUBLIC, masked view — its practiceName is
+              // the masked headline ("DPA - Erina (Central Coast) - Mixed
+              // Billing"). Copying it over the application's own name used to
+              // be harmless because an application only knew the real name
+              // after acceptance. A match reveals the practice immediately
+              // (the shortlist row is written revealed:true), so this clobber
+              // replaced the real name with the masked one while the card kept
+              // showing "IDENTITY UNLOCKED" beside it (owner report
+              // 2026-07-27). Location is safe either way; the name is not.
+              const keepRevealedName = job.revealed === true && job.practiceName;
+              return normalizeCareerApplication({
+                ...job,
+                practiceName: keepRevealedName ? job.practiceName : liveRole.practiceName,
+                location: liveRole.location
+              });
             })
         : fallback.applications;
       const hasLockedPlacement = applications.some((application) => application && application.isPlacementSecured);

@@ -301,3 +301,50 @@ describe('PATCH /api/ats/application {match_extend:true}', () => {
     expect([401, 403, 302]).toContain(r.status);
   });
 });
+
+// A match is not an application until the doctor says so. `status` defaults to
+// 'applied' in the schema, so a shortlist row that never set it claimed the
+// doctor had applied before they had even seen the match — the internal board
+// reads ats_stage and was correct, while every GP-facing screen reads status
+// and said "Application submitted / under review" (owner report 2026-07-27).
+describe('a shortlisted match does not claim to be an application', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  it('the shortlist insert sets status explicitly, not by schema default', () => {
+    const idx = serverSrc.indexOf("ats_stage: 'shortlisted', origin: 'ai_matched'");
+    expect(idx).toBeGreaterThan(-1);
+    // status is set on the same row literal, immediately above the stage.
+    expect(serverSrc.slice(idx - 700, idx)).toContain("status: 'shortlisted'");
+  });
+
+  it('accepting the match is what moves status to applied', () => {
+    const idx = serverSrc.indexOf("var patch = { status: 'applied', ats_stage: 'applied', match_outcome: 'accepted'");
+    expect(idx).toBeGreaterThan(-1);
+  });
+
+  it('the two halves stay paired — a shortlist status with no accept-side move would strand the row', () => {
+    const shortlisted = (serverSrc.match(/status: 'shortlisted'/g) || []).length;
+    const acceptMove = serverSrc.indexOf("status: 'applied', ats_stage: 'applied'");
+    expect(shortlisted).toBeGreaterThan(0);
+    expect(acceptMove).toBeGreaterThan(-1);
+  });
+});
+
+// A match reveals the practice immediately (the shortlist row is written
+// revealed:true) — the doctor is told who it is so they can decide. The
+// careers page used to copy the PUBLIC roles list's masked headline over that
+// real name while still showing "IDENTITY UNLOCKED" beside it.
+describe('careers page keeps a revealed practice name', () => {
+  const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+
+  it('does not overwrite a revealed application name with the masked roles-list one', () => {
+    expect(careerHtml).toContain('const keepRevealedName = job.revealed === true && job.practiceName');
+    expect(careerHtml).toContain('practiceName: keepRevealedName ? job.practiceName : liveRole.practiceName');
+    // The unconditional clobber must be gone.
+    expect(careerHtml).not.toContain('{ ...job, practiceName: liveRole.practiceName, location: liveRole.location }');
+  });
+
+  it('still takes location from the live role, which is not identity-bearing', () => {
+    expect(careerHtml).toContain('location: liveRole.location');
+  });
+});
