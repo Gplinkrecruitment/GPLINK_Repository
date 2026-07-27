@@ -6977,20 +6977,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             body:JSON.stringify({case_id:caseId,document_key:docKey})
           });
           var sd=await sr.json().catch(function(){return {};});
-          if(!sd||!sd.ok||!sd.uploadUrl){onCandidateDocFailed(sd&&sd.message);return;}
-          var pr=await fetch(sd.uploadUrl,{
-            method:"PUT",
-            headers:{"Content-Type":file.type||"application/octet-stream","x-upsert":"true"},
-            body:file
-          });
-          if(!pr.ok){onCandidateDocFailed("Upload failed ("+pr.status+")");return;}
+          if(!sd||!sd.ok||!sd.uploadUrl){onCandidateDocFailed(docUploadStageError("Couldn't start the upload",sr,sd));return;}
+          /* The file goes straight to Storage over the open internet, and prod
+             proxies Supabase through a custom domain (~2x slower), so a big scan
+             is a long single request that a flaky link can drop — which surfaces
+             as a THROWN "Failed to fetch", not a status code. That is exactly how
+             this failed live on 2026-07-27. Retry the transfer before giving up,
+             and never report a dropped connection as a bare "Upload failed". */
+          var pr=await putCandidateDocFile(sd.uploadUrl,file);
+          if(!pr.ok){onCandidateDocFailed(pr.message);return;}
           var fr=await fetch("/api/admin/candidate-doc/finalize",{
             method:"POST",credentials:"same-origin",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({case_id:caseId,document_key:docKey,file_name:file.name,mime_type:file.type||"",file_size:file.size})
           });
           var fd=await fr.json().catch(function(){return {};});
-          if(!fd||!fd.ok){onCandidateDocFailed(fd&&fd.message);return;}
+          if(!fd||!fd.ok){onCandidateDocFailed(docUploadStageError("Couldn't save the document",fr,fd));return;}
           showOpsToast("Document uploaded");
           var c=S.cases.find(function(x){return x.id===caseId;});
           if(c){
@@ -7000,10 +7002,42 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         }catch(err){
           console.error("[VA] candidate doc upload failed:",err);
-          onCandidateDocFailed();
+          onCandidateDocFailed("Upload failed: "+((err&&err.message)||"connection problem")+" — please try again");
         }
       })();
     });
+    /* Turn an API failure into something the operator can act on. A bare
+       "Upload failed" told us nothing when this broke live; worse, the admin
+       401 body carries no message at all, so an expired sign-in rendered as a
+       generic failure instead of "sign in again". */
+    function docUploadStageError(stage,response,payload){
+      var status=response?response.status:0;
+      if(status===401)return "Your admin sign-in has expired — please sign in again.";
+      if(payload&&payload.message)return payload.message;
+      return stage+(status?" ("+status+")":"")+" — please try again";
+    }
+    /* PUT the file to Storage, retrying a DROPPED connection (fetch throws) or a
+       5xx. A 4xx is a real rejection — retrying it just wastes the operator's time. */
+    async function putCandidateDocFile(uploadUrl,file){
+      var attempts=3,lastMsg="Upload failed";
+      for(var i=0;i<attempts;i++){
+        try{
+          var r=await fetch(uploadUrl,{
+            method:"PUT",
+            headers:{"Content-Type":file.type||"application/octet-stream","x-upsert":"true"},
+            body:file
+          });
+          if(r.ok)return {ok:true};
+          if(r.status<500)return {ok:false,message:"Storage rejected the file ("+r.status+")"};
+          lastMsg="Storage error ("+r.status+")";
+        }catch(err){
+          console.error("[VA] candidate doc transfer attempt "+(i+1)+" failed:",err);
+          lastMsg="The file transfer was interrupted";
+        }
+        if(i<attempts-1)await new Promise(function(done){setTimeout(done,1500*(i+1));});
+      }
+      return {ok:false,message:lastMsg+" — please check your connection and try again"};
+    }
     function resetCandidateDocUploadLabel(label,docKey,hasFile){
       if(!label)return;
       while(label.firstChild)label.removeChild(label.firstChild);

@@ -13870,7 +13870,11 @@ function resolveAdminRequestContext(req, res) {
   }
   const session = getAdminSession(req);
   if (!session) {
-    sendJson(res, 401, { ok: false, authenticated: false });
+    // `message` matters: this was the ONLY admin error body without one, so every
+    // caller that shows `d.message` rendered an expired sign-in as a blank/generic
+    // failure (e.g. the candidate-document upload's bare "Upload failed").
+    // `authenticated:false` stays put — existing callers branch on it.
+    sendJson(res, 401, { ok: false, authenticated: false, message: 'Your admin sign-in has expired. Please sign in again.' });
     return null;
   }
   const email = getSessionEmail(session);

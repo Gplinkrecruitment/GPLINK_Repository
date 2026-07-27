@@ -322,4 +322,17 @@ describe('admin upload into Prepared by Candidate placeholders', () => {
       expect([401, 403]).toContain(r.status);
     }
   });
+
+  // The 401 used to be `{ok:false, authenticated:false}` with NO message — the only
+  // admin error body without one. Callers that surface `message` therefore showed an
+  // expired sign-in as a blank/generic failure (the candidate upload's bare
+  // "Upload failed"). Every rejection must name itself.
+  it('says WHY it rejected an unauthenticated upload', async () => {
+    for (const p of ['/api/admin/candidate-doc/sign-upload', '/api/admin/candidate-doc/finalize']) {
+      const r = await httpReq('POST', p, { host: SUPER_HOST, body: { case_id: CASE_ID, document_key: DOC_KEY, file_name: 'x.pdf' } });
+      expect(r.body, p).toBeTruthy();
+      expect(String(r.body.message || ''), p).toMatch(/sign in again/i);
+      expect(r.body.authenticated, p).toBe(false); // existing callers branch on this
+    }
+  });
 });

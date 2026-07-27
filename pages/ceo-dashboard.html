@@ -7278,29 +7278,65 @@
         if (inputEl) inputEl.value = '';
         if (msg) showToast(msg, kind || 'error');
       }
-      apiFetch('/api/admin/candidate-doc/sign-upload', {
-        method: 'POST',
-        body: { case_id: caseId, document_key: docKey }
-      }).then(function(sd) {
-        if (!sd || !sd.ok || !sd.uploadUrl) { done((sd && sd.message) || 'Upload failed'); return null; }
-        // Straight to Supabase Storage — a cross-origin PUT, so plain fetch (not apiFetch).
-        return fetch(sd.uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' },
-          body: file
-        }).then(function(pr) {
-          if (!pr.ok) { done('Upload failed (' + pr.status + ')'); return null; }
-          return apiFetch('/api/admin/candidate-doc/finalize', {
-            method: 'POST',
-            body: { case_id: caseId, document_key: docKey, file_name: file.name, mime_type: file.type || '', file_size: file.size }
-          });
+      // Raw fetch (not apiFetch) for the two API legs: apiFetch returns only the parsed
+      // body, and the HTTP status is exactly what a useful error message needs — the
+      // admin 401 body carries no message at all. gpSwrPurge is called by hand for the
+      // cache invalidation apiFetch would otherwise have done on a mutation.
+      function postJson(path, body) {
+        gpSwrPurge();
+        return fetch(path, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        }).then(function(r) {
+          return r.json().catch(function() { return {}; }).then(function(d) { return { status: r.status, body: d || {} }; });
         });
-      }).then(function(fd) {
-        if (!fd) return;
-        if (!fd.ok) { done((fd && fd.message) || 'Upload failed'); return; }
-        done('Document uploaded', 'success');
-        refreshGpDocuments();
-      }).catch(function(err) { done('Error: ' + (err && err.message ? err.message : 'upload failed')); });
+      }
+      function stageError(stage, res) {
+        if (res.status === 401) return 'Your admin sign-in has expired — please sign in again.';
+        if (res.body && res.body.message) return res.body.message;
+        return stage + (res.status ? ' (' + res.status + ')' : '') + ' — please try again';
+      }
+      // The transfer goes straight to Storage over the open internet, and prod proxies
+      // Supabase through a custom domain (~2x slower), so a big scan is a long single
+      // request a flaky link can drop — which throws rather than returning a status.
+      // Retry the transfer; only a 4xx is a real rejection worth surfacing immediately.
+      async function putFile(uploadUrl) {
+        var last = 'Upload failed';
+        for (var i = 0; i < 3; i++) {
+          try {
+            var r = await fetch(uploadUrl, {
+              method: 'PUT',
+              headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' },
+              body: file
+            });
+            if (r.ok) return { ok: true };
+            if (r.status < 500) return { ok: false, message: 'Storage rejected the file (' + r.status + ')' };
+            last = 'Storage error (' + r.status + ')';
+          } catch (err) {
+            console.error('[CEO] candidate doc transfer attempt ' + (i + 1) + ' failed:', err);
+            last = 'The file transfer was interrupted';
+          }
+          if (i < 2) await new Promise(function(d) { setTimeout(d, 1500 * (i + 1)); });
+        }
+        return { ok: false, message: last + ' — please check your connection and try again' };
+      }
+      (async function() {
+        try {
+          var signed = await postJson('/api/admin/candidate-doc/sign-upload', { case_id: caseId, document_key: docKey });
+          if (!signed.body.ok || !signed.body.uploadUrl) { done(stageError("Couldn't start the upload", signed)); return; }
+          var put = await putFile(signed.body.uploadUrl);
+          if (!put.ok) { done(put.message); return; }
+          var fin = await postJson('/api/admin/candidate-doc/finalize', {
+            case_id: caseId, document_key: docKey, file_name: file.name, mime_type: file.type || '', file_size: file.size
+          });
+          if (!fin.body.ok) { done(stageError("Couldn't save the document", fin)); return; }
+          done('Document uploaded', 'success');
+          refreshGpDocuments();
+        } catch (err) {
+          console.error('[CEO] candidate doc upload failed:', err);
+          done('Upload failed: ' + ((err && err.message) || 'connection problem') + ' — please try again');
+        }
+      })();
     }
 
     // GP Tasks action: review a flagged / qualification-review document. Dark port of admin's
