@@ -251,13 +251,20 @@ describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
     expect(mapped.title).toBe('General Practitioner');
   });
 
-  it('builds display_label from billing_model/dpa/nearest_city (never from practice_name)', () => {
-    // billing_model on a practice-client-pipeline row (task 6) is the raw
-    // style key ('mixed'/'bulk'/'private'), not a human label — that's the
-    // key buildMaskedDisplayLabel's BILLING_LABELS map expects.
+  it('builds display_label as the near-city line only (never from practice_name)', () => {
+    // Owner rule (2026-07-28): billing and DPA are already the title and their
+    // own chips, so the subtitle carries only the major city.
     const row = makeRawRow({ billing_model: 'bulk', dpa: true, nearest_city: 'Perth' });
     const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
-    expect(mapped.display_label).toBe('Bulk Billing · DPA · near Perth');
+    expect(mapped.display_label).toBe('near Perth');
+  });
+
+  // The reported bug: nearest_city was empty, so the mapper fell back to
+  // location_city — which holds the suburb — and the card read "near Erina".
+  it('never falls back to the suburb for the near-city line', () => {
+    const row = makeRawRow({ suburb: 'Erina', nearest_city: '', location_city: 'Erina', dpa: true });
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(row);
+    expect(mapped.display_label).toBe('');
   });
 
   it('carries header_image_url/suburb/nearest_city through when present', () => {

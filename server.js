@@ -18896,12 +18896,16 @@ function buildCareerPublicLocationLine(row, suburb = '') {
   ]) || 'Australia';
 }
 
+// In-app twin of the public card's "near X" subtitle, so both surfaces name the
+// same major city. Was built from location_city, which holds the SUBURB — that
+// is how listings ended up reading "Near Erina" / "Near Central Coast".
 function buildCareerPublicProximityNote(row, suburb = '') {
-  const suburbText = String(suburb || '').trim().toLowerCase();
-  const cityText = String(row && row.location_city ? row.location_city : '').trim();
-  if (!cityText) return '';
-  if (suburbText && cityText.toLowerCase() === suburbText) return '';
-  return `Near ${cityText}`;
+  const label = practicePipeline.buildMaskedDisplayLabel({
+    nearestCity: (row && row.nearest_city) || '',
+    suburb: String(suburb || (row && row.suburb) || '')
+  });
+  if (!label) return '';
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function sanitizeCareerLocationDisplay(value, fallback = '') {
@@ -21511,10 +21515,11 @@ function mapCareerRoleRowToClient(row) {
     // existing Zoho-derived publicHeadline, then a generic label.
     practiceName: (row && row.masked_title) ? String(row.masked_title) : (gpLinkMeta.publicHeadline || 'Confidential GP practice'),
     headerImageUrl: (row && row.header_image_url) ? String(row.header_image_url) : '',
+    // nearest_city ONLY — location_city holds the suburb, so falling back to it
+    // produced "near Erina", i.e. the suburb the title already names.
     displayLabel: practicePipeline.buildMaskedDisplayLabel({
-      billingStyle: row && row.billing_model,
-      dpa: !!(row && row.dpa),
-      nearestCity: (row && row.nearest_city) || (row && row.location_city) || ''
+      nearestCity: (row && row.nearest_city) || '',
+      suburb: (row && row.suburb) || ''
     }),
     dpa: !!(row && row.dpa),
     state: row && row.location_state ? String(row.location_state) : '',
@@ -21725,10 +21730,11 @@ function mapCareerRoleRowToPublicJob(row) {
     // difference is that the public title puts masked_title ahead of an
     // internal-ATS row's real title.
     title: resolveCareerRoleDisplayTitle(row, { internalTitleFirst: false }),
+    // nearest_city ONLY — location_city holds the suburb, so falling back to it
+    // produced "near Erina", i.e. the suburb the title already names.
     display_label: practicePipeline.buildMaskedDisplayLabel({
-      billingStyle: row && row.billing_model,
-      dpa: !!(row && row.dpa),
-      nearestCity: (row && row.nearest_city) || (row && row.location_city) || ''
+      nearestCity: (row && row.nearest_city) || '',
+      suburb: (row && row.suburb) || ''
     }),
     header_image_url: row && row.header_image_url ? String(row.header_image_url) : '',
     suburb: row && row.suburb ? String(row.suburb) : '',

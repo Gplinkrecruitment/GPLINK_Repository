@@ -151,7 +151,7 @@ describe('PATCH /api/ats/job — full intake-field parity', () => {
     expect(row.source_payload.practice_intro.video_url).toBe(NEW_VIDEO);
     expect(row.source_payload.practice_intro.text).toBe('Fresh intro text');
     // Masked title recomputed from merged state
-    expect(row.masked_title).toBe('DPA - Rangeville (Toowoomba) - Bulk Billing');
+    expect(row.masked_title).toBe('DPA - Rangeville - Bulk Billing');
   });
 
   it('GET /api/ats/job editor payload round-trips everything the PATCH wrote', async () => {
@@ -177,7 +177,7 @@ describe('PATCH /api/ats/job — full intake-field parity', () => {
     expect(e.general_location).toBe('Darling Downs');
     expect(e.intro_text).toBe('Fresh intro text');
     expect(e.intro_video_url).toBe(NEW_VIDEO);
-    expect(e.masked_title).toBe('DPA - Rangeville (Toowoomba) - Bulk Billing');
+    expect(e.masked_title).toBe('DPA - Rangeville - Bulk Billing');
     expect(e.approval_status).toBe('approved');
     expect(e.header_image_url).toBe('https://cdn.gplink-test.local/suburbs/oldtown/1.png');
   });
@@ -187,22 +187,22 @@ describe('masked-title recompute rules', () => {
   it('a dpa flip moves the title between DPA and Non-DPA', async () => {
     let r = await req('PATCH', '/api/ats/job?id=je2', { host: SUPER_HOST, cookie: superCookie(), body: { dpa: false } });
     expect(r.status).toBe(200);
-    expect(dbJob('je2').masked_title).toBe('Non-DPA - Westbrook (Toowoomba) - Bulk Billing');
+    expect(dbJob('je2').masked_title).toBe('Non-DPA - Westbrook - Bulk Billing');
     r = await req('PATCH', '/api/ats/job?id=je2', { host: SUPER_HOST, cookie: superCookie(), body: { dpa: true } });
     expect(r.status).toBe(200);
-    expect(dbJob('je2').masked_title).toBe('DPA - Westbrook (Toowoomba) - Bulk Billing');
+    expect(dbJob('je2').masked_title).toBe('DPA - Westbrook - Bulk Billing');
   });
 
   it('a suburb change recomputes the title', async () => {
     const r = await req('PATCH', '/api/ats/job?id=je2', { host: SUPER_HOST, cookie: superCookie(), body: { suburb: 'Highfields' } });
     expect(r.status).toBe(200);
-    expect(dbJob('je2').masked_title).toBe('DPA - Highfields (Toowoomba) - Bulk Billing');
+    expect(dbJob('je2').masked_title).toBe('DPA - Highfields - Bulk Billing');
   });
 
   it('a billing change recomputes the title', async () => {
     const r = await req('PATCH', '/api/ats/job?id=je2', { host: SUPER_HOST, cookie: superCookie(), body: { billing_style: 'private' } });
     expect(r.status).toBe(200);
-    expect(dbJob('je2').masked_title).toBe('DPA - Highfields (Toowoomba) - Private Billing');
+    expect(dbJob('je2').masked_title).toBe('DPA - Highfields - Private Billing');
   });
 
   it('an edit that touches no title ingredient leaves masked_title untouched', async () => {
@@ -276,12 +276,12 @@ describe('POST /api/ats/jobs — full manual creation via intake', () => {
     const b = parse(r.raw);
     expect(b.ok).toBe(true);
     expect(b.job.approval_status).toBe('pending');
-    expect(b.job.masked_title).toBe('DPA - Wilsonton (Toowoomba) - Mixed Billing');
+    expect(b.job.masked_title).toBe('DPA - Wilsonton - Mixed Billing');
     createdId = b.job.id;
     const row = dbJob(createdId);
     expect(row.is_active).toBe(false);
     expect(row.approval_status).toBe('pending');
-    expect(row.masked_title).toBe('DPA - Wilsonton (Toowoomba) - Mixed Billing');
+    expect(row.masked_title).toBe('DPA - Wilsonton - Mixed Billing');
     expect(row.source_payload.intake.suburb).toBe('Wilsonton');
     expect(row.source_payload.intake.percentage_split).toBe('65%');
     expect(row.practice_id).toBe('p1');

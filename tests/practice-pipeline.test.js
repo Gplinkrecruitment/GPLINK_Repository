@@ -5,6 +5,8 @@ import {
   validatePracticeIntakePayload,
   buildMaskedTitle,
   buildMaskedDisplayLabel,
+  resolveNearestMajorCity,
+  normalizeAuStateCode,
   canRevealPracticeIdentityCore,
   gpQualifiesForRole,
   rankRolesForGp,
@@ -200,9 +202,22 @@ describe('validatePracticeIntakePayload', () => {
 });
 
 describe('buildMaskedTitle', () => {
-  it('builds "DPA - Suburb (City) - Billing" when suburb and city both present', () => {
+  // Owner rule (2026-07-28): the middle segment is ALWAYS the suburb. The city
+  // lives in the "near X" subtitle, so naming it here too said it twice.
+  it('uses the SUBURB, not the city, when both are present', () => {
     const title = buildMaskedTitle({ suburb: 'Werribee', nearestCity: 'Melbourne', billingStyle: 'bulk', dpa: true });
-    expect(title).toBe('DPA - Werribee (Melbourne) - Bulk Billing');
+    expect(title).toBe('DPA - Werribee - Bulk Billing');
+  });
+
+  it('never emits the old "Suburb (City)" parenthetical', () => {
+    const title = buildMaskedTitle({ suburb: 'Erina', nearestCity: 'Central Coast', billingStyle: 'mixed', dpa: true });
+    expect(title).toBe('DPA - Erina - Mixed Billing');
+    expect(title).not.toContain('(');
+  });
+
+  it('keeps the suburb even when the row also carries a major city (the "DPA - Perth" bug)', () => {
+    const title = buildMaskedTitle({ suburb: 'Butler', nearestCity: 'Perth', billingStyle: 'mixed', dpa: true });
+    expect(title).toBe('DPA - Butler - Mixed Billing');
   });
 
   it('passes through a raw human billing label untouched (legacy: town only, no parens)', () => {
@@ -232,28 +247,85 @@ describe('buildMaskedTitle', () => {
 });
 
 describe('buildMaskedDisplayLabel', () => {
-  it('builds the exact display label', () => {
-    const label = buildMaskedDisplayLabel({
-      billingStyle: 'mixed',
-      dpa: false,
-      nearestCity: 'Melbourne',
-    });
-    expect(label).toBe('Mixed Billing · Non-DPA · near Melbourne');
+  // Owner rule (2026-07-28): the subtitle is the "near <major city>" line and
+  // nothing else. Billing and DPA are already in the title AND rendered as
+  // chips on the same card, so repeating them here was the third mention.
+  it('is just the near-city line', () => {
+    const label = buildMaskedDisplayLabel({ billingStyle: 'mixed', dpa: false, nearestCity: 'Melbourne' });
+    expect(label).toBe('near Melbourne');
   });
 
-  it('shows DPA when dpa is true', () => {
+  it('carries no DPA and no billing, whatever the caller passes', () => {
     const label = buildMaskedDisplayLabel({ billingStyle: 'bulk', dpa: true, nearestCity: 'Perth' });
-    expect(label).toBe('Bulk Billing · DPA · near Perth');
+    expect(label).toBe('near Perth');
+    expect(label).not.toMatch(/DPA|Billing/i);
   });
 
-  it('omits missing parts (no billing label, no nearest city) without stray separators', () => {
-    const label = buildMaskedDisplayLabel({ billingStyle: '', dpa: false, nearestCity: '' });
-    expect(label).toBe('Non-DPA');
+  it('renders nothing when there is no nearest city', () => {
+    expect(buildMaskedDisplayLabel({ billingStyle: '', dpa: false, nearestCity: '' })).toBe('');
   });
 
-  it('never includes a practice name — output is a masked shape assembled only from billing/dpa/city', () => {
+  // The exact bug the owner reported: nearest_city was empty so the caller fell
+  // back to location_city (the suburb) and the card read "DPA · near Erina".
+  it('refuses a nearest city that is not a major city (never "near <suburb>")', () => {
+    expect(buildMaskedDisplayLabel({ nearestCity: 'Erina', suburb: 'Erina' })).toBe('');
+    expect(buildMaskedDisplayLabel({ nearestCity: 'Central Coast' })).toBe('');
+    expect(buildMaskedDisplayLabel({ nearestCity: 'Mandurah', suburb: 'Mandurah' })).toBe('');
+  });
+
+  it('refuses to say "near X" when the suburb IS X', () => {
+    expect(buildMaskedDisplayLabel({ nearestCity: 'Perth', suburb: 'Perth' })).toBe('');
+  });
+
+  it('never includes a practice name — output is a masked shape assembled only from the city', () => {
     const label = buildMaskedDisplayLabel({ billingStyle: 'private', dpa: true, nearestCity: 'Brisbane' });
     expect(label).not.toMatch(/medical|clinic|centre|practice/i);
+  });
+});
+
+describe('resolveNearestMajorCity', () => {
+  // The owner's worked example: Erina is on the Central Coast, and the answer
+  // they want is Sydney.
+  it('resolves Erina to Sydney', () => {
+    expect(resolveNearestMajorCity({ suburb: 'Erina', latitude: -33.44, longitude: 151.3927778 })).toBe('Sydney');
+  });
+
+  it('prefers a clearly closer non-capital (Tweed Heads South -> Gold Coast, not Brisbane)', () => {
+    expect(resolveNearestMajorCity({ suburb: 'Tweed Heads South', latitude: -28.2003, longitude: 153.5349368 })).toBe('Gold Coast');
+  });
+
+  it('resolves Newcastle-belt suburbs to Newcastle', () => {
+    expect(resolveNearestMajorCity({ suburb: 'Charlestown', latitude: -32.9640725, longitude: 151.6939632 })).toBe('Newcastle');
+  });
+
+  it('resolves Perth-belt suburbs to Perth', () => {
+    expect(resolveNearestMajorCity({ suburb: 'Butler', latitude: -31.6356944, longitude: 115.7003262 })).toBe('Perth');
+    expect(resolveNearestMajorCity({ suburb: 'Mandurah', latitude: -32.5302495, longitude: 115.7208782 })).toBe('Perth');
+  });
+
+  it('returns nothing for a remote suburb with no major city genuinely near it', () => {
+    // Karratha is ~1,200km from Perth; Kalgoorlie-Boulder ~530km.
+    expect(resolveNearestMajorCity({ suburb: 'Karratha', latitude: -20.7370067, longitude: 116.8478592 })).toBe('');
+    expect(resolveNearestMajorCity({ suburb: 'Boulder', latitude: -30.774675, longitude: 121.4883268 })).toBe('');
+  });
+
+  it('returns nothing when the suburb IS a major city', () => {
+    expect(resolveNearestMajorCity({ suburb: 'Perth', latitude: -31.9558967, longitude: 115.8605784 })).toBe('');
+    expect(resolveNearestMajorCity({ suburb: 'Brisbane', latitude: -27.4698, longitude: 153.0251 })).toBe('');
+  });
+
+  it('returns nothing rather than guessing when there are no coordinates', () => {
+    expect(resolveNearestMajorCity({ suburb: 'Thornton' })).toBe('');
+  });
+});
+
+describe('normalizeAuStateCode', () => {
+  it('folds the mixed state spellings the job rows actually contain', () => {
+    expect(normalizeAuStateCode('NSW')).toBe('NSW');
+    expect(normalizeAuStateCode('New South Wales')).toBe('NSW');
+    expect(normalizeAuStateCode('WESTERN AUSTRALIA')).toBe('WA');
+    expect(normalizeAuStateCode('Victoria')).toBe('VIC');
+    expect(normalizeAuStateCode('')).toBe('');
   });
 });
 
