@@ -684,8 +684,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .doc-placeholder-status.s-not_requested{background:var(--bg3,#1f2330);color:var(--muted,#9aa3b2)}
 .doc-placeholder-status.s-action_required{background:#7f1d1d;color:#f87171}
 .doc-placeholder-meta{font-size:10px;color:var(--muted,#9aa3b2);margin-top:3px}
-.doc-upload-btn{display:inline-block;margin-top:6px;font-size:10px;font-weight:600;color:var(--blue,#60a5fa);cursor:pointer;position:relative;overflow:hidden}
-.doc-upload-btn:hover{text-decoration:underline}
+/* Reads as a button, not as 10px body text: staff were looking straight at a
+   document card and reporting there was "no way to upload". */
+.doc-upload-btn{display:inline-block;margin-top:8px;padding:3px 10px;font-size:10px;font-weight:700;line-height:1.5;color:var(--blue,#60a5fa);background:rgba(96,165,250,.10);border:1px solid rgba(96,165,250,.35);border-radius:999px;cursor:pointer;position:relative;overflow:hidden}
+.doc-upload-btn:hover{background:rgba(96,165,250,.18);border-color:var(--blue,#60a5fa)}
 .doc-upload-btn input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0}
 .doc-upload-btn{z-index:1}
 .doc-checklist{display:flex;flex-direction:column;gap:6px}
@@ -3361,8 +3363,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     /* File a document the doctor sent by email/WhatsApp straight into its slot,
        instead of asking them to re-upload. Same control as the GP LINK cards;
        the .doc-upload-btn class is what stops the click opening the viewer. */
+    /* A rejected document is NOT a dead end — staff can file a replacement over
+       it, which clears the rejection. Say so, because the badge reads as a lock. */
+    var uploadTitle=(status==='rejected'||status==='needs_correction')
+      ?'Upload a replacement for the candidate — this clears the rejection and marks the document approved'
+      :(hasFile?'Replace this document for the candidate':'Upload this document for the candidate');
     var uploadHtml=caseId
-      ?('<label class="doc-upload-btn" title="Upload this document for the candidate">'+(hasFile?'↑ Replace':'+ Upload')+'<input type="file" data-candidate-doc-upload="'+esc(doc.key)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic"></label>')
+      ?('<label class="doc-upload-btn" title="'+escAttr(uploadTitle)+'">'+(hasFile?'↑ Replace':'+ Upload')+'<input type="file" data-candidate-doc-upload="'+esc(doc.key)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic"></label>')
       :'';
     return '<div class="'+cls+'"'+viewAttrs+'>'
       +thumbHtml

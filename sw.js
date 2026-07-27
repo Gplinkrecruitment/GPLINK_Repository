@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "20260724c";
+  var VERSION = "20260728a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -84,6 +84,20 @@
     return request.mode === "navigate"
       || request.destination === "document"
       || (/^\/pages\/.+\.html$/i.test(url.pathname));
+  }
+
+  // Staff consoles (RSO command centre, CEO dashboard, admin sign-in) are NEVER
+  // cached. Page documents are served stale-while-revalidate, which means a
+  // deploy that changes a page's HTML without bumping VERSION shows staff the
+  // OLD console until their next navigation. That is fine for a GP-facing page
+  // and actively harmful here: on 2026-07-27 the "upload into Prepared by
+  // Candidate" controls shipped, and the owner still saw a console with no
+  // upload buttons a day later because their browser held the pre-deploy HTML.
+  // These pages are behind an admin session, are useless offline (every panel is
+  // API-driven) and change most days, so correctness beats the cached paint.
+  // Covers the clean URLs and the .html variants, plus admin-signin/-visa/-pbs.
+  function isStaffConsolePage(url) {
+    return !!url && /^\/pages\/(admin|ceo-dashboard)/i.test(url.pathname);
   }
 
   function isImmutableAsset(url) {
@@ -304,6 +318,12 @@
 
     if (!request || request.method !== "GET" || !isSameOrigin(url)) return;
     if (url.pathname === "/sw.js") return;
+
+    // Staff consoles bypass the worker entirely — no respondWith, so the browser
+    // does its own network fetch under the page's `private, no-cache` header and
+    // staff always get the deployed HTML. Nothing is written to a cache here, so
+    // a missed VERSION bump can never pin a stale console again.
+    if (isStaffConsolePage(url)) return;
 
     if (isPageDocument(request, url)) {
       // Stale-while-revalidate: serve the cached page instantly (caches are

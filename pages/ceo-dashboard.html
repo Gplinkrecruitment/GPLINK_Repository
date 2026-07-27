@@ -1213,6 +1213,9 @@
     .ceo-gp-doc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; flex-shrink: 0; }
     .ceo-gp-doc-actions .btn { font-size: 11px; padding: 4px 12px; }
     .ceo-doc-upload-btn { cursor: pointer; }
+    /* Per-card "file this for the candidate" control — sized to the card, and pinned
+       to the bottom so every card's button lines up regardless of meta line count. */
+    .ceo-doc-card-upload { align-self: flex-start; margin-top: auto; padding: 4px 10px; font-size: 10px; font-weight: 700; }
 
     .ceo-gp-call { padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: var(--radius-md, 8px); background: var(--panel); margin-bottom: 8px; }
     .ceo-gp-call-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -6996,8 +6999,19 @@
       if (doc.flag_reason === 'name_change' || doc.flag_reason === 'name_mismatch') badge = '<span class="ceo-doc-status s-under_review">Name change</span>';
       else if (doc.flag_reason === 'failed_verification') badge = '<span class="ceo-doc-status s-under_review">Needs review</span>';
       else badge = '<span class="ceo-doc-status s-' + (status || 'pending') + '">' + docStatusLabel(status) + '</span>';
+      // File a document the doctor sent by email/WhatsApp straight into its slot, instead
+      // of asking them to re-upload — same control (and same endpoints) as the RSO console.
+      // A REJECTED slot is not a dead end: uploading over it clears the rejection.
+      var hasFile = !!doc.file_name || !!doc.file_url;
+      var upTitle = (status === 'rejected' || status === 'needs_correction')
+        ? 'Upload a replacement for the candidate — this clears the rejection and marks the document approved'
+        : (hasFile ? 'Replace this document for the candidate' : 'Upload this document for the candidate');
+      var upHtml = caseId
+        ? ('<label class="btn ceo-doc-upload-btn ceo-doc-card-upload" title="' + escAttr(upTitle) + '">' + (hasFile ? '↑ Replace' : '+ Upload')
+          + '<input type="file" data-ceo-candidate-doc-upload="' + escAttr(doc.key || '') + '" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.heic" style="display:none"></label>')
+        : '';
       return '<div class="ceo-doc-card' + (viewable ? ' is-clickable' : '') + '"' + viewAttrs + '>' + thumb +
-        '<div class="ceo-doc-card-info"><div class="ceo-doc-card-label" title="' + escAttr(doc.label || '') + '">' + esc(doc.label || '(untitled)') + '</div>' + badge + meta + '</div></div>';
+        '<div class="ceo-doc-card-info"><div class="ceo-doc-card-label" title="' + escAttr(doc.label || '') + '">' + esc(doc.label || '(untitled)') + '</div>' + badge + meta + upHtml + '</div></div>';
     }
 
     // A "Prepared by GP LINK" document card: Drive thumbnail + status, clickable to preview,
@@ -7245,6 +7259,48 @@
         }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
       };
       reader.readAsDataURL(file);
+    }
+
+    // File a CANDIDATE-prepared document on the doctor's behalf (staff receive these by
+    // email/WhatsApp). Direct-to-Storage via a signed URL, NOT base64 in the body: these are
+    // scans and a multi-MB certificate exceeds the serverless request-body limit before the
+    // function runs. Same two endpoints the RSO console uses, so the two paths can't drift.
+    function ceoCandidateDocUpload(docKey, inputEl) {
+      var file = inputEl && inputEl.files && inputEl.files[0];
+      var caseId = gpDetailCache && gpDetailCache.caseId;
+      if (!file || !docKey || !caseId) return;
+      var label = inputEl.closest('.ceo-doc-upload-btn');
+      var original = label ? label.firstChild : null;
+      var originalText = original && original.nodeType === 3 ? original.nodeValue : '';
+      if (original && original.nodeType === 3) original.nodeValue = 'Uploading…';
+      function done(msg, kind) {
+        if (original && original.nodeType === 3) original.nodeValue = originalText;
+        if (inputEl) inputEl.value = '';
+        if (msg) showToast(msg, kind || 'error');
+      }
+      apiFetch('/api/admin/candidate-doc/sign-upload', {
+        method: 'POST',
+        body: { case_id: caseId, document_key: docKey }
+      }).then(function(sd) {
+        if (!sd || !sd.ok || !sd.uploadUrl) { done((sd && sd.message) || 'Upload failed'); return null; }
+        // Straight to Supabase Storage — a cross-origin PUT, so plain fetch (not apiFetch).
+        return fetch(sd.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' },
+          body: file
+        }).then(function(pr) {
+          if (!pr.ok) { done('Upload failed (' + pr.status + ')'); return null; }
+          return apiFetch('/api/admin/candidate-doc/finalize', {
+            method: 'POST',
+            body: { case_id: caseId, document_key: docKey, file_name: file.name, mime_type: file.type || '', file_size: file.size }
+          });
+        });
+      }).then(function(fd) {
+        if (!fd) return;
+        if (!fd.ok) { done((fd && fd.message) || 'Upload failed'); return; }
+        done('Document uploaded', 'success');
+        refreshGpDocuments();
+      }).catch(function(err) { done('Error: ' + (err && err.message ? err.message : 'upload failed')); });
     }
 
     // GP Tasks action: review a flagged / qualification-review document. Dark port of admin's
@@ -7843,7 +7899,9 @@
       var uploadInput = e.target.closest('input[data-ceo-doc-upload]');
       if (uploadInput) { ceoDocUpload(uploadInput.getAttribute('data-ceo-doc-upload'), uploadInput); return; }
       var driveInput = e.target.closest('input[data-ceo-drive-upload]');
-      if (driveInput) ceoDriveUpload(driveInput.getAttribute('data-ceo-drive-upload'), driveInput);
+      if (driveInput) { ceoDriveUpload(driveInput.getAttribute('data-ceo-drive-upload'), driveInput); return; }
+      var candInput = e.target.closest('input[data-ceo-candidate-doc-upload]');
+      if (candInput) ceoCandidateDocUpload(candInput.getAttribute('data-ceo-candidate-doc-upload'), candInput);
     });
 
     // Fetch + render this RSO's open ops tasks into #ceoOpsBoard, grouped by GP.
