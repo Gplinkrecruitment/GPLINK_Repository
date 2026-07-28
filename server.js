@@ -21919,7 +21919,15 @@ function mapCareerRoleRowToPublicJob(row) {
     suburb: row && row.suburb ? String(row.suburb) : '',
     nearest_city: row && row.nearest_city ? String(row.nearest_city) : '',
     location_label: locationLabel || 'Australia',
-    location_state: row && row.location_state ? String(row.location_state).trim().toUpperCase() : '',
+    // Normalise, don't just uppercase (2026-07-29). Live rows carry BOTH
+    // 'WA' and 'WESTERN AUSTRALIA' (and 'VIC' / 'VICTORIA') because three
+    // different writers populate location_state. The State dropdown sends the
+    // 2-letter code and buildPublicJobsResponse compares exactly, so the long
+    // spellings could never match: picking WA returned 10 of the 18 WA roles
+    // and VIC 6 of 7 — 9 of 51 public roles were unreachable by state.
+    // The map already normalised via normalizeAuStateCode; the list did not,
+    // which is why its pins looked right while the board came up short.
+    location_state: normalizeAuStateCode(row && row.location_state),
     billing_model: row && row.billing_model ? String(row.billing_model) : '',
     dpa: !!(row && row.dpa),
     mmm: row && row.mmm ? String(row.mmm) : '',

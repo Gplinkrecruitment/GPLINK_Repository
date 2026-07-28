@@ -318,6 +318,57 @@ describe('the dead ?type= param', () => {
   });
 });
 
+// Regression (2026-07-29): the State dropdown missed 9 of 51 live public roles.
+// location_state is written by three different sources, so the SAME state
+// arrives as both 'WA' and 'WESTERN AUSTRALIA'. The mapper only uppercased it
+// while the filter compares against the dropdown's 2-letter code, so the long
+// spellings were unreachable — picking WA returned 10 of 18, VIC 6 of 7.
+describe('location_state is normalised to a 2-letter code, not just uppercased', () => {
+  const stateOf = (location_state) =>
+    testUtils.mapCareerRoleRowToPublicJob(makeRawRow({ location_state })).location_state;
+
+  it('maps every long-form state name to its code', () => {
+    expect(stateOf('Western Australia')).toBe('WA');
+    expect(stateOf('WESTERN AUSTRALIA')).toBe('WA');
+    expect(stateOf('Victoria')).toBe('VIC');
+    expect(stateOf('New South Wales')).toBe('NSW');
+    expect(stateOf('Queensland')).toBe('QLD');
+    expect(stateOf('South Australia')).toBe('SA');
+    expect(stateOf('Tasmania')).toBe('TAS');
+    expect(stateOf('Australian Capital Territory')).toBe('ACT');
+    expect(stateOf('Northern Territory')).toBe('NT');
+  });
+
+  it('leaves codes and blanks alone', () => {
+    expect(stateOf('wa')).toBe('WA');
+    expect(stateOf('QLD')).toBe('QLD');
+    expect(stateOf('')).toBe('');
+    expect(stateOf(null)).toBe('');
+  });
+
+  it('?state=WA now finds rows stored as "Western Australia"', () => {
+    const rows = [
+      makeRawRow({ provider_role_id: 'ZR-LONG', location_state: 'Western Australia' }),
+      makeRawRow({ provider_role_id: 'ZR-CODE', location_state: 'WA' }),
+      makeRawRow({ provider_role_id: 'ZR-QLD', location_state: 'QLD' })
+    ];
+    const wa = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ state: 'WA' }));
+    expect(wa.total).toBe(2);
+    expect(wa.jobs.map((j) => j.id).sort())
+      .toEqual(['zoho_recruit:ZR-CODE', 'zoho_recruit:ZR-LONG']);
+  });
+
+  it('the map pins agree with the list — both end up on the code', () => {
+    // The map already normalised; the list did not. That mismatch is what let
+    // the pins look right while the board below them came up short.
+    const job = testUtils.sanitizePublicJob(
+      testUtils.mapCareerRoleRowToPublicJob(makeRawRow({ location_state: 'Western Australia' }))
+    );
+    expect(job.location_state).toBe('WA');
+    expect(testUtils.shapeMapPractice(job, 'WA', { lat: -32, lng: 115.8 }).state).toBe('WA');
+  });
+});
+
 describe('classifyPublicJobBilling', () => {
   const classify = (billing_model) =>
     testUtils.classifyPublicJobBilling(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({ billing_model })));
