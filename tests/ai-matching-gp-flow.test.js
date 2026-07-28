@@ -755,7 +755,7 @@ describe('POST /api/career/match/respond — accept', () => {
     const gpEmail = resendCalls.find((c) => c.body && /interview times coming$/.test(c.body.subject || ''));
     expect(gpEmail.body.html).toContain('What happens next');
     expect(gpEmail.body.html).toContain('interview times to choose from');
-    expect(gpEmail.body.html).toContain('This is an interview, not a commitment');
+    expect(gpEmail.body.html).not.toContain('not a commitment');
   });
 
   it('a second accept on the SAME (now applied) row 409s — no double-processing', async () => {

@@ -31561,8 +31561,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
              + '1. We submit your profile to the practice.<br>'
              + '2. Once they confirm their availability, we\'ll email you interview times to choose from — you book the one that suits you. This is usually within a couple of business days.<br>'
              + '3. You meet the practice. Your Registration Support Officer preps you beforehand and is on the call with you.'
-             + '<br><br>There is nothing you need to do right now — just keep an eye on your email.'
-             + '<br><br><b>This is an interview, not a commitment.</b> Nothing is signed, no terms are agreed, and you can step away at any point.')
+             + '<br><br>There is nothing you need to do right now — just keep an eye on your email.')
           : ('Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.'),
         ctaText: matched ? 'Track your interview' : 'View Your Applications',
         ctaUrl: APP_BASE_URL + '/pages/career.html#applications',

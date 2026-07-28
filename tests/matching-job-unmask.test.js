@@ -180,7 +180,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     // The three things the doctor needs: it worked, what happens next, and
     // that an interview is not a commitment.
     expect(jobHtml).toContain('putting you forward now');
-    expect(jobHtml).toContain('This is an interview, not a commitment');
+    expect(jobHtml).not.toContain('not a commitment');
     expect(jobHtml).toContain('matched_accepted: {');
     expect(jobHtml).toContain('role.matchAccepted');
   });
@@ -212,7 +212,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(trackerHtml).toContain('fast_tracked: 1'); // Under Review, not Applied (owner call 2026-07-29)
     expect(trackerHtml).toContain('id="fastTrackNote"');
     expect(trackerHtml).toContain('interview times to choose from');
-    expect(trackerHtml).toContain('This is an interview, not a commitment');
+    expect(trackerHtml).not.toContain('not a commitment');
     // Timeline step 0 is relabelled for display only, so the date still binds.
     expect(trackerHtml).toContain('(isFastTracked && i === 0) ? "Fast-tracked" : step.label');
     expect(trackerHtml).toContain('esc(displayLabel)');
@@ -226,7 +226,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(fnSrc).toContain("interview times coming");
     expect(fnSrc).toContain('interview times to choose from');
     expect(fnSrc).toContain('What happens next');
-    expect(fnSrc).toContain('This is an interview, not a commitment');
+    expect(fnSrc).not.toContain('not a commitment');
     // Both accept paths must opt in; a cold apply must NOT.
     expect(serverSrc).toContain('matchAccept.caseId, applyGpDisplayName, { matched: true }');
     expect(serverSrc).toContain('mrAccept.caseId, mrGpDisplayName, { matched: true }');
@@ -299,7 +299,10 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(fnSrc).toContain('activeMatch ? "Fast-track me" : "Apply"');
     // The sheet must say out loud that this does not tie them to the role
     // (owner call 2026-07-29) — that reassurance is the whole point.
-    expect(fnSrc).toContain('does not commit you to the role');
+    // Owner call 2026-07-29: the reassurance was pulled — it read as licence
+    // to treat a fast-track lightly. The cap message carries the weight now.
+    expect(fnSrc).not.toContain('does not commit you to the role');
+    expect(fnSrc).toContain("genuinely serious about");
   });
 
   it('once revealed, the header drops the duplicate billing/role meta line', () => {
