@@ -139,10 +139,23 @@ describe('/jobs Australia practice map section', () => {
     expect(server).toMatch(/readAllSuccessfulSuburbGeo/);
     // Weekly headline total (241–260) exposed so the map can derive the split.
     expect(server).toMatch(/function getWeeklyPublicJobsTotal/);
-    expect(server).toMatch(/weeklyTotal:\s*getWeeklyPublicJobsTotal\(\)/);
+    // Attached conditionally now: the member-exclusive split compares against
+    // the week's FULL role count, so it is omitted on a filtered request.
+    expect(server).toMatch(/payload\.weeklyTotal = getWeeklyPublicJobsTotal\(\)/);
+    expect(server).toMatch(/if \(!filtered\) payload\.weeklyTotal/);
     // Payload also carries the true public-roles total (== the /jobs list count)
     // so the caption states it, never the geocodable-pin subset.
-    expect(server).toMatch(/practices, total, weeklyTotal/);
+    expect(server).toMatch(/\{ ok: true, practices, total, filtered \}/);
+  });
+
+  it('the map payload is filtered by the same params as the jobs list', () => {
+    // Regression (2026-07-29): the endpoint took no params, so the pins ignored
+    // every filter and always drew the full set.
+    expect(server).toMatch(/function filterPracticeMapPractices/);
+    expect(server).toMatch(/function practiceMapHasFilters/);
+    expect(server).toMatch(/filterPracticeMapPractices\(allPractices, mapParams\)/);
+    // Billing rules shared with the jobs API rather than reimplemented.
+    expect(server).toMatch(/classifyPublicJobBilling\(\{ billing_model: p && p\.billing \}\)/);
   });
 });
 

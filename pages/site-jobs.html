@@ -30,8 +30,17 @@
 
   /* ---------- filter bar ---------- */
   .jobs-filter-card{background:rgba(255,255,255,.98);border-radius:16px;padding:16px;
-    display:grid;grid-template-columns:1.3fr 1fr 1fr auto;gap:10px;align-items:end;
+    display:grid;grid-template-columns:1.3fr 1fr 1fr auto auto;gap:10px;align-items:end;
     box-shadow:0 30px 60px -28px rgba(9,30,50,.65);}
+  /* Secondary to Search: quiet outline, same height, so it reads as an escape
+     hatch rather than a second call to action. `hidden` collapses its grid
+     column entirely when no filter is applied. */
+  .jobs-filter-card .clear-btn{background:#fff;color:var(--mut-2);border:1px solid var(--line);
+    border-radius:10px;font:inherit;font-size:14.5px;font-weight:650;padding:12px 18px;cursor:pointer;
+    white-space:nowrap;transition:background .2s, color .2s, border-color .2s;}
+  .jobs-filter-card .clear-btn:hover{background:#f6f9fc;color:var(--ink-2);border-color:var(--mut-2);}
+  .jobs-filter-card .clear-btn:focus-visible{outline:2px solid var(--teal);outline-offset:1px;}
+  .jobs-filter-card .clear-btn[hidden]{display:none;}
   .jobs-filter-card label{display:grid;gap:5px;font-size:11.5px;font-weight:700;letter-spacing:.08em;
     text-transform:uppercase;color:var(--mut-2);}
   .jobs-filter-card input,.jobs-filter-card select{font:inherit;font-size:14.5px;color:var(--ink-2);
@@ -41,7 +50,12 @@
     font-size:14.5px;font-weight:700;padding:12px 22px;cursor:pointer;white-space:nowrap;
     transition:background .2s, transform .2s;}
   .jobs-filter-card .go:hover{background:#0d5ee0;transform:translateY(-1px);}
-  @media(max-width:760px){.jobs-filter-card{grid-template-columns:1fr 1fr}.jobs-filter-card .kw{grid-column:1/-1}.jobs-filter-card .go{grid-column:1/-1}}
+  @media(max-width:760px){.jobs-filter-card{grid-template-columns:1fr 1fr}.jobs-filter-card .kw{grid-column:1/-1}
+    /* Search spans full width when it's alone; when Clear is showing they sit
+       side by side rather than stacking two full-width buttons. */
+    .jobs-filter-card .go{grid-column:1/-1}
+    .jobs-filter-card .go:has(+ .clear-btn:not([hidden])){grid-column:auto}
+    .jobs-filter-card .clear-btn{grid-column:auto}}
 
   /* ---------- interactive Australia map that "falls off" the search bar ---------- */
   /* Its own band (NOT inside the overflow-clipped hero); pulled up so the search
@@ -312,6 +326,9 @@
           </select>
         </label>
         <button class="go" type="submit">Search</button>
+        <!-- Only rendered once a filter is actually applied (see hasFilters):
+             a Clear button on an unfiltered board has nothing to clear. -->
+        <button class="clear-btn" type="button" id="clearFiltersBtn" hidden>Clear</button>
       </form>
 
       <!-- Interactive Australia map: every open role pinned; tap a pin for the
@@ -320,7 +337,10 @@
       <div class="jobs-map-shell" id="jobsMapShell">
         <div class="pmap-frame">
           <div class="pmap" id="pmap" aria-label="Map of GP practices hiring across Australia"></div>
-          <div class="pmap-cap"><span class="cdot"></span><span class="pmap-cap-t"><b id="pmapCount">—</b> practices with public advertisement &middot; <span id="pmapExcl">90%</span> exclusive to members</span></div>
+          <!-- Caption swaps to a filtered wording when the filter bar is in use:
+               the "N% exclusive to members" split compares against the week's
+               FULL role count, so it is meaningless beside a filtered subset. -->
+          <div class="pmap-cap"><span class="cdot"></span><span class="pmap-cap-t"><b id="pmapCount">—</b> <span id="pmapNoun">practices with public advertisement</span><span id="pmapExclWrap"> &middot; <span id="pmapExcl">90%</span> exclusive to members</span></span></div>
           <div class="pmap-loading" id="pmapLoading">Loading the map…</div>
         </div>
 
@@ -393,6 +413,7 @@
   var heroCountLine = document.getElementById("heroCountLine");
   var resultsCountEl = document.getElementById("resultsCount");
   var clearFiltersLink = document.getElementById("clearFiltersLink");
+  var clearFiltersBtn = document.getElementById("clearFiltersBtn");
   var paginationEl = document.getElementById("jobsPagination");
 
   function escapeHtml(value) {
@@ -426,6 +447,17 @@
     }
   }
   if (clearFiltersLink) clearFiltersLink.hidden = !hasFilters;
+  if (clearFiltersBtn) {
+    clearFiltersBtn.hidden = !hasFilters;
+    clearFiltersBtn.addEventListener("click", function () {
+      // Going to the bare /jobs is the clear AND the refresh in one step: the
+      // form comes back empty, the results list reloads unfiltered and the map
+      // refetches without filter params. Deliberately a navigation rather than
+      // just blanking the inputs, which would leave the stale filtered board
+      // and pins on screen until the visitor pressed Search again.
+      window.location.href = "/jobs";
+    });
+  }
 
   // ---------- hero count line ----------
   // Documented choice: the hero line always reflects the OVERALL open-role
@@ -909,8 +941,15 @@
     shell.style.display='none';
   }
 
-  function boot(practices, weeklyTotal, total){
-    if(!practices.length){fail();return;}
+  function boot(practices, weeklyTotal, total, isFiltered){
+    // No pins with NO filters means the data or geocoding is unavailable — hide
+    // the section, as before. No pins WITH filters is a legitimate answer ("no
+    // private-billing roles in NT"), so keep the map on screen with an empty
+    // Australia view and say so in the caption; yanking the whole map out from
+    // under someone who just used a filter reads as a bug, and it would hide
+    // the Clear button they need. Safe because the map uses a fixed centre/zoom
+    // and never fits bounds to the pins.
+    if(!practices.length&&!isFiltered){fail();return;}
     loadLibs().then(function(L){
       if(!L||!L.markerClusterGroup){fail();return;}
       var map=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:true,zoomControl:true,attributionControl:true,worldCopyJump:true});
@@ -940,13 +979,30 @@
       var A=Number(total);
       if(!isFinite(A)||A<practices.length)A=practices.length;
       document.getElementById('pmapCount').textContent=A;
-      // Member-exclusive split: of the weekly headline R roles, A are publicly
-      // advertised; the rest — (R−A)/R — are exclusive to members. Falls back to
-      // the static 90% if R is missing/nonsensical.
-      var R=Number(weeklyTotal);
-      if(isFinite(R)&&R>A){
-        var pct=Math.max(1,Math.min(99,Math.round((R-A)/R*100)));
-        var ex=document.getElementById('pmapExcl');if(ex)ex.textContent=pct+'%';
+      // Filtered: the caption describes the matching subset and the
+      // member-exclusive split is dropped (it compares against the week's FULL
+      // role count, so it would read as a bogus percentage beside a few pins).
+      var nounEl=document.getElementById('pmapNoun');
+      var exclWrap=document.getElementById('pmapExclWrap');
+      if(isFiltered){
+        var countEl=document.getElementById('pmapCount');
+        if(A===0){
+          if(countEl)countEl.textContent='No';
+          if(nounEl)nounEl.textContent='practices match your filters';
+        }else if(nounEl){
+          nounEl.textContent=(A===1?'practice matches':'practices match')+' your filters';
+        }
+        if(exclWrap)exclWrap.style.display='none';
+      }else{
+        if(exclWrap)exclWrap.style.display='';
+        // Member-exclusive split: of the weekly headline R roles, A are publicly
+        // advertised; the rest — (R−A)/R — are exclusive to members. Falls back to
+        // the static 90% if R is missing/nonsensical.
+        var R=Number(weeklyTotal);
+        if(isFinite(R)&&R>A){
+          var pct=Math.max(1,Math.min(99,Math.round((R-A)/R*100)));
+          var ex=document.getElementById('pmapExcl');if(ex)ex.textContent=pct+'%';
+        }
       }
       var cap=document.querySelector('.pmap-cap');if(cap)cap.style.display='';
       var loading=document.getElementById('pmapLoading');if(loading)loading.classList.add('hide');
@@ -954,9 +1010,22 @@
     }).catch(fail);
   }
 
-  // Fetch every practice with coordinates, then build the map.
-  fetch('/api/public/practice-map').then(function(r){return r.ok?r.json():null;}).then(function(d){
-    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total);
+  // Fetch the practices with coordinates, then build the map. The SAME filters
+  // the results list uses are forwarded, so the pins and the list below them
+  // always answer the same question — previously the map ignored every filter
+  // and drew all ~51 practices no matter what was selected.
+  var mapQs=(function(){
+    var src=new URLSearchParams(window.location.search);
+    var out=new URLSearchParams();
+    ['q','state','billing','type'].forEach(function(k){
+      var v=(src.get(k)||'').trim();
+      if(v)out.set(k,v);
+    });
+    var s=out.toString();
+    return s?('?'+s):'';
+  })();
+  fetch('/api/public/practice-map'+mapQs).then(function(r){return r.ok?r.json():null;}).then(function(d){
+    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total, !!(d&&d.filtered));
   }).catch(fail);
 })();
 </script>

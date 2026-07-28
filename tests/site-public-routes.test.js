@@ -495,4 +495,31 @@ describe('public map endpoints', () => {
     // that whatever it returns is masked map objects (never a practice name).
     expect(res.raw).not.toMatch(/practice_name|practiceName|"address"/);
   });
+
+  it('GET /api/public/practice-map reports whether it applied filters', async () => {
+    // The page needs this flag to decide the caption wording: the
+    // "N% exclusive to members" split compares against the week's FULL role
+    // count, so it must not be shown beside a filtered subset.
+    const bare = JSON.parse((await get('/api/public/practice-map')).raw);
+    expect(bare.filtered).toBe(false);
+    expect(bare).toHaveProperty('weeklyTotal');
+
+    const filtered = JSON.parse((await get('/api/public/practice-map?billing=private')).raw);
+    expect(filtered.ok).toBe(true);
+    expect(filtered.filtered).toBe(true);
+    expect(filtered).not.toHaveProperty('weeklyTotal');
+    expect(Array.isArray(filtered.practices)).toBe(true);
+  });
+
+  it('GET /api/public/practice-map accepts every filter the jobs list accepts', async () => {
+    for (const qs of ['q=bondi', 'state=NSW', 'billing=mixed', 'type=locum', 'state=QLD&billing=bulk']) {
+      const res = await get('/api/public/practice-map?' + qs);
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.raw);
+      expect(body.ok).toBe(true);
+      expect(body.filtered).toBe(true);
+      expect(Array.isArray(body.practices)).toBe(true);
+      expect(res.raw).not.toMatch(/practice_name|practiceName|"address"/);
+    }
+  });
 });

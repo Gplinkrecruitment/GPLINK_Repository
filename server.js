@@ -22126,8 +22126,57 @@ function shapeMapPractice(job, state, coords) {
     lat: coords.lat, lng: coords.lng,
     title: job.title || 'GP role', display: job.display_label || '',
     billing: job.billing_model || '', income: mapPracticeIncome(job),
-    benefits: mapPracticeBenefits(job), img: job.header_image_url || ''
+    benefits: mapPracticeBenefits(job), img: job.header_image_url || '',
+    // `type` is classified HERE, from the full public job, because the pin
+    // itself only keeps a title — classifying from that alone would disagree
+    // with the list below the map (which sees summary/employment_type/tags).
+    // Derived from already-public fields, so it exposes nothing new.
+    type: classifyPublicJobType(job)
   };
+}
+
+// Applies the /jobs filter bar to the map pins. The pins and the results list
+// below them must answer the SAME question — before this, the map ignored every
+// filter and always drew all ~51 practices, so selecting "Private billing"
+// (one role) still showed a full map.
+//
+// Deliberately filters the CACHED practice array per-request rather than
+// caching per filter combination: the 10-minute cache stays a single entry, and
+// the billing/type rules stay shared with buildPublicJobsResponse instead of
+// being reimplemented in the browser.
+function filterPracticeMapPractices(practices, searchParams) {
+  const getParam = (name) => (searchParams && typeof searchParams.get === 'function') ? searchParams.get(name) : null;
+  let out = Array.isArray(practices) ? practices.slice() : [];
+
+  const q = String(getParam('q') || '').trim().toLowerCase();
+  if (q) {
+    out = out.filter((p) => [
+      p && p.title, p && p.display, p && p.suburb, p && p.state, p && p.billing,
+      ...(Array.isArray(p && p.benefits) ? p.benefits.map((b) => (b && b.label) + ' ' + (b && b.value)) : [])
+    ].map((v) => String(v || '')).join(' ').toLowerCase().includes(q));
+  }
+
+  const state = String(getParam('state') || '').trim().toUpperCase();
+  if (state) out = out.filter((p) => String((p && p.state) || '').toUpperCase() === state);
+
+  const billing = String(getParam('billing') || '').trim().toLowerCase();
+  if (billing === 'bulk' || billing === 'mixed' || billing === 'private') {
+    out = out.filter((p) => classifyPublicJobBilling({ billing_model: p && p.billing }) === billing);
+  }
+
+  const type = String(getParam('type') || '').trim().toLowerCase();
+  if (type === 'vr-gp' || type === 'non-vr-gp' || type === 'locum') {
+    out = out.filter((p) => String((p && p.type) || '') === type);
+  }
+
+  return out;
+}
+
+// True when the request carries at least one filter the map honours — used to
+// decide whether the caption states a filtered count or the global one.
+function practiceMapHasFilters(searchParams) {
+  const get = (n) => String(((searchParams && typeof searchParams.get === 'function') ? searchParams.get(n) : '') || '').trim();
+  return !!(get('q') || get('state') || get('billing') || get('type'));
 }
 async function buildPracticeMapData(fetcher = getActivePublicJobRowsLive) {
   const now = Date.now();
@@ -38185,20 +38234,34 @@ async function handleApi(req, res, pathname) {
   // address) + the compact fields the map's sidebar shows. Keyless, cached.
   if (pathname === '/api/public/practice-map' && req.method === 'GET') {
     try {
-      const practices = await buildPracticeMapData();
-      // `total` = ALL publicly-advertised roles (A), the SAME figure the /jobs
-      // list shows as "N roles available right now" (buildPublicJobsResponse
-      // total, no filters == getPublicJobsRows().length — shared cache, so the
-      // two can never disagree). The map only PINS the geocodable subset
-      // (practices.length ≤ total), but the caption must state the true public
-      // count so it doesn't contradict the list below it.
+      const allPractices = await buildPracticeMapData();
+      // The pins now honour the same q/state/billing/type filters as the list
+      // below the map. Filtering happens here, over the cached array, so the
+      // 10-minute cache stays a single unfiltered entry.
+      const mapParams = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams;
+      const filtered = practiceMapHasFilters(mapParams);
+      const practices = filterPracticeMapPractices(allPractices, mapParams);
+      // `total` = publicly-advertised roles matching the SAME filters, so the
+      // caption can never contradict the list below it. Unfiltered that is just
+      // getPublicJobsRows().length (shared cache); filtered it is the count
+      // buildPublicJobsResponse would report for these params. The map only
+      // PINS the geocodable subset (practices.length ≤ total) either way.
       const publicRows = await getPublicJobsRows();
-      const total = Array.isArray(publicRows) ? publicRows.length : practices.length;
+      let total;
+      if (filtered) {
+        total = buildPublicJobsResponse(Array.isArray(publicRows) ? publicRows : [], mapParams).total;
+      } else {
+        total = Array.isArray(publicRows) ? publicRows.length : practices.length;
+      }
       // weeklyTotal (R) drives the member-exclusive split: of R roles, `total`
       // (A) are publicly advertised, (R−A)/R are exclusive to members. Computed
       // per-request (not from the 10-min practices cache) so it can't straddle a
-      // week boundary stale.
-      sendJson(res, 200, { ok: true, practices, total, weeklyTotal: getWeeklyPublicJobsTotal() }, PUBLIC_CONFIG_CACHE_HEADERS);
+      // week boundary stale. Omitted when filtered — that split compares against
+      // the week's FULL role count, so it is meaningless for a filtered subset
+      // and would read as a bogus percentage next to a handful of pins.
+      const payload = { ok: true, practices, total, filtered };
+      if (!filtered) payload.weeklyTotal = getWeeklyPublicJobsTotal();
+      sendJson(res, 200, payload, PUBLIC_CONFIG_CACHE_HEADERS);
     } catch (mapErr) {
       sendJson(res, 200, { ok: false, practices: [] });
     }
@@ -68736,6 +68799,9 @@ module.exports.__testUtils = {
   classifyPublicJobType,
   classifyPublicJobBilling,
   buildPublicJobsResponse,
+  filterPracticeMapPractices,
+  practiceMapHasFilters,
+  shapeMapPractice,
   mapCareerRoleRowToClient,
   mapCareerRoleDetailToClient,
   isInternalAtsRoleOpenForGp,

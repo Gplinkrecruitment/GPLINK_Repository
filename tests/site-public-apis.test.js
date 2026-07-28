@@ -337,6 +337,125 @@ describe('classifyPublicJobBilling', () => {
   });
 });
 
+// ── The map pins must answer the same question as the list below them ────────
+//
+// Regression suite for the 2026-07-29 bug: /api/public/practice-map took no
+// filter params at all and the page fetched it bare, so selecting "Private
+// billing" (1 role) still drew all ~51 pins. Every filter the results list
+// honours must now narrow the pins too.
+describe('filterPracticeMapPractices — the /jobs filter bar applied to map pins', () => {
+  const P = (over) => ({
+    id: 'p1', suburb: 'Bondi', state: 'NSW', lat: -33.89, lng: 151.27,
+    title: 'GP role', display: 'near Sydney', billing: 'Bulk Billing',
+    income: '', benefits: [], img: '', type: '', ...over
+  });
+  const ids = (arr) => arr.map((p) => p.id);
+
+  const practices = [
+    P({ id: 'nsw-bulk', state: 'NSW', suburb: 'Bondi', billing: 'Bulk Billing' }),
+    P({ id: 'qld-mixed', state: 'QLD', suburb: 'Cairns', billing: 'Mixed Billing' }),
+    P({ id: 'qld-mixed-hyphen', state: 'QLD', suburb: 'Townsville', billing: 'Mixed-Billing' }),
+    P({ id: 'vic-mixed-lower', state: 'VIC', suburb: 'Geelong', billing: 'mixed' }),
+    P({ id: 'wa-private', state: 'WA', suburb: 'Fremantle', billing: 'Private Billing' }),
+    P({ id: 'nt-none', state: 'NT', suburb: 'Darwin', billing: '' })
+  ];
+
+  it('no filters returns every practice untouched', () => {
+    expect(ids(testUtils.filterPracticeMapPractices(practices, new URLSearchParams()))).toEqual(ids(practices));
+  });
+
+  it('state narrows the pins', () => {
+    const qld = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ state: 'QLD' }));
+    expect(ids(qld).sort()).toEqual(['qld-mixed', 'qld-mixed-hyphen']);
+  });
+
+  it('billing narrows the pins and normalises the same spellings the API does', () => {
+    // This is the exact case from the bug report: Private billing = 1 pin, not 51.
+    const priv = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ billing: 'private' }));
+    expect(ids(priv)).toEqual(['wa-private']);
+
+    const mixed = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ billing: 'mixed' }));
+    expect(ids(mixed).sort()).toEqual(['qld-mixed', 'qld-mixed-hyphen', 'vic-mixed-lower']);
+
+    const bulk = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ billing: 'bulk' }));
+    expect(ids(bulk)).toEqual(['nsw-bulk']);
+  });
+
+  it('a practice with no billing value is never pinned by a billing filter', () => {
+    for (const v of ['bulk', 'mixed', 'private']) {
+      expect(ids(testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ billing: v })))).not.toContain('nt-none');
+    }
+  });
+
+  it('q matches the suburb (the "except for Keyword" half of the report)', () => {
+    expect(ids(testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ q: 'fremantle' })))).toEqual(['wa-private']);
+    expect(ids(testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ q: 'CAIRNS' })))).toEqual(['qld-mixed']);
+  });
+
+  it('filters compose — state AND billing together', () => {
+    const out = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ state: 'QLD', billing: 'mixed' }));
+    expect(ids(out).sort()).toEqual(['qld-mixed', 'qld-mixed-hyphen']);
+  });
+
+  it('type filters on the classification stored at shape time', () => {
+    const withTypes = [P({ id: 'a', type: 'locum' }), P({ id: 'b', type: 'vr-gp' }), P({ id: 'c', type: '' })];
+    expect(ids(testUtils.filterPracticeMapPractices(withTypes, new URLSearchParams({ type: 'locum' })))).toEqual(['a']);
+  });
+
+  it('an unrecognised filter value is ignored rather than blanking the map', () => {
+    const out = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ billing: 'concession' }));
+    expect(out.length).toBe(practices.length);
+  });
+
+  it('does not mutate the cached array it is given', () => {
+    // It filters the shared 10-minute cache, so mutating it would corrupt the
+    // next request's data.
+    const before = ids(practices);
+    testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ billing: 'private' }));
+    expect(ids(practices)).toEqual(before);
+  });
+
+  it('is defensive about bad input', () => {
+    expect(testUtils.filterPracticeMapPractices(null, new URLSearchParams())).toEqual([]);
+    expect(testUtils.filterPracticeMapPractices(practices, null).length).toBe(practices.length);
+  });
+});
+
+describe('practiceMapHasFilters', () => {
+  it('is true for any honoured filter and false for none', () => {
+    expect(testUtils.practiceMapHasFilters(new URLSearchParams())).toBe(false);
+    expect(testUtils.practiceMapHasFilters(new URLSearchParams({ limit: '10' }))).toBe(false);
+    for (const k of ['q', 'state', 'billing', 'type']) {
+      expect(testUtils.practiceMapHasFilters(new URLSearchParams({ [k]: 'x' }))).toBe(true);
+    }
+  });
+
+  it('treats a blank value as no filter', () => {
+    expect(testUtils.practiceMapHasFilters(new URLSearchParams({ state: '   ' }))).toBe(false);
+  });
+});
+
+describe('shapeMapPractice', () => {
+  it('stores the type classification so the map can filter it exactly like the list', () => {
+    // The pin keeps only a title; classifying from that alone would disagree
+    // with the results list, which also sees summary/employment_type/tags.
+    const job = testUtils.sanitizePublicJob(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
+      title: 'Locum GP', employment_type: 'Locum', tags: ['Locum'], summary: 'Locum cover needed.'
+    })));
+    const pin = testUtils.shapeMapPractice(job, 'NSW', { lat: -33.8, lng: 151.2 });
+    expect(pin.type).toBe('locum');
+    expect(pin.state).toBe('NSW');
+  });
+
+  it('never carries the practice name onto a pin', () => {
+    const job = testUtils.sanitizePublicJob(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
+      practice_name: 'Riverside Medical Centre'
+    })));
+    const pin = testUtils.shapeMapPractice(job, 'QLD', { lat: -27.5, lng: 153.0 });
+    expect(JSON.stringify(pin)).not.toMatch(/Riverside Medical Centre/);
+  });
+});
+
 describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact function the route calls)', () => {
   // Each row still carries a real (sensitive) practice_name — exactly like a
   // live career_roles row would — so these tests double as a masking

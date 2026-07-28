@@ -107,6 +107,29 @@ describe('GET /jobs (Task 8 job board page)', () => {
     expect(res.raw).not.toContain('name="type"');
   });
 
+  it('has a Clear button that is hidden until a filter is applied', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toContain('id="clearFiltersBtn"');
+    // Ships hidden; the script unhides it only when hasFilters is true.
+    expect(res.raw).toMatch(/id="clearFiltersBtn"[^>]*hidden/);
+    expect(res.raw).toMatch(/clearFiltersBtn\.hidden = !hasFilters/);
+  });
+
+  it('clearing navigates to the bare /jobs so the list AND the map both reload', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/clearFiltersBtn\.addEventListener\("click"/);
+    expect(res.raw).toMatch(/window\.location\.href = "\/jobs"/);
+  });
+
+  it('the map fetch forwards the filter params (regression: pins ignored every filter)', async () => {
+    const res = await get('/jobs');
+    // Before this, the page fetched '/api/public/practice-map' bare, so the
+    // pins never changed no matter what was selected.
+    expect(res.raw).toMatch(/fetch\('\/api\/public\/practice-map'\+mapQs\)/);
+    expect(res.raw).toMatch(/\['q','state','billing','type'\]/);
+    expect(res.raw).not.toMatch(/fetch\('\/api\/public\/practice-map'\)/);
+  });
+
   it('escapes API-sourced job data via an escapeHtml helper, not innerHTML with raw strings', async () => {
     const res = await get('/jobs');
     expect(res.raw).toMatch(/function escapeHtml/);
