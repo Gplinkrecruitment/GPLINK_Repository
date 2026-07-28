@@ -254,6 +254,17 @@
       border-radius: var(--gp-r-lg, 18px);
       padding: 14px 15px;
     }
+    /* The fast-tracked block carries three short paragraphs, so it aligns to
+       the top rather than centring a tall body against the tick. */
+    .at-fasttracked { align-items: flex-start; }
+    .at-fasttracked p { margin: 5px 0 0; }
+    .at-fasttracked .at-ft-note {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--gp-green-border, #c5ecd4);
+      font-weight: 600;
+      opacity: .9;
+    }
     .at-received-ico {
       flex: none;
       width: 38px;
@@ -1630,7 +1641,12 @@
   // the doctor has withdrawn or declined, re-deriving the bar from isApplied()
   // on the next render would flip it back to "✓ Submitted" — and the page
   // already states elsewhere that retrying can never succeed.
-  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn"];
+  // 'matched_accepted' is terminal on purpose (owner report 2026-07-29): the
+  // doctor accepted, the server recorded it, and a later render must NEVER be
+  // able to reset the bar back to "Fast-track to Interview" — which is exactly
+  // what happened, leaving him looking at the same button with no sign his
+  // click had done anything.
+  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn", "matched_accepted"];
   let heroImageLookupRequestId = 0;
 
   /* ── Offer-mode state (Phase 2 Task 4) ── */
@@ -2361,6 +2377,23 @@
     '</section>';
   }
 
+  // Shown after a doctor fast-tracks a match. The generic "Application
+  // received" block is wrong here on two counts: they did not apply cold, and
+  // it says nothing about what happens next — which was the actual complaint
+  // (owner report 2026-07-29: "no clarification on what's going on").
+  // Spells out the three things they need: it worked, what we do next, and
+  // that accepting an interview has not tied them to the job.
+  function buildFastTrackedHtml(role) {
+    const practice = String((role && role.realPracticeName) || "the practice");
+    return '<div class="at-received at-rv at-fasttracked" id="fastTrackedBanner">' +
+      '<span class="at-received-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
+      '<div><b>You\'re being fast-tracked to ' + escapeHtml(practice) + '</b>' +
+      '<p>Your Registration Support Officer is putting you forward now. They\'ll come back to you to arrange an interview time — usually within a couple of business days.</p>' +
+      '<p class="at-ft-note">This is an interview, not a commitment. Nothing is signed and you can still walk away at any point.</p>' +
+      '</div>' +
+    '</div>';
+  }
+
   function buildReceivedHtml() {
     return '<div class="at-received at-rv" id="appliedBanner">' +
       '<span class="at-received-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
@@ -2930,7 +2963,11 @@
       // because the practice side shortlisted them, and the ball is still in
       // the doctor's court. Showing "Application received" here would be a
       // plain untruth, so the match banner takes the slot instead.
-      (isApplied(role.id) && !getActiveMatch(role) ? buildReceivedHtml() : "") +
+      // A fast-tracked match gets its own "what happens next" block; a cold
+      // application keeps the generic received notice.
+      (role.matchAccepted
+        ? buildFastTrackedHtml(role)
+        : (isApplied(role.id) && !getActiveMatch(role) ? buildReceivedHtml() : "")) +
       buildPracticeIdentityHtml(role) +
       buildUrgencyHtml(role) +
       buildPackageCellsHtml(role) +
@@ -2974,8 +3011,13 @@
     // not_qualified/onboarding) back to idle when a later render lands.
     if (applyState !== "applying" && !TERMINAL_APPLY_STATES.includes(applyState)) {
       // Same rule as the banner: a live match keeps the bar on "idle" so it
-      // paints "Accept this match" rather than the terminal "✓ Submitted".
-      applyState = (isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle";
+      // paints the accept CTA rather than the terminal "✓ Submitted".
+      // role.matchAccepted comes from the server, so the fast-tracked state
+      // survives a reload and shows on any device — not just the tab they
+      // happened to click in.
+      applyState = role.matchAccepted
+        ? "matched_accepted"
+        : ((isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle");
     }
     paintApply();
     updateSaveButton();
@@ -3028,6 +3070,16 @@
         html: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",
         disabled: true
       },
+      // Accepting a match is not the same as applying cold, so it must not
+      // report the same thing. Names the practice back to them so it is
+      // unmistakable WHICH one they just said yes to.
+      matched_accepted: {
+        cls: "at-bapply at-bapply--done",
+        html: "✓ You're being fast-tracked<small>We're putting you forward to "
+          + escapeHtml(String((currentRole && currentRole.realPracticeName) || "the practice"))
+          + "</small>",
+        disabled: true
+      },
       already_placed: {
         cls: "at-bapply at-bapply--muted",
         html: "You're already placed<small>Contact your Registration Support Officer about any change</small>",
@@ -3065,8 +3117,10 @@
     if (matchSecondaryRowEl) matchSecondaryRowEl.hidden = !matchActionable;
     // The bookmark is meaningless on an expiring match (and it sat right next
     // to Accept, which made mis-taps easy) — hide it entirely in match mode
-    // and give Accept the full width (owner call 2026-07-28).
-    if (saveBtnEl) saveBtnEl.hidden = matchActionable;
+    // and give Accept the full width (owner call 2026-07-28). Stays hidden
+    // once they've accepted: "save for later" makes no sense on a role you are
+    // already being put forward for.
+    if (saveBtnEl) saveBtnEl.hidden = matchActionable || applyState === "matched_accepted";
   }
 
   function updateSaveButton() {
@@ -3152,10 +3206,17 @@
   }
 
   /* ── Apply outcome handling — one explicit branch per server guard ── */
-  function markAppliedLocally() {
+  function markAppliedLocally(wasMatchAccept) {
     if (!currentRole) return;
     recordApplication(currentRole);
-    applyState = "applied";
+    if (wasMatchAccept) {
+      // The match has been ANSWERED. Drop it exactly as declineActiveMatch
+      // does, or getActiveMatch() keeps returning it and every later render
+      // repaints the accept bar + Enquire/Decline as though nothing happened.
+      currentRole.match = null;
+      currentRole.matchAccepted = true;
+    }
+    applyState = wasMatchAccept ? "matched_accepted" : "applied";
     paintApply();
     renderBody(currentRole, renderContext);
   }
@@ -3164,12 +3225,15 @@
   function handleApplyOutcome(status, data, options) {
     const opts = options || {};
     if (data && data.ok) {
-      // Confirmation moment: applied state + "Application received" banner.
-      markAppliedLocally();
+      // Confirmation moment: applied state + the "what happens next" banner.
+      // A toast alone was not enough (owner report 2026-07-29) — it vanishes,
+      // and the doctor is left staring at the page with no idea what he just
+      // did. The banner + terminal bar state below are what actually persist.
+      markAppliedLocally(!!(data && data.matched));
       showToast(data.matched
         // AI Matching (Task 7): self-apply-as-accept — this GP was already
         // team-matched on this exact role; applying just accepted that match.
-        ? "Matched! Your team has been notified you're moving forward."
+        ? "You're being fast-tracked — we're putting you forward."
         : (opts.afterCvUpload
           ? "CV uploaded & application sent ✓ Your Registration Support Officer will be in touch shortly"
           : "Application sent ✓ Your Registration Support Officer will be in touch shortly"));

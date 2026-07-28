@@ -210,7 +210,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(jobHtml).toContain('You have 3 active applications — focus on those first, or withdraw one.');
     expect(jobHtml).toContain('data && data.expired');
     expect(jobHtml).toContain('data.matched');
-    expect(jobHtml).toContain("Matched! Your team has been notified you're moving forward.");
+    expect(jobHtml).toContain("You're being fast-tracked — we're putting you forward.");
   });
 
   it('job.html bookOfferSlot handles interview_cap with a friendly blocked message + reset date', () => {

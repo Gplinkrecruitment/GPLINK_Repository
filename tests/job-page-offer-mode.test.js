@@ -129,7 +129,7 @@ describe('job.html — offer mode wiring (Phase 2 Task 4)', () => {
     // previously_withdrawn joined the list 2026-07-27: declining a match sets
     // it, and without it the next render would re-derive the bar from
     // isApplied() and flip a declined row back to "✓ Submitted".
-    expect(html).toMatch(/\["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn"\]/);
+    expect(html).toMatch(/\["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn", "matched_accepted"\]/);
   });
 
   it('folded minor: shell clearance fallback is 70px (matches career.html)', () => {

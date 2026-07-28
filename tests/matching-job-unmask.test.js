@@ -120,7 +120,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     // The banner slot and the sticky-bar state both defer to getActiveMatch,
     // so a shortlisted-but-unanswered row can never render as submitted.
     expect(jobHtml).toContain('isApplied(role.id) && !getActiveMatch(role) ? buildReceivedHtml() : ""');
-    expect(jobHtml).toContain('applyState = (isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle"');
+    expect(jobHtml).toContain('((isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle")');
   });
 
   it('a live match offers enquire + decline next to accept, via match/respond', () => {
@@ -157,6 +157,44 @@ describe('AI Matching Task 7 — source wiring', () => {
     // A question must never answer the match.
     expect(branch).not.toContain('ats_stage:');
     expect(branch).not.toContain('match_outcome:');
+  });
+
+  it('accepting a match clears it, so the accept bar can never repaint', () => {
+    // Owner report 2026-07-29: the doctor accepted, it saved server-side, and
+    // the page still showed "Fast-track to Interview" with the countdown —
+    // because only the DECLINE path cleared role.match, so getActiveMatch()
+    // kept returning the answered match and every later render reset the bar.
+    const idx = jobHtml.indexOf('function markAppliedLocally(');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = jobHtml.slice(idx, idx + 700);
+    expect(fnSrc).toContain('currentRole.match = null');
+    expect(fnSrc).toContain('currentRole.matchAccepted = true');
+    expect(fnSrc).toContain('applyState = wasMatchAccept ? "matched_accepted"');
+    // Terminal, so no later render can walk it back to the accept CTA.
+    expect(jobHtml).toContain('"previously_withdrawn", "matched_accepted"');
+  });
+
+  it('an accepted match gets its own confirmation, not the generic "Application received"', () => {
+    expect(jobHtml).toContain('function buildFastTrackedHtml(role)');
+    expect(jobHtml).toContain("You\\'re being fast-tracked to ");
+    // The three things the doctor needs: it worked, what happens next, and
+    // that an interview is not a commitment.
+    expect(jobHtml).toContain('putting you forward now');
+    expect(jobHtml).toContain('This is an interview, not a commitment');
+    expect(jobHtml).toContain('matched_accepted: {');
+    expect(jobHtml).toContain('role.matchAccepted');
+  });
+
+  it('the fast-tracked state survives a reload — the SERVER reports it', () => {
+    // Client-only state meant a refresh dropped back to the generic notice.
+    expect(serverSrc).toContain('async function getAcceptedMatchAwaitingPracticeForRole');
+    expect(serverSrc).toContain("application.match_outcome !== 'accepted'");
+    expect(serverSrc).toContain('roleClientPayload.matchAccepted = true');
+    // Only looked up when there is NO live match, so a live match costs no
+    // extra query.
+    const idx = serverSrc.indexOf('roleClientPayload.match = {');
+    const after = serverSrc.slice(idx, idx + 900);
+    expect(after).toContain('} else if (roleDetailUserId) {');
   });
 
   it('the CEO escalations banner marks a GP practice question distinctly', () => {

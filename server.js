@@ -21804,6 +21804,35 @@ async function getLiveShortlistedMatchForRole(userId, careerRoleId) {
   return application;
 }
 
+// A match this doctor has ALREADY accepted and that we have not yet put in
+// front of the practice. Drives job.html's "You're being fast-tracked" state.
+// Without this the page can only know from in-memory client state, so a reload
+// dropped straight back to the generic "Application received" — which tells the
+// doctor nothing about what is actually happening (owner report 2026-07-29).
+// Deliberately stops at 'submitted': once the practice is reviewing/interviewing
+// the page has its own richer states for that.
+async function getAcceptedMatchAwaitingPracticeForRole(userId, careerRoleId) {
+  const uid = String(userId || '').trim();
+  const roleId = careerRoleId !== undefined && careerRoleId !== null ? String(careerRoleId).trim() : '';
+  if (!uid || !roleId) return null;
+
+  let application = null;
+  if (isSupabaseDbConfigured()) {
+    const appRes = await supabaseDbRequest('gp_applications',
+      'select=id,ats_stage,match_outcome,practice_submission_status&user_id=eq.' + encodeURIComponent(uid)
+      + '&career_role_id=eq.' + encodeURIComponent(roleId) + '&limit=1');
+    application = (appRes.ok && Array.isArray(appRes.data) && appRes.data[0]) ? appRes.data[0] : null;
+  } else {
+    application = (dbState.atsApplications || []).find((a) =>
+      a && String(a.user_id) === uid && String(a.career_role_id) === roleId
+    ) || null;
+  }
+  if (!application) return null;
+  if (application.match_outcome !== 'accepted') return null;
+  if (application.ats_stage !== 'applied' && application.ats_stage !== 'submitted') return null;
+  return application;
+}
+
 function parseCareerRolePublicId(publicId) {
   const value = String(publicId || '').trim();
   if (!value) return null;
@@ -41205,6 +41234,12 @@ async function handleApi(req, res, pathname) {
           reasons: matchReasons,
           score: (matchRow.match_score != null ? matchRow.match_score : null)
         };
+      } else if (roleDetailUserId) {
+        // No LIVE match — but they may have already accepted this one and be
+        // waiting on us to put them in front of the practice. Only checked in
+        // the else branch, so a doctor with a live match costs no extra query.
+        const acceptedRow = await getAcceptedMatchAwaitingPracticeForRole(roleDetailUserId, finalRoleRow.id);
+        if (acceptedRow) roleClientPayload.matchAccepted = true;
       }
     }
 
