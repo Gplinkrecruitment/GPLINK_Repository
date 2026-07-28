@@ -126,10 +126,76 @@ describe('GET /jobs (Task 8 job board page)', () => {
     expect(res.raw).toMatch(/clearFiltersBtn\.hidden = !hasFilters/);
   });
 
-  it('clearing navigates to the bare /jobs so the list AND the map both reload', async () => {
+  it('clearing blanks the controls and re-applies in place (no page reload)', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toMatch(/clearFiltersBtn\.addEventListener\("click"/);
-    expect(res.raw).toMatch(/window\.location\.href = "\/jobs"/);
+    expect(res.raw).toMatch(/clearFiltersBtn\.addEventListener\("click", clearAllFilters\)/);
+    expect(res.raw).toMatch(/function clearAllFilters\(\)/);
+    // Both the toolbar button and the "Clear filters" link above the results
+    // go through the same path, and neither navigates any more.
+    expect(res.raw).toMatch(/clearFiltersLink\.addEventListener\("click"/);
+    expect(res.raw).not.toMatch(/window\.location\.href = "\/jobs"/);
+  });
+
+  // ── Live filtering (2026-07-29): no Search button ────────────────────────
+  it('has no Search button — filters apply as they change', async () => {
+    const res = await get('/jobs');
+    const card = (res.raw.match(/<form class="jobs-filter-card"[\s\S]*?<\/form>/) || [''])[0];
+    expect(card).not.toContain('type="submit"');
+    expect(card).not.toContain('class="go"');
+    expect(card).toContain('id="clearFiltersBtn"');
+  });
+
+  it('applies the filters live: selects on change, keyword debounced, Enter still works', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/function applyFilters\(\)/);
+    expect(res.raw).toMatch(/stateSelect\.addEventListener\("change", applyFilters\)/);
+    expect(res.raw).toMatch(/billingSelect\.addEventListener\("change", applyFilters\)/);
+    // A request per keystroke would hammer the API; wait for a pause instead.
+    expect(res.raw).toMatch(/qInput\.addEventListener\("input"/);
+    expect(res.raw).toMatch(/setTimeout\(function \(\) \{ debounceTimer = null; applyFilters\(\); \}, 350\)/);
+    // Enter submits the form — it must apply in place, never navigate.
+    expect(res.raw).toMatch(/form\.addEventListener\("submit", function \(ev\) \{\s*ev\.preventDefault\(\);/);
+  });
+
+  it('does NOT bind GPSite.initJobSearch, which would navigate away on submit', async () => {
+    const res = await get('/jobs');
+    // initJobSearch is the homepage entry-point behaviour (go to /jobs?…).
+    // Binding it here would make Enter reload the page instead of filtering.
+    expect(res.raw).not.toMatch(/GPSite\.initJobSearch\(form\)/);
+  });
+
+  it('a filter change refreshes the map and rewrites the URL without a history entry', async () => {
+    const res = await get('/jobs');
+    expect(res.raw).toMatch(/window\.GP_JOBS_REFRESH_MAP\(\)/);
+    expect(res.raw).toMatch(/window\.GP_JOBS_REFRESH_MAP=loadMap/);
+    // replaceState, not pushState — one history entry per keystroke would make
+    // the back button unusable, but the URL must still match the current view.
+    expect(res.raw).toMatch(/window\.history\.replaceState\(null, "", "\/jobs" \+ window\.GP_JOBS_FILTER_QS\)/);
+    expect(res.raw).not.toMatch(/history\.pushState/);
+  });
+
+  it('drops stale responses so a slow reply cannot repaint a newer board', async () => {
+    const res = await get('/jobs');
+    // Typing "Bulk" fires several requests; whichever returns last must not win.
+    expect(res.raw).toMatch(/function isStale\(token\)/);
+    expect(res.raw).toMatch(/if \(isStale\(token\)\) return;/);
+    expect(res.raw).toMatch(/if\(token!==mapSeq\)return;/);
+  });
+
+  it('repaints the existing map instead of rebuilding it on every filter change', async () => {
+    const res = await get('/jobs');
+    // Re-creating the Leaflet map would reset the visitor's pan/zoom and
+    // re-download tiles each time a dropdown moved.
+    expect(res.raw).toMatch(/function drawPins\(L,practices\)/);
+    expect(res.raw).toMatch(/clusterObj\.clearLayers\(\)/);
+    expect(res.raw).toMatch(/if\(!mapObj\)\{/);
+  });
+
+  it('restores the unfiltered caption wording when the filters are cleared', async () => {
+    const res = await get('/jobs');
+    // The caption is repainted live now, so the filtered wording must be reset
+    // — otherwise clearing left "practices match your filters" on a full map.
+    expect(res.raw).toMatch(/nounEl\.textContent='practices with public advertisement'/);
   });
 
   it('the map fetch forwards the filter params (regression: pins ignored every filter)', async () => {

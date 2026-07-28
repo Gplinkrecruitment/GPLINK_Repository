@@ -30,7 +30,7 @@
 
   /* ---------- filter bar ---------- */
   .jobs-filter-card{background:rgba(255,255,255,.98);border-radius:16px;padding:16px;
-    display:grid;grid-template-columns:1.3fr 1fr 1fr auto auto;gap:10px;align-items:end;
+    display:grid;grid-template-columns:1.3fr 1fr 1fr auto;gap:10px;align-items:end;
     box-shadow:0 30px 60px -28px rgba(9,30,50,.65);}
   /* Secondary to Search: quiet outline, same height, so it reads as an escape
      hatch rather than a second call to action. `hidden` collapses its grid
@@ -46,16 +46,12 @@
   .jobs-filter-card input,.jobs-filter-card select{font:inherit;font-size:14.5px;color:var(--ink-2);
     border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff;width:100%;}
   .jobs-filter-card input:focus,.jobs-filter-card select:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal);}
-  .jobs-filter-card .go{background:var(--teal);color:#fff;border:0;border-radius:10px;font:inherit;
-    font-size:14.5px;font-weight:700;padding:12px 22px;cursor:pointer;white-space:nowrap;
-    transition:background .2s, transform .2s;}
-  .jobs-filter-card .go:hover{background:#0d5ee0;transform:translateY(-1px);}
+  /* Filters apply live, so a busy spinner would flash on every keystroke.
+     Instead the whole card dims very slightly while a request is in flight —
+     enough to read as "working", not enough to be noticed on a fast reply. */
+  .jobs-filter-card.is-busy select,.jobs-filter-card.is-busy input{opacity:.72;}
   @media(max-width:760px){.jobs-filter-card{grid-template-columns:1fr 1fr}.jobs-filter-card .kw{grid-column:1/-1}
-    /* Search spans full width when it's alone; when Clear is showing they sit
-       side by side rather than stacking two full-width buttons. */
-    .jobs-filter-card .go{grid-column:1/-1}
-    .jobs-filter-card .go:has(+ .clear-btn:not([hidden])){grid-column:auto}
-    .jobs-filter-card .clear-btn{grid-column:auto}}
+    .jobs-filter-card .clear-btn{grid-column:1/-1}}
 
   /* ---------- interactive Australia map that "falls off" the search bar ---------- */
   /* Its own band (NOT inside the overflow-clipped hero); pulled up so the search
@@ -325,7 +321,10 @@
             <option value="private">Private billing</option>
           </select>
         </label>
-        <button class="go" type="submit">Search</button>
+        <!-- No Search button by design: the board AND the map update the moment
+             a filter changes (selects on change, keyword after a short pause or
+             on Enter), so a submit button could only ever repeat what already
+             happened. The form still handles Enter — see applyFilters(). -->
         <!-- Only rendered once a filter is actually applied (see hasFilters):
              a Clear button on an unfiltered board has nothing to clear. -->
         <button class="clear-btn" type="button" id="clearFiltersBtn" hidden>Clear</button>
@@ -422,7 +421,7 @@
     });
   }
 
-  // ---------- filters (from the URL, not re-read from the form after load) ----------
+  // ---------- filters (seeded from the URL, then driven live by the controls) ----------
   var urlParams = new URLSearchParams(window.location.search);
   // Only params that have a VISIBLE control here may count as a filter. The old
   // `type` (vr-gp / non-vr-gp / locum) param is deliberately ignored: it lost its
@@ -447,27 +446,91 @@
     return qs ? "?" + qs : "";
   })();
 
+  var qInput = form ? form.querySelector('[name="q"]') : null;
+  var stateSelect = form ? form.querySelector('[name="state"]') : null;
+  var billingSelect = form ? form.querySelector('[name="billing"]') : null;
+  if (qInput) qInput.value = filters.q;
+  if (stateSelect) stateSelect.value = filters.state;
+  if (billingSelect) billingSelect.value = filters.billing;
+  // NOTE: GPSite.initJobSearch is deliberately NOT bound here. It navigates to
+  // /jobs?… on submit, which is right for the homepage (that form is an entry
+  // point into this page) but wrong here — this page applies filters in place.
+
+  function syncClearVisibility() {
+    if (clearFiltersLink) clearFiltersLink.hidden = !hasFilters;
+    if (clearFiltersBtn) clearFiltersBtn.hidden = !hasFilters;
+  }
+  syncClearVisibility();
+
+  // Every request that can repaint the board carries a token. A slow reply for
+  // "Bul" must never land after the reply for "Bulk" and repaint the board with
+  // stale results — with live filtering that reordering is routine, not rare.
+  var reqSeq = 0;
+  function isStale(token) { return token !== reqSeq; }
+
+  function setBusy(on) {
+    if (form) form.classList.toggle("is-busy", !!on);
+  }
+
+  // The single entry point for "the filters changed". Reads the controls,
+  // rewrites the URL so the view stays shareable and the back button still
+  // works, repaints the board, and refreshes the map — no page reload.
+  function applyFilters() {
+    filters.q = qInput ? qInput.value.trim() : "";
+    filters.state = stateSelect ? stateSelect.value.trim().toUpperCase() : "";
+    filters.billing = billingSelect ? billingSelect.value.trim().toLowerCase() : "";
+    hasFilters = !!(filters.q || filters.state || filters.billing);
+
+    var qs = filterParams().toString();
+    window.GP_JOBS_FILTER_QS = qs ? "?" + qs : "";
+    // replaceState, not pushState: one history entry per keystroke would make
+    // the back button useless. The URL still reflects the current view exactly.
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", "/jobs" + window.GP_JOBS_FILTER_QS);
+    }
+
+    syncClearVisibility();
+    jobs = [];
+    total = 0;
+    isLoadingMore = false;
+    renderBoard();
+    if (typeof window.GP_JOBS_REFRESH_MAP === "function") window.GP_JOBS_REFRESH_MAP();
+  }
+
+  var debounceTimer = null;
+
   if (form) {
-    var qInput = form.querySelector('[name="q"]');
-    var stateSelect = form.querySelector('[name="state"]');
-    var billingSelect = form.querySelector('[name="billing"]');
-    if (qInput) qInput.value = filters.q;
-    if (stateSelect) stateSelect.value = filters.state;
-    if (billingSelect) billingSelect.value = filters.billing;
-    if (window.GPSite && typeof window.GPSite.initJobSearch === "function") {
-      window.GPSite.initJobSearch(form);
+    // Enter in the keyword box submits the form; apply in place rather than
+    // letting the browser navigate.
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+      applyFilters();
+    });
+    // Dropdowns are a deliberate choice — apply immediately.
+    if (stateSelect) stateSelect.addEventListener("change", applyFilters);
+    if (billingSelect) billingSelect.addEventListener("change", applyFilters);
+    // Typing is not: wait for a pause so we aren't firing a request per letter.
+    if (qInput) {
+      qInput.addEventListener("input", function () {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () { debounceTimer = null; applyFilters(); }, 350);
+      });
     }
   }
-  if (clearFiltersLink) clearFiltersLink.hidden = !hasFilters;
-  if (clearFiltersBtn) {
-    clearFiltersBtn.hidden = !hasFilters;
-    clearFiltersBtn.addEventListener("click", function () {
-      // Going to the bare /jobs is the clear AND the refresh in one step: the
-      // form comes back empty, the results list reloads unfiltered and the map
-      // refetches without filter params. Deliberately a navigation rather than
-      // just blanking the inputs, which would leave the stale filtered board
-      // and pins on screen until the visitor pressed Search again.
-      window.location.href = "/jobs";
+
+  function clearAllFilters() {
+    if (qInput) qInput.value = "";
+    if (stateSelect) stateSelect.value = "";
+    if (billingSelect) billingSelect.value = "";
+    applyFilters();
+  }
+  if (clearFiltersBtn) clearFiltersBtn.addEventListener("click", clearAllFilters);
+  if (clearFiltersLink) {
+    // Keeps its href="/jobs" so it still works without JS and reads as a link.
+    clearFiltersLink.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      clearAllFilters();
     });
   }
 
@@ -687,8 +750,12 @@
 
   function loadPage(offset) {
     var isFirstPage = offset === 0;
+    // A "load more" inherits the CURRENT token; a first page mints a new one so
+    // any in-flight request for the previous filters is abandoned on arrival.
+    var token = isFirstPage ? ++reqSeq : reqSeq;
     if (isFirstPage) {
       renderSkeletons();
+      setBusy(true);
       if (resultsCountEl) resultsCountEl.textContent = "Loading roles…";
     }
 
@@ -696,6 +763,8 @@
       if (!res.ok) throw new Error("bad status");
       return res.json();
     }).then(function (data) {
+      if (isStale(token)) return;
+      setBusy(false);
       if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
 
       total = Number(data.total) || 0;
@@ -710,6 +779,8 @@
       renderPagination();
       if (!isFirstPage) isLoadingMore = false;
     }).catch(function () {
+      if (isStale(token)) return;
+      setBusy(false);
       if (isFirstPage) {
         if (resultsCountEl) resultsCountEl.textContent = hasFilters ? "Could not load roles" : "Could not load roles";
         renderError(function () { loadPage(0); });
@@ -848,7 +919,9 @@
   }
 
   function initFilteredResults() {
+    var token = ++reqSeq;
     renderSkeletons();
+    setBusy(true);
     if (resultsCountEl) resultsCountEl.textContent = "Loading roles…";
     paginationEl.innerHTML = "";
 
@@ -856,6 +929,8 @@
       if (!res.ok) throw new Error("bad status");
       return res.json();
     }).then(function (data) {
+      if (isStale(token)) return;
+      setBusy(false);
       if (!data || data.ok !== true || !Array.isArray(data.jobs)) throw new Error("bad payload");
 
       var job = data.jobs[0] || null;
@@ -873,17 +948,28 @@
         renderAllMatches(shown);
       }
     }).catch(function () {
+      if (isStale(token)) return;
+      setBusy(false);
       if (resultsCountEl) resultsCountEl.textContent = "Could not load roles";
       renderError(function () { initFilteredResults(); });
       paginationEl.innerHTML = "";
     });
   }
 
-  if (hasFilters) {
-    initFilteredResults();
-  } else {
-    loadPage(0);
+  // Which of the two board modes to draw. Filtered searches get the "top match
+  // + locked teasers" conversion flow; an unfiltered board gets the full
+  // paginated list. Called on first paint AND on every live filter change, so
+  // switching from "All" to a filter (and back) swaps modes correctly instead
+  // of leaving the previous mode's cards on screen.
+  function renderBoard() {
+    if (hasFilters) {
+      initFilteredResults();
+    } else {
+      loadPage(0);
+    }
   }
+
+  renderBoard();
 })();
 </script>
 
@@ -960,83 +1046,123 @@
     shell.style.display='none';
   }
 
-  function boot(practices, weeklyTotal, total, isFiltered){
-    // No pins with NO filters means the data or geocoding is unavailable — hide
-    // the section, as before. No pins WITH filters is a legitimate answer ("no
-    // private-billing roles in NT"), so keep the map on screen with an empty
-    // Australia view and say so in the caption; yanking the whole map out from
-    // under someone who just used a filter reads as a bug, and it would hide
-    // the Clear button they need. Safe because the map uses a fixed centre/zoom
-    // and never fits bounds to the pins.
-    if(!practices.length&&!isFiltered){fail();return;}
-    loadLibs().then(function(L){
-      if(!L||!L.markerClusterGroup){fail();return;}
-      var map=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:true,zoomControl:true,attributionControl:true,worldCopyJump:true});
-      // Drop the prominent "Leaflet" prefix + flag; keep only the small OSM/CARTO
-      // credit the tile licences require (styled tiny + subtle in CSS).
-      map.attributionControl.setPrefix(false);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,
-        attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(map);
-      map.on('click',closeDetail);
-      var cluster=L.markerClusterGroup({
+  // The map instance, its tile layer and its cluster layer are built ONCE and
+  // then reused. Filters now apply live, so a filter change must repaint the
+  // pins without tearing down and re-creating the map — rebuilding it would
+  // reset the visitor's pan/zoom on every keystroke and re-download tiles.
+  var mapObj=null,clusterObj=null,booted=false;
+
+  function drawPins(L,practices){
+    if(!clusterObj){
+      clusterObj=L.markerClusterGroup({
         showCoverageOnHover:false,maxClusterRadius:46,spiderfyOnMaxZoom:true,
         iconCreateFunction:function(c){var n=c.getChildCount();return L.divIcon({html:'<div>'+n+'</div>',className:'pmap-cluster'+(n>=25?' lg':''),iconSize:[38,38]});}
       });
-      practices.forEach(function(p){
-        if(!isFinite(p.lat)||!isFinite(p.lng))return;
-        var icon=L.divIcon({className:'pmap-pin-wrap',html:'<div class="pmap-pin"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
-        var m=L.marker([p.lat,p.lng],{icon:icon,riseOnHover:true});
-        m.on('click',function(e){if(L.DomEvent)L.DomEvent.stopPropagation(e);openDetail(p,m);});
-        cluster.addLayer(m);
-      });
-      map.addLayer(cluster);
-      // A = the TRUE count of publicly-advertised roles — the SAME number the
-      // "N roles available right now" list below shows. The map only pins the
-      // geocodable subset (practices.length ≤ A), so the caption must state A,
-      // not the pin count, or it contradicts the list. Fall back to the pin
-      // count only if total is missing/smaller.
-      var A=Number(total);
-      if(!isFinite(A)||A<practices.length)A=practices.length;
-      document.getElementById('pmapCount').textContent=A;
-      // Filtered: the caption describes the matching subset and the
-      // member-exclusive split is dropped (it compares against the week's FULL
-      // role count, so it would read as a bogus percentage beside a few pins).
-      var nounEl=document.getElementById('pmapNoun');
-      var exclWrap=document.getElementById('pmapExclWrap');
-      if(isFiltered){
-        var countEl=document.getElementById('pmapCount');
-        if(A===0){
-          if(countEl)countEl.textContent='No';
-          if(nounEl)nounEl.textContent='practices match your filters';
-        }else if(nounEl){
-          nounEl.textContent=(A===1?'practice matches':'practices match')+' your filters';
-        }
-        if(exclWrap)exclWrap.style.display='none';
-      }else{
-        if(exclWrap)exclWrap.style.display='';
-        // Member-exclusive split: of the weekly headline R roles, A are publicly
-        // advertised; the rest — (R−A)/R — are exclusive to members. Falls back to
-        // the static 90% if R is missing/nonsensical.
-        var R=Number(weeklyTotal);
-        if(isFinite(R)&&R>A){
-          var pct=Math.max(1,Math.min(99,Math.round((R-A)/R*100)));
-          var ex=document.getElementById('pmapExcl');if(ex)ex.textContent=pct+'%';
-        }
+      mapObj.addLayer(clusterObj);
+    }else{
+      clusterObj.clearLayers();
+    }
+    practices.forEach(function(p){
+      if(!isFinite(p.lat)||!isFinite(p.lng))return;
+      var icon=L.divIcon({className:'pmap-pin-wrap',html:'<div class="pmap-pin"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
+      var m=L.marker([p.lat,p.lng],{icon:icon,riseOnHover:true});
+      m.on('click',function(e){if(L.DomEvent)L.DomEvent.stopPropagation(e);openDetail(p,m);});
+      clusterObj.addLayer(m);
+    });
+  }
+
+  function drawCaption(practices,weeklyTotal,total,isFiltered){
+    // A = the TRUE count of publicly-advertised roles — the SAME number the
+    // "N roles available right now" list below shows. The map only pins the
+    // geocodable subset (practices.length ≤ A), so the caption must state A,
+    // not the pin count, or it contradicts the list. Fall back to the pin
+    // count only if total is missing/smaller.
+    var A=Number(total);
+    if(!isFinite(A)||A<practices.length)A=practices.length;
+    var countEl=document.getElementById('pmapCount');
+    if(countEl)countEl.textContent=A;
+    // Filtered: the caption describes the matching subset and the
+    // member-exclusive split is dropped (it compares against the week's FULL
+    // role count, so it would read as a bogus percentage beside a few pins).
+    var nounEl=document.getElementById('pmapNoun');
+    var exclWrap=document.getElementById('pmapExclWrap');
+    if(isFiltered){
+      if(A===0){
+        if(countEl)countEl.textContent='No';
+        if(nounEl)nounEl.textContent='practices match your filters';
+      }else if(nounEl){
+        nounEl.textContent=(A===1?'practice matches':'practices match')+' your filters';
       }
+      if(exclWrap)exclWrap.style.display='none';
+    }else{
+      // Reset the noun too — the caption is now repainted on every filter
+      // change, so clearing filters must restore the unfiltered wording rather
+      // than leaving "practices match your filters" on an unfiltered map.
+      if(nounEl)nounEl.textContent='practices with public advertisement';
+      if(exclWrap)exclWrap.style.display='';
+      // Member-exclusive split: of the weekly headline R roles, A are publicly
+      // advertised; the rest — (R−A)/R — are exclusive to members. Falls back to
+      // the static 90% if R is missing/nonsensical.
+      var R=Number(weeklyTotal);
+      if(isFinite(R)&&R>A){
+        var pct=Math.max(1,Math.min(99,Math.round((R-A)/R*100)));
+        var ex=document.getElementById('pmapExcl');if(ex)ex.textContent=pct+'%';
+      }
+    }
+  }
+
+  function boot(practices, weeklyTotal, total, isFiltered){
+    // No pins with NO filters on the FIRST load means the data or geocoding is
+    // unavailable — hide the section, as before. No pins WITH filters is a
+    // legitimate answer ("no private-billing roles in NT"), so keep the map on
+    // screen with an empty Australia view and say so in the caption; yanking
+    // the whole map out from under someone who just used a filter reads as a
+    // bug, and it would hide the Clear button they need. Safe because the map
+    // uses a fixed centre/zoom and never fits bounds to the pins.
+    // Once booted we never re-hide: an empty unfiltered result mid-session is
+    // far more likely a transient blip than a reason to delete the map.
+    if(!practices.length&&!isFiltered&&!booted){fail();return;}
+    loadLibs().then(function(L){
+      if(!L||!L.markerClusterGroup){if(!booted)fail();return;}
+      if(!mapObj){
+        mapObj=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:true,zoomControl:true,attributionControl:true,worldCopyJump:true});
+        // Drop the prominent "Leaflet" prefix + flag; keep only the small OSM/CARTO
+        // credit the tile licences require (styled tiny + subtle in CSS).
+        mapObj.attributionControl.setPrefix(false);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,
+          attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(mapObj);
+        mapObj.on('click',closeDetail);
+      }
+      shell.style.display='';
+      // The open pin may not be in the new result set — close it rather than
+      // leave a detail card describing a practice that is no longer shown.
+      closeDetail();
+      drawPins(L,practices);
+      drawCaption(practices,weeklyTotal,total,isFiltered);
       var cap=document.querySelector('.pmap-cap');if(cap)cap.style.display='';
       var loading=document.getElementById('pmapLoading');if(loading)loading.classList.add('hide');
-      setTimeout(function(){map.invalidateSize();},250);
-    }).catch(fail);
+      var first=!booted;
+      booted=true;
+      if(first)setTimeout(function(){mapObj.invalidateSize();},250);
+    }).catch(function(){if(!booted)fail();});
   }
 
   // Fetch the practices with coordinates, then build the map. The filters come
   // from the results-list script above (GP_JOBS_FILTER_QS) rather than being
   // re-read from the URL here, so the pins and the list below them can never
   // answer different questions. Defaults to unfiltered if that script failed.
-  var mapQs=(typeof window.GP_JOBS_FILTER_QS==='string')?window.GP_JOBS_FILTER_QS:'';
-  fetch('/api/public/practice-map'+mapQs).then(function(r){return r.ok?r.json():null;}).then(function(d){
-    boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total, !!(d&&d.filtered));
-  }).catch(fail);
+  var mapSeq=0;
+  function loadMap(){
+    var token=++mapSeq;
+    var mapQs=(typeof window.GP_JOBS_FILTER_QS==='string')?window.GP_JOBS_FILTER_QS:'';
+    fetch('/api/public/practice-map'+mapQs).then(function(r){return r.ok?r.json():null;}).then(function(d){
+      if(token!==mapSeq)return; // a newer filter change already won
+      boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total, !!(d&&d.filtered));
+    }).catch(function(){if(token===mapSeq&&!booted)fail();});
+  }
+  // How the filter bar refreshes the pins — see applyFilters() in the script above.
+  window.GP_JOBS_REFRESH_MAP=loadMap;
+  loadMap();
 })();
 </script>
 </body>

@@ -128,7 +128,10 @@ describe('/jobs Australia practice map section', () => {
     // available right now" list), NOT the geocodable pin subset — so the two
     // numbers can never contradict each other.
     expect(siteJobs).toMatch(/A=Number\(total\)/);
-    expect(siteJobs).toContain("pmapCount').textContent=A");
+    // The caption is repainted on every live filter change, so it moved into
+    // drawCaption() and now guards the lookup instead of assuming the element.
+    expect(siteJobs).toMatch(/function drawCaption\(practices,weeklyTotal,total,isFiltered\)/);
+    expect(siteJobs).toMatch(/if\(countEl\)countEl\.textContent=A;/);
   });
 
   it('server builds the masked, keyless practice-map payload', () => {
