@@ -12,7 +12,7 @@ import crypto from 'crypto';
 //     prove the routes exist, require no session, and degrade gracefully
 //     (empty jobs list) when there is no database.
 //  2. Direct unit tests against the exported __testUtils pure functions
-//     (mapCareerRoleRowToPublicJob, sanitizePublicJob, classifyPublicJobType,
+//     (mapCareerRoleRowToPublicJob, sanitizePublicJob, classifyPublicJobBilling,
 //     buildPublicJobsResponse) — these are the EXACT functions the live route
 //     handler calls, so exercising them directly with seeded career_roles-shaped
 //     fixture rows covers the filter/whitelist/pagination semantics without
@@ -276,26 +276,45 @@ describe('mapCareerRoleRowToPublicJob + sanitizePublicJob (whitelist)', () => {
   });
 });
 
-describe('classifyPublicJobType', () => {
-  it('classifies a VR-tagged role as vr-gp', () => {
-    const mapped = testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
-      title: 'General Practitioner (VR)', tags: ['VR-GP'], summary: 'VR GP required.'
-    }));
-    expect(testUtils.classifyPublicJobType(mapped)).toBe('vr-gp');
+// Regression (2026-07-29): ?type= is a DEAD param and must be ignored.
+//
+// It classified vr-gp / non-vr-gp / locum by looking for those words in
+// title/summary/employment_type/tags — but the public mask rewrites all of
+// them (live titles read "DPA - Mandurah - Private Billing"), so it matched
+// 0 of 51 live roles. It also lost its dropdown when Billing type replaced it.
+// The result: any stale /jobs?type=locum link — bookmark, browser history,
+// indexed URL — returned an empty board AND an empty map, with all three
+// dropdowns still reading "All" and nothing on screen to explain it.
+//
+// The classifier is gone. These tests pin the param as inert so nobody
+// reinstates the filter without real stored data behind it.
+describe('the dead ?type= param', () => {
+  it('no longer ships a classifier', () => {
+    expect(testUtils.classifyPublicJobType).toBeUndefined();
   });
 
-  it('classifies a Non-VR-tagged role as non-vr-gp (not vr-gp)', () => {
-    const mapped = testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
-      title: 'Non-VR GP', tags: ['Non-VR', 'Supervised'], summary: 'Non-VR GP welcome, supervision provided.'
-    }));
-    expect(testUtils.classifyPublicJobType(mapped)).toBe('non-vr-gp');
+  it('does not filter the jobs list — a stale ?type= link shows the full board', () => {
+    const rows = [
+      makeRawRow({ id: 'locum-role', title: 'Locum GP', employment_type: 'Locum' }),
+      makeRawRow({ id: 'vr-role', title: 'General Practitioner (VR)', tags: ['VR-GP'] }),
+      makeRawRow({ id: 'plain', title: 'DPA - Mandurah - Private Billing' })
+    ];
+    const unfiltered = testUtils.buildPublicJobsResponse(rows, new URLSearchParams());
+    for (const type of ['locum', 'vr-gp', 'non-vr-gp']) {
+      const out = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type }));
+      expect(out.total).toBe(unfiltered.total);
+      expect(out.jobs.length).toBe(unfiltered.jobs.length);
+    }
   });
 
-  it('classifies a locum role as locum', () => {
-    const mapped = testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
-      title: 'Locum GP', tags: ['Locum'], employment_type: 'Locum', summary: 'Locum GP needed for 3-month placement.'
-    }));
-    expect(testUtils.classifyPublicJobType(mapped)).toBe('locum');
+  it('still composes with the filters that DO work', () => {
+    const rows = [
+      makeRawRow({ provider_role_id: 'ZR-BULK', title: 'Locum GP', billing_model: 'Bulk Billing' }),
+      makeRawRow({ provider_role_id: 'ZR-PRIV', title: 'Locum GP', billing_model: 'Private Billing' })
+    ];
+    // type is dropped, billing still bites — so exactly the bulk row survives.
+    const out = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'locum', billing: 'bulk' }));
+    expect(out.jobs.map((j) => j.id)).toEqual(['zoho_recruit:ZR-BULK']);
   });
 });
 
@@ -397,9 +416,11 @@ describe('filterPracticeMapPractices — the /jobs filter bar applied to map pin
     expect(ids(out).sort()).toEqual(['qld-mixed', 'qld-mixed-hyphen']);
   });
 
-  it('type filters on the classification stored at shape time', () => {
-    const withTypes = [P({ id: 'a', type: 'locum' }), P({ id: 'b', type: 'vr-gp' }), P({ id: 'c', type: '' })];
-    expect(ids(testUtils.filterPracticeMapPractices(withTypes, new URLSearchParams({ type: 'locum' })))).toEqual(['a']);
+  it('ignores the dead ?type= param — the pins must not empty on a stale link', () => {
+    // The list ignores it too; if only one of the two did, the pins and the
+    // board below them would contradict each other.
+    const out = testUtils.filterPracticeMapPractices(practices, new URLSearchParams({ type: 'locum' }));
+    expect(out.length).toBe(practices.length);
   });
 
   it('an unrecognised filter value is ignored rather than blanking the map', () => {
@@ -425,9 +446,15 @@ describe('practiceMapHasFilters', () => {
   it('is true for any honoured filter and false for none', () => {
     expect(testUtils.practiceMapHasFilters(new URLSearchParams())).toBe(false);
     expect(testUtils.practiceMapHasFilters(new URLSearchParams({ limit: '10' }))).toBe(false);
-    for (const k of ['q', 'state', 'billing', 'type']) {
+    for (const k of ['q', 'state', 'billing']) {
       expect(testUtils.practiceMapHasFilters(new URLSearchParams({ [k]: 'x' }))).toBe(true);
     }
+  });
+
+  it('is false for the dead ?type= param, so the caption stays the global one', () => {
+    // Counting an ignored param as a filter would drop the member-exclusive
+    // split and caption an unfiltered map as "matching your filters".
+    expect(testUtils.practiceMapHasFilters(new URLSearchParams({ type: 'locum' }))).toBe(false);
   });
 
   it('treats a blank value as no filter', () => {
@@ -436,15 +463,17 @@ describe('practiceMapHasFilters', () => {
 });
 
 describe('shapeMapPractice', () => {
-  it('stores the type classification so the map can filter it exactly like the list', () => {
-    // The pin keeps only a title; classifying from that alone would disagree
-    // with the results list, which also sees summary/employment_type/tags.
+  it('carries the fields the map filters and the sidebar renders — and no dead type', () => {
     const job = testUtils.sanitizePublicJob(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
-      title: 'Locum GP', employment_type: 'Locum', tags: ['Locum'], summary: 'Locum cover needed.'
+      title: 'Locum GP', employment_type: 'Locum', tags: ['Locum'], summary: 'Locum cover needed.',
+      billing_model: 'Mixed Billing'
     })));
     const pin = testUtils.shapeMapPractice(job, 'NSW', { lat: -33.8, lng: 151.2 });
-    expect(pin.type).toBe('locum');
     expect(pin.state).toBe('NSW');
+    expect(pin.billing).toBe('Mixed Billing');
+    // The position-type classification was dropped on 2026-07-29 along with the
+    // filter it fed — nothing reads it, so shipping it on every pin is dead weight.
+    expect(pin.type).toBeUndefined();
   });
 
   it('never carries the practice name onto a pin', () => {
@@ -514,21 +543,17 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     expect(byRealName.total).toBe(0);
   });
 
-  it('type=locum / vr-gp / non-vr-gp each filter to the right subset (by title, never practice_name)', () => {
-    const locum = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'locum' }));
-    expect(locum.total).toBe(2);
-    expect(locum.jobs.map((j) => j.title).sort()).toEqual(['Locum GP', 'Outback Rural Locum GP']);
-    expectNoPracticeNameLeak(locum);
-
-    const vr = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'vr-gp' }));
-    expect(vr.total).toBe(2);
-    expect(vr.jobs.map((j) => j.location_label).sort()).toEqual(['Riverside, QLD', 'Sydney, NSW']);
-    expectNoPracticeNameLeak(vr);
-
-    const nonVr = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'non-vr-gp' }));
-    expect(nonVr.total).toBe(1);
-    expect(nonVr.jobs[0].location_label).toBe('Melbourne, VIC');
-    expectNoPracticeNameLeak(nonVr);
+  it('type=locum / vr-gp / non-vr-gp are all inert — the board is never narrowed by them', () => {
+    // These fixture rows DO carry "Locum"/"VR" in their titles, unlike real
+    // masked rows — so if the filter were still wired up this test would show
+    // subsets. Full totals prove the param is genuinely ignored, not merely
+    // unmatched by the fixtures.
+    const all = testUtils.buildPublicJobsResponse(rows, new URLSearchParams()).total;
+    for (const type of ['locum', 'vr-gp', 'non-vr-gp']) {
+      const out = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type }));
+      expect(out.total).toBe(all);
+      expectNoPracticeNameLeak(out);
+    }
   });
 
   // ── Billing type filter ───────────────────────────────────────────────────
@@ -590,11 +615,13 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     expect(result.jobs[0].title).toBe('GP QLD Bulk');
   });
 
-  it('type= still filters after the UI swapped to billing (old links keep working)', () => {
-    // The public pages no longer render a position-type control, but the API
-    // contract is unchanged — a bookmarked /jobs?type=locum must still work.
+  it('a bookmarked /jobs?type=locum shows the full board, not an empty one', () => {
+    // The position-type control is gone (billing replaced it) and the param is
+    // now inert. Honouring it was strictly worse than ignoring it: against real
+    // masked rows it matched nothing, so the bookmark returned zero roles with
+    // no visible filter to explain the blank page.
     const locum = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'locum' }));
-    expect(locum.total).toBe(2);
+    expect(locum.total).toBe(testUtils.buildPublicJobsResponse(rows, new URLSearchParams()).total);
   });
 
   it('limit caps the returned jobs while total still reflects the pre-limit filtered count', () => {
@@ -630,9 +657,10 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
   });
 
   it('id short-circuits every other filter/pagination param (id wins, the rest are ignored)', () => {
-    // state=NSW and type=locum would each individually exclude ZR-003 (a VIC,
-    // Non-VR role), q is nonsense, and limit/offset would otherwise page past
-    // it. Combined with id, the id match still wins outright.
+    // state=NSW individually excludes ZR-003 (a VIC, Non-VR role), q is
+    // nonsense, and limit/offset would otherwise page past it. (type=locum is
+    // inert now but is left here to prove it stays harmless.) Combined with id,
+    // the id match still wins outright.
     const result = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({
       id: 'zoho_recruit:ZR-003',
       state: 'NSW',

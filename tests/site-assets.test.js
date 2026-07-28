@@ -72,6 +72,21 @@ describe('shared marketing-site chrome assets', () => {
     expect(res.raw).toContain('bindEnquiryForm');
   });
 
+  // Regression (2026-07-29): initJobSearch used to copy a `type` param across
+  // from the current URL because the position-type dropdown had been replaced
+  // by Billing type and FormData cannot see an unrendered field. That made a
+  // stale /jobs?type=locum sticky — it survived every subsequent Search while
+  // matching no masked role, so the visitor was stuck on an empty board with
+  // all three dropdowns reading "All" and no way to see what was filtering it.
+  // The search URL must be built from the rendered controls and nothing else.
+  it('the job search builds its URL from the rendered controls only (no carried-over params)', async () => {
+    const res = await get('/js/site.js');
+    expect(res.status).toBe(200);
+    expect(res.raw).toMatch(/\["q", "state", "billing"\]\.forEach/);
+    expect(res.raw).not.toContain('carriedType');
+    expect(res.raw).not.toMatch(/params\.set\("type"/);
+  });
+
   // Regression guard for the count-up "stale closure" bug: the rAF step()
   // function used to capture `target` once from the IntersectionObserver
   // callback and never re-read it, so a later live-stats update to the

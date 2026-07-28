@@ -184,7 +184,7 @@ describe('marketing site homepage (Task 7)', () => {
   it('GET / links the shared site chrome css/js', async () => {
     const res = await get('/');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
   });
 
   it('GET / has SEO head tags (title, canonical, description, OG)', async () => {
@@ -224,7 +224,7 @@ describe('marketing site about + FAQ pages (Task 11)', () => {
     const res = await get('/about');
     expect(res.raw).toContain('data-count');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
   });
 
   it('GET /about has SEO head tags and marks About current in both navs', async () => {
@@ -309,7 +309,7 @@ describe('marketing site app page (Task 12)', () => {
   it('GET /the-app has the shared site chrome and SEO head tags', async () => {
     const res = await get('/the-app');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
     expect(res.raw).toContain('<title>The GP Link App: Track Your Move to Australia | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/the-app">');
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
@@ -366,7 +366,7 @@ describe('marketing site "For GPs" page (Task 15)', () => {
   it('GET /gp-jobs has the shared site chrome and SEO head tags', async () => {
     const res = await get('/gp-jobs');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
     expect(res.raw).toContain('<title>GP Jobs &amp; Careers in Australia for Overseas Doctors | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/gp-jobs">');
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
@@ -419,7 +419,7 @@ describe('marketing site "Exclusive placement" page (Task 19)', () => {
   it('GET /exclusive-placements has the shared site chrome and SEO head tags', async () => {
     const res = await get('/exclusive-placements');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
     expect(res.raw).toContain('<title>Exclusive GP Placement Opportunities | GP Link</title>');
     expect(res.raw).toContain('<link rel="canonical" href="https://www.mygplink.com.au/exclusive-placements">');
     expect(res.raw).toMatch(/<meta name="description" content="[^"]{50,160}">/);
@@ -512,7 +512,7 @@ describe('public map endpoints', () => {
   });
 
   it('GET /api/public/practice-map accepts every filter the jobs list accepts', async () => {
-    for (const qs of ['q=bondi', 'state=NSW', 'billing=mixed', 'type=locum', 'state=QLD&billing=bulk']) {
+    for (const qs of ['q=bondi', 'state=NSW', 'billing=mixed', 'state=QLD&billing=bulk']) {
       const res = await get('/api/public/practice-map?' + qs);
       expect(res.status).toBe(200);
       const body = JSON.parse(res.raw);
@@ -521,5 +521,17 @@ describe('public map endpoints', () => {
       expect(Array.isArray(body.practices)).toBe(true);
       expect(res.raw).not.toMatch(/practice_name|practiceName|"address"/);
     }
+  });
+
+  it('GET /api/public/practice-map?type=… reads as UNfiltered (the param is dead)', async () => {
+    // Regression (2026-07-29): treating the removed position-type param as a
+    // filter both emptied the map and suppressed the member-exclusive caption,
+    // on a URL the visitor had no control to explain or clear.
+    const res = await get('/api/public/practice-map?type=locum');
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.raw);
+    expect(body.ok).toBe(true);
+    expect(body.filtered).toBe(false);
+    expect(body).toHaveProperty('weeklyTotal');
   });
 });

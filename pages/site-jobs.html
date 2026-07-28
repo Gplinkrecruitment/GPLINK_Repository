@@ -390,7 +390,7 @@
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260729a"></script>
+<script src="/js/site.js?v=20260729b"></script>
 <script>
 (function () {
   "use strict";
@@ -424,16 +424,28 @@
 
   // ---------- filters (from the URL, not re-read from the form after load) ----------
   var urlParams = new URLSearchParams(window.location.search);
-  // `type` (vr-gp / non-vr-gp / locum) no longer has a control on this page — the
-  // third filter is now billing — but it is still read from the URL and still
-  // honoured by the API, so existing links and bookmarks keep working.
+  // Only params that have a VISIBLE control here may count as a filter. The old
+  // `type` (vr-gp / non-vr-gp / locum) param is deliberately ignored: it lost its
+  // dropdown when billing replaced it, and the API matched it against masked text
+  // so it emptied the board. A stale /jobs?type=locum link therefore showed zero
+  // roles, zero pins and three dropdowns all reading "All" — a filtered page with
+  // nothing on screen to explain or undo it. Anything unreadable from these three
+  // controls must not silently filter the board.
   var filters = {
     q: (urlParams.get("q") || "").trim(),
     state: (urlParams.get("state") || "").trim().toUpperCase(),
-    type: (urlParams.get("type") || "").trim(),
     billing: (urlParams.get("billing") || "").trim().toLowerCase()
   };
-  var hasFilters = !!(filters.q || filters.state || filters.type || filters.billing);
+  var hasFilters = !!(filters.q || filters.state || filters.billing);
+
+  // The map lives in its own IIFE at the bottom of this page and cannot see
+  // `filters`, so publish the canonical query string for it here. If this block
+  // ever fails, the map falls back to "" and draws every pin — showing too much
+  // is a far better failure than the blank map a stale ?type= link produced.
+  window.GP_JOBS_FILTER_QS = (function () {
+    var qs = filterParams().toString();
+    return qs ? "?" + qs : "";
+  })();
 
   if (form) {
     var qInput = form.querySelector('[name="q"]');
@@ -485,12 +497,19 @@
   var total = 0;
   var isLoadingMore = false;
 
-  function buildApiUrl(offset, limit) {
+  // The ONE place that turns `filters` into query params. Both the results list
+  // and the map read it, so the pins and the board always ask the API the same
+  // question — two hand-maintained key lists is what let them drift apart.
+  function filterParams() {
     var params = new URLSearchParams();
     if (filters.q) params.set("q", filters.q);
     if (filters.state) params.set("state", filters.state);
-    if (filters.type) params.set("type", filters.type);
     if (filters.billing) params.set("billing", filters.billing);
+    return params;
+  }
+
+  function buildApiUrl(offset, limit) {
+    var params = filterParams();
     params.set("limit", String(limit || PAGE_SIZE));
     params.set("offset", String(offset));
     return "/api/public/jobs?" + params.toString();
@@ -1010,20 +1029,11 @@
     }).catch(fail);
   }
 
-  // Fetch the practices with coordinates, then build the map. The SAME filters
-  // the results list uses are forwarded, so the pins and the list below them
-  // always answer the same question — previously the map ignored every filter
-  // and drew all ~51 practices no matter what was selected.
-  var mapQs=(function(){
-    var src=new URLSearchParams(window.location.search);
-    var out=new URLSearchParams();
-    ['q','state','billing','type'].forEach(function(k){
-      var v=(src.get(k)||'').trim();
-      if(v)out.set(k,v);
-    });
-    var s=out.toString();
-    return s?('?'+s):'';
-  })();
+  // Fetch the practices with coordinates, then build the map. The filters come
+  // from the results-list script above (GP_JOBS_FILTER_QS) rather than being
+  // re-read from the URL here, so the pins and the list below them can never
+  // answer different questions. Defaults to unfiltered if that script failed.
+  var mapQs=(typeof window.GP_JOBS_FILTER_QS==='string')?window.GP_JOBS_FILTER_QS:'';
   fetch('/api/public/practice-map'+mapQs).then(function(r){return r.ok?r.json():null;}).then(function(d){
     boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total, !!(d&&d.filtered));
   }).catch(fail);

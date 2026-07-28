@@ -85,7 +85,7 @@ describe('GET /jobs (Task 8 job board page)', () => {
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
   });
 
   it('has SEO head tags (title, canonical, description, OG)', async () => {
@@ -102,9 +102,20 @@ describe('GET /jobs (Task 8 job board page)', () => {
     expect(res.raw).toContain('name="q"');
     expect(res.raw).toContain('name="state"');
     // Third filter is billing type (bulk / mixed / private), not position type.
-    // The API still honours ?type= for old links, but no page renders it.
+    // ?type= has no control AND is no longer honoured by the API — see the
+    // dead-param regression below.
     expect(res.raw).toContain('name="billing"');
     expect(res.raw).not.toContain('name="type"');
+  });
+
+  it('ignores the dead ?type= param instead of filtering the board by it', async () => {
+    const res = await get('/jobs');
+    // Regression (2026-07-29): `type` had no dropdown but still counted towards
+    // hasFilters and was still sent to the API, where it matched none of the
+    // masked roles. A stale /jobs?type=locum link therefore rendered an empty
+    // board, an empty map and three dropdowns all reading "All".
+    expect(res.raw).not.toMatch(/filters\.type/);
+    expect(res.raw).toMatch(/hasFilters = !!\(filters\.q \|\| filters\.state \|\| filters\.billing\)/);
   });
 
   it('has a Clear button that is hidden until a filter is applied', async () => {
@@ -126,8 +137,13 @@ describe('GET /jobs (Task 8 job board page)', () => {
     // Before this, the page fetched '/api/public/practice-map' bare, so the
     // pins never changed no matter what was selected.
     expect(res.raw).toMatch(/fetch\('\/api\/public\/practice-map'\+mapQs\)/);
-    expect(res.raw).toMatch(/\['q','state','billing','type'\]/);
     expect(res.raw).not.toMatch(/fetch\('\/api\/public\/practice-map'\)/);
+    // The map takes the query string built by the results-list script rather
+    // than re-deriving it from the URL with a second, hand-maintained key list
+    // — keeping two such lists in sync is how the pins drifted from the board.
+    expect(res.raw).toMatch(/function filterParams\(\)/);
+    expect(res.raw).toMatch(/window\.GP_JOBS_FILTER_QS = /);
+    expect(res.raw).toMatch(/var mapQs=\(typeof window\.GP_JOBS_FILTER_QS==='string'\)/);
   });
 
   it('escapes API-sourced job data via an escapeHtml helper, not innerHTML with raw strings', async () => {
@@ -344,7 +360,7 @@ describe('GET /jobs/view (Task 9 job detail page)', () => {
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs/view?id=anything');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260729a');
+    expect(res.raw).toContain('/js/site.js?v=20260729b');
   });
 
   it('marks Jobs as the current nav section', async () => {

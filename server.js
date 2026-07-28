@@ -21932,18 +21932,11 @@ function publicJobSearchText(job) {
     .toLowerCase();
 }
 
-// vr-gp | non-vr-gp | locum classification, derived only from the mapped
-// (whitelisted) object's own text fields — never from source_payload.
-function classifyPublicJobType(job) {
-  const text = [job.title, job.summary, job.employment_type, ...(Array.isArray(job.tags) ? job.tags : [])]
-    .map((value) => String(value || ''))
-    .join(' ')
-    .toLowerCase();
-  if (/\blocum\b/i.test(text)) return 'locum';
-  if (/\bnon[\s-]?vr\b/i.test(text)) return 'non-vr-gp';
-  if (/\bvr\b/i.test(text)) return 'vr-gp';
-  return '';
-}
+// classifyPublicJobType (vr-gp | non-vr-gp | locum) was removed on 2026-07-29.
+// It looked for "VR" / "locum" in title/summary/employment_type/tags, but the
+// public mask rewrites all of those, so it returned '' for 51 of 51 live roles
+// — a filter that could only ever empty the board. Reinstating a position-type
+// filter needs a real stored field, not text-sniffing the masked copy.
 
 // bulk | mixed | private classification for the public Billing type filter.
 //
@@ -21996,14 +21989,13 @@ function buildPublicJobsResponse(rows, searchParams) {
   const state = String(getParam('state') || '').trim().toUpperCase();
   if (state) jobs = jobs.filter((job) => job.location_state === state);
 
-  // `type` no longer has a control on the public pages (billing replaced it),
-  // but it stays supported: old links, bookmarks and any external caller that
-  // already uses ?type= keep working exactly as before.
-  const type = String(getParam('type') || '').trim().toLowerCase();
-  if (type === 'vr-gp' || type === 'non-vr-gp' || type === 'locum') {
-    jobs = jobs.filter((job) => classifyPublicJobType(job) === type);
-  }
-
+  // NOTE (2026-07-29): ?type= (vr-gp / non-vr-gp / locum) is deliberately NOT
+  // honoured here, and the classifier behind it is gone. It read the words
+  // "VR" / "locum" out of title/summary/employment_type/tags — all of which the
+  // public mask rewrites, so it matched 0 of 51 live roles and any stale
+  // /jobs?type=… link (bookmark, history, indexed URL) returned an EMPTY board
+  // and an empty map with every dropdown still reading "All". Ignoring the
+  // param makes those links show the full board instead of nothing.
   const billing = String(getParam('billing') || '').trim().toLowerCase();
   if (billing === 'bulk' || billing === 'mixed' || billing === 'private') {
     jobs = jobs.filter((job) => classifyPublicJobBilling(job) === billing);
@@ -22126,12 +22118,7 @@ function shapeMapPractice(job, state, coords) {
     lat: coords.lat, lng: coords.lng,
     title: job.title || 'GP role', display: job.display_label || '',
     billing: job.billing_model || '', income: mapPracticeIncome(job),
-    benefits: mapPracticeBenefits(job), img: job.header_image_url || '',
-    // `type` is classified HERE, from the full public job, because the pin
-    // itself only keeps a title — classifying from that alone would disagree
-    // with the list below the map (which sees summary/employment_type/tags).
-    // Derived from already-public fields, so it exposes nothing new.
-    type: classifyPublicJobType(job)
+    benefits: mapPracticeBenefits(job), img: job.header_image_url || ''
   };
 }
 
@@ -22164,11 +22151,8 @@ function filterPracticeMapPractices(practices, searchParams) {
     out = out.filter((p) => classifyPublicJobBilling({ billing_model: p && p.billing }) === billing);
   }
 
-  const type = String(getParam('type') || '').trim().toLowerCase();
-  if (type === 'vr-gp' || type === 'non-vr-gp' || type === 'locum') {
-    out = out.filter((p) => String((p && p.type) || '') === type);
-  }
-
+  // ?type= is intentionally absent — see the note in buildPublicJobsResponse.
+  // The pins and the list must ignore the same params, or they disagree.
   return out;
 }
 
@@ -22176,7 +22160,7 @@ function filterPracticeMapPractices(practices, searchParams) {
 // decide whether the caption states a filtered count or the global one.
 function practiceMapHasFilters(searchParams) {
   const get = (n) => String(((searchParams && typeof searchParams.get === 'function') ? searchParams.get(n) : '') || '').trim();
-  return !!(get('q') || get('state') || get('billing') || get('type'));
+  return !!(get('q') || get('state') || get('billing'));
 }
 async function buildPracticeMapData(fetcher = getActivePublicJobRowsLive) {
   const now = Date.now();
@@ -68918,7 +68902,6 @@ module.exports.__testUtils = {
   sanitizeVaSearchQuery,
   mapCareerRoleRowToPublicJob,
   sanitizePublicJob,
-  classifyPublicJobType,
   classifyPublicJobBilling,
   buildPublicJobsResponse,
   filterPracticeMapPractices,

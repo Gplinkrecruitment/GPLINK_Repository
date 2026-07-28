@@ -313,13 +313,11 @@
         var val = (data.get(key) || "").toString().trim();
         if (val) params.set(key, val);
       });
-      // `type` (vr-gp / non-vr-gp / locum) no longer has a control on any page,
-      // but the API still honours it and old links still carry it. FormData
-      // cannot see a field that isn't rendered, so carry it across from the
-      // current URL instead — otherwise arriving on /jobs?type=locum and then
-      // pressing Search would silently widen the results.
-      var carriedType = (new URLSearchParams(window.location.search).get("type") || "").trim();
-      if (carriedType && !formEl.querySelector('[name="type"]')) params.set("type", carriedType);
+      // Deliberately built from the rendered controls ONLY — nothing is carried
+      // across from the current URL. The old `type` param used to be, which meant
+      // a stale /jobs?type=locum survived every subsequent search while matching
+      // no role, so the board stayed empty with all three dropdowns on "All".
+      // Pressing Search must always produce a board the visitor can explain.
       var qs = params.toString();
       window.location.href = "/jobs" + (qs ? "?" + qs : "");
     });
