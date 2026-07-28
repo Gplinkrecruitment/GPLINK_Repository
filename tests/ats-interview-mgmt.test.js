@@ -506,3 +506,60 @@ describe('interview slots avoid booked CONSULTATIONS, not just other interviews'
     expect(faked).toEqual([]);
   });
 });
+
+// Owner request 2026-07-29: leave at least 15 minutes either side of anything
+// already in the diary, so a meeting running over doesn't eat the next one and
+// there is room to prepare. Implemented by widening busy blocks, NOT by
+// shortening the interview.
+describe('interview slots leave a gap either side of an existing meeting', () => {
+  const SLOTS_URL = '/api/ats/interview/slots?application_id=app-mgmt-1&now=2026-07-01T00:00:00Z';
+  const GAP_MIN = 15;
+  const INTERVIEW_MIN = 45;
+
+  async function ensureSlotsCompute() {
+    let row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1' && c.meeting_kind === 'interview');
+    if (!row) {
+      await atsPost('/api/ats/interview/request', { application_id: 'app-mgmt-1' });
+      row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1' && c.meeting_kind === 'interview');
+    }
+    row.practice_availability_status = 'defaulted';
+  }
+
+  it('never offers a slot that starts within 15 minutes of a consult ending', async () => {
+    await ensureSlotsCompute();
+
+    const before = await atsGet(SLOTS_URL);
+    expect(before.body.slots.length).toBeGreaterThan(0);
+    // Anchor a 30-minute consult so it ENDS exactly where a known slot starts.
+    const anchor = new Date(before.body.slots[0].startUtc).getTime();
+    const consultStart = new Date(anchor - 30 * 60000).toISOString();
+    db.scheduled_calls.push({
+      id: 'consult-gap-1', meeting_kind: 'consultation', status: 'booked',
+      scheduled_at: consultStart, duration_minutes: 30
+    });
+
+    const after = await atsGet(SLOTS_URL);
+    const consultEnd = new Date(consultStart).getTime() + 30 * 60000;
+
+    // Back-to-back is exactly what we are ruling out: without the gap the slot
+    // at `anchor` (== consultEnd) would still be offered.
+    expect(after.body.slots.some((s) => new Date(s.startUtc).getTime() === anchor)).toBe(false);
+
+    // Every surviving slot keeps the full gap on BOTH sides of the consult.
+    after.body.slots.forEach((s) => {
+      const start = new Date(s.startUtc).getTime();
+      const end = start + INTERVIEW_MIN * 60000;
+      const clearBefore = end <= new Date(consultStart).getTime() - GAP_MIN * 60000;
+      const clearAfter = start >= consultEnd + GAP_MIN * 60000;
+      expect(clearBefore || clearAfter).toBe(true);
+    });
+
+    db.scheduled_calls = db.scheduled_calls.filter((r) => r.id !== 'consult-gap-1');
+  });
+
+  it('still returns plenty of times — the gap trims, it does not empty the list', async () => {
+    await ensureSlotsCompute();
+    const r = await atsGet(SLOTS_URL);
+    expect(r.body.slots.length).toBeGreaterThan(3);
+  });
+});

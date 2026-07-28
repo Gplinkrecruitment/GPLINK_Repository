@@ -81,6 +81,20 @@ const CALENDLY_EVENT_URL = String(process.env.CALENDLY_EVENT_URL || '').trim();
 const CALENDLY_EVENT_TYPE_URI = String(process.env.CALENDLY_EVENT_TYPE_URI || '').trim();
 const CALENDLY_WEBHOOK_SECRET = String(process.env.CALENDLY_WEBHOOK_SECRET || '').trim();
 const ZOOM_WEBHOOK_SECRET = String(process.env.ZOOM_WEBHOOK_SECRET || '').trim();
+// Minimum gap the interview scheduler leaves either side of anything already in
+// the diary — meetings run over, and back-to-back leaves no room to prepare
+// (owner request 2026-07-29). Raise it with INTERVIEW_GAP_MINUTES in Vercel; 0
+// disables it. Applied by widening busy blocks in _interviewComputeSlots, so
+// the interview itself is always still a full 45 minutes.
+const INTERVIEW_GAP_MINUTES = (function () {
+  // Test the string BEFORE converting: Number('') is 0, not NaN, so an unset
+  // variable would otherwise pass a finite/non-negative check and silently
+  // mean "no gap" — the exact opposite of the default we want.
+  var raw = String(process.env.INTERVIEW_GAP_MINUTES || '').trim();
+  if (!raw) return 15;
+  var n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 15;
+})();
 // Vercel auto-injects CRON_SECRET for its own cron triggers; manual calls use the same secret
 const _CRON_SECRET_PRIMARY = String(process.env.CRON_SECRET || '').trim();
 function isValidCronSecret(token) {
@@ -68272,6 +68286,25 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
     busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + mins * 60000).toISOString() });
   });
 
+  // Keep a real gap either side of anything already in the diary. Meetings run
+  // over, and a slot that starts the second another ends leaves no room to
+  // prepare — the owner asked for at least 15 minutes (2026-07-29). Applied by
+  // widening every busy block rather than by shortening the interview, so the
+  // interview itself stays a full 45 minutes.
+  //
+  // This pads BOTH sources: meetings booked in the app, and whatever
+  // gcalReadBusy returned from Google Calendar. Note Calendly has its own,
+  // separate buffer setting — that one stops Calendly booking too close to an
+  // interview; this one stops us booking too close to a consult. Both halves
+  // are needed, and neither substitutes for the other.
+  var bufferMs = INTERVIEW_GAP_MINUTES * 60000;
+  var paddedBusy = busy.map(function (b) {
+    return {
+      startUtc: new Date(new Date(b.startUtc).getTime() - bufferMs).toISOString(),
+      endUtc: new Date(new Date(b.endUtc).getTime() + bufferMs).toISOString()
+    };
+  });
+
   return interviewScheduler.computeInterviewSlots({
     now: now,
     horizonDays: 14,
@@ -68282,7 +68315,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
     host: host,
     practice: practice,
     gp: gp,
-    busy: busy
+    busy: paddedBusy
   });
 }
 
