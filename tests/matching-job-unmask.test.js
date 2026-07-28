@@ -110,16 +110,35 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(jobHtml).toContain('applyState = (isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle"');
   });
 
-  it('a live match offers decline next to accept, via match/respond', () => {
+  it('a live match offers enquire + decline next to accept, via match/respond', () => {
     expect(jobHtml).toContain('id="matchDeclineBtn"');
-    expect(jobHtml).toContain('Not the right fit — decline');
+    expect(jobHtml).toContain('id="matchEnquireBtn"');
     const idx = jobHtml.indexOf('async function declineActiveMatch() {');
     expect(idx).toBeGreaterThan(-1);
     const fnSrc = jobHtml.slice(idx, idx + 1400);
     expect(fnSrc).toContain('/api/career/match/respond');
     expect(fnSrc).toContain('action: "decline"');
-    // Only shown while the match is still answerable.
-    expect(jobHtml).toContain('matchDeclineBtnEl.hidden = !(activeMatch && applyState === "idle")');
+    // Both secondary actions are only shown while the match is still
+    // answerable, and they share one row (owner call 2026-07-28).
+    expect(jobHtml).toContain('const matchActionable = !!(activeMatch && applyState === "idle")');
+    expect(jobHtml).toContain('matchSecondaryRowEl.hidden = !matchActionable');
+  });
+
+  it('the bookmark is hidden in match mode so it cannot be mis-tapped next to Accept', () => {
+    expect(jobHtml).toContain('saveBtnEl.hidden = matchActionable');
+  });
+
+  it('enquire posts action:"enquire" and never answers the match', () => {
+    const idx = jobHtml.indexOf('async function sendEnquiry() {');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = jobHtml.slice(idx, idx + 1600);
+    expect(fnSrc).toContain('/api/career/match/respond');
+    expect(fnSrc).toContain('action: "enquire"');
+    // Asking a question must not accept or decline anything.
+    expect(fnSrc).not.toContain('action: "accept"');
+    expect(fnSrc).not.toContain('action: "decline"');
+    // The doctor is told their spot is safe.
+    expect(jobHtml).toContain('your spot stays reserved');
   });
 
   it('previously_withdrawn is terminal, so a declined match cannot repaint as submitted', () => {

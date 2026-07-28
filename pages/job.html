@@ -737,6 +737,51 @@
       cursor: pointer;
     }
     .at-bdecline:disabled { opacity: .6; cursor: default; }
+    /* Match mode (owner call 2026-07-28): Accept is the only loud button.
+       Enquire and Decline sit together underneath it as equal-weight quiet
+       buttons, so asking a question is exactly as reachable as walking away —
+       the doctor is never cornered into accept-or-nothing. The bookmark is
+       hidden here: "save for later" is meaningless on a match that expires. */
+    .at-bsecondary {
+      max-width: 720px;
+      margin: 9px auto 0;
+      display: flex;
+      gap: 9px;
+    }
+    .at-bsecondary[hidden] { display: none; }
+    .at-bghost {
+      flex: 1;
+      background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-border-strong, #cbd7ea);
+      border-radius: var(--gp-r-md, 14px);
+      padding: 11px 12px;
+      font: inherit;
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--gp-ink, #0f172a);
+      cursor: pointer;
+      transition: transform .16s var(--at-ease), background .16s var(--at-ease);
+    }
+    .at-bghost:active { transform: scale(.985); }
+    .at-bghost:disabled { opacity: .6; cursor: default; }
+    .at-bghost--decline { color: var(--gp-muted, #64748b); }
+    html.dark-mode .at-bghost { background: var(--gp-surface); color: var(--gp-ink); }
+    /* Enquiry composer — reuses the CV modal shell, adds only the textarea. */
+    .enq-field {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      border-radius: var(--gp-r-md, 14px);
+      border: 1px solid var(--gp-border, #e3e9f4);
+      background: var(--gp-surface-sunken, #f8fafd);
+      padding: 12px 13px;
+      font: inherit;
+      font-size: 14.5px;
+      color: var(--gp-ink, #0f172a);
+      box-sizing: border-box;
+    }
+    .enq-field:focus { outline: 2px solid var(--gp-blue, #2563eb); outline-offset: 1px; }
+    .enq-note { font-size: 12.5px; color: var(--gp-muted, #64748b); margin: 10px 0 0; line-height: 1.5; }
     .at-bsave {
       flex: none;
       width: 52px;
@@ -1271,8 +1316,31 @@
       <button class="at-bapply" id="applyBtn" type="button"></button>
     </div>
     <!-- Only shown for a live AI match: accepting is a choice, so declining
-         has to be reachable from the same place (owner report 2026-07-27). -->
-    <button class="at-bdecline" id="matchDeclineBtn" type="button" hidden>Not the right fit — decline</button>
+         has to be reachable from the same place (owner report 2026-07-27).
+         Enquire sits alongside it (owner call 2026-07-28) so a doctor with a
+         question has somewhere to go other than accept or decline. -->
+    <div class="at-bsecondary" id="matchSecondaryRow" hidden>
+      <button class="at-bghost" id="matchEnquireBtn" type="button">Enquire</button>
+      <button class="at-bghost at-bghost--decline" id="matchDeclineBtn" type="button">Decline</button>
+    </div>
+  </div>
+
+  <!-- Enquiry composer: sends a question straight to the CEO/ATS dashboard.
+       Deliberately does NOT answer the match — the countdown keeps running and
+       Accept/Decline stay available underneath. -->
+  <div class="cv-modal-backdrop" id="enquireModal" hidden>
+    <div class="cv-modal">
+      <div class="cv-modal-header">
+        <h3 class="cv-modal-title">Ask about this practice</h3>
+        <button class="cv-modal-close" id="enquireClose" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="cv-modal-desc">Your question goes straight to your GP Link team — they'll come back to you. This does <strong>not</strong> accept or decline the match, and your spot stays reserved.</p>
+      <textarea class="enq-field" id="enquireText" maxlength="2000" placeholder="For example: what are the on-call expectations, is there a billing guarantee, how many doctors work there?"></textarea>
+      <p class="enq-note" id="enquireCount">0 / 2000</p>
+      <div class="cv-modal-actions">
+        <button class="cv-btn-upload" id="enquireSend" type="button">Send to my team</button>
+      </div>
+    </div>
   </div>
 
   <!-- Toast -->
@@ -1535,6 +1603,13 @@
   const stickyEl = document.getElementById("stickyActions");
   const applyBtnEl = document.getElementById("applyBtn");
   const matchDeclineBtnEl = document.getElementById("matchDeclineBtn");
+  const matchSecondaryRowEl = document.getElementById("matchSecondaryRow");
+  const matchEnquireBtnEl = document.getElementById("matchEnquireBtn");
+  const enquireModalEl = document.getElementById("enquireModal");
+  const enquireTextEl = document.getElementById("enquireText");
+  const enquireSendEl = document.getElementById("enquireSend");
+  const enquireCloseEl = document.getElementById("enquireClose");
+  const enquireCountEl = document.getElementById("enquireCount");
   const saveBtnEl = document.getElementById("saveBtn");
 
   let currentRole = null;
@@ -2964,11 +3039,15 @@
     applyBtnEl.className = spec.cls;
     applyBtnEl.innerHTML = spec.html;
     applyBtnEl.disabled = spec.disabled;
-    // Decline only belongs next to a live, still-answerable match — not once
-    // they've accepted (applyState leaves idle) and not on an ordinary role.
-    if (matchDeclineBtnEl) {
-      matchDeclineBtnEl.hidden = !(activeMatch && applyState === "idle");
-    }
+    // Enquire + Decline only belong next to a live, still-answerable match —
+    // not once they've accepted (applyState leaves idle) and not on an
+    // ordinary role.
+    const matchActionable = !!(activeMatch && applyState === "idle");
+    if (matchSecondaryRowEl) matchSecondaryRowEl.hidden = !matchActionable;
+    // The bookmark is meaningless on an expiring match (and it sat right next
+    // to Accept, which made mis-taps easy) — hide it entirely in match mode
+    // and give Accept the full width (owner call 2026-07-28).
+    if (saveBtnEl) saveBtnEl.hidden = matchActionable;
   }
 
   function updateSaveButton() {
@@ -3308,27 +3387,80 @@
       const data = await res.json().catch(() => null);
       if (!res.ok || !data || data.ok !== true) {
         matchDeclineBtnEl.disabled = false;
-        matchDeclineBtnEl.textContent = "Not the right fit — decline";
+        matchDeclineBtnEl.textContent = "Decline";
         showToast((data && data.message) || "Could not decline just now — please try again.");
         return;
       }
       // The match is answered: drop the match block so every match surface
-      // (banner, ticks, accept bar, this button) stops rendering, then repaint.
+      // (banner, ticks, accept bar, this row) stops rendering, then repaint.
       if (currentRole) currentRole.match = null;
-      matchDeclineBtnEl.hidden = true;
+      if (matchSecondaryRowEl) matchSecondaryRowEl.hidden = true;
       matchDeclineBtnEl.disabled = false;
-      matchDeclineBtnEl.textContent = "Not the right fit — decline";
+      matchDeclineBtnEl.textContent = "Decline";
       applyState = "previously_withdrawn";
       renderRole(currentRole, renderContext);
       showToast("Declined — thanks for letting us know.");
     } catch (err) {
       matchDeclineBtnEl.disabled = false;
-      matchDeclineBtnEl.textContent = "Not the right fit — decline";
+      matchDeclineBtnEl.textContent = "Decline";
       showToast("Could not decline just now — please try again.");
     }
   }
 
   if (matchDeclineBtnEl) matchDeclineBtnEl.addEventListener("click", declineActiveMatch);
+
+  /* ── Enquire: ask the team a question without answering the match ──
+     Posts action:'enquire' to the SAME /api/career/match/respond endpoint the
+     accept/decline buttons use, so there is one server-side owner of "things a
+     doctor can do with a match". The server raises a high-priority task on the
+     CEO/ATS dashboard; the match itself is deliberately left untouched, so the
+     countdown keeps running and Accept/Decline stay live underneath. */
+  function openEnquireModal() {
+    if (!enquireModalEl) return;
+    if (enquireTextEl) enquireTextEl.value = "";
+    if (enquireCountEl) enquireCountEl.textContent = "0 / 2000";
+    if (enquireSendEl) { enquireSendEl.disabled = false; enquireSendEl.textContent = "Send to my team"; }
+    enquireModalEl.hidden = false;
+    if (enquireTextEl) setTimeout(() => enquireTextEl.focus(), 30);
+  }
+  function closeEnquireModal() {
+    if (enquireModalEl) enquireModalEl.hidden = true;
+  }
+  async function sendEnquiry() {
+    const activeMatch = getActiveMatch(currentRole);
+    const message = enquireTextEl ? String(enquireTextEl.value || "").trim() : "";
+    if (!activeMatch) { closeEnquireModal(); return; }
+    if (!message) { showToast("Type your question first."); return; }
+    if (enquireSendEl) { enquireSendEl.disabled = true; enquireSendEl.textContent = "Sending…"; }
+    try {
+      const res = await fetch("/api/career/match/respond", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: activeMatch.applicationId, action: "enquire", message: message })
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true) {
+        if (enquireSendEl) { enquireSendEl.disabled = false; enquireSendEl.textContent = "Send to my team"; }
+        showToast((data && data.message) || "Could not send your question — please try again.");
+        return;
+      }
+      closeEnquireModal();
+      showToast("Sent — your team will come back to you.");
+    } catch (err) {
+      if (enquireSendEl) { enquireSendEl.disabled = false; enquireSendEl.textContent = "Send to my team"; }
+      showToast("Could not send your question — please try again.");
+    }
+  }
+  if (matchEnquireBtnEl) matchEnquireBtnEl.addEventListener("click", openEnquireModal);
+  if (enquireCloseEl) enquireCloseEl.addEventListener("click", closeEnquireModal);
+  if (enquireSendEl) enquireSendEl.addEventListener("click", sendEnquiry);
+  if (enquireModalEl) enquireModalEl.addEventListener("click", (event) => { if (event.target === enquireModalEl) closeEnquireModal(); });
+  if (enquireTextEl && enquireCountEl) {
+    enquireTextEl.addEventListener("input", () => {
+      enquireCountEl.textContent = String(enquireTextEl.value.length) + " / 2000";
+    });
+  }
 
   // Identity vault: tap → shake + explainer (mockup interaction).
   dbodyEl.addEventListener("click", (event) => {

@@ -12124,7 +12124,7 @@
           ${seeJobHtml}
           <div class="at-match-stat">98% of GPs we match are accepted by the practice.</div>
           ${videoHtml}
-          <button type="button" class="at-match-accept shiny" data-match-accept="${escapeHtml(match.applicationId)}">${countdown.amber ? "Accept before it expires" : "Accept this match"}</button>
+          <button type="button" class="at-match-accept shiny" data-match-view="${escapeHtml(seeJobHref)}">${countdown.amber ? "View before it expires" : "View Matched Practice"}</button>
           <div class="at-match-pass">Not the right fit? <a href="#" data-match-decline="${escapeHtml(match.applicationId)}">Let your team know</a></div>
         </div>
       </article>`;
@@ -12189,7 +12189,13 @@
       }
       const countdown = formatMatchCountdown(target.expiresAt);
       bar.hidden = false;
-      bar.innerHTML = `<button type="button" class="at-match-accept shiny" data-match-sticky-accept="${escapeHtml(target.applicationId)}">Accept this match</button>
+      // Sticky bar mirrors the card CTA: it VIEWS the practice, never accepts.
+      // Accepting is a one-way commitment, so it only ever happens on the
+      // practice page itself where the doctor can see who they're accepting
+      // (owner call 2026-07-28 — a full-width "Accept" here was being tapped
+      // by accident while scrolling).
+      const stickyHref = `/pages/job.html?id=${encodeURIComponent(String(target.roleId || ""))}&match=${encodeURIComponent(target.applicationId)}`;
+      bar.innerHTML = `<button type="button" class="at-match-accept shiny" data-match-view="${escapeHtml(stickyHref)}">View Matched Practice</button>
         <div class="at-match-stickybar-sub">${escapeHtml(countdown.label)} — your spot is reserved until then</div>`;
     }
 
@@ -12305,6 +12311,12 @@
       matchConfirmState = { applicationId: null };
     }
 
+    // ⚠️ CURRENTLY UNREACHABLE (owner call 2026-07-28). The card CTA and the
+    // sticky bar now open the practice page instead of accepting in place, so
+    // nothing calls this sheet any more — accepting happens on job.html, which
+    // has its own confirm (openApplyConfirm). Kept rather than deleted because
+    // it still holds the only copy of the 3-interviews-per-month cap
+    // explanation; wire it back in if an in-list accept ever returns.
     async function openMatchConfirmSheet(applicationId) {
       if (document.getElementById("matchConfirmSheet")) return; // never stack a second sheet
       const match = teamMatchesState.matches.find((m) => String(m.applicationId) === String(applicationId));
@@ -13018,15 +13030,14 @@
     });
 
     document.addEventListener("click", (event) => {
-      const matchAcceptBtn = event.target.closest("[data-match-accept]");
-      if (matchAcceptBtn) {
-        openMatchConfirmSheet(matchAcceptBtn.getAttribute("data-match-accept"));
-        return;
-      }
-
-      const matchStickyAcceptBtn = event.target.closest("[data-match-sticky-accept]");
-      if (matchStickyAcceptBtn) {
-        openMatchConfirmSheet(matchStickyAcceptBtn.getAttribute("data-match-sticky-accept"));
+      // Both the card CTA and the sticky bar now OPEN the practice page rather
+      // than accepting in place — accepting from a scrolling list was too easy
+      // to hit by accident (owner call 2026-07-28). The accept/enquire/decline
+      // choice lives on job.html, where the practice is actually on screen.
+      const matchViewBtn = event.target.closest("[data-match-view]");
+      if (matchViewBtn) {
+        const viewHref = matchViewBtn.getAttribute("data-match-view") || "";
+        if (viewHref) window.location.href = viewHref;
         return;
       }
 
