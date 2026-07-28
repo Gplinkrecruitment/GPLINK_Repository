@@ -28223,6 +28223,15 @@ async function gcalReadBusy(o) {
 // Create a Calendar event (or push to the local fakeCalendar store).
 async function gcalCreateEvent(o) {
   if (!isGoogleCalendarConfigured()) {
+    // No calendar connected. In LOCAL/dev mode keep the in-memory stand-in so
+    // gcalReadBusy's fallback still sees the event and the flow is testable.
+    // In Supabase mode write NOTHING and return an EMPTY id: a 'gcal_local_N'
+    // string persisted onto a production row looks like a real Google event
+    // and is precisely what disguised the fact that the calendar had never
+    // been connected at all (owner report 2026-07-29 — a live interview row
+    // was carrying 'gcal_local_1'). An empty gcal_event_id tells the truth:
+    // this interview is not in anyone's diary.
+    if (isSupabaseDbConfigured()) return { id: '' };
     var id = 'gcal_local_' + ((dbState.fakeCalendar ? dbState.fakeCalendar.length : 0) + 1);
     dbState.fakeCalendar = dbState.fakeCalendar || [];
     dbState.fakeCalendar.push({ id: id, startUtc: o.startUtc, endUtc: o.endUtc, summary: o.summary });
@@ -63472,7 +63481,7 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: true, reconnect_action: 'setup_watch'
     });
 
-    var [roleCountRes, aiPing, dtPing, gdPing] = await Promise.all([
+    var [roleCountRes, aiPing, dtPing, gdPing, gcalPing] = await Promise.all([
       supabaseDbRequest('career_roles', 'select=id&is_active=eq.true&limit=500'),
 
       // Anthropic AI: verify API key with models endpoint
@@ -63501,6 +63510,22 @@ Return ONLY valid JSON with no markdown formatting:
         if (!drive) throw new Error('Drive client init failed');
         var res = await drive.files.get({ fileId: GOOGLE_DRIVE_ROOT_FOLDER_ID, fields: 'id,name' });
         return { root_folder_name: res.data ? res.data.name : null };
+      }) : Promise.resolve({ ok: false, ms: 0, error: 'Not configured', extra: {} }),
+
+      // Google Calendar: verify the service account can actually READ the
+      // owner's calendar, via the same freebusy call the interview scheduler
+      // makes. Until this card existed there was no surface anywhere showing
+      // whether the calendar was connected — so it sat unconnected for weeks
+      // while interviews were silently booked outside the owner's diary
+      // (owner report 2026-07-29). A freebusy probe is the right check: it is
+      // read-only, and it exercises the exact permission the scheduler needs
+      // (domain-wide delegation on the calendar scope), not just the presence
+      // of an env var.
+      isGoogleCalendarConfigured() ? pingWithTimeout(async function () {
+        var probeFrom = new Date().toISOString();
+        var probeTo = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        var busy = await gcalReadBusy({ fromUtc: probeFrom, toUtc: probeTo });
+        return { busy_blocks_next_24h: Array.isArray(busy) ? busy.length : 0 };
       }) : Promise.resolve({ ok: false, ms: 0, error: 'Not configured', extra: {} })
     ]);
 
@@ -63549,6 +63574,28 @@ Return ONLY valid JSON with no markdown formatting:
     integrations.push({
       key: 'google_drive', name: 'Google Drive', status: gdStatus,
       details: { service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL, root_folder_configured: !!GOOGLE_DRIVE_ROOT_FOLDER_ID, root_folder_name: gdPing.extra.root_folder_name || null, ping_ok: gdPing.ok, ping_ms: gdPing.ms, ping_error: gdPing.error },
+      can_reconnect: false, reconnect_action: null
+    });
+
+    // Google Calendar — live-verified via a read-only freebusy probe.
+    // 'disconnected' is the honest reading when it is unconfigured: interviews
+    // still get booked, but nothing is written to the owner's diary and
+    // nothing in the diary is avoided, so Calendly can double-book over an
+    // interview. See docs/owner-setup-interview-scheduling.md.
+    var gcalStatus = 'disconnected';
+    if (gcalPing.ok) gcalStatus = 'connected';
+    else if (isGoogleCalendarConfigured()) gcalStatus = 'degraded';
+    integrations.push({
+      key: 'google_calendar', name: 'Google Calendar (interview clashes)', status: gcalStatus,
+      details: {
+        service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        calendar_id_configured: !!process.env.GOOGLE_CALENDAR_ID,
+        impersonate_email_configured: !!process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL,
+        // What the owner actually cares about: is my diary being respected?
+        interview_clash_protection: gcalPing.ok ? 'active' : 'OFF — interviews are not checked against, or written to, your calendar',
+        busy_blocks_next_24h: gcalPing.extra.busy_blocks_next_24h != null ? gcalPing.extra.busy_blocks_next_24h : null,
+        ping_ok: gcalPing.ok, ping_ms: gcalPing.ms, ping_error: gcalPing.error
+      },
       can_reconnect: false, reconnect_action: null
     });
 
@@ -67935,22 +67982,42 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
   var nowIso = now.toISOString();
   var horizonIso = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
   var busy = await gcalReadBusy({ fromUtc: nowIso, toUtc: horizonIso });
-  var bookedInterviews = [];
+
+  // Everything already in the host's diary that a new interview must not land
+  // on. This deliberately covers CONSULTATIONS as well as interviews: a
+  // Calendly consult occupies the owner just as completely as an interview
+  // does, and it used to be invisible here (the query filtered
+  // meeting_kind=eq.interview), so the only thing preventing an interview
+  // being offered straight over a booked consult was Google Calendar.
+  // gcalReadBusy returns NOTHING until GOOGLE_CALENDAR_ID is set, so until the
+  // calendar is connected this query is the only collision guard there is —
+  // and it was blind to exactly the meetings most likely to clash
+  // (owner report 2026-07-29).
+  var bookedMeetings = [];
   if (isSupabaseDbConfigured()) {
-    var q = 'select=scheduled_at&meeting_kind=eq.interview&status=eq.booked&limit=200' + (excludeId ? ('&id=neq.' + encodeURIComponent(excludeId)) : '');
+    var q = 'select=id,scheduled_at,duration_minutes,meeting_kind&status=eq.booked'
+      + '&scheduled_at=gte.' + encodeURIComponent(nowIso)
+      + '&scheduled_at=lte.' + encodeURIComponent(horizonIso)
+      + '&limit=500' + (excludeId ? ('&id=neq.' + encodeURIComponent(excludeId)) : '');
     var br = await supabaseDbRequest('scheduled_calls', q);
-    bookedInterviews = (br.ok && Array.isArray(br.data)) ? br.data : [];
+    bookedMeetings = (br.ok && Array.isArray(br.data)) ? br.data : [];
   } else {
-    bookedInterviews = (dbState.scheduledCalls || []).filter(function (r) {
-      if (!(r.meeting_kind === 'interview' && r.status === 'booked' && r.scheduled_at)) return false;
+    bookedMeetings = (dbState.scheduledCalls || []).filter(function (r) {
+      if (!(r && r.status === 'booked' && r.scheduled_at)) return false;
+      var at = new Date(r.scheduled_at).getTime();
+      if (!(at >= now.getTime() && at <= new Date(horizonIso).getTime())) return false;
       if (excludeId && String(r.id) === String(excludeId)) return false;
       return true;
     });
   }
-  bookedInterviews.forEach(function (r) {
-    if (r.scheduled_at) {
-      busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + 45 * 60000).toISOString() });
-    }
+  bookedMeetings.forEach(function (r) {
+    if (!r || !r.scheduled_at) return;
+    // scheduled_calls.duration_minutes is NOT NULL DEFAULT 30 (consults); an
+    // interview runs 45. Trust the stored value, fall back per kind.
+    var mins = Number(r.duration_minutes) > 0
+      ? Number(r.duration_minutes)
+      : (r.meeting_kind === 'interview' ? 45 : 30);
+    busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + mins * 60000).toISOString() });
   });
 
   return interviewScheduler.computeInterviewSlots({

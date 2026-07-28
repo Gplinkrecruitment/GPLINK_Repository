@@ -362,7 +362,7 @@ describe('POST /api/career/interview/book', () => {
     expect(r.body.error).toBe('slot_taken');
   });
 
-  it('books the first available slot end-to-end: Zoom + GCal local fallbacks, stage -> interview, emails sent', async () => {
+  it('books the first available slot end-to-end: Zoom fallback, NO fake calendar id, stage -> interview, emails sent', async () => {
     const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-1', GP);
     expect(slotsRes.body.slots.length).toBeGreaterThan(0);
     const slot = slotsRes.body.slots[0];
@@ -381,7 +381,12 @@ describe('POST /api/career/interview/book', () => {
     const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-1' && c.meeting_kind === 'interview');
     expect(row.status).toBe('booked');
     expect(row.zoom_join_url).toBeTruthy();
-    expect(row.gcal_event_id).toBeTruthy();
+    // GOOGLE_CALENDAR_ID is blank in this suite, i.e. no calendar connected.
+    // This used to store a fabricated 'gcal_local_N' id, which reads like a
+    // real Google event and is exactly what disguised the fact that
+    // production had never been connected (owner report 2026-07-29). With no
+    // calendar there is no event, and the row must say so.
+    expect(row.gcal_event_id).toBe('');
     expect(row.scheduled_at).toBe(slot.startUtc);
 
     const app = db.gp_applications.find((a) => a.id === 'app-int-1');
@@ -418,11 +423,13 @@ describe('POST /api/career/interview/book', () => {
     expect(opsSend).toBeTruthy();
     expect(opsSend.body.attachments).toBeUndefined();
 
-    // A local fakeCalendar entry was created — read straight from the on-disk local DB state
-    // (fakeCalendar is a dbState-only structure, independent of the Supabase emulator above).
+    // In Supabase mode with NO calendar connected, nothing is written to the
+    // local fakeCalendar stand-in either. That store exists so local/dev runs
+    // can simulate a diary; writing to it from a Supabase-backed deployment
+    // just produced a file nobody reads and a fake id on the real row. The
+    // stand-in is still exercised by the local-mode paths.
     const localDb = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    expect(Array.isArray(localDb.fakeCalendar)).toBe(true);
-    expect(localDb.fakeCalendar.length).toBeGreaterThan(0);
+    expect(localDb.fakeCalendar === undefined || localDb.fakeCalendar.length === 0).toBe(true);
   });
 
   it('is idempotent — re-booking the same application returns already:true with the existing booking', async () => {

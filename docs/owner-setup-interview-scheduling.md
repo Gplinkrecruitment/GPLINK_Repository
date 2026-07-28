@@ -12,6 +12,14 @@ When you click **Book interview** on a candidate's application in the Jobs board
 
 ## Setup Step 1 — Connect your Google Calendar (the main step)
 
+> 📌 **Verified 2026-07-29: this step was never completed.** A live interview row
+> in production was carrying the `gcal_local_1` placeholder the app writes when
+> no calendar is configured. For a click-by-click walkthrough of the Google
+> Workspace, Vercel and Calendly parts — including where to find the Client ID
+> and how to confirm it worked — see
+> [`connect-google-calendar-walkthrough.md`](connect-google-calendar-walkthrough.md).
+> The summary below stays as the "why".
+
 Your Google Calendar is the single source of truth for your time. It works in both directions: when we work out interview slots, we read your calendar so we never offer a time that clashes with a consultation already in your diary. When an interview is booked, we write it into your calendar so Calendly sees that time as busy and cannot let a consultation be booked over it. You need to do three things:
 
 **1a. In Calendly — tell it to check your Google Calendar for conflicts**

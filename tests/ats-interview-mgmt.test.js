@@ -436,3 +436,73 @@ describe('UI static pins', () => {
     expect(html).toContain('ceo-ats-meetings.js?v=20260724b');
   });
 });
+
+// Owner report 2026-07-29. When working out which times to offer, the
+// scheduler only ever looked at other INTERVIEWS — a consultation already in
+// the diary blocked nothing. Google Calendar was meant to cover that, but it
+// is gated on GOOGLE_CALENDAR_ID (blank here, and unset in production at the
+// time), so gcalReadBusy returned an empty busy list and nothing stopped an
+// interview being offered straight over a booked consult.
+describe('interview slots avoid booked CONSULTATIONS, not just other interviews', () => {
+  const SLOTS_URL = '/api/ats/interview/slots?application_id=app-mgmt-1&now=2026-07-01T00:00:00Z';
+
+  // Deterministic setup: make sure app-mgmt-1 has an interview row whose
+  // practice availability is 'defaulted', regardless of what ran before.
+  async function ensureSlotsCompute() {
+    let row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1' && c.meeting_kind === 'interview');
+    if (!row) {
+      await atsPost('/api/ats/interview/request', { application_id: 'app-mgmt-1' });
+      row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1' && c.meeting_kind === 'interview');
+    }
+    expect(row).toBeTruthy();
+    row.practice_availability_status = 'defaulted';
+  }
+
+  it('drops the slot a booked consultation sits on, and keeps the rest', async () => {
+    await ensureSlotsCompute();
+
+    const before = await atsGet(SLOTS_URL);
+    expect(before.status).toBe(200);
+    expect(before.body.slots.length).toBeGreaterThan(0);
+    const target = before.body.slots[0].startUtc;
+
+    // Exactly the shape Calendly writes: meeting_kind 'consultation',
+    // status 'booked', the schema's 30-minute default duration.
+    db.scheduled_calls.push({
+      id: 'consult-clash-1', meeting_kind: 'consultation', status: 'booked',
+      scheduled_at: target, duration_minutes: 30, created_by: 'calendly_direct'
+    });
+
+    const after = await atsGet(SLOTS_URL);
+    expect(after.status).toBe(200);
+    expect(after.body.slots.some((s) => s.startUtc === target)).toBe(false);
+    // The consult removes one time, it does not switch the feature off.
+    expect(after.body.slots.length).toBeGreaterThan(0);
+
+    db.scheduled_calls = db.scheduled_calls.filter((r) => r.id !== 'consult-clash-1');
+  });
+
+  it('a CANCELLED consultation blocks nothing', async () => {
+    await ensureSlotsCompute();
+
+    const before = await atsGet(SLOTS_URL);
+    const target = before.body.slots[0].startUtc;
+    db.scheduled_calls.push({
+      id: 'consult-cancelled-1', meeting_kind: 'consultation', status: 'cancelled',
+      scheduled_at: target, duration_minutes: 30
+    });
+
+    const after = await atsGet(SLOTS_URL);
+    expect(after.body.slots.some((s) => s.startUtc === target)).toBe(true);
+
+    db.scheduled_calls = db.scheduled_calls.filter((r) => r.id !== 'consult-cancelled-1');
+  });
+
+  it('never persists a fake gcal_local_ id on a row in Supabase mode', () => {
+    // An unconfigured calendar used to write 'gcal_local_1' onto the real row,
+    // which reads like a genuine Google event and hid the fact that nothing
+    // had reached anyone's diary.
+    const faked = db.scheduled_calls.filter((r) => String(r && r.gcal_event_id || '').startsWith('gcal_local'));
+    expect(faked).toEqual([]);
+  });
+});
