@@ -18755,6 +18755,15 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
   if (stage === 'shortlisted' && !row.match_outcome) {
     return { status: 'matched', statusLabel: 'Matched to you — accept or decline', statusTone: 'review', offerPending: false };
   }
+  // A match the doctor ACCEPTED, waiting on us to put them in front of the
+  // practice. "Application submitted" is wrong twice over (owner report
+  // 2026-07-29): they never applied cold — we matched them and they said yes —
+  // and it tells them nothing about what happens next, which is the whole
+  // reason they open this page. Sits directly above the generic default
+  // because that default is exactly where this row used to land.
+  if (row.match_outcome === 'accepted' && (stage === 'applied' || !stage)) {
+    return { status: 'fast_tracked', statusLabel: 'Fast-tracked — we’re arranging your interview', statusTone: 'review', offerPending: false };
+  }
   return { status: 'applied', statusLabel: 'Application submitted', statusTone: 'review', offerPending: false };
 }
 
@@ -31505,27 +31514,53 @@ async function createCareerApplicationSubmissionTask(userId, profile, roleRow, a
 // GP's own confirmation email, and the ops "GAP A3" heads-up email. Fire-
 // and-forget by design (mirrors apply's pre-existing non-blocking calls) —
 // callers must NOT await this.
-function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayName) {
+// `matched` = the doctor accepted a match we sent them, rather than applying
+// cold. They get materially different copy (owner request 2026-07-29): the
+// generic "Application Submitted" told them nothing, when what they actually
+// need to know is that interview times are coming and they are not committed.
+function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayName, options) {
+  var opts = options || {};
+  var matched = !!opts.matched;
   var locationLabel = (roleRow && roleRow.location_city) ? (roleRow.location_city + (roleRow.location_state ? ', ' + roleRow.location_state : '')) : 'a new role';
+  var practiceLabel = String((roleRow && roleRow.practice_name) || '').trim();
+  var forPractice = practiceLabel ? (' to ' + practiceLabel) : '';
+
+  var pushTitle = matched ? 'You\'re being fast-tracked' : 'Application Submitted';
+  var pushBody = matched
+    ? 'We\'re putting you forward' + forPractice + '. We\'ll send you interview times to choose from shortly.'
+    : 'Your application for the ' + locationLabel + ' role has been submitted. We\'ll keep you updated on its progress.';
+
   pushCareerNotificationToUser(userId, {
-    type: 'success', title: 'Application Submitted',
-    body: 'Your application for the ' + locationLabel + ' role has been submitted. We\'ll keep you updated on its progress.'
+    type: 'success', title: pushTitle, body: pushBody
   }).catch(function () {});
   sendPushNotification(userId, {
-    title: 'Application Submitted',
-    body: 'Your application for the ' + locationLabel + ' role has been submitted. We\'ll keep you updated on its progress.',
-    data: { type: 'career', action: 'application_submitted', url: '/pages/career.html#applications' }
+    title: pushTitle,
+    body: pushBody,
+    data: { type: 'career', action: matched ? 'match_accepted' : 'application_submitted', url: '/pages/career.html#applications' }
   }).catch(function () {});
   if (isEmailConfigured()) {
     sendEmail({
       to: email,
-      subject: 'Application Submitted, GP Link',
+      subject: matched
+        ? ('You\'re being fast-tracked' + forPractice + ' — interview times coming')
+        : 'Application Submitted, GP Link',
       html: buildCareerEmailHtml({
-        title: 'Application Submitted',
-        body: 'Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.',
-        ctaText: 'View Your Applications',
+        title: matched ? ('You\'re being fast-tracked' + forPractice) : 'Application Submitted',
+        body: matched
+          ? ('Thanks for confirming your interest — your Registration Support Officer is putting you forward'
+             + forPractice + ' now.'
+             + '<br><br><b>What happens next</b><br>'
+             + '1. We submit your profile to the practice.<br>'
+             + '2. Once they confirm their availability, we\'ll email you interview times to choose from — you book the one that suits you. This is usually within a couple of business days.<br>'
+             + '3. You meet the practice. Your Registration Support Officer preps you beforehand and is on the call with you.'
+             + '<br><br>There is nothing you need to do right now — just keep an eye on your email.'
+             + '<br><br><b>This is an interview, not a commitment.</b> Nothing is signed, no terms are agreed, and you can step away at any point.')
+          : ('Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.'),
+        ctaText: matched ? 'Track your interview' : 'View Your Applications',
         ctaUrl: APP_BASE_URL + '/pages/career.html#applications',
-        footer: 'You\'re receiving this because you applied for a role on GP Link.'
+        footer: matched
+          ? 'You\'re receiving this because you accepted a match your GP Link team sent you.'
+          : 'You\'re receiving this because you applied for a role on GP Link.'
       })
     }).catch(function () {});
   }
@@ -42103,7 +42138,7 @@ async function handleApi(req, res, pathname) {
           message: 'Application submitted successfully.',
           application: matchAccept.updatedRow
         });
-        notifyGpApplicationSubmitted(userId, email, matchAccept.job || {}, matchAccept.caseId, applyGpDisplayName);
+        notifyGpApplicationSubmitted(userId, email, matchAccept.job || {}, matchAccept.caseId, applyGpDisplayName, { matched: true });
         if (isEmailConfigured()) {
           const matchJobTitle = String((matchAccept.job && matchAccept.job.title) || existingAppRow.job_title || 'a role').trim();
           sendEmail({
@@ -42854,7 +42889,7 @@ async function handleApi(req, res, pathname) {
     // this extraction.
     const mrAccept = await acceptShortlistedMatchRow(mrRow, mrUserId, mrEmail, mrProfile);
     sendJson(res, 200, { ok: true, action: 'accept', application: { id: mrAccept.updatedRow.id, ats_stage: 'applied', match_outcome: 'accepted' } });
-    notifyGpApplicationSubmitted(mrUserId, mrEmail, mrAccept.job || {}, mrAccept.caseId, mrGpDisplayName);
+    notifyGpApplicationSubmitted(mrUserId, mrEmail, mrAccept.job || {}, mrAccept.caseId, mrGpDisplayName, { matched: true });
     if (isEmailConfigured()) {
       const mrAcceptJobTitle = String((mrAccept.job && mrAccept.job.title) || mrRow.job_title || 'a role').trim();
       sendEmail({

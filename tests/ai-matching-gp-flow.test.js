@@ -747,8 +747,15 @@ describe('POST /api/career/match/respond — accept', () => {
     const subjects = resendCalls.map((c) => c.body && c.body.subject);
     expect(subjects.some((s) => /^Match accepted: .* → General Practitioner — Mixed Billing$/.test(s))).toBe(true);
     expect(subjects.some((s) => / applied to .*, Coral Coast Family Practice$/.test(s))).toBe(true);
-    // And the GP's own "Application Submitted" confirmation email.
-    expect(subjects).toContain('Application Submitted, GP Link');
+    // And the doctor's own confirmation. Accepting a match is NOT a cold
+    // apply, so it must not say "Application Submitted" — it tells them
+    // interview times are coming (owner request 2026-07-29).
+    expect(subjects.some((s) => /^You're being fast-tracked.* — interview times coming$/.test(s))).toBe(true);
+    expect(subjects).not.toContain('Application Submitted, GP Link');
+    const gpEmail = resendCalls.find((c) => c.body && /interview times coming$/.test(c.body.subject || ''));
+    expect(gpEmail.body.html).toContain('What happens next');
+    expect(gpEmail.body.html).toContain('interview times to choose from');
+    expect(gpEmail.body.html).toContain('This is an interview, not a commitment');
   });
 
   it('a second accept on the SAME (now applied) row 409s — no double-processing', async () => {

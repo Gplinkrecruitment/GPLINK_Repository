@@ -197,6 +197,42 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(after).toContain('} else if (roleDetailUserId) {');
   });
 
+  it('the application tracker calls an accepted match fast-tracked, not "Application submitted"', () => {
+    // Owner report 2026-07-29: the tracker showed "APPLICATION SUBMITTED" and a
+    // bare "Applied" timeline for a match the doctor had been fast-tracked on.
+    // The mapper branch has to sit ABOVE the generic applied default, which is
+    // where the row was landing.
+    const idxDefault = serverSrc.indexOf("statusLabel: 'Application submitted'");
+    const idxFast = serverSrc.indexOf("status: 'fast_tracked'");
+    expect(idxFast).toBeGreaterThan(-1);
+    expect(idxFast).toBeLessThan(idxDefault);
+    expect(serverSrc).toContain("row.match_outcome === 'accepted' && (stage === 'applied' || !stage)");
+
+    const trackerHtml = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
+    expect(trackerHtml).toContain('fast_tracked: 0');           // same rung as Applied, mapped explicitly
+    expect(trackerHtml).toContain('id="fastTrackNote"');
+    expect(trackerHtml).toContain('interview times to choose from');
+    expect(trackerHtml).toContain('This is an interview, not a commitment');
+    // Timeline step 0 is relabelled for display only, so the date still binds.
+    expect(trackerHtml).toContain('(isFastTracked && i === 0) ? "Fast-tracked" : step.label');
+    expect(trackerHtml).toContain('esc(displayLabel)');
+  });
+
+  it('accepting a match emails the doctor about interview times, not "Application Submitted"', () => {
+    const idx = serverSrc.indexOf('function notifyGpApplicationSubmitted(');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = serverSrc.slice(idx, idx + 4200);
+    expect(fnSrc).toContain('var matched = !!opts.matched');
+    expect(fnSrc).toContain("interview times coming");
+    expect(fnSrc).toContain('interview times to choose from');
+    expect(fnSrc).toContain('What happens next');
+    expect(fnSrc).toContain('This is an interview, not a commitment');
+    // Both accept paths must opt in; a cold apply must NOT.
+    expect(serverSrc).toContain('matchAccept.caseId, applyGpDisplayName, { matched: true }');
+    expect(serverSrc).toContain('mrAccept.caseId, mrGpDisplayName, { matched: true }');
+    expect(serverSrc).toContain('notifyGpApplicationSubmitted(userId, email, roleRow, applyOpsCaseId, applyGpDisplayName);');
+  });
+
   it('the CEO escalations banner marks a GP practice question distinctly', () => {
     const ceoHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
     // Keyed on the source_trigger column, never on the title copy.

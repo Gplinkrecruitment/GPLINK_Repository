@@ -172,6 +172,33 @@
       color: var(--gp-muted);
       border: 1px solid var(--gp-border);
     }
+    /* Fast-tracked explainer — green, matching the practice page's own
+       confirmation so the two screens read as one story. */
+    .ft-note {
+      margin: 0 0 18px;
+      padding: 14px 16px;
+      background: var(--gp-green-soft, #eafaf0);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      border-radius: var(--gp-r-lg, 18px);
+    }
+    .ft-note[hidden] { display: none; }
+    .ft-note-title {
+      margin: 0 0 6px;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--gp-green-ink, #14683c);
+    }
+    .ft-note-body { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--gp-ink, #0f172a); }
+    .ft-note-foot {
+      margin: 10px 0 0;
+      padding-top: 9px;
+      border-top: 1px solid var(--gp-green-border, #c5ecd4);
+      font-size: 12.5px;
+      font-weight: 600;
+      line-height: 1.5;
+      color: var(--gp-ink, #0f172a);
+      opacity: .9;
+    }
     .status-pill.interview {
       background: var(--gp-info-soft);
       color: var(--gp-blue-ink);
@@ -761,6 +788,15 @@
       <!-- Status Timeline -->
       <div class="status-timeline" id="statusTimeline"></div>
 
+      <!-- Shown only for a fast-tracked match: the timeline alone says
+           "Applied" and nothing about what happens next, which is exactly what
+           the doctor comes here to find out (owner report 2026-07-29). -->
+      <div class="ft-note" id="fastTrackNote" hidden>
+        <p class="ft-note-title">You’re being fast-tracked</p>
+        <p class="ft-note-body" id="fastTrackNoteBody"></p>
+        <p class="ft-note-foot">This is an interview, not a commitment — nothing is signed and you can still walk away at any point.</p>
+      </div>
+
       <!-- Interview Card (shown conditionally) — two states:
            #interviewScheduler (pick a time) and #interviewBooked (locked in) -->
       <div class="interview-card" id="interviewCard" hidden>
@@ -854,7 +890,10 @@
       ];
 
       var STATUS_ORDER = {
-        applied: 0, review: 0,
+        // A fast-tracked match sits at the same point as Applied — we have it,
+        // the practice does not have it yet. Mapped explicitly rather than
+        // relying on the unknown-key fallback, so it can't drift.
+        applied: 0, review: 0, fast_tracked: 0,
         under_review: 1, submitted: 1, reviewing: 1,
         interview: 2, interview_scheduled: 2, shortlisted: 2, interview_completed: 2,
         offer: 3, offer_pending: 3, offered: 3,
@@ -1256,11 +1295,29 @@
         // Back bar title
         document.getElementById("backBarTitle").textContent = practiceName;
 
+        // Fast-tracked explainer — the timeline says "Applied" and stops
+        // there, so without this the doctor is told nothing about what is
+        // actually happening next (owner report 2026-07-29).
+        var isFastTracked = normalizeStatusKey(app.rawStatus || app.status) === "fast_tracked";
+        var ftNoteEl = document.getElementById("fastTrackNote");
+        if (ftNoteEl) {
+          ftNoteEl.hidden = !isFastTracked;
+          if (isFastTracked) {
+            document.getElementById("fastTrackNoteBody").textContent =
+              "Your Registration Support Officer is putting you forward to " + practiceName
+              + " now. We'll email you interview times to choose from — usually within a couple of business days.";
+          }
+        }
+
         // Timeline
         var statusIdx = getStatusIndex(app.rawStatus || app.status);
         var timelineEl = document.getElementById("statusTimeline");
         timelineEl.innerHTML = TIMELINE_STEPS.map(function (step, i) {
           var stepClass = i < statusIdx ? "step-completed" : i === statusIdx ? "step-active" : "step-pending";
+          // "Applied" is not what happened on a fast-track — we matched them
+          // and they said yes. Relabelled for display only: the meta lookup
+          // below still keys off step.label, so the date keeps resolving.
+          var displayLabel = (isFastTracked && i === 0) ? "Fast-tracked" : step.label;
           var meta = (app.meta || []).find(function (m) { return m && m.label && m.label.toLowerCase() === step.label.toLowerCase(); });
           var dateLine = meta ? '<p class="timeline-date">' + esc(meta.value) + '</p>' : '';
           var checkSvg = i < statusIdx
@@ -1269,7 +1326,7 @@
           var linePart = i < TIMELINE_STEPS.length - 1 ? '<div class="timeline-line"></div>' : '';
           return '<div class="timeline-step ' + stepClass + '">'
             + '<div class="timeline-indicator"><div class="timeline-dot">' + checkSvg + '</div>' + linePart + '</div>'
-            + '<div class="timeline-content"><p class="timeline-label">' + esc(step.label) + '</p>' + dateLine + '</div>'
+            + '<div class="timeline-content"><p class="timeline-label">' + esc(displayLabel) + '</p>' + dateLine + '</div>'
             + '</div>';
         }).join("");
 
