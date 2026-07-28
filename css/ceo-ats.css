@@ -116,6 +116,10 @@
 .ats-back-btn { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ats-muted); background:none; border:none; cursor:pointer; padding:6px 0; }
 .ats-back-btn:hover { color:var(--ats-text); }
 .ats-board-meta { font-size:12.5px; color:var(--ats-dim); margin-bottom:18px; display:flex; gap:14px; flex-wrap:wrap; }
+/* Practice website in the job-detail meta row — reads as a link without
+   shouting over the surrounding muted meta text. */
+.ats-board-weblink { color:var(--ats-text); text-decoration:underline; text-underline-offset:2px; }
+.ats-board-weblink:hover { color:#60a5fa; }
 .ats-board { display:flex; gap:13px; overflow-x:auto; padding-bottom:14px; align-items:flex-start; }
 .ats-pipeline-col { flex:0 0 234px; background:var(--ats-bg-elev); border:1px solid var(--ats-border); border-radius:var(--ats-radius-lg); padding:12px; min-height:120px; transition:background .15s,border-color .15s; }
 .ats-pipeline-col.drop-active { background:rgba(96,165,250,0.06); border-color:rgba(96,165,250,0.4); }

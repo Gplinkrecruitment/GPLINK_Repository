@@ -390,15 +390,32 @@
     return n;
   }
 
+  // http(s)-only gate for the practice-supplied website — same rule the GP-facing
+  // match card and job page use. Anything else renders nothing rather than
+  // producing a javascript:/data: link in the admin console.
+  function boardSafeUrl(value) {
+    var v = String(value || '').trim();
+    return /^https?:\/\//i.test(v) ? v : '';
+  }
+
   function renderBoardMeta() {
     var elm = el('atsBoardMeta');
     if (!elm || !boardData) return;
     var job = boardData.job || {};
+    // The clinic's own website. For a corporate group (ForHealth, GP West,
+    // Spectrum) the practice record holds only the GROUP site, so the server
+    // resolves this per-role — see resolveCareerRoleWebsiteUrl. Hidden entirely
+    // when there is no URL on file.
+    var website = boardSafeUrl(job.website);
+    var websiteLabel = website.replace(/^https?:\/\//i, '').replace(/\/$/, '');
     elm.innerHTML =
       '<span>🏥 ' + A.esc(job.practice_name || '—') + '</span>' +
       '<span>📍 ' + A.esc(locStr(job)) + '</span>' +
       '<span>🗓 ' + A.esc(job.type || '—') + '</span>' +
       '<span>💳 ' + A.esc(job.billing || '—') + '</span>' +
+      (website
+        ? '<span>🌐 <a class="ats-board-weblink" href="' + A.esc(website) + '" target="_blank" rel="noopener">' + A.esc(websiteLabel) + '</a></span>'
+        : '') +
       '<span>' + computeActiveCount() + ' active candidates</span>';
   }
 

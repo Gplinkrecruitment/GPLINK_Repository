@@ -33903,7 +33903,13 @@ function atsJobCard(job, practicesById, appsByJob) {
     public_id: makeCareerRoleId(job.provider, job.provider_role_id),
     // DPA flag for the admin Jobs-tab chip (cosmetic). Admin-only surface —
     // atsJobCard never feeds GP/public payloads. null when the column is absent.
-    dpa: (typeof job.dpa === 'boolean') ? job.dpa : null
+    dpa: (typeof job.dpa === 'boolean') ? job.dpa : null,
+    // The clinic's own website, for the Jobs-tab board header. Resolved the same
+    // way the GP-facing match card and placement page do it: the practice record
+    // first, then the role's own URL — which is the ONLY per-clinic value when
+    // the practice row is a corporate group (ForHealth/GP West/Spectrum are each
+    // one practices row shared by every clinic under them).
+    website: (p && p.website) ? String(p.website) : resolveCareerRoleWebsiteUrl(job)
   };
 }
 

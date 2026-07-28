@@ -60,4 +60,25 @@ describe('per-clinic practice website', () => {
     // and the normalizer actually forwards the server value
     expect(careerSrc).toContain('website: placementPayload.website ||');
   });
+
+  // CEO dashboard -> Jobs tab -> job detail. atsJobCard feeds both the Jobs
+  // board and the pipeline endpoint, so resolving it there lights up the meta
+  // row under the job title.
+  it('atsJobCard exposes the clinic website to the admin Jobs board', () => {
+    const idx = serverSrc.indexOf('function atsJobCard(');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = serverSrc.slice(idx, idx + 2600);
+    expect(fnSrc).toContain("website: (p && p.website) ? String(p.website) : resolveCareerRoleWebsiteUrl(job)");
+  });
+
+  it('the CEO job-detail meta row renders the website through an http(s) gate', () => {
+    const jobsSrc = fs.readFileSync(path.join(here, '..', 'js', 'ceo-ats-jobs.js'), 'utf8');
+    expect(jobsSrc).toContain('function boardSafeUrl(');
+    expect(jobsSrc).toContain('var website = boardSafeUrl(job.website);');
+    expect(jobsSrc).toContain('ats-board-weblink');
+    // no website on file -> no empty span injected into the meta row
+    expect(jobsSrc).toContain("        : '') +");
+    const cssSrc = fs.readFileSync(path.join(here, '..', 'css', 'ceo-ats.css'), 'utf8');
+    expect(cssSrc).toContain('.ats-board-weblink');
+  });
 });
