@@ -56,10 +56,13 @@ describe('career.html — file-content checks for Task 6 (design R6) additions',
     expect(careerHtml).toContain('&match=');
   });
 
-  it('sticky accept bar: host element + verbatim sub-line + shell-clearance CSS', () => {
+  it('sticky bar: host element + verbatim sub-line + shell-clearance CSS', () => {
     expect(careerHtml).toContain('id="matchStickyBar"');
     expect(careerHtml).toContain('function renderMatchStickyBar()');
-    expect(careerHtml).toContain('data-match-sticky-accept');
+    // The sticky bar VIEWS the practice — it must never accept in place
+    // (owner call 2026-07-28: it was being tapped by accident while scrolling).
+    expect(careerHtml).toContain('data-match-view');
+    expect(careerHtml).not.toContain('data-match-sticky-accept');
     expect(careerHtml).toContain('— your spot is reserved until then');
     const barCss = careerHtml.slice(careerHtml.indexOf('.at-match-stickybar {'), careerHtml.indexOf('.at-match-stickybar-sub'));
     expect(barCss).toMatch(/max\(\s*env\(safe-area-inset-bottom[^)]*\)\s*,\s*var\(--gp-shell-bottom-clearance[^)]*\)\s*\)/);

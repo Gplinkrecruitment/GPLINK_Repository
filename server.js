@@ -42597,8 +42597,8 @@ async function handleApi(req, res, pathname) {
     let mrBody; try { mrBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     const mrAppId = String((mrBody && mrBody.applicationId) || '').trim();
     const mrAction = String((mrBody && mrBody.action) || '').trim().toLowerCase();
-    if (!mrAppId || (mrAction !== 'accept' && mrAction !== 'decline')) {
-      sendJson(res, 400, { ok: false, message: 'applicationId and a valid action (accept|decline) are required.' });
+    if (!mrAppId || (mrAction !== 'accept' && mrAction !== 'decline' && mrAction !== 'enquire')) {
+      sendJson(res, 400, { ok: false, message: 'applicationId and a valid action (accept|decline|enquire) are required.' });
       return;
     }
 
@@ -42669,6 +42669,68 @@ async function handleApi(req, res, pathname) {
 
     const mrJob = mrRow.career_role_id ? await atsGetJobRow(mrRow.career_role_id) : null;
     const mrNowIso = new Date().toISOString();
+
+    // enquire (owner call 2026-07-28): the doctor has a QUESTION, not an
+    // answer. Deliberately does NOT touch ats_stage/match_outcome/
+    // match_expires_at — the match stays live and answerable, so asking can
+    // never cost them the spot (and can never be mistaken downstream for an
+    // accept). Raises a high-priority task on the CEO/ATS dashboard, which is
+    // the same surface the "Submit <GP> to practice" task lands on, so the
+    // team has one queue rather than a second inbox to watch.
+    if (mrAction === 'enquire') {
+      const mrEnqMessage = String((mrBody && mrBody.message) || '').trim().slice(0, 2000);
+      if (!mrEnqMessage) {
+        sendJson(res, 400, { ok: false, message: 'Type your question first.' });
+        return;
+      }
+      const mrEnqRoleLabel = String((mrJob && mrJob.title) || 'the matched role').trim();
+      const mrEnqPracticeLabel = String((mrJob && mrJob.practice_name) || 'the practice').trim();
+      let mrEnqCaseId = null;
+      let mrEnqTaskCreated = false;
+      try {
+        const mrEnqCase = await _ensureRegCase(mrUserId);
+        if (mrEnqCase) {
+          mrEnqCaseId = mrEnqCase.id;
+          const mrEnqTask = await _createRegTask(mrEnqCase.id, {
+            task_type: 'manual',
+            title: 'Question from ' + mrGpDisplayName + ' about ' + mrEnqPracticeLabel,
+            description: mrGpDisplayName + ' asked a question about their match for ' + mrEnqRoleLabel
+              + ' at ' + mrEnqPracticeLabel + '.\n\nTheir question:\n"' + mrEnqMessage + '"\n\n'
+              + 'The match is STILL LIVE — they have not accepted or declined. Application ID: ' + mrRow.id,
+            priority: 'high',
+            source_trigger: 'career_match_enquiry',
+            related_stage: 'career',
+            _actor: 'system'
+          });
+          mrEnqTaskCreated = !!mrEnqTask;
+          await _logCaseEvent(mrEnqCase.id, mrEnqTask ? mrEnqTask.id : null, 'system',
+            'Match enquiry received', mrGpDisplayName + ' asked about ' + mrEnqRoleLabel + ' at ' + mrEnqPracticeLabel, 'system');
+        }
+      } catch (mrEnqErr) {
+        console.error('[match enquire] failed to raise dashboard task:', mrEnqErr && mrEnqErr.message);
+      }
+      // Never claim "your team has it" when nothing was actually recorded —
+      // the GP would wait on a reply that no one can see is owed.
+      if (!mrEnqTaskCreated) {
+        sendJson(res, 502, { ok: false, message: 'Could not send your question — please try again.' });
+        return;
+      }
+      invalidateAdminDashboardCache();
+      sendJson(res, 200, { ok: true, action: 'enquire' });
+      if (isEmailConfigured()) {
+        const mrEnqDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(mrEnqCaseId || ''));
+        sendEmail({
+          to: 'hello@mygplink.com.au',
+          subject: 'Match question: ' + mrGpDisplayName + ' → ' + mrEnqRoleLabel,
+          text: mrGpDisplayName + ' asked a question about their match for "' + mrEnqRoleLabel + '" at ' + mrEnqPracticeLabel + '.'
+            + '\n\nTheir question:\n"' + mrEnqMessage + '"'
+            + '\n\nThe match is still live — they have not accepted or declined.'
+            + '\nOpen the candidate: ' + mrEnqDeepLink,
+          from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
+        }).catch(() => {});
+      }
+      return;
+    }
 
     if (mrAction === 'decline') {
       const mrDeclineReason = typeof (mrBody && mrBody.reason) === 'string' ? mrBody.reason.trim().slice(0, 2000) : null;

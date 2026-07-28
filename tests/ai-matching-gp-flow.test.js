@@ -49,8 +49,13 @@ describe('AI Matching Task 4 — client wiring (source regex)', () => {
     expect(careerHtml).toMatch(/renderTeamMatches\(\)/);
   });
 
-  it('pages/career.html wires accept/decline/dismiss + the confirm-sheet cap copy verbatim', () => {
-    expect(careerHtml).toContain('data-match-accept');
+  it('pages/career.html wires view/decline/dismiss + the confirm-sheet cap copy verbatim', () => {
+    // The card CTA opens the practice page instead of accepting in place
+    // (owner call 2026-07-28) — accepting is a one-way commitment and was
+    // being tapped by accident from the list.
+    expect(careerHtml).toContain('data-match-view');
+    expect(careerHtml).toContain('View Matched Practice');
+    expect(careerHtml).not.toContain('data-match-accept=');
     expect(careerHtml).toContain('data-match-decline');
     expect(careerHtml).toContain('data-filled-dismiss');
     expect(careerHtml).toContain("You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.");
