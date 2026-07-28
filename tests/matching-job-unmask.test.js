@@ -209,7 +209,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(serverSrc).toContain("row.match_outcome === 'accepted' && (stage === 'applied' || !stage)");
 
     const trackerHtml = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
-    expect(trackerHtml).toContain('fast_tracked: 0');           // same rung as Applied, mapped explicitly
+    expect(trackerHtml).toContain('fast_tracked: 1'); // Under Review, not Applied (owner call 2026-07-29)
     expect(trackerHtml).toContain('id="fastTrackNote"');
     expect(trackerHtml).toContain('interview times to choose from');
     expect(trackerHtml).toContain('This is an interview, not a commitment');

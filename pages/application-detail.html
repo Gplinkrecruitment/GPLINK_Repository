@@ -890,10 +890,13 @@
       ];
 
       var STATUS_ORDER = {
-        // A fast-tracked match sits at the same point as Applied — we have it,
-        // the practice does not have it yet. Mapped explicitly rather than
-        // relying on the unknown-key fallback, so it can't drift.
-        applied: 0, review: 0, fast_tracked: 0,
+        // A fast-tracked match sits at UNDER REVIEW, not Applied (owner call
+        // 2026-07-29): the fast-track IS the application step, and it happened
+        // at match time. What is outstanding now is our side — submit to the
+        // practice, get their availability — which is review work. It advances
+        // to Interview when the times reach the doctor. Mapped explicitly
+        // rather than relying on the unknown-key fallback, so it can't drift.
+        applied: 0, review: 0, fast_tracked: 1,
         under_review: 1, submitted: 1, reviewing: 1,
         interview: 2, interview_scheduled: 2, shortlisted: 2, interview_completed: 2,
         offer: 3, offer_pending: 3, offered: 3,
