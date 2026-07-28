@@ -159,6 +159,22 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(branch).not.toContain('match_outcome:');
   });
 
+  it('the CEO escalations banner marks a GP practice question distinctly', () => {
+    const ceoHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
+    // Keyed on the source_trigger column, never on the title copy.
+    expect(ceoHtml).toContain("e.source_trigger === 'career_match_enquiry'");
+    // Collapsed, it must say what it is and name the practice (the title
+    // carries the practice), not just list the doctor's name.
+    expect(ceoHtml).toContain('GP question');
+    expect(ceoHtml).toContain('esc-enq-chip');
+    // Expanded: its own badge, and the question quoted in its own block.
+    expect(ceoHtml).toContain('esc-enq-badge');
+    expect(ceoHtml).toContain('esc-enq-question');
+    // The server has to actually send the field the UI keys on.
+    expect(serverSrc).toContain('source_trigger: t.source_trigger');
+    expect(serverSrc).toContain('priority,source_trigger&status=eq.escalated');
+  });
+
   it('a second question appends to the open escalation instead of stacking a new one', () => {
     const idx = serverSrc.indexOf("if (mrAction === 'enquire') {");
     const branch = serverSrc.slice(idx, idx + 6000);

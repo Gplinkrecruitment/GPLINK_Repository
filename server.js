@@ -62831,7 +62831,7 @@ Return ONLY valid JSON with no markdown formatting:
       // above, so old escalations are never sliced out of it (#53). Consumed by the
       // Escalations section further down; batched here to save two round-trips.
       supabaseDbRequest('registration_tasks',
-        'select=id,case_id,status,title,escalated_reason,escalated_at,escalated_by,related_stage,priority&status=eq.escalated&order=escalated_at.desc.nullslast&limit=' + ceoActions.ESCALATION_FETCH_LIMIT),
+        'select=id,case_id,status,title,escalated_reason,escalated_at,escalated_by,related_stage,priority,source_trigger&status=eq.escalated&order=escalated_at.desc.nullslast&limit=' + ceoActions.ESCALATION_FETCH_LIMIT),
       // Timeline fallback for pre-migration escalations (event_type=escalation) —
       // also consumed by the Escalations section further down.
       supabaseDbRequest('task_timeline', 'select=task_id,case_id,detail,actor,created_at,title&event_type=eq.escalation&order=created_at.desc&limit=50')
@@ -62914,7 +62914,12 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: c ? ceoGpName(c.user_id) : 'Unknown', gp_email: c ? ceoGpEmail(c.user_id) : '',
         title: t.title, reason: t.escalated_reason || '',
         escalated_by: ceoActions.humanizeActor(t.escalated_by),
-        escalated_at: t.escalated_at, stage: t.related_stage || (c ? c.stage : ''), priority: t.priority
+        escalated_at: t.escalated_at, stage: t.related_stage || (c ? c.stage : ''), priority: t.priority,
+        // What KIND of escalation this is, so the banner can mark a doctor's
+        // question about a practice differently from an overdue-task auto
+        // escalation (owner report 2026-07-29: collapsed, they all looked the
+        // same — just a list of names).
+        source_trigger: t.source_trigger || ''
       };
     });
     // Fallback: find unresolved escalation timeline events for tasks not already captured
@@ -62939,7 +62944,8 @@ Return ONLY valid JSON with no markdown formatting:
         task_id: escTask.id, case_id: escTask.case_id, user_id: escCase ? escCase.user_id : null,
         gp_name: escCase ? ceoGpName(escCase.user_id) : 'Unknown', gp_email: escCase ? ceoGpEmail(escCase.user_id) : '',
         title: escTask.title, reason: ev2.detail || '', escalated_by: ceoActions.humanizeActor(ev2.actor),
-        escalated_at: ev2.created_at, stage: escTask.related_stage || (escCase ? escCase.stage : ''), priority: escTask.priority
+        escalated_at: ev2.created_at, stage: escTask.related_stage || (escCase ? escCase.stage : ''), priority: escTask.priority,
+        source_trigger: escTask.source_trigger || ''
       });
     }
 
