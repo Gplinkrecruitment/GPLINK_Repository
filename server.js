@@ -97,7 +97,7 @@ const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const documentRequirements = require('./lib/document-requirements.js');
-const { selectStaleSummaryCases } = require('./lib/summary-refresh.js');
+const { selectStaleSummaryCases, DEFAULT_FLOOR_MS: SUMMARY_REFRESH_DEFAULT_FLOOR_MS } = require('./lib/summary-refresh.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -297,7 +297,12 @@ const ANTHROPIC_MATCH_MODEL = String(process.env.ANTHROPIC_MATCH_MODEL || 'claud
 // (not per job), so quality-here-matters/cost-there-matters. Override with env.
 // ⚠️ Sonnet 5 rejects `temperature` (400) — the summary call must not send it.
 const ANTHROPIC_SUMMARY_MODEL = String(process.env.ANTHROPIC_SUMMARY_MODEL || 'claude-sonnet-5').trim() || 'claude-sonnet-5';
-const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+// Hard stop for ALL Anthropic spend in a UTC day, across every AI feature (summaries,
+// triage, matching, SPPA scans). Was $100 — far above anything this app actually spends
+// (a whole month of normal use is ~$30), so it never fired and the runaway summary-refresh
+// loop ran unnoticed for days. $25 is ~4x the busiest real day: still generous headroom,
+// but an actual backstop. Raise via ANTHROPIC_DAILY_LIMIT_USD if a launch/backfill needs it.
+const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 25);
 // Anthropic Messages endpoint — env-overridable so tests can point new AI
 // call sites at a local emulator. Existing call sites keep their inline URL.
 const ANTHROPIC_MESSAGES_URL = process.env.ANTHROPIC_MESSAGES_URL || 'https://api.anthropic.com/v1/messages';
@@ -8236,7 +8241,10 @@ async function respondServerError(res, err, context) {
 // (overdue / never-run) jobs. Keep in sync with vercel.json.
 const CRON_SCHEDULES = {
   'process-gmail': { schedule: '0 * * * *', cadenceMinutes: 60 },
-  'refresh-summaries': { schedule: '*/30 * * * *', cadenceMinutes: 30 },
+  // Hourly, not every 30 min. Summaries feed match RANKING — nothing user-facing blocks
+  // on them, so twice-hourly bought no freshness anyone could perceive and doubled the
+  // ceiling on a job that was already running flat out. Keep in sync with vercel.json.
+  'refresh-summaries': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -52644,13 +52652,24 @@ Return ONLY valid JSON with no markdown formatting:
     const rsStart = Date.now();
     if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: true, message: 'AI budget reached', refreshed: 0 }); return; }
     // Scan cap was 500: active cases past that were never even considered, so
-    // those GPs' summaries were never generated at all. Per-run cap was 5
-    // (= 240/day at the :00/:30 schedule), which could not keep a few hundred
-    // active GPs current. 25 makes the 50s time-box below the binding limit
-    // rather than the cap. Both stay env-tunable.
+    // those GPs' summaries were never generated at all. Per-run cap of 25 keeps the
+    // 50s time-box below the binding limit rather than the cap, so a genuine backlog
+    // (a bulk import, a long outage) still drains quickly. Both stay env-tunable.
+    // That headroom is only safe because the floor below no longer manufactures work:
+    // the cap governs how fast we can clear real demand, not how much demand exists.
     const rsRes = await supabaseDbRequest('registration_cases', 'select=id,updated_at,last_gp_activity_at,ai_handover_summary&status=eq.active&limit=' + Number(process.env.SUMMARY_REFRESH_SCAN || 5000));
     const rsCases = (rsRes.ok && Array.isArray(rsRes.data)) ? rsRes.data : [];
-    const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 25) });
+    // floorMs: how long a summary may sit with NO detected change before a belt-and-braces
+    // re-sync. This — not the cap — sets the standing cost of this job, because `aged` is the
+    // only trigger that re-fires forever on a clock (see lib/summary-refresh.js). With the
+    // floor at 48h and the time-box deliberately left as the binding limit, the job ran ~50s
+    // of Sonnet 5 generation every 30 min, around the clock. Tune with
+    // SUMMARY_REFRESH_FLOOR_HOURS; the cap and time-box below stay as burst protection.
+    const rsFloorHours = Number(process.env.SUMMARY_REFRESH_FLOOR_HOURS);
+    const rsFloorMs = (isFinite(rsFloorHours) && rsFloorHours > 0)
+      ? rsFloorHours * 60 * 60 * 1000
+      : SUMMARY_REFRESH_DEFAULT_FLOOR_MS;
+    const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 25), floorMs: rsFloorMs });
     const rsHost = String(req.headers.host || '').trim();
     let rsRefreshed = 0, rsFailed = 0, rsSkipped = 0;
     for (let rsi = 0; rsi < rsStale.length; rsi++) {
