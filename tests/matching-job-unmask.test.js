@@ -160,8 +160,11 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(line).toContain('previously_withdrawn');
   });
 
-  it('job.html sticky bar relabels to "Accept this match" with the verbatim countdown sub-line, without a new accept call', () => {
-    expect(jobHtml).toContain('Accept this match<small>');
+  it('job.html sticky bar relabels to "Fast-track to Interview" with the verbatim countdown sub-line, without a new accept call', () => {
+    // Owner call 2026-07-29: accepting a match only gets the doctor an
+    // interview, so the button must not read like signing for the job.
+    expect(jobHtml).toContain('Fast-track to Interview<small>');
+    expect(jobHtml).not.toContain('Accept this match<small>');
     expect(jobHtml).toContain('" — your spot is reserved until then</small>"');
     // submitApply() still only ever POSTs /api/career/apply — no separate
     // match/respond call was introduced for the matched-job-page path.
@@ -171,12 +174,32 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(fnSrc).not.toContain('/api/career/match/respond');
   });
 
-  it('the deliberate-apply confirm sheet mentions accepting the match when a live match is active', () => {
+  it('the confirm sheet frames a live match as an interview, not a commitment', () => {
     const idx = jobHtml.indexOf('function openApplyConfirm() {');
-    const fnSrc = jobHtml.slice(idx, idx + 900);
-    expect(fnSrc).toContain('"Accept this match?"');
-    expect(fnSrc).toMatch(/accept/i);
-    expect(fnSrc).toContain('activeMatch ? "Accept" : "Apply"');
+    const fnSrc = jobHtml.slice(idx, idx + 1300);
+    expect(fnSrc).toContain('"Fast-track to interview?"');
+    expect(fnSrc).toContain('activeMatch ? "Fast-track me" : "Apply"');
+    // The sheet must say out loud that this does not tie them to the role
+    // (owner call 2026-07-29) — that reassurance is the whole point.
+    expect(fnSrc).toContain('does not commit you to the role');
+  });
+
+  it('once revealed, the header drops the duplicate billing/role meta line', () => {
+    // Owner call 2026-07-29: post-reveal it read as a second, competing title
+    // beside the practice name. Pre-reveal it must stay — it is the only thing
+    // describing the role while the practice is masked.
+    expect(jobHtml).toContain('(revealed ? "" : \'<span class="at-dmeta">\'');
+  });
+
+  it('the website link sits directly under the practice name, above the address', () => {
+    const idx = jobHtml.indexOf('<h1 class="at-dtitle">');
+    expect(idx).toBeGreaterThan(-1);
+    const headerSrc = jobHtml.slice(idx, idx + 900);
+    const webIdx = headerSrc.indexOf('at-dweb');
+    const locIdx = headerSrc.indexOf('at-dloc');
+    expect(webIdx).toBeGreaterThan(-1);
+    expect(locIdx).toBeGreaterThan(-1);
+    expect(webIdx).toBeLessThan(locIdx);
   });
 
   it('job.html renders the revealed website link (http(s)-only) and an output=embed map', () => {
