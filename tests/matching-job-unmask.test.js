@@ -55,12 +55,25 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(revealedSrc).toContain('score: (matchRow.match_score != null ? matchRow.match_score : null)');
   });
 
-  it('the website source mirrors Task 6: practices.website falling back to extractCareerWebsiteUrl(source_payload)', () => {
+  it('the website source mirrors Task 6: practices.website falling back to the role own website', () => {
     const idx = serverSrc.indexOf('const revealedWebsite = ');
     expect(idx).toBeGreaterThan(-1);
     const src = serverSrc.slice(idx, idx + 250);
     expect(src).toContain('practiceRow && practiceRow.website');
-    expect(src).toContain('extractCareerWebsiteUrl(getCareerRoleRawPayload(finalRoleRow))');
+    expect(src).toContain('resolveCareerRoleWebsiteUrl(finalRoleRow)');
+  });
+
+  // The role-level fallback moved into resolveCareerRoleWebsiteUrl so the match
+  // card and the placement payload resolve a clinic website the same way. The
+  // original guarantee still has to hold inside that helper: a curated
+  // gpLink.websiteUrl wins, and the raw job-ad payload remains the last resort.
+  it('resolveCareerRoleWebsiteUrl prefers gpLink.websiteUrl then falls back to extractCareerWebsiteUrl(source_payload)', () => {
+    const idx = serverSrc.indexOf('function resolveCareerRoleWebsiteUrl(');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = serverSrc.slice(idx, idx + 500);
+    expect(fnSrc).toContain('getCareerRoleGpLinkMeta(row)');
+    expect(fnSrc).toContain('meta.websiteUrl');
+    expect(fnSrc).toContain('extractCareerWebsiteUrl(getCareerRoleRawPayload(row))');
   });
 
   it('getLiveShortlistedMatchForRole requires shortlisted + matched_at + NOT expired', () => {

@@ -6145,6 +6145,26 @@
       font-weight: 700;
     }
 
+    /* The hired practice's own website. Sits on the dark placement hero, so it
+       borrows the location line's muted-light treatment rather than the blue
+       link colour used on the white match cards. */
+    body.career-mode-secured .placement-website-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin: 6px 0 0;
+      color: rgba(226, 232, 240, 0.9);
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      word-break: break-all;
+    }
+
+    body.career-mode-secured .placement-website-link:hover {
+      color: #fff;
+    }
+
     body.career-mode-secured .placement-status-chip {
       margin-top: 0;
       padding: 6px 10px;
@@ -8083,6 +8103,7 @@
               <h2 class="placement-title">Your Practice Is Secured</h2>
               <p class="placement-subtitle" id="securedPracticeName"></p>
               <p class="placement-location-line" id="securedLocation"></p>
+              <a class="placement-website-link" id="securedPracticeWebsite" target="_blank" rel="noopener" hidden></a>
             </div>
 
             <div class="placement-countdown">
@@ -9321,6 +9342,7 @@
     const practiceLifestyleIntroEl = document.getElementById("practiceLifestyleIntro");
     const securedPracticeNameEl = document.getElementById("securedPracticeName");
     const securedLocationEl = document.getElementById("securedLocation");
+    const securedPracticeWebsiteEl = document.getElementById("securedPracticeWebsite");
     const securedRoleTitleEl = document.getElementById("securedRoleTitle");
     const securedStatusChipEl = document.getElementById("securedStatusChip");
     const securedStartDateEl = document.getElementById("securedStartDate");
@@ -11358,6 +11380,11 @@
           || ((placementRole && placementRole.practiceName && !isConfidentialText(placementRole.practiceName)) ? placementRole.practiceName : "")
           || FB.practiceName,
         roleTitle: placementPayload.roleTitle || (placementRole && placementRole.roleType) || FB.roleTitle,
+        // Practice website: server value only. The demo/fallback datasets carry
+        // no website, so an unknown URL renders nothing instead of pointing a
+        // real hired GP at a placeholder clinic — same rule as the contact
+        // channels below.
+        website: placementPayload.website || (placementRole && placementRole.website) || "",
         // Same honesty rule as the contact/contract guards below: a REAL server
         // placement with no stored location/start date must render as "to be
         // confirmed" — never borrow the demo dataset's city or start date.
@@ -12790,6 +12817,21 @@
       securedPracticeNameEl.textContent = placement.practiceName;
       securedRoleTitleEl.textContent = placement.roleTitle;
       securedLocationEl.textContent = placement.location;
+      // The hired practice's website — http(s)-only through the same gate the
+      // match cards use. No URL on file means the link stays hidden rather than
+      // rendering an empty/broken anchor.
+      if (securedPracticeWebsiteEl) {
+        const securedWebsite = matchSafeUrl(placement.website);
+        if (securedWebsite) {
+          securedPracticeWebsiteEl.href = securedWebsite;
+          securedPracticeWebsiteEl.textContent = "🌐 " + securedWebsite.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+          securedPracticeWebsiteEl.hidden = false;
+        } else {
+          securedPracticeWebsiteEl.removeAttribute("href");
+          securedPracticeWebsiteEl.textContent = "";
+          securedPracticeWebsiteEl.hidden = true;
+        }
+      }
       securedStatusChipEl.textContent = placement.statusLabel;
       securedStartDateEl.textContent = startDateLabel ? "Starts " + startDateLabel : "Start date to be confirmed";
       securedCountdownValueEl.textContent = daysUntilStart !== null ? String(daysUntilStart) : "—";

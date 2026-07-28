@@ -19129,6 +19129,20 @@ function getCareerRoleRawPayload(row) {
   return payload;
 }
 
+// The clinic's own website, resolved from the ROLE rather than the practice
+// record. A corporate owner (e.g. ForHealth Group) is one practices row shared
+// by dozens of individual clinics, so practices.website can only ever hold the
+// group's site — the per-clinic URL lives on the role itself. gpLink.websiteUrl
+// is our curated value and wins; the original job-ad payload is the fallback,
+// read exactly the way extractCareerWebsiteUrl already reads it.
+function resolveCareerRoleWebsiteUrl(row) {
+  if (!row) return '';
+  const meta = getCareerRoleGpLinkMeta(row);
+  const curated = sanitizeHttpUrl(meta && meta.websiteUrl);
+  if (curated) return curated;
+  return extractCareerWebsiteUrl(getCareerRoleRawPayload(row)) || '';
+}
+
 function buildCareerRoleGpLinkMetaFromRow(row) {
   const record = getCareerRoleRawPayload(row);
   // AI job write-up (2026-07-18 design doc, Task 3): source_payload.gpLink.aiWriteup
@@ -26222,10 +26236,18 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
     ? buildPreparedDocumentDownloadUrl(normalizeDocumentCountry(opts.documentCountry) || 'uk', 'offer_contract')
     : '';
 
+  // The hired GP's own clinic website. Same precedence as the match card and
+  // the revealed job page: the practice record first, then the role's own URL —
+  // which is the only per-clinic value when the practice row is a corporate
+  // group. Empty stays empty; career.html hides the link rather than inventing
+  // one, the same honesty rule the contact channels follow.
+  const practiceWebsite = sanitizeHttpUrl(practice.website) || resolveCareerRoleWebsiteUrl(roleRow);
+
   const placementResult = {
     practiceName,
     roleTitle,
     location,
+    website: practiceWebsite,
     statusLabel: 'Placement confirmed',
     startDateIso,
     contractUrl,
@@ -41070,7 +41092,7 @@ async function handleApi(req, res, pathname) {
       // nothing rather than needing sanitizing on the way out.
       const revealedWebsite = (practiceRow && practiceRow.website)
         ? String(practiceRow.website)
-        : extractCareerWebsiteUrl(getCareerRoleRawPayload(finalRoleRow));
+        : resolveCareerRoleWebsiteUrl(finalRoleRow);
       if (revealedWebsite) roleClientPayload.website = revealedWebsite;
 
       // Task 7: a live shortlisted, non-expired AI match for THIS user+role.
@@ -42183,7 +42205,10 @@ async function handleApi(req, res, pathname) {
         applicationId: r.id, roleId: mmRoleId, score: (r.match_score != null ? r.match_score : null),
         reasons, expiresAt: r.match_expires_at || null, seenAt: r.match_seen_at || null, matchedAt: r.matched_at || null,
         jobTitle: mmNames.role || '', practiceName: mmPracticeName,
-        website: practice.website || '', introVideoUrl: practice.intro_video_url || '', headerImageUrl: job.header_image_url || '',
+        // practices.website is the OWNER's site, which for a corporate group is
+        // shared by every clinic under it — fall back to the role's own website
+        // so a direct match names the clinic the GP was actually matched to.
+        website: practice.website || resolveCareerRoleWebsiteUrl(jobRow), introVideoUrl: practice.intro_video_url || '', headerImageUrl: job.header_image_url || '',
         locationCity: job.location_city || '', locationState: job.location_state || '', dpa: job.dpa === true,
         mapQuery: mmMapQuery
       };
