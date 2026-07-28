@@ -299,6 +299,44 @@ describe('classifyPublicJobType', () => {
   });
 });
 
+describe('classifyPublicJobBilling', () => {
+  const classify = (billing_model) =>
+    testUtils.classifyPublicJobBilling(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({ billing_model })));
+
+  it('normalises separators and case across the spellings live data actually contains', () => {
+    // Every one of these was present in production on 2026-07-29.
+    expect(classify('Bulk Billing')).toBe('bulk');
+    expect(classify('Mixed Billing')).toBe('mixed');
+    expect(classify('Mixed-Billing')).toBe('mixed');
+    expect(classify('mixed')).toBe('mixed');
+    expect(classify('Private Billing')).toBe('private');
+  });
+
+  it('handles other plausible separator and case variants', () => {
+    expect(classify('bulk_billing')).toBe('bulk');
+    expect(classify('MIXED/BILLING')).toBe('mixed');
+    expect(classify('  private   billing  ')).toBe('private');
+    expect(classify('Bulk-billing')).toBe('bulk');
+  });
+
+  it('returns empty for missing or unrecognised billing, so it is never bucketed wrongly', () => {
+    expect(classify('')).toBe('');
+    expect(classify(null)).toBe('');
+    expect(classify('Concession Rates')).toBe('');
+    expect(testUtils.classifyPublicJobBilling(null)).toBe('');
+    expect(testUtils.classifyPublicJobBilling({})).toBe('');
+  });
+
+  it('reads billing_model only — it does not infer billing from free text elsewhere', () => {
+    // A summary mentioning bulk billing must not make a Private Billing role
+    // answer a billing=bulk filter.
+    const mapped = testUtils.mapCareerRoleRowToPublicJob(makeRawRow({
+      billing_model: 'Private Billing', summary: 'Nearby clinics are bulk billing practices.'
+    }));
+    expect(testUtils.classifyPublicJobBilling(mapped)).toBe('private');
+  });
+});
+
 describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact function the route calls)', () => {
   // Each row still carries a real (sensitive) practice_name — exactly like a
   // live career_roles row would — so these tests double as a masking
@@ -372,6 +410,72 @@ describe('buildPublicJobsResponse — filters, whitelist, pagination (the exact 
     expect(nonVr.total).toBe(1);
     expect(nonVr.jobs[0].location_label).toBe('Melbourne, VIC');
     expectNoPracticeNameLeak(nonVr);
+  });
+
+  // ── Billing type filter ───────────────────────────────────────────────────
+  //
+  // billing_model is written by three different sources (practice intake form,
+  // ATS job editor, legacy/Zoho sync), so the SAME arrangement really does
+  // arrive spelled three ways. These values are taken from live production
+  // data on 2026-07-29: 'Bulk Billing' ×40, 'Mixed Billing' ×7, 'Mixed-Billing'
+  // ×1, 'mixed' ×1, 'Private Billing' ×1, '' ×1. A filter that compares the
+  // raw string would silently hide roles, so normalisation is the whole point.
+  const billingRows = [
+    makeRawRow({ id: 11, provider_role_id: 'ZR-011', title: 'GP A', practice_name: 'Riverside Medical Centre', billing_model: 'Bulk Billing' }),
+    makeRawRow({ id: 12, provider_role_id: 'ZR-012', title: 'GP B', practice_name: 'Outback Family Practice', billing_model: 'Mixed Billing' }),
+    makeRawRow({ id: 13, provider_role_id: 'ZR-013', title: 'GP C', practice_name: 'Melbourne Central Clinic', billing_model: 'Mixed-Billing' }),
+    makeRawRow({ id: 14, provider_role_id: 'ZR-014', title: 'GP D', practice_name: 'Harbourside Practice', billing_model: 'mixed' }),
+    makeRawRow({ id: 15, provider_role_id: 'ZR-015', title: 'GP E', practice_name: 'Southbank Clinic', billing_model: 'Private Billing' }),
+    makeRawRow({ id: 16, provider_role_id: 'ZR-016', title: 'GP F', practice_name: 'Riverside Medical Centre', billing_model: '' })
+  ];
+
+  it('billing=mixed matches every real-world spelling of mixed billing', () => {
+    const mixed = testUtils.buildPublicJobsResponse(billingRows, new URLSearchParams({ billing: 'mixed' }));
+    // 'Mixed Billing', 'Mixed-Billing' and 'mixed' must ALL be caught.
+    expect(mixed.total).toBe(3);
+    expect(mixed.jobs.map((j) => j.title).sort()).toEqual(['GP B', 'GP C', 'GP D']);
+    expectNoPracticeNameLeak(mixed);
+  });
+
+  it('billing=bulk / private filter to the right subset', () => {
+    const bulk = testUtils.buildPublicJobsResponse(billingRows, new URLSearchParams({ billing: 'bulk' }));
+    expect(bulk.total).toBe(1);
+    expect(bulk.jobs[0].title).toBe('GP A');
+
+    const priv = testUtils.buildPublicJobsResponse(billingRows, new URLSearchParams({ billing: 'private' }));
+    expect(priv.total).toBe(1);
+    expect(priv.jobs[0].title).toBe('GP E');
+    expectNoPracticeNameLeak(priv);
+  });
+
+  it('a role with no billing_model is never returned by any billing filter', () => {
+    for (const value of ['bulk', 'mixed', 'private']) {
+      const result = testUtils.buildPublicJobsResponse(billingRows, new URLSearchParams({ billing: value }));
+      expect(result.jobs.map((j) => j.title)).not.toContain('GP F');
+    }
+  });
+
+  it('an unrecognised billing value is ignored rather than returning nothing', () => {
+    // Same contract as `type`: a junk param must not silently empty the board.
+    const result = testUtils.buildPublicJobsResponse(billingRows, new URLSearchParams({ billing: 'concession' }));
+    expect(result.total).toBe(billingRows.length);
+  });
+
+  it('billing combines with state and q rather than replacing them', () => {
+    const rowsMixedStates = [
+      makeRawRow({ id: 21, provider_role_id: 'ZR-021', title: 'GP QLD Bulk', practice_name: 'Riverside Medical Centre', location_state: 'QLD', billing_model: 'Bulk Billing' }),
+      makeRawRow({ id: 22, provider_role_id: 'ZR-022', title: 'GP VIC Bulk', practice_name: 'Southbank Clinic', location_state: 'VIC', billing_model: 'Bulk Billing' })
+    ];
+    const result = testUtils.buildPublicJobsResponse(rowsMixedStates, new URLSearchParams({ billing: 'bulk', state: 'QLD' }));
+    expect(result.total).toBe(1);
+    expect(result.jobs[0].title).toBe('GP QLD Bulk');
+  });
+
+  it('type= still filters after the UI swapped to billing (old links keep working)', () => {
+    // The public pages no longer render a position-type control, but the API
+    // contract is unchanged — a bookmarked /jobs?type=locum must still work.
+    const locum = testUtils.buildPublicJobsResponse(rows, new URLSearchParams({ type: 'locum' }));
+    expect(locum.total).toBe(2);
   });
 
   it('limit caps the returned jobs while total still reflects the pre-limit filtered count', () => {

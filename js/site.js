@@ -309,10 +309,17 @@
       ev.preventDefault();
       var data = new FormData(formEl);
       var params = new URLSearchParams();
-      ["q", "state", "type"].forEach(function (key) {
+      ["q", "state", "billing"].forEach(function (key) {
         var val = (data.get(key) || "").toString().trim();
         if (val) params.set(key, val);
       });
+      // `type` (vr-gp / non-vr-gp / locum) no longer has a control on any page,
+      // but the API still honours it and old links still carry it. FormData
+      // cannot see a field that isn't rendered, so carry it across from the
+      // current URL instead — otherwise arriving on /jobs?type=locum and then
+      // pressing Search would silently widen the results.
+      var carriedType = (new URLSearchParams(window.location.search).get("type") || "").trim();
+      if (carriedType && !formEl.querySelector('[name="type"]')) params.set("type", carriedType);
       var qs = params.toString();
       window.location.href = "/jobs" + (qs ? "?" + qs : "");
     });

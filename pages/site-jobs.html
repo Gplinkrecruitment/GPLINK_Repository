@@ -303,12 +303,12 @@
             <option>SA</option><option>TAS</option><option>ACT</option><option>NT</option>
           </select>
         </label>
-        <label>Position type
-          <select name="type">
-            <option value="">All positions</option>
-            <option value="vr-gp">VR GP</option>
-            <option value="non-vr-gp">Non-VR GP</option>
-            <option value="locum">Locum</option>
+        <label>Billing type
+          <select name="billing">
+            <option value="">All billing types</option>
+            <option value="bulk">Bulk billing</option>
+            <option value="mixed">Mixed billing</option>
+            <option value="private">Private billing</option>
           </select>
         </label>
         <button class="go" type="submit">Search</button>
@@ -370,7 +370,7 @@
   </div>
   <div class="foot-base container"><span>© GP Link · ACN 693 259 737</span><span><a href="/pages/privacy">Privacy</a> · <a href="/pages/terms">Terms</a></span></div>
 </footer>
-<script src="/js/site.js?v=20260714a"></script>
+<script src="/js/site.js?v=20260729a"></script>
 <script>
 (function () {
   "use strict";
@@ -403,20 +403,24 @@
 
   // ---------- filters (from the URL, not re-read from the form after load) ----------
   var urlParams = new URLSearchParams(window.location.search);
+  // `type` (vr-gp / non-vr-gp / locum) no longer has a control on this page — the
+  // third filter is now billing — but it is still read from the URL and still
+  // honoured by the API, so existing links and bookmarks keep working.
   var filters = {
     q: (urlParams.get("q") || "").trim(),
     state: (urlParams.get("state") || "").trim().toUpperCase(),
-    type: (urlParams.get("type") || "").trim()
+    type: (urlParams.get("type") || "").trim(),
+    billing: (urlParams.get("billing") || "").trim().toLowerCase()
   };
-  var hasFilters = !!(filters.q || filters.state || filters.type);
+  var hasFilters = !!(filters.q || filters.state || filters.type || filters.billing);
 
   if (form) {
     var qInput = form.querySelector('[name="q"]');
     var stateSelect = form.querySelector('[name="state"]');
-    var typeSelect = form.querySelector('[name="type"]');
+    var billingSelect = form.querySelector('[name="billing"]');
     if (qInput) qInput.value = filters.q;
     if (stateSelect) stateSelect.value = filters.state;
-    if (typeSelect) typeSelect.value = filters.type;
+    if (billingSelect) billingSelect.value = filters.billing;
     if (window.GPSite && typeof window.GPSite.initJobSearch === "function") {
       window.GPSite.initJobSearch(form);
     }
@@ -454,6 +458,7 @@
     if (filters.q) params.set("q", filters.q);
     if (filters.state) params.set("state", filters.state);
     if (filters.type) params.set("type", filters.type);
+    if (filters.billing) params.set("billing", filters.billing);
     params.set("limit", String(limit || PAGE_SIZE));
     params.set("offset", String(offset));
     return "/api/public/jobs?" + params.toString();

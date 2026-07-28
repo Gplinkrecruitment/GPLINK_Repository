@@ -85,7 +85,7 @@ describe('GET /jobs (Task 8 job board page)', () => {
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260714a');
+    expect(res.raw).toContain('/js/site.js?v=20260729a');
   });
 
   it('has SEO head tags (title, canonical, description, OG)', async () => {
@@ -96,12 +96,15 @@ describe('GET /jobs (Task 8 job board page)', () => {
     expect(res.raw).toContain('property="og:image" content="https://www.mygplink.com.au/media/images/site/beach-poster.jpg"');
   });
 
-  it('the filter form has the same q/state/type fields as the homepage search', async () => {
+  it('the filter form has the same q/state/billing fields as the homepage search', async () => {
     const res = await get('/jobs');
     expect(res.raw).toMatch(/<form class="jobs-filter-card" id="jobSearch">/);
     expect(res.raw).toContain('name="q"');
     expect(res.raw).toContain('name="state"');
-    expect(res.raw).toContain('name="type"');
+    // Third filter is billing type (bulk / mixed / private), not position type.
+    // The API still honours ?type= for old links, but no page renders it.
+    expect(res.raw).toContain('name="billing"');
+    expect(res.raw).not.toContain('name="type"');
   });
 
   it('escapes API-sourced job data via an escapeHtml helper, not innerHTML with raw strings', async () => {
@@ -318,7 +321,7 @@ describe('GET /jobs/view (Task 9 job detail page)', () => {
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs/view?id=anything');
     expect(res.raw).toContain('/css/site.css?v=20260717a');
-    expect(res.raw).toContain('/js/site.js?v=20260714a');
+    expect(res.raw).toContain('/js/site.js?v=20260729a');
   });
 
   it('marks Jobs as the current nav section', async () => {

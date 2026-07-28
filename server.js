@@ -21945,6 +21945,31 @@ function classifyPublicJobType(job) {
   return '';
 }
 
+// bulk | mixed | private classification for the public Billing type filter.
+//
+// billing_model is free-ish text that reaches us from three different writers —
+// the practice intake form (billing_style: 'mixed' / 'private'), the ATS job
+// editor, and legacy/Zoho rows — so the SAME billing arrangement appears as
+// 'Mixed Billing', 'Mixed-Billing' and 'mixed' in live data simultaneously.
+// Matching the raw string would silently drop roles from the results, so
+// normalise separators and case, then match on the keyword.
+//
+// Reads billing_model ONLY: it is already in the public whitelist
+// (PUBLIC_JOB_FIELDS), so this adds no new field to the public payload.
+// Anything unrecognised (including empty) returns '' and is simply never
+// matched by a billing filter, rather than being lumped into a bucket.
+function classifyPublicJobBilling(job) {
+  const raw = String((job && job.billing_model) || '')
+    .toLowerCase()
+    .replace(/[\s._/-]+/g, ' ')
+    .trim();
+  if (!raw) return '';
+  if (raw.includes('bulk')) return 'bulk';
+  if (raw.includes('mixed')) return 'mixed';
+  if (raw.includes('private')) return 'private';
+  return '';
+}
+
 // Filters + paginates + sanitizes raw career_roles rows into the public API
 // response shape. This is the exact function GET /api/public/jobs calls, so it
 // is unit-testable directly with seeded fixture rows (no Supabase/HTTP needed).
@@ -21971,9 +21996,17 @@ function buildPublicJobsResponse(rows, searchParams) {
   const state = String(getParam('state') || '').trim().toUpperCase();
   if (state) jobs = jobs.filter((job) => job.location_state === state);
 
+  // `type` no longer has a control on the public pages (billing replaced it),
+  // but it stays supported: old links, bookmarks and any external caller that
+  // already uses ?type= keep working exactly as before.
   const type = String(getParam('type') || '').trim().toLowerCase();
   if (type === 'vr-gp' || type === 'non-vr-gp' || type === 'locum') {
     jobs = jobs.filter((job) => classifyPublicJobType(job) === type);
+  }
+
+  const billing = String(getParam('billing') || '').trim().toLowerCase();
+  if (billing === 'bulk' || billing === 'mixed' || billing === 'private') {
+    jobs = jobs.filter((job) => classifyPublicJobBilling(job) === billing);
   }
 
   const total = jobs.length;
@@ -68628,6 +68661,7 @@ module.exports.__testUtils = {
   mapCareerRoleRowToPublicJob,
   sanitizePublicJob,
   classifyPublicJobType,
+  classifyPublicJobBilling,
   buildPublicJobsResponse,
   mapCareerRoleRowToClient,
   mapCareerRoleDetailToClient,
