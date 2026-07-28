@@ -10,9 +10,10 @@ verified data shapes, and what is still broken.
 
 - **AI matching / careers page / post-interview flow** →
   [`docs/superpowers/handovers/2026-07-28-matching-flow-handover.md`](docs/superpowers/handovers/2026-07-28-matching-flow-handover.md)
-  — all live as of `7f353e0`. Biggest open gap: interviews not held over Zoom
-  never stamp `interview_completed`, so the practice is never asked for a
-  decision and the doctor waits forever, silently.
+  — all live as of `7f353e0`. Non-Zoom interviews **are** completed (time-based
+  fallback in `/api/cron/detect-no-shows`); the open edges are a 7-day cron
+  window that drops stale bookings, and the orphaned `career_interviews` store
+  that no cron sweeps. See §8, corrected 2026-07-28.
 
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 

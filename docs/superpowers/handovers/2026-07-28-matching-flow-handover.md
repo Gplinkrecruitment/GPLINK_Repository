@@ -145,18 +145,48 @@ both. Pages themselves are `must-revalidate`, so HTML changes need no bump.
 
 ## 8. Open / not done
 
-1. **Phone and in-person interviews stall silently.** The entire post-interview
-   sequence — the decision email *and* the new auto-chase — hangs off the Zoom
-   `meeting.ended` webhook stamping `interview_completed`. An interview held any
-   other way stamps nothing, so the practice is never asked, the chase never
-   fires, and the doctor waits forever. **The failure is invisible, not noisy.**
-   This is the biggest remaining hole.
-2. **`applied_at` is stamped at shortlist time**, before the doctor applies.
+> **Corrected 2026-07-28 (second session), against the code and production.**
+> Item 1 previously read "phone and in-person interviews stall silently … the
+> biggest remaining hole". **That was wrong when it was written.** The
+> time-based fallback had already shipped on 2026-07-22 in `ba9dae0`
+> ("interview_completed status + time-based completion when Zoom is absent"),
+> six days earlier. What follows is what is actually still open.
+
+1. **Non-Zoom interviews are covered — but only ~90 min later, and only for
+   7 days.** `/api/cron/detect-no-shows` (every 10 min) has a zoomless branch
+   (`hasZoomMeetingId === false`): once the scheduled end time plus 15 min has
+   passed it flips the call to `completed` and fires the *same*
+   `sendPostInterviewDecisionEmail` as the Zoom webhook. So a phone/in-person
+   interview booked in the app **does** reach the practice. Two real edges remain:
+   - The cron only selects `scheduled_at > now − 7 days`. A booked interview not
+     resolved inside that window (cron outage, a row that sat past it) **drops
+     out permanently** — nothing ever completes it.
+   - It counts as `presumedComplete`, not `attended`: with no Zoom attendance
+     record we are *assuming* the interview happened. A silent no-show gets the
+     practice a decision email anyway.
+2. **`career_interviews` is a second, orphaned interview store.** The scheduling
+   route that writes it (`format` = `video`/`phone`/`in_person`, sets
+   `gp_applications.status = 'interview_scheduled'`) is **never swept by any
+   cron** — nothing there can ever reach `interview_completed`. It is harmless
+   today only because the table is **empty in production** (verified
+   2026-07-28); the live flow uses `scheduled_calls` with
+   `meeting_kind='interview'`. ⚠️ **Do not revive that route without wiring
+   completion**, or you reintroduce exactly the stall item 1 warned about.
+3. **`applied_at` is stamped at shortlist time**, before the doctor applies.
    Harmless today (the accept path overwrites it) but wrong if a screen ever
    reads it without checking status.
-3. **Auto-chase covers post-interview silence only from the Zoom path** — see 1.
-   Cadence: day 3, day 5, owner escalation day 7, weekends skipped for
-   practice-facing sends (`/api/cron/practice-decision-reminders`, Pass B).
+4. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
+   and the zoomless cron branch stamp — so it is not Zoom-only. Cadence: day 3,
+   day 5, owner escalation day 7, weekends skipped for practice-facing sends
+   (`/api/cron/practice-decision-reminders`, Pass B).
+
+**Scale check (production, 2026-07-28).** Worth knowing before ranking any of
+this as urgent: `gp_applications` holds **6 rows total** — 1 `shortlisted` (the
+AI-matched one from 2026-07-26), 1 `interview`, 2 hired/secured, 1 withdrawn,
+1 closed. **No row has ever reached `interview_completed`**, and the only two
+`meeting_kind='interview'` calls are one `invited` and one `cancelled`. The
+post-interview path has not yet run end-to-end on a real doctor, so none of the
+above has harmed anyone — but it also means **none of it is proven in the wild.**
 
 ## 9. Where things live
 
@@ -173,3 +203,7 @@ both. Pages themselves are `must-revalidate`, so HTML changes need no bump.
 | Practice turn-down | `/api/practice/application/decision` |
 | Practice hiding | `_rolesHiddenByPracticeTurnDown` |
 | Auto-chase | `/api/cron/practice-decision-reminders` |
+| Interview completion (Zoom) | `handleZoomMeetingEnded` (`meeting.ended`) |
+| Interview completion (no Zoom) | `/api/cron/detect-no-shows`, `hasZoomMeetingId` branch |
+| Post-interview decision email | `sendPostInterviewDecisionEmail` (idempotent, write-then-send) |
+| Orphaned second interview store | `career_interviews` — empty in prod, no cron sweeps it |
