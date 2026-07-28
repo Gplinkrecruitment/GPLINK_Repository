@@ -42515,45 +42515,99 @@ async function handleApi(req, res, pathname) {
       const mrEnqRoleLabel = String((mrJob && mrJob.title) || 'the matched role').trim();
       const mrEnqPracticeLabel = String((mrJob && mrJob.practice_name) || 'the practice').trim();
       let mrEnqCaseId = null;
-      let mrEnqTaskCreated = false;
+      let mrEnqRecorded = false;
+      let mrEnqWasFollowUp = false;
+      // Every DB write happens inside this try; NOTHING responds from inside
+      // it. A throw between a sendJson and its return would otherwise fall
+      // through to the tail below and send a second response on one request.
       try {
         const mrEnqCase = await _ensureRegCase(mrUserId);
         if (mrEnqCase) {
           mrEnqCaseId = mrEnqCase.id;
-          const mrEnqTask = await _createRegTask(mrEnqCase.id, {
-            task_type: 'manual',
-            title: 'Question from ' + mrGpDisplayName + ' about ' + mrEnqPracticeLabel,
-            description: mrGpDisplayName + ' asked a question about their match for ' + mrEnqRoleLabel
-              + ' at ' + mrEnqPracticeLabel + '.\n\nTheir question:\n"' + mrEnqMessage + '"\n\n'
-              + 'The match is STILL LIVE — they have not accepted or declined. Application ID: ' + mrRow.id,
-            priority: 'high',
-            source_trigger: 'career_match_enquiry',
-            related_stage: 'career',
-            _actor: 'system'
-          });
-          mrEnqTaskCreated = !!mrEnqTask;
-          await _logCaseEvent(mrEnqCase.id, mrEnqTask ? mrEnqTask.id : null, 'system',
-            'Match enquiry received', mrGpDisplayName + ' asked about ' + mrEnqRoleLabel + ' at ' + mrEnqPracticeLabel, 'system');
+          // One escalation per match, not one per question. A second question
+          // on the SAME application appends to the existing unresolved
+          // escalation instead of stacking another red banner row — the banner
+          // has to stay a list of situations, not of messages. Keyed on the
+          // "Application ID: <id>" line written into every enquiry description
+          // (registration_tasks has no application_id column to key off).
+          const mrEnqExistingRes = await supabaseDbRequest('registration_tasks',
+            'select=id,description&case_id=eq.' + encodeURIComponent(mrEnqCase.id)
+            + '&source_trigger=eq.career_match_enquiry'
+            + '&status=in.(open,in_progress,waiting,escalated)'
+            + '&description=like.' + encodeURIComponent('*Application ID: ' + mrRow.id + '*')
+            + '&limit=1');
+          const mrEnqExisting = (mrEnqExistingRes.ok && Array.isArray(mrEnqExistingRes.data) && mrEnqExistingRes.data[0]) ? mrEnqExistingRes.data[0] : null;
+
+          if (mrEnqExisting) {
+            const mrEnqAppended = String(mrEnqExisting.description || '')
+              + '\n\n--- Follow-up question (' + mrNowIso + ') ---\n"' + mrEnqMessage + '"';
+            const mrEnqPatchRes = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(mrEnqExisting.id), {
+              method: 'PATCH', headers: { Prefer: 'return=minimal' },
+              body: { description: mrEnqAppended, escalated_reason: mrEnqMessage, escalated_at: mrNowIso, updated_at: mrNowIso }
+            });
+            if (mrEnqPatchRes && mrEnqPatchRes.ok) {
+              mrEnqRecorded = true;
+              mrEnqWasFollowUp = true;
+              try {
+                await supabaseDbRequest('task_timeline', '', {
+                  method: 'POST',
+                  body: [{ task_id: mrEnqExisting.id, case_id: mrEnqCase.id, event_type: 'note', title: 'Follow-up question from the doctor', detail: mrEnqMessage, actor: 'system' }]
+                });
+              } catch (e) { /* the question is already on the task — the note is a nicety */ }
+            }
+          } else {
+            const mrEnqTask = await _createRegTask(mrEnqCase.id, {
+              task_type: 'manual',
+              title: 'Question from ' + mrGpDisplayName + ' about ' + mrEnqPracticeLabel,
+              description: mrGpDisplayName + ' asked a question about their match for ' + mrEnqRoleLabel
+                + ' at ' + mrEnqPracticeLabel + '.\n\nTheir question:\n"' + mrEnqMessage + '"\n\n'
+                + 'The match is STILL LIVE — they have not accepted or declined. Application ID: ' + mrRow.id,
+              priority: 'high',
+              source_trigger: 'career_match_enquiry',
+              related_stage: 'career',
+              // Filed as an ESCALATION, not a plain open task (owner report
+              // 2026-07-29): the CEO dashboard has NO task-list tab, so an
+              // 'open' task is only reachable by opening that one doctor's
+              // file — i.e. you would have to already know the question
+              // existed. 'escalated' puts it in the red banner/chip that shows
+              // on every tab. It earns that: the doctor is waiting while their
+              // own match countdown runs down, so silence costs them the
+              // position. Same shape as the existing "GP requested WhatsApp
+              // help" escalation. escalated_reason is what the banner prints.
+              status: 'escalated',
+              escalated_reason: mrEnqMessage,
+              escalated_at: mrNowIso,
+              escalated_by: mrEmail,
+              _actor: 'system'
+            });
+            mrEnqRecorded = !!mrEnqTask;
+            if (mrEnqTask) {
+              await _logCaseEvent(mrEnqCase.id, mrEnqTask.id, 'system',
+                'Match enquiry received', mrGpDisplayName + ' asked about ' + mrEnqRoleLabel + ' at ' + mrEnqPracticeLabel, 'system');
+            }
+          }
         }
       } catch (mrEnqErr) {
-        console.error('[match enquire] failed to raise dashboard task:', mrEnqErr && mrEnqErr.message);
+        console.error('[match enquire] failed to raise dashboard escalation:', mrEnqErr && mrEnqErr.message);
       }
+
       // Never claim "your team has it" when nothing was actually recorded —
       // the GP would wait on a reply that no one can see is owed.
-      if (!mrEnqTaskCreated) {
+      if (!mrEnqRecorded) {
         sendJson(res, 502, { ok: false, message: 'Could not send your question — please try again.' });
         return;
       }
       invalidateAdminDashboardCache();
-      sendJson(res, 200, { ok: true, action: 'enquire' });
+      sendJson(res, 200, { ok: true, action: 'enquire', followUp: mrEnqWasFollowUp });
       if (isEmailConfigured()) {
         const mrEnqDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(mrEnqCaseId || ''));
         sendEmail({
           to: 'hello@mygplink.com.au',
-          subject: 'Match question: ' + mrGpDisplayName + ' → ' + mrEnqRoleLabel,
-          text: mrGpDisplayName + ' asked a question about their match for "' + mrEnqRoleLabel + '" at ' + mrEnqPracticeLabel + '.'
+          subject: (mrEnqWasFollowUp ? 'Follow-up match question: ' : 'Match question: ') + mrGpDisplayName + ' → ' + mrEnqRoleLabel,
+          text: mrGpDisplayName + ' asked a' + (mrEnqWasFollowUp ? ' FOLLOW-UP' : '') + ' question about their match for "' + mrEnqRoleLabel + '" at ' + mrEnqPracticeLabel + '.'
             + '\n\nTheir question:\n"' + mrEnqMessage + '"'
             + '\n\nThe match is still live — they have not accepted or declined.'
+            + '\nIt is on the CEO dashboard escalations banner.'
             + '\nOpen the candidate: ' + mrEnqDeepLink,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
         }).catch(() => {});
