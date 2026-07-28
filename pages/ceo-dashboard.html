@@ -278,6 +278,46 @@
       padding-top: 12px;
     }
     .escalation-banner.expanded .escalation-panel { display: block; }
+    /* A doctor's question about a practice reads differently from an overdue
+       auto-escalation — blue, not red: it is someone waiting on us, not
+       something that has gone wrong. */
+    .esc-enq-chip {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(59,130,246,0.16);
+      border: 1px solid rgba(59,130,246,0.4);
+      color: #93c5fd;
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 11.5px;
+      font-weight: 700;
+      white-space: nowrap;
+      margin-left: 8px;
+    }
+    .esc-enq-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(59,130,246,0.16);
+      border: 1px solid rgba(59,130,246,0.4);
+      color: #93c5fd;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .esc-enq-question {
+      margin: 6px 0 8px;
+      padding: 8px 12px;
+      border-left: 3px solid rgba(59,130,246,0.55);
+      background: rgba(59,130,246,0.07);
+      border-radius: 0 6px 6px 0;
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: var(--text, #e5e7eb);
+    }
     .esc-item {
       background: rgba(0,0,0,0.2);
       border: 1px solid rgba(255,255,255,0.04);
@@ -1954,14 +1994,32 @@
     }
 
     /* ── Escalation Banner ── */
+    // Keyed on source_trigger (a real column), never on the title text — the
+    // title is human copy and will get reworded; the trigger is the contract
+    // written by POST /api/career/match/respond action:'enquire'.
+    function isEnquiryEsc(e) {
+      return !!e && e.source_trigger === 'career_match_enquiry';
+    }
+
     function renderEscalationBanner(escs) {
       if (!escs || escs.length === 0) return '';
-      var names = escs.map(function(e) { return e.gp_name; }).join(', ');
+      // A doctor asking about a practice is a different animal from an
+      // overdue-task auto-escalation, and collapsed they all read as a bare
+      // list of names (owner report 2026-07-29). Enquiries name themselves —
+      // their title already carries the exact practice — so show that instead
+      // of just the doctor's name, and lead the summary with the count.
+      var enqCount = escs.filter(isEnquiryEsc).length;
+      var names = escs.map(function(e) {
+        return isEnquiryEsc(e) ? ('\u{1FA7A} ' + e.title) : e.gp_name;
+      }).join(', ');
       var html = '<div class="escalation-banner visible" id="escBanner" onclick="toggleEscBanner()">';
       html += '<div class="escalation-banner-row">';
       html += '<div class="escalation-banner-left">';
       html += '<div class="esc-icon">&#x1F6A8;</div>';
       html += '<span class="esc-count">' + escs.length + ' escalation' + (escs.length === 1 ? '' : 's') + ' require CEO attention</span>';
+      if (enqCount) {
+        html += '<span class="esc-enq-chip">' + enqCount + ' GP question' + (enqCount === 1 ? '' : 's') + ' about a practice</span>';
+      }
       html += '<span class="esc-names">' + esc(names) + '</span>';
       html += '</div>';
       html += '<div class="esc-expand-hint"><span class="arrow">&#x25BC;</span></div>';
@@ -1973,14 +2031,23 @@
         html += '<div class="esc-item" data-task-id="' + esc(e.task_id) + '" data-case-id="' + esc(e.case_id) + '" data-user-id="' + esc(e.user_id) + '">';
         html += '<div class="esc-item-top">';
         html += '<div class="esc-item-info">';
-        html += '<div class="esc-item-gp">' + esc(e.gp_name) + '</div>';
+        var isEnq = isEnquiryEsc(e);
+        html += '<div class="esc-item-gp">' + esc(e.gp_name)
+          + (isEnq ? '<span class="esc-enq-badge">&#x1FA7A; GP question about a practice</span>' : '')
+          + '</div>';
         html += '<div class="esc-item-title">' + esc(e.title) + '</div>';
+        // For an enquiry the "reason" IS the doctor's question — show it as a
+        // quoted question in its own block, not squashed into the grey meta
+        // row beside timestamps.
+        if (isEnq && e.reason) {
+          html += '<div class="esc-enq-question">&ldquo;' + esc(e.reason) + '&rdquo;</div>';
+        }
         html += '<div class="esc-item-meta">';
         html += '<span><span class="pill ' + pillClass(e.stage) + '">' + esc(STAGE_LABELS[e.stage] || e.stage) + '</span></span>';
         html += '<span>' + priorityPill(e.priority) + '</span>';
-        html += '<span>Escalated by ' + esc(e.escalated_by) + '</span>';
+        html += '<span>' + (isEnq ? 'Asked by the doctor' : 'Escalated by ' + esc(e.escalated_by)) + '</span>';
         html += '<span>' + relativeTime(e.escalated_at) + '</span>';
-        if (e.reason) html += '<span style="color:var(--text-muted)">' + esc(e.reason) + '</span>';
+        if (e.reason && !isEnq) html += '<span style="color:var(--text-muted)">' + esc(e.reason) + '</span>';
         html += '</div>';
         html += '</div>';
         html += '</div>';
