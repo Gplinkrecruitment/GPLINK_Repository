@@ -31541,6 +31541,33 @@ async function acceptShortlistedMatchRow(row, userId, actorEmail, profile) {
   return { updatedRow: updatedRow, job: job, caseId: caseId };
 }
 
+// `gp_applications.applied_at` carries TWO meanings, and only one of them is
+// in the name. The column is `NOT NULL DEFAULT now()` and the table has no
+// created_at (see the note above the /api/ats/attention pull, ~66400), so the
+// rest of the app leans on it as the row-CREATION stamp: the 24h velocity
+// count, the weekly analytics buckets, and every `order=applied_at.desc`.
+// A shortlist INSERT creates a row, so the default fires and the row carries
+// an "applied" timestamp for something the doctor has not answered yet.
+//
+// We deliberately do NOT null the column to fix that. It is the only creation
+// stamp those readers have, and making it nullable would flip
+// `order=applied_at.desc` to NULLS FIRST — silently reordering (and, under a
+// `limit`, truncating) the admin lists that depend on it.
+//
+// What we CAN do is stop presenting a creation stamp as an application date.
+// A row still sitting at the shortlisted stage is an unanswered match;
+// acceptShortlistedMatchRow above is what stamps the real moment. Every API
+// boundary that hands a timestamp to a screen goes through this predicate, so
+// no screen has to remember to check the status for itself — which is exactly
+// the trap flagged as open item 3 in the 2026-07-28 matching-flow handover.
+function careerRowIsPendingMatch(row) {
+  if (!row) return false;
+  if (String(row.match_outcome || '').trim().toLowerCase() === 'accepted') return false;
+  var pmStage = String(row.ats_stage || '').trim().toLowerCase();
+  var pmStatus = String(row.status || '').trim().toLowerCase();
+  return pmStage === 'shortlisted' || pmStatus === 'shortlisted';
+}
+
 // Velocity flag: 5+ NEW self-applies in the last 24h is a "burst-clicking,
 // not genuine intent" red flag for the team (spec §9) — team-only, never
 // shown to the GP. countApplicationsInLast24h counts ALL of this user's
@@ -43394,9 +43421,15 @@ async function handleApi(req, res, pathname) {
         contractStage: (localApp && localApp.id !== undefined && localApp.id !== null)
           ? (contractStageMap[String(localApp.id)] || null)
           : null,
-        appliedAt: (localApp && localApp.applied_at)
-          || getZohoField(liveRecord, ['Created_Time', 'Modified_Time', 'Updated_On'])
-          || new Date().toISOString(),
+        // null for an unanswered match — see careerRowIsPendingMatch. Checked
+        // BEFORE the fallback chain on purpose: falling through would let
+        // Created_Time (or worse, now()) stand in as an application date the
+        // doctor never set. career.html renders null as "—".
+        appliedAt: careerRowIsPendingMatch(localApp)
+          ? null
+          : ((localApp && localApp.applied_at)
+            || getZohoField(liveRecord, ['Created_Time', 'Modified_Time', 'Updated_On'])
+            || new Date().toISOString()),
         role: roleClient,
         placement
       };
@@ -44109,7 +44142,10 @@ async function handleApi(req, res, pathname) {
         ? detailPresentation.offerPending
         : detailZohoOfferPending,
       contractStage: detailContractStage,
-      appliedAt: appRow.applied_at || new Date().toISOString(),
+      // null for an unanswered match (careerRowIsPendingMatch). This page
+      // bounces pending matches to the practice page today, so this is the
+      // belt to that braces — a future entry point can't resurrect the stamp.
+      appliedAt: careerRowIsPendingMatch(appRow) ? null : (appRow.applied_at || new Date().toISOString()),
       role: roleClient,
       placement,
       interview,
@@ -45744,7 +45780,7 @@ async function handleApi(req, res, pathname) {
           gp_name: gpName,
           job_title: roleTitleMap[String(app.career_role_id)] || 'General Practitioner',
           status: app.status || 'applied',
-          applied_at: app.applied_at || ''
+          applied_at: careerRowIsPendingMatch(app) ? '' : (app.applied_at || '')
         });
       }
       sendJson(res, 200, { ok: true, applications: enriched });
@@ -63002,7 +63038,8 @@ Return ONLY valid JSON with no markdown formatting:
           application_id: a.id, user_id: a.user_id, gp_name: dGpName(a.user_id), gp_email: dGpEmail(a.user_id),
           role_title: role.title || 'GP Role', practice_name: role.practice_name || a.practice_contact_name || '',
           location: role.location_label || '', status: a.status, practice_submission_status: a.practice_submission_status,
-          applied_at: a.applied_at, submitted_to_practice_at: a.submitted_to_practice_at,
+          applied_at: careerRowIsPendingMatch(a) ? null : a.applied_at,
+          submitted_to_practice_at: a.submitted_to_practice_at,
           interview_date: interview ? interview.scheduled_at : null, interview_status: interview ? interview.status : null
         };
       });
@@ -64978,6 +65015,11 @@ Return ONLY valid JSON with no markdown formatting:
         // (owner report 2026-07-27). Set it explicitly here; the accept path
         // moves it to 'applied' at the moment they actually apply.
         status: 'shortlisted',
+        // NOTE: `applied_at` is intentionally left to the column default here.
+        // It is this row's CREATION stamp, not an application date — the
+        // doctor has not applied yet, and acceptShortlistedMatchRow stamps the
+        // real moment. Never surface it as "applied" without going through
+        // careerRowIsPendingMatch.
         ats_stage: 'shortlisted', origin: 'ai_matched', revealed: true,
         job_title: msJob.title, practice_name: msJob.practice_name || '',
         match_score: msCacheEntry ? msCacheEntry.score : null,
@@ -66693,7 +66735,11 @@ Return ONLY valid JSON with no markdown formatting:
         role_title: role.title || 'General Practitioner',
         practice_name: role.practice_name || '',
         role_location: [role.location_city, role.location_state].filter(Boolean).join(', '),
-        applied_at: a.applied_at || null,
+        // The naFresh filter above already keeps this queue to ats_stage
+        // 'applied', so a pending match cannot reach here — but the CEO row
+        // renders this verbatim as "applied <time> ago" (ceo-ats-candidates.js),
+        // so it goes through the same predicate as every other boundary.
+        applied_at: careerRowIsPendingMatch(a) ? null : (a.applied_at || null),
         ats_stage: a.ats_stage || 'applied',
         practice_submission_status: subStatus,
         can_submit_to_practice: subStatus === 'pending_va_submission' && !a.zoho_submission_id,
