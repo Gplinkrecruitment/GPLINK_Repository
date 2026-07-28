@@ -172,9 +172,24 @@ both. Pages themselves are `must-revalidate`, so HTML changes need no bump.
    2026-07-28); the live flow uses `scheduled_calls` with
    `meeting_kind='interview'`. ⚠️ **Do not revive that route without wiring
    completion**, or you reintroduce exactly the stall item 1 warned about.
-3. **`applied_at` is stamped at shortlist time**, before the doctor applies.
-   Harmless today (the accept path overwrites it) but wrong if a screen ever
-   reads it without checking status.
+3. ~~**`applied_at` is stamped at shortlist time**, before the doctor applies.~~
+   **FIXED 2026-07-28 (third session).** The column still is, and must stay,
+   stamped at insert: it is `NOT NULL DEFAULT now()`, the table has no
+   `created_at`, and the analytics buckets, the 24h velocity count and every
+   `order=applied_at.desc` read it as the row's CREATION time. Nulling it
+   would need a prod migration *and* would flip those ordered queries to
+   NULLS FIRST, silently reordering and truncating the `limit`-ed admin lists.
+   What changed is the presentation: `careerRowIsPendingMatch(row)` (next to
+   `acceptShortlistedMatchRow`) gates **every** API boundary that hands the
+   value to a screen — `/api/career/applications`, `/api/career/application`,
+   the CEO new-applications queue, the placements list, the admin applications
+   list — so an unanswered match returns `appliedAt: null` and `career.html`
+   renders "—". The doctor-facing checks run BEFORE the
+   `Created_Time`/`now()` fallback chain, or the fallback would just
+   re-introduce a date the doctor never set. Regression test:
+   `tests/career-internal-apply.test.js` → "an unanswered match has no applied
+   date". **If you add a new reader, go through the predicate — do not read
+   `applied_at` and call it an application date.**
 4. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
    and the zoomless cron branch stamp — so it is not Zoom-only. Cadence: day 3,
    day 5, owner escalation day 7, weekends skipped for practice-facing sends

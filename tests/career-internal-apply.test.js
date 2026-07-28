@@ -21,6 +21,8 @@ const nonRestRequests = [];
 
 const GP = { userId: 'u-gp-1', email: 'gp@gplink-test.local' };
 const PLACED = { userId: 'u-placed-1', email: 'placed@gplink-test.local' };
+// Holds a live AI match they have NOT answered yet — see the applied_at suite.
+const MATCHED = { userId: 'u-matched-1', email: 'matched@gplink-test.local' };
 const NOW = new Date().toISOString();
 
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
@@ -32,11 +34,13 @@ const db = {
     // registration_country) here since this file tests internal-ATS
     // visibility/apply mechanics, not the DPA gate.
     { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' },
-    { user_id: PLACED.userId, email: PLACED.email, first_name: 'Placed', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' }
+    { user_id: PLACED.userId, email: PLACED.email, first_name: 'Placed', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' },
+    { user_id: MATCHED.userId, email: MATCHED.email, first_name: 'Matched', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: PLACED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    { user_id: PLACED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+    { user_id: MATCHED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   user_documents: [
     // Task 4: /api/career/apply's CV gate now requires the verified careers
@@ -61,7 +65,12 @@ const db = {
   ],
   gp_applications: [
     // The placed GP's secured placement (what the guard must find).
-    { id: 'app-placed-1', user_id: PLACED.userId, career_role_id: 'role-manual', provider_role_id: 'man_1', status: 'hired', applied_at: NOW }
+    { id: 'app-placed-1', user_id: PLACED.userId, career_role_id: 'role-manual', provider_role_id: 'man_1', status: 'hired', applied_at: NOW },
+    // A live match the doctor has NOT answered. The shortlist INSERT lets
+    // applied_at fall to the column default (NOT NULL DEFAULT now()), so the
+    // row carries a timestamp while it is still 'shortlisted' — that stamp is
+    // the row's creation time, NOT an application date.
+    { id: 'app-matched-1', user_id: MATCHED.userId, career_role_id: 'role-manual', provider_role_id: 'man_1', status: 'shortlisted', ats_stage: 'shortlisted', origin: 'ai_matched', revealed: true, applied_at: NOW, matched_at: NOW }
   ]
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -368,5 +377,40 @@ describe('GET /api/career/applications — identity reveal gate', () => {
     expect(maskedEntry).toBeTruthy();
     expect(maskedEntry.role.practiceName).not.toBe('Zoho Practice');
     expect(res.raw).not.toContain('Zoho Practice');
+  });
+});
+
+// Handover 2026-07-28, open item 2. `gp_applications.applied_at` is
+// NOT NULL DEFAULT now() and doubles as the row-creation stamp (there is no
+// created_at column), so a shortlist insert stamps it before the doctor has
+// applied to anything. The column keeps that job — the analytics buckets, the
+// 24h velocity count and every `order=applied_at.desc` depend on it — but no
+// screen may present it as an application date until the match is accepted.
+describe('GET /api/career/applications — an unanswered match has no applied date', () => {
+  it('does not pass the shortlist creation stamp off as an application date', async () => {
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(MATCHED.email, MATCHED.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const entry = res.body.applications.find((a) => String(a.id) === 'app-matched-1');
+    expect(entry).toBeTruthy();
+    expect(entry.appliedAt).toBeNull();
+    // Null, not a fallback: the pending-match check runs BEFORE the
+    // Created_Time/now() chain, so nothing stands in for the missing date.
+    expect(entry.appliedAt).not.toBe(NOW);
+    // The stored column is untouched — it is still the row's creation time.
+    expect(db.gp_applications.find((a) => a.id === 'app-matched-1').applied_at).toBe(NOW);
+  });
+
+  it('presents a real applied date once the doctor accepts the match', async () => {
+    const row = db.gp_applications.find((a) => a.id === 'app-matched-1');
+    row.status = 'applied';
+    row.ats_stage = 'applied';
+    row.match_outcome = 'accepted';
+
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(MATCHED.email, MATCHED.userId) });
+    expect(res.status).toBe(200);
+    const entry = res.body.applications.find((a) => String(a.id) === 'app-matched-1');
+    expect(entry).toBeTruthy();
+    expect(entry.appliedAt).toBe(NOW);
   });
 });
