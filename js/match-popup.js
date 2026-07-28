@@ -218,7 +218,7 @@
       reasonsHtml + videoHtml +
       '<div class="gpmp-stat"><div class="gpmp-pct">98%</div><div class="gpmp-lbl"><b>of team-matched GPs are accepted by the practice.</b></div></div>' +
       '<div class="gpmp-cd">⏳ This match is reserved for you ' + reserveInnerHtml + '</div>' +
-      '<button type="button" class="gpmp-accept shiny" data-gpmp-accept>Accept this match</button>' +
+      '<button type="button" class="gpmp-accept shiny" data-gpmp-accept>Fast-track to Interview</button>' +
       '<a href="#" class="gpmp-later" data-gpmp-later>I’ll look at this later</a>'
     );
   }
@@ -323,10 +323,10 @@
             return;
           }
           acceptEl.disabled = false;
-          acceptEl.textContent = "Accept this match";
+          acceptEl.textContent = "Fast-track to Interview";
         }).catch(function () {
           acceptEl.disabled = false;
-          acceptEl.textContent = "Accept this match";
+          acceptEl.textContent = "Fast-track to Interview";
         });
       });
     }

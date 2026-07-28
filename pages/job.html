@@ -795,6 +795,12 @@
       transition: all .16s var(--at-ease);
     }
     .at-bsave.on { color: var(--gp-blue, #2563eb); border-color: var(--gp-blue-border, #d6e2fb); background: var(--gp-blue-soft, #eff4ff); }
+    /* MUST come after the display:grid above — a class selector beats the
+       browser's built-in [hidden]{display:none}, so without this the JS
+       `saveBtnEl.hidden = true` sets the attribute and nothing visibly
+       changes (observed 2026-07-29: the bookmark stayed on screen in match
+       mode even though the code had "hidden" it). */
+    .at-bsave[hidden] { display: none; }
     .at-bapply {
       flex: 1;
       background: linear-gradient(135deg, #2e6bf0, #1d4ed8);
@@ -1858,11 +1864,20 @@
     dheadEl.innerHTML =
       '<div class="at-dhtags">' +
         '<span class="at-dpill">' + AT_CHECK_SVG + pillText + '</span>' +
-        '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>' +
+        // Once identity is unlocked this meta line is pure duplication — the
+        // billing/role detail is already in the chips and the body below, and
+        // it read as a second, competing title next to the practice name
+        // (owner call 2026-07-29). Masked view still needs it: pre-reveal it
+        // is the only thing describing the role.
+        (revealed ? "" : '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>') +
       '</div>' +
       '<h1 class="at-dtitle">' + escapeHtml(headline) + '</h1>' +
-      (locText ? '<p class="at-dloc">' + AT_PIN_SVG + escapeHtml(locText) + '</p>' : "") +
-      (website ? '<a class="at-dweb" href="' + escapeHtml(website) + '" target="_blank" rel="noopener noreferrer">🌐 ' + escapeHtml(websiteLabel) + ' ↗</a>' : "");
+      // Website sits directly under the practice name (owner call 2026-07-29):
+      // the moment they learn WHO the practice is, the next thing they want is
+      // to go look at it — so it must be the first thing under the name, not
+      // stranded below the address.
+      (website ? '<a class="at-dweb" href="' + escapeHtml(website) + '" target="_blank" rel="noopener noreferrer">🌐 ' + escapeHtml(websiteLabel) + ' ↗</a>' : "") +
+      (locText ? '<p class="at-dloc">' + AT_PIN_SVG + escapeHtml(locText) + '</p>' : "");
   }
 
   /* ── Hero photo / scenery ── */
@@ -2995,7 +3010,11 @@
       idle: activeMatch
         ? {
             cls: "at-bapply",
-            html: "Accept this match<small>" + escapeHtml(formatMatchCountdown(activeMatch.expiresAt).label) + " — your spot is reserved until then</small>",
+            // "Fast-track to Interview", not "Accept" (owner call 2026-07-29):
+            // accepting a match only puts the doctor in front of the practice
+            // for an interview — it commits them to nothing. "Accept" read as
+            // "I'm taking this job", which made a low-stakes step feel binding.
+            html: "Fast-track to Interview<small>" + escapeHtml(formatMatchCountdown(activeMatch.expiresAt).label) + " — your spot is reserved until then</small>",
             disabled: false
           }
         : {
@@ -3244,13 +3263,13 @@
     // really an accept — server-side this is still just /api/career/apply,
     // merged into accepting the match on a live-shortlisted row.
     const activeMatch = getActiveMatch(currentRole);
-    applyConfirmTitleEl.textContent = activeMatch ? "Accept this match?" : "Apply for this role?";
+    applyConfirmTitleEl.textContent = activeMatch ? "Fast-track to interview?" : "Apply for this role?";
     applyConfirmIntroEl.textContent = activeMatch
-      ? "We'll confirm your interest with the practice. You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about."
+      ? "This puts you in front of the practice for an interview — it does not commit you to the role. You can interview for up to 3 positions per month, so use it on the ones you're genuinely serious about."
       : "You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.";
     applyConfirmMeterEl.textContent = "";
     applyConfirmBtnEl.disabled = false;
-    applyConfirmBtnEl.textContent = activeMatch ? "Accept" : "Apply";
+    applyConfirmBtnEl.textContent = activeMatch ? "Fast-track me" : "Apply";
     applyConfirmOverlayEl.hidden = false;
     // Best-effort meter — graceful if the fetch fails: the cap note above
     // still shows, just without the "N of 3 used" line.
