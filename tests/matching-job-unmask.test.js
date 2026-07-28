@@ -139,6 +139,34 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('the bookmark is hidden in match mode so it cannot be mis-tapped next to Accept', () => {
     expect(jobHtml).toContain('saveBtnEl.hidden = matchActionable');
+    // The class selector .at-bsave{display:grid} outranks the browser's
+    // [hidden]{display:none}, so setting the attribute alone did nothing on
+    // screen (owner report 2026-07-29). The override must exist.
+    expect(jobHtml).toContain('.at-bsave[hidden] { display: none; }');
+  });
+
+  it('an enquiry is filed as an ESCALATION, so it shows without opening the doctor file', () => {
+    const idx = serverSrc.indexOf("if (mrAction === 'enquire') {");
+    expect(idx).toBeGreaterThan(-1);
+    const branch = serverSrc.slice(idx, idx + 6000);
+    // The CEO dashboard has no task-list tab — a plain 'open' task would only
+    // be reachable by opening that one doctor's file.
+    expect(branch).toContain("status: 'escalated'");
+    expect(branch).toContain('escalated_reason: mrEnqMessage');
+    expect(branch).toContain("source_trigger: 'career_match_enquiry'");
+    // A question must never answer the match.
+    expect(branch).not.toContain('ats_stage:');
+    expect(branch).not.toContain('match_outcome:');
+  });
+
+  it('a second question appends to the open escalation instead of stacking a new one', () => {
+    const idx = serverSrc.indexOf("if (mrAction === 'enquire') {");
+    const branch = serverSrc.slice(idx, idx + 6000);
+    expect(branch).toContain('Follow-up question (');
+    expect(branch).toContain('mrEnqWasFollowUp = true');
+    // Nothing may respond from inside the write try/catch — a throw after a
+    // sendJson would fall through and send a second response.
+    expect(branch).toContain('NOTHING responds from inside');
   });
 
   it('enquire posts action:"enquire" and never answers the match', () => {
