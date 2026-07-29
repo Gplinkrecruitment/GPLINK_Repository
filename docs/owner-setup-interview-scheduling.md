@@ -12,11 +12,13 @@ When you click **Book interview** on a candidate's application in the Jobs board
 
 ## Setup Step 1 — Connect your Google Calendar (the main step)
 
-> 📌 **Verified 2026-07-29: this step was never completed.** A live interview row
-> in production was carrying the `gcal_local_1` placeholder the app writes when
-> no calendar is configured. For a click-by-click walkthrough of the Google
-> Workspace, Vercel and Calendly parts — including where to find the Client ID
-> and how to confirm it worked — see
+> ✅ **Done 2026-07-29 — the calendar is connected.** It had never been done
+> until then (a live interview row was carrying the `gcal_local_1` placeholder
+> the app writes when no calendar is configured). Confirmed via the CEO
+> dashboard → Technical → *Google Calendar (interview clashes)* card:
+> `CONNECTED`, `interview clash protection: active`, `ping ok: Yes`.
+> That card is now the way to check this at any time. The click-by-click record
+> of what was configured is in
 > [`connect-google-calendar-walkthrough.md`](connect-google-calendar-walkthrough.md).
 > The summary below stays as the "why".
 

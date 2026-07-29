@@ -8,10 +8,23 @@ go wrong, both silently:
 2. Calendly can book a consultation straight over an interview, because the
    interview was never written to the calendar Calendly checks.
 
-**Verified state on 2026-07-29:** not connected. A live interview row in the
-production database was carrying `gcal_local_1` — the placeholder the app writes
-when it finds no calendar configured. The feature itself is fully built and has
-been for weeks; only the connection was missing.
+## ✅ Status: CONNECTED as of 2026-07-29
+
+This was completed on 2026-07-29. The Technical card reports `CONNECTED`,
+`interview clash protection: active`, and — the line that actually matters —
+`ping ok: Yes` at 203ms, meaning a live freebusy read against Google succeeded.
+Settings being present is not the same as the permission working; the ping is
+what proves it.
+
+**Leave the steps below in place.** They are the record of what was done, and
+what to redo if the service account key is rotated, the Workspace delegation is
+edited, or the Vercel variables are lost.
+
+**History:** before this, the calendar had never been connected. A live
+interview row in production was carrying `gcal_local_1` — the placeholder the
+app wrote when it found no calendar configured. The feature itself had been
+fully built for weeks; only the connection was missing, and nothing anywhere
+reported that, which is why the Technical card now exists.
 
 **How to confirm you're done:** open the CEO dashboard → **Technical** tab. There
 is now a **Google Calendar (interview clashes)** card. It reads *Connected* only
