@@ -1397,9 +1397,30 @@
         document.getElementById("roleTitle").textContent = app.roleTitle || role.roleType || "General Practitioner";
         document.getElementById("roleLocation").textContent = locationText;
 
-        // Action links
-        if (app.roleId) {
-          document.getElementById("viewRoleBtn").href = "career.html";
+        // Action links — "View Practice" must open THIS role's page (practice
+        // name, website, address, map), not the generic careers list. It sent
+        // everyone to career.html, which shows no practice detail at all
+        // (owner report 2026-07-30). Same target the matched-status redirect
+        // above already uses, so the two agree.
+        var viewRoleBtnEl = document.getElementById("viewRoleBtn");
+        if (viewRoleBtnEl) {
+          var viewRoleId = app.roleId || (app.role && app.role.id) || roleId || "";
+          var viewRoleHref = viewRoleId ? ("job?id=" + encodeURIComponent(viewRoleId)) : "career";
+          viewRoleBtnEl.href = viewRoleHref;
+          // Inside the app shell an in-iframe navigation would strand the
+          // bottom nav on the wrong route — hand it to the shell instead.
+          if (viewRoleBtnEl.dataset.wired !== "1") {
+            viewRoleBtnEl.dataset.wired = "1";
+            viewRoleBtnEl.addEventListener("click", function (ev) {
+              var href = viewRoleBtnEl.getAttribute("href") || "";
+              if (!href) return;
+              if (document.documentElement.classList.contains("gp-shell-embedded")
+                  && window.parent !== window && window.parent.gpShellNavigate) {
+                ev.preventDefault();
+                window.parent.gpShellNavigate("/pages/" + href);
+              }
+            });
+          }
         }
 
         // Join interview button — validate URL scheme before opening. Wired

@@ -692,6 +692,35 @@
     .at-noa--revealed { background: linear-gradient(120deg, #0c2e66 0%, #0d5ee0 55%, #2b8ef0 100%); }
     .at-noa--revealed .at-noa-tag { color: #d6e7ff; }
 
+    /* Practice profile card under the map — the blue border the owner asked
+       for, echoing the unlocked-identity treatment above without repeating
+       its full dark gradient (two heavy blue blocks on one page reads as a
+       duplicate rather than a second, quieter reference). */
+    .at-ppcard {
+      margin-top: 10px; padding: 14px 15px;
+      background: var(--gp-surface, #fff);
+      border: 2px solid var(--gp-blue, #2563eb);
+      border-radius: var(--gp-r-lg, 18px);
+      box-shadow: 0 10px 24px -18px rgba(37, 99, 235, .55);
+    }
+    .at-ppcard-tag {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--gp-blue, #2563eb);
+    }
+    .at-ppcard-tag svg { width: 13px; height: 13px; }
+    .at-ppcard-name { margin-top: 6px; font-size: 17px; font-weight: 800; color: var(--gp-text, #0f172a); }
+    .at-ppcard-web {
+      display: inline-block; margin-top: 5px; font-size: 13px; font-weight: 700;
+      color: var(--gp-blue, #2563eb); text-decoration: none; word-break: break-all;
+    }
+    .at-ppcard-web:hover { text-decoration: underline; }
+    .at-ppcard-addr {
+      display: flex; align-items: flex-start; gap: 6px;
+      margin-top: 8px; font-size: 13px; color: var(--gp-muted, #64748b);
+    }
+    .at-ppcard-addr svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+
     /* ── "The package" headline figures + grouped rows (mockup: .headline /
        .panel / .prow). Distinct classnames from the pre-existing
        .at-earnrow/.at-cell grid — that pair still renders offer-mode's
@@ -2248,6 +2277,30 @@
      component — restyled, never re-decided — shown open/unlocked with the
      real name + address. This function is shared with offer-mode
      (renderOfferBody), so both surfaces pick up the new look together. ── */
+  /* Practice profile card, blue-bordered, rendered directly UNDER the map.
+     The map answers "where", so the practice it belongs to — name, website,
+     address — belongs right beneath it rather than only in the identity bar
+     at the top of the page (owner request 2026-07-30: "the practice profile
+     should also be under the map in roles, with a blue border around it as it
+     had during the accept interview stage"). Revealed-only: pre-reveal there
+     is no name, website or address to show, and the masked identity bar above
+     already explains why. */
+  function buildPracticeProfileCardHtml(role) {
+    const revealed = !!(role && role.revealed && role.realPracticeName);
+    if (!revealed) return "";
+    const website = matchSafeUrl(role.website);
+    const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
+    const address = String(role.practiceAddress || "").trim();
+    return '<div class="at-ppcard at-rv">' +
+      '<div class="at-ppcard-tag">' + AT_CHECK_SVG + 'PRACTICE PROFILE</div>' +
+      '<div class="at-ppcard-name">' + escapeHtml(role.realPracticeName) + '</div>' +
+      (website
+        ? '<a class="at-ppcard-web" href="' + escapeHtml(website) + '" target="_blank" rel="noopener">' + escapeHtml(websiteLabel) + '</a>'
+        : "") +
+      (address ? '<div class="at-ppcard-addr">' + AT_PIN_SVG + ' ' + escapeHtml(address) + '</div>' : "") +
+    '</div>';
+  }
+
   function buildPracticeIdentityHtml(role) {
     const revealed = !!(role && role.revealed && role.realPracticeName);
     if (revealed) {
@@ -2729,6 +2782,7 @@
       buildPracticeIdentityHtml(role) +
       buildIntroVideoHtml(role) +
       buildMapHtml(role) +
+      buildPracticeProfileCardHtml(role) +
       buildOfferSupportHtml();
     if (accepted) renderSched();
     requestAnimationFrame(initAtMaps);
@@ -3035,6 +3089,7 @@
       buildPracticeFactsHtml(role) +
       buildIntroVideoHtml(role) +
       buildMapHtml(role) +
+      buildPracticeProfileCardHtml(role) +
       buildMatchBannerHtml(role) +
       buildMatchWhyHtml(role) +
       buildSupportHtml();

@@ -840,7 +840,9 @@
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
         '</div>' +
+        aiMatchLineHtml(a) +
         markPlacementLineHtml(a) +
+        appActionsRowHtml(a) +
       '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
 
@@ -893,6 +895,67 @@
     var when = fmtOfferDate(a.withdrawn_at);
     return '<span class="ats-pill red ats-app-withdrawn" style="font-weight:600">Candidate withdrew' +
       (when ? ' · ' + ATS.esc(when) : '') + '</span>';
+  }
+
+  /* ---- AI match line (owner request 2026-07-30) ----
+   * gp_applications.match_score / match_reasons are populated when the team
+   * SHORTLISTS a GP through the Matching board. A GP who applies directly from
+   * the app never goes through that path, so both are null and staff had no
+   * signal at all about fit — exactly the case the owner flagged. Show the
+   * score + reasons when we have them, and otherwise offer to score it on the
+   * spot (POST /api/ats/application/ai-match, which reuses the same cached
+   * per-GP ranking the Matching board uses — no new AI prompt). */
+  function matchScoreColour(score) {
+    if (score >= 80) return 'var(--ats-green)';
+    if (score >= 60) return 'var(--ats-amber)';
+    return 'var(--ats-dim)';
+  }
+  function aiMatchLineHtml(a) {
+    var score = (a.match_score != null && a.match_score !== '') ? Number(a.match_score) : null;
+    // Two shapes reach the drawer: atsApplicationToCard flattens match_reasons
+    // to a plain array, while the candidate-facts builders select=* and hand
+    // back the raw column ({reasons:[...], _history:[...]}). Accept both — a
+    // shape check that only knew one of them silently showed "not scored" on
+    // a row that HAD a score.
+    var rawReasons = a.match_reasons;
+    var reasons = Array.isArray(rawReasons)
+      ? rawReasons
+      : ((rawReasons && typeof rawReasons === 'object' && Array.isArray(rawReasons.reasons)) ? rawReasons.reasons : []);
+    reasons = reasons.filter(function (r) { return typeof r === 'string' && r.trim(); });
+    var inner;
+    if (score != null && !isNaN(score)) {
+      inner = '<span class="ats-aimatch-score" style="font-weight:700;color:' + matchScoreColour(score) + '">' + Math.round(score) + '% match</span>' +
+        (reasons.length
+          ? '<span class="ats-aimatch-why" style="color:var(--ats-dim);font-size:11.5px;margin-left:8px">' + ATS.esc(reasons.join(' · ')) + '</span>'
+          : '') +
+        ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-ai-match" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Re-score</button>';
+    } else {
+      inner = '<span class="ats-aimatch-none" style="color:var(--ats-dim);font-size:11.5px">Not scored — this GP applied directly</span>' +
+        ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-ai-match" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Score with AI</button>';
+    }
+    return '<div class="ats-app-interview ats-app-aimatch"><span class="ats-app-lbl">AI match</span>' + inner + '</div>';
+  }
+
+  /* ---- Per-application action row (owner request 2026-07-30) ----
+   * Submit to practice and Withdraw existed ONLY in the "New applications"
+   * queue tile, so opening the application itself offered no way to action it.
+   * Both live here too now, alongside jumps to the Jobs and Practices tabs. */
+  function appActionsRowHtml(a) {
+    var appId = ATS.escAttr(String(a.id));
+    var btns = [];
+    // Withdraw stays available while the application is still live — a
+    // terminal card (withdrawn by the doctor, or already not_proceeding) has
+    // nothing left to withdraw.
+    var live = !isWithdrawn(a) && a.ats_stage !== 'not_proceeding' && a.ats_stage !== 'hired';
+    if (live) {
+      btns.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-app-withdraw" data-app-id="' + appId + '">Withdraw</button>');
+    }
+    btns.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-goto-jobs">Job board ↗</button>');
+    btns.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-goto-practices">Practice listing ↗</button>');
+    return '<div class="ats-app-interview ats-app-actions" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:8px;padding-top:10px">' +
+      '<span class="ats-app-lbl">Actions</span>' +
+      '<span style="display:flex;gap:8px;flex-wrap:wrap">' + btns.join('') + '</span>' +
+    '</div>';
   }
 
   function submitPracticeLineHtml(a) {
@@ -1062,6 +1125,47 @@
         window.atsOpenCandidate(c.case_id);
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not restore the intent score.');
+      }
+    });
+  }
+
+  /* Withdraw from inside the application drawer. Same endpoint and same
+     optional-reason prompt as the queue button, so both routes write the same
+     stage event (and the same late-withdrawal strike data) — and the server's
+     stage-change notifier tells the doctor gently either way. Reloads the
+     drawer rather than the queue, since that's what's on screen. */
+  function withdrawFromDrawer(appId, c, btn) {
+    if (!appId) return;
+    openWithdrawReasonPrompt(function (reason) {
+      if (btn) { btn.disabled = true; btn.textContent = 'Withdrawing…'; }
+      var body = { stage: 'not_proceeding' };
+      if (reason) body.reason = reason;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
+        if (res && res.ok) {
+          ATS.toast('Application withdrawn — the doctor has been told.');
+          if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+          window.atsOpenCandidate(c.case_id);
+        } else {
+          ATS.toast((res && (res.error || res.message)) || 'Could not withdraw the application.');
+          if (btn) { btn.disabled = false; btn.textContent = 'Withdraw'; }
+        }
+      });
+    }, function () { /* cancelled — leave the row as-is */ });
+  }
+
+  /* Score one application with AI and persist it onto the row, so a direct
+     applicant gets the same match % + reasons a shortlisted GP already has. */
+  function scoreApplicationWithAi(appId, c, btn) {
+    if (!appId) return;
+    var original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Scoring…'; }
+    ATS.api('/api/ats/application/ai-match', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast(res.score != null ? ('AI match: ' + Math.round(res.score) + '%') : 'Scored.');
+        window.atsOpenCandidate(c.case_id);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not score this application.');
+        if (btn) { btn.disabled = false; btn.textContent = original || 'Score with AI'; }
       }
     });
   }
@@ -1624,6 +1728,14 @@
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
       var submitPracticeBtn = e.target.closest('.ats-submit-practice');
       if (submitPracticeBtn) { submitToPractice(submitPracticeBtn.getAttribute('data-app-id'), c, submitPracticeBtn); return; }
+      // Per-application actions (2026-07-30): withdraw + jumps to Jobs /
+      // Practices, so the application itself is actionable, not just the queue.
+      var appWithdrawBtn = e.target.closest('.ats-app-withdraw');
+      if (appWithdrawBtn) { withdrawFromDrawer(appWithdrawBtn.getAttribute('data-app-id'), c, appWithdrawBtn); return; }
+      if (e.target.closest('.ats-goto-jobs')) { if (window.ATS && ATS.showMaster) ATS.showMaster('jobs'); return; }
+      if (e.target.closest('.ats-goto-practices')) { if (window.ATS && ATS.showMaster) ATS.showMaster('practices'); return; }
+      var aiMatchBtn = e.target.closest('.ats-ai-match');
+      if (aiMatchBtn) { scoreApplicationWithAi(aiMatchBtn.getAttribute('data-app-id'), c, aiMatchBtn); return; }
       var sendBtn = e.target.closest('.ats-offer-send');
       if (sendBtn) { openOfferForm(sendBtn.getAttribute('data-app-id')); return; }
       var cancelBtn = e.target.closest('.ats-offer-cancel');

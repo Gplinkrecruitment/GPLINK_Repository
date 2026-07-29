@@ -68,6 +68,19 @@ beforeAll(async () => {
     { id: 'jp2', provider: 'internal_ats', title: 'GP — Newtown', masked_title: 'GP | Suburb of Toowoomba | Private billing', practice_name: 'Pipeline Practice Two', practice_id: 'p2', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Newtown', is_active: false, job_status: 'open', approval_status: 'pending', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     { id: 'jh1', provider: 'internal_ats', title: 'GP — Kearneys Spring', masked_title: '', practice_name: 'Pipeline Practice Three', location_city: 'Toowoomba', location_state: 'QLD', suburb: 'Kearneys Spring', is_active: true, job_status: 'open', approval_status: 'approved', header_image_url: 'https://cdn.gplink-test.local/suburbs/kearneys-spring/1.png', ats_created: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
   );
+  // Owner request 2026-07-30: withdrawing an application from the CEO
+  // dashboard must tell the doctor. Seeded here (a real user_id is what makes
+  // notifyGpOfAtsStageChange fire — board-only cards without one are skipped).
+  seeded.atsApplications = seeded.atsApplications || [];
+  seeded.atsApplications.push({
+    id: 'app-withdraw-1', user_id: 'gp-withdraw-1', case_id: 'case-withdraw-1',
+    career_role_id: 'jh1', provider_role_id: 'ats_jh1', job_title: 'GP — Kearneys Spring',
+    practice_name: 'Pipeline Practice Three', ats_stage: 'applied', status: 'applied',
+    practice_submission_status: 'pending_va_submission',
+    applied_at: new Date().toISOString(), updated_at: new Date().toISOString()
+  });
+  seeded.userProfiles = seeded.userProfiles || [];
+  seeded.userProfiles.push({ user_id: 'gp-withdraw-1', email: 'withdraw-gp@gplink-test.local', first_name: 'Withdrawn', last_name: 'Doctor' });
   fs.writeFileSync(DB_FILE, JSON.stringify(seeded, null, 2));
 
   process.env.RESEND_API_KEY = 'test-resend-key';
@@ -483,5 +496,83 @@ describe('Auth', () => {
   it('blocks without a session', async () => {
     const r = await req('GET', '/api/ats/jobs', { host: SUPER_HOST });
     expect([401, 403, 302]).toContain(r.status);
+  });
+});
+
+// Owner request 2026-07-30: "ensure if withdraw is clicked by admin it sends
+// the rejection flow and email to the candidate". Withdraw (the queue button
+// and the in-application one added the same day) is a PATCH to
+// not_proceeding, which must reach notifyGpOfAtsStageChange — in-app update,
+// push AND a gently worded email.
+//
+// HONEST LIMIT, do not "fix" by loosening: every doctor-notification channel
+// (getGpEmailContext, pushCareerNotificationToUser) early-returns unless
+// Supabase is configured, and this suite runs in LOCAL-JSON mode. So the
+// delivery itself CANNOT be observed here — asserting on resendCalls would
+// only ever prove the harness, not the product. What is verified here is the
+// half that local mode owns (the stage move + the recorded reason), plus the
+// wiring that carries it into the notifier. The notifier's own copy and
+// delivery are covered in tests/ats-stage-automation.test.js.
+describe('Withdrawing an application closes it and hands off to the GP notifier', () => {
+  it('PATCH stage=not_proceeding moves the stage and records the withdraw reason', async () => {
+    const r = await req('PATCH', '/api/ats/application?id=app-withdraw-1', {
+      host: SUPER_HOST, cookie: superCookie(), body: { stage: 'not_proceeding', reason: 'gp_withdrew' }
+    });
+    expect(r.status).toBe(200);
+    expect(parse(r.raw).ok).toBe(true);
+
+    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const row = (db.atsApplications || []).find((a) => a.id === 'app-withdraw-1');
+    expect(row.ats_stage).toBe('not_proceeding');
+
+    const ev = (db.atsStageAudit || []).filter((e) => e.application_id === 'app-withdraw-1').pop();
+    expect(ev).toBeTruthy();
+    expect(ev.to_stage).toBe('not_proceeding');
+    expect(ev.reason).toBe('gp_withdrew');
+  });
+
+  it('the PATCH handler still hands a not_proceeding move to the GP notifier', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+    // not_proceeding must stay a notifying stage...
+    expect(src).toMatch(/ATS_GP_NOTIFY_STAGES\s*=\s*\[[^\]]*'not_proceeding'/);
+    // ...and the kanban/withdraw PATCH must keep calling the notifier. The
+    // 'offer' exclusion is deliberate (a bare drag must not promise an offer);
+    // nothing else may be added to it without breaking withdraw notifications.
+    expect(src).toContain("if (updatedAP && newStage && newStage !== 'offer' && upAP.prevStage !== newStage) {");
+    expect(src).toContain('notifyGpOfAtsStageChange(updatedAP, upAP.prevStage, newStage)');
+  });
+
+  it('the CEO dashboard offers Withdraw inside the application, not just in the queue', () => {
+    const js = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
+    expect(js).toContain('ats-app-withdraw');
+    expect(js).toContain('function withdrawFromDrawer');
+    // Same endpoint + same reason vocabulary as the queue button, so both
+    // routes write the same stage event and the same strike data.
+    expect(js).toMatch(/withdrawFromDrawer[\s\S]{0,600}openWithdrawReasonPrompt/);
+    expect(js).toMatch(/withdrawFromDrawer[\s\S]{0,900}stage: 'not_proceeding'/);
+  });
+});
+
+// Owner report 2026-07-30: the ops "new application" email linked to
+// app.mygplink.com.au/pages/ceo-dashboard, which 404s — the dashboard is
+// served ONLY on the super-admin host scope. Every deep link into it must be
+// built from that host, never from APP_BASE_URL (the doctor-facing origin).
+describe('Ops deep links point at the CEO dashboard host, not the doctor app', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  it('no ceo-dashboard link is built from APP_BASE_URL', () => {
+    expect(src).not.toContain("APP_BASE_URL + '/pages/ceo-dashboard");
+  });
+
+  it('the super-admin base URL comes from SUPER_ADMIN_ALLOWED_HOSTS', () => {
+    expect(src).toContain('function getSuperAdminBaseUrl()');
+    expect(src).toMatch(/getSuperAdminBaseUrl[\s\S]{0,400}SUPER_ADMIN_ALLOWED_HOSTS/);
+  });
+
+  it('the applied/accepted ops email names the next action and carries a CTA', () => {
+    expect(src).toContain("accepted the match — submit to ");
+    expect(src).toContain('Open candidate & submit to practice');
+    // buildCeoCandidateUrl is what makes the CTA land on the right candidate.
+    expect(src).toContain('function buildCeoCandidateUrl(caseId)');
   });
 });

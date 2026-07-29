@@ -8685,7 +8685,7 @@ async function sendOwnerDigestEmail(opts) {
       title: 'Your weekly GP Link digest',
       bodyHtml: odBodyHtml,
       ctaText: 'View full dashboard',
-      ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
+      ctaUrl: getSuperAdminBaseUrl() + '/pages/ceo-dashboard',
       footer: 'Operational metrics only, financials live in Xero. Sent automatically once a week; use the dashboard&rsquo;s &ldquo;Send me the digest now&rdquo; button for an on-demand copy.'
     }),
     category: 'transactional'
@@ -8932,7 +8932,7 @@ async function sendErrorDigestEmail(opts) {
       title: 'GP Link health check',
       bodyHtml: edBodyHtml,
       ctaText: 'Open the Technical tab',
-      ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard',
+      ctaUrl: getSuperAdminBaseUrl() + '/pages/ceo-dashboard',
       footer: 'Sent once a day, and only when there is something to report. Full detail, including the technical stack traces and the resolve/ignore buttons, lives in the CEO dashboard’s Technical tab.'
     }),
     category: 'transactional'
@@ -9305,7 +9305,7 @@ async function sendErrorFixProposalEmail(opts) {
     ids.push(p.id);
 
     const approveUrl = APP_BASE_URL + '/approve-fix?token=' + encodeURIComponent(tok.token);
-    const investigateUrl = APP_BASE_URL + '/pages/ceo-dashboard?tab=technical&proposal=' + encodeURIComponent(p.id);
+    const investigateUrl = getSuperAdminBaseUrl() + '/pages/ceo-dashboard?tab=technical&proposal=' + encodeURIComponent(p.id);
     const isSafe = p.risk_class === 'safe_auto';
 
     blocks.push(
@@ -11377,6 +11377,35 @@ function getAdminHostScope(req) {
   if (ADMIN_ALLOWED_HOSTS.has(hostname)) return 'admin';
   if (NODE_ENV !== 'production' && isLoopbackHostname(hostname)) return 'local';
   return '';
+}
+
+// Base URL for links INTO the CEO dashboard (ops emails).
+//
+// The dashboard is served ONLY on the super-admin host scope — see the
+// `/pages/ceo-dashboard.html` guard, which respondNotFound()s anywhere else.
+// APP_BASE_URL is the DOCTOR-facing host (app.mygplink.com.au), so every ops
+// email that deep-linked with APP_BASE_URL handed hello@ a 404 (owner report
+// 2026-07-30, verified against production). Build them from the configured
+// super-admin host instead, and fall back to APP_BASE_URL only when nothing is
+// configured (local/dev), where the guard admits loopback anyway.
+function getSuperAdminBaseUrl() {
+  const host = Array.from(SUPER_ADMIN_ALLOWED_HOSTS)[0] || '';
+  if (!host) return APP_BASE_URL;
+  return /^https?:\/\//i.test(host) ? host : ('https://' + host);
+}
+
+// Module-level HTML escape for email bodies. There are several function-local
+// `esc` helpers in this file but no shared one, so anything built at top level
+// (or in a function that doesn't declare its own) needs this — a bare `esc`
+// there is a ReferenceError at send time, i.e. a silently lost email.
+const escEmailHtml = (v) => String(v == null ? '' : v)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Deep link to one candidate's ATS card. `case=` is read on load by
+// pages/ceo-dashboard.html, which opens that candidate's drawer.
+function buildCeoCandidateUrl(caseId) {
+  const id = String(caseId || '').trim();
+  return getSuperAdminBaseUrl() + '/pages/ceo-dashboard' + (id ? ('?case=' + encodeURIComponent(id)) : '');
 }
 
 function getAdminHostLabel(scope) {
@@ -32048,13 +32077,46 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
     if (isEmailConfigured()) {
       var opsJobTitle = String((roleRow && roleRow.title) || 'a role').trim();
       var opsPracticeName = String((roleRow && roleRow.practice_name) || 'a practice').trim();
-      var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(caseId || ''));
+      // Deep link must target the SUPER-ADMIN host — APP_BASE_URL 404s here.
+      var opsDeepLink = buildCeoCandidateUrl(caseId);
+      // Two genuinely different events, so say which one happened and what the
+      // team has to DO about it (owner report 2026-07-30 — "applied to" told
+      // hello@ nothing actionable). A fast-tracked match is already agreed by
+      // the doctor and is waiting on us to submit it; a cold self-application
+      // still needs reviewing first.
+      var opsSubject = matched
+        ? (gpDisplayName + ' accepted the match — submit to ' + opsPracticeName)
+        : (gpDisplayName + ' applied to ' + opsJobTitle + ', ' + opsPracticeName);
+      var opsHeadline = matched
+        ? (gpDisplayName + ' accepted the match and the interview.')
+        : (gpDisplayName + ' applied to "' + opsJobTitle + '" at ' + opsPracticeName + '.');
+      var opsAction = matched
+        ? ('<b>Next step: submit them to ' + escEmailHtml(opsPracticeName) + '.</b><br>'
+           + 'They have already agreed to be interviewed and are waiting on us. '
+           + 'Open the candidate below and use <b>Submit to practice</b>.')
+        : ('<b>Next step: review the application.</b><br>'
+           + 'Open the candidate below, then <b>Submit to practice</b> or <b>Withdraw</b>.');
       sendEmail({
         to: 'hello@mygplink.com.au',
-        subject: gpDisplayName + ' applied to ' + opsJobTitle + ', ' + opsPracticeName,
-        text: gpDisplayName + ' applied to "' + opsJobTitle + '" at ' + opsPracticeName + '.'
-          + '\n\nHas CV: yes'
+        subject: opsSubject,
+        text: opsHeadline
+          + (matched
+            ? '\n\nNext step: submit them to ' + opsPracticeName + ' — they have already agreed to be interviewed.'
+            : '\n\nNext step: review the application, then submit to practice or withdraw.')
+          + '\n\nRole: ' + opsJobTitle
+          + '\nHas CV: yes'
           + '\nOpen the candidate: ' + opsDeepLink,
+        html: buildCareerEmailHtml({
+          title: matched ? 'Ready to submit to the practice' : 'New application to review',
+          body: escEmailHtml(opsHeadline)
+            + '<br><br>' + opsAction
+            + '<br><br><b>Role:</b> ' + escEmailHtml(opsJobTitle)
+            + '<br><b>Practice:</b> ' + escEmailHtml(opsPracticeName)
+            + '<br><b>CV on file:</b> yes',
+          ctaText: matched ? 'Open candidate & submit to practice' : 'Open the candidate',
+          ctaUrl: opsDeepLink,
+          footer: 'This opens the CEO dashboard on ' + getSuperAdminBaseUrl().replace(/^https?:\/\//, '') + ' — sign in there if prompted.'
+        }),
         from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' }
       }).catch(function () {});
     }
@@ -39489,7 +39551,7 @@ async function handleApi(req, res, pathname) {
         title: 'New signed practice',
         body: (practice.name || 'A practice') + ' has signed the agreement and a job listing has been created (pending approval). Signed by ' + signedName + ' (' + signerJobTitle + ') for ' + legalEntityName + ' (' + abnAcnLabel + ').',
         ctaText: 'View in CEO dashboard',
-        ctaUrl: APP_BASE_URL + '/pages/ceo-dashboard#practice=' + practice.id
+        ctaUrl: getSuperAdminBaseUrl() + '/pages/ceo-dashboard#practice=' + practice.id
       })
     }).catch(function (err) { console.error('[practice-intake/sign] team notify email failed:', err && err.message); });
 
@@ -43394,7 +43456,7 @@ async function handleApi(req, res, pathname) {
       invalidateAdminDashboardCache();
       sendJson(res, 200, { ok: true, action: 'enquire', followUp: mrEnqWasFollowUp });
       if (isEmailConfigured()) {
-        const mrEnqDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(mrEnqCaseId || ''));
+        const mrEnqDeepLink = getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(mrEnqCaseId || ''));
         sendEmail({
           to: 'hello@mygplink.com.au',
           subject: (mrEnqWasFollowUp ? 'Follow-up match question: ' : 'Match question: ') + mrGpDisplayName + ' → ' + mrEnqRoleLabel,
@@ -65576,6 +65638,99 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // POST /api/ats/application/ai-match { applicationId } — score ONE existing
+  // application (this GP against the job they applied to) and persist the
+  // result onto gp_applications.match_score / match_reasons.
+  //
+  // Why this exists (owner request 2026-07-30): match_score/match_reasons are
+  // only ever written when the team shortlists a GP through the Matching
+  // board. A doctor who applies directly from the app skips that entirely, so
+  // staff opening the application saw no fit signal at all. This runs the SAME
+  // ranking engine (aiRankJobsForGp) against just that one job, so the score
+  // is directly comparable with a shortlisted card's.
+  //
+  // Deliberately a POST and never automatic: it spends Anthropic budget, so it
+  // happens when a human asks for it, not on every page load.
+  if (pathname === '/api/ats/application/ai-match' && req.method === 'POST') {
+    var ctxAM = requireAtsSession(req, res); if (!ctxAM) return;
+    var bodyAM; try { bodyAM = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var amAppId = String((bodyAM && bodyAM.applicationId) || '').trim();
+    if (!amAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    var amApp = null;
+    if (isSupabaseDbConfigured()) {
+      var amSel = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(amAppId) + '&limit=1');
+      amApp = (amSel.ok && Array.isArray(amSel.data) && amSel.data[0]) ? amSel.data[0] : null;
+    } else {
+      amApp = (dbState.atsApplications || []).find(function (x) { return String(x.id) === amAppId; }) || null;
+    }
+    if (!amApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    if (!amApp.user_id || !amApp.career_role_id) {
+      sendJson(res, 400, { ok: false, error: 'not_scoreable', message: 'This application has no linked doctor or job to score.' });
+      return;
+    }
+
+    var amGpMap = await atsBuildGpMatchInputs([String(amApp.user_id)]);
+    var amGp = amGpMap[String(amApp.user_id)];
+    if (!amGp) { sendJson(res, 404, { ok: false, message: 'Candidate profile not found.' }); return; }
+
+    var amJob = await getCareerRoleRowById(amApp.career_role_id);
+    if (!amJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+
+    // Same eligibility gate every other matching surface uses — never score a
+    // DPA-restricted role for a GP who isn't DPA-eligible.
+    var amVerdict = aiCandidateJobMatch.checkMatchEligibility(amGp, { id: amJob.id, dpa: amJob.dpa === true });
+    if (!amVerdict.eligible) {
+      sendJson(res, 200, { ok: true, score: null, reasons: [], ineligible: true, message: 'This doctor is not eligible for that role, so it has no match score.' });
+      return;
+    }
+
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok: false, message: 'AI matching service not configured.' }); return; }
+    if (!(await checkAnthropicBudget())) {
+      sendJson(res, 200, { ok: false, degraded: true, message: 'Daily AI matching budget reached — please try again later.' });
+      return;
+    }
+
+    var amResult = await aiCandidateJobMatch.aiRankJobsForGp({
+      id: String(amApp.user_id), name: amGp.name, qualificationCountry: amGp.qualificationCountry,
+      preferredCity: amGp.preferredCity, targetArrivalDate: amGp.targetArrivalDate,
+      whoMoving: amGp.whoMoving, childrenCount: amGp.childrenCount, handoverSummary: amGp.handoverSummary
+    }, [atsJobMatchSummary(amJob)], { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MATCH_MODEL });
+
+    var amRanked = (amResult && Array.isArray(amResult.ranked)) ? amResult.ranked : [];
+    var amHit = amRanked.filter(function (r) { return String(r.id) === String(amJob.id); })[0] || amRanked[0] || null;
+    if (!amHit || amHit.score == null) {
+      sendJson(res, 200, { ok: false, degraded: true, message: 'The matching service did not return a score — please try again.' });
+      return;
+    }
+
+    var amReasons = Array.isArray(amHit.reasons) ? amHit.reasons.filter(function (r) { return typeof r === 'string' && r.trim(); }) : [];
+    // Preserve any existing _history the Matching board wrote — this is an
+    // additional score for the same row, never a reason to lose the audit.
+    var amPrev = (amApp.match_reasons && typeof amApp.match_reasons === 'object' && !Array.isArray(amApp.match_reasons)) ? amApp.match_reasons : {};
+    var amPatch = {
+      match_score: amHit.score,
+      match_reasons: {
+        reasons: amReasons,
+        _history: Array.isArray(amPrev._history) ? amPrev._history : [],
+        generated_at: atsNowIso(),
+        source: 'ats_on_demand'
+      },
+      updated_at: atsNowIso()
+    };
+    if (isSupabaseDbConfigured()) {
+      var amUpd = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(amAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: amPatch });
+      if (!amUpd.ok) { sendJson(res, 502, { ok: false, message: 'Scored, but could not save it. Please try again.' }); return; }
+    } else {
+      Object.assign(amApp, amPatch);
+      saveDbState();
+    }
+
+    await logAdminAction(req, ctxAM, 'ats_application_ai_scored', { targetType: 'application', targetId: amAppId, detail: { score: amHit.score } });
+    sendJson(res, 200, { ok: true, score: amHit.score, reasons: amReasons });
+    return;
+  }
+
   // GET /api/ats/matching/board?direction=positions|gps&q= — the ONE
   // aggregate read behind the Matching board UI. NEVER calls Anthropic —
   // match_cache rows are read as-is; nothing here triggers a fresh ranking
@@ -68519,7 +68674,7 @@ async function handleRequestInner(req, res) {
         + ':"<h1>Could not approve</h1><p class=\\"d\\">"+(j.message||"Please open the dashboard and approve it there.")+"</p>";})'
         + '.catch(function(){btn.disabled=false;btn.textContent="Yes, approve";});});</script>'
       : '<p class="d">' + afEsc(afDetail || 'This approval link is not valid. Open the dashboard to approve it there.') + '</p>'
-        + '<p><a class="l" href="' + APP_BASE_URL + '/pages/ceo-dashboard">Open the dashboard</a></p>';
+        + '<p><a class="l" href="' + getSuperAdminBaseUrl() + '/pages/ceo-dashboard">Open the dashboard</a></p>';
 
     var afHtml = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
       + '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -69237,7 +69392,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
             title: 'You’re supporting an interview',
             body: 'Hi ' + _esc(rsoFirst) + ', ' + _esc(appCtx.gpName || 'your doctor') + ' has an interview with ' + _esc(appCtx.practiceName || 'the practice') + ' on <strong>' + _esc(practiceWhen) + '</strong>. Please join so they’re never in the room alone.' + (joinUrl ? ' Join with the button below.' : ' The video link will be shared before the interview.'),
             ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
-            ctaUrl: joinUrl || (APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
+            ctaUrl: joinUrl || (getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
             secondaryCtaText: 'Add to Calendar',
             secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
             footer: 'You’re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '’s Registration Support Officer.'
@@ -69251,7 +69406,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       // resolved support officer + join link (or a config hint when there is none).
       try {
         if (isEmailConfigured()) {
-          var opsDeepLink = APP_BASE_URL + '/pages/ceo-dashboard?case=' + encodeURIComponent(String((appCtx.caseId != null ? appCtx.caseId : (appCtx.app && appCtx.app.id)) || ''));
+          var opsDeepLink = getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String((appCtx.caseId != null ? appCtx.caseId : (appCtx.app && appCtx.app.id)) || ''));
           await sendEmail({
             to: 'hello@mygplink.com.au',
             subject: appCtx.gpName + ' booked an interview with ' + (appCtx.practiceName || 'a practice') + ', ' + timeLabel,

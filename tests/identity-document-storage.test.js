@@ -69,7 +69,7 @@ describe('ATS candidate file — viewable ID (Task 5, source contract)', () => {
     expect(JS).toMatch(/e\.target\.closest\('\.ats-id-view'\)/);
   });
   it('pages/ceo-dashboard.html carries a bumped ceo-ats-candidates.js cache-buster', () => {
-    expect(DASHBOARD_HTML).toMatch(/ceo-ats-candidates\.js\?v=20260724b/);
+    expect(DASHBOARD_HTML).toMatch(/ceo-ats-candidates\.js\?v=20260730a/);
   });
 });
 

@@ -746,7 +746,10 @@ describe('POST /api/career/match/respond — accept', () => {
     // Ops emails: the standard A3 "applied" notice AND the match-specific one.
     const subjects = resendCalls.map((c) => c.body && c.body.subject);
     expect(subjects.some((s) => /^Match accepted: .* → General Practitioner — Mixed Billing$/.test(s))).toBe(true);
-    expect(subjects.some((s) => / applied to .*, Coral Coast Family Practice$/.test(s))).toBe(true);
+    // Owner report 2026-07-30: "X applied to <role>, <practice>" told hello@
+    // nothing actionable on the ACCEPT path — the doctor has already agreed and
+    // is waiting on us to submit them. The matched branch now names the action.
+    expect(subjects.some((s) => /accepted the match — submit to Coral Coast Family Practice$/.test(s))).toBe(true);
     // And the doctor's own confirmation. Accepting a match is NOT a cold
     // apply, so it must not say "Application Submitted" — it tells them
     // interview times are coming (owner request 2026-07-29).
