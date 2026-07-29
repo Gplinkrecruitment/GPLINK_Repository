@@ -12212,12 +12212,23 @@ async function handleDoubleTickWebhook(req, res) {
       if (activeCase) console.log('[doubletick-webhook] Created registration case for', gpProfile.user_id);
     }
 
-    // Backstop: if this GP's case is already assigned to an RSO, make sure the
-    // DoubleTick chat is owned by that RSO (closes the brief "unassigned, visible
-    // to all" window on first inbound). Best-effort, fire-and-forget.
-    if (activeCase && activeCase.assigned_va && fromPhone) {
-      syncCaseChatAssignment({ gpPhone: fromPhone, assignedVaUserId: activeCase.assigned_va })
-        .catch(function (e) { console.error('[doubletick-assign] webhook backstop failed:', e && e.message); });
+    // Backstop: make sure the DoubleTick chat is owned by the RSO who actually
+    // owns this GP (closes the brief "unassigned, visible to all" window on
+    // first inbound). Best-effort, fire-and-forget.
+    //
+    // Routed through resolveSupportRsoForUser (2026-07-30) rather than reading
+    // assigned_va directly, so an INBOUND message lands on the same officer the
+    // in-app WhatsApp button hands off to. Reading assigned_va here while the
+    // button used the placed/unplaced rule would have let the two disagree —
+    // the GP taps the button, gets routed to admin, then their first message
+    // re-assigns the chat to someone else.
+    if (activeCase && fromPhone) {
+      const dtRouted = await resolveSupportRsoForUser(activeCase.user_id, activeCase)
+        .catch(function () { return { rsoUserId: activeCase.assigned_va || null }; });
+      if (dtRouted && dtRouted.rsoUserId) {
+        syncCaseChatAssignment({ gpPhone: fromPhone, assignedVaUserId: dtRouted.rsoUserId })
+          .catch(function (e) { console.error('[doubletick-assign] webhook backstop failed:', e && e.message); });
+      }
     }
 
     const gpName = gpProfile
@@ -49995,6 +50006,21 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ─── SUPPORT TICKET CRUD ───────────────────────────────────────────
+  // GET /api/support/whatsapp-link — just the wa.me URL, no database work.
+  //
+  // Split out from the handoff on purpose. The page needs the URL at LOAD time
+  // so the button can be a real <a href>, which is what makes a phone open the
+  // WhatsApp app instead of a browser tab. Resolving it on click instead meant
+  // opening a blank tab and pointing it somewhere several database round-trips
+  // later — which is what left people staring at a blank page.
+  if (pathname === '/api/support/whatsapp-link' && req.method === 'GET') {
+    const wlSession = requireSession(req, res);
+    if (!wlSession) return;
+    const wlNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+    sendJson(res, 200, { ok: !!wlNumber, waUrl: wlNumber ? 'https://wa.me/' + wlNumber : '' });
+    return;
+  }
+
   // POST /api/support/whatsapp-handoff — the GP tapped "Chat via WhatsApp".
   //
   // Runs BEFORE the GP reaches WhatsApp, so their conversation is already

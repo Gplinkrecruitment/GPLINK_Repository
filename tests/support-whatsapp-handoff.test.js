@@ -85,13 +85,35 @@ describe('the WhatsApp button on Support', () => {
     expect(messages).toContain('.view { padding-bottom: 118px; }');
   });
 
-  it('opens its window on the click, not after the await', () => {
-    // Mobile popup blockers only trust a window opened during the gesture, so
-    // opening it after awaiting the handoff would be swallowed.
-    const handler = (messages.match(/fabWhatsAppEl\.addEventListener\("click"[\s\S]*?finally \{[\s\S]*?\}/) || [''])[0];
+  // Regression (2026-07-30): the first version opened a blank tab on click and
+  // only pointed it somewhere after the handoff had done several database
+  // round-trips. On mobile that showed a blank page. It must be a plain link
+  // navigation, which is also what hands off to the installed WhatsApp app.
+  it('is a real anchor, so phones open the WhatsApp app', () => {
+    expect(messages).toMatch(/<a class="fab-wa" id="fabWhatsApp"[^>]*>/);
+    expect(messages).not.toMatch(/<button class="fab-wa"/);
+    // An <a> needs the link styling stripped or it renders underlined/purple.
+    expect(messages).toMatch(/\.fab-wa, \.fab-wa:visited, \.fab-wa:hover \{ text-decoration: none;/);
+  });
+
+  it('fills the href at load time, not on click', () => {
+    expect(messages).toContain('/api/support/whatsapp-link');
+    expect(messages).toContain('fabWhatsAppEl.setAttribute("href", d.waUrl)');
+  });
+
+  it('never blocks the tap on the handoff request', () => {
+    const handler = (messages.match(/fabWhatsAppEl\.addEventListener\("click"[\s\S]*?\n      \}\);/) || [''])[0];
     expect(handler).toBeTruthy();
-    expect(handler.indexOf('window.open(')).toBeLessThan(handler.indexOf('await fetch'));
-    expect(handler).toContain('/api/support/whatsapp-handoff');
+    // keepalive lets it outlive the navigation; awaiting it is what caused the
+    // blank page, so the handler must not await anything before navigating.
+    // Comments are stripped first — the code explains itself using the word
+    // "await", which a naive substring check trips over.
+    const code = handler.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+    expect(handler).toContain('keepalive: true');
+    expect(code).not.toMatch(/\bawait\b/);
+    expect(code).not.toContain('window.open(');
+    // With an href present the browser navigates natively — no preventDefault.
+    expect(handler).toMatch(/if \(fabWhatsAppEl\.getAttribute\("href"\)\) return;/);
   });
 });
 
@@ -156,6 +178,26 @@ describe('the handoff endpoint', () => {
     // A DoubleTick outage or a DB hiccup must never stop a GP messaging us.
     expect(handler).toMatch(/catch \(waErr\)[\s\S]*console\.error\('\[support-handoff\]/);
     expect(handler).toMatch(/sendJson\(res, 200, \{\s*ok: true,\s*waUrl: waUrl/);
+  });
+});
+
+describe('the link endpoint and the inbound path', () => {
+  it('GET /api/support/whatsapp-link returns the URL with no database work', () => {
+    const h = (server.match(/if \(pathname === '\/api\/support\/whatsapp-link'[\s\S]*?\n  \}/) || [''])[0];
+    expect(h).toBeTruthy();
+    expect(h).toContain('requireSession(req, res)');
+    expect(h).toContain("'https://wa.me/' + wlNumber");
+    // It runs on every page load — it must not touch Supabase.
+    expect(h).not.toContain('supabaseDbRequest');
+  });
+
+  it('an inbound WhatsApp message routes to the same officer as the button', () => {
+    // Reading assigned_va here while the button used the placed/unplaced rule
+    // would let the two disagree: the GP taps, gets routed to admin, then their
+    // first message re-assigns the chat to somebody else.
+    expect(server).toContain('const dtRouted = await resolveSupportRsoForUser(activeCase.user_id, activeCase)');
+    expect(server).toContain('syncCaseChatAssignment({ gpPhone: fromPhone, assignedVaUserId: dtRouted.rsoUserId })');
+    expect(server).not.toContain('syncCaseChatAssignment({ gpPhone: fromPhone, assignedVaUserId: activeCase.assigned_va })');
   });
 });
 
