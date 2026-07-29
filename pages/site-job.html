@@ -89,6 +89,12 @@
      — the Google key is referrer-restricted (breaks on preview) + no Geocoding. */
   .job-profile-map-canvas{width:100%;height:220px;background:#e9eef5;}
   .job-profile-map .leaflet-container{width:100%;height:220px;font:inherit;}
+  /* Match the /jobs board: hide the prominent corner map branding. A tiny
+     credit stays — the OSM/CARTO tile licences require attribution — but
+     small and subtle rather than a full-size blue link box. */
+  .job-profile-map .leaflet-control-attribution{font-size:10px;line-height:1.3;background:rgba(255,255,255,.5);
+    box-shadow:none;color:rgba(30,60,90,.5);padding:1px 6px;border-radius:5px 0 0 0;}
+  .job-profile-map .leaflet-control-attribution a{color:rgba(30,60,90,.6);}
   /* Fallback only (Leaflet/coords failed): the raw Google embed, which carries
      its own suburb pin and is itself pan/zoomable. */
   .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
@@ -594,10 +600,14 @@
         attributionControl: true
       });
       suburbMapInstance = map;
+      // Drop the "Leaflet" prefix + flag, same as the /jobs board map. The
+      // OSM/CARTO credit itself stays — the tile licences require it — just
+      // small and subtle (see .leaflet-control-attribution above).
+      map.attributionControl.setPrefix(false);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'
       }).addTo(map);
       // A REAL circle: radius is metres on the ground, so Leaflet redraws it at
       // the correct size on every zoom. The old CSS ring was a fixed pixel disc

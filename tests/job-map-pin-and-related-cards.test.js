@@ -200,6 +200,30 @@ describe('map area ring is a real 10km circle, not a fixed-pixel CSS disc', () =
   });
 });
 
+// 2026-07-29: the advert maps still carried Leaflet's full-size corner
+// branding — "[flag] Leaflet | © OpenStreetMap © CARTO" in blue link text —
+// while the /jobs board had already been toned down. All three now match.
+// The OSM/CARTO credit itself must SURVIVE: the tile licences require
+// attribution, so this is a styling change, never a removal.
+describe('map attribution is small and subtle on every map', () => {
+  for (const [name, src, scope] of [
+    ['/jobs board', siteJobs, '.jobs-map-shell'],
+    ['website advert', siteJob, '.job-profile-map'],
+    ['in-app advert', appJob, '.at-map']
+  ]) {
+    it(`${name}: drops the Leaflet prefix but keeps the licence credit`, () => {
+      expect(src).toMatch(/attributionControl\.setPrefix\(false\)/);
+      expect(src).toContain(`${scope} .leaflet-control-attribution`);
+      expect(src).toMatch(/font-size:\s*10px/);
+      // The credit is a licence obligation — it must still be emitted.
+      expect(src).toMatch(/openstreetmap\.org\/copyright/);
+      expect(src).toMatch(/CARTO/);
+      // Attribution must never be switched off wholesale.
+      expect(src).not.toMatch(/attributionControl:\s*false/);
+    });
+  }
+});
+
 describe('public map pins are nudged off the suburb centre', () => {
   it('the server jitters before the point leaves the building', () => {
     expect(server).toMatch(/function applyPublicPinJitter/);
