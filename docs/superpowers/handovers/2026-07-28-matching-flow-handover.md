@@ -190,7 +190,51 @@ both. Pages themselves are `must-revalidate`, so HTML changes need no bump.
    `tests/career-internal-apply.test.js` → "an unanswered match has no applied
    date". **If you add a new reader, go through the predicate — do not read
    `applied_at` and call it an application date.**
-4. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
+4. ~~**A direct applicant is told far less than a matched one.**~~
+   **FIXED 2026-07-30.** Both doctors sit in the *same* real-world state —
+   waiting on us to put them in front of the practice — and both already
+   created the same "Submit `<GP>` to practice" VA task via the shared
+   `createCareerApplicationSubmissionTask`. The pipeline half was never
+   broken: `POST /api/career/apply` inserts `status:'applied'` and never
+   touches `'shortlisted'`. What was broken is that the matched doctor got a
+   three-step "what happens next" on the job page, the tracker, the email and
+   the push, and the direct applicant got "Application submitted" and silence.
+   Now reworded to match on all four, with two things deliberately different:
+   - **The practice is never named to a cold applicant.** They applied to a
+     masked listing and have not passed `canRevealPracticeIdentityCore`. The
+     matched copy's `forPractice` string is off-limits to them; the cold copy
+     uses `locationLabel`. Pinned by a test — this is the one thing here that
+     would be a real leak, not just wrong words.
+   - **Step 1 promises a review, not a submission.** Nobody matched them, so
+     the RSO checking first is a genuine gate; "we're putting you forward now"
+     would be a promise someone still has to make.
+   New: `careerRowIsOwnApplicationAwaitingPractice(row)` (pure, next to
+   `getAcceptedMatchAwaitingPracticeForRole`) feeds `role.applied` on
+   `/api/career/role`, so the applied state survives a reload on **any**
+   device — previously job.html only knew from that browser's localStorage,
+   so applying on a laptop still showed the Apply button on the phone. It sits
+   **outside** the reveal gate on purpose; nested inside it, as the accepted-
+   match check is, it could never fire for the doctors it exists for.
+   ⚠️ `role.applied` is **not** in `roleCarriesMatchState`, so the payload keeps
+   its 60s private cache. That is a decision, not an oversight (see the comment
+   at the assignment): match state is actionable from the page, `applied` is
+   not, and making it volatile would kill the cache on precisely the roles a
+   doctor reopens most. job.html's 10-minute localStorage cache **does** reject
+   it — that one never refetches.
+   `resolveCareerRoleRevealContext` now returns `{application, offer, revealed}`
+   from the one read `canRevealPracticeIdentity` always did, so the new signal
+   costs **zero** extra queries; `canRevealPracticeIdentity` is a thin wrapper
+   and its other callers are untouched.
+   **Still asymmetric, deliberately left alone:** a cold apply sets no
+   `ats_stage` (it relies on the column default `'applied'`), leaves
+   `ats_stage_updated_at` NULL and writes **no `ats_stage_events` row**, where
+   `acceptShortlistedMatchRow` sets all three. Nothing doctor-facing or
+   staff-facing reads those for an `applied` row today — the board reads
+   `ats_stage_updated_at` only on the matching surfaces, and the events table
+   only for withdrawal strikes — so this is an audit gap, not a bug. Setting
+   `ats_stage` on the insert would need adding to the unknown-column retry
+   loop alongside `origin`/`practice_id`.
+5. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
    and the zoomless cron branch stamp — so it is not Zoom-only. Cadence: day 3,
    day 5, owner escalation day 7, weekends skipped for practice-facing sends
    (`/api/cron/practice-decision-reminders`, Pass B).

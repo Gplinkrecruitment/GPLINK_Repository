@@ -306,7 +306,10 @@ describe('GET /api/career/applications — internal apps with Zoho disconnected'
 
   it('derives friendly labels from ats_stage for every internal lane', () => {
     expect(entries['app-applied'].status).toBe('applied');
-    expect(entries['app-applied'].statusLabel).toBe('Application submitted');
+    // Reworded 2026-07-30: the label now says what happens next rather than
+    // restating what the doctor just did — the cold-apply mirror of the
+    // 'fast_tracked' label. The status KEY is unchanged and load-bearing.
+    expect(entries['app-applied'].statusLabel).toBe('Application received — we’re putting you forward');
     expect(entries['app-applied'].offerPending).toBe(false);
 
     expect(entries['app-submitted'].status).toBe('submitted');

@@ -469,7 +469,7 @@ describe('a pending match presents as matched, not applied', () => {
   const detailHtml = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
   const mapper = serverSrc.slice(
     serverSrc.indexOf('function buildInternalCareerStatusPresentation'),
-    serverSrc.indexOf("return { status: 'applied', statusLabel: 'Application submitted'")
+    serverSrc.indexOf("return { status: 'applied', statusLabel: 'Application received")
   );
 
   it('the presentation mapper answers "matched" before falling through to applied', () => {

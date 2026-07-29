@@ -18851,7 +18851,17 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
   if (row.match_outcome === 'accepted' && (stage === 'applied' || !stage)) {
     return { status: 'fast_tracked', statusLabel: 'Fast-tracked — we’re arranging your interview', statusTone: 'review', offerPending: false };
   }
-  return { status: 'applied', statusLabel: 'Application submitted', statusTone: 'review', offerPending: false };
+  // A doctor who applied directly and is waiting on us to put them in front of
+  // the practice — the same real-world state as the fast-tracked branch above,
+  // reached from the other direction. Every stage past this point has its own
+  // branch, so landing here means "applied, not yet with the practice".
+  // "Application submitted" was true and useless: it restated what they had
+  // just done at the exact moment they wanted to know what happens next. Same
+  // complaint that produced 'fast_tracked' on 2026-07-29, and the same answer —
+  // only the words differ, because nobody matched them (owner request
+  // 2026-07-30). The status key stays 'applied': every existing consumer,
+  // ribbon and timeline index keys off it.
+  return { status: 'applied', statusLabel: 'Application received — we’re putting you forward', statusTone: 'review', offerPending: false };
 }
 
 // The in-app offer record only affects the label at these points — skip the
@@ -21842,10 +21852,19 @@ function mapCareerRoleDetailToClient(row) {
 // an accepted offer) — this function's only job is resolving the user's
 // application + offer for the given career_role_id, dual-mode (Supabase /
 // local dbState), and handing them to that pure rule.
-async function canRevealPracticeIdentity(userId, careerRoleId) {
+// The same lookup canRevealPracticeIdentity has always done, with the row
+// handed back instead of discarded. /api/career/role needs BOTH the verdict
+// and the row: the verdict decides the practice identity, the row is what
+// tells a doctor's own direct application apart from a team match. Refetching
+// the identical row a second time to answer that is precisely the repeated-
+// identical-query pattern the 2026-07-29 DB-load handover measured, so the
+// endpoint reads once and derives both. canRevealPracticeIdentity below is now
+// a thin wrapper over this, so its other callers are unchanged.
+async function resolveCareerRoleRevealContext(userId, careerRoleId) {
   const uid = String(userId || '').trim();
   const roleId = careerRoleId !== undefined && careerRoleId !== null ? String(careerRoleId).trim() : '';
-  if (!uid || !roleId) return false;
+  const emptyCtx = { application: null, offer: null, revealed: false };
+  if (!uid || !roleId) return emptyCtx;
 
   let application = null;
   if (isSupabaseDbConfigured()) {
@@ -21857,7 +21876,7 @@ async function canRevealPracticeIdentity(userId, careerRoleId) {
       a && String(a.user_id) === uid && String(a.career_role_id) === roleId
     ) || null;
   }
-  if (!application) return false;
+  if (!application) return emptyCtx;
 
   let offer = null;
   try {
@@ -21866,7 +21885,16 @@ async function canRevealPracticeIdentity(userId, careerRoleId) {
     offer = null;
   }
 
-  return practicePipeline.canRevealPracticeIdentityCore({ application, offer });
+  return {
+    application,
+    offer,
+    revealed: practicePipeline.canRevealPracticeIdentityCore({ application, offer })
+  };
+}
+
+async function canRevealPracticeIdentity(userId, careerRoleId) {
+  const revealCtx = await resolveCareerRoleRevealContext(userId, careerRoleId);
+  return revealCtx.revealed;
 }
 
 // Task 7 (2026-07-11 matching-board): resolves the LIVE, non-expired,
@@ -21927,6 +21955,31 @@ async function getAcceptedMatchAwaitingPracticeForRole(userId, careerRoleId) {
   if (application.match_outcome !== 'accepted') return null;
   if (application.ats_stage !== 'applied' && application.ats_stage !== 'submitted') return null;
   return application;
+}
+
+// The mirror of the function above, for a doctor who applied DIRECTLY rather
+// than accepting a match we sent them. Both are waiting on exactly the same
+// thing — us putting them in front of the practice — so both need a state the
+// job page can render after a reload, on any device. It stops at the same
+// point ('submitted') for the same reason: past there the page has richer
+// states of its own.
+//
+// Pure (takes the row) because the caller already has it, and because this one
+// must be answered OUTSIDE the practice-identity reveal gate. A direct
+// applicant applied to a masked listing and has not earned the reveal, so a
+// check that lives inside that gate — as the accepted-match one does, where it
+// is safe because a match reveals at match time — would never fire for the
+// very doctors it exists for.
+function careerRowIsOwnApplicationAwaitingPractice(row) {
+  if (!row) return false;
+  // Anything carrying a match outcome came from a team match and is already
+  // described by the match blocks; never double-report it as a cold apply.
+  if (String(row.match_outcome || '').trim()) return false;
+  var owStatus = String(row.status || '').trim().toLowerCase();
+  if (owStatus === 'withdrawn' || owStatus === 'rejected') return false;
+  var owStage = String(row.ats_stage || '').trim().toLowerCase()
+    || atsPracticeUtil.deriveAtsStage(row, false);
+  return owStage === 'applied' || owStage === 'submitted';
 }
 
 function parseCareerRolePublicId(publicId) {
@@ -31783,10 +31836,14 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
   var practiceLabel = String((roleRow && roleRow.practice_name) || '').trim();
   var forPractice = practiceLabel ? (' to ' + practiceLabel) : '';
 
-  var pushTitle = matched ? 'You\'re being fast-tracked' : 'Application Submitted';
+  // NOTE on `forPractice`: it names the real practice, and only the matched
+  // copy may use it. A doctor who applied cold applied to a MASKED listing and
+  // has not passed the reveal gate — naming the practice to them here would
+  // leak it by email. The cold copy says where the role is, never who it is.
+  var pushTitle = matched ? 'You\'re being fast-tracked' : 'Application received';
   var pushBody = matched
     ? 'We\'re putting you forward' + forPractice + '. We\'ll send you interview times to choose from shortly.'
-    : 'Your application for the ' + locationLabel + ' role has been submitted. We\'ll keep you updated on its progress.';
+    : 'Your application for the ' + locationLabel + ' role is with your Registration Support Officer. We\'ll email you what happens next.';
 
   pushCareerNotificationToUser(userId, {
     type: 'success', title: pushTitle, body: pushBody
@@ -31801,9 +31858,9 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
       to: email,
       subject: matched
         ? ('You\'re being fast-tracked' + forPractice + ' — interview times coming')
-        : 'Application Submitted, GP Link',
+        : 'Application received — here\'s what happens next',
       html: buildCareerEmailHtml({
-        title: matched ? ('You\'re being fast-tracked' + forPractice) : 'Application Submitted',
+        title: matched ? ('You\'re being fast-tracked' + forPractice) : 'Application received',
         body: matched
           ? ('Thanks for confirming your interest — your Registration Support Officer is putting you forward'
              + forPractice + ' now.'
@@ -31812,8 +31869,18 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
              + '2. Once they confirm their availability, we\'ll email you interview times to choose from — you book the one that suits you. This is usually within a couple of business days.<br>'
              + '3. You meet the practice. Your Registration Support Officer preps you beforehand and is on the call with you.'
              + '<br><br>There is nothing you need to do right now — just keep an eye on your email.')
-          : ('Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.'),
-        ctaText: matched ? 'Track your interview' : 'View Your Applications',
+          // Same three steps as the fast-track copy above, because the doctor is
+          // waiting on exactly the same sequence. Only step 1 differs: nobody
+          // matched them, so their Registration Support Officer reviews before
+          // putting them forward — we must not promise a submission that is
+          // still someone's judgement call.
+          : ('Thanks for applying for the ' + locationLabel + ' role — it\'s with your Registration Support Officer now.'
+             + '<br><br><b>What happens next</b><br>'
+             + '1. Your Registration Support Officer checks every application before the practice sees it, then puts you forward.<br>'
+             + '2. Once the practice confirms their availability, we\'ll email you interview times to choose from — you book the one that suits you.<br>'
+             + '3. You meet the practice. Your Registration Support Officer preps you beforehand and is on the call with you.'
+             + '<br><br>There is nothing you need to do right now — just keep an eye on your email.'),
+        ctaText: matched ? 'Track your interview' : 'Track your application',
         ctaUrl: APP_BASE_URL + '/pages/career.html#applications',
         footer: matched
           ? 'You\'re receiving this because you accepted a match your GP Link team sent you.'
@@ -41535,7 +41602,13 @@ async function handleApi(req, res, pathname) {
     // Reveal gate: only ever add the real practice name/address once
     // canRevealPracticeIdentity says this GP has earned it for this role
     // (admin-applied origin, an explicit revealed flag, or an accepted offer).
-    const revealed = roleDetailUserId ? await canRevealPracticeIdentity(roleDetailUserId, finalRoleRow.id) : false;
+    // One read, two answers: the reveal verdict AND the row itself, which the
+    // direct-application block after this gate needs. Same single query
+    // canRevealPracticeIdentity always ran.
+    const roleRevealCtx = roleDetailUserId
+      ? await resolveCareerRoleRevealContext(roleDetailUserId, finalRoleRow.id)
+      : { application: null, offer: null, revealed: false };
+    const revealed = roleRevealCtx.revealed;
     if (revealed) {
       let practiceAddress = '';
       let practiceRow = null;
@@ -41590,12 +41663,34 @@ async function handleApi(req, res, pathname) {
       }
     }
 
+    // A doctor who applied directly, still waiting on us to put them in front
+    // of the practice. Deliberately OUTSIDE the reveal gate above: they applied
+    // to a masked listing, so they are not revealed, and a check inside that
+    // block could never fire for them. Without this the job page could only
+    // know from that browser's localStorage — so the same doctor opening the
+    // role on their phone was shown the Apply button for something they had
+    // already applied to. The match states win where both could apply.
+    if (!roleClientPayload.match && !roleClientPayload.matchAccepted
+      && careerRowIsOwnApplicationAwaitingPractice(roleRevealCtx.application)) {
+      roleClientPayload.applied = true;
+    }
+
     if (isAdminPreviewRole) roleClientPayload.preview = true;
     // A payload carrying match state must never be cached — see
     // PRIVATE_VOLATILE_HEADERS. Both directions matter: caching the PRE-accept
     // body (match present) is what lets a reload replay the accept buttons,
     // and caching the POST-accept body would strand the doctor on
     // "being fast-tracked" after the practice has moved them on.
+    // `applied` deliberately does NOT join them. Match state is answerable
+    // from this page — a stale copy replays the accept buttons, which is the
+    // bug this guard exists for. `applied` is not: nothing on the page can act
+    // on it, the client marks itself applied the moment the POST returns, and
+    // it only changes when STAFF submit to the practice. Sixty seconds of
+    // staleness on a non-actionable flag is not worth turning off the private
+    // cache for every role a doctor has an active application on — which is
+    // exactly the handful of roles they reopen most (2026-07-29 DB-load
+    // handover). job.html's own 10-minute localStorage cache is a different
+    // story and does reject it: that one never refetches.
     const roleCarriesMatchState = !!(roleClientPayload.match || roleClientPayload.matchAccepted);
     sendJson(res, 200, {
       ok: true,
@@ -56624,7 +56719,11 @@ Return ONLY valid JSON with no markdown formatting:
       { name: 'AMC Complete', subject: 'AMC Complete, GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified, fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: APP_BASE_URL + '/pages/career.html', footer: '' },
       { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked, GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news, your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: APP_BASE_URL + '/pages/ahpra.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
       { name: 'AHPRA Complete', subject: 'AHPRA Complete, GP Link', title: 'AHPRA registration complete, Dr Sarah!', body: 'Your AHPRA registration has been processed, you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
-      { name: 'Application Submitted', subject: 'Application Submitted, GP Link', title: 'Application Submitted', body: 'Your application for the Greenfield Medical Centre, Melbourne role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.', ctaText: 'View Your Applications', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
+      // Kept in step with notifyGpApplicationSubmitted's cold-apply copy — the
+      // whole point of this catalogue is previewing what actually gets sent.
+      // Note the sample names a location, never a practice: a doctor who
+      // applied cold has not passed the practice-identity reveal gate.
+      { name: 'Application Submitted', subject: 'Application received — here\'s what happens next', title: 'Application received', body: 'Thanks for applying for the Melbourne, VIC role — it\'s with your Registration Support Officer now.<br><br><b>What happens next</b><br>1. Your Registration Support Officer checks every application before the practice sees it, then puts you forward.<br>2. Once the practice confirms their availability, we\'ll email you interview times to choose from — you book the one that suits you.<br>3. You meet the practice. Your Registration Support Officer preps you beforehand and is on the call with you.<br><br>There is nothing you need to do right now — just keep an eye on your email.', ctaText: 'Track your application', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
       { name: 'Interview Scheduled', subject: 'Interview Scheduled, GP Link', title: 'Interview Scheduled', body: 'Great news! An interview has been scheduled for Greenfield Medical Centre, Melbourne.<br><br><strong>Interview Details:</strong><br>Date: Monday, 19 May 2026<br>Time: 10:00 AM<br>Duration: 30 minutes<br>Interviewer: Dr James Chen<br>Format: Video Call (Zoom)', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
       { name: 'Interview Reminder', subject: 'Interview Tomorrow, GP Link', title: 'Interview reminder, Dr Sarah', body: 'Just a friendly reminder, you have an interview scheduled for tomorrow.<br><br><strong>Interview Details:</strong><br>Practice: Greenfield Medical Centre, Melbourne<br>Date: Tuesday, 20 May 2026<br>Time: 10:00 AM<br>Format: Video Call (Zoom)<br><br>Your Zoom meeting link is included in the button below.', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'Make sure you\'re in a quiet place with stable internet. Good luck!' },
       { name: 'Offer Pending', subject: 'Offer Pending, GP Link', title: 'Offer Pending', body: 'Exciting news! An offer is pending for Greenfield Medical Centre, Melbourne. Our team will be in touch with the details.', ctaText: 'View Application', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
@@ -69326,6 +69425,9 @@ module.exports.__testUtils = {
   currentInterviewMonthWindow,
   INTERVIEW_MONTHLY_CAP,
   acceptShortlistedMatchRow,
+  careerRowIsPendingMatch,
+  careerRowIsOwnApplicationAwaitingPractice,
+  buildInternalCareerStatusPresentation,
   countApplicationsInLast24h,
   flagApplicationVelocity,
   APPLICATION_VELOCITY_THRESHOLD,

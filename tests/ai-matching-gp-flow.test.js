@@ -751,7 +751,11 @@ describe('POST /api/career/match/respond — accept', () => {
     // apply, so it must not say "Application Submitted" — it tells them
     // interview times are coming (owner request 2026-07-29).
     expect(subjects.some((s) => /^You're being fast-tracked.* — interview times coming$/.test(s))).toBe(true);
-    expect(subjects).not.toContain('Application Submitted, GP Link');
+    // The cold-apply confirmation must not fire on this path. Its subject was
+    // reworded on 2026-07-30 (cold applies now get their own what-happens-next
+    // copy), so this pins the CURRENT one — pinning a subject nothing sends any
+    // more would pass for free and guard nothing.
+    expect(subjects).not.toContain('Application received — here\'s what happens next');
     const gpEmail = resendCalls.find((c) => c.body && /interview times coming$/.test(c.body.subject || ''));
     expect(gpEmail.body.html).toContain('What happens next');
     expect(gpEmail.body.html).toContain('interview times to choose from');

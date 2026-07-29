@@ -362,7 +362,7 @@ describe('affordance flags (admin panel + CEO drawer payloads)', () => {
     // Internal app in the 'applied' lane → the presentation, not the raw status.
     const app1 = r.body.applications.find((a) => a.id === 'app-1');
     expect(app1.status_key).toBe('applied');
-    expect(app1.status_label).toBe('Application submitted');
+    expect(app1.status_label).toBe('Application received — we’re putting you forward');
     // Internal app already sent to the practice (ats_stage 'submitted').
     const app5 = r.body.applications.find((a) => a.id === 'app-5');
     expect(app5.status_key).toBe('submitted');

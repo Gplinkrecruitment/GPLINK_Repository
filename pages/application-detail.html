@@ -788,11 +788,14 @@
       <!-- Status Timeline -->
       <div class="status-timeline" id="statusTimeline"></div>
 
-      <!-- Shown only for a fast-tracked match: the timeline alone says
-           "Applied" and nothing about what happens next, which is exactly what
-           the doctor comes here to find out (owner report 2026-07-29). -->
+      <!-- Shown for a fast-tracked match AND for a direct application: the
+           timeline alone says "Applied" and nothing about what happens next,
+           which is exactly what the doctor comes here to find out (owner
+           report 2026-07-29, extended to cold applies 2026-07-30). Both are
+           waiting on the same thing; only the title and wording differ, so
+           both are filled in from JS. -->
       <div class="ft-note" id="fastTrackNote" hidden>
-        <p class="ft-note-title">You’re being fast-tracked</p>
+        <p class="ft-note-title" id="fastTrackNoteTitle">You’re being fast-tracked</p>
         <p class="ft-note-body" id="fastTrackNoteBody"></p>
       </div>
 
@@ -1300,14 +1303,30 @@
         // Fast-tracked explainer — the timeline says "Applied" and stops
         // there, so without this the doctor is told nothing about what is
         // actually happening next (owner report 2026-07-29).
-        var isFastTracked = normalizeStatusKey(app.rawStatus || app.status) === "fast_tracked";
+        // A direct application is waiting on the same step as a fast-tracked
+        // match — us putting them in front of the practice — so it gets the
+        // same note (owner request 2026-07-30). Two things change: nobody
+        // matched them, so their Registration Support Officer reviews first
+        // and we must not promise a submission that is still a judgement call;
+        // and their practice is still masked, so it is never named here.
+        // "applied" reaching this page always means that state — every stage
+        // past it has its own status key from the server mapper.
+        var noteStatusKey = normalizeStatusKey(app.rawStatus || app.status);
+        var isFastTracked = noteStatusKey === "fast_tracked";
+        var isAwaitingSubmission = noteStatusKey === "applied";
         var ftNoteEl = document.getElementById("fastTrackNote");
         if (ftNoteEl) {
-          ftNoteEl.hidden = !isFastTracked;
+          ftNoteEl.hidden = !(isFastTracked || isAwaitingSubmission);
           if (isFastTracked) {
+            document.getElementById("fastTrackNoteTitle").textContent = "You’re being fast-tracked";
             document.getElementById("fastTrackNoteBody").textContent =
               "Your Registration Support Officer is putting you forward to " + practiceName
               + " now. We'll email you interview times to choose from — usually within a couple of business days.";
+          } else if (isAwaitingSubmission) {
+            document.getElementById("fastTrackNoteTitle").textContent = "What happens next";
+            document.getElementById("fastTrackNoteBody").textContent =
+              "Your Registration Support Officer checks every application before the practice sees it, then puts you forward. "
+              + "Once the practice confirms their availability, we'll email you interview times to choose from — you book the one that suits you.";
           }
         }
 

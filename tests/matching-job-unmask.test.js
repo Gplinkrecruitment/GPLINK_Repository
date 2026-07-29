@@ -119,8 +119,12 @@ describe('AI Matching Task 7 — source wiring', () => {
   it('a pending match outranks the applied state — no "Application received", no "✓ Submitted"', () => {
     // The banner slot and the sticky-bar state both defer to getActiveMatch,
     // so a shortlisted-but-unanswered row can never render as submitted.
-    expect(jobHtml).toContain('isApplied(role.id) && !getActiveMatch(role) ? buildReceivedHtml() : ""');
-    expect(jobHtml).toContain('((isApplied(role.id) && !getActiveMatch(role)) ? "applied" : "idle")');
+    // The applied source widened on 2026-07-30 (server `role.applied` OR this
+    // browser's localStorage) so the state survives a reload on any device —
+    // the getActiveMatch veto is what this test actually guards, and it must
+    // still sit outside the widened check.
+    expect(jobHtml).toContain('(role.applied || isApplied(role.id)) && !getActiveMatch(role) ? buildReceivedHtml() : ""');
+    expect(jobHtml).toContain('(((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle")');
   });
 
   it('a live match offers enquire + decline next to accept, via match/respond', () => {
@@ -202,7 +206,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     // bare "Applied" timeline for a match the doctor had been fast-tracked on.
     // The mapper branch has to sit ABOVE the generic applied default, which is
     // where the row was landing.
-    const idxDefault = serverSrc.indexOf("statusLabel: 'Application submitted'");
+    const idxDefault = serverSrc.indexOf("statusLabel: 'Application received");
     const idxFast = serverSrc.indexOf("status: 'fast_tracked'");
     expect(idxFast).toBeGreaterThan(-1);
     expect(idxFast).toBeLessThan(idxDefault);
@@ -740,6 +744,9 @@ describe('GET /api/career/role — website + match for a matched GP', () => {
   it('job.html refuses to serve a cached role detail that carries match state', () => {
     const src = fs.readFileSync(path.join(ROOT, 'pages', 'job.html'), 'utf8');
     const readFn = src.slice(src.indexOf('function readCachedRoleDetail'), src.indexOf('function writeCachedRoleDetail'));
-    expect(readFn).toContain('if (parsed.role.match || parsed.role.matchAccepted) return null;');
+    // `applied` joined the guard on 2026-07-30 for the same reason: this cache
+    // never refetches, so a 10-minute-old copy would keep answering "where is
+    // my application up to" after the practice had moved them on.
+    expect(readFn).toContain('if (parsed.role.match || parsed.role.matchAccepted || parsed.role.applied) return null;');
   });
 });
