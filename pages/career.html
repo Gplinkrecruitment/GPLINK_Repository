@@ -7909,8 +7909,15 @@
     /* ── Interactive Australia practice map (keyless Leaflet + CARTO + clustering).
        Same feature as the public /jobs map, themed with gp-tokens. Pins open the
        in-app job page. ── */
+    /* 🧨 overflow MUST stay fully visible here. The previous
+       `overflow-x:clip;overflow-y:visible` pair is resolved by some engines
+       (iOS Safari/WebKit) as if overflow-y were `auto`, which turns this into a
+       scroll box and CLIPS the preview card away entirely — the card opened but
+       the doctor saw nothing (owner report 2026-07-30). The closed card no
+       longer overhangs horizontally, so nothing needs clipping. */
     .cmap-wrap{position:relative;z-index:2;margin:0 0 22px;background:var(--gp-surface);border:1px solid var(--gp-border);
-      border-radius:var(--gp-r-lg,18px);box-shadow:var(--gp-shadow-sm);overflow-x:clip;overflow-y:visible;}
+      border-radius:var(--gp-r-lg,18px);box-shadow:var(--gp-shadow-sm);overflow:visible;}
+    .cmap-stage{position:relative;}
     .cmap-head{display:flex;align-items:center;gap:9px;padding:13px 17px;border-bottom:1px solid var(--gp-border);
       border-radius:var(--gp-r-lg,18px) var(--gp-r-lg,18px) 0 0;flex-wrap:wrap;}
     .cmap-head .cdot{width:10px;height:10px;border-radius:50%;background:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.18);flex:none;}
@@ -7939,11 +7946,15 @@
     .cmap-cluster.lg > div{width:46px;height:46px;font-size:15px;}
     /* detail card: right panel (desktop, grows DOWN over the list) / below map (mobile).
        flex-basis:auto + display:block on mobile so WebKit never collapses it. */
+    /* Closed state fades + drops rather than parking off to the right: a
+       horizontal overhang is what forced the clipping ancestor in the first
+       place, and that clipping is what swallowed the card on iOS. */
     .cmap-detail{position:absolute;top:0;right:0;width:min(360px,90%);min-height:100%;height:auto;max-height:calc(100vh - 40px);z-index:600;
       background:var(--gp-surface);border-radius:0 0 16px 16px;box-shadow:-6px 26px 64px -30px rgba(9,25,45,.55);
-      transform:translateX(103%);opacity:0;transition:transform .5s cubic-bezier(.16,1,.3,1),opacity .3s ease;
+      opacity:0;visibility:hidden;transform:translateY(-10px);
+      transition:transform .34s cubic-bezier(.16,1,.3,1),opacity .26s ease,visibility 0s linear .34s;
       display:flex;flex-direction:column;overflow:hidden;pointer-events:none;}
-    .cmap-detail.open{transform:translateX(0);opacity:1;pointer-events:auto;}
+    .cmap-detail.open{transform:translateY(0);opacity:1;visibility:visible;pointer-events:auto;transition-delay:0s;}
     .cmap-photo{position:relative;height:168px;flex:none;background:#dfe7f0;overflow:hidden;}
     .cmap-photo img{width:100%;height:100%;object-fit:cover;display:block;}
     .cmap-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(9,22,40,.76),transparent 56%);}
@@ -7969,11 +7980,51 @@
     .cmap-cta .sub{text-align:center;font-size:11.5px;color:var(--gp-faint);margin-top:8px;}
     @media(max-width:760px){
       .cmap-shell{height:clamp(280px,38vh,360px);}
-      .cmap-detail{display:block;top:100%;left:0;right:0;width:100%;min-height:0;height:auto;max-height:none;margin-top:10px;
-        border-radius:16px;box-shadow:0 26px 60px -24px rgba(9,25,45,.5);transform:translateY(16px);}
-      .cmap-detail.open{transform:translateY(0);}
+      /* In-flow, not absolutely positioned: the card simply follows the map in
+         normal document order, so it cannot be clipped and it pushes the role
+         list down instead of covering it. display:none when closed keeps its
+         footprint at exactly zero. (display:block — never flex — because
+         WebKit collapses auto-height flex cards, see .cmap-body note.) */
+      .cmap-detail{position:static;display:none;width:auto;min-height:0;height:auto;max-height:none;margin:10px 10px 12px;
+        border-radius:16px;box-shadow:0 26px 60px -24px rgba(9,25,45,.5);
+        opacity:1;visibility:visible;transform:none;transition:none;pointer-events:auto;}
+      .cmap-detail.open{display:block;animation:cmapCardIn .3s cubic-bezier(.16,1,.3,1) both;}
       .cmap-detail .cmap-photo{border-radius:16px 16px 0 0;}
     }
+    @keyframes cmapCardIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+    @media(prefers-reduced-motion:reduce){.cmap-detail.open{animation:none;}}
+
+    /* ── Your matches & applications, highlighted under the map ── */
+    .cmap-mine{margin:-6px 0 22px;}
+    .cmap-mine-h{display:flex;align-items:center;gap:9px;margin:0 2px 10px;}
+    .cmap-mine-h .cmap-mine-dot{width:10px;height:10px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 4px rgba(22,163,74,.18);flex:none;}
+    .cmap-mine-h b{color:var(--gp-ink);font-size:14px;font-weight:700;}
+    .cmap-mine-h .sub{color:var(--gp-muted);font-size:12px;margin-left:auto;}
+    .cmap-mine-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;}
+    .cmap-mine-card{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+      background:var(--gp-surface);border:1px solid var(--gp-border);border-left:4px solid #2563eb;
+      border-radius:14px;padding:10px 12px;box-shadow:var(--gp-shadow-sm);
+      transition:transform .18s ease,box-shadow .18s ease;}
+    .cmap-mine-card:hover{transform:translateY(-2px);box-shadow:0 16px 30px -18px rgba(9,25,45,.5);}
+    .cmap-mine-card.is-live{border-left-color:#16a34a;}
+    .cmap-mine-card.is-closed{border-left-color:var(--gp-border);opacity:.72;}
+    .cmap-mine-thumb{flex:none;width:46px;height:46px;border-radius:11px;overflow:hidden;background:var(--gp-surface-sunken);
+      display:grid;place-items:center;color:#2563eb;}
+    .cmap-mine-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+    .cmap-mine-thumb svg{width:19px;height:19px;}
+    .cmap-mine-txt{min-width:0;flex:1;display:block;}
+    .cmap-mine-sub{display:block;font-size:14px;font-weight:730;color:var(--gp-ink);line-height:1.2;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .cmap-mine-role{display:block;font-size:11.5px;color:var(--gp-muted);margin-top:2px;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .cmap-mine-pill{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+      padding:5px 9px;border-radius:999px;background:rgba(37,99,235,.12);color:#2563eb;white-space:nowrap;}
+    .cmap-mine-card.is-live .cmap-mine-pill{background:rgba(22,163,74,.13);color:#15803d;}
+    .cmap-mine-card.is-closed .cmap-mine-pill{background:var(--gp-surface-sunken);color:var(--gp-muted);}
+    /* The doctor's own practices stand out from the eligible-role pins. */
+    .cmap-pin.mine .pd svg path{fill:#16a34a;}
+    .cmap-pin.mine .pd{filter:drop-shadow(0 5px 7px rgba(22,163,74,.5));}
+    html.dark-mode .cmap-mine-card.is-closed{opacity:.6;}
     html.dark-mode .cmap-loading{background:#1a2332;}
     html.dark-mode .cmap-shell .leaflet-control-attribution{background:rgba(20,28,42,.5);color:rgba(180,200,225,.6);}
   </style>
@@ -8040,11 +8091,17 @@
              Keyless Leaflet + CARTO tiles + clustering (same as public /jobs). -->
         <section class="cmap-wrap" id="careerMapWrap" aria-label="Practices across Australia on a map">
           <div class="cmap-head"><span class="cdot"></span><b><span id="cmapCount">—</span> practices you&rsquo;re eligible for</b><span class="sub">Tap a pin to preview a role</span></div>
+          <!-- The preview card is a SIBLING of the map shell inside this stage.
+               On desktop it is absolutely positioned over the stage; on mobile
+               it becomes an ordinary in-flow block below the map, so no
+               ancestor's overflow can ever clip it away. -->
+          <div class="cmap-stage">
           <div class="cmap-shell" id="careerMapShell">
             <div class="cmap-frame">
               <div class="cmap" id="careerMap" aria-label="Map of GP practices hiring across Australia"></div>
               <div class="cmap-loading" id="cmapLoading">Loading the map…</div>
             </div>
+          </div>
             <aside class="cmap-detail" id="cmapDetail" aria-hidden="true">
               <div class="cmap-photo">
                 <button class="cmap-x" id="cmapClose" aria-label="Close">&times;</button>
@@ -8062,6 +8119,13 @@
               </div>
             </aside>
           </div>
+        </section>
+        <!-- The practices this doctor has been matched with or applied to,
+             highlighted under the map. Each card opens that application's
+             timeline. Lives OUTSIDE .cmap-wrap so a failed map never hides it. -->
+        <section class="cmap-mine" id="cmapMine" aria-label="Your matches and applications" hidden>
+          <div class="cmap-mine-h"><span class="cmap-mine-dot"></span><b>Your matches &amp; applications</b><span class="sub">Tap to see the timeline</span></div>
+          <div class="cmap-mine-list" id="cmapMineList"></div>
         </section>
         <div id="positionFilledSection"></div>
         <div id="teamMatchesSection" class="at-match-section" hidden></div>
@@ -12540,6 +12604,60 @@
       } catch (e) { /* map is best-effort; never break the list render */ }
     }
 
+    // Short, honest label for the strip of practices under the map. Mirrors the
+    // ribbon wording of buildApplicationRowHtml so the same application never
+    // reads one way in the Offers list and another under the map.
+    function careerMineStatusLabel(application) {
+      const key = normalizeStatusKey(application.rawStatus);
+      if (key === "matched") return "Matched";
+      if (application.isPlacementSecured) return "Secured";
+      if (key === "finalising_placement") return "Offer accepted";
+      if (application.contractStage === "sent_to_gp"
+        || application.contractStage === "changes_requested"
+        || application.contractStage === "practice_review") return "Contract";
+      if (application.offerPending === true) return "Offer";
+      if (key === "interview" || key === "interview_scheduled" || key === "interview_completed") return "Interview";
+      if (key === "submitted") return "Submitted";
+      if (key === "reviewing") return "With practice";
+      if (key === "not_proceeding") return "Not proceeding";
+      if (key === "withdrawn") return "Withdrawn";
+      if (key === "offer_declined") return "Offer declined";
+      return "Under review";
+    }
+
+    function careerMineTone(application) {
+      const key = normalizeStatusKey(application.rawStatus);
+      if (key === "not_proceeding" || key === "withdrawn" || key === "offer_declined") return "closed";
+      if (key === "matched" || application.offerPending === true || application.isPlacementSecured) return "live";
+      return "open";
+    }
+
+    // Publish the doctor's own matches/applications so the map script can
+    // highlight those practices and list them underneath. Each entry carries the
+    // ids the existing [data-open-application] handler needs, so tapping one
+    // opens that application's timeline exactly like the Offers list does.
+    function syncCareerMapMine(applications) {
+      try {
+        const list = (applications || [])
+          .filter((a) => a && (a.id || a.applicationId || a.roleId != null))
+          .map((a) => {
+            const role = findRole(a.roleId);
+            const source = role || { practiceName: a.practiceName, location: a.location, state: "" };
+            return {
+              appId: String(a.id || a.applicationId || ""),
+              roleId: a.roleId == null ? "" : String(a.roleId),
+              suburb: getRoleSuburbLabel(source),
+              state: getRoleStateCode(source),
+              role: String((role && (role.maskedTitle || role.practiceName)) || a.practiceName || ""),
+              status: careerMineStatusLabel(a),
+              tone: careerMineTone(a)
+            };
+          });
+        window.__careerMineApplications = list;
+        if (typeof window.__careerMapMine === "function") window.__careerMapMine(list);
+      } catch (e) { /* strip is best-effort; never break the applications render */ }
+    }
+
     // One Atlas row per application. Offer-received rows get the green accent
     // + a CTA into the existing offer-review flow; interview rows link to the
     // detail page to book a time; everything else opens application-detail.
@@ -12703,6 +12821,9 @@
     function renderApplications() {
       applicationsGridEl.innerHTML = "";
       const applications = careerState.applications.filter(Boolean);
+      // Publish BEFORE the early return so the under-map strip clears itself
+      // when the last application goes away.
+      syncCareerMapMine(applications);
       applicationsEmptyStateEl.innerHTML = buildAtlasEmptyHtml("offers");
       applicationsEmptyStateEl.classList.toggle("is-visible", applications.length === 0);
       if (!applications.length) return;
@@ -13729,8 +13850,50 @@
     // has coordinates; VISIBLE = the id-set the app wants shown (undefined until
     // the first sync, null means "show all").
     var Lref=null, MAP=null, CLUSTER=null, PINNABLE=[], VISIBLE;
+    // The doctor's own matches/applications: MINE drives the strip under the
+    // map, MINE_BY_ROLE marks those practices' pins. BY_ID is the practice-map
+    // lookup used for the strip's suburb photo.
+    var MINE=[], MINE_BY_ROLE={}, BY_ID={};
+    var mineEl=document.getElementById('cmapMine');
+    var mineListEl=document.getElementById('cmapMineList');
+    var THUMB_FALLBACK='<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>';
 
     function toIdSet(ids){return Array.isArray(ids)?ids.reduce(function(a,x){a[String(x)]=1;return a;},{}):null;}
+
+    // One card per match/application, under the map. The ids below are what the
+    // app script's document-level [data-open-application] handler reads, so a
+    // tap opens that application's timeline (or, for a live unanswered match,
+    // the practice page that carries accept/decline) with no routing of our own.
+    function renderMine(){
+      if(!mineEl||!mineListEl)return;
+      if(!MINE.length){mineListEl.innerHTML='';mineEl.hidden=true;return;}
+      mineListEl.innerHTML=MINE.map(function(m){
+        var p=BY_ID[String(m.roleId)];
+        var thumb=(p&&p.img)?'<img src="'+esc(p.img)+'" alt="" loading="lazy">':THUMB_FALLBACK;
+        var suburb=m.suburb||(p&&p.suburb)||'Australia';
+        var state=m.state||(p&&p.state)||'';
+        var cls='cmap-mine-card'+(m.tone==='live'?' is-live':(m.tone==='closed'?' is-closed':''));
+        return '<button type="button" class="'+cls+'" data-open-application="'+esc(m.appId)+'" data-open-application-role="'+esc(m.roleId)+'">'
+          +'<span class="cmap-mine-thumb">'+thumb+'</span>'
+          +'<span class="cmap-mine-txt">'
+          +'<span class="cmap-mine-sub">'+esc(suburb)+(state?', '+esc(state):'')+'</span>'
+          +'<span class="cmap-mine-role">'+esc(m.role||'')+'</span>'
+          +'</span>'
+          +'<span class="cmap-mine-pill">'+esc(m.status||'')+'</span>'
+          +'</button>';
+      }).join('');
+      mineEl.hidden=false;
+    }
+
+    // Defined before the fetch for the same reason as __careerMapApply: a
+    // publish that lands while the map libs are still loading must not be lost.
+    window.__careerMapMine=function(list){
+      MINE=Array.isArray(list)?list:[];
+      MINE_BY_ROLE={};
+      MINE.forEach(function(m){if(m&&m.roleId)MINE_BY_ROLE[String(m.roleId)]=m;});
+      renderMine();
+      renderPins();
+    };
 
     // Rebuild the cluster from PINNABLE, keeping only ids in VISIBLE (null => all).
     // Called on first boot and again every time the GP's filters change the list,
@@ -13741,7 +13904,8 @@
       var shown=0, present={};
       PINNABLE.forEach(function(p){
         if(VISIBLE && !VISIBLE[String(p.id)])return;
-        var icon=Lref.divIcon({className:'cmap-pin-wrap',html:'<div class="cmap-pin"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
+        var mine=MINE_BY_ROLE[String(p.id)]?' mine':'';
+        var icon=Lref.divIcon({className:'cmap-pin-wrap',html:'<div class="cmap-pin'+mine+'"><span class="pd">'+PIN+'</span></div>',iconSize:[30,40],iconAnchor:[15,40]});
         var m=Lref.marker([p.lat,p.lng],{icon:icon,riseOnHover:true});
         m.on('click',function(e){if(Lref.DomEvent)Lref.DomEvent.stopPropagation(e);openDetail(p,m);});
         CLUSTER.addLayer(m);
@@ -13759,6 +13923,12 @@
     window.__careerMapApply=function(ids){VISIBLE=toIdSet(ids);renderPins();};
 
     function boot(practices){
+      // Index every practice first: the strip under the map wants the suburb
+      // photo whether or not the map itself can render.
+      BY_ID={};
+      practices.forEach(function(p){if(p&&p.id!=null)BY_ID[String(p.id)]=p;});
+      if(!MINE.length&&Array.isArray(window.__careerMineApplications))window.__careerMapMine(window.__careerMineApplications);
+      else renderMine();
       if(!practices.length){fail();return;}
       loadLibs().then(function(L){
         if(!L||!L.markerClusterGroup){fail();return;}
