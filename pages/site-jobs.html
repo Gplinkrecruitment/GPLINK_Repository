@@ -122,6 +122,12 @@
      the income/benefits/button. */
   .pmap-body{padding:16px 18px 18px;overflow:auto;display:flex;flex-direction:column;gap:14px;flex:1 1 auto;}
   .pmap-role{font-size:14px;font-weight:600;color:var(--mut);line-height:1.35;}
+  /* Billing pill: the one thing that separates several masked practices pinned
+     in the same suburb. Same wording as the chip on the results card. */
+  .pmap-bill{display:inline-block;align-self:start;background:var(--teal-soft);color:var(--teal);
+    border:1px solid #cfe3ff;border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:700;
+    letter-spacing:.02em;width:fit-content;}
+  .pmap-bill[hidden]{display:none;}
   .pmap-inc{background:linear-gradient(120deg,var(--teal-soft),#eef6ff);border:1px solid #cfe3ff;border-radius:13px;padding:13px 15px;}
   .pmap-inc .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--mut-2);}
   .pmap-inc .v{font-size:22px;font-weight:800;color:var(--teal);letter-spacing:-.01em;margin-top:2px;}
@@ -354,6 +360,11 @@
           </div>
           <div class="pmap-body">
             <div class="pmap-role" id="pmapRole"></div>
+            <!-- Billing type. The sidebar never showed it, so two masked
+                 practices pinned in one suburb read identically — same suburb,
+                 same proximity line, same income, same benefits. It is already
+                 public on the results card below, so nothing new is exposed. -->
+            <div class="pmap-bill" id="pmapBilling" hidden></div>
             <div class="pmap-inc"><div class="k">Expected income</div><div class="v" id="pmapIncome">—</div></div>
             <div id="pmapBeneWrap"><div class="pmap-bh">What's on offer</div><div id="pmapBenefits"></div></div>
             <div class="pmap-cta">
@@ -1029,6 +1040,8 @@
     document.getElementById('pmapSub').textContent=p.suburb||'';
     document.getElementById('pmapState').textContent=STATE_FULL[p.state]||p.state||'';
     document.getElementById('pmapRole').textContent=p.display||p.title||'';
+    var billEl=document.getElementById('pmapBilling');
+    if(billEl){billEl.textContent=p.billing||'';billEl.hidden=!p.billing;}
     document.getElementById('pmapIncome').textContent=prettyIncome(p.income);
     var bw=document.getElementById('pmapBenefits');
     var benes=(p.benefits||[]).filter(function(b){return b&&b.label&&b.value;}).slice(0,3);

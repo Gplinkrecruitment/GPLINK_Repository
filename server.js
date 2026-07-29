@@ -22031,6 +22031,13 @@ function classifyPublicJobBilling(job) {
   return '';
 }
 
+// NOTE (2026-07-29): a practice-level descriptor line was built and demoed for
+// the map sidebar (derived from details.shortIntro, with the practice name
+// redacted out) to separate several masked practices pinned in one suburb.
+// The owner chose NOT to ship it — no free-text practice copy goes onto the
+// public card. Only the billing type was kept. Consequence, on purpose: two
+// same-suburb practices on the same billing type still render identically.
+
 // Filters + paginates + sanitizes raw career_roles rows into the public API
 // response shape. This is the exact function GET /api/public/jobs calls, so it
 // is unit-testable directly with seeded fixture rows (no Supabase/HTTP needed).

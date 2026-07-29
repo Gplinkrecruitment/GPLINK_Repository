@@ -369,6 +369,36 @@ describe('location_state is normalised to a 2-letter code, not just uppercased',
   });
 });
 
+// The practice-descriptor line (details.shortIntro, redacted) was built and
+// demoed for the map sidebar on 2026-07-29 and then deliberately NOT shipped —
+// the owner chose to keep free-text practice copy off the public card. Only the
+// billing type was kept. Nothing derived from shortIntro may reach the public
+// payload; these tests hold that line.
+describe('no practice free-text reaches the public job', () => {
+  it('exposes no practice_blurb and nothing from details.shortIntro', () => {
+    const row = makeRawRow({
+      practice_name: 'Riverside Medical Centre',
+      details: { shortIntro: 'Riverside runs a skin clinic with cryotherapy and minor surgery.' }
+    });
+    const job = testUtils.sanitizePublicJob(testUtils.mapCareerRoleRowToPublicJob(row));
+    expect(job.practice_blurb).toBeUndefined();
+    expect(testUtils.buildPublicPracticeBlurb).toBeUndefined();
+    expect(JSON.stringify(job)).not.toMatch(/cryotherapy|skin clinic|Riverside/i);
+  });
+
+  it('the map pin carries billing but no descriptor', () => {
+    // Billing IS shipped — it is what separates two masked practices pinned in
+    // the same suburb, and it is already public on the results card.
+    const job = testUtils.sanitizePublicJob(testUtils.mapCareerRoleRowToPublicJob(
+      makeRawRow({ billing_model: 'Mixed Billing', details: { shortIntro: 'Skin clinic.' } })
+    ));
+    const pin = testUtils.shapeMapPractice(job, 'WA', { lat: -32, lng: 115 });
+    expect(pin.billing).toBe('Mixed Billing');
+    expect(pin.blurb).toBeUndefined();
+    expect(JSON.stringify(pin)).not.toMatch(/Skin clinic/i);
+  });
+});
+
 describe('classifyPublicJobBilling', () => {
   const classify = (billing_model) =>
     testUtils.classifyPublicJobBilling(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({ billing_model })));

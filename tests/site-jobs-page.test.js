@@ -191,6 +191,19 @@ describe('GET /jobs (Task 8 job board page)', () => {
     expect(res.raw).toMatch(/if\(!mapObj\)\{/);
   });
 
+  it('the map sidebar shows the billing type — and no practice free-text', async () => {
+    const res = await get('/jobs');
+    // Two practices masked to the same suburb previously rendered an identical
+    // sidebar: same suburb, same proximity line, same income, same benefits.
+    // Billing is the one separator, and it is already public on the results
+    // card. A descriptor line was demoed and deliberately not shipped.
+    expect(res.raw).toContain('id="pmapBilling"');
+    expect(res.raw).toMatch(/billEl\.textContent=p\.billing\|\|''/);
+    expect(res.raw).toMatch(/billEl\.hidden=!p\.billing/);
+    expect(res.raw).not.toContain('pmapBlurb');
+    expect(res.raw).not.toMatch(/p\.blurb/);
+  });
+
   it('restores the unfiltered caption wording when the filters are cleared', async () => {
     const res = await get('/jobs');
     // The caption is repainted live now, so the filtered wording must be reset
