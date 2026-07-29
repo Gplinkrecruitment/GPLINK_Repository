@@ -83,17 +83,25 @@ const CALENDLY_WEBHOOK_SECRET = String(process.env.CALENDLY_WEBHOOK_SECRET || ''
 const ZOOM_WEBHOOK_SECRET = String(process.env.ZOOM_WEBHOOK_SECRET || '').trim();
 // Minimum gap the interview scheduler leaves either side of anything already in
 // the diary — meetings run over, and back-to-back leaves no room to prepare
-// (owner request 2026-07-29). Raise it with INTERVIEW_GAP_MINUTES in Vercel; 0
-// disables it. Applied by widening busy blocks in _interviewComputeSlots, so
-// the interview itself is always still a full 45 minutes.
+// (owner request 2026-07-29). Applied by widening busy blocks in
+// _interviewComputeSlots, so the interview itself is always still a full 45
+// minutes. Change it with INTERVIEW_GAP_MINUTES in Vercel; 0 disables it.
+//
+// 10 to MATCH the Calendly buffer, deliberately (owner call 2026-07-29). These
+// two settings guard opposite directions — this one stops us booking too close
+// to a consult, Calendly's stops a consult being booked too close to an
+// interview — and whichever system books second applies its own rule. So the
+// gap a doctor actually experiences is the SMALLER of the two. Setting this
+// higher than Calendly's buffer buys nothing; it just makes the diary uneven.
+// **If the Calendly buffer changes, change this to match.**
 const INTERVIEW_GAP_MINUTES = (function () {
   // Test the string BEFORE converting: Number('') is 0, not NaN, so an unset
   // variable would otherwise pass a finite/non-negative check and silently
   // mean "no gap" — the exact opposite of the default we want.
   var raw = String(process.env.INTERVIEW_GAP_MINUTES || '').trim();
-  if (!raw) return 15;
+  if (!raw) return 10;
   var n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 15;
+  return Number.isFinite(n) && n >= 0 ? n : 10;
 })();
 // Vercel auto-injects CRON_SECRET for its own cron triggers; manual calls use the same secret
 const _CRON_SECRET_PRIMARY = String(process.env.CRON_SECRET || '').trim();
@@ -68416,9 +68424,9 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
 
   // Keep a real gap either side of anything already in the diary. Meetings run
   // over, and a slot that starts the second another ends leaves no room to
-  // prepare — the owner asked for at least 15 minutes (2026-07-29). Applied by
-  // widening every busy block rather than by shortening the interview, so the
-  // interview itself stays a full 45 minutes.
+  // prepare. See INTERVIEW_GAP_MINUTES (default 10, matching the Calendly
+  // buffer). Applied by widening every busy block rather than by shortening the
+  // interview, so the interview itself stays a full 45 minutes.
   //
   // This pads BOTH sources: meetings booked in the app, and whatever
   // gcalReadBusy returned from Google Calendar. Note Calendly has its own,

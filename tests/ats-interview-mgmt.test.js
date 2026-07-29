@@ -507,13 +507,16 @@ describe('interview slots avoid booked CONSULTATIONS, not just other interviews'
   });
 });
 
-// Owner request 2026-07-29: leave at least 15 minutes either side of anything
+// Owner request 2026-07-29: leave a gap either side of anything
 // already in the diary, so a meeting running over doesn't eat the next one and
 // there is room to prepare. Implemented by widening busy blocks, NOT by
 // shortening the interview.
 describe('interview slots leave a gap either side of an existing meeting', () => {
   const SLOTS_URL = '/api/ats/interview/slots?application_id=app-mgmt-1&now=2026-07-01T00:00:00Z';
-  const GAP_MIN = 15;
+  // Matches INTERVIEW_GAP_MINUTES' default, which is deliberately kept equal
+  // to the Calendly buffer — the gap a doctor experiences is the smaller of the
+  // two, so they are changed together.
+  const GAP_MIN = 10;
   const INTERVIEW_MIN = 45;
 
   async function ensureSlotsCompute() {
@@ -525,7 +528,7 @@ describe('interview slots leave a gap either side of an existing meeting', () =>
     row.practice_availability_status = 'defaulted';
   }
 
-  it('never offers a slot that starts within 15 minutes of a consult ending', async () => {
+  it('never offers a slot that starts within the gap of a consult ending', async () => {
     await ensureSlotsCompute();
 
     const before = await atsGet(SLOTS_URL);
