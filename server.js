@@ -28310,8 +28310,16 @@ async function getGoogleAccessToken(scopes, impersonateEmail) {
   return auth.credentials.access_token;
 }
 
+// TRIMMED on purpose. These are pasted into Vercel by hand, and a trailing
+// space survives the paste: the freebusy request then asks about
+// "hello@example.com " while Google answers about "hello@example.com", the
+// exact-key lookup misses, and the app concludes the diary is empty — no
+// error, no warning, all clash protection silently gone.
+function gcalCalendarId() { return String(process.env.GOOGLE_CALENDAR_ID || '').trim(); }
+function gcalImpersonateEmail() { return String(process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || '').trim() || undefined; }
+
 function isGoogleCalendarConfigured() {
-  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && process.env.GOOGLE_CALENDAR_ID);
+  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && gcalCalendarId());
 }
 
 // Read busy intervals from Google Calendar (or from the local fakeCalendar store).
@@ -28321,11 +28329,28 @@ async function gcalReadBusy(o) {
       return new Date(e.endUtc) > new Date(o.fromUtc) && new Date(e.startUtc) < new Date(o.toUtc);
     }).map(function (e) { return { startUtc: e.startUtc, endUtc: e.endUtc }; });
   }
-  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || undefined);
-  var req = gcalLib.buildFreeBusyRequest({ calendarId: process.env.GOOGLE_CALENDAR_ID, fromUtc: o.fromUtc, toUtc: o.toUtc });
+  var detail = await gcalFreeBusyDetailed(o);
+  return detail.busy;
+}
+
+// The same freebusy call, but returning what Google actually said. Google
+// reports per-calendar failures INSIDE a 200 response, so "the request
+// succeeded" is not evidence the diary was read — a permission or id problem
+// looks identical to an empty calendar. The health card reads this so the
+// difference is visible instead of being swallowed.
+async function gcalFreeBusyDetailed(o) {
+  var calId = gcalCalendarId();
+  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], gcalImpersonateEmail());
+  var req = gcalLib.buildFreeBusyRequest({ calendarId: calId, fromUtc: o.fromUtc, toUtc: o.toUtc });
   var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
   var json = await res.json();
-  return gcalLib.parseFreeBusy(json, process.env.GOOGLE_CALENDAR_ID);
+  var diag = gcalLib.freeBusyDiagnostics(json, calId);
+  if (!diag.matched || diag.errorReasons.length) {
+    console.error('[gcal] freebusy did not return usable data for', calId,
+      '— matched:', diag.matched, 'keys:', JSON.stringify(diag.returnedKeys),
+      'errors:', JSON.stringify(diag.errorReasons), 'topLevel:', diag.topLevelError);
+  }
+  return { busy: gcalLib.parseFreeBusy(json, calId), diag: diag, calendarId: calId };
 }
 
 // Create a Calendar event (or push to the local fakeCalendar store).
@@ -28346,8 +28371,8 @@ async function gcalCreateEvent(o) {
     saveDbState();
     return { id: id };
   }
-  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || undefined);
-  var req = gcalLib.buildEventInsert(Object.assign({ calendarId: process.env.GOOGLE_CALENDAR_ID }, o));
+  var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], gcalImpersonateEmail());
+  var req = gcalLib.buildEventInsert(Object.assign({ calendarId: gcalCalendarId() }, o));
   var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
   var json = await res.json();
   return { id: json.id };
@@ -28376,8 +28401,8 @@ async function gcalDeleteEvent(eventId) {
     return true;
   }
   try {
-    var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || undefined);
-    var req = gcalLib.buildEventDelete({ calendarId: process.env.GOOGLE_CALENDAR_ID, eventId: id });
+    var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], gcalImpersonateEmail());
+    var req = gcalLib.buildEventDelete({ calendarId: gcalCalendarId(), eventId: id });
     var res = await fetch(req.url, { method: req.method, headers: { Authorization: 'Bearer ' + token } });
     // 200/204 = deleted. 404/410 = already gone, which is the desired end state.
     if (res.status === 404 || res.status === 410) return true;
@@ -63926,11 +63951,27 @@ Return ONLY valid JSON with no markdown formatting:
       // read-only, and it exercises the exact permission the scheduler needs
       // (domain-wide delegation on the calendar scope), not just the presence
       // of an env var.
+      // A 200 from freebusy is NOT proof the diary was read: Google reports
+      // per-calendar failures inside the body, and a key mismatch (case, or a
+      // pasted trailing space) silently yields "no busy blocks". Both look
+      // exactly like an empty calendar. So THROW on a lookup that did not
+      // genuinely resolve — a card reading "Connected / 0" while the read
+      // failed is the same false comfort this card exists to eliminate.
       isGoogleCalendarConfigured() ? pingWithTimeout(async function () {
         var probeFrom = new Date().toISOString();
         var probeTo = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-        var busy = await gcalReadBusy({ fromUtc: probeFrom, toUtc: probeTo });
-        return { busy_blocks_next_24h: Array.isArray(busy) ? busy.length : 0 };
+        var detail = await gcalFreeBusyDetailed({ fromUtc: probeFrom, toUtc: probeTo });
+        var d = detail.diag;
+        if (d.topLevelError) throw new Error('Google: ' + d.topLevelError);
+        if (d.errorReasons.length) throw new Error('Calendar lookup rejected: ' + d.errorReasons.join(', '));
+        if (!d.matched) {
+          throw new Error('Google answered about ' + (d.returnedKeys.length ? d.returnedKeys.join(', ') : 'no calendar')
+            + ' but we asked for "' + detail.calendarId + '" — check GOOGLE_CALENDAR_ID');
+        }
+        return {
+          calendar_read: detail.calendarId,
+          busy_blocks_next_24h: detail.busy.length
+        };
       }) : Promise.resolve({ ok: false, ms: 0, error: 'Not configured', extra: {} })
     ]);
 
@@ -63994,10 +64035,13 @@ Return ONLY valid JSON with no markdown formatting:
       key: 'google_calendar', name: 'Google Calendar (interview clashes)', status: gcalStatus,
       details: {
         service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL,
-        calendar_id_configured: !!process.env.GOOGLE_CALENDAR_ID,
-        impersonate_email_configured: !!process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL,
+        calendar_id_configured: !!gcalCalendarId(),
+        impersonate_email_configured: !!gcalImpersonateEmail(),
         // What the owner actually cares about: is my diary being respected?
         interview_clash_protection: gcalPing.ok ? 'active' : 'OFF — interviews are not checked against, or written to, your calendar',
+        // The calendar actually read, echoed back. A card that only ever says
+        // "0 busy blocks" cannot distinguish an empty diary from the wrong one.
+        calendar_read: gcalPing.extra.calendar_read || null,
         busy_blocks_next_24h: gcalPing.extra.busy_blocks_next_24h != null ? gcalPing.extra.busy_blocks_next_24h : null,
         ping_ok: gcalPing.ok, ping_ms: gcalPing.ms, ping_error: gcalPing.error
       },

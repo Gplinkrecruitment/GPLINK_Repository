@@ -111,3 +111,43 @@ describe('google-calendar request builders', () => {
     expect(url).toContain('/calendars/a%20b%40x/events/evt%2F..%2Fdanger');
   });
 });
+
+// Owner report 2026-07-29. The Technical card read "CONNECTED / busy blocks
+// next 24h: 0" with a real event sitting in the diary. A freebusy lookup that
+// fails to resolve, or that Google rejects per-calendar inside a 200, both
+// collapse to "no busy blocks" — indistinguishable from a free diary, and it
+// silently removes every clash guard.
+describe('freebusy cannot silently report an empty diary', () => {
+  const gcal = require('../lib/google-calendar.js');
+  const busyBlock = { busy: [{ start: '2026-07-29T12:00:00Z', end: '2026-07-29T13:00:00Z' }] };
+
+  it('matches despite a trailing space on a pasted calendar id', () => {
+    const json = { calendars: { 'hello@x.com': busyBlock } };
+    expect(gcal.parseFreeBusy(json, 'hello@x.com ')).toHaveLength(1);
+    expect(gcal.freeBusyDiagnostics(json, 'hello@x.com ').matched).toBe(true);
+  });
+
+  it('matches despite differing case', () => {
+    const json = { calendars: { 'hello@x.com': busyBlock } };
+    expect(gcal.parseFreeBusy(json, 'Hello@X.com')).toHaveLength(1);
+  });
+
+  it('reports a per-calendar error instead of pretending the diary is empty', () => {
+    const json = { calendars: { 'hello@x.com': { busy: [], errors: [{ reason: 'notFound' }] } } };
+    const d = gcal.freeBusyDiagnostics(json, 'hello@x.com');
+    expect(d.busyCount).toBe(0);
+    expect(d.errorReasons).toContain('notFound');
+  });
+
+  it('flags a genuine id mismatch, and names what Google answered about', () => {
+    const json = { calendars: { 'someone-else@x.com': busyBlock, 'third@x.com': busyBlock } };
+    const d = gcal.freeBusyDiagnostics(json, 'hello@x.com');
+    expect(d.matched).toBe(false);
+    expect(d.returnedKeys).toEqual(['someone-else@x.com', 'third@x.com']);
+  });
+
+  it('surfaces a top-level Google error', () => {
+    const d = gcal.freeBusyDiagnostics({ error: { message: 'Insufficient Permission' } }, 'hello@x.com');
+    expect(d.topLevelError).toBe('Insufficient Permission');
+  });
+});
