@@ -192,7 +192,7 @@
       '</div>' +
       '<div class="ats-cand-head">' +
         '<span>Candidate</span><span>Country</span><span>Registration stage</span>' +
-        '<span>Intent score</span><span>Onboarding</span><span>Documents</span>' +
+        '<span>Intent score</span><span>Onboarding</span><span>Documents</span><span></span>' +
       '</div>' +
       '<div class="ats-cand-table" id="ats-cand-table">' + ATS.loadingHtml('Loading candidates…') + '</div>';
   }
@@ -291,11 +291,68 @@
       if (wWithdraw) { e.stopPropagation(); closeWaitingApp(wWithdraw.getAttribute('data-app-id'), 'Closed'); return; }
       var wRow = e.target.closest('.ats-wait-row');
       if (wRow) { var wcid = wRow.getAttribute('data-case-id'); if (wcid) window.atsOpenCandidate(wcid); return; }
+      // Row-level actions menu (2026-07-30) — MUST be tested before the
+      // row-open branch below, and must stop propagation, or every click on
+      // the trigger would also open the candidate behind the menu.
+      var rowMenuBtn = e.target.closest('.ats-row-menu');
+      if (rowMenuBtn) { e.stopPropagation(); openRowActionMenu(rowMenuBtn); return; }
       var row = e.target.closest('.ats-cand-row');
       if (!row) return;
       var id = row.getAttribute('data-case-id');
       if (id) window.atsOpenCandidate(id);
     });
+  }
+
+  /* The list payload is per-CANDIDATE and carries no applications, so the row
+     menu resolves them on open (one call, only when asked). A candidate with
+     several live applications can't be actioned unambiguously from a single
+     row button — that case offers to open the candidate instead. */
+  var rowMenuCache = {};
+  function openRowActionMenu(trigger) {
+    var caseId = trigger.getAttribute('data-case-id');
+    if (!caseId) return;
+    var cached = rowMenuCache[caseId];
+    if (cached) { buildRowMenu(trigger, cached); return; }
+    openActionMenu(trigger, [{ label: 'Loading…', disabled: true }], { label: 'Actions' });
+    ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
+      var cand = d && d.ok && d.candidate ? d.candidate : null;
+      if (!cand) { closeActionMenu(); ATS.toast('Could not load this candidate.'); return; }
+      rowMenuCache[caseId] = cand;
+      // Re-open against the live trigger: the first (loading) menu is still
+      // on screen, so close it first or openActionMenu treats this as a toggle.
+      closeActionMenu();
+      buildRowMenu(trigger, cand);
+    });
+  }
+  function buildRowMenu(trigger, cand) {
+    var apps = (cand.apps || []).filter(function (a) {
+      return a && !isWithdrawn(a) && a.ats_stage !== 'not_proceeding';
+    });
+    if (!apps.length) {
+      openActionMenu(trigger, [
+        { label: 'Open candidate', icon: '↗', onClick: function () { window.atsOpenCandidate(cand.case_id); } }
+      ], { label: cand.name || 'Actions', empty: 'No live application.' });
+      return;
+    }
+    if (apps.length > 1) {
+      openActionMenu(trigger, [
+        { label: apps.length + ' live applications — open to choose', disabled: true },
+        { sep: true },
+        { label: 'Open candidate', icon: '↗', onClick: function () { window.atsOpenCandidate(cand.case_id); } }
+      ], { label: cand.name || 'Actions' });
+      return;
+    }
+    // Any action changes the row, so drop the cached candidate before running
+    // it — otherwise re-opening the menu would offer "Submit to practice" on
+    // an application that was just submitted.
+    var items = applicationMenuItems(apps[0], cand).map(function (it) {
+      if (it.sep || typeof it.onClick !== 'function') return it;
+      var run = it.onClick;
+      return Object.assign({}, it, { onClick: function () { rowMenuCache = {}; run(); } });
+    });
+    items.push({ sep: true },
+      { label: 'Open candidate', icon: '↗', onClick: function () { window.atsOpenCandidate(cand.case_id); } });
+    openActionMenu(trigger, items, { label: apps[0].job_title || cand.name || 'Actions' });
   }
 
   function fetchAndRenderRows() {
@@ -636,6 +693,9 @@
         '<span class="ats-doc-chip ' + (docs.cv ? 'yes' : '') + '">CV ' + (docs.cv ? '✓' : '✗') + '</span>' +
         '<span class="ats-doc-chip ' + (docs.coverLetter ? 'yes' : '') + '">Cover ' + (docs.coverLetter ? '✓' : '✗') + '</span>' +
       '</div>' +
+      // Owner request 2026-07-30: the same application actions, reachable
+      // straight from the row — no need to open the candidate first.
+      '<div class="cr-actions">' + menuTriggerHtml('ats-row-menu', ' data-case-id="' + ATS.escAttr(c.case_id) + '"', '') + '</div>' +
     '</div>';
   }
 
@@ -897,6 +957,101 @@
       (when ? ' · ' + ATS.esc(when) : '') + '</span>';
   }
 
+  /* =====================================================================
+   *  Sleek action menu (owner request 2026-07-30)
+   *
+   *  Replaced the inline Withdraw / Job board / Practice listing button row
+   *  inside the application card, and gives the Applied candidate rows the
+   *  same actions without opening the drawer first.
+   *
+   *  The popover is appended to <body> and positioned fixed off the trigger's
+   *  rect: both the candidate list and the drawer scroll inside overflow
+   *  containers, so an absolutely-positioned menu would be clipped by its own
+   *  row. It carries `ats-scope` because the dashboard's colour tokens are
+   *  declared on that class — outside it the menu would render unstyled.
+   * ===================================================================== */
+  var openMenuEl = null;
+  function closeActionMenu() {
+    if (!openMenuEl) return;
+    if (openMenuEl._trigger) openMenuEl._trigger.setAttribute('aria-expanded', 'false');
+    if (openMenuEl.parentNode) openMenuEl.parentNode.removeChild(openMenuEl);
+    openMenuEl = null;
+  }
+  document.addEventListener('click', function (e) {
+    if (!openMenuEl) return;
+    if (openMenuEl.contains(e.target)) return;
+    if (openMenuEl._trigger && openMenuEl._trigger.contains(e.target)) return;
+    closeActionMenu();
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeActionMenu(); });
+  window.addEventListener('resize', closeActionMenu);
+  // Scroll REPOSITIONS rather than closes. Closing on scroll looks tidy until
+  // you hit the real cases: the drawer scrolls the trigger into view as you
+  // click it, and momentum scrolling keeps firing afterwards — both of which
+  // dismissed the menu the instant it opened. Only give up once the trigger
+  // itself has left the viewport, where there is nothing to anchor to.
+  window.addEventListener('scroll', function () {
+    if (!openMenuEl || !openMenuEl._trigger) return;
+    var r = openMenuEl._trigger.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) { closeActionMenu(); return; }
+    positionMenu(openMenuEl, openMenuEl._trigger);
+  }, true);
+
+  function menuItemHtml(it, i) {
+    if (it.sep) return '<div class="ats-menu-sep"></div>';
+    return '<button type="button" class="ats-menu-item' + (it.danger ? ' danger' : '') + '"' +
+      ' data-mi="' + i + '"' + (it.disabled ? ' disabled' : '') + ' role="menuitem">' +
+      '<span class="ats-menu-ico">' + (it.icon || '') + '</span>' +
+      '<span>' + ATS.esc(it.label) + '</span>' +
+    '</button>';
+  }
+
+  function positionMenu(pop, trigger) {
+    var r = trigger.getBoundingClientRect();
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
+    var top = r.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6); // flip above
+    pop.style.left = Math.round(left) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+  }
+
+  // items: [{label, onClick, icon, danger, disabled} | {sep:true}]
+  function openActionMenu(trigger, items, opts) {
+    var reopening = !!(openMenuEl && openMenuEl._trigger === trigger);
+    closeActionMenu();
+    if (reopening) return; // clicking the same trigger closes it
+    var o = opts || {};
+    var list = (items || []).filter(Boolean);
+    var pop = document.createElement('div');
+    pop.className = 'ats-scope ats-menu-pop';
+    pop.setAttribute('role', 'menu');
+    pop.innerHTML =
+      (o.label ? '<div class="ats-menu-label">' + ATS.esc(o.label) + '</div>' : '') +
+      (list.filter(function (x) { return !x.sep; }).length
+        ? list.map(menuItemHtml).join('')
+        : '<div class="ats-menu-empty">' + ATS.esc(o.empty || 'Nothing to do here.') + '</div>');
+    document.body.appendChild(pop);
+    positionMenu(pop, trigger);
+    pop.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.ats-menu-item') : null;
+      if (!btn || btn.disabled) return;
+      var it = list[Number(btn.getAttribute('data-mi'))];
+      closeActionMenu();
+      if (it && typeof it.onClick === 'function') it.onClick();
+    });
+    pop._trigger = trigger;
+    openMenuEl = pop;
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function menuTriggerHtml(cls, attrs, label) {
+    return '<button type="button" class="ats-menu-btn ' + cls + '"' + (attrs || '') +
+      ' aria-haspopup="menu" aria-expanded="false" title="Actions">' +
+      (label ? '<span>' + ATS.esc(label) + '</span><span class="ats-menu-caret">▾</span>' : '⋯') +
+    '</button>';
+  }
+
   /* ---- AI match line (owner request 2026-07-30) ----
    * gp_applications.match_score / match_reasons are populated when the team
    * SHORTLISTS a GP through the Matching board. A GP who applies directly from
@@ -941,21 +1096,43 @@
    * queue tile, so opening the application itself offered no way to action it.
    * Both live here too now, alongside jumps to the Jobs and Practices tabs. */
   function appActionsRowHtml(a) {
-    var appId = ATS.escAttr(String(a.id));
-    var btns = [];
-    // Withdraw stays available while the application is still live — a
-    // terminal card (withdrawn by the doctor, or already not_proceeding) has
-    // nothing left to withdraw.
-    var live = !isWithdrawn(a) && a.ats_stage !== 'not_proceeding' && a.ats_stage !== 'hired';
-    if (live) {
-      btns.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-app-withdraw" data-app-id="' + appId + '">Withdraw</button>');
-    }
-    btns.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-goto-jobs">Job board ↗</button>');
-    btns.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-goto-practices">Practice listing ↗</button>');
     return '<div class="ats-app-interview ats-app-actions" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:8px;padding-top:10px">' +
       '<span class="ats-app-lbl">Actions</span>' +
-      '<span style="display:flex;gap:8px;flex-wrap:wrap">' + btns.join('') + '</span>' +
+      '<span style="display:flex;justify-content:flex-start">' +
+        menuTriggerHtml('ats-app-menu', ' data-app-id="' + ATS.escAttr(String(a.id)) + '"', 'Actions') +
+      '</span>' +
     '</div>';
+  }
+
+  // The menu contents for ONE application. Shared by the drawer's card and the
+  // candidate row, so both offer exactly the same set (and the same gating).
+  function applicationMenuItems(a, c) {
+    var appId = String(a.id);
+    var items = [];
+    var submitEligible = !isWithdrawn(a)
+      && !SUBMISSION_STATUS_LABELS[a.practice_submission_status || '']
+      && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
+    if (submitEligible) {
+      items.push({ label: 'Submit to practice', icon: '→', onClick: function () { submitToPractice(appId, c, null); } });
+    }
+    items.push({
+      label: (a.match_score != null && a.match_score !== '') ? 'Re-score with AI' : 'Score with AI',
+      icon: '✦',
+      onClick: function () { scoreApplicationWithAi(appId, c, null); }
+    });
+    items.push({ sep: true });
+    items.push({ label: 'Job board', icon: '▤', onClick: function () { if (window.ATS && ATS.showMaster) ATS.showMaster('jobs'); } });
+    items.push({ label: 'Practice listing', icon: '⌂', onClick: function () { if (window.ATS && ATS.showMaster) ATS.showMaster('practices'); } });
+    // Withdraw stays available while the application is still live — a
+    // terminal card (withdrawn by the doctor, or already not_proceeding) has
+    // nothing left to withdraw. Last, and visually separated, so the
+    // destructive action is never the one you hit by reflex.
+    var live = !isWithdrawn(a) && a.ats_stage !== 'not_proceeding' && a.ats_stage !== 'hired';
+    if (live) {
+      items.push({ sep: true });
+      items.push({ label: 'Withdraw application', icon: '✕', danger: true, onClick: function () { withdrawFromDrawer(appId, c, null); } });
+    }
+    return items;
   }
 
   function submitPracticeLineHtml(a) {
@@ -1728,12 +1905,16 @@
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
       var submitPracticeBtn = e.target.closest('.ats-submit-practice');
       if (submitPracticeBtn) { submitToPractice(submitPracticeBtn.getAttribute('data-app-id'), c, submitPracticeBtn); return; }
-      // Per-application actions (2026-07-30): withdraw + jumps to Jobs /
-      // Practices, so the application itself is actionable, not just the queue.
-      var appWithdrawBtn = e.target.closest('.ats-app-withdraw');
-      if (appWithdrawBtn) { withdrawFromDrawer(appWithdrawBtn.getAttribute('data-app-id'), c, appWithdrawBtn); return; }
-      if (e.target.closest('.ats-goto-jobs')) { if (window.ATS && ATS.showMaster) ATS.showMaster('jobs'); return; }
-      if (e.target.closest('.ats-goto-practices')) { if (window.ATS && ATS.showMaster) ATS.showMaster('practices'); return; }
+      // Per-application actions (2026-07-30): one sleek dropdown rather than a
+      // row of buttons — submit / score / navigate / withdraw.
+      var appMenuBtn = e.target.closest('.ats-app-menu');
+      if (appMenuBtn) {
+        e.stopPropagation();
+        var menuAppId = appMenuBtn.getAttribute('data-app-id');
+        var menuApp = (c.apps || []).filter(function (x) { return String(x.id) === String(menuAppId); })[0];
+        if (menuApp) openActionMenu(appMenuBtn, applicationMenuItems(menuApp, c), { label: menuApp.job_title || 'Application' });
+        return;
+      }
       var aiMatchBtn = e.target.closest('.ats-ai-match');
       if (aiMatchBtn) { scoreApplicationWithAi(aiMatchBtn.getAttribute('data-app-id'), c, aiMatchBtn); return; }
       var sendBtn = e.target.closest('.ats-offer-send');

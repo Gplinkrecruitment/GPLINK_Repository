@@ -544,7 +544,10 @@ describe('Withdrawing an application closes it and hands off to the GP notifier'
 
   it('the CEO dashboard offers Withdraw inside the application, not just in the queue', () => {
     const js = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
-    expect(js).toContain('ats-app-withdraw');
+    // Owner request 2026-07-30 (second pass): the inline button row became a
+    // sleek dropdown, on the application card AND on the candidate row.
+    expect(js).toContain('function applicationMenuItems');
+    expect(js).toContain('Withdraw application');
     expect(js).toContain('function withdrawFromDrawer');
     // Same endpoint + same reason vocabulary as the queue button, so both
     // routes write the same stage event and the same strike data.
@@ -574,5 +577,51 @@ describe('Ops deep links point at the CEO dashboard host, not the doctor app', (
     expect(src).toContain('Open candidate & submit to practice');
     // buildCeoCandidateUrl is what makes the CTA land on the right candidate.
     expect(src).toContain('function buildCeoCandidateUrl(caseId)');
+  });
+});
+
+// The action menu itself (owner request 2026-07-30, second pass).
+describe('The application action menu', () => {
+  const js = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
+
+  it('is reachable from the candidate row as well as the application card', () => {
+    expect(js).toContain('ats-row-menu');   // row trigger
+    expect(js).toContain('ats-app-menu');   // application-card trigger
+    expect(js).toContain('function openRowActionMenu');
+  });
+
+  it('renders destructive and safe actions apart, with Withdraw last and flagged', () => {
+    const items = js.slice(js.indexOf('function applicationMenuItems'), js.indexOf('function submitPracticeLineHtml'));
+    expect(items).toMatch(/Withdraw application[\s\S]{0,80}danger: true/);
+    // Withdraw must come after the navigation items — never first, where it
+    // would be the reflex click.
+    expect(items.indexOf('Job board')).toBeLessThan(items.indexOf('Withdraw application'));
+  });
+
+  it('carries ats-scope so it keeps the dashboard palette outside the panel', () => {
+    // The popover is appended to <body>; the colour tokens are declared on
+    // .ats-scope, so without that class it would render unstyled.
+    expect(js).toContain("pop.className = 'ats-scope ats-menu-pop'");
+    expect(css).toContain('.ats-menu-pop');
+  });
+
+  it('repositions on scroll instead of closing', () => {
+    // Closing on scroll dismissed the menu the instant it opened: the drawer
+    // scrolls the trigger into view as you click it, and momentum scrolling
+    // keeps firing afterwards. Verified in a real browser before/after.
+    const scrollBlock = js.slice(js.indexOf("window.addEventListener('scroll'"), js.indexOf("function menuItemHtml"));
+    expect(scrollBlock).toContain('positionMenu(openMenuEl, openMenuEl._trigger)');
+  });
+
+  it('closes on Escape and on an outside click', () => {
+    expect(js).toMatch(/keydown[\s\S]{0,120}Escape[\s\S]{0,60}closeActionMenu/);
+    expect(js).toMatch(/openMenuEl\.contains\(e\.target\)[\s\S]{0,200}closeActionMenu/);
+  });
+
+  it('the candidate row grid has a column for the trigger', () => {
+    // Header and row must agree or every column below shifts.
+    const cols = css.match(/grid-template-columns:2\.2fr 0\.9fr 1\.3fr 1\.5fr 1fr 1\.1fr 40px;/g) || [];
+    expect(cols.length).toBe(2);
   });
 });
