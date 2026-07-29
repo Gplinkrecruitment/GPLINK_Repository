@@ -522,7 +522,7 @@ function httpReq(method, p, { host, cookie, body } = {}) {
       res.on('end', () => {
         const raw = Buffer.concat(c).toString('utf8');
         let parsed = null; try { parsed = JSON.parse(raw); } catch {}
-        resolve({ status: res.statusCode, body: parsed, raw });
+        resolve({ status: res.statusCode, body: parsed, raw, headers: res.headers });
       });
     });
     r.on('error', reject); r.end(data);
@@ -717,5 +717,29 @@ describe('GET /api/career/role — website + match for a matched GP', () => {
     // to a trailing slash — same as every other extractCareerWebsiteUrl call
     // site in this file, not something Task 7 needs to special-case.
     expect(role.website).toBe('https://fallbacksite.com.au/');
+  });
+
+  // Owner report 2026-07-29: accept a match -> "You're being fast-tracked" ->
+  // refresh -> the Fast-track/Enquire/Decline buttons were back. Two caches
+  // were replaying the PRE-accept payload: this HTTP one (60s + 300s
+  // stale-while-revalidate) and job.html's 10-minute localStorage copy.
+  it('a role payload carrying match state is never cached', async () => {
+    const res = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_role_a'), { cookie: userCookie(MATCHED_GP.email, MATCHED_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.role.match).toBeTruthy();
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('an ordinary role payload keeps the 60s private cache', async () => {
+    const res = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_role_a'), { cookie: userCookie(REVEALED_NO_MATCH_GP.email, REVEALED_NO_MATCH_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.role.match).toBeUndefined();
+    expect(res.headers['cache-control']).toContain('max-age=60');
+  });
+
+  it('job.html refuses to serve a cached role detail that carries match state', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'pages', 'job.html'), 'utf8');
+    const readFn = src.slice(src.indexOf('function readCachedRoleDetail'), src.indexOf('function writeCachedRoleDetail'));
+    expect(readFn).toContain('if (parsed.role.match || parsed.role.matchAccepted) return null;');
   });
 });

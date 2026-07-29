@@ -1492,6 +1492,13 @@
       const parsed = raw ? JSON.parse(raw) : null;
       const fetchedAt = Date.parse(parsed && parsed.fetchedAt);
       if (!parsed || !parsed.role || !Number.isFinite(fetchedAt)) return null;
+      // Match state is answerable FROM THIS PAGE, so it can go stale the moment
+      // the doctor taps Fast-track / Decline — and this cache is read before
+      // any network call, so a reload inside the 10-minute window replayed the
+      // pre-accept payload and the accept buttons came straight back (owner
+      // report 2026-07-29). The cache exists to make the static role copy feel
+      // instant; it must never answer "where is my application up to".
+      if (parsed.role.match || parsed.role.matchAccepted) return null;
       return Date.now() - fetchedAt <= ROLE_CACHE_TTL_MS ? parsed.role : null;
     } catch (err) {
       return null;

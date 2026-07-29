@@ -11158,6 +11158,17 @@ const PRIVATE_METADATA_CACHE_HEADERS = {
   'Vary': 'Cookie'
 };
 
+// Same privacy rules, but never cached. Used for responses that carry state the
+// doctor CHANGES from the page they're looking at — an AI match they can accept
+// or decline. With max-age=60/stale-while-revalidate=300 the browser answers the
+// post-accept reload from its own cache with the PRE-accept body, so the match
+// buttons reappear as though the accept never happened (owner report
+// 2026-07-29). Static role copy keeps the cached headers above.
+const PRIVATE_VOLATILE_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Vary': 'Cookie'
+};
+
 function isStackTraceResponseKey(key) {
   var normalized = String(key || '').replace(/[-\s]+/g, '_').toLowerCase();
   return normalized === 'stack' ||
@@ -41425,10 +41436,16 @@ async function handleApi(req, res, pathname) {
     }
 
     if (isAdminPreviewRole) roleClientPayload.preview = true;
+    // A payload carrying match state must never be cached — see
+    // PRIVATE_VOLATILE_HEADERS. Both directions matter: caching the PRE-accept
+    // body (match present) is what lets a reload replay the accept buttons,
+    // and caching the POST-accept body would strand the doctor on
+    // "being fast-tracked" after the practice has moved them on.
+    const roleCarriesMatchState = !!(roleClientPayload.match || roleClientPayload.matchAccepted);
     sendJson(res, 200, {
       ok: true,
       role: roleClientPayload
-    }, PRIVATE_METADATA_CACHE_HEADERS);
+    }, roleCarriesMatchState ? PRIVATE_VOLATILE_HEADERS : PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
