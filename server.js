@@ -30651,7 +30651,10 @@ function buildMatchEmailHtml(row, job, practice, opts) {
           '</div>'
         : ''));
 
-  var acceptButtonLabel = finalCall ? 'Accept before it expires' : (reminder ? 'Review &amp; accept my match' : 'Accept this match');
+  // Owner call 2026-07-29: same wording as the app. Accepting a match only
+  // gets the doctor an interview — "Accept" read as taking the job, and this
+  // email was the last surface still saying it.
+  var acceptButtonLabel = finalCall ? 'Fast-track me before it expires' : (reminder ? 'Fast-track me to interview' : 'Fast-track to Interview');
   var acceptButtonHtml =
     '<a href="' + _matchEmailEsc(acceptUrl) + '" style="position:relative;display:block;text-align:center;color:#ffffff;font-weight:700;text-decoration:none;font-size:15px;padding:15px 32px;border-radius:12px;margin:24px 0 8px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75);">' + acceptButtonLabel + '</a>' +
     '<div style="text-align:center;font-size:12.5px;color:#94a3b8;margin-bottom:4px;">One tap — no forms, no cover letter.</div>' +
@@ -30675,7 +30678,7 @@ function buildMatchEmailHtml(row, job, practice, opts) {
   var nextStepsHtml = (reminder || finalCall) ? '' : (
     '<div style="border-left:4px solid #2563eb;background:#f1f5f9;border-radius:6px;padding:12px 16px;margin:20px 0 4px;font-size:13.5px;color:#334155;">' +
       '<div style="font-size:12px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;">What happens next</div>' +
-      'Accept the match and we\'ll confirm your interest with the practice. You\'ll then receive your <b>official offer with an interview date</b> — we handle everything in between.' +
+      'Fast-track yourself and we\'ll put you forward to the practice. Once they confirm their availability we\'ll email you <b>interview times to choose from</b> — we handle everything in between.' +
     '</div>'
   );
 
@@ -36858,6 +36861,52 @@ async function handleApi(req, res, pathname) {
       // main no-show loop above (it only looks at status='booked'), so this
       // bounded, newest-first sweep is the actual retry path. Runs every
       // detect-no-shows pass (~10 min).
+      // Stale-interview rescue (owner call 2026-07-29). The main loop above only
+      // selects scheduled_at > now-7d. An interview that is not resolved inside
+      // that window — a cron outage, a Zoom attendance lookup that kept failing,
+      // a row that simply aged out — falls out of the query PERMANENTLY: it is
+      // never completed, so the practice is never asked for a decision and the
+      // doctor waits forever with nothing visibly wrong. This pass is the only
+      // thing that catches those.
+      //
+      // Attendance is unknowable this long after the fact, so these are
+      // completed on the same "enough time has passed" basis as the zoomless
+      // branch — never classified as a no_show, which would wrongly penalise a
+      // doctor who did attend. Bounded and oldest-first so a backlog drains a
+      // few per pass rather than stalling the whole cron.
+      let staleRescued = 0;
+      try {
+        const staleCutoffIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const staleRes = await supabaseDbRequest('scheduled_calls',
+          'select=*&status=eq.booked&no_show_at=is.null&completed_at=is.null'
+          + '&meeting_kind=eq.interview'
+          + '&scheduled_at=lt.' + encodeURIComponent(staleCutoffIso)
+          + '&order=scheduled_at.asc&limit=10');
+        const staleRows = (staleRes.ok && Array.isArray(staleRes.data)) ? staleRes.data : [];
+        for (const staleCall of staleRows) {
+          const staleNowIso = new Date().toISOString();
+          await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(staleCall.id), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { status: 'completed', completed_at: staleNowIso, updated_at: staleNowIso }
+          });
+          const staleTaskId = getScheduledCallRegistrationTaskId(staleCall);
+          if (staleTaskId) {
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(staleTaskId), {
+              method: 'PATCH', headers: { Prefer: 'return=minimal' },
+              body: { status: mapCallStatusToTaskStatus('completed'), updated_at: staleNowIso }
+            });
+          }
+          if (staleCall.application_id) {
+            try { await sendPostInterviewDecisionEmail(staleCall.application_id); }
+            catch (e) { console.error('[stale-interview] decision email failed:', e && e.message); }
+          }
+          staleRescued++;
+          console.warn('[stale-interview] rescued booked interview', staleCall.id, 'scheduled', staleCall.scheduled_at);
+        }
+      } catch (staleErr) {
+        console.error('[stale-interview] sweep failed:', staleErr && staleErr.message);
+      }
+
       let postInterviewChecked = 0, postInterviewSent = 0;
       try {
         const piRetryRes = await supabaseDbRequest('gp_applications',
@@ -36878,7 +36927,7 @@ async function handleApi(req, res, pathname) {
         console.error('[post-interview] retry sweep failed:', piSweepErr && piSweepErr.message);
       }
 
-      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent });
+      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent, staleRescued: staleRescued });
     } catch (e) {
       console.error('[detect-no-shows] error:', e && e.message);
       await respondServerError(res, e, { route: pathname, method: req.method });
@@ -47694,6 +47743,45 @@ async function handleApi(req, res, pathname) {
     if (!insertResult.ok) {
       sendJson(res, 502, { ok: false, message: 'Failed to save interview.' });
       return;
+    }
+
+    // ⚠️ career_interviews is NOT the store the rest of the pipeline reads.
+    // Interview completion, the practice's post-interview decision email and
+    // the auto-chase all work off scheduled_calls (meeting_kind='interview').
+    // A row written ONLY here can never be completed, so the practice would
+    // never be asked for a decision and the doctor would wait forever with
+    // nothing visibly wrong (owner call 2026-07-29 — the table is empty in
+    // production today, which is the only reason this has not bitten).
+    //
+    // So mirror it into scheduled_calls as a booked interview. Additive: the
+    // career_interviews row above still backs the admin list view, and the
+    // booking now joins the pipeline that actually finishes interviews.
+    // Best-effort — a mirror failure must never fail the staff member's
+    // scheduling action, but it IS logged loudly.
+    try {
+      // ctx is REQUIRED: without it ensureInterviewRowForApplication can only
+      // return an already-existing row and returns null when it has to create
+      // one — which is exactly the case we are here to cover.
+      const mirrorCtx = await atsGetApplicationContext(applicationId);
+      const mirrorRef = await ensureInterviewRowForApplication(applicationId, mirrorCtx, 'admin_schedule');
+      if (mirrorRef) {
+        const mirrorIso = new Date().toISOString();
+        await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(mirrorRef.id || mirrorRef), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: {
+            status: 'booked',
+            scheduled_at: scheduledDate.toISOString(),
+            duration_minutes: duration,
+            zoom_meeting_id: zoomMeetingId || null,
+            zoom_join_url: zoomJoinUrl || null,
+            updated_at: mirrorIso
+          }
+        });
+      } else {
+        console.error('[admin interview schedule] could not mirror to scheduled_calls for app', applicationId);
+      }
+    } catch (mirrorErr) {
+      console.error('[admin interview schedule] scheduled_calls mirror failed for app', applicationId, ':', mirrorErr && mirrorErr.message);
     }
 
     // Update application status to interview_scheduled

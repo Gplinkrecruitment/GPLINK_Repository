@@ -233,6 +233,51 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(serverSrc).toContain('notifyGpApplicationSubmitted(userId, email, roleRow, applyOpsCaseId, applyGpDisplayName);');
   });
 
+  it('the match email uses the same fast-track wording as the app', () => {
+    // The email was the last surface still saying "Accept this match" (owner
+    // call 2026-07-29) — accepting only buys an interview.
+    const idx = serverSrc.indexOf('var acceptButtonLabel =');
+    expect(idx).toBeGreaterThan(-1);
+    const line = serverSrc.slice(idx, idx + 220);
+    expect(line).toContain('Fast-track to Interview');
+    expect(line).not.toContain("'Accept this match'");
+    // And the "what happens next" block promises TIMES TO CHOOSE FROM, which
+    // is what actually happens — not an "offer with an interview date".
+    expect(serverSrc).toContain('interview times to choose from</b>');
+    expect(serverSrc).not.toContain('official offer with an interview date');
+  });
+
+  it('a booked interview cannot be stranded by the cron 7-day window', () => {
+    // The main loop only selects scheduled_at > now-7d, so anything older fell
+    // out permanently: never completed, practice never asked, doctor waits
+    // forever (owner call 2026-07-29).
+    expect(serverSrc).toContain('[stale-interview] rescued booked interview');
+    const idx = serverSrc.indexOf('let staleRescued = 0;');
+    expect(idx).toBeGreaterThan(-1);
+    const sweep = serverSrc.slice(idx, idx + 2200);
+    expect(sweep).toContain("status=eq.booked");
+    expect(sweep).toContain('meeting_kind=eq.interview');
+    expect(sweep).toContain('scheduled_at=lt.');
+    expect(sweep).toContain('sendPostInterviewDecisionEmail');
+    // Attendance is unknowable this late — completing, never marking no_show.
+    expect(sweep).not.toContain('handleScheduledCallFailure');
+    expect(sweep).toContain('order=scheduled_at.asc&limit=10');
+  });
+
+  it('an admin-scheduled interview is mirrored into the store the pipeline reads', () => {
+    // career_interviews is orphaned — nothing completes it. The admin form is
+    // live in pages/admin.html, so the booking must also land in
+    // scheduled_calls or it can never finish (owner call 2026-07-29).
+    const idx = serverSrc.indexOf("pathname === '/api/admin/career/interview/schedule'");
+    expect(idx).toBeGreaterThan(-1);
+    const routeSrc = serverSrc.slice(idx, idx + 6000);
+    expect(routeSrc).toContain('ensureInterviewRowForApplication(applicationId, mirrorCtx');
+    expect(routeSrc).toContain('atsGetApplicationContext(applicationId)');
+    expect(routeSrc).toContain("status: 'booked'");
+    // Mirroring must never fail the staff member's scheduling action.
+    expect(routeSrc).toContain('[admin interview schedule] scheduled_calls mirror failed');
+  });
+
   it('the CEO escalations banner marks a GP practice question distinctly', () => {
     const ceoHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
     // Keyed on the source_trigger column, never on the title copy.

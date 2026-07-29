@@ -455,7 +455,7 @@ describe('GET /api/cron/match-lifecycle — 24h copy upgrade + 2h final-call nud
     const reminderCall = resendCalls.find((c) => (c.body.to || []).includes(REMIND24_GP.email));
     expect(reminderCall).toBeTruthy();
     expect(reminderCall.body.subject).toBe('24 hours left, Coral Coast Family Practice is holding your spot');
-    expect(reminderCall.body.html).toContain('Review &amp; accept my match');
+    expect(reminderCall.body.html).toContain('Fast-track me to interview'); // owner call 2026-07-29
     expect(reminderCall.body.html).toContain('Not the right fit? Tell us why');
     expect(reminderCall.body.html).toContain('98%');
     expect(reminderCall.body.html).toContain('of GPs we match are accepted by the practice.');
@@ -467,7 +467,7 @@ describe('GET /api/cron/match-lifecycle — 24h copy upgrade + 2h final-call nud
     const finalCall = resendCalls.find((c) => (c.body.to || []).includes(FINAL_GP.email));
     expect(finalCall).toBeTruthy();
     expect(finalCall.body.subject).toMatch(/^Final call, your match expires at \d{1,2}:\d{2} (am|pm) (today|tomorrow)$/);
-    expect(finalCall.body.html).toContain('Accept before it expires');
+    expect(finalCall.body.html).toContain('Fast-track me before it expires');
     // Assert on a distinctive substring rather than the exact HTML-escaping
     // of the apostrophe in "I'm interested — I need more time" (the builder
     // may render it as &#39; or a raw apostrophe — either is correct).

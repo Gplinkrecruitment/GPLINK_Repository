@@ -475,7 +475,7 @@ describe('buildMatchEmailHtml', () => {
     expect(decoded).toContain('/pages/job?id=internal_ats:93104');
     expect(decoded).toContain('match=' + baseRow.id);
     // Still secondary to the accept CTA, which must remain.
-    expect(html).toContain('Accept this match');
+    expect(html).toContain('Fast-track to Interview'); // owner call 2026-07-29
   });
   it('omits the profile link when the role has no public id to link to', () => {
     const html = serverModule.__testUtils.buildMatchEmailHtml(baseRow, { title: 'X Medical Centre' }, {}, {});
