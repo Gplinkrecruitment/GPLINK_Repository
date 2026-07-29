@@ -28506,6 +28506,20 @@ async function gcalCreateEvent(o) {
   var req = gcalLib.buildEventInsert(Object.assign({ calendarId: gcalCalendarId() }, o));
   var res = await fetch(req.url, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(req.body) });
   var json = await res.json();
+  // The WRITE path had the same blind spot the read path did: no status check,
+  // so a rejected insert (API disabled, permission, quota) left json.id
+  // undefined, the row stored '', and the interview simply never reached the
+  // diary — with nobody told. Calendly would then happily book a consult over
+  // it. Deliberately does NOT throw: a diary write failing must not cost the
+  // doctor their booking, which is already made and emailed by this point. It
+  // returns '' — honestly "not in any diary" — and says so loudly in the logs.
+  if (!res.ok || !json || !json.id) {
+    console.error('[gcal] EVENT INSERT FAILED — interview is NOT in the calendar.',
+      'status:', res.status,
+      'calendar:', gcalCalendarId(),
+      'error:', JSON.stringify((json && json.error) || json || {}).slice(0, 300));
+    return { id: '' };
+  }
   return { id: json.id };
 }
 
@@ -28583,6 +28597,18 @@ async function createZoomInterviewMeeting(o) {
     })
   });
   var d = await res.json();
+  // Same blind spot as the calendar insert had: without a status check a
+  // rejected create (missing meeting:write scope, expired credentials, quota)
+  // returns undefined fields, which collapse to empty strings and read as
+  // "Zoom simply isn't configured". The booking then falls back to the standing
+  // room via resolveInterviewJoinUrl — a real, deliberate fallback, so this must
+  // NOT throw — but the failure has to be visible rather than inferred from a
+  // missing per-interview link (and no AI summary) weeks later.
+  if (!res.ok || !d || !d.id) {
+    console.error('[zoom] INTERVIEW MEETING CREATE FAILED — falling back to the standing room.',
+      'status:', res.status, 'error:', JSON.stringify((d && (d.message || d.error)) || d || {}).slice(0, 300));
+    return { id: '', uuid: '', join_url: '', passcode: '' };
+  }
   return { id: String(d.id || ''), uuid: d.uuid || '', join_url: d.join_url || '', passcode: d.password || '' };
 }
 
