@@ -563,3 +563,44 @@ describe('interview slots leave a gap either side of an existing meeting', () =>
     expect(r.body.slots.length).toBeGreaterThan(3);
   });
 });
+
+// Review finding 2026-07-29. Cancelling an interview deleted the Zoom meeting
+// but knowingly left the Google Calendar event in place. That was harmless
+// while no real events were ever created; the moment the calendar was
+// connected it meant a cancelled interview blocked that time forever — against
+// Calendly's conflict check, against our own slot computation, and visibly in
+// the diary. Cancel is ALSO the rebook path, so every reschedule stacked
+// another phantom block.
+describe('cancelling an interview clears it from the diary', () => {
+  it('removes the calendar event, and frees the slot for re-offer', async () => {
+    // Book an interview, capture the time it occupied.
+    let row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1' && c.meeting_kind === 'interview');
+    if (!row) {
+      await atsPost('/api/ats/interview/request', { application_id: 'app-mgmt-1' });
+      row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1' && c.meeting_kind === 'interview');
+    }
+    row.practice_availability_status = 'defaulted';
+
+    const slots = await atsGet('/api/ats/interview/slots?application_id=app-mgmt-1&now=2026-07-01T00:00:00Z');
+    const taken = slots.body.slots[0].startUtc;
+
+    // Stand in for a real Google event id on a booked row.
+    row.status = 'booked';
+    row.scheduled_at = taken;
+    row.gcal_event_id = 'evt_real_123';
+
+    const cancelled = await atsPost('/api/ats/interview/cancel', { applicationId: 'app-mgmt-1' });
+    expect(cancelled.status).toBe(200);
+
+    const cancelledRow = db.scheduled_calls.find((c) => c.id === row.id);
+    expect(cancelledRow.status).toBe('cancelled');
+
+    // The freed time is offered again — proving nothing is still holding it.
+    const fresh = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-1'
+      && c.meeting_kind === 'interview' && c.status !== 'cancelled');
+    expect(fresh).toBeTruthy();
+    fresh.practice_availability_status = 'defaulted';
+    const after = await atsGet('/api/ats/interview/slots?application_id=app-mgmt-1&now=2026-07-01T00:00:00Z');
+    expect(after.body.slots.some((s) => s.startUtc === taken)).toBe(true);
+  });
+});

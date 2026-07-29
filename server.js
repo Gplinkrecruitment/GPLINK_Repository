@@ -28338,6 +28338,42 @@ async function gcalCreateEvent(o) {
   return { id: json.id };
 }
 
+// Remove an interview from the diary. Best-effort and returns a boolean rather
+// than throwing — the caller is always cancelling something, and a failed
+// calendar tidy-up must never block that.
+//
+// This matters more than it looks now the calendar is actually connected
+// (2026-07-29). Cancelling used to delete the Zoom meeting and knowingly leave
+// the calendar event behind. While no events were ever really created that was
+// harmless; the moment real events exist, a cancelled interview would sit in
+// the diary forever — blocking Calendly from booking a consult in that slot,
+// blocking us from re-offering it, and showing a meeting that is not happening.
+// Cancel is also the rebook path, so rescheduling would stack up one phantom
+// block per attempt.
+async function gcalDeleteEvent(eventId) {
+  var id = String(eventId || '').trim();
+  // Nothing to delete: never created, or one of the historical 'gcal_local_N'
+  // placeholders from before the calendar was connected.
+  if (!id || /^gcal_local_/.test(id)) return false;
+  if (!isGoogleCalendarConfigured()) {
+    dbState.fakeCalendar = (dbState.fakeCalendar || []).filter(function (e) { return String(e.id) !== id; });
+    saveDbState();
+    return true;
+  }
+  try {
+    var token = await getGoogleAccessToken(['https://www.googleapis.com/auth/calendar'], process.env.GOOGLE_CALENDAR_IMPERSONATE_EMAIL || undefined);
+    var req = gcalLib.buildEventDelete({ calendarId: process.env.GOOGLE_CALENDAR_ID, eventId: id });
+    var res = await fetch(req.url, { method: req.method, headers: { Authorization: 'Bearer ' + token } });
+    // 200/204 = deleted. 404/410 = already gone, which is the desired end state.
+    if (res.status === 404 || res.status === 410) return true;
+    if (!res.ok) { console.error('[gcal] event delete failed:', res.status, id); return false; }
+    return true;
+  } catch (gcalDelErr) {
+    console.error('[gcal] event delete threw:', gcalDelErr && gcalDelErr.message);
+    return false;
+  }
+}
+
 // Create a Zoom meeting for an interview (separate from the consultation Zoom path).
 async function createZoomInterviewMeeting(o) {
   if (!isZoomConfigured()) {
@@ -66365,12 +66401,16 @@ Return ONLY valid JSON with no markdown formatting:
     if (!cxRow) { sendJson(res, 404, { ok: false, message: 'No interview to cancel for this application.' }); return; }
     if (cxRow.status !== 'booked') { sendJson(res, 409, { ok: false, message: 'Interview is not booked — nothing to cancel.' }); return; }
 
-    // Best-effort remote cleanup. A Zoom deletion helper (deleteZoomMeeting)
-    // exists; there is NO Google Calendar event-delete helper in this codebase,
-    // so the GCal event is deliberately left in place (documented, not faked).
+    // Best-effort remote cleanup: drop the Zoom meeting AND remove the event
+    // from the diary. The calendar half used to be skipped (no delete helper
+    // existed), which left a cancelled interview blocking that time forever —
+    // against Calendly's conflict check, against our own slot computation, and
+    // visibly in the owner's calendar. Since this endpoint is also the REBOOK
+    // path, every reschedule would have stacked another phantom block.
     if (cxRow.zoom_meeting_id && !/^zoom_local_/.test(String(cxRow.zoom_meeting_id))) {
       try { await deleteZoomMeeting(cxRow.zoom_meeting_id); } catch (e) { /* best-effort */ }
     }
+    await gcalDeleteEvent(cxRow.gcal_event_id);
 
     var cxNow = atsNowIso();
     if (isSupabaseDbConfigured()) {
@@ -68538,8 +68578,12 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       try { await deleteZoomMeeting(zoom.id); }
       catch (cleanupErr) { console.error('[interview] orphaned Zoom meeting cleanup failed:', cleanupErr && cleanupErr.message); }
     }
-    // No gcalDeleteEvent helper exists — a GCal event created before a later
-    // failure cannot be cleaned up here yet.
+    // Same for the calendar event: if it was created before this failure, the
+    // booking never completed, so it must not be left sitting in the diary.
+    if (gcal && gcal.id) {
+      try { await gcalDeleteEvent(gcal.id); }
+      catch (cleanupErr) { console.error('[interview] orphaned GCal event cleanup failed:', cleanupErr && cleanupErr.message); }
+    }
     throw bookErr;
   }
 

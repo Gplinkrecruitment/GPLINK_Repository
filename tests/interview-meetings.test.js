@@ -96,4 +96,18 @@ describe('google-calendar request builders', () => {
     expect(body.start.dateTime).toBe('2026-07-03T08:00:00Z');
     expect(body.location).toBe('https://zoom/x');
   });
+
+  it('builds an event delete that notifies the attendees', () => {
+    const { url, method } = gcal.buildEventDelete({ calendarId: 'hello@x', eventId: 'evt_123' });
+    expect(method).toBe('DELETE');
+    expect(url).toContain('/calendars/hello%40x/events/evt_123');
+    // The doctor and practice accepted an invitation — cancelling must reach
+    // them, the same way the insert invites them.
+    expect(url).toContain('sendUpdates=all');
+  });
+
+  it('escapes ids so an odd event id cannot break out of the path', () => {
+    const { url } = gcal.buildEventDelete({ calendarId: 'a b@x', eventId: 'evt/../danger' });
+    expect(url).toContain('/calendars/a%20b%40x/events/evt%2F..%2Fdanger');
+  });
 });
