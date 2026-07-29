@@ -108,6 +108,93 @@ sits in the `state` tier and none of its writers invalidate it.)
 
 ---
 
+## B. Security controls that were degrading with scale (fixed 2026-07-30)
+
+Three real holes, each verified against the running app **before** being fixed —
+not inferred from reading code. All three get *worse* as user count rises, which
+is why they belong in the scaling handover.
+
+1. **Rate limiting was a read-modify-write race, and failed open.**
+   `checkRateLimitWindow` read the counter, decided, then wrote it back as two
+   separate PostgREST calls. Measured against prod on the OLD code: **40
+   simultaneous login attempts with a limit of 12 let 30 through.** On the fixed
+   code: exactly 12. Separately, `getRuntimeKv` returns `null` on a database
+   error — indistinguishable from "no attempts yet" — so every auth rate limit
+   **switched itself off** during exactly the database stress that 1000
+   concurrent users makes routine.
+   → Fixed by `public.rate_limit_hit` (migration `20260730090000`), a
+   single-statement `insert … on conflict do update` so concurrent callers
+   serialise on the row lock. **Applied to prod and verified**: 40 simultaneous
+   calls with max=5 → exactly 5 allowed, counts 1..40 with no duplicates.
+   Unreachable counter now DENIES; a *missing function* (migration not applied)
+   still falls back to the legacy path so a deploy-ordering mistake cannot lock
+   everyone out of sign-in.
+
+2. **Admin MFA failed open, silently.** `getAdminMfaRecord` returns `null` when
+   the read FAILS — `supabaseDbRequest` converts every error into `ok:false` and
+   never throws — so the `try/catch` around it never fired, `adminMfaActive`
+   became `false`, and a full 8-hour admin session was issued **on the password
+   alone**, logging nothing.
+   → `readAdminMfaRecord` now returns `{ ok, record }` so "no second factor" and
+   "could not check" are different answers; the login refuses with 503 when it
+   cannot check. Failing closed is safe here: during a Supabase outage the admin
+   console cannot load its data anyway.
+   ⚠️ **Current real-world impact was ZERO** — prod `admin_mfa` is empty, nobody
+   has enrolled, so there was no second factor to bypass. This was a trap waiting
+   for the first enrolment, not an active breach.
+
+3. **`/api/auth/set-password` let a session change the password without knowing
+   it.** The check was `if (currentPassword) { …verify… }`, so an empty string
+   skipped it — any stolen session became a permanent account takeover. Verified
+   live: blank current password + valid session returned **200 and changed the
+   password**; now returns 400. The endpoint is also rate-limited (10 / 15 min
+   per user) because it is now a password oracle.
+   The account page's field said "Current password (if already set)" — the
+   *client* already tracked `hasPassword`, the server just never enforced it.
+   Every Supabase account here has a password (the profile builders return
+   `hasPassword: true` unconditionally and email+password is the only enabled
+   provider), and anyone who cannot supply it has "Forgot password" on the same
+   screen.
+
+### Payload work done in the same pass
+
+- `persistSupportCaseUpdate` fetched **every** `user_profiles` row and **every**
+  `user_state` row (~6.5 KB of JSONB each) and discarded all but one — ~6 MB at
+  1000 doctors against a **10-second** abort whose failure mode is a silently
+  skipped update. Now resolves the scope to one user and reads one row. The
+  unscoped full scan is kept as an explicit fallback because
+  `PUT /api/admin/tickets/:id` can legitimately arrive with no scope.
+- `/api/ceo/rsos` used `select=*` (~5 KB/row) purely to compute per-RSO counts.
+  Narrowed to the six columns `lib/ceo-metrics.js` actually reads. **A/B verified
+  against prod: byte-identical response.**
+
+### Still open (evidence gathered, NOT fixed)
+
+- **Seven more `registration_cases select=*` sites** (`/api/admin/cases`,
+  `/api/admin/va/dashboard`, `/api/ceo/dashboard` ×4, drilldowns). Column lists
+  were traced for each, but two traps make this unsafe to rush: `/api/admin/cases`
+  **cannot** be narrowed as written (it does `Object.assign({}, c, …)`, spreading
+  every column into the response), and a JSONB sub-path narrowing on
+  `/api/admin/cases/sync` would make `row.state` undefined and silently skip
+  every row while still returning `ok:true`.
+- **Sequential per-GP loops** that will hurt before payload does:
+  `/api/admin/cases/sync` awaits `_ensureRegCase` per row (2000–4000 sequential
+  round trips at 1000 GPs) and `/api/admin/va/dashboard` awaits
+  `getUserQualificationSnapshot` per case.
+- **In-memory limiters** (`_apiRateLimitStore`, `aiVerifyUserCalls`,
+  `_resendTokens`, `_siteEnquiryRateLimitStore`) reset per lambda, so their
+  limits multiply by instance count. The AI daily spend cap is latched at cold
+  start (`_aiSpendHydrated`) so it is effectively `$limit × instances`.
+- **`/api/auth/warm`** is unauthenticated with no rate limit and triggers a
+  Supabase read per call.
+- **Database indexes**: real gaps exist (notably `registration_tasks.task_type`
+  and `task_timeline`), but prod is currently ~500 rows/table so they do not
+  matter yet. ⚠️ Migrations are applied by hand and nothing records which ran, so
+  the migration files are **not** proof of what is live, and `exec_sql` returns
+  204 with no body so it cannot read `pg_indexes` back. Check the dashboard.
+
+---
+
 ## 1. The headline (original analysis — still correct)
 
 **Continuous background polling is NOT the problem.** A logged-in doctor's app

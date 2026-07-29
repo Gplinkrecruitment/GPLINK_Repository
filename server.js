@@ -12693,10 +12693,48 @@ function getClientIp(req) {
   return req.socket.remoteAddress || 'unknown';
 }
 
+// ── Atomic rate-limit counter ───────────────────────────────────────────────
+// The JS below USED to read the counter, decide, then write it back as two
+// separate PostgREST calls. That is a read-modify-write race: 200 simultaneous
+// login attempts all read count=0, all pass, and all write count=1 — so 200
+// attempts recorded as ONE, making the real limit (limit x parallelism). At a
+// handful of users nobody sends parallel requests; at 1000 concurrent doctors
+// the app already serves that concurrency, so the limiter was going decorative
+// exactly as it started to matter.
+//
+// public.rate_limit_hit (migration 20260730090000) does the whole increment in
+// one statement, so concurrent callers serialise on the row lock. Verified
+// against prod: 40 simultaneous calls with max=5 -> exactly 5 allowed, counts
+// 1..40 with no duplicates.
+//
+// Returns { ok, allowed }. `ok:false` means we could not reach the counter at
+// all — callers must treat that as DENY (see the note in checkRateLimitWindow).
+async function rateLimitHitAtomic(runtimeKey, maxCount, windowMs) {
+  const result = await supabaseDbRequest('rpc/rate_limit_hit', '', {
+    method: 'POST',
+    body: { p_key: runtimeKey, p_max: maxCount, p_window_ms: windowMs }
+  });
+  if (result.ok && result.data && typeof result.data === 'object') {
+    return { ok: true, allowed: result.data.allowed !== false };
+  }
+  // PostgREST answers 404/PGRST202 when the function is missing (e.g. the
+  // migration has not been applied to this database yet). That is a deploy
+  // ordering problem, not an attack, so fall back to the legacy path rather
+  // than locking every user out of sign-in.
+  const code = result.data && result.data.code;
+  const missing = result.status === 404 || code === 'PGRST202' || code === '42883';
+  return { ok: false, allowed: false, missing };
+}
+
 async function checkRateLimit(rateKey) {
   const ts = now();
   if (isSupabaseDbConfigured()) {
     const runtimeKey = `ratelimit:${rateKey}`;
+    const atomic = await rateLimitHitAtomic(runtimeKey, RATE_MAX_SEND, RATE_WINDOW_MS);
+    if (atomic.ok) return atomic.allowed;
+    // Counter unreachable. Deny — see checkRateLimitWindow for the reasoning.
+    if (!atomic.missing) return false;
+
     const existing = await getRuntimeKv(runtimeKey);
     const current = existing && existing.value && typeof existing.value === 'object'
       ? existing.value
@@ -12729,6 +12767,17 @@ async function checkRateLimitWindow(rateKey, maxCount, windowMs) {
   const ts = now();
   if (isSupabaseDbConfigured()) {
     const runtimeKey = `authratelimit:${rateKey}`;
+    const atomic = await rateLimitHitAtomic(runtimeKey, maxCount, windowMs);
+    if (atomic.ok) return atomic.allowed;
+    // The counter is unreachable (timeout / PostgREST error). This used to
+    // return TRUE here — getRuntimeKv answers null on failure, which the code
+    // below cannot tell apart from "no attempts yet" — so every auth rate limit
+    // switched itself OFF during exactly the database stress that 1000
+    // concurrent users makes routine. Deny instead: this guards sign-in,
+    // signup and password reset, and if Supabase is unreachable those cannot
+    // succeed anyway, so failing closed costs a user nothing they had.
+    if (!atomic.missing) return false;
+
     const existing = await getRuntimeKv(runtimeKey);
     const current = existing && existing.value && typeof existing.value === 'object'
       ? existing.value
@@ -12990,6 +13039,24 @@ function generateAdminBackupCodes(count = ADMIN_MFA_BACKUP_CODE_COUNT) {
 
 // Dual-mode row access: Supabase admin_mfa table in production, dbState.adminMfa
 // map in local JSON mode (loadDbState preserves unknown keys via `...parsed`).
+// Returns { ok, record }. `ok:false` means the lookup FAILED and we do not know
+// whether this admin has a second factor — which is not the same as "no second
+// factor", and must never be treated as such. getAdminMfaRecord below keeps the
+// old null-on-anything shape for the enrolment/management call sites that only
+// ever read it after a successful login.
+async function readAdminMfaRecord(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return { ok: true, record: null };
+  if (isSupabaseDbConfigured()) {
+    const res = await supabaseDbRequest('admin_mfa', `admin_email=eq.${encodeURIComponent(key)}&limit=1`);
+    if (!res.ok) return { ok: false, record: null };
+    const row = Array.isArray(res.data) && res.data.length > 0 ? res.data[0] : null;
+    return { ok: true, record: row };
+  }
+  const rec = (dbState.adminMfa || {})[key];
+  return { ok: true, record: rec ? { admin_email: key, ...rec } : null };
+}
+
 async function getAdminMfaRecord(email) {
   const key = String(email || '').trim().toLowerCase();
   if (!key) return null;
@@ -18535,10 +18602,32 @@ async function persistSupportCaseUpdate(ticketId, patch, scope = {}) {
   const scopedUserId = typeof scope.candidateUserId === 'string' ? scope.candidateUserId.trim() : '';
 
   if (isSupabaseDbConfigured()) {
-    const [profilesResult, statesResult] = await Promise.all([
-      supabaseDbRequest('user_profiles', 'select=user_id,email'),
-      supabaseDbRequest('user_state', 'select=user_id,state,updated_at')
-    ]);
+    // Scale: this used to fetch EVERY user_profiles row AND EVERY user_state row
+    // — the state column is a per-doctor JSONB blob measured at ~6.5 KB — and
+    // then discard all but the one row it wanted. At 1000 doctors that is ~6 MB
+    // dragged across the Pacific against supabaseDbRequest's 10-second abort,
+    // and a timeout here does not error: it returns ok:false and the ticket
+    // update is silently skipped. Every real caller passes a scope, so resolve
+    // it to a single user and read a single row. (`updated_at` was selected but
+    // never read — dropped.)
+    let targetUserId = scopedUserId;
+    if (!targetUserId && scopedEmail) {
+      targetUserId = (await getSupabaseUserIdByEmail(scopedEmail)) || '';
+    }
+
+    const [profilesResult, statesResult] = targetUserId
+      ? await Promise.all([
+        supabaseDbRequest('user_profiles', `select=user_id,email&user_id=eq.${encodeURIComponent(targetUserId)}&limit=1`),
+        supabaseDbRequest('user_state', `select=user_id,state&user_id=eq.${encodeURIComponent(targetUserId)}&limit=1`)
+      ])
+      // PUT /api/admin/tickets/:id can legitimately arrive with neither scope
+      // value, and then the only way to find the owning doctor is to look at
+      // everyone. Keep that as an explicit fallback rather than silently
+      // matching nothing.
+      : await Promise.all([
+        supabaseDbRequest('user_profiles', 'select=user_id,email'),
+        supabaseDbRequest('user_state', 'select=user_id,state')
+      ]);
 
     if (profilesResult.ok && statesResult.ok && Array.isArray(profilesResult.data) && Array.isArray(statesResult.data)) {
       const emailByUserId = new Map();
@@ -50466,12 +50555,29 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
 
-      if (currentPassword) {
-        const checkCurrent = await supabaseAuthRequest('token?grant_type=password', { email, password: currentPassword });
-        if (!checkCurrent.ok) {
-          sendJson(res, 401, { ok: false, message: 'Current password is incorrect.' });
-          return;
-        }
+      // Proving the CURRENT password is mandatory. This used to be
+      // `if (currentPassword) { ...verify... }`, so sending an empty string
+      // skipped the check entirely and any valid session could change the
+      // password outright — turning a stolen session into a permanent account
+      // takeover. Every Supabase-backed account here has a password (the
+      // profile builders report hasPassword:true unconditionally, and email +
+      // password is the only enabled provider), and anyone who genuinely cannot
+      // supply it has the "Forgot password" reset flow on the same screen.
+      //
+      // Rate-limited per account because this endpoint is now a password oracle:
+      // without a cap a stolen session could brute-force the current password.
+      if (!(await checkRateLimitWindow(`set-password:${sessionUserId}`, 10, 15 * 60 * 1000))) {
+        sendJson(res, 429, { ok: false, message: 'Too many attempts. Please try again later.' });
+        return;
+      }
+      if (!currentPassword) {
+        sendJson(res, 400, { ok: false, message: 'Enter your current password to change it.' });
+        return;
+      }
+      const checkCurrent = await supabaseAuthRequest('token?grant_type=password', { email, password: currentPassword });
+      if (!checkCurrent.ok) {
+        sendJson(res, 401, { ok: false, message: 'Current password is incorrect.' });
+        return;
       }
 
       const updateResult = await supabaseAuthAdminRequest(`admin/users/${encodeURIComponent(sessionUserId)}`, {
@@ -51065,10 +51171,31 @@ Return ONLY valid JSON with no markdown formatting:
     // session cookie yet, just a short-lived signed challenge that
     // /api/admin/auth/login/mfa exchanges (with a TOTP or backup code) for
     // the exact same session the password path would have issued.
-    let adminMfaRecord = null;
-    try { adminMfaRecord = await getAdminMfaRecord(email); } catch (err) {
-      console.error('[MFA] lookup failed at login (failing OPEN — no lockout):', err && err.message);
+    // This used to fail OPEN, and silently: getAdminMfaRecord returns null when
+    // the database read FAILS (supabaseDbRequest converts every error into
+    // ok:false and never throws), so the catch below never fired, adminMfaActive
+    // became false, and a full 8-hour admin session was issued on the password
+    // alone — with nothing logged. Database timeouts become routine at 1000
+    // users, so scaling up made that more likely to trigger, not less.
+    //
+    // "No row" and "could not check" are now different answers. If we cannot
+    // check, refuse: during a Supabase outage the admin console cannot load its
+    // data anyway, so denying costs nothing, while guessing "no 2FA" hands out
+    // single-factor admin access at the worst possible moment.
+    let adminMfaLookup = { ok: false, record: null };
+    try { adminMfaLookup = await readAdminMfaRecord(email); } catch (err) {
+      console.error('[MFA] lookup threw at login:', err && err.message);
+      adminMfaLookup = { ok: false, record: null };
     }
+    if (!adminMfaLookup.ok) {
+      console.error('[MFA] lookup FAILED at login for', email, '— refusing (failing CLOSED)');
+      sendJson(res, 503, {
+        ok: false,
+        message: 'Cannot verify two-factor status right now. Please try again in a moment.'
+      });
+      return;
+    }
+    const adminMfaRecord = adminMfaLookup.record;
     const adminMfaActive = !!(adminMfaRecord && adminMfaRecord.totp_secret && !adminMfaRecord.disabled);
     if (adminMfaActive) {
       const challenge = createSignedPurposeToken('admin_mfa_challenge', {
@@ -63232,7 +63359,14 @@ Return ONLY valid JSON with no markdown formatting:
     // ACTIVE roster rows seed the visible per-RSO cards.
     var [fullRosterRows, rsoCasesRes, rsoTasksRes] = await Promise.all([
       loadRsoTeam({ includeInactive: true }),
-      supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
+      // Scale: `select=*` pulled every column of every case (~5 KB/row, mostly
+      // JSONB the caller never looks at) — ~5 MB at 1000 doctors, against a
+      // 10-second abort whose failure mode is a SILENTLY EMPTY tab. Nothing
+      // here reaches the browser: the cases feed filterActiveCases (status +
+      // last_gp_activity_at/updated_at/created_at) and computeRsoWorkload
+      // (id + assigned_rso) and the response is per-RSO counts only. Verified
+      // against lib/ceo-metrics.js — those six columns are the complete set.
+      supabaseDbRequest('registration_cases', 'select=id,assigned_rso,status,last_gp_activity_at,updated_at,created_at&order=updated_at.desc'),
       supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + ceoMetrics.OPEN_TASK_STATUSES.join(',') + ')&limit=' + CEO_OPEN_TASK_ROW_CAP)
     ]);
     var rosterRows = fullRosterRows.filter(function (r) { return r.active !== false; });
