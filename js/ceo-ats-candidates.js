@@ -192,7 +192,7 @@
       '</div>' +
       '<div class="ats-cand-head">' +
         '<span>Candidate</span><span>Country</span><span>Registration stage</span>' +
-        '<span>Intent score</span><span>Onboarding</span><span>Documents</span><span></span>' +
+        '<span>Intent score</span><span>Onboarding</span><span>Documents</span>' +
       '</div>' +
       '<div class="ats-cand-table" id="ats-cand-table">' + ATS.loadingHtml('Loading candidates…') + '</div>';
   }
@@ -291,11 +291,9 @@
       if (wWithdraw) { e.stopPropagation(); closeWaitingApp(wWithdraw.getAttribute('data-app-id'), 'Closed'); return; }
       var wRow = e.target.closest('.ats-wait-row');
       if (wRow) { var wcid = wRow.getAttribute('data-case-id'); if (wcid) window.atsOpenCandidate(wcid); return; }
-      // Row-level actions menu (2026-07-30) — MUST be tested before the
-      // row-open branch below, and must stop propagation, or every click on
-      // the trigger would also open the candidate behind the menu.
-      var rowMenuBtn = e.target.closest('.ats-row-menu');
-      if (rowMenuBtn) { e.stopPropagation(); openRowActionMenu(rowMenuBtn); return; }
+      // Strip buttons live INSIDE the card — handle them before the row-open
+      // branch, or every action would also open the candidate behind it.
+      if (handleStripClick(e, null)) return;
       var row = e.target.closest('.ats-cand-row');
       if (!row) return;
       var id = row.getAttribute('data-case-id');
@@ -303,57 +301,6 @@
     });
   }
 
-  /* The list payload is per-CANDIDATE and carries no applications, so the row
-     menu resolves them on open (one call, only when asked). A candidate with
-     several live applications can't be actioned unambiguously from a single
-     row button — that case offers to open the candidate instead. */
-  var rowMenuCache = {};
-  function openRowActionMenu(trigger) {
-    var caseId = trigger.getAttribute('data-case-id');
-    if (!caseId) return;
-    var cached = rowMenuCache[caseId];
-    if (cached) { buildRowMenu(trigger, cached); return; }
-    openActionMenu(trigger, [{ label: 'Loading…', disabled: true }], { label: 'Actions' });
-    ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
-      var cand = d && d.ok && d.candidate ? d.candidate : null;
-      if (!cand) { closeActionMenu(); ATS.toast('Could not load this candidate.'); return; }
-      rowMenuCache[caseId] = cand;
-      // Re-open against the live trigger: the first (loading) menu is still
-      // on screen, so close it first or openActionMenu treats this as a toggle.
-      closeActionMenu();
-      buildRowMenu(trigger, cand);
-    });
-  }
-  function buildRowMenu(trigger, cand) {
-    var apps = (cand.apps || []).filter(function (a) {
-      return a && !isWithdrawn(a) && a.ats_stage !== 'not_proceeding';
-    });
-    if (!apps.length) {
-      openActionMenu(trigger, [
-        { label: 'Open candidate', icon: '↗', onClick: function () { window.atsOpenCandidate(cand.case_id); } }
-      ], { label: cand.name || 'Actions', empty: 'No live application.' });
-      return;
-    }
-    if (apps.length > 1) {
-      openActionMenu(trigger, [
-        { label: apps.length + ' live applications — open to choose', disabled: true },
-        { sep: true },
-        { label: 'Open candidate', icon: '↗', onClick: function () { window.atsOpenCandidate(cand.case_id); } }
-      ], { label: cand.name || 'Actions' });
-      return;
-    }
-    // Any action changes the row, so drop the cached candidate before running
-    // it — otherwise re-opening the menu would offer "Submit to practice" on
-    // an application that was just submitted.
-    var items = applicationMenuItems(apps[0], cand).map(function (it) {
-      if (it.sep || typeof it.onClick !== 'function') return it;
-      var run = it.onClick;
-      return Object.assign({}, it, { onClick: function () { rowMenuCache = {}; run(); } });
-    });
-    items.push({ sep: true },
-      { label: 'Open candidate', icon: '↗', onClick: function () { window.atsOpenCandidate(cand.case_id); } });
-    openActionMenu(trigger, items, { label: apps[0].job_title || cand.name || 'Actions' });
-  }
 
   function fetchAndRenderRows() {
     var t0 = document.getElementById('ats-cand-table');
@@ -682,7 +629,12 @@
       ? '<span class="ats-pill green">Complete</span>'
       : '<span class="ats-pill amber">' + (c.onboarding_pct != null ? c.onboarding_pct : 0) + '%</span>';
     var docs = c.docs || {};
-    return '<div class="ats-cand-row" data-case-id="' + ATS.escAttr(c.case_id) + '">' +
+    // Owner request 2026-07-30 (option D): every live application gets a
+    // full-width action strip across the bottom of the card — visible, not
+    // behind a 3-dot. The card wraps the row so the two read as one object.
+    var strips = (c.live_apps || []).map(appActionStripHtml).join('');
+    return '<div class="ats-cand-card' + (strips ? ' has-strip' : '') + '">' +
+      '<div class="ats-cand-row" data-case-id="' + ATS.escAttr(c.case_id) + '">' +
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
         '<div><div class="cr-name">' + ATS.esc(c.name) + '</div><div class="cr-sub">' + ATS.esc(c.email) + '</div></div></div>' +
       '<div class="cr-sub">' + ATS.countryLabel(c.country) + '</div>' +
@@ -693,9 +645,8 @@
         '<span class="ats-doc-chip ' + (docs.cv ? 'yes' : '') + '">CV ' + (docs.cv ? '✓' : '✗') + '</span>' +
         '<span class="ats-doc-chip ' + (docs.coverLetter ? 'yes' : '') + '">Cover ' + (docs.coverLetter ? '✓' : '✗') + '</span>' +
       '</div>' +
-      // Owner request 2026-07-30: the same application actions, reachable
-      // straight from the row — no need to open the candidate first.
-      '<div class="cr-actions">' + menuTriggerHtml('ats-row-menu', ' data-case-id="' + ATS.escAttr(c.case_id) + '"', '') + '</div>' +
+      '</div>' +
+      strips +
     '</div>';
   }
 
@@ -900,9 +851,8 @@
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
           '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
         '</div>' +
-        aiMatchLineHtml(a) +
         markPlacementLineHtml(a) +
-        appActionsRowHtml(a) +
+        appActionStripHtml(a) +
       '</div>';
     }).join('') : '<div class="ats-empty">No job applications yet.</div>';
 
@@ -957,101 +907,6 @@
       (when ? ' · ' + ATS.esc(when) : '') + '</span>';
   }
 
-  /* =====================================================================
-   *  Sleek action menu (owner request 2026-07-30)
-   *
-   *  Replaced the inline Withdraw / Job board / Practice listing button row
-   *  inside the application card, and gives the Applied candidate rows the
-   *  same actions without opening the drawer first.
-   *
-   *  The popover is appended to <body> and positioned fixed off the trigger's
-   *  rect: both the candidate list and the drawer scroll inside overflow
-   *  containers, so an absolutely-positioned menu would be clipped by its own
-   *  row. It carries `ats-scope` because the dashboard's colour tokens are
-   *  declared on that class — outside it the menu would render unstyled.
-   * ===================================================================== */
-  var openMenuEl = null;
-  function closeActionMenu() {
-    if (!openMenuEl) return;
-    if (openMenuEl._trigger) openMenuEl._trigger.setAttribute('aria-expanded', 'false');
-    if (openMenuEl.parentNode) openMenuEl.parentNode.removeChild(openMenuEl);
-    openMenuEl = null;
-  }
-  document.addEventListener('click', function (e) {
-    if (!openMenuEl) return;
-    if (openMenuEl.contains(e.target)) return;
-    if (openMenuEl._trigger && openMenuEl._trigger.contains(e.target)) return;
-    closeActionMenu();
-  }, true);
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeActionMenu(); });
-  window.addEventListener('resize', closeActionMenu);
-  // Scroll REPOSITIONS rather than closes. Closing on scroll looks tidy until
-  // you hit the real cases: the drawer scrolls the trigger into view as you
-  // click it, and momentum scrolling keeps firing afterwards — both of which
-  // dismissed the menu the instant it opened. Only give up once the trigger
-  // itself has left the viewport, where there is nothing to anchor to.
-  window.addEventListener('scroll', function () {
-    if (!openMenuEl || !openMenuEl._trigger) return;
-    var r = openMenuEl._trigger.getBoundingClientRect();
-    if (r.bottom < 0 || r.top > window.innerHeight) { closeActionMenu(); return; }
-    positionMenu(openMenuEl, openMenuEl._trigger);
-  }, true);
-
-  function menuItemHtml(it, i) {
-    if (it.sep) return '<div class="ats-menu-sep"></div>';
-    return '<button type="button" class="ats-menu-item' + (it.danger ? ' danger' : '') + '"' +
-      ' data-mi="' + i + '"' + (it.disabled ? ' disabled' : '') + ' role="menuitem">' +
-      '<span class="ats-menu-ico">' + (it.icon || '') + '</span>' +
-      '<span>' + ATS.esc(it.label) + '</span>' +
-    '</button>';
-  }
-
-  function positionMenu(pop, trigger) {
-    var r = trigger.getBoundingClientRect();
-    var w = pop.offsetWidth, h = pop.offsetHeight;
-    var left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
-    var top = r.bottom + 6;
-    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6); // flip above
-    pop.style.left = Math.round(left) + 'px';
-    pop.style.top = Math.round(top) + 'px';
-  }
-
-  // items: [{label, onClick, icon, danger, disabled} | {sep:true}]
-  function openActionMenu(trigger, items, opts) {
-    var reopening = !!(openMenuEl && openMenuEl._trigger === trigger);
-    closeActionMenu();
-    if (reopening) return; // clicking the same trigger closes it
-    var o = opts || {};
-    var list = (items || []).filter(Boolean);
-    var pop = document.createElement('div');
-    pop.className = 'ats-scope ats-menu-pop';
-    pop.setAttribute('role', 'menu');
-    pop.innerHTML =
-      (o.label ? '<div class="ats-menu-label">' + ATS.esc(o.label) + '</div>' : '') +
-      (list.filter(function (x) { return !x.sep; }).length
-        ? list.map(menuItemHtml).join('')
-        : '<div class="ats-menu-empty">' + ATS.esc(o.empty || 'Nothing to do here.') + '</div>');
-    document.body.appendChild(pop);
-    positionMenu(pop, trigger);
-    pop.addEventListener('click', function (e) {
-      var btn = e.target.closest ? e.target.closest('.ats-menu-item') : null;
-      if (!btn || btn.disabled) return;
-      var it = list[Number(btn.getAttribute('data-mi'))];
-      closeActionMenu();
-      if (it && typeof it.onClick === 'function') it.onClick();
-    });
-    pop._trigger = trigger;
-    openMenuEl = pop;
-    trigger.setAttribute('aria-expanded', 'true');
-  }
-
-  function menuTriggerHtml(cls, attrs, label) {
-    return '<button type="button" class="ats-menu-btn ' + cls + '"' + (attrs || '') +
-      ' aria-haspopup="menu" aria-expanded="false" title="Actions">' +
-      (label ? '<span>' + ATS.esc(label) + '</span><span class="ats-menu-caret">▾</span>' : '⋯') +
-    '</button>';
-  }
-
   /* ---- AI match line (owner request 2026-07-30) ----
    * gp_applications.match_score / match_reasons are populated when the team
    * SHORTLISTS a GP through the Matching board. A GP who applies directly from
@@ -1060,79 +915,108 @@
    * score + reasons when we have them, and otherwise offer to score it on the
    * spot (POST /api/ats/application/ai-match, which reuses the same cached
    * per-GP ranking the Matching board uses — no new AI prompt). */
-  function matchScoreColour(score) {
-    if (score >= 80) return 'var(--ats-green)';
-    if (score >= 60) return 'var(--ats-amber)';
-    return 'var(--ats-dim)';
+  /* After an action, show the result where the user is standing: reload the
+     drawer when it is open, or re-render the list when the click came from a
+     card strip (c is null there). Without this the list path threw on
+     c.case_id and the action looked like it had failed. */
+  function refreshAfterAppAction(c) {
+    if (c && c.case_id) { window.atsOpenCandidate(c.case_id); return; }
+    if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+    if (window.loadCandidatesTab) window.loadCandidatesTab();
   }
-  function aiMatchLineHtml(a) {
-    var score = (a.match_score != null && a.match_score !== '') ? Number(a.match_score) : null;
-    // Two shapes reach the drawer: atsApplicationToCard flattens match_reasons
-    // to a plain array, while the candidate-facts builders select=* and hand
-    // back the raw column ({reasons:[...], _history:[...]}). Accept both — a
-    // shape check that only knew one of them silently showed "not scored" on
-    // a row that HAD a score.
-    var rawReasons = a.match_reasons;
-    var reasons = Array.isArray(rawReasons)
-      ? rawReasons
-      : ((rawReasons && typeof rawReasons === 'object' && Array.isArray(rawReasons.reasons)) ? rawReasons.reasons : []);
-    reasons = reasons.filter(function (r) { return typeof r === 'string' && r.trim(); });
-    var inner;
-    if (score != null && !isNaN(score)) {
-      inner = '<span class="ats-aimatch-score" style="font-weight:700;color:' + matchScoreColour(score) + '">' + Math.round(score) + '% match</span>' +
-        (reasons.length
-          ? '<span class="ats-aimatch-why" style="color:var(--ats-dim);font-size:11.5px;margin-left:8px">' + ATS.esc(reasons.join(' · ')) + '</span>'
-          : '') +
-        ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-ai-match" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Re-score</button>';
-    } else {
-      inner = '<span class="ats-aimatch-none" style="color:var(--ats-dim);font-size:11.5px">Not scored — this GP applied directly</span>' +
-        ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-ai-match" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Score with AI</button>';
+
+  /* One click handler for the strip, shared by the candidate list and the
+     drawer. Returns true when it handled the event, so each caller can bail
+     out of its own delegation chain — in the list that stops the click from
+     also opening the candidate behind the strip. `c` is the candidate for a
+     drawer click and null in the list, where a refresh re-renders the rows. */
+  function handleStripClick(e, c) {
+    if (!e.target.closest) return false;
+    var btn = e.target.closest('.cr-strip button');
+    if (!btn) return false;
+    e.stopPropagation();
+    var appId = btn.getAttribute('data-app-id');
+
+    if (btn.classList.contains('ats-strip-submit')) { submitToPractice(appId, c, btn); return true; }
+    if (btn.classList.contains('ats-strip-score')) { scoreApplicationWithAi(appId, c, btn); return true; }
+    if (btn.classList.contains('ats-strip-withdraw')) { withdrawFromDrawer(appId, c, btn); return true; }
+    // "Practice listing" — the actual job on THIS dashboard (owner call).
+    if (btn.classList.contains('ats-strip-joblisting')) {
+      var jobId = btn.getAttribute('data-job-id');
+      if (jobId && window.ATS && ATS.showMaster) {
+        ATS.showMaster('jobs');
+        if (window.atsOpenJobBoard) window.atsOpenJobBoard(jobId);
+      }
+      return true;
     }
-    return '<div class="ats-app-interview ats-app-aimatch"><span class="ats-app-lbl">AI match</span>' + inner + '</div>';
+    // "Job board" — the PUBLIC website listing, opened in a new tab.
+    if (btn.classList.contains('ats-strip-public')) {
+      var url = btn.getAttribute('data-url');
+      if (url) window.open(url, '_blank', 'noopener');
+      return true;
+    }
+    return true; // a strip button we do not recognise must still not fall through
   }
 
-  /* ---- Per-application action row (owner request 2026-07-30) ----
-   * Submit to practice and Withdraw existed ONLY in the "New applications"
-   * queue tile, so opening the application itself offered no way to action it.
-   * Both live here too now, alongside jumps to the Jobs and Practices tabs. */
-  function appActionsRowHtml(a) {
-    return '<div class="ats-app-interview ats-app-actions" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:8px;padding-top:10px">' +
-      '<span class="ats-app-lbl">Actions</span>' +
-      '<span style="display:flex;justify-content:flex-start">' +
-        menuTriggerHtml('ats-app-menu', ' data-app-id="' + ATS.escAttr(String(a.id)) + '"', 'Actions') +
-      '</span>' +
-    '</div>';
+  /* ---- Per-application action strip (owner request 2026-07-30, option D) ----
+   * A full-width tinted band across the bottom of the card. Everything is
+   * visible — no dropdown, nothing behind a 3-dot — and the band names the
+   * application it acts on, so "Withdraw" is never a guess when a doctor has
+   * more than one live application.
+   *
+   * The SAME builder renders it on the candidate list card and inside the
+   * drawer's application card, so the two surfaces cannot drift apart.
+   *
+   * Owner call on the two navigation buttons — they read backwards until you
+   * know the intent, so keep them exactly this way round:
+   *   "Practice listing" -> the actual job ON THIS DASHBOARD (Jobs tab)
+   *   "Job board"        -> the PUBLIC website listing for that job
+   */
+  var STRIP_STAGE_TONE = {
+    shortlisted: 'purple', applied: 'amber', submitted: 'blue',
+    reviewing: 'blue', interview: 'blue', offer: 'green', hired: 'green'
+  };
+  function stripStageLabel(stage) {
+    var t = String(stage || '').replace(/_/g, ' ');
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Application';
   }
+  function appActionStripHtml(a) {
+    var appId = ATS.escAttr(String(a.id));
+    var jobId = ATS.escAttr(String(a.job_id || a.career_role_id || ''));
+    var tone = STRIP_STAGE_TONE[a.ats_stage] || 'muted';
+    var score = (a.match_score != null && a.match_score !== '') ? Math.round(Number(a.match_score)) : null;
+    var where = [a.job_title, a.practice_name].filter(Boolean).join(' · ');
 
-  // The menu contents for ONE application. Shared by the drawer's card and the
-  // candidate row, so both offer exactly the same set (and the same gating).
-  function applicationMenuItems(a, c) {
-    var appId = String(a.id);
-    var items = [];
     var submitEligible = !isWithdrawn(a)
       && !SUBMISSION_STATUS_LABELS[a.practice_submission_status || '']
       && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
-    if (submitEligible) {
-      items.push({ label: 'Submit to practice', icon: '→', onClick: function () { submitToPractice(appId, c, null); } });
-    }
-    items.push({
-      label: (a.match_score != null && a.match_score !== '') ? 'Re-score with AI' : 'Score with AI',
-      icon: '✦',
-      onClick: function () { scoreApplicationWithAi(appId, c, null); }
-    });
-    items.push({ sep: true });
-    items.push({ label: 'Job board', icon: '▤', onClick: function () { if (window.ATS && ATS.showMaster) ATS.showMaster('jobs'); } });
-    items.push({ label: 'Practice listing', icon: '⌂', onClick: function () { if (window.ATS && ATS.showMaster) ATS.showMaster('practices'); } });
-    // Withdraw stays available while the application is still live — a
-    // terminal card (withdrawn by the doctor, or already not_proceeding) has
-    // nothing left to withdraw. Last, and visually separated, so the
-    // destructive action is never the one you hit by reflex.
     var live = !isWithdrawn(a) && a.ats_stage !== 'not_proceeding' && a.ats_stage !== 'hired';
-    if (live) {
-      items.push({ sep: true });
-      items.push({ label: 'Withdraw application', icon: '✕', danger: true, onClick: function () { withdrawFromDrawer(appId, c, null); } });
+
+    var btns = '';
+    if (submitEligible) {
+      btns += '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-strip-submit" data-app-id="' + appId + '">Submit to practice</button>';
     }
-    return items;
+    btns += '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-strip-score" data-app-id="' + appId + '">' +
+      (score != null ? 'Re-score' : 'Score with AI') + '</button>';
+    if (jobId) {
+      btns += '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-strip-joblisting" data-job-id="' + jobId + '">Practice listing</button>';
+    }
+    if (a.public_url) {
+      btns += '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-strip-public" data-url="' + ATS.escAttr(String(a.public_url)) + '">Job board \u2197</button>';
+    }
+    if (live) {
+      btns += '<span class="cr-strip-gap"></span>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-strip-withdraw ats-danger-ghost" data-app-id="' + appId + '">Withdraw</button>';
+    }
+
+    return '<div class="cr-strip" data-app-id="' + appId + '">' +
+      '<span class="ats-pill ' + tone + '">' + ATS.esc(stripStageLabel(a.ats_stage)) + '</span>' +
+      (where ? '<span class="cr-strip-job" title="' + ATS.escAttr(where) + '">' + ATS.esc(where) + '</span>' : '') +
+      (score != null
+        ? '<span class="cr-strip-ai on">' + score + '% match</span>'
+        : '<span class="cr-strip-ai">Not scored</span>') +
+      '<span class="cr-strip-btns">' + btns + '</span>' +
+    '</div>';
   }
 
   function submitPracticeLineHtml(a) {
@@ -1321,7 +1205,7 @@
         if (res && res.ok) {
           ATS.toast('Application withdrawn — the doctor has been told.');
           if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-          window.atsOpenCandidate(c.case_id);
+          refreshAfterAppAction(c);
         } else {
           ATS.toast((res && (res.error || res.message)) || 'Could not withdraw the application.');
           if (btn) { btn.disabled = false; btn.textContent = 'Withdraw'; }
@@ -1339,7 +1223,7 @@
     ATS.api('/api/ats/application/ai-match', { method: 'POST', body: { applicationId: String(appId) } }).then(function (res) {
       if (res && res.ok) {
         ATS.toast(res.score != null ? ('AI match: ' + Math.round(res.score) + '%') : 'Scored.');
-        window.atsOpenCandidate(c.case_id);
+        refreshAfterAppAction(c);
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not score this application.');
         if (btn) { btn.disabled = false; btn.textContent = original || 'Score with AI'; }
@@ -1354,7 +1238,7 @@
       if (res && res.ok) {
         ATS.toast('Submitted — the practice has been introduced to this candidate.');
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
-        window.atsOpenCandidate(c.case_id); // reload so the practice line + stage refresh
+        refreshAfterAppAction(c); // reload so the practice line + stage refresh
       } else {
         ATS.toast((res && (res.error || res.message)) || 'Could not submit to the practice.');
         if (btn) { btn.disabled = false; btn.textContent = 'Submit to practice'; }
@@ -1907,16 +1791,7 @@
       if (submitPracticeBtn) { submitToPractice(submitPracticeBtn.getAttribute('data-app-id'), c, submitPracticeBtn); return; }
       // Per-application actions (2026-07-30): one sleek dropdown rather than a
       // row of buttons — submit / score / navigate / withdraw.
-      var appMenuBtn = e.target.closest('.ats-app-menu');
-      if (appMenuBtn) {
-        e.stopPropagation();
-        var menuAppId = appMenuBtn.getAttribute('data-app-id');
-        var menuApp = (c.apps || []).filter(function (x) { return String(x.id) === String(menuAppId); })[0];
-        if (menuApp) openActionMenu(appMenuBtn, applicationMenuItems(menuApp, c), { label: menuApp.job_title || 'Application' });
-        return;
-      }
-      var aiMatchBtn = e.target.closest('.ats-ai-match');
-      if (aiMatchBtn) { scoreApplicationWithAi(aiMatchBtn.getAttribute('data-app-id'), c, aiMatchBtn); return; }
+      if (handleStripClick(e, c)) return;
       var sendBtn = e.target.closest('.ats-offer-send');
       if (sendBtn) { openOfferForm(sendBtn.getAttribute('data-app-id')); return; }
       var cancelBtn = e.target.closest('.ats-offer-cancel');

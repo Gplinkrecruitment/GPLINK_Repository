@@ -544,10 +544,10 @@ describe('Withdrawing an application closes it and hands off to the GP notifier'
 
   it('the CEO dashboard offers Withdraw inside the application, not just in the queue', () => {
     const js = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
-    // Owner request 2026-07-30 (second pass): the inline button row became a
-    // sleek dropdown, on the application card AND on the candidate row.
-    expect(js).toContain('function applicationMenuItems');
-    expect(js).toContain('Withdraw application');
+    // Owner request 2026-07-30 (third pass): the actions live on an always-
+    // visible strip in the card — on the application card AND the list row.
+    expect(js).toContain('function appActionStripHtml');
+    expect(js).toContain('ats-strip-withdraw');
     expect(js).toContain('function withdrawFromDrawer');
     // Same endpoint + same reason vocabulary as the queue button, so both
     // routes write the same stage event and the same strike data.
@@ -580,48 +580,66 @@ describe('Ops deep links point at the CEO dashboard host, not the doctor app', (
   });
 });
 
-// The action menu itself (owner request 2026-07-30, second pass).
-describe('The application action menu', () => {
+// The per-application action strip (owner request 2026-07-30, third pass).
+// The dropdown was rejected: the owner wants every action visible in the card,
+// not behind a 3-dot. Layout "option D" — a full-width tinted band per LIVE
+// application across the bottom of the candidate card.
+describe('The per-application action strip', () => {
   const js = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
   const css = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
+  const srv = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
-  it('is reachable from the candidate row as well as the application card', () => {
-    expect(js).toContain('ats-row-menu');   // row trigger
-    expect(js).toContain('ats-app-menu');   // application-card trigger
-    expect(js).toContain('function openRowActionMenu');
+  it('has no dropdown left — every action is on the card', () => {
+    expect(js).not.toContain('ats-menu-pop');
+    expect(js).not.toContain('openActionMenu');
+    expect(js).not.toContain('ats-row-menu');
+    expect(css).not.toContain('.ats-menu-pop');
   });
 
-  it('renders destructive and safe actions apart, with Withdraw last and flagged', () => {
-    const items = js.slice(js.indexOf('function applicationMenuItems'), js.indexOf('function submitPracticeLineHtml'));
-    expect(items).toMatch(/Withdraw application[\s\S]{0,80}danger: true/);
-    // Withdraw must come after the navigation items — never first, where it
-    // would be the reflex click.
-    expect(items.indexOf('Job board')).toBeLessThan(items.indexOf('Withdraw application'));
+  it('renders one strip per live application, on the list and in the drawer', () => {
+    expect(js).toContain('function appActionStripHtml');
+    // list card
+    expect(js).toMatch(/c\.live_apps \|\| \[\]\)\.map\(appActionStripHtml\)/);
+    // drawer application card — same builder, so they cannot drift
+    expect(js).toMatch(/markPlacementLineHtml\(a\) \+\s*\n\s*appActionStripHtml\(a\)/);
   });
 
-  it('carries ats-scope so it keeps the dashboard palette outside the panel', () => {
-    // The popover is appended to <body>; the colour tokens are declared on
-    // .ats-scope, so without that class it would render unstyled.
-    expect(js).toContain("pop.className = 'ats-scope ats-menu-pop'");
-    expect(css).toContain('.ats-menu-pop');
+  it('names the application it acts on, so Withdraw is never a guess', () => {
+    const fn = js.slice(js.indexOf('function appActionStripHtml'), js.indexOf('function submitPracticeLineHtml'));
+    expect(fn).toContain('a.job_title');
+    expect(fn).toContain('a.practice_name');
+    expect(fn).toContain('cr-strip-job');
   });
 
-  it('repositions on scroll instead of closing', () => {
-    // Closing on scroll dismissed the menu the instant it opened: the drawer
-    // scrolls the trigger into view as you click it, and momentum scrolling
-    // keeps firing afterwards. Verified in a real browser before/after.
-    const scrollBlock = js.slice(js.indexOf("window.addEventListener('scroll'"), js.indexOf("function menuItemHtml"));
-    expect(scrollBlock).toContain('positionMenu(openMenuEl, openMenuEl._trigger)');
+  it('sends "Practice listing" to the job on THIS dashboard and "Job board" to the public site', () => {
+    // Owner call 2026-07-30 — these read backwards until you know the intent,
+    // so they are pinned here deliberately. Do not "correct" them.
+    const h = js.slice(js.indexOf('function handleStripClick'), js.indexOf('var STRIP_STAGE_TONE'));
+    expect(h).toMatch(/ats-strip-joblisting[\s\S]{0,320}atsOpenJobBoard\(jobId\)/);
+    expect(h).toMatch(/ats-strip-public[\s\S]{0,200}window\.open\(url/);
+    // the public URL is built server-side, never guessed in the browser
+    expect(srv).toContain('public_url: jobId ? buildPublicJobUrl({ id: jobId })');
   });
 
-  it('closes on Escape and on an outside click', () => {
-    expect(js).toMatch(/keydown[\s\S]{0,120}Escape[\s\S]{0,60}closeActionMenu/);
-    expect(js).toMatch(/openMenuEl\.contains\(e\.target\)[\s\S]{0,200}closeActionMenu/);
+  it('the candidates list carries the applications the strip needs', () => {
+    expect(srv).toContain('function atsCandidateLiveApps');
+    expect(srv).toContain('live_apps: atsCandidateLiveApps(facts.apps)');
+    // Prod resolves job titles with ONE bulk read for the page, never per row.
+    expect(srv).toMatch(/liveRoleList\.length[\s\S]{0,300}career_roles/);
+    expect(srv).toContain('r.live_apps = atsCandidateLiveApps(byUser2[r.user_id], liveRoleMap);');
   });
 
-  it('the candidate row grid has a column for the trigger', () => {
-    // Header and row must agree or every column below shifts.
-    const cols = css.match(/grid-template-columns:2\.2fr 0\.9fr 1\.3fr 1\.5fr 1fr 1\.1fr 40px;/g) || [];
-    expect(cols.length).toBe(2);
+  it('drops terminal applications and caps how many strips a card can grow', () => {
+    const fn = srv.slice(srv.indexOf('function atsCandidateLiveApps'), srv.indexOf('function buildCareerLockAdminView'));
+    expect(fn).toContain("=== 'withdrawn'");
+    expect(fn).toContain("a.ats_stage !== 'not_proceeding'");
+    expect(fn).toContain('.slice(0, 3)');
+  });
+
+  it('keeps Withdraw visually last and flagged', () => {
+    const fn = js.slice(js.indexOf('function appActionStripHtml'), js.indexOf('function submitPracticeLineHtml'));
+    expect(fn).toContain('ats-danger-ghost');
+    expect(fn.indexOf('ats-strip-public')).toBeLessThan(fn.indexOf('ats-strip-withdraw'));
+    expect(css).toContain('.ats-danger-ghost');
   });
 });

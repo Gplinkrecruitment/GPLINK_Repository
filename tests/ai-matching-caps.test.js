@@ -146,10 +146,13 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('GET /api/ceo/candidates merges a LIVE user_state velocity read (not just the cached facts blob)', () => {
     const idx = serverSrc.indexOf("pathname === '/api/ceo/candidates' && req.method === 'GET'");
-    // Window widened from 8000: the handler grew the gp_applications
-    // failure-visibility block (the created_at 400 fix), pushing the velocity
-    // merge past the old cut-off. Still scoped to this one handler.
-    const fnSrc = serverSrc.slice(idx, idx + 10000);
+    // Scope to the END of this handler rather than a fixed character window.
+    // The window had already been widened once (8000 -> 10000) when the
+    // handler grew, and the 2026-07-30 live_apps block pushed the velocity
+    // merge past it again — a pin that breaks whenever unrelated code is
+    // added is testing the file layout, not the behaviour.
+    const next = serverSrc.indexOf("if (pathname === '", idx + 50);
+    const fnSrc = serverSrc.slice(idx, next > idx ? next : idx + 20000);
     expect(fnSrc).toContain('application_velocity_flag');
     expect(fnSrc).toContain("supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(");
   });

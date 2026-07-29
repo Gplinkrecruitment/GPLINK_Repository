@@ -30989,7 +30989,7 @@ async function atsInsertApplicationRow(row) {
     var cand = (dbState.atsCandidates || []).find(function (c) { return String(c.user_id) === String(local.user_id); });
     if (cand) {
       cand.apps = Array.isArray(cand.apps) ? cand.apps : [];
-      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage, practice_submission_status: local.practice_submission_status || 'pending_va_submission' });
+      cand.apps.push({ id: local.id, job_id: local.career_role_id, job_title: local.job_title || '—', practice_name: local.practice_name || '', ats_stage: local.ats_stage, practice_submission_status: local.practice_submission_status || 'pending_va_submission', match_score: (local.match_score != null) ? local.match_score : null, status: local.status || '' });
     }
   }
   saveDbState();
@@ -34505,6 +34505,9 @@ async function atsProdCandidateFacts(regCase) {
       practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
       // Drawer source chip (Task F): Zoho-managed vs in-app application.
       source: a.zoho_application_id ? 'zoho' : 'in_app',
+      // AI match (2026-07-30): the card's action strip shows the score, and
+      // offers to generate one when a direct applicant has none.
+      match_score: (a.match_score != null) ? a.match_score : null,
       interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null, join_url: resolveInterviewJoinUrl(intRow.zoom_join_url) } : null,
       offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
     };
@@ -34656,8 +34659,50 @@ function atsCandidateListRow(facts, intent) {
     high_velocity: !!facts.velocityFlagged,
     velocity_flag: facts.velocityFlagged ? facts.velocityFlag : null,
     // AI Matching (Task 8): "CAREER LOCKED" chip for the candidates list.
-    career_locked: !!(facts.careerLock && isCareerLocked(facts.careerLock))
+    career_locked: !!(facts.careerLock && isCareerLocked(facts.careerLock)),
+    // Owner request 2026-07-30: the candidate card carries an always-visible
+    // action strip per LIVE application, so the list needs the applications
+    // themselves — previously it was candidate-only and the strip had to fetch
+    // on demand. Terminal rows are excluded: there is nothing left to action,
+    // and a strip per dead application would bury the live one.
+    live_apps: atsCandidateLiveApps(facts.apps)
   };
+}
+
+// Compact per-application payload for the candidates list action strip.
+// Capped at 3: a doctor with more live applications than that is an outlier,
+// and the card must not grow without bound. Deliberately NOT the full drawer
+// shape — this is a list, and every extra field is paid for on every row.
+// `roleMap` (id -> {title, practice_name}) is supplied by the prod list path,
+// which reads gp_applications in ONE bulk query and therefore has no role
+// names on the rows. Local mode's apps already carry job_title/practice_name,
+// so it passes nothing and the fallbacks below apply.
+function atsCandidateLiveApps(apps, roleMap) {
+  var roles = roleMap || {};
+  return (Array.isArray(apps) ? apps : [])
+    .filter(function (a) {
+      if (!a) return false;
+      if (String(a.status || '').toLowerCase() === 'withdrawn') return false;
+      return a.ats_stage !== 'not_proceeding';
+    })
+    .slice(0, 3)
+    .map(function (a) {
+      var jobId = a.job_id || a.career_role_id || '';
+      var role = roles[String(jobId)] || {};
+      return {
+        id: a.id,
+        job_id: jobId,
+        job_title: a.job_title || role.title || '',
+        practice_name: a.practice_name || role.practice_name || '',
+        ats_stage: a.ats_stage || '',
+        practice_submission_status: normalizeCareerPracticeSubmissionStatus(a.practice_submission_status),
+        match_score: (a.match_score != null) ? a.match_score : null,
+        // "Job board" opens the PUBLIC website listing (owner call
+        // 2026-07-30); "Practice listing" opens the job on this dashboard.
+        // Built server-side so the client never has to guess the public host.
+        public_url: jobId ? buildPublicJobUrl({ id: jobId }) : ''
+      };
+    });
 }
 
 // AI Matching (Task 8): shape the raw career_lock blob for the candidate
@@ -67973,7 +68018,7 @@ Return ONLY valid JSON with no markdown formatting:
       // match_outcome comes from the "on hire, other candidates go back to the
       // pool" work (bucketForApps ignores 'position_filled'); it IS a real
       // column, so it stays in the select alongside the created_at removal.
-      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=user_id,ats_stage,applied_at,match_outcome&limit=5000');
+      var appsRes2 = await supabaseDbRequest('gp_applications', 'select=id,user_id,career_role_id,ats_stage,status,applied_at,match_outcome,match_score,practice_submission_status&limit=5000');
       // Never degrade silently: without these rows EVERY candidate looks
       // 'unassociated' and the whole tab looks empty but healthy. Log loudly
       // and tell the client the buckets are untrustworthy this request.
@@ -67990,6 +68035,26 @@ Return ONLY valid JSON with no markdown formatting:
         r.has_fresh_applied = byUser2[r.user_id] ? atsPracticeUtil.hasFreshApply(byUser2[r.user_id], clFreshSinceIso) : false;
         // Having applications implies a real candidate — never waitlist someone with apps.
         r.onboarding_completed = !!(r.onboarding_completed || byUser2[r.user_id]);
+      });
+      // Owner request 2026-07-30 (option D): each candidate card carries an
+      // action strip per LIVE application, so the list has to know the job
+      // title/practice. Resolved with ONE extra career_roles read for the
+      // whole page — never a query per row (see the 2026-07-29 load handover).
+      var liveRoleIds = {};
+      Object.keys(byUser2).forEach(function (uid) {
+        atsCandidateLiveApps(byUser2[uid]).forEach(function (a) { if (a.job_id) liveRoleIds[String(a.job_id)] = true; });
+      });
+      var liveRoleMap = {};
+      var liveRoleList = Object.keys(liveRoleIds);
+      if (liveRoleList.length) {
+        var lrRes = await supabaseDbRequest('career_roles',
+          'select=id,title,practice_name&id=in.(' + encodeURIComponent(liveRoleList.join(',')) + ')&limit=500');
+        if (lrRes.ok && Array.isArray(lrRes.data)) {
+          lrRes.data.forEach(function (j) { liveRoleMap[String(j.id)] = j; });
+        }
+      }
+      rows.forEach(function (r) {
+        r.live_apps = atsCandidateLiveApps(byUser2[r.user_id], liveRoleMap);
       });
     }
     // AI Matching (Task 7): "high application velocity" chip — a LIVE

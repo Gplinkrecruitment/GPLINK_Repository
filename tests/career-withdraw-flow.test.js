@@ -48,7 +48,12 @@ describe('withdrawal — source & migration wiring', () => {
   });
 
   it('the candidates applications query still selects the columns its buckets need', () => {
-    const m = serverSrc.match(/supabaseDbRequest\(\s*'gp_applications'\s*,\s*'(select=user_id,ats_stage[^']*)'/);
+    // Scoped to the candidates handler and matched by the variable it assigns
+    // (appsRes2), not by the first column — widening the select, as the
+    // 2026-07-30 action strip did, must not fail a test that only cares about
+    // which columns are PRESENT. Two other gp_applications bulk reads use
+    // limit=5000, so shape alone is not specific enough.
+    const m = serverSrc.match(/appsRes2 = await supabaseDbRequest\(\s*'gp_applications'\s*,\s*'(select=[^']*)'/);
     expect(m).toBeTruthy();
     const cols = m[1].replace('select=', '').split('&')[0].split(',');
     expect(cols).toContain('user_id');
