@@ -15,12 +15,15 @@ verified data shapes, and what is still broken.
   window that drops stale bookings, and the orphaned `career_interviews` store
   that no cron sweeps. See §8, corrected 2026-07-28.
 
-- **Database load / scaling / caching / "will it hold 200 GPs?"** →
+- **Database load / scaling / caching / "will it hold 1000 GPs?"** →
   [`docs/superpowers/handovers/2026-07-29-db-load-and-scaling-handover.md`](docs/superpowers/handovers/2026-07-29-db-load-and-scaling-handover.md)
-  — measured, **not yet fixed**. One page load = 35 API calls / ~100 DB queries,
-  **70% of them byte-identical repeats** (email→user-id lookup runs 26× per page).
-  Polling and indexes are fine — do not "optimise" those. Read §8 before touching
-  any cache: the `no-store` split on `/api/career/role` is deliberate (`4e87aec`).
+  — **fixed and measured**: one page load went **69 → 45 DB queries (−35%)** by
+  caching the email→user-id lookup (was running 24× per page). Polling and indexes
+  are fine — do not "optimise" those. **Read §A before doing more**: the remaining
+  duplication is *cross-frame* (shell + visible iframe + hidden warm iframe each
+  run their own pollers), and routing more GETs through `js/gp-cache.js` would
+  serve stale state because writes never invalidate it. Read §8 before touching any
+  cache: the `no-store` split on `/api/career/role` is deliberate (`4e87aec`).
 
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 

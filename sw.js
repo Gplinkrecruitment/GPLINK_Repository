@@ -11,7 +11,7 @@
   // 20260729a: career.html gained the hired practice's website link on the
   // placement hero. The career page is precached in PAGE_CACHE, so without a
   // bump an already-placed GP would keep being served the old markup.
-  var VERSION = "20260729a";
+  var VERSION = "20260729b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -45,6 +45,7 @@
     "/pages/signin",
     "/js/app-shell.js?v=20260724a",
     "/js/nav-shell-bridge.js?v=20260709a",
+    "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260706a",
     "/js/state-sync.js?v=20260711a",
     "/js/bypass-config.js?v=20260724c",

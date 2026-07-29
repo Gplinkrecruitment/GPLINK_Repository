@@ -15629,6 +15629,8 @@ async function createAccountDeletionCeoTask(userId, email) {
 // Hard-delete the Supabase auth user (cascades user_profiles + user_state via FK on delete cascade).
 async function supabaseAuthAdminDeleteUser(userId) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !userId) return false;
+  // Raw fetch — bypasses both transports above, so invalidate explicitly.
+  invalidateSupabaseUserIdCache();
   const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
     method: 'DELETE',
     headers: {
@@ -18557,9 +18559,86 @@ function isSupabaseDbConfigured() {
   return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 }
 
+// ── Scale: identity lookup caches ────────────────────────────────────────────
+// Measured 2026-07-29 against prod: ONE logged-in page load fired 23 API calls
+// costing 72 PostgREST queries, and 64% of those were byte-identical repeats —
+// `user_profiles?select=user_id&email=eq.<email>` ran 23× and the matching
+// `user_state` read ran 20×. The database was never struggling; it was being
+// asked the same question once per API call. Two layers fix that:
+//
+//   1. REQUEST SCOPE (AsyncLocalStorage) — memo that lives for exactly one HTTP
+//      request. Safe for volatile rows (user_state) because a new request always
+//      reads fresh.
+//   2. PROCESS TTL CACHE — email → user UUID only, 60 s. That mapping is stable
+//      for the life of a page load, which is all we need. It is deliberately NOT
+//      used for user_state (that changes as the doctor progresses).
+//
+// Correctness rules, do not relax these:
+//   • NEVER cache a negative (null) lookup. During signup the profile row appears
+//     moments after the first miss; caching "no such user" would strand the doctor.
+//   • ANY write to user_profiles drops the whole email→id cache, and any write to
+//     user_state drops the request memo (see the hook in supabaseDbRequest below).
+//     Clearing broadly on a rare write is far cheaper than reasoning about which
+//     key went stale — and a stale identity cache is a cross-account data leak,
+//     the same class of bug PRIVATE_METADATA_CACHE_HEADERS was introduced to fix.
+const { AsyncLocalStorage: _GpAsyncLocalStorage } = require('async_hooks');
+const _gpRequestScope = new _GpAsyncLocalStorage();
+
+function createGpRequestScope() {
+  return { userIdByEmail: new Map(), userStateByUserId: new Map() };
+}
+
+function getGpRequestScope() {
+  return _gpRequestScope.getStore() || null;
+}
+
+function runInGpRequestScope(fn) {
+  return _gpRequestScope.run(createGpRequestScope(), fn);
+}
+
+const SUPABASE_USER_ID_CACHE_TTL_MS = Number(process.env.SUPABASE_USER_ID_CACHE_TTL_MS || 60000);
+// Bound the map so a burst of unknown emails (bots hitting an auth route) cannot
+// grow it without limit inside a long-lived warm lambda.
+const SUPABASE_USER_ID_CACHE_MAX = Number(process.env.SUPABASE_USER_ID_CACHE_MAX || 5000);
+const _supabaseUserIdCache = new Map();
+// Coalesces concurrent misses. A page load fires ~23 requests near-simultaneously,
+// so without this they would all miss the TTL cache before the first one returns.
+const _supabaseUserIdInflight = new Map();
+
+function invalidateSupabaseUserIdCache(email) {
+  if (email) {
+    const key = String(email).trim().toLowerCase();
+    _supabaseUserIdCache.delete(key);
+    _supabaseUserIdInflight.delete(key);
+    const scope = getGpRequestScope();
+    if (scope) scope.userIdByEmail.delete(key);
+    return;
+  }
+  _supabaseUserIdCache.clear();
+  _supabaseUserIdInflight.clear();
+  const scope = getGpRequestScope();
+  if (scope) scope.userIdByEmail.clear();
+}
+
+function invalidateRequestUserStateCache(userId) {
+  const scope = getGpRequestScope();
+  if (!scope) return;
+  if (userId) scope.userStateByUserId.delete(String(userId));
+  else scope.userStateByUserId.clear();
+}
+
 async function supabaseDbRequest(pathname, query = '', options = {}) {
   if (!isSupabaseDbConfigured()) {
     return { ok: false, status: 503, data: { message: 'Supabase database is not configured.' } };
+  }
+
+  // Central cache-invalidation hook. Every write to these two tables goes through
+  // here (60+ call sites for user_state alone), so hooking the transport is the
+  // only way to be sure none is missed as new code is added.
+  const _method = String((options && options.method) || 'GET').toUpperCase();
+  if (_method !== 'GET' && _method !== 'HEAD') {
+    if (pathname === 'user_profiles') invalidateSupabaseUserIdCache();
+    else if (pathname === 'user_state') invalidateRequestUserStateCache();
   }
 
   const queryPart = query ? `?${query}` : '';
@@ -26733,42 +26812,110 @@ function mergeCareerApplications(localApplications, liveApplications) {
   });
 }
 
+// The single hottest query in the app — see the cache notes above supabaseDbRequest.
+// Layered: request memo → 60 s process cache → in-flight coalescing → database.
 async function getSupabaseUserIdByEmail(email) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail) return null;
 
+  const scope = getGpRequestScope();
+  if (scope && scope.userIdByEmail.has(normalizedEmail)) {
+    return scope.userIdByEmail.get(normalizedEmail);
+  }
+
+  const cached = _supabaseUserIdCache.get(normalizedEmail);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (scope) scope.userIdByEmail.set(normalizedEmail, cached.userId);
+    return cached.userId;
+  }
+  if (cached) _supabaseUserIdCache.delete(normalizedEmail);
+
+  let pending = _supabaseUserIdInflight.get(normalizedEmail);
+  if (!pending) {
+    pending = (async () => {
+      const result = await supabaseDbRequest(
+        'user_profiles',
+        `select=user_id&email=eq.${encodeURIComponent(normalizedEmail)}&limit=1`
+      );
+      if (!result.ok) return null;
+      if (!Array.isArray(result.data) || result.data.length === 0) return null;
+      return result.data[0] && typeof result.data[0].user_id === 'string'
+        ? result.data[0].user_id
+        : null;
+    })().finally(() => {
+      _supabaseUserIdInflight.delete(normalizedEmail);
+    });
+    _supabaseUserIdInflight.set(normalizedEmail, pending);
+  }
+
+  const userId = await pending;
+
+  // Positive results only — a null here can mean "row not created yet" (signup)
+  // or a transient DB failure, and caching either would be wrong.
+  if (userId) {
+    if (_supabaseUserIdCache.size >= SUPABASE_USER_ID_CACHE_MAX) _supabaseUserIdCache.clear();
+    _supabaseUserIdCache.set(normalizedEmail, {
+      userId,
+      expiresAt: Date.now() + SUPABASE_USER_ID_CACHE_TTL_MS
+    });
+    if (scope) scope.userIdByEmail.set(normalizedEmail, userId);
+  }
+  return userId;
+}
+
+// user_state DOES change mid-session (state-sync pushes, stage advances), so this
+// is memoized for the CURRENT REQUEST ONLY — never across requests. Any write to
+// user_state clears the memo via the hook in supabaseDbRequest, so a handler that
+// reads, writes, then reads again still sees its own write.
+// Callers routinely read the state object, mutate it, and write it back, so every
+// caller must get its OWN copy — handing out the memoized object itself would let
+// one handler's edits leak into the next read within the same request.
+function _cloneUserStateRow(value) {
+  if (!value) return value;
+  return {
+    userId: value.userId,
+    state: value.state && typeof value.state === 'object'
+      ? JSON.parse(JSON.stringify(value.state))
+      : {},
+    updatedAt: value.updatedAt
+  };
+}
+
+async function getSupabaseUserStateByUserId(userId) {
+  const key = String(userId || '').trim();
+  if (!key) return null;
+
+  const scope = getGpRequestScope();
+  if (scope && scope.userStateByUserId.has(key)) {
+    return _cloneUserStateRow(scope.userStateByUserId.get(key));
+  }
+
   const result = await supabaseDbRequest(
-    'user_profiles',
-    `select=user_id&email=eq.${encodeURIComponent(normalizedEmail)}&limit=1`
+    'user_state',
+    `select=state,updated_at&user_id=eq.${encodeURIComponent(key)}&limit=1`
   );
   if (!result.ok) return null;
-  if (!Array.isArray(result.data) || result.data.length === 0) return null;
-  const userId = result.data[0] && typeof result.data[0].user_id === 'string'
-    ? result.data[0].user_id
-    : null;
-  return userId;
+
+  const row = Array.isArray(result.data) && result.data.length > 0 ? result.data[0] : null;
+  const value = (!row || typeof row !== 'object')
+    ? { userId: key, state: {}, updatedAt: null }
+    : {
+      userId: key,
+      state: row.state && typeof row.state === 'object' ? row.state : {},
+      updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null
+    };
+
+  if (scope) {
+    scope.userStateByUserId.set(key, value);
+    return _cloneUserStateRow(value);
+  }
+  return value;
 }
 
 async function getSupabaseUserStateByEmail(email) {
   const userId = await getSupabaseUserIdByEmail(email);
   if (!userId) return null;
-
-  const result = await supabaseDbRequest(
-    'user_state',
-    `select=state,updated_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`
-  );
-  if (!result.ok) return null;
-
-  const row = Array.isArray(result.data) && result.data.length > 0 ? result.data[0] : null;
-  if (!row || typeof row !== 'object') {
-    return { userId, state: {}, updatedAt: null };
-  }
-
-  return {
-    userId,
-    state: row.state && typeof row.state === 'object' ? row.state : {},
-    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null
-  };
+  return getSupabaseUserStateByUserId(userId);
 }
 
 async function upsertSupabaseUserState(userId, state, updatedAt) {
@@ -28109,6 +28256,15 @@ async function supabaseAuthRequest(endpoint, payload) {
 async function supabaseAuthAdminRequest(pathname, options = {}) {
   if (!isSupabaseDbConfigured()) {
     return { ok: false, status: 503, data: { message: 'Supabase admin auth is not configured.' } };
+  }
+
+  // Deleting/updating an auth user cascades to user_profiles WITHOUT touching
+  // supabaseDbRequest, so the email→id cache would keep pointing at a UUID that
+  // no longer exists (or, after an email reassignment, at the WRONG account).
+  // These calls are rare; drop the whole cache rather than guess the key.
+  const _authMethod = String((options && options.method) || 'GET').toUpperCase();
+  if (_authMethod !== 'GET' && _authMethod !== 'HEAD' && String(pathname || '').startsWith('admin/users')) {
+    invalidateSupabaseUserIdCache();
   }
 
   const controller = new AbortController();
@@ -52106,7 +52262,7 @@ Return ONLY valid JSON with no markdown formatting:
       // Resolve from the GP's own record (own-data only — no user param accepted).
       try {
         if (isSupabaseDbConfigured()) {
-          const drUserId = await getSupabaseUserIdByEmail(email);
+          const drUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
           if (drUserId) {
             const profRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(drUserId) + '&limit=1');
             rawCountry = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0] && profRes.data[0].registration_country) || '';
@@ -59690,7 +59846,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!session) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, chats: [] }); return; }
     const email = getSessionEmail(session);
-    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    const userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
     if (!userId) { sendJson(res, 200, { ok: true, chats: [] }); return; }
     const nRes = await supabaseDbRequest('user_nudges',
       'select=*&status=in.(active,closed)&user_id=eq.' + encodeURIComponent(userId) + '&order=created_at.desc&limit=50');
@@ -59726,7 +59882,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!session) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
     const email = getSessionEmail(session);
-    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    const userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
     if (!userId) { sendJson(res, 400, { ok: false }); return; }
     const chatId = decodeURIComponent(userChatDetailMatch[1] || '');
     // Verify nudge belongs to this user
@@ -59749,7 +59905,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!session) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const email = getSessionEmail(session);
-    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    const userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
     if (!userId) { sendJson(res, 400, { ok: false }); return; }
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     const chatId = decodeURIComponent(userChatReplyMatch[1] || '');
@@ -59999,7 +60155,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!session) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, nudges: [] }); return; }
     const email = getSessionEmail(session);
-    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    const userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
     if (!userId) { sendJson(res, 200, { ok: true, nudges: [] }); return; }
     const r = await supabaseDbRequest('user_nudges',
       'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=in.(pending,delivered)&order=created_at.desc&limit=50');
@@ -60021,7 +60177,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!session) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true }); return; }
     const email = getSessionEmail(session);
-    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    const userId = getSessionSupabaseUserId(session) || (email ? await getSupabaseUserIdByEmail(email) : null);
     if (!userId) { sendJson(res, 400, { ok: false }); return; }
     const nudgeId = decodeURIComponent(nudgeReadMatch[1] || '');
     const nextStatus = nudgeReadMatch[2] === 'dismiss' ? 'dismissed' : 'read';
@@ -68101,7 +68257,14 @@ const SITE_PAGE_FILE_TO_ROUTE = Object.fromEntries(
   Object.entries(SITE_PUBLIC_ROUTES).map(([route, file]) => ['/' + file, route])
 );
 
+// Every request runs inside a fresh AsyncLocalStorage scope so per-request memos
+// (identity + user_state) cannot leak between concurrent doctors. Both entry
+// points — the local http server and the Vercel handler — go through here.
 async function handleRequest(req, res) {
+  return runInGpRequestScope(() => handleRequestInner(req, res));
+}
+
+async function handleRequestInner(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);

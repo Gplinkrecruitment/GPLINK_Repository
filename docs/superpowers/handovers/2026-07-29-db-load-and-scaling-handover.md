@@ -1,289 +1,262 @@
-# Handover — database load / scaling to ~200 concurrent GPs (2026-07-29)
+# Handover — database load / scaling (2026-07-29, updated 2026-07-30)
 
-**Status: analysis done and measured. No fix implemented yet.** Everything below
-was measured against the **production** Supabase database with a local server and
-a real headless browser — none of it is estimated, and none of it is from reading
-code alone. The numbers are reproducible; §6 tells you exactly how.
+**Status: fix 1 and fix 2 are IMPLEMENTED, MEASURED and SHIPPED.** The original
+analysis (below, still accurate) was measured against the **production** Supabase
+database with a local server and a real headless browser. The fix was measured the
+same way, before and after, on the same port and the same page.
 
-The owner's question was: *"200 GPs are using the app and hitting the database
-continuously — won't this bring the app down? What's the fix?"*
+The owner's original question was *"200 GPs are using the app and hitting the
+database continuously — won't this bring the app down?"*, later raised to
+*"no crashes or long load times even if 1000 GPs are using the app at once"*.
 
 ---
 
-## 1. The headline
+## 0. What shipped, and what it actually bought
+
+Measured A/B, same test GP, same `/pages/index` load, same server port, run
+back-to-back against prod Supabase:
+
+| Measurement | Before | After |
+| --- | --- | --- |
+| **`/pages/index` page load — DB queries** | **69** | **45** (−35%) |
+| Duplicate share of those queries | 65% | 49% |
+| `user_profiles?select=user_id&email=eq.…` per page load | **24×** | **not in the top repeats** |
+| API calls for that same load | 22 | 22 (unchanged — see §A) |
+| Fixed 13-endpoint replay, sequential | 33 queries (2.54/endpoint) | 27 (2.08) |
+| Fixed 13-endpoint replay, parallel burst | 32 queries (2.46/endpoint) | 25 (1.92) |
+
+At 1000 concurrent doctors this is a ~35% cut in database traffic for the same
+user-visible behaviour, and it removes the single hottest query in the app.
+
+**Full suite: 4198/4199 passing.** The one failure (`audit-breadth > manual
+placement`) is pre-existing flakiness — verified by running it on unmodified
+`origin/main`, where it also fails roughly 1 in 4 runs. It is a 30s timeout, not
+an assertion failure.
+
+### What was built
+
+1. **`getSupabaseUserIdByEmail` is layered** (`server.js`, above `supabaseDbRequest`):
+   request-scoped memo → 60s process TTL cache → in-flight coalescing → database.
+   - **Negative results are NEVER cached.** During signup the row appears moments
+     after the first miss; caching "no such user" would strand the doctor. There
+     is a test for this.
+   - **Invalidation is hooked onto the transports, not the call sites.** Any
+     non-GET to `user_profiles` through `supabaseDbRequest` drops the whole cache;
+     any non-GET to `admin/users` through `supabaseAuthAdminRequest` does too (auth
+     deletes cascade to `user_profiles` without touching the DB transport); and the
+     raw-fetch `supabaseAuthAdminDeleteUser` invalidates explicitly. Clearing
+     broadly on a rare write is much cheaper than reasoning about which key went
+     stale — and a stale identity cache is a cross-account data leak.
+2. **`user_state` is memoized per request only** — `AsyncLocalStorage`, installed
+   by wrapping `handleRequest` (both the local server and the Vercel export go
+   through it). New `getSupabaseUserStateByUserId(userId)` does the work;
+   `getSupabaseUserStateByEmail` delegates. Every caller gets its **own copy** of
+   the state object, because callers routinely read-modify-write it.
+   **There is deliberately no cross-request user_state cache. Do not add one.**
+3. **Six unguarded call sites** now prefer `getSessionSupabaseUserId(session)`.
+4. **`js/api-dedupe.js`** (new) — collapses duplicate **in-flight** API GETs per
+   document. No storage, no TTL: the entry is dropped the moment the request
+   settles, so a GET issued after a write can never be merged with one from
+   before. Loaded by 21 pages + precached in `sw.js`.
+5. **`tests/scale-identity-cache.test.js`** — 18 tests: source wiring, real
+   extracted-function behaviour (caches positives, never negatives, coalesces,
+   expires, invalidates, copies state), and guards that `api-dedupe.js` never
+   grows into a cache.
+
+---
+
+## A. Why the API-call count did NOT move, and what to do next
+
+This is the most important correction to the original analysis below.
+
+The original §5.2 predicted that reading `user_state` once per request would remove
+~22 queries per page load. **That was wrong, and the reason matters.** Measured:
+a page load makes ~22 API calls and issues ~21 `user_state` reads — i.e. very close
+to **one per request, in 21 different requests**. A request-scoped memo cannot
+merge those; it only helps the handlers that read state 2–3× in a single request
+(`POST /api/support/tickets` reads it 3×, `PUT /api/state` twice). Those are fixed,
+but they are a small share.
+
+**So the remaining `user_state` cost can only be reduced by making fewer API
+calls.** Where the duplication actually comes from — verified by frame:
+
+- `js/state-sync.js` and `js/updates-sync.js` are loaded by the **app shell**, the
+  **visible iframe**, AND a **hidden warm-prefetch iframe**
+  (`js/app-shell.js` `warmRoute()` → `#appShellFrameSecondary`). Each document
+  independently runs its own timers, so `/api/state`, `/api/user/nudges` and
+  `/api/gp/alerts/read-state` each fire ~3–4× per page load.
+- `js/api-dedupe.js` is **per-document** and cannot see across frames, so it does
+  not collapse these. It collapses same-document bursts, which under production
+  latency (AU→US-East, 140–330ms per call — locally it is ~5ms, so a local test
+  will show little) is where `/api/state` ×3-within-41ms and
+  `/api/career/applications` ×2-within-17ms land.
+- `/api/prepared-documents` ×3 and `/api/gplink-docs-status` ×2 are *within* the
+  `my-documents` document — `bootDocumentModule()` runs three times per load.
+
+**Highest-value next step:** stop the hidden warm iframe (and ideally embedded
+pages generally) from running the background pollers, since the shell already
+polls and an embedded page's own nav/bell is hidden. That is worth ~2/3 of those
+calls. It was deliberately NOT done in this pass because it changes notification
+behaviour and needs its own end-to-end verification of the bell/alerts UX.
+
+**Do NOT solve this by routing more GETs through `js/gp-cache.js`.** Verified:
+only two invalidation call sites exist in the whole codebase, both for
+`/api/career/applications`. Every `/api/state` write is a raw `PUT` that
+invalidates nothing, so giving `/api/state` a 30s cached tier would serve a doctor
+their pre-write state. (`/api/gplink-docs-status` already has this latent bug — it
+sits in the `state` tier and none of its writers invalidate it.)
+
+---
+
+## 1. The headline (original analysis — still correct)
 
 **Continuous background polling is NOT the problem.** A logged-in doctor's app
-polls **2 endpoints every 3 minutes**, and only while the tab is visible
-(`js/updates-sync.js:915`, 180000 ms). 200 doctors idling ≈ **2 requests/second**.
+polls 2 endpoints every 3 minutes, and only while the tab is visible
+(`js/updates-sync.js`, 180000 ms). 200 doctors idling ≈ 2 requests/second.
 Ignore polling; it is already well-behaved. Do not "optimise" it.
 
-**Page loads are the problem, and it is duplication, not volume.**
-
-| Measured (one doctor, one page load) | Value |
-| --- | --- |
-| `/pages/index` | **35 API calls → 74–102 DB queries** |
-| `/pages/career` | 36 API calls → 86 DB queries |
-| `/pages/application-detail` | 19 API calls → 63 DB queries |
-| Byte-identical repeats within ONE `/pages/index` load | **52 of 74 = 70%** |
-| `user_profiles?select=user_id&email=eq.…` | **× 26** |
-| `user_state?select=state,updated_at&user_id=eq.…` | **× 23** |
-
-For one doctor loading one page, the server asks the database *"which user is this
-email?"* **twenty-six times**. The answer is identical every time.
-
-(74 vs 102 on `/pages/index` is normal run-to-run variance — background nudge
-polling and state-sync pushes land differently. Both runs showed the same ~70%
-duplication.)
+**Page loads are the problem, and it is duplication, not volume.** For one doctor
+loading one page, the server asked the database *"which user is this email?"*
+**twenty-four times**. The answer was identical every time. That is what §0 fixed.
 
 ---
 
-## 2. What this means at 200 GPs — and what it does NOT mean
+## 2. What this means at scale — and what it does NOT mean
 
-Assumption stated openly: active use ≈ one page load per doctor every ~30 s.
-That gives ~7 page loads/sec → **~500–700 DB queries/sec, ~70% of it waste**.
+**No load test was run, so this document does not contain a breaking point.**
+Do not let anyone quote one from it. What is predictable is the failure *shape*:
 
-**I did not run a load test, so I cannot tell you the exact number of users where
-it breaks.** That depends on the Supabase plan, which I did not check. Do not let
-anyone quote a breaking point from this document — it is not in here.
-
-What *is* predictable is the failure shape. It does not crash suddenly:
-
-1. Pages get slower first. Each Supabase call measured **140–330 ms** of round
-   trip (from a dev laptop; from Vercel it will be lower but non-zero), and the
-   calls run **sequentially** inside a request.
-2. Then requests start hitting the **10-second abort** in `supabaseDbRequest`
-   (`server.js:18506`, `AbortController` + `setTimeout(..., 10000)`), which
-   surfaces as `502 Failed to reach Supabase database service`.
+1. Pages get slower first. Each Supabase call measured **140–330 ms** of round trip
+   from a dev laptop, and the calls run **sequentially** inside a request.
+2. Then requests hit the **10-second abort** in `supabaseDbRequest`
+   (`AbortController` + `setTimeout(..., 10000)`), surfacing as
+   `502 Failed to reach Supabase database service`.
 3. Then bursts fail — e.g. everyone opening the app after a broadcast email.
 
-Second pressure point: **35 API calls per page load** means each page render is
-~35 Vercel function invocations. 200 doctors navigating at once is thousands of
-concurrent invocations. It scales, but you pay for it, and cold starts parse a
-**69,000-line `server.js`**.
+Second pressure point: **~22 API calls per page load** means ~22 Vercel function
+invocations per render. It scales, but you pay for it, and cold starts parse a
+**69,000-line `server.js`**. Cutting the cross-frame duplication in §A is the
+lever that reduces *invocations*; §0 reduced *queries*.
 
 ---
 
 ## 3. Things that are already FINE — do not "fix" these
 
-Verified, so nobody burns a day re-investigating:
-
-- **Indexes are fine.** `user_profiles.email` is `text not null unique`
-  (`supabase/migrations/20260225014500_init_gp_link.sql:6`) → unique index.
-  `user_state.user_id` must be unique too — the code upserts with
-  `on_conflict=user_id`. The hot lookups are index hits on a 9-row table.
-  **The database is not struggling. It is being asked the same thing repeatedly.**
+- **Indexes are fine.** `user_profiles.email` is `text not null unique` → unique
+  index. The hot lookups were index hits. The database was never struggling; it
+  was being asked the same thing repeatedly.
 - **No connection-pool exhaustion.** `supabaseDbRequest` talks to PostgREST over
-  HTTPS via `fetch`; Node 18+/undici keeps connections alive per warm process.
-  There is no pg connection pool in this app to exhaust.
+  HTTPS via `fetch`; there is no pg pool in this app to exhaust.
 - **Polling cadence** — see §1. Leave it alone.
-- **Admin/CEO dashboards poll hard** (`pages/admin.html:9507` every 15 s;
-  `pages/ceo-dashboard.html:3126` every 30 s). That is a handful of staff, not
-  200 people. Lower priority than the GP path, but worth a look afterwards.
+- **The consult-lead nudge cron's per-lead existence check**
+  (`getSupabaseUserIdByEmail` inside the sweep loop) *looks* like an N-queries-per-
+  tick bug and is not: it only runs when a nudge is actually due or once at
+  exhaustion, and the sweep is time-boxed. The comments there explain it. Leave it.
+- **Admin/CEO dashboards poll hard** (15s / 30s). That is a handful of staff, not
+  1000 people. Lower priority than the GP path.
 
-### Prior scale work — already done and on `main`, do not redo
+### Prior scale work — already done, do not redo
 
-- **`1fe3825 perf(scale): chunk PostgREST id lists + raise caps that silently
-  truncated`** (from the `scale-to-700-gps` branch, already merged). That fixed a
-  *different* problem — long `id=in.(…)` lists. See `SUPABASE_IN_CHUNK_SIZE = 200`
-  (`server.js:32013`) and `supabaseDbRequestByIds`. It does **not** touch the
-  duplication described here, and the two changes do not conflict.
-- **`js/perf-cache.js`** is a **service worker warming STATIC ASSETS** (shell HTML
-  and JS bundles) — not API responses, not data. Nobody should read "there's
-  already a cache" and assume this problem is handled. It isn't.
+- **`1fe3825` chunked PostgREST id lists** (`SUPABASE_IN_CHUNK_SIZE = 200`,
+  `supabaseDbRequestByIds`). Different problem — long `id=in.(…)` lists.
+- **`js/perf-cache.js`** warms **STATIC ASSETS**, not API responses.
 
 ---
 
-## 4. Root cause, precisely
-
-Two functions, and **the second one calls the first**, which is why the two
-counts track each other:
+## 4. Root cause, precisely (as originally found)
 
 ```
-server.js:26563  async function getSupabaseUserIdByEmail(email)
-                   → user_profiles?select=user_id&email=eq.<email>&limit=1
-
-server.js:26579  async function getSupabaseUserStateByEmail(email)
-                   → calls getSupabaseUserIdByEmail(email)   ← query #1
-                   → user_state?select=state,updated_at&…    ← query #2
+getSupabaseUserIdByEmail(email)    → user_profiles?select=user_id&email=eq.<email>
+getSupabaseUserStateByEmail(email) → calls the above  ← query #1
+                                   → user_state?…     ← query #2
 ```
 
-So **every state read costs two queries**, and ~23 of the 26 email lookups are
-generated by state reads. Fix the email lookup and you fix most of both.
-
-Why it is called so often despite the session already knowing the answer: the
-signed session cookie carries `userProfile.supabaseUserId`
-(`getSessionSupabaseUserId`, `server.js:28165`). The correct pattern is used in
-**70** places:
-
-```js
-const uid = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
-```
-
-but there are **102 occurrences** of `getSupabaseUserIdByEmail(` in `server.js`.
-That leaves **31 unguarded call sites** (102 − 70 − 1 definition) that always hit
-the database even when the session already has the ID. Sample:
-
-```
-server.js:3774, 13109, 13187, 27988, 35785, 35810, 37883, 42158, 46060, 49019
-```
-
-`getSupabaseUserStateByEmail` (26579) is the highest-traffic one by far.
+Every state read cost two queries, and most of the email lookups were generated by
+state reads. The session cookie already carried the answer
+(`getSessionSupabaseUserId`), and 83 call sites used it while 18 did not.
 
 ---
 
-## 5. The fix, in order — do 1 and 2 first
+## 5. Remaining work, in order
 
-### 1. Memoize `getSupabaseUserIdByEmail` (biggest win, smallest diff)
-
-An email → user UUID mapping. One function to change.
-Expected: **removes ~26 of ~74 queries per page load on its own (~35%).**
-
-**Correctness risk — this is the part to get right, do not skip it.** The mapping
-is *not* immutable forever:
-
-- Account deletion / purge exists (`supabase/migrations/20260614120000_account_deletion.sql`).
-- An email could in principle be reassigned after a delete.
-
-So: short TTL (**60 s is plenty** — it only needs to survive a single page load),
-plus explicit cache invalidation on the account-deletion and any
-email-change/user-creation paths. A permanent unbounded cache is **wrong** and
-will produce a cross-account data leak, which is exactly the class of bug
-`PRIVATE_METADATA_CACHE_HEADERS` (`server.js:11156`) was introduced to fix — read
-that comment before designing this. Key the cache on the normalized
-(trimmed, lowercased) email, same as the function already does.
-
-Also worth doing in the same pass: fix the 31 unguarded call sites to prefer
-`getSessionSupabaseUserId(session)` where a session is in scope. That is free —
-no cache needed, no staleness possible.
-
-### 2. Read `user_state` once per request
-
-Expected: removes ~22 more queries per page load. Together with (1):
-**~100 queries/page → ~25, roughly a 70% cut in DB traffic.**
-
-**Important difference from (1):** `user_state` **does** change — `state-sync.js`
-pushes updates and there are `POST user_state?on_conflict=user_id` writes. A
-cross-request TTL cache here is **not safe**. Use **request-scoped** memoization
-(e.g. a per-request context object, or `AsyncLocalStorage`) so a single request
-reads it once, and every new request reads fresh. Do not copy the approach from
-(1) blindly.
-
-### 3. Collapse the 35 API calls per page into a bootstrap endpoint
-
-One "everything this page needs" response (profile + state + nudges + cases)
-instead of 35 round trips. Cuts function invocations 3–5×. Bigger job, real
-front-end changes, do it after 1 and 2 land and are verified.
-
-### 4. Cache genuinely shared data in memory
-
-Role listings and practice rows are identical for every doctor but fetched per
-person. Short-TTL process-level cache is safe here (no per-user data), but note
-the app already has client-side caches with a 10-minute TTL — **read the
-2026-07-29 fix first** (`readCachedRoleDetail` in `pages/job.html`, commit
-`4e87aec`): volatile per-user state must **never** be served from a cache.
-Static role copy may be; "have I accepted this match?" may not.
-
-### 5. Upgrade the Supabase plan
-
-Do this **last**, as headroom. Paying more to serve traffic that shouldn't exist
-is the expensive way round.
+1. **Cut the cross-frame duplicate pollers** (§A). Biggest remaining win; reduces
+   Vercel invocations as well as queries. Needs bell/alerts UX verification.
+2. **Collapse the page's API calls into a bootstrap endpoint** — one "everything
+   this page needs" response instead of ~22 round trips. Bigger job, real
+   front-end changes.
+3. **Cache genuinely shared data** (role listings, practice rows — identical for
+   every doctor). Safe for non-per-user data only. Read §8 first.
+4. **Upgrade the Supabase plan** — last, as headroom. Paying more to serve traffic
+   that shouldn't exist is the expensive way round.
 
 ---
 
 ## 6. How to reproduce the measurement (do this before AND after)
 
-Get a real before/after number rather than trusting the change. There is no Node
-on this machine's PATH — download one to `$CLAUDE_JOB_DIR/tmp` and symlink the
-main checkout's `node_modules` into the worktree.
+Harnesses used for this pass (rebuild them the same way; they live in the job tmp
+dir, not the repo):
 
-**Probe** — wraps global `fetch` and logs every PostgREST call. Load it with
-`node --require probe.cjs server.js`:
+- **`probe.cjs`** — wraps global `fetch`, appends every `/rest/v1/` call to a log.
+  Load with `node --require probe.cjs server.js`. It also parses `.env` itself,
+  because `source .env` in zsh dies on an unquoted value containing a comma.
+- **`replay.cjs`** — the deterministic one. Mints a session cookie, hits a fixed
+  list of 13 page-load GET endpoints (sequential or parallel), counts probe lines.
+  No browser, so no variance. **Use this for before/after.**
+- **`measure.cjs`** — real headless Chrome via `puppeteer-core`, for the true
+  page-load figure. Browser runs vary run-to-run (22–30 API calls) because the
+  shell warms different secondary routes; do not read small deltas from it.
 
-```js
-// probe.cjs
-const fs = require('fs');
-const LOG = process.env.PROBE_LOG || '/tmp/probe.log';
-const orig = globalThis.fetch;
-globalThis.fetch = function (url, opts) {
-  try {
-    const u = String(url && url.url ? url.url : url);
-    if (u.includes('/rest/v1/')) {
-      const table = u.split('/rest/v1/')[1].split('?')[0];
-      fs.appendFileSync(LOG, ((opts && opts.method) || 'GET') + ' ' + table +
-        ' :: ' + u.split('/rest/v1/')[1].slice(0, 150) + '\n');
-    }
-  } catch (e) {}
-  return orig.apply(this, arguments);
-};
-```
-
-**Run it:**
-
-1. `cp "<main checkout>/.env" .env.local-test` — the service-role key lives in
-   `.env`, **not** `.env.prod`. Delete `.env.local-test` when done; never commit it.
-2. Boot: `PROBE_LOG=… PORT=3100 RESEND_API_URL=http://127.0.0.1:9/none \
-   node --require probe.cjs server.js`
-   (the bogus `RESEND_API_URL` stops real emails going out — this is the **live**
-   database, GETs are safe, be careful with anything that writes).
-3. Mint a session cookie for a test user. The local `AUTH_SECRET` works for the
-   local server; it is **not** production's, so you cannot forge prod sessions.
-   HMAC-SHA512 over the base64url payload — see §7 for the exact shape.
-4. Drive it with headless Chrome at
-   `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` via
-   `puppeteer-core`. **The app pages run inside the app-shell iframe** — pick the
-   frame whose URL matches `/pages/<name>` AND `gp_shell_static=1`, or you will
-   silently query the shell and every element lookup returns null.
-5. Truncate the log, load the page, wait ~4 s for background calls, then count
-   total lines vs `new Set(lines).size` for the duplication figure.
-
-**Suggested regression test:** assert the query count for a page load and fail if
-it climbs. Without it this creeps straight back as features get added. The
-existing suite is mostly static source greps plus real-HTTP tests — see
-`tests/matching-job-unmask.test.js`, which already boots a server and can now
-assert response headers (`httpReq` returns `headers` as of `4e87aec`).
+Boot: `PORT=<yours> RESEND_API_URL=http://127.0.0.1:9/none node --require probe.cjs server.js`
+(the bogus Resend URL stops real emails — this is the **live** database; GETs are
+safe, be careful with anything that writes).
 
 ---
 
 ## 7. Environment gotchas that cost time
 
-- **No `node` on PATH.** Download one to `$CLAUDE_JOB_DIR/tmp`
-  (`nodejs.org/dist/v22.14.0/node-v22.14.0-darwin-arm64.tar.gz`) and
-  `ln -s "<main checkout>/node_modules" node_modules` in the worktree.
+- **No `node` on PATH.** Copy one into `$CLAUDE_JOB_DIR/tmp` and symlink the main
+  checkout's `node_modules` into the worktree. `puppeteer-core` is **not** in
+  `node_modules`; install it into the job dir, not the repo.
+- **Pick a unique port.** Parallel background jobs run their own server on 3100.
+  A second boot silently fails with `EADDRINUSE` and your "baseline" then measures
+  the *other* job's server — this happened here and produced a run where baseline
+  and after were byte-identical. Always confirm the boot log says
+  "GP Link server running", and check `lsof -nP -iTCP:<port>` if the numbers look
+  odd. Never `pkill -f server.js` — it kills other jobs' servers.
+- **`git stash push <path>` fails silently if any pathspec is untracked** (the
+  whole command aborts). Check `git stash list` grew before trusting a baseline.
+- **New static files must live under an allowed directory.** `serveStatic` gates on
+  `isPubliclyServablePath` → `PUBLIC_STATIC_DIRS`. `js/` is allowed. A file that
+  404s in the browser but exists on disk usually means you are talking to the
+  wrong server (see the port note).
+- **Bump `sw.js` VERSION when page HTML changes**, or the service worker serves the
+  old HTML one navigation late and your new `<script>` tag appears not to load.
 - **Service-role key is in `.env`, not `.env.prod`.**
-- **`users` is not a table.** User identity lives in `user_profiles`
-  (`select=user_id&email=eq.…`). `gp_applications` has **no** `email` and no
-  `created_at` column — join via `user_id`, order by `applied_at`/`updated_at`.
-- **Session cookie shape** (`gp_session`), signed with `AUTH_SECRET`:
-  ```
-  payload = base64url(JSON.stringify({
-    userProfile: { email, supabaseUserId, firstName, lastName },
-    expiresAt: <ms epoch>
-  }))
-  cookie  = payload + '.' + hmac_sha512_hex(AUTH_SECRET, payload)
-  ```
-- **`/pages/job.html` 302s to `/pages/job`**, and unauthenticated requests land on
-  `/pages/signin?next=…`. You cannot verify a deploy by grepping an app page
-  anonymously — use **`/api/health`**, which returns `commit` from
-  `VERCEL_GIT_COMMIT_SHA` (`server.js:34218`). That is the only reliable
-  "did my push go out?" check.
-- **`main` moves hourly.** Always `git fetch origin main`, rebase, then
-  `git diff --stat origin/main..HEAD` and confirm it lists **only** your files
-  before pushing. A stale worktree once showed 46 files / 1379 deletions of other
-  people's work.
+- **`users` is not a table.** Identity lives in `user_profiles`. `gp_applications`
+  has no `email` and no `created_at`.
+- **Session cookie** (`gp_session`), signed with `AUTH_SECRET`:
+  `payload = base64url(JSON.stringify({ userProfile: { email, supabaseUserId, firstName, lastName }, expiresAt }))`
+  then `cookie = payload + '.' + hmac_sha512_hex(AUTH_SECRET, payload)`.
+  If the user has a positive `user_session_epoch`, include `epoch` in the claims.
+- **`/api/health`** returns `commit` from `VERCEL_GIT_COMMIT_SHA` — the only
+  reliable "did my push go out?" check.
+- **`main` moves hourly.** Rebase, then `git diff --stat origin/main..HEAD` and
+  confirm it lists only your files before pushing.
 
 ---
 
 ## 8. Deliberate decisions — do not reverse these
 
 - **`/api/career/role` is `no-store` when the payload carries `match` or
-  `matchAccepted`** (`PRIVATE_VOLATILE_HEADERS`, `server.js:11167`), and
-  `readCachedRoleDetail` in `pages/job.html` refuses any cached entry carrying
-  match state. Both landed in `4e87aec` to fix a real owner-reported bug (accept a
-  match → refresh → the accept buttons came back). **Any caching work in §5 must
-  not re-cache these.** Ordinary role payloads keep the 60 s private cache
+  `matchAccepted`** (`PRIVATE_VOLATILE_HEADERS`), and `readCachedRoleDetail` in
+  `pages/job.html` refuses any cached entry carrying match state. Both landed in
+  `4e87aec` to fix a real owner-reported bug (accept a match → refresh → the accept
+  buttons came back). Ordinary role payloads keep the 60s private cache
   deliberately — that split is the fix, not an oversight.
-- **The 10-minute `localStorage` role cache stays.** It exists to make static role
-  copy feel instant. The rule is *what* it may hold, not whether it exists.
+- **The 10-minute `localStorage` role cache stays.** The rule is *what* it may
+  hold, not whether it exists.
+- **No cross-request `user_state` cache**, and **`js/api-dedupe.js` stays
+  in-flight-only**. Both are guarded by tests.
 
 ---
 
@@ -291,28 +264,13 @@ assert response headers (`httpReq` returns `headers` as of `4e87aec`).
 
 | Thing | Location |
 | --- | --- |
-| Supabase HTTP layer (+ 10 s abort) | `server.js:18506` |
-| Email → user id (the 26× query) | `server.js:26563` |
-| State by email (calls the above) | `server.js:26579` |
-| Session-embedded user id | `server.js:28165` |
-| Cache header constants | `server.js:11156` (cached) / `:11167` (no-store) |
-| Deploy/commit check | `server.js:34218` → `GET /api/health` |
-| GP nudge polling (3 min) | `js/updates-sync.js:915` |
-| Admin poll (15 s) / CEO poll (30 s) | `pages/admin.html:9507`, `pages/ceo-dashboard.html:3126` |
-| Client role caches | `pages/job.html` `readCachedRoleDetail` / `writeCachedRoleDetail` |
-
----
-
-## 10. Suggested order of work
-
-1. Reproduce the baseline (§6) and record the numbers. **Do not skip this** — you
-   need your own before-figure to prove the after-figure.
-2. Fix 1 — memoize the email lookup with a 60 s TTL + deletion-path invalidation;
-   fix the 31 unguarded call sites.
-3. Re-measure. Expect ~74 → ~48 queries on `/pages/index`.
-4. Fix 2 — request-scoped `user_state`.
-5. Re-measure. Expect ~25.
-6. Add the query-count regression test.
-7. Full suite (`npx vitest run`, 254 files / 4135 tests green as of `4e87aec`),
-   then push to `main` — auto-deploys, verify via `/api/health`.
-8. Only then consider §5.3–§5.5.
+| Identity cache + request scope + invalidation hooks | `server.js`, immediately above `supabaseDbRequest` |
+| Supabase HTTP layer (+ 10s abort) | `supabaseDbRequest` |
+| Email → user id (was the 24× query) | `getSupabaseUserIdByEmail` |
+| State by user id / by email | `getSupabaseUserStateByUserId` / `…ByEmail` |
+| Request scope wrapper | `handleRequest` → `handleRequestInner` |
+| Session-embedded user id | `getSessionSupabaseUserId` |
+| Client in-flight coalescer | `js/api-dedupe.js` |
+| Client SWR cache (careful — see §A) | `js/gp-cache.js` |
+| Regression tests | `tests/scale-identity-cache.test.js` |
+| GP nudge polling (3 min) | `js/updates-sync.js` |
