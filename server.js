@@ -22042,6 +22042,69 @@ function classifyPublicJobBilling(job) {
   return '';
 }
 
+// ── Public map pin privacy (2026-07-29) ────────────────────────────────────
+//
+// Every public map answers "roughly where is this role", never "where is this
+// practice". Two rules enforce that, and both live here so the website advert,
+// the in-app advert and the /jobs board cannot drift apart:
+//
+//  1. PUBLIC_PIN_RADIUS_M — the circle drawn around the pin is a REAL 10km on
+//     the ground. It used to be a CSS disc fixed at 112px, which meant it
+//     represented a few hundred metres when zoomed in and tens of kilometres
+//     when zoomed out — it conveyed no distance at all. Clients read this
+//     number off the API rather than hardcoding it, so there is one source of
+//     truth for "the perimeter is 10km".
+//
+//  2. applyPublicPinJitter — the pin is nudged a fixed, repeatable distance off
+//     the suburb centroid. We never hold or plot a street address (the pin comes
+//     from geocoding the SUBURB NAME), so the pin already cannot BE a practice;
+//     the jitter closes the remaining coincidence — a practice that happens to
+//     sit on its suburb's centre. Derived from the role id, so a given role's
+//     pin lands in the same place on every visit and for every visitor; a random
+//     offset per request would let someone average repeated loads back to the
+//     true centre. The offset is far smaller than the radius, so the practice
+//     stays comfortably inside the circle.
+const PUBLIC_PIN_RADIUS_M = 10000;
+const PUBLIC_PIN_JITTER_MAX_M = 2000;
+const PUBLIC_PIN_JITTER_MIN_M = 1200;
+
+function publicPinSeedHash(seed) {
+  const text = String(seed == null ? '' : seed);
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function applyPublicPinJitter(lat, lng, seed) {
+  // Reject null/''/undefined BEFORE Number(): Number(null) and Number('') are
+  // both 0, which is a valid-looking finite coordinate. Without this, a failed
+  // geocode would have produced a pin at 0,0 — in the Atlantic — instead of
+  // falling through to the "no coordinates" path.
+  if (lat == null || lng == null || lat === '' || lng === '') return null;
+  const baseLat = Number(lat);
+  const baseLng = Number(lng);
+  if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return null;
+  // No seed => no jitter. Callers that have no stable identifier get the plain
+  // suburb centroid rather than an offset that moves between requests.
+  if (seed == null || String(seed) === '') return { lat: baseLat, lng: baseLng };
+  const h = publicPinSeedHash(seed);
+  const bearing = ((h % 3600) / 3600) * 2 * Math.PI;
+  const span = PUBLIC_PIN_JITTER_MAX_M - PUBLIC_PIN_JITTER_MIN_M;
+  const distance = PUBLIC_PIN_JITTER_MIN_M + (((h >>> 12) % 1000) / 1000) * span;
+  const dLat = (distance * Math.cos(bearing)) / 111320;
+  const lngScale = Math.cos((baseLat * Math.PI) / 180);
+  const dLng = Math.abs(lngScale) < 1e-6
+    ? 0
+    : (distance * Math.sin(bearing)) / (111320 * lngScale);
+  return {
+    lat: Number((baseLat + dLat).toFixed(6)),
+    lng: Number((baseLng + dLng).toFixed(6))
+  };
+}
+
 // NOTE (2026-07-29): a practice-level descriptor line was built and demoed for
 // the map sidebar (derived from details.shortIntro, with the practice name
 // redacted out) to separate several masked practices pinned in one suburb.
@@ -22199,9 +22262,12 @@ function mapPracticeBenefits(job) {
   return out.slice(0, 4);
 }
 function shapeMapPractice(job, state, coords) {
+  // Nudged off the suburb centroid before it leaves the server — see
+  // applyPublicPinJitter. The browser never receives the true centre.
+  const pin = applyPublicPinJitter(coords.lat, coords.lng, job.id) || coords;
   return {
     id: job.id, suburb: job.suburb, state,
-    lat: coords.lat, lng: coords.lng,
+    lat: pin.lat, lng: pin.lng,
     title: job.title || 'GP role', display: job.display_label || '',
     billing: job.billing_model || '', income: mapPracticeIncome(job),
     benefits: mapPracticeBenefits(job), img: job.header_image_url || ''
@@ -38415,16 +38481,25 @@ async function handleApi(req, res, pathname) {
     const suburb = String(geoUrl.searchParams.get('suburb') || '').trim();
     const state = String(geoUrl.searchParams.get('state') || '').trim();
     const country = String(geoUrl.searchParams.get('country') || 'Australia').trim() || 'Australia';
+    // Optional stable seed (the role id). With it, the returned point is nudged
+    // off the suburb centroid so the advert maps get the same privacy treatment
+    // as the /jobs board pins. Without it, the plain centroid is returned.
+    const seed = String(geoUrl.searchParams.get('seed') || '').trim();
     if (!suburb) {
       sendJson(res, 400, { ok: false, error: 'suburb_required' });
       return;
     }
     try {
       const coords = await resolveCareerSuburbCoordinates({ suburb, state, country });
-      const lat = coords ? parseCareerCoordinate(coords.latitude) : null;
-      const lng = coords ? parseCareerCoordinate(coords.longitude) : null;
+      const rawLat = coords ? parseCareerCoordinate(coords.latitude) : null;
+      const rawLng = coords ? parseCareerCoordinate(coords.longitude) : null;
+      const pin = applyPublicPinJitter(rawLat, rawLng, seed);
+      const lat = pin ? pin.lat : null;
+      const lng = pin ? pin.lng : null;
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        sendJson(res, 200, { ok: true, lat, lng }, PUBLIC_CONFIG_CACHE_HEADERS);
+        // radiusM travels with the point so every map draws the SAME perimeter
+        // and none of them hardcodes it.
+        sendJson(res, 200, { ok: true, lat, lng, radiusM: PUBLIC_PIN_RADIUS_M }, PUBLIC_CONFIG_CACHE_HEADERS);
       } else {
         sendJson(res, 200, { ok: false }, PUBLIC_CONFIG_CACHE_HEADERS);
       }
@@ -38464,7 +38539,7 @@ async function handleApi(req, res, pathname) {
       // week boundary stale. Omitted when filtered — that split compares against
       // the week's FULL role count, so it is meaningless for a filtered subset
       // and would read as a bogus percentage next to a handful of pins.
-      const payload = { ok: true, practices, total, filtered };
+      const payload = { ok: true, practices, total, filtered, radiusM: PUBLIC_PIN_RADIUS_M };
       if (!filtered) payload.weeklyTotal = getWeeklyPublicJobsTotal();
       sendJson(res, 200, payload, PUBLIC_CONFIG_CACHE_HEADERS);
     } catch (mapErr) {
@@ -69239,6 +69314,10 @@ module.exports.__testUtils = {
   mapCareerRoleRowToPublicJob,
   sanitizePublicJob,
   classifyPublicJobBilling,
+  applyPublicPinJitter,
+  PUBLIC_PIN_RADIUS_M,
+  PUBLIC_PIN_JITTER_MIN_M,
+  PUBLIC_PIN_JITTER_MAX_M,
   buildPublicJobsResponse,
   filterPracticeMapPractices,
   practiceMapHasFilters,

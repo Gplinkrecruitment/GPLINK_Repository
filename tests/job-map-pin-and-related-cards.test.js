@@ -148,7 +148,9 @@ describe('/jobs Australia practice map section', () => {
     expect(server).toMatch(/if \(!filtered\) payload\.weeklyTotal/);
     // Payload also carries the true public-roles total (== the /jobs list count)
     // so the caption states it, never the geocodable-pin subset.
-    expect(server).toMatch(/\{ ok: true, practices, total, filtered \}/);
+    // radiusM rides along so every map draws the same 10km perimeter and none
+    // of them hardcodes it.
+    expect(server).toMatch(/\{ ok: true, practices, total, filtered, radiusM: PUBLIC_PIN_RADIUS_M \}/);
   });
 
   it('the map payload is filtered by the same params as the jobs list', () => {
@@ -159,6 +161,63 @@ describe('/jobs Australia practice map section', () => {
     expect(server).toMatch(/filterPracticeMapPractices\(allPractices, mapParams\)/);
     // Billing rules shared with the jobs API rather than reimplemented.
     expect(server).toMatch(/classifyPublicJobBilling\(\{ billing_model: p && p\.billing \}\)/);
+  });
+});
+
+// 2026-07-29: the "area" ring around every public pin used to be a CSS disc at
+// a fixed pixel size (112px on the website advert, 60px in the app), so it
+// scaled with the SCREEN, not the map — it represented a few hundred metres
+// zoomed in and tens of kilometres zoomed out. It is now a real L.circle whose
+// radius is metres on the ground, served by the API so all three maps agree.
+describe('map area ring is a real 10km circle, not a fixed-pixel CSS disc', () => {
+  const appJobSrc = appJob;
+
+  it('server defines the radius once and ships it with the coordinates', () => {
+    expect(server).toMatch(/const PUBLIC_PIN_RADIUS_M = 10000;/);
+    expect(server).toMatch(/radiusM: PUBLIC_PIN_RADIUS_M/);
+  });
+
+  it('the website advert draws L.circle in metres and drops the CSS ring', () => {
+    expect(siteJob).toMatch(/L\.circle\(\[coords\.lat, coords\.lng\], \{\s*radius: coords\.radiusM/);
+    expect(siteJob).not.toMatch(/<span class="map-ring">/);
+    expect(siteJob).not.toMatch(/\.map-ring\{[^}]*width:112px/);
+    // A fixed zoom would clip a 20km-wide circle; frame it instead.
+    expect(siteJob).toMatch(/fitBounds\(areaCircle\.getBounds\(\)/);
+  });
+
+  it('the in-app advert draws L.circle in metres and drops the CSS ring', () => {
+    expect(appJobSrc).toMatch(/L\.circle\(\[coords\.lat, coords\.lng\], \{\s*radius: coords\.radiusM/);
+    expect(appJobSrc).not.toMatch(/<span class="at-ring/);
+    expect(appJobSrc).toMatch(/fitBounds\(areaCircle\.getBounds\(\)/);
+  });
+
+  it('the /jobs board draws the areas in their own layer, outside the cluster', () => {
+    // A collapsed cluster hides its child markers; the area must stay visible.
+    expect(siteJobs).toMatch(/function drawAreas\(L,practices,radiusM\)/);
+    expect(siteJobs).toMatch(/areaLayer=L\.layerGroup\(\)\.addTo\(mapObj\)/);
+    expect(siteJobs).toMatch(/radius:r,interactive:false/);
+    expect(siteJobs).toMatch(/d&&d\.radiusM/);
+  });
+});
+
+describe('public map pins are nudged off the suburb centre', () => {
+  it('the server jitters before the point leaves the building', () => {
+    expect(server).toMatch(/function applyPublicPinJitter/);
+    expect(server).toMatch(/const pin = applyPublicPinJitter\(coords\.lat, coords\.lng, job\.id\)/);
+    // suburb-geo takes an optional stable seed so the advert maps get the same
+    // treatment as the board pins.
+    expect(server).toMatch(/searchParams\.get\('seed'\)/);
+    expect(server).toMatch(/applyPublicPinJitter\(rawLat, rawLng, seed\)/);
+  });
+
+  it('both advert pages send the role id as that seed', () => {
+    expect(siteJob).toMatch(/params \+= '&seed=' \+ encodeURIComponent\(seed\)/);
+    expect(siteJob).toMatch(/renderSuburbMap\(job\.suburb, job\.location_state, job\.id\)/);
+    expect(appJob).toMatch(/params \+= '&seed=' \+ encodeURIComponent\(seed\)/);
+    expect(appJob).toMatch(/data-map-seed/);
+    // Seed is part of the app's geocode cache key, or two roles in one suburb
+    // would share the first one's pin.
+    expect(appJob).toMatch(/var key = suburb \+ '\|' \+ state \+ '\|' \+ \(seed \|\| ''\)/);
   });
 });
 

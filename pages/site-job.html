@@ -95,7 +95,9 @@
   /* .jpm-pin is Leaflet's 0x0 marker element positioned at the suburb; the
      ring/pin/label are absolutely placed relative to that anchor point. */
   .job-profile-map .jpm-pin{pointer-events:none;}
-  .job-profile-map .jpm-pin .map-ring{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:112px;height:112px;border-radius:50%;background:rgba(47,107,255,.10);border:1.5px solid rgba(47,107,255,.32);}
+  /* The area ring is drawn as a real L.circle (radius in metres), NOT as CSS.
+     A fixed 112px disc lived here and scaled with the screen, not the map — so
+     it meant a different real distance at every zoom. See renderSuburbMap. */
   .job-profile-map .jpm-pin .map-pin{position:absolute;left:0;top:0;transform:translate(-50%,-100%);line-height:0;filter:drop-shadow(0 3px 5px rgba(0,0,0,.3));}
   .job-profile-map .jpm-pin .map-label{position:absolute;left:0;top:9px;transform:translateX(-50%);background:#0f1b2d;color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;}
   .job-profile-mapnote{font-size:11px;color:var(--mut);margin:8px 0 0;}
@@ -466,7 +468,7 @@
 
     if (job.suburb) {
       profileMapWrap.hidden = false;
-      renderSuburbMap(job.suburb, job.location_state);
+      renderSuburbMap(job.suburb, job.location_state, job.id);
     } else {
       profileMapWrap.hidden = true;
       profileMapFrameEl.removeAttribute('src');
@@ -526,8 +528,12 @@
   function makeSuburbPinIcon(L, labelText) {
     return L.divIcon({
       className: 'jpm-pin',
+      // No ring here any more. It used to be a CSS disc fixed at 112px, so it
+      // represented a few hundred metres zoomed in and tens of kilometres
+      // zoomed out — it conveyed no distance at all. It is now a real L.circle
+      // with a radius in metres (see renderSuburbMap), so it stays the same
+      // distance on the ground at every zoom level.
       html:
-        '<span class="map-ring"></span>' +
         '<span class="map-pin"><svg width="28" height="37" viewBox="0 0 30 40"><path d="M15 0C7 0 0 6.5 0 15c0 10 15 25 15 25s15-15 15-25C30 6.5 23 0 15 0z" fill="#2f6bff"/><circle cx="15" cy="15" r="6" fill="white"/></svg></span>' +
         '<span class="map-label">' + escapeHtml(labelText) + '</span>',
       iconSize: [0, 0],
@@ -544,23 +550,33 @@
 
   // Suburb coordinates come from our own keyless endpoint (Supabase cache ->
   // Nominatim), so the client never depends on a Google Geocoding key.
-  function fetchSuburbCoords(suburb, state) {
+  // `seed` is the role id. The server uses it to nudge the point a fixed,
+  // repeatable distance off the suburb centroid, so the pin can never sit on a
+  // practice that happens to be at its suburb's centre. Repeatable on purpose:
+  // a fresh random offset per load would let someone average several loads back
+  // to the true centre. radiusM comes back with it so the perimeter is defined
+  // server-side, once, for every map.
+  function fetchSuburbCoords(suburb, state, seed) {
     var params = 'suburb=' + encodeURIComponent(suburb) + (state ? '&state=' + encodeURIComponent(state) : '');
+    if (seed) params += '&seed=' + encodeURIComponent(seed);
     return fetch('/api/public/suburb-geo?' + params).then(function (r) {
       return r.ok ? r.json() : null;
     }).then(function (d) {
-      return (d && d.ok && isFinite(d.lat) && isFinite(d.lng)) ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
+      return (d && d.ok && isFinite(d.lat) && isFinite(d.lng))
+        ? { lat: Number(d.lat), lng: Number(d.lng), radiusM: Number(d.radiusM) || 10000 }
+        : null;
     }).catch(function () { return null; });
   }
 
   var suburbMapToken = 0;
   var suburbMapInstance = null;
-  function renderSuburbMap(suburb, state) {
+  function renderSuburbMap(suburb, state, seed) {
     var mapQuery = suburb + (state ? ' ' + state : '');
     var labelText = suburb + (state ? ', ' + state : '');
     var token = ++suburbMapToken;
     if (!profileMapCanvasEl) { showSuburbMapFallback(mapQuery); return; }
-    Promise.all([loadLeaflet(), fetchSuburbCoords(suburb, state)]).then(function (out) {
+    var pinSeed = (seed == null) ? '' : String(seed);
+    Promise.all([loadLeaflet(), fetchSuburbCoords(suburb, state, pinSeed)]).then(function (out) {
       var L = out[0], coords = out[1];
       if (token !== suburbMapToken) return;
       if (!L || !coords) { showSuburbMapFallback(mapQuery); return; }
@@ -569,7 +585,10 @@
       if (suburbMapInstance) { suburbMapInstance.remove(); suburbMapInstance = null; }
       var map = L.map(profileMapCanvasEl, {
         center: [coords.lat, coords.lng],
-        zoom: 13,
+        // Opening zoom is set by fitBounds below so the whole 10km circle is
+        // framed whatever the container size. Zoom 13 used to be hardcoded and
+        // would now cut a 20km-wide circle off on every side.
+        zoom: 11,
         scrollWheelZoom: false,
         zoomControl: true,
         attributionControl: true
@@ -580,8 +599,23 @@
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
       }).addTo(map);
+      // A REAL circle: radius is metres on the ground, so Leaflet redraws it at
+      // the correct size on every zoom. The old CSS ring was a fixed pixel disc
+      // and therefore meant a different distance at every zoom level.
+      var areaCircle = L.circle([coords.lat, coords.lng], {
+        radius: coords.radiusM,
+        interactive: false,
+        color: '#2f6bff', weight: 1.5, opacity: .32,
+        fillColor: '#2f6bff', fillOpacity: .10
+      }).addTo(map);
       L.marker([coords.lat, coords.lng], { icon: makeSuburbPinIcon(L, labelText), interactive: false, keyboard: false }).addTo(map);
-      window.requestAnimationFrame(function () { if (suburbMapInstance === map) map.invalidateSize(); });
+      window.requestAnimationFrame(function () {
+        if (suburbMapInstance !== map) return;
+        map.invalidateSize();
+        // Frame the circle rather than trusting a fixed zoom — the container is
+        // responsive, so the zoom that fits 20km varies with its width.
+        map.fitBounds(areaCircle.getBounds(), { padding: [12, 12] });
+      });
     }).catch(function () {
       if (token === suburbMapToken) showSuburbMapFallback(mapQuery);
     });

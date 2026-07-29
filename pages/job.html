@@ -2047,6 +2047,10 @@
           ' data-map-suburb="' + escapeHtml(suburbName || '') + '"' +
           ' data-map-state="' + escapeHtml(stateCode && stateCode !== 'AU' ? stateCode : '') + '"' +
           ' data-map-zoom="' + zoom + '"' +
+          // Stable seed (the role id) so the server nudges this role's pin off
+          // the suburb centre to the SAME spot every load — see
+          // applyPublicPinJitter in server.js.
+          ' data-map-seed="' + escapeHtml(String((role && role.id != null) ? role.id : '')) + '"' +
           ' data-map-revealed="' + (revealed ? '1' : '0') + '"' +
           ' data-map-pinlabel="' + escapeHtml(pinLabel || '') + '"' +
           ' data-map-fallback="' + escapeHtml(fallbackSrc) + '">' +
@@ -2106,24 +2110,34 @@
     return atLeafletPromise;
   }
   // Suburb coordinates from our own keyless endpoint (Supabase cache -> Nominatim).
-  function atFetchSuburbCoords(suburb, state) {
-    var key = suburb + '|' + state;
+  // `seed` is the role id: the server uses it to nudge the returned point a
+  // fixed, repeatable distance off the suburb centroid, so the pin can never
+  // sit on a practice that happens to be at its suburb's centre. It is part of
+  // the cache key — two roles in one suburb get different pins. radiusM comes
+  // back too, so the perimeter is defined server-side for every map.
+  function atFetchSuburbCoords(suburb, state, seed) {
+    var key = suburb + '|' + state + '|' + (seed || '');
     if (atGeocodeCache[key]) return Promise.resolve(atGeocodeCache[key]);
     var params = 'suburb=' + encodeURIComponent(suburb) + (state ? '&state=' + encodeURIComponent(state) : '');
+    if (seed) params += '&seed=' + encodeURIComponent(seed);
     return fetch('/api/public/suburb-geo?' + params).then(function (r) {
       return r.ok ? r.json() : null;
     }).then(function (d) {
-      var coords = (d && d.ok && isFinite(d.lat) && isFinite(d.lng)) ? { lat: Number(d.lat), lng: Number(d.lng) } : null;
+      var coords = (d && d.ok && isFinite(d.lat) && isFinite(d.lng))
+        ? { lat: Number(d.lat), lng: Number(d.lng), radiusM: Number(d.radiusM) || 10000 }
+        : null;
       if (coords) atGeocodeCache[key] = coords;
       return coords;
     }).catch(function () { return null; });
   }
   function atMakePinIcon(L, revealed, pinLabel) {
-    var ringCls = revealed ? 'at-ring at-ring--exact' : 'at-ring';
+    // No CSS ring any more: it was a fixed 60px disc, so it scaled with the
+    // screen rather than the map and meant a different real distance at every
+    // zoom. The area is now a real L.circle in metres — see initAtMaps.
     var dotCls = revealed ? 'at-dotpin at-dotpin--exact' : 'at-dotpin';
     return L.divIcon({
       className: 'at-mk',
-      html: '<span class="at-pin"><span class="' + ringCls + '"><span class="' + dotCls + '"></span></span></span>' +
+      html: '<span class="at-pin"><span class="' + dotCls + '"></span></span>' +
         (pinLabel ? '<span class="at-map-pinlabel">' + escapeHtml(pinLabel) + '</span>' : ''),
       iconSize: [0, 0],
       iconAnchor: [0, 0]
@@ -2145,13 +2159,14 @@
       var suburb = fig.getAttribute('data-map-suburb') || '';
       var state = fig.getAttribute('data-map-state') || '';
       var zoom = parseInt(fig.getAttribute('data-map-zoom'), 10) || 13;
+      var seed = fig.getAttribute('data-map-seed') || '';
       var revealed = fig.getAttribute('data-map-revealed') === '1';
       var pinLabel = fig.getAttribute('data-map-pinlabel') || '';
       var canvas = fig.querySelector('.at-map-canvas');
       // Revealed = exact address: the embed geocodes the precise point
       // server-side (our keyless lookup is suburb-level only), so use it there.
       if (revealed || !suburb || !canvas) { atMapFallback(fig); return; }
-      Promise.all([atLoadLeaflet(), atFetchSuburbCoords(suburb, state)]).then(function (out) {
+      Promise.all([atLoadLeaflet(), atFetchSuburbCoords(suburb, state, seed)]).then(function (out) {
         var L = out[0], coords = out[1];
         if (!canvas.isConnected) return;
         if (!L || !coords) { atMapFallback(fig); return; }
@@ -2168,8 +2183,23 @@
           maxZoom: 19,
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
         }).addTo(map);
+        // Real circle: radius in metres, so it holds the same ground distance
+        // at every zoom. This branch is suburb-level only — a revealed (exact
+        // address) role never reaches here, it uses the embed above, and must
+        // NOT get an approximation ring drawn around a precise point.
+        var areaCircle = L.circle([coords.lat, coords.lng], {
+          radius: coords.radiusM,
+          interactive: false,
+          color: '#2563eb', weight: 1.5, opacity: .45, dashArray: '5,4',
+          fillColor: '#2563eb', fillOpacity: .08
+        }).addTo(map);
         L.marker([coords.lat, coords.lng], { icon: atMakePinIcon(L, revealed, pinLabel), interactive: false, keyboard: false }).addTo(map);
-        window.requestAnimationFrame(function () { map.invalidateSize(); });
+        window.requestAnimationFrame(function () {
+          map.invalidateSize();
+          // Frame the whole circle instead of the old fixed zoom 13, which
+          // would now clip a 20km-wide circle on every side.
+          map.fitBounds(areaCircle.getBounds(), { padding: [10, 10] });
+        });
       }).catch(function () { atMapFallback(fig); });
     });
   }

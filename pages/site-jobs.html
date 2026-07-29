@@ -1065,6 +1065,22 @@
   // reset the visitor's pan/zoom on every keystroke and re-download tiles.
   var mapObj=null,clusterObj=null,booted=false;
 
+  // The 10km area circles live in their OWN layer, not the cluster: a cluster
+  // hides its child markers when collapsed, and the whole point of the circle
+  // is that the area stays visible. Radius is metres, so each one holds the
+  // same ground distance at every zoom instead of being a fixed pixel disc.
+  var areaLayer=null;
+  function drawAreas(L,practices,radiusM){
+    if(!areaLayer){areaLayer=L.layerGroup().addTo(mapObj);}
+    else{areaLayer.clearLayers();}
+    var r=Number(radiusM)||10000;
+    practices.forEach(function(p){
+      if(!isFinite(p.lat)||!isFinite(p.lng))return;
+      L.circle([p.lat,p.lng],{radius:r,interactive:false,
+        color:'#2f6bff',weight:1,opacity:.22,fillColor:'#2f6bff',fillOpacity:.05}).addTo(areaLayer);
+    });
+  }
+
   function drawPins(L,practices){
     if(!clusterObj){
       clusterObj=L.markerClusterGroup({
@@ -1124,7 +1140,7 @@
     }
   }
 
-  function boot(practices, weeklyTotal, total, isFiltered){
+  function boot(practices, weeklyTotal, total, isFiltered, radiusM){
     // No pins with NO filters on the FIRST load means the data or geocoding is
     // unavailable — hide the section, as before. No pins WITH filters is a
     // legitimate answer ("no private-billing roles in NT"), so keep the map on
@@ -1150,6 +1166,7 @@
       // The open pin may not be in the new result set — close it rather than
       // leave a detail card describing a practice that is no longer shown.
       closeDetail();
+      drawAreas(L,practices,radiusM);
       drawPins(L,practices);
       drawCaption(practices,weeklyTotal,total,isFiltered);
       var cap=document.querySelector('.pmap-cap');if(cap)cap.style.display='';
@@ -1170,7 +1187,7 @@
     var mapQs=(typeof window.GP_JOBS_FILTER_QS==='string')?window.GP_JOBS_FILTER_QS:'';
     fetch('/api/public/practice-map'+mapQs).then(function(r){return r.ok?r.json():null;}).then(function(d){
       if(token!==mapSeq)return; // a newer filter change already won
-      boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total, !!(d&&d.filtered));
+      boot((d&&d.ok&&Array.isArray(d.practices))?d.practices:[], d&&d.weeklyTotal, d&&d.total, !!(d&&d.filtered), d&&d.radiusM);
     }).catch(function(){if(token===mapSeq&&!booted)fail();});
   }
   // How the filter bar refreshes the pins — see applyFilters() in the script above.

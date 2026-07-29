@@ -399,6 +399,81 @@ describe('no practice free-text reaches the public job', () => {
   });
 });
 
+// Public map pin privacy (2026-07-29). Two properties, both load-bearing:
+// the perimeter is a real 10km on the ground (it used to be a fixed 112px CSS
+// disc, i.e. no distance at all), and the pin is nudged off the suburb centroid
+// so it can never coincide with a practice sitting at its suburb's centre.
+describe('applyPublicPinJitter — public map pins never sit on a practice', () => {
+  const R = 6371000;
+  const metres = (aLat, aLng, bLat, bLng) => {
+    const t = Math.PI / 180;
+    const dLat = (bLat - aLat) * t, dLng = (bLng - aLng) * t;
+    const h = Math.sin(dLat / 2) ** 2
+      + Math.cos(aLat * t) * Math.cos(bLat * t) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(h));
+  };
+  const SPOTS = [
+    [-34.7126, 138.6753], [-32.5302, 115.7209], [-31.9559, 115.8606],
+    [-12.4600, 130.8400], [-42.8800, 147.3200], [-27.4700, 153.0300]
+  ];
+
+  it('the perimeter is 10km', () => {
+    expect(testUtils.PUBLIC_PIN_RADIUS_M).toBe(10000);
+  });
+
+  it('always moves the pin off the centroid, and always by less than the radius', () => {
+    // Under the radius matters: the practice must stay inside the circle the
+    // visitor is shown, or the map would be pointing at the wrong area.
+    for (const [lat, lng] of SPOTS) {
+      for (const seed of ['47', '48', 'internal_ats:ats_spectrum_rainbow', 'zoho_recruit:11734000000799768']) {
+        const out = testUtils.applyPublicPinJitter(lat, lng, seed);
+        const d = metres(lat, lng, out.lat, out.lng);
+        expect(d).toBeGreaterThanOrEqual(testUtils.PUBLIC_PIN_JITTER_MIN_M * 0.98);
+        expect(d).toBeLessThanOrEqual(testUtils.PUBLIC_PIN_JITTER_MAX_M * 1.02);
+        expect(d).toBeLessThan(testUtils.PUBLIC_PIN_RADIUS_M);
+      }
+    }
+  });
+
+  it('is repeatable — the same role lands on the same spot every time', () => {
+    // Deliberate. A fresh random offset per request would let anyone average
+    // repeated page loads back to the true suburb centre.
+    const a = testUtils.applyPublicPinJitter(-31.9559, 115.8606, 'role-1');
+    for (let i = 0; i < 5; i += 1) {
+      expect(testUtils.applyPublicPinJitter(-31.9559, 115.8606, 'role-1')).toEqual(a);
+    }
+  });
+
+  it('separates two roles that share a suburb', () => {
+    const a = testUtils.applyPublicPinJitter(-31.9559, 115.8606, '47');
+    const b = testUtils.applyPublicPinJitter(-31.9559, 115.8606, '48');
+    expect(a).not.toEqual(b);
+    expect(metres(a.lat, a.lng, b.lat, b.lng)).toBeGreaterThan(100);
+  });
+
+  it('returns the plain centroid when there is no seed', () => {
+    expect(testUtils.applyPublicPinJitter(-31.9559, 115.8606, '')).toEqual({ lat: -31.9559, lng: 115.8606 });
+    expect(testUtils.applyPublicPinJitter(-31.9559, 115.8606, null)).toEqual({ lat: -31.9559, lng: 115.8606 });
+  });
+
+  it('returns null for missing coordinates rather than a pin at 0,0', () => {
+    // Number(null) and Number('') are both 0 — a finite-looking coordinate in
+    // the Atlantic. A failed geocode must fall through, not plot the ocean.
+    expect(testUtils.applyPublicPinJitter(null, null, 'x')).toBeNull();
+    expect(testUtils.applyPublicPinJitter('', '', 'x')).toBeNull();
+    expect(testUtils.applyPublicPinJitter(undefined, undefined, 'x')).toBeNull();
+    expect(testUtils.applyPublicPinJitter('abc', 5, 'x')).toBeNull();
+  });
+
+  it('the map pin is the jittered point, not the raw centroid', () => {
+    const job = testUtils.sanitizePublicJob(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({})));
+    const pin = testUtils.shapeMapPractice(job, 'WA', { lat: -31.9559, lng: 115.8606 });
+    expect(pin.lat).not.toBe(-31.9559);
+    expect(pin.lng).not.toBe(115.8606);
+    expect(metres(-31.9559, 115.8606, pin.lat, pin.lng)).toBeLessThan(testUtils.PUBLIC_PIN_RADIUS_M);
+  });
+});
+
 describe('classifyPublicJobBilling', () => {
   const classify = (billing_model) =>
     testUtils.classifyPublicJobBilling(testUtils.mapCareerRoleRowToPublicJob(makeRawRow({ billing_model })));
