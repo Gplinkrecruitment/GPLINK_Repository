@@ -440,10 +440,20 @@ const RSO_TEAM = [
   { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '', user_id: '7bed5eb8-f03d-40d6-b090-eb006cd02be7' },
   { name: 'GP Link Admin', email: 'hello@mygplink.com.au', phone: '', user_id: '9c35e6f6-f7a2-4d33-afd7-06c59d9d4ae7' }
 ];
-// Default RSO when a GP's case has no assigned_va. Hazel is the sole active RSO.
-// (The Smith Miller test case already carries assigned_va = Khaleed, so preferring
-// the case's assigned_va routes it correctly without special-casing.)
-const DEFAULT_RSO_USER_ID = (RSO_TEAM.find(function (r) { return r.email === 'hazel@mygplink.com.au'; }) || {}).user_id || null;
+// The GP Link Admin roster entry (hello@mygplink.com.au). This is the general
+// pool: a GP who is not yet placed at a practice belongs to admin, not to any
+// individual RSO. Used both as the app-wide fallback and by the support router.
+const GP_ADMIN_RSO_EMAIL = 'hello@mygplink.com.au';
+const GP_ADMIN_RSO_USER_ID = (RSO_TEAM.find(function (r) { return r.email === GP_ADMIN_RSO_EMAIL; }) || {}).user_id || null;
+
+// Default RSO when a GP's case has no assigned_va.
+//
+// Changed 2026-07-30 (owner decision) from Hazel to GP Link Admin: an unplaced
+// GP is handled by the admin pool, and only picks up a named RSO once they are
+// placed at a practice. Existing cases all carry an explicit assigned_va, so
+// this only bites for a brand-new case before anyone is assigned, and for the
+// scheduled-call matcher's last-resort pick.
+const DEFAULT_RSO_USER_ID = GP_ADMIN_RSO_USER_ID;
 
 // Normalize/merge the RSO roster: prefer DB rows from rso_team; fall back to the
 // in-memory RSO_TEAM seed when the table is empty or unreachable (local dev).
@@ -653,6 +663,55 @@ async function resolveCaseRsoAssignee(caseId, knownAssignedVa) {
     assignedVa = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0].assigned_va : null;
   }
   return assignedVa || DEFAULT_RSO_USER_ID;
+}
+
+// ── Who owns this GP's support conversation? (2026-07-30, owner decision) ───
+//
+// Not placed at a practice  → the GP Link Admin pool (hello@mygplink.com.au).
+// Placed at a practice      → the RSO assigned to their case.
+//
+// "Placed" means a row in `placements` — the formal record written when a
+// placement is recorded — NOT merely a practice_name on the case. That was the
+// owner's explicit choice: a practice name gets set while a placement is still
+// being negotiated, so it would hand a GP over too early.
+//
+// This deliberately does NOT rewrite registration_cases.assigned_va. It decides
+// who the support conversation and its task belong to; case assignment stays a
+// human decision. That is what keeps "don't touch GPs already placed and
+// assigned" true — an RSO already looking after a placed GP is never displaced,
+// and the rule only ever takes effect for placements recorded from now on.
+const PLACEMENT_DEAD_STATUSES = new Set(['cancelled', 'canceled', 'withdrawn', 'ended', 'terminated', 'failed']);
+
+async function resolveSupportRsoForUser(userId, knownCase) {
+  const out = { placed: false, rsoUserId: GP_ADMIN_RSO_USER_ID, caseRow: knownCase || null };
+  if (!userId || !isSupabaseDbConfigured()) return out;
+  try {
+    if (!out.caseRow) {
+      const c = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,stage,substage,assigned_va,assigned_rso&user_id=eq.'
+        + encodeURIComponent(userId) + '&order=created_at.desc&limit=1');
+      out.caseRow = (c.ok && Array.isArray(c.data) && c.data[0]) ? c.data[0] : null;
+    }
+    // `placements` is additive DDL — a non-ok response means the table is not
+    // there yet, which reads as "not placed" rather than throwing.
+    const p = await supabaseDbRequest('placements',
+      'select=id,status&user_id=eq.' + encodeURIComponent(userId) + '&limit=20');
+    const rows = (p.ok && Array.isArray(p.data)) ? p.data : [];
+    // Status filtered in JS, not in the query: the table is empty today so the
+    // vocabulary is unverified, and an unknown/null status must still count as
+    // placed rather than being silently dropped by a server-side NOT IN.
+    out.placed = rows.some(function (r) {
+      return !PLACEMENT_DEAD_STATUSES.has(String((r && r.status) || '').trim().toLowerCase());
+    });
+    if (out.placed && out.caseRow) {
+      out.rsoUserId = out.caseRow.assigned_va || out.caseRow.assigned_rso || GP_ADMIN_RSO_USER_ID;
+    }
+  } catch (err) {
+    // Fail to the admin pool: an unrouted GP reaching admin is recoverable,
+    // a thrown error that blocks them from messaging at all is not.
+    console.error('[support-rso] resolve failed:', err && err.message);
+  }
+  return out;
 }
 let _domainApiAccessTokenCache = new Map();
 
@@ -16855,7 +16914,7 @@ async function ensureRsoWelcomeSent(opts) {
     const roster = await loadRsoTeam({ includeInactive: true });
     const rso = Array.isArray(roster) ? roster.find(function (r) { return r && r.user_id === rsoUserId; }) : null;
     if (!rso || !normalizePhone(rso.phone || '')) return { ok: false, skipped: true };
-    const rsoFirstName = (String(rso.name || '').trim().split(/\s+/)[0]) || 'your GP Link team';
+    const rsoFirstName = rsoGpFacingFirstName(rso, 'your GP Link team');
     // One welcome per GP, ever — sentinel stamped in task_timeline on success.
     if (await _hasDoubleTickBeenSent(caseId, 'RSO welcome')) return { ok: true, alreadySent: true };
     let gpFirstName = '';
@@ -30900,6 +30959,19 @@ async function resolveAssignedRsoForCareerEmail(userId) {
   } catch (e) { return null; }
 }
 
+// The name a GP should SEE for an RSO.
+//
+// The "GP Link Admin" roster entry is a POOL, not a person — taking its first
+// word naively yields "GP", so a GP-facing line becomes "reply and GP will
+// match you personally". Since 2026-07-30 unplaced GPs default to that pool, so
+// this is the common path, not an edge case: it must read as a team.
+function rsoGpFacingFirstName(rso, fallback) {
+  const fb = fallback || 'your GP Link team';
+  if (!rso) return fb;
+  if (String(rso.email || '').trim().toLowerCase() === GP_ADMIN_RSO_EMAIL) return fb;
+  return (String(rso.name || '').trim().split(/\s+/)[0]) || fb;
+}
+
 // Minimal HTML-escape for the free-text fields (AI-written match reasons,
 // practice name, GP name) interpolated into the match email/popup/card. These
 // come from the ATS/AI pipeline rather than directly from the GP, but are
@@ -31487,7 +31559,8 @@ async function sendRedirectEmail(applicationRow, job, alternatives) {
     if (!gp || !gp.email) return { ok: false, error: 'gp_not_found' };
     var rso = await resolveAssignedRsoForCareerEmail(applicationRow.user_id);
     var fromOpts = buildRsoEmailFromOpts(rso);
-    var rsoFirstName = String((rso && rso.name) || 'Hazel').trim().split(/\s+/)[0] || 'Hazel';
+    // Reads as a team when the GP sits in the admin pool — see rsoGpFacingFirstName.
+    var rsoFirstName = rsoGpFacingFirstName(rso, 'your GP Link team');
     // Reveal gate (2026-07-20 audit, Task 3): only name the real practice when
     // THIS application passed the same centralized reveal rule every other
     // career surface uses (admin_applied origin / revealed=true — every
@@ -49833,6 +49906,96 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ─── SUPPORT TICKET CRUD ───────────────────────────────────────────
+  // POST /api/support/whatsapp-handoff — the GP tapped "Chat via WhatsApp".
+  //
+  // Runs BEFORE the GP reaches WhatsApp, so their conversation is already
+  // sitting in the right person's DoubleTick inbox when their first message
+  // lands. Three things happen, none of which may block the handoff:
+  //   1. work out who owns them (unplaced → admin pool, placed → their RSO)
+  //   2. assign the DoubleTick conversation to that person
+  //   3. put ONE open task on that person's dashboard
+  // The wa.me URL is returned regardless — a GP must never be unable to
+  // message us because a background step failed.
+  if (pathname === '/api/support/whatsapp-handoff' && req.method === 'POST') {
+    const waSession = requireSession(req, res);
+    if (!waSession) return;
+    const waEmail = getSessionEmail(waSession);
+    if (!waEmail) { sendJson(res, 400, { ok: false, message: 'No session.' }); return; }
+
+    const waNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+    const waUrl = waNumber ? 'https://wa.me/' + waNumber : '';
+
+    let waRouted = null;
+    try {
+      const waProfile = await getSupabaseUserProfile(waEmail, waSession && waSession.userProfile && waSession.userProfile.user_id);
+      const waUserId = waProfile && waProfile.user_id ? waProfile.user_id : null;
+      if (waUserId) {
+        const routed = await resolveSupportRsoForUser(waUserId);
+        waRouted = routed;
+        const gpPhone = await getGpWhatsAppPhone(waUserId);
+
+        // 2. Hand the conversation to the owning RSO in DoubleTick. Fire and
+        //    forget — a DoubleTick outage must not stop the GP messaging us.
+        if (gpPhone && routed.rsoUserId) {
+          syncCaseChatAssignment({ gpPhone: gpPhone, assignedVaUserId: routed.rsoUserId })
+            .catch(function (e) { console.error('[support-handoff] assign failed:', e && e.message); });
+        }
+
+        // 3. One open task per GP, refreshed rather than duplicated (owner's
+        //    choice): tapping the button five times must not stack five tasks
+        //    on the RSO's dashboard. Reuses the same task_type and sliding
+        //    window as the inbound-WhatsApp webhook so the two agree.
+        if (isSupabaseDbConfigured()) {
+          const waName = [waProfile && waProfile.first_name, waProfile && waProfile.last_name]
+            .map(function (v) { return String(v || '').trim(); }).filter(Boolean).join(' ') || waEmail;
+          const waCaseId = routed.caseRow ? routed.caseRow.id : null;
+          const waSince = new Date(Date.now() - SUPPORT_GROUP_WINDOW_MS).toISOString();
+          let existing = null;
+          if (waCaseId) {
+            const g = await supabaseDbRequest('registration_tasks',
+              'select=id&task_type=eq.whatsapp_help&status=in.(open,in_progress,waiting)'
+              + '&case_id=eq.' + encodeURIComponent(waCaseId)
+              + '&updated_at=gte.' + encodeURIComponent(waSince) + '&order=updated_at.desc&limit=1');
+            if (g.ok && Array.isArray(g.data) && g.data[0]) existing = g.data[0];
+          }
+          if (existing) {
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existing.id), {
+              method: 'PATCH',
+              body: { updated_at: new Date().toISOString(), assignee: routed.rsoUserId || null }
+            });
+          } else {
+            await supabaseDbRequest('registration_tasks', '', {
+              method: 'POST',
+              body: [{
+                case_id: waCaseId,
+                task_type: 'whatsapp_help',
+                title: 'GP opened WhatsApp — ' + waName,
+                description: waName + ' tapped "Chat to your officer via WhatsApp" in the app. '
+                  + (routed.placed ? 'Placed — routed to their assigned RSO.' : 'Not yet placed — routed to the admin pool.'),
+                priority: 'normal',
+                status: 'open',
+                assignee: routed.rsoUserId || null,
+                source_trigger: 'app_whatsapp_button',
+                related_stage: routed.caseRow ? (routed.caseRow.stage || '') : '',
+                related_substage: routed.caseRow ? (routed.caseRow.substage || '') : '',
+                due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+              }]
+            });
+          }
+        }
+      }
+    } catch (waErr) {
+      console.error('[support-handoff] failed:', waErr && waErr.message);
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      waUrl: waUrl,
+      placed: !!(waRouted && waRouted.placed)
+    });
+    return;
+  }
+
   // GET /api/support/tickets — list current user's tickets
   if (pathname === '/api/support/tickets' && req.method === 'GET') {
     const session = requireSession(req, res);

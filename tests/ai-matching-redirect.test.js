@@ -665,7 +665,12 @@ describe('redirectOthersForJob — zero-alternatives fallback (phase 3)', () => 
     expect(email).toBeTruthy();
     expect(email.body.subject).toBe('An update on Riverbend Medical Centre — Toowoomba');
     expect(email.body.subject).not.toMatch(/door/i);
-    expect(email.body.html).toContain('Reply to this email and Hazel will match you personally.');
+    // 2026-07-30: an unassigned GP now falls back to the GP Link Admin pool
+    // rather than to Hazel. That entry is a POOL, not a person — its first word
+    // is "GP", so naming it would produce "reply and GP will match you
+    // personally". It must read as a team instead.
+    expect(email.body.html).toContain('Reply to this email and your GP Link team will match you personally.');
+    expect(email.body.html).not.toMatch(/and GP will match you/);
     expect(email.body.html).not.toContain('✦ Already matched for you');
     expect(email.body.html).not.toContain('View this role');
     expect(email.body.html).not.toContain('See all roles picked for you');

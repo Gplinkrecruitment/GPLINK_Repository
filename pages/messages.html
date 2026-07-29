@@ -12,7 +12,7 @@
   <script src="/js/gp-coach.js?v=20260724a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
-  <script src="../js/updates-sync.js?v=20260707b" defer></script>
+  <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
   <script src="../js/qualification-scan.js?v=20260715a" defer></script>
@@ -168,17 +168,43 @@
     .ticket-stats svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
 
     /* ─── FAB ─── */
-    .fab {
+    /* The two Support actions share ONE fixed dock rather than each being
+       positioned independently — otherwise the second button has to re-derive
+       the first one's height at all three breakpoints (mobile, desktop and
+       embedded-in-app-shell) and drifts out of step the moment one changes. */
+    .fab-dock {
       position: fixed; bottom: 170px; left: 50%; transform: translateX(-50%);
+      z-index: 20; display: grid; justify-items: center; gap: 10px;
+      width: max-content; max-width: calc(100vw - 32px);
+    }
+    .fab {
       background: var(--gp-grad-brand); color: #fff; border: 0;
       border-radius: var(--gp-r-pill); padding: 14px 28px; font: inherit; font-size: 15px; font-weight: 700;
-      cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
-      box-shadow: 0 12px 32px -10px rgba(37,99,235,.55); z-index: 20;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      box-shadow: 0 12px 32px -10px rgba(37,99,235,.55);
       transition: transform var(--gp-dur) var(--gp-ease), box-shadow var(--gp-dur) var(--gp-ease);
-      white-space: nowrap;
+      white-space: nowrap; max-width: 100%;
     }
-    .fab:hover { transform: translateX(-50%) scale(1.03); box-shadow: 0 16px 36px -10px rgba(37,99,235,.7); }
+    .fab:hover { transform: scale(1.03); box-shadow: 0 16px 36px -10px rgba(37,99,235,.7); }
     .fab svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; }
+    /* Secondary to "Create New Ticket": white pill, WhatsApp-green glyph. Same
+       width behaviour so the two read as a pair, not as two rival CTAs. */
+    .fab-wa {
+      background: #fff; color: var(--gp-ink); border: 1px solid var(--gp-border-strong);
+      border-radius: var(--gp-r-pill); padding: 12px 24px; font: inherit; font-size: 14px; font-weight: 700;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      box-shadow: var(--gp-shadow-md); white-space: nowrap; max-width: 100%;
+      transition: transform var(--gp-dur) var(--gp-ease), box-shadow var(--gp-dur) var(--gp-ease), border-color var(--gp-dur) var(--gp-ease);
+    }
+    .fab-wa:hover { transform: scale(1.03); border-color: #25D366; box-shadow: 0 14px 30px -12px rgba(37,211,102,.55); }
+    .fab-wa svg { width: 18px; height: 18px; fill: #25D366; stroke: none; flex-shrink: 0; }
+    .fab-wa[disabled] { opacity: .6; cursor: default; transform: none; }
+    /* Narrow phones: let the labels wrap to a smaller size rather than
+       overflowing the viewport or forcing a horizontal scroll. */
+    @media (max-width: 400px) {
+      .fab { padding: 13px 20px; font-size: 14px; }
+      .fab-wa { padding: 11px 18px; font-size: 13px; }
+    }
 
     /* ─── FAQ ACCORDION ─── */
     .faq-list { padding: 0 16px; display: grid; gap: 8px; }
@@ -496,8 +522,8 @@
       .mobile-nav { display: grid; }
       /* Bottom-tabs sit above the mobile-nav (nav height + safe-area) */
       .bottom-tabs { bottom: calc(58px + env(safe-area-inset-bottom, 6px) + 6px); max-width: 560px; }
-      .fab { bottom: calc(170px + env(safe-area-inset-bottom, 0px)); }
-      .view { padding-bottom: 160px; }
+      .fab-dock { bottom: calc(170px + env(safe-area-inset-bottom, 0px)); }
+      .view { padding-bottom: 214px; }
     }
     @media (min-width: 768px) {
       .app-shell { max-width: 960px; }
@@ -508,8 +534,8 @@
         bottom: auto; border-top: none; border-bottom: 1px solid var(--gp-border);
         padding-bottom: 0;
       }
-      .fab { bottom: 28px; }
-      .view { padding-bottom: 48px; }
+      .fab-dock { bottom: 28px; }
+      .view { padding-bottom: 118px; }
     }
     /* When embedded in app-shell iframe, parent provides mobile-nav so ours is hidden.
        Bottom tabs must sit above the parent shell's nav bar. */
@@ -519,19 +545,18 @@
       padding-bottom: 0;
       border-bottom: 1px solid var(--gp-border);
     }
-    html.gp-shell-embedded .fab {
+    html.gp-shell-embedded .fab-dock {
       bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 100px);
-      max-width: 100%;
+      max-width: calc(100vw - 32px);
     }
     html.gp-shell-embedded .view {
-      padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 80px);
+      padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 134px);
     }
 
     .legal-footer { text-align: center; font-size: 12px; color: var(--gp-muted); margin: 14px 0 8px; line-height: 1.45; }
     .legal-footer a { color: var(--gp-text); text-decoration: underline; }
 
     /* ─── CHAT LIST ─── */
-    .chat-card {
       background: var(--gp-surface);
       border: 1px solid var(--gp-border);
       border-radius: var(--gp-r-lg);
@@ -544,27 +569,16 @@
       gap: 12px;
       align-items: flex-start;
     }
-    .chat-card:hover { transform: translateY(-2px); box-shadow: var(--gp-shadow-md); border-color: var(--gp-blue-border); }
-    .chat-card:active { transform: scale(.98); }
-    .chat-avatar {
       width: 40px; height: 40px; border-radius: 50%;
       background: var(--gp-grad-brand);
       display: flex; align-items: center; justify-content: center;
       color: #fff; font-weight: 700; font-size: 15px; flex-shrink: 0;
     }
-    .chat-card-body { flex: 1; min-width: 0; }
-    .chat-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-    .chat-card-title { font-weight: 600; font-size: 14px; color: var(--gp-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chat-card-time { font-size: 11px; color: var(--gp-muted); flex-shrink: 0; }
-    .chat-card-preview { font-size: 13px; color: var(--gp-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chat-card-badge {
       display: inline-flex; align-items: center; justify-content: center;
       min-width: 18px; height: 18px; border-radius: var(--gp-r-pill);
       background: var(--gp-red); color: #fff;
       font-size: 10px; font-weight: 700; padding: 0 5px; margin-left: 8px;
     }
-    .chat-card.closed { opacity: 0.55; }
-    .chat-card.closed .chat-avatar { background: linear-gradient(135deg, var(--gp-faint), var(--gp-border-strong)); }
 
     /* ─── CHAT BUBBLES ─── */
     .msg-bubble { padding: 10px 14px; border-radius: var(--gp-r-lg); margin-bottom: 8px; max-width: 82%; }
@@ -583,7 +597,6 @@
     .msg-time { font-size: 10px; margin-top: 4px; }
     .msg-them .msg-time { color: var(--gp-muted); }
     .msg-me .msg-time { color: rgba(255,255,255,.6); }
-    #chatThread { display: flex; flex-direction: column; gap: 4px; padding: 8px 16px; overflow-y: auto; flex: 1; }
   </style>
   <meta name="theme-color" content="#0b1322" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -594,10 +607,6 @@
   <div class="app-shell">
     <!-- ═══ BOTTOM TABS (Support / FAQ switcher) ═══ -->
     <nav class="bottom-tabs" id="bottomTabs">
-      <button class="bottom-tab active" type="button" data-view="viewChats">
-        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-        <span>Chats</span>
-      </button>
       <button class="bottom-tab" type="button" data-view="viewMyTickets">
         <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span>Support</span>
@@ -607,20 +616,6 @@
         <span>FAQ</span>
       </button>
     </nav>
-
-    <!-- ═══ VIEW: CHATS ═══ -->
-    <div class="view active" id="viewChats">
-      <header class="view-header">
-        <div class="view-header-left">
-          <h1 class="view-title">Chats</h1>
-        </div>
-      </header>
-      <div class="chat-list" id="chatList">
-        <div class="empty-state" id="chatEmptyState">
-          <p style="color:var(--muted);font-size:14px;text-align:center;padding:40px 20px">No chats yet. Your GP Link advisor will reach out when there's something to discuss.</p>
-        </div>
-      </div>
-    </div>
 
     <!-- ═══ VIEW: MY TICKETS ═══ -->
     <div class="view" id="viewMyTickets">
@@ -637,10 +632,19 @@
       </div>
       <p class="section-label" id="ticketSectionLabel">New conversation</p>
       <div class="ticket-list" id="ticketList"></div>
-      <button class="fab" id="fabCreateTicket" type="button">
-        Create New Ticket
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-      </button>
+      <div class="fab-dock">
+        <button class="fab" id="fabCreateTicket" type="button">
+          Create New Ticket
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </button>
+        <!-- Replaces the removed Chats tab. Opens the GP Link business WhatsApp
+             number; the server decides WHICH officer owns the conversation and
+             hands it to them in DoubleTick first (see /api/support/whatsapp-handoff). -->
+        <button class="fab-wa" id="fabWhatsApp" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.08-.3-.15-1.25-.46-2.38-1.47-.88-.79-1.48-1.75-1.65-2.05-.17-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.02-.53-.08-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.53.07-.8.38-.28.3-1.05 1.02-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.13 4.54.72.31 1.28.5 1.71.63.72.23 1.37.2 1.89.12.58-.09 1.75-.72 2-1.41.25-.69.25-1.28.17-1.41-.07-.13-.27-.2-.57-.35z"/><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm0 18.15h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.23 8.23 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23 2.2 0 4.27.86 5.83 2.42a8.18 8.18 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.24 8.23z"/></svg>
+          Chat to your officer via WhatsApp
+        </button>
+      </div>
     </div>
 
     <!-- ═══ VIEW: HELP CENTER ═══ -->
@@ -751,28 +755,6 @@
         </div>
         <div class="resolve-row" id="resolveRow">
           <button class="resolve-btn" id="resolveBtn" type="button">Mark Resolved</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLIDE: CHAT DETAIL ═══ -->
-  <div class="slide-view" id="slideChatDetail">
-    <div class="slide-inner">
-      <header class="detail-header">
-        <button class="icon-btn" type="button" id="chatDetailBack" aria-label="Back">
-          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <h2 class="detail-title" id="chatDetailTitle">Chat</h2>
-        <span class="badge badge-status" id="chatDetailStatus">Active</span>
-      </header>
-      <div class="thread-container" id="chatThread"></div>
-      <div class="reply-bar" id="chatReplyBar">
-        <div class="reply-input-wrap">
-          <textarea id="chatReplyInput" rows="1" placeholder="Type your reply..." maxlength="2000"></textarea>
-          <button class="send-btn" id="chatSendReplyBtn" type="button" aria-label="Send">
-            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
         </div>
       </div>
     </div>
@@ -979,7 +961,7 @@
     const fabEl = document.getElementById("fabCreateTicket");
     const ctaCreateEl = document.getElementById("ctaCreateTicket");
     const bottomTabs = [...document.querySelectorAll(".bottom-tab")];
-    const views = { viewChats: document.getElementById("viewChats"), viewMyTickets: document.getElementById("viewMyTickets"), viewHelpCenter: document.getElementById("viewHelpCenter") };
+    const views = { viewMyTickets: document.getElementById("viewMyTickets"), viewHelpCenter: document.getElementById("viewHelpCenter") };
     const slideNewTicket = document.getElementById("slideNewTicket");
     const newTicketBackBtn = document.getElementById("newTicketBack");
     const newCategoryEl = document.getElementById("newCategory");
@@ -1429,11 +1411,14 @@
         }catch(e){}
       }
       else if(h==="#new-ticket"){switchView("viewMyTickets");openNewTicket();var urlCat=new URLSearchParams(window.location.search).get("category");if(urlCat&&newCategoryEl){newCategoryEl.value=urlCat;}}
-      else if(h.startsWith("#chat-")){const id=decodeURIComponent(h.replace("#chat-",""));switchView("viewChats");if(id)setTimeout(()=>openChatDetail(id),200);}
+      // #chat-… and #tab-updates are legacy Chats deep links (notifications,
+      // the home page). The tab is gone, so they land on Support rather than
+      // dead-ending on a view that no longer exists.
+      else if(h.startsWith("#chat-")){switchView("viewMyTickets");}
       else if(h.startsWith("#ticket-")){const id=decodeURIComponent(h.replace("#ticket-",""));switchView("viewMyTickets");if(id)setTimeout(()=>openTicketDetail(id),100);}
       else if(h==="#tab-cases"){switchView("viewMyTickets");}
-      else if(h==="#tab-updates"){switchView("viewChats");}
-      else switchView("viewChats");
+      else if(h==="#tab-updates"){switchView("viewMyTickets");}
+      else switchView("viewMyTickets");
     }
 
     /* ═══ EXPOSED API ═══ */
@@ -1445,118 +1430,38 @@
       markCaseRead:(caseId)=>{markCaseRead(caseId);renderTicketList();return loadSupportCases().find(c=>c.id===caseId)||null;}
     };
 
-    /* ═══ NUDGE CHATS ═══ */
-    let nudgeChats = [];
-    let selectedChatId = null;
-
-    async function loadNudgeChats() {
-      try {
-        const r = await fetch("/api/user/nudge-chats", { credentials: "same-origin" });
-        if (!r.ok) return;
-        const d = await r.json();
-        if (d && d.ok && Array.isArray(d.chats)) nudgeChats = d.chats;
-      } catch {}
-      renderChatList();
-    }
-
-    function renderChatList() {
-      const listEl = document.getElementById("chatList");
-      const emptyEl = document.getElementById("chatEmptyState");
-      if (!nudgeChats.length) {
-        listEl.innerHTML = "";
-        listEl.appendChild(emptyEl);
-        emptyEl.style.display = "";
-        return;
-      }
-      emptyEl.style.display = "none";
-      listEl.innerHTML = nudgeChats.map(function(c) {
-        const lm = c.last_message;
-        const preview = lm ? escapeHtml(lm.message || "").slice(0, 80) : escapeHtml(c.message || "").slice(0, 80);
-        const ts = lm ? formatTs(lm.created_at) : formatTs(c.created_at);
-        const sender = lm && lm.sender_type === "user" ? "You: " : "GP Link: ";
-        const badge = c.unread_count > 0 ? '<span class="chat-card-badge">' + c.unread_count + '</span>' : '';
-        const closedCls = c.status === "closed" ? " closed" : "";
-        return '<div class="chat-card' + closedCls + '" data-chat-id="' + escapeHtml(c.id) + '">'
-          + '<div class="chat-avatar">GL</div>'
-          + '<div class="chat-card-body">'
-          + '<div class="chat-card-top"><span class="chat-card-title">' + escapeHtml(c.title) + badge + '</span><span class="chat-card-time">' + ts + '</span></div>'
-          + '<div class="chat-card-preview">' + sender + preview + '</div>'
-          + '</div></div>';
-      }).join("");
-    }
-
-    async function openChatDetail(chatId) {
-      selectedChatId = chatId;
-      const slide = document.getElementById("slideChatDetail");
-      slide.style.display = "";
-      slide.classList.add("active");
-      document.getElementById("chatDetailTitle").textContent = "Chat";
-      document.getElementById("chatDetailStatus").textContent = "Loading...";
-      document.getElementById("chatThread").innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">Loading...</p>';
-      document.getElementById("chatReplyBar").style.display = "none";
-      try {
-        const r = await fetch("/api/user/nudge-chats/" + encodeURIComponent(chatId), { credentials: "same-origin" });
-        const d = await r.json();
-        if (!d || !d.ok) { document.getElementById("chatThread").innerHTML = '<p style="color:var(--red);text-align:center;padding:20px">Failed to load chat.</p>'; return; }
-        const chat = d.chat;
-        const messages = d.messages || [];
-        document.getElementById("chatDetailTitle").textContent = chat.title || "Chat";
-        document.getElementById("chatDetailStatus").textContent = chat.status === "closed" ? "Closed" : "Active";
-        document.getElementById("chatDetailStatus").className = "badge badge-status " + (chat.status === "closed" ? "closed" : "in-progress");
-        const threadEl = document.getElementById("chatThread");
-        if (!messages.length) {
-          threadEl.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">No messages yet.</p>';
-        } else {
-          threadEl.innerHTML = messages.map(function(m) {
-            const isMe = m.sender_type === "user";
-            return '<div class="msg-bubble ' + (isMe ? "msg-me" : "msg-them") + '">'
-              + '<div class="msg-sender">' + (isMe ? "You" : "GP Link Team") + '</div>'
-              + '<div class="msg-text">' + escapeHtml(m.message || "") + '</div>'
-              + '<div class="msg-time">' + formatTs(m.created_at) + '</div>'
-              + '</div>';
-          }).join("");
-          threadEl.scrollTop = threadEl.scrollHeight;
+    /* ═══ WHATSAPP HANDOFF ═══ */
+    // Ask the server who owns this GP before opening WhatsApp. The server hands
+    // the conversation to that officer in DoubleTick and puts a task on their
+    // dashboard, so the GP's first message lands in the right inbox rather than
+    // an unassigned one.
+    //
+    // The window is opened SYNCHRONOUSLY on the click and its URL set once the
+    // handoff resolves — opening it after an await would be swallowed by mobile
+    // popup blockers, which only trust a window opened during the gesture.
+    const fabWhatsAppEl = document.getElementById("fabWhatsApp");
+    if (fabWhatsAppEl) {
+      fabWhatsAppEl.addEventListener("click", async function () {
+        if (fabWhatsAppEl.disabled) return;
+        fabWhatsAppEl.disabled = true;
+        const win = window.open("", "_blank");
+        try {
+          const r = await fetch("/api/support/whatsapp-handoff", {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" }, body: "{}"
+          });
+          const d = await r.json().catch(() => null);
+          const url = (d && d.ok && d.waUrl) ? d.waUrl : "";
+          if (!url) { if (win) win.close(); alert("Could not open WhatsApp just now. Please try again, or create a ticket."); return; }
+          if (win) win.location.href = url; else window.location.href = url;
+        } catch (e) {
+          if (win) win.close();
+          alert("Could not open WhatsApp just now. Please try again, or create a ticket.");
+        } finally {
+          fabWhatsAppEl.disabled = false;
         }
-        document.getElementById("chatReplyBar").style.display = chat.status === "closed" ? "none" : "";
-      } catch {
-        document.getElementById("chatThread").innerHTML = '<p style="color:var(--red);text-align:center;padding:20px">Network error.</p>';
-      }
+      });
     }
-
-    function closeChatDetail() {
-      selectedChatId = null;
-      var slide = document.getElementById("slideChatDetail");
-      slide.classList.remove("active");
-    }
-
-    document.getElementById("chatList").addEventListener("click", function(e) {
-      var card = e.target.closest("[data-chat-id]");
-      if (card) openChatDetail(card.getAttribute("data-chat-id"));
-    });
-
-    document.getElementById("chatDetailBack").addEventListener("click", closeChatDetail);
-
-    document.getElementById("chatSendReplyBtn").addEventListener("click", async function() {
-      var input = document.getElementById("chatReplyInput");
-      var text = (input.value || "").trim();
-      if (!text || !selectedChatId) return;
-      var btn = document.getElementById("chatSendReplyBtn");
-      btn.disabled = true;
-      try {
-        var r = await fetch("/api/user/nudge-chats/" + encodeURIComponent(selectedChatId) + "/reply", {
-          method: "POST", credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text })
-        });
-        var d = await r.json();
-        if (d && d.ok) {
-          input.value = "";
-          await openChatDetail(selectedChatId);
-          await loadNudgeChats();
-        }
-      } catch {}
-      btn.disabled = false;
-    });
 
     /* ═══ INIT ═══ */
     function init(){
@@ -1565,7 +1470,6 @@
       renderHelpCenter();
       applyHashRouting();
       mergeServerTickets().then(()=>renderTicketList());
-      loadNudgeChats();
       if(typeof window.refreshInboxBadges==="function") window.refreshInboxBadges();
     }
     if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init,{once:true});

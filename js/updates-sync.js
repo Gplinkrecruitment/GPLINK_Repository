@@ -216,8 +216,11 @@
         // the generic messages-tab fallbacks.
         target: (typeof item.target === "string" && item.target.indexOf("/pages/") === 0)
           ? item.target
-          : item.type === "action" && item.nudgeId
-          ? "/pages/messages#chat-" + encodeURIComponent(item.nudgeId)
+          // The Chats tab was removed on 2026-07-30 (WhatsApp replaced it), so
+          // an action nudge no longer deep-links to #chat-<nudgeId> — there is
+          // no chat view to open. It goes to the same place as any other
+          // action. messages.html also redirects stale #chat- links to Support,
+          // so links already sitting in someone's notifications still land.
           : item.type === "action" ? "/pages/messages#tab-action"
           : "/pages/messages#tab-updates",
       });

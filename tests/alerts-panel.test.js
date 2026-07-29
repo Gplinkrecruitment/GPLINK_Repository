@@ -144,9 +144,9 @@ describe('Team Alerts redesign (Task 9) — cache buster bumped everywhere', () 
     'pages/visa.html',
   ];
 
-  it.each(pages)('%s references updates-sync.js?v=20260707b', (rel) => {
+  it.each(pages)('%s references updates-sync.js?v=20260730a', (rel) => {
     const html = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-    expect(html).toContain('updates-sync.js?v=20260707b');
+    expect(html).toContain('updates-sync.js?v=20260730a');
     expect(html).not.toContain('updates-sync.js?v=20260707a');
   });
 
@@ -163,7 +163,7 @@ describe('Team Alerts redesign (Task 9) — cache buster bumped everywhere', () 
     const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
     const appShell = fs.readFileSync(path.join(ROOT, 'pages/app-shell.html'), 'utf8');
     // Pin the exact value...
-    expect(sw).toContain('/js/updates-sync.js?v=20260707b');
+    expect(sw).toContain('/js/updates-sync.js?v=20260730a');
     // ...and structurally tie sw.js to whatever buster the pages ship with,
     // so a future page-side bump that forgets sw.js fails here.
     const pageBuster = appShell.match(/updates-sync\.js\?v=(\w+)/)[1];

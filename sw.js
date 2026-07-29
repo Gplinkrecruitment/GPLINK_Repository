@@ -49,7 +49,7 @@
     "/js/auth-guard.js?v=20260706a",
     "/js/state-sync.js?v=20260711a",
     "/js/bypass-config.js?v=20260724c",
-    "/js/updates-sync.js?v=20260707b",
+    "/js/updates-sync.js?v=20260730a",
     "/js/qualification-scan.js?v=20260715a",
     "/js/qualification-camera.js?v=20260614a",
     "/js/account-dropdown.js?v=20260527a",
