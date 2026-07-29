@@ -120,6 +120,7 @@ const driveDocFolders = require('./lib/drive-doc-folders.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const documentRequirements = require('./lib/document-requirements.js');
 const { selectStaleSummaryCases, DEFAULT_FLOOR_MS: SUMMARY_REFRESH_DEFAULT_FLOOR_MS } = require('./lib/summary-refresh.js');
+const practiceContactLib = require('./lib/practice-contact.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -2051,6 +2052,60 @@ async function _disambiguatePracticeEmail(appRows, emailMeta) {
   return null;
 }
 
+// ── Practice contact resolution ───────────────────────────────────────────────
+// Every "email the practice" surface (the document-request composer, its nudge and
+// revision variants, the SPPA-00 pack, the AHPRA conflict letter) needs the same thing:
+// the address and name of the contact at the practice where this GP is placed.
+// lib/practice-contact.js documents the two traps — placements are not all status
+// 'hired', and hand-created ones leave the contact columns NULL. Route every lookup
+// through these two helpers so a fix lands everywhere at once.
+
+// Fill blank contact columns on already-fetched placed applications from the linked
+// practices row. Split out from the fetch so a caller that scans placements table-wide
+// (rather than by user id) gets the same fallback.
+async function hydratePlacedApplicationRows(placedRows) {
+  if (!Array.isArray(placedRows) || !placedRows.length) return placedRows || [];
+
+  // Only rows still missing an address cost the extra lookups below. Both go through
+  // supabaseDbRequestByIds so a large caseload chunks instead of building one oversized
+  // in.(...) URL — the failure mode that silently 400'd the CEO task views.
+  const rolePracticeById = {};
+  const pendingRoles = practiceContactLib.pendingRoleIds(placedRows);
+  if (pendingRoles.length) {
+    const roleRows = await supabaseDbRequestByIds('career_roles', pendingRoles,
+      function (inList) { return 'select=id,practice_id&id=in.(' + inList + ')&limit=' + SUPABASE_IN_CHUNK_SIZE; });
+    roleRows.forEach(function (r) { if (r && r.practice_id) rolePracticeById[r.id] = r.practice_id; });
+  }
+  const practiceById = {};
+  const pendingPractices = practiceContactLib.pendingPracticeIds(placedRows, rolePracticeById);
+  if (pendingPractices.length) {
+    const pracRows = await supabaseDbRequestByIds('practices', pendingPractices,
+      function (inList) { return 'select=id,contact_name,contact_email&id=in.(' + inList + ')&limit=' + SUPABASE_IN_CHUNK_SIZE; });
+    pracRows.forEach(function (p) { if (p && p.id) practiceById[p.id] = p; });
+  }
+  return practiceContactLib.applyPracticeContactFallback(placedRows, practiceById, rolePracticeById);
+}
+
+// Placed gp_applications rows for these GPs, with blank contact columns filled in from
+// the linked practices row. Extra columns can be appended for callers that need them.
+async function fetchPlacedApplicationRows(userIds, extraColumns) {
+  const placedIds = [...new Set((Array.isArray(userIds) ? userIds : []).filter(Boolean))];
+  if (!placedIds.length || !isSupabaseDbConfigured()) return [];
+  const placedCols = practiceContactLib.PLACED_APPLICATION_COLUMNS + (extraColumns ? ',' + extraColumns : '');
+  const placedRes = await supabaseDbRequest('gp_applications',
+    'select=' + placedCols + '&' + practiceContactLib.PLACED_APPLICATION_FILTER +
+    '&user_id=in.(' + placedIds.map(encodeURIComponent).join(',') + ')');
+  return hydratePlacedApplicationRows((placedRes.ok && Array.isArray(placedRes.data)) ? placedRes.data : []);
+}
+
+// { email, name } for one GP's placement, or null when there is genuinely no address —
+// so callers can fall through to their own next source rather than render an empty "To".
+async function resolvePlacedPracticeContact(userId) {
+  if (!userId) return null;
+  const placedRows = await fetchPlacedApplicationRows([userId]);
+  return practiceContactLib.toPracticeContact(practiceContactLib.pickPlacedApplication(placedRows));
+}
+
 // Helper: create placeholder alt supervisor CV entries when SPPA-00 reveals alt supervisors
 // Creates user_documents (pending) and updates gp_prepared_docs state (ready: false → "Preparing")
 async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
@@ -2148,15 +2203,14 @@ async function _ensureAltSupervisorCvRequest(caseId, sppaTask, altNames) {
     if (needed.length === 0) return;
 
     // Practice contact (same precedence as /sppa-send-to-practice: where we sent the pack, else the
-    // hired application's stored contact).
+    // placed application's contact, else the practice record's own).
     var practiceEmail = String(meta.sent_to_practice_email || '').trim();
     var practiceName = 'Practice Contact';
     if (userId) {
-      var appRow = await supabaseDbRequest('gp_applications',
-        'select=practice_contact_email,practice_contact_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
-      if (appRow.ok && appRow.data && appRow.data[0]) {
-        if (!practiceEmail) practiceEmail = String(appRow.data[0].practice_contact_email || '').trim();
-        if (appRow.data[0].practice_contact_name) practiceName = String(appRow.data[0].practice_contact_name).trim();
+      var appContactRow = await resolvePlacedPracticeContact(userId);
+      if (appContactRow) {
+        if (!practiceEmail) practiceEmail = appContactRow.email;
+        if (appContactRow.name) practiceName = appContactRow.name;
       }
     }
     if (!practiceEmail) { console.warn('[SPPA] alt-CV request skipped — no practice email for case', caseId); return; }
@@ -2268,14 +2322,13 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
       var practiceEmail = '';
       var practiceContactName = 'Practice Contact';
       if (userId) {
-        var appRow2 = await supabaseDbRequest('gp_applications',
-          // gp_applications has NO practice_name column — asking for it 400'd
-          // the whole query, so practiceEmail stayed empty and this letter was
-          // ALWAYS skipped. Practice name comes from career_roles, never here.
-          'select=practice_contact_email,practice_contact_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
-        if (appRow2.ok && appRow2.data && appRow2.data[0]) {
-          practiceEmail = String(appRow2.data[0].practice_contact_email || '').trim();
-          if (appRow2.data[0].practice_contact_name) practiceContactName = String(appRow2.data[0].practice_contact_name).trim();
+        // gp_applications has NO practice_name column — asking for it 400'd the whole
+        // query, so practiceEmail stayed empty and this letter was ALWAYS skipped.
+        // Practice name comes from career_roles, never here.
+        var appContact2 = await resolvePlacedPracticeContact(userId);
+        if (appContact2) {
+          practiceEmail = appContact2.email;
+          if (appContact2.name) practiceContactName = appContact2.name;
         }
       }
       if (!practiceEmail) { console.warn('[ahpra-conflict-letter] skipped — no practice email for case', caseId); return null; }
@@ -4525,11 +4578,12 @@ async function getPlacedGPsForTriage() {
     }
   }
 
-  // Source 2: gp_applications with hired status (Zoho-synced placements)
+  // Source 2: placed gp_applications (Zoho-synced placements, plus any written direct to the DB)
   var hiredRes = await supabaseDbRequest('gp_applications',
-    'select=user_id,career_role_id,practice_contact_name,practice_contact_email,status&status=eq.hired&limit=200');
+    'select=' + practiceContactLib.PLACED_APPLICATION_COLUMNS + '&' + practiceContactLib.PLACED_APPLICATION_FILTER + '&limit=200');
   if (hiredRes.ok && Array.isArray(hiredRes.data)) {
-    for (var ha of hiredRes.data) {
+    var hiredRows = await hydratePlacedApplicationRows(hiredRes.data);
+    for (var ha of hiredRows) {
       if (!ha.user_id || seenUserIds.has(ha.user_id) || adminIds.has(ha.user_id)) continue;
       var profRes2 = await supabaseDbRequest('user_profiles',
         'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(ha.user_id) + '&limit=1');
@@ -5040,7 +5094,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             // select=user_id only — gp_applications has no practice_name column
             // (the 400 it caused meant a practice sender NEVER matched here),
             // and _disambiguatePracticeEmail only ever reads app.user_id.
-            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
+            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&' + practiceContactLib.PLACED_APPLICATION_FILTER);
             if (appLookup.ok && Array.isArray(appLookup.data) && appLookup.data.length > 0) {
               if (appLookup.data.length === 1) {
                 // Single GP — safe to match directly
@@ -5235,7 +5289,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           // select=user_id only — no practice_name column on gp_applications
           // (the 400 it caused meant alt-supervisor CVs from a practice inbox
           // were never picked up); only _acApp.user_id is read below.
-          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired');
+          var _appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&' + practiceContactLib.PLACED_APPLICATION_FILTER);
           if (_appLookup.ok && Array.isArray(_appLookup.data) && _appLookup.data.length > 0) {
             // For alt CV matching, try ALL GPs at this practice — match CVs against each one's alt supervisors
             var _altCvCandidates = [];
@@ -26291,8 +26345,8 @@ async function buildCareerPlacementPayload({
   let appContact = null;
   if (!practiceContactRecord && gpUserIdForContact && isSupabaseDbConfigured()) {
     try {
-      const acRes = await supabaseDbRequest('gp_applications', 'select=practice_contact_name,practice_contact_email&user_id=eq.' + encodeURIComponent(gpUserIdForContact) + '&status=eq.hired&limit=1');
-      if (acRes.ok && Array.isArray(acRes.data) && acRes.data[0]) appContact = acRes.data[0];
+      const acRow = await resolvePlacedPracticeContact(gpUserIdForContact);
+      if (acRow) appContact = { practice_contact_name: acRow.name, practice_contact_email: acRow.email };
     } catch (e) { appContact = null; }
   }
   let casePracticeContact = null;
@@ -54178,18 +54232,15 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
     if (userIds.length > 0) {
-      const hiredRes = await supabaseDbRequest(
-        'gp_applications',
-        'select=user_id,career_role_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'
-      );
-      if (hiredRes.ok && Array.isArray(hiredRes.data)) {
-        const roleIds = [...new Set(hiredRes.data.map(a => a.career_role_id).filter(Boolean))];
+      const placedApps = await fetchPlacedApplicationRows(userIds);
+      if (placedApps.length > 0) {
+        const roleIds = [...new Set(placedApps.map(a => a.career_role_id).filter(Boolean))];
         let roleMap = {};
         if (roleIds.length > 0) {
           const roleRes = await supabaseDbRequest('career_roles', 'select=id,practice_name,title,location_city,location_state&id=in.(' + roleIds.join(',') + ')');
           if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
         }
-        hiredRes.data.forEach(function (app) {
+        placedApps.forEach(function (app) {
           var existing = practiceContactMap[app.user_id];
           // Only skip if we already have a USABLE contact email. A career-state secured
           // placement can set an entry with an empty email, which previously blocked this
@@ -55670,21 +55721,18 @@ Return ONLY valid JSON with no markdown formatting:
         };
       }
     }
-    // Fallback: check gp_applications table for hired placements not in career state
+    // Fallback: check gp_applications table for placements not in career state
     if (userIds.length > 0) {
-      const hiredRes = await supabaseDbRequest(
-        'gp_applications',
-        'select=user_id,career_role_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'
-      );
-      if (hiredRes.ok && Array.isArray(hiredRes.data)) {
+      const placedApps = await fetchPlacedApplicationRows(userIds);
+      if (placedApps.length > 0) {
         // Build role lookup for practice names
-        const roleIds = [...new Set(hiredRes.data.map(a => a.career_role_id).filter(Boolean))];
+        const roleIds = [...new Set(placedApps.map(a => a.career_role_id).filter(Boolean))];
         let roleMap = {};
         if (roleIds.length > 0) {
           const roleRes = await supabaseDbRequest('career_roles', 'select=id,practice_name,title,location_city,location_state&id=in.(' + roleIds.join(',') + ')');
           if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
         }
-        hiredRes.data.forEach(function (app) {
+        placedApps.forEach(function (app) {
           var existing = practiceContactMap[app.user_id];
           // Only skip if the career-state entry already has a usable contact email;
           // otherwise fall back to the hired gp_applications contact (fixes blank "To").
@@ -56930,12 +56978,13 @@ Return ONLY valid JSON with no markdown formatting:
     var pc = placement.practiceContact || {};
     var practiceEmail = String(pc.email || '').trim();
     var practiceName = String(pc.name || 'Practice Contact').trim();
-    // Fallback: check gp_applications if user_state doesn't have practice contact
+    // Fallback: check the placed application (then the practice record) if user_state
+    // doesn't have a practice contact.
     if (!practiceEmail) {
-      var _appFallback = await supabaseDbRequest('gp_applications', 'select=practice_contact_email,practice_contact_name&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
-      if (_appFallback.ok && _appFallback.data && _appFallback.data[0]) {
-        practiceEmail = String(_appFallback.data[0].practice_contact_email || '').trim();
-        if (!practiceName || practiceName === 'Practice Contact') practiceName = String(_appFallback.data[0].practice_contact_name || 'Practice Contact').trim();
+      var _appFallback = await resolvePlacedPracticeContact(userId);
+      if (_appFallback) {
+        practiceEmail = _appFallback.email;
+        if (!practiceName || practiceName === 'Practice Contact') practiceName = _appFallback.name || 'Practice Contact';
       }
     }
     if (!practiceEmail) { sendJson(res, 400, { error: 'practice contact email missing' }); return; }
@@ -57952,10 +58001,8 @@ Return ONLY valid JSON with no markdown formatting:
         var _caseRow = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
         var _caseUserId = _caseRow.ok && _caseRow.data && _caseRow.data[0] ? _caseRow.data[0].user_id : null;
         if (_caseUserId) {
-          var _appRow = await supabaseDbRequest('gp_applications', 'select=practice_contact_email&user_id=eq.' + encodeURIComponent(_caseUserId) + '&status=eq.hired&limit=1');
-          if (_appRow.ok && _appRow.data && _appRow.data[0] && _appRow.data[0].practice_contact_email) {
-            _recheckPracticeEmail = String(_appRow.data[0].practice_contact_email).trim().toLowerCase();
-          }
+          var _appRow = await resolvePlacedPracticeContact(_caseUserId);
+          if (_appRow) _recheckPracticeEmail = _appRow.email.toLowerCase();
         }
       } catch (e) {}
     }
@@ -59492,16 +59539,16 @@ Return ONLY valid JSON with no markdown formatting:
         var ccProfRes = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
         var ccGpEmail = ccProfRes.ok && Array.isArray(ccProfRes.data) && ccProfRes.data[0] ? String(ccProfRes.data[0].email || '').trim().toLowerCase() : '';
         if (ccGpEmail) contacts = contacts.filter(function (c) { return String(c.email_address || '').trim().toLowerCase() !== ccGpEmail; });
-        // Authoritative practice contact (the "To") from the hired application — returned so
-        // the client can reliably fill the "To"/greeting even if its cached task data is stale.
-        var ccAppRes = await supabaseDbRequest('gp_applications', 'select=practice_contact_name,practice_contact_email&status=eq.hired&user_id=eq.' + encodeURIComponent(ccUserId) + '&limit=1');
-        var ccApp = ccAppRes.ok && Array.isArray(ccAppRes.data) && ccAppRes.data[0] ? ccAppRes.data[0] : null;
-        if (ccApp && ccApp.practice_contact_email) {
-          practiceContact = { email: ccApp.practice_contact_email, name: ccApp.practice_contact_name || '' };
+        // Authoritative practice contact (the "To") from the placed application, falling back
+        // to the practice record itself — returned so the client can reliably fill the
+        // "To"/greeting even if its cached task data is stale or the placement was created
+        // outside the offer flow (which is what leaves the contact columns NULL).
+        practiceContact = await resolvePlacedPracticeContact(ccUserId);
+        if (practiceContact) {
           // The practice's primary contact is the "To" recipient on practice emails and must
           // never be offered as a CC — otherwise it shows up as a CC on the candidate's own
           // emails (e.g. the SPPA-00 "Send to candidate" composer, where To = the candidate).
-          var ccPracEmail = String(ccApp.practice_contact_email).trim().toLowerCase();
+          var ccPracEmail = practiceContact.email.toLowerCase();
           contacts = contacts.filter(function (c) { return String(c.email_address || '').trim().toLowerCase() !== ccPracEmail; });
         }
       }
@@ -61524,12 +61571,16 @@ Return ONLY valid JSON with no markdown formatting:
       const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
-    // Fetch practice contact info from gp_applications (hired placements)
+    // Fetch practice contact info from gp_applications (placements)
     let appMap = {};
     if (userIds.length > 0) {
-      const appRes = await supabaseDbRequest('gp_applications',
-        'select=user_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
-      if (appRes.ok && Array.isArray(appRes.data)) { appRes.data.forEach(function (a) { if (a.user_id && !appMap[a.user_id]) appMap[a.user_id] = a; }); }
+      const placedApps = await fetchPlacedApplicationRows(userIds);
+      // A GP with more than one placed row: the one carrying an address wins, so an empty
+      // duplicate can't shadow the placement that actually has a contact.
+      placedApps.forEach(function (a) {
+        if (!a.user_id) return;
+        if (!appMap[a.user_id] || (!practiceContactLib.hasContactEmail(appMap[a.user_id]) && practiceContactLib.hasContactEmail(a))) appMap[a.user_id] = a;
+      });
     }
     const enriched = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
