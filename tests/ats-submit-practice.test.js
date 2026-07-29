@@ -427,7 +427,12 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     expect(String(email.html)).toContain('Expedited Specialist Pathway');
     expect(String(email.html)).toContain('/pages/practice-decision.html?token=');
     expect(String(email.html)).toContain('action=approve');
-    expect(String(email.html)).toContain('action=turn_down');
+    // Both buttons land on the SAME approve screen (owner decision 2026-07-30):
+    // the practice sees who they're deciding on before committing, and turning
+    // down is a quiet link there behind a reason + confirm. A one-tap jump from
+    // the inbox into a one-way decline screen is what this replaced.
+    expect(String(email.html)).not.toContain('action=turn_down');
+    expect(String(email.html)).toContain('Turn down this candidate');
     expect(String(email.html)).not.toContain('Why we recommend'); // no ANTHROPIC_API_KEY in this suite
 
     // Merge resolution (2026-07-07): the owner-approved decision flow

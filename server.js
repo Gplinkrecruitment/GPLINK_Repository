@@ -31748,7 +31748,13 @@ async function sendPracticeDecisionReminderEmail(opts) {
   var roleLabel = opts.roleLabel || 'GP position';
   var practiceLabel = opts.practiceLabel || 'your practice';
   var approveUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(token) + '&action=approve';
-  var turnDownUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(token) + '&action=turn_down';
+  // Both email links land on the SAME approve screen: the practice sees who they
+  // are deciding on before committing either way, and turning down is a quiet
+  // link there that opens a short reason + confirm. Sending 'turn_down' straight
+  // from an inbox click jumped a practice into a one-way decline screen with one
+  // tap. The page still honours ?action=turn_down for links already sitting in
+  // inboxes from earlier sends.
+  var turnDownUrl = approveUrl;
   var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
   var lead = opts.firmer
     ? ('We don’t want to hold ' + esc(displayName) + ' up — a quick yes or no on your ' + esc(roleLabel) + ' would really help them plan.')
@@ -47230,7 +47236,9 @@ async function handleApi(req, res, pathname) {
     let inAppActionToken = appRow.practice_action_token;
     if (!inAppActionToken) inAppActionToken = crypto.randomBytes(24).toString('base64url');
     const inAppApproveUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=approve';
-    const inAppTurnDownUrl = APP_BASE_URL + '/pages/practice-decision.html?token=' + encodeURIComponent(inAppActionToken) + '&action=turn_down';
+    // Same as the other send path: both links open the approve screen, where
+    // turning down is a quiet link behind a reason + confirm step.
+    const inAppTurnDownUrl = inAppApproveUrl;
 
     // Profile-driven candidate intro (Task 2) — same onboarding read the old
     // copy used (_parseStateVal(inAppStateVal.gp_onboarding)), now feeding the

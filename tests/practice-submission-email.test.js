@@ -327,7 +327,11 @@ describe('POST submit-to-practice — verified-CV email rebuild', () => {
     expect(sent.html).toContain('Why we recommend');
     expect(sent.html).toContain('/pages/practice-decision.html?token=');
     expect(sent.html).toContain('action=approve');
-    expect(sent.html).toContain('action=turn_down');
+    // Both buttons land on the SAME approve screen (owner decision 2026-07-30) —
+    // turning down lives there as a quiet link behind a reason + confirm, so the
+    // email must no longer deep-link straight into the decline path.
+    expect(sent.html).not.toContain('action=turn_down');
+    expect(sent.html).toContain('Turn down this candidate');
   });
 
   it('persists the action token + AI recommendation on the application row', async () => {

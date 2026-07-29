@@ -149,6 +149,10 @@
       <p>For your <b data-pd="roleTitle"></b> position. Approving lets you choose interview times right away.</p>
       <button id="pdApproveBtn" class="pd-btn pd-btn-green">Approve &amp; choose interview times</button>
       <p id="pdApproveMsg" class="pd-msg" hidden aria-live="polite"></p>
+      <!-- Both email links now land here, so turning down has to be reachable
+           from this screen. Kept deliberately quiet (small, muted, no button
+           styling) so approving stays the obvious action. -->
+      <a href="#" id="pdDecline" class="pd-link">Turn down this candidate</a>
     </section>
 
     <section id="pdAvailability" hidden>
@@ -202,7 +206,8 @@
     reason: document.getElementById('pdReason'),
     turnDownBtn: document.getElementById('pdTurnDownBtn'),
     turnDownMsg: document.getElementById('pdTurnDownMsg'),
-    keepLink: document.getElementById('pdKeep')
+    keepLink: document.getElementById('pdKeep'),
+    declineLink: document.getElementById('pdDecline')
   };
 
   var gpNameEls = document.querySelectorAll('[data-pd="gpName"]');
@@ -582,6 +587,15 @@
   el.keepLink.addEventListener('click', function (e) {
     e.preventDefault();
     enterApprove();
+  });
+
+  // The quiet "Turn down this candidate" link on the approve screen. Reveals the
+  // existing reason + confirm step rather than acting immediately — turning a
+  // candidate down is one-way, so it always takes a second, deliberate click.
+  el.declineLink.addEventListener('click', function (e) {
+    e.preventDefault();
+    showMsg(el.turnDownMsg, '', false);
+    enterTurnDown();
   });
 
   loadContext();
