@@ -278,6 +278,25 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(routeSrc).toContain('[admin interview schedule] scheduled_calls mirror failed');
   });
 
+  it('a booking that does not persist can never report success', () => {
+    // Found 2026-07-29 walking the flow end-to-end on the test candidate:
+    // zoom_meeting_id carries a UNIQUE index, the code wrote '' when there was
+    // no Zoom meeting, that collided with every other zoomless row, the whole
+    // PATCH 409'd — and because the result was unchecked, the doctor AND the
+    // practice were emailed a confirmation for a booking that never saved. The
+    // row stayed 'invited', so detect-no-shows could never complete it either.
+    const idx = serverSrc.indexOf('async function _bookInterviewSlot');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = serverSrc.slice(idx, idx + 6000);
+    // null, never '' — NULLs don't collide in a unique index.
+    expect(fnSrc).toContain("zoom_meeting_id: String(zoom.id || '') || null");
+    expect(fnSrc).toContain("zoom_meeting_uuid: String(zoom.uuid || '') || null");
+    expect(fnSrc).toContain("gcal_event_id: String(gcal.id || '') || null");
+    expect(fnSrc).not.toContain("zoom_meeting_id: String(zoom.id || ''),");
+    // And the write is checked, so a failure surfaces instead of going silent.
+    expect(fnSrc).toContain('interview booking did not persist');
+  });
+
   it('the CEO escalations banner marks a GP practice question distinctly', () => {
     const ceoHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
     // Keyed on the source_trigger column, never on the title copy.

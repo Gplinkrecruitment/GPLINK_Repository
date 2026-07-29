@@ -386,7 +386,11 @@ describe('POST /api/career/interview/book', () => {
     // real Google event and is exactly what disguised the fact that
     // production had never been connected (owner report 2026-07-29). With no
     // calendar there is no event, and the row must say so.
-    expect(row.gcal_event_id).toBe('');
+    // null, not '' — these id columns are now nulled when there is no real
+    // id, because zoom_meeting_id carries a UNIQUE index and '' collided
+    // across every zoomless row (2026-07-29). Still 'no fake calendar id'.
+    expect(row.gcal_event_id == null || row.gcal_event_id === '').toBe(true);
+    expect(String(row.gcal_event_id || '')).not.toMatch(/^gcal_local/);
     expect(row.scheduled_at).toBe(slot.startUtc);
 
     const app = db.gp_applications.find((a) => a.id === 'app-int-1');

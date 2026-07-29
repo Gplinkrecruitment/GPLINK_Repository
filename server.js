@@ -68547,11 +68547,20 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       status: 'booked',
       scheduled_at: slotStartUtc,
       booked_at: nowTs,
-      zoom_meeting_id: String(zoom.id || ''),
-      zoom_meeting_uuid: String(zoom.uuid || ''),
+      // NEVER write '' here. scheduled_calls.zoom_meeting_id carries a UNIQUE
+      // index, and '' collides with every other row that has no Zoom meeting,
+      // so the whole PATCH 409s. Because the result was unchecked (see below),
+      // that failure was swallowed: the row stayed 'invited' with no
+      // scheduled_at while the doctor AND the practice were both emailed a
+      // confirmation for a booking that had not saved — and since
+      // detect-no-shows only looks at status='booked', the interview could
+      // never complete either (found 2026-07-29 walking the flow end-to-end on
+      // the test candidate). NULLs do not collide in a unique index.
+      zoom_meeting_id: String(zoom.id || '') || null,
+      zoom_meeting_uuid: String(zoom.uuid || '') || null,
       zoom_join_url: resolvedJoin,
       zoom_passcode: String(zoom.passcode || ''),
-      gcal_event_id: String(gcal.id || ''),
+      gcal_event_id: String(gcal.id || '') || null,
       updated_at: nowTs
     };
     // Persist the tz the GP actually booked in on the row's EXISTING timezone
@@ -68560,9 +68569,18 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     // reminder label. No new column, no migration.
     if (gpViewerTz) patch.timezone = gpViewerTz;
     if (isSupabaseDbConfigured()) {
-      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
+      var bookPatchRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
       });
+      // The result was previously unchecked, which is what let the failure
+      // above go silent. A booking that did not save must NEVER report success:
+      // throwing here lands in the catch below, which cleans up the Zoom
+      // meeting and surfaces a real error to the caller, so the doctor sees
+      // "couldn't book, try again" instead of a confirmation for nothing.
+      if (!bookPatchRes || !bookPatchRes.ok) {
+        throw new Error('interview booking did not persist (scheduled_calls PATCH '
+          + (bookPatchRes && bookPatchRes.status) + ') for call ' + meetingRow.id);
+      }
     } else {
       Object.assign(meetingRow, patch);
       saveDbState();
