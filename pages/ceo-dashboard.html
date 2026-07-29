@@ -3736,6 +3736,18 @@
     // Cache the integrations payload so re-clicking the Technical tab doesn't
     // refetch (the integrations endpoint runs live external pings, so it is slow).
     var techCache = null;
+    var techCheckedAt = null;
+    // Re-run the live checks on demand. The cache above is an in-memory
+    // variable, so returning to the tab shows the LAST result — which for a
+    // health panel is actively misleading: you fix something, come back, and
+    // read a verdict from before the fix. That is how these cards give false
+    // confidence (owner hit exactly this on 2026-07-29 while verifying the
+    // Google Calendar connection). Bypass the cache and re-ping.
+    function refreshTechnical() {
+      techCache = null;
+      techCheckedAt = null;
+      loadTechnical();
+    }
     function loadTechnical() {
       if (techCache) { renderTechnical(techCache); return; }
       var c = document.getElementById('techContent');
@@ -3756,6 +3768,7 @@
           return;
         }
         techCache = d.integrations;
+        techCheckedAt = new Date();
         renderTechnical(techCache);
       }).catch(function(e) { c.innerHTML = '<div class="drilldown-empty">Error: ' + esc(e.message) + '</div>'; });
     }
@@ -3826,7 +3839,18 @@
     function renderTechnical(integrations) {
       var c = document.getElementById('techContent');
       if (!c) return;
-      var html = '<div style="margin-bottom:14px"><h2 style="font-size:16px;font-weight:700">Technical</h2></div>';
+      // The timestamp is not decoration. These are point-in-time probe results
+      // held in memory, so without it a card read minutes after a change looks
+      // identical to one read the instant it was checked.
+      var checkedLabel = techCheckedAt
+        ? ('Checked ' + techCheckedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+        : 'Not yet checked';
+      var html = '<div style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">'
+        + '<h2 style="font-size:16px;font-weight:700">Technical</h2>'
+        + '<div style="display:flex;align-items:center;gap:10px">'
+        + '<span style="font-size:12px;opacity:0.7">' + esc(checkedLabel) + '</span>'
+        + '<button type="button" onclick="refreshTechnical()" style="font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.18);background:transparent;color:inherit;cursor:pointer">Re-run checks</button>'
+        + '</div></div>';
       html += '<div class="ceo-tech-cards" style="margin-bottom:14px"><div class="ceo-tech-card" id="gmailWatchCard" style="grid-column:1/-1"><div class="ceo-tech-detail">Loading Gmail watch status…</div></div></div>';
       if (!integrations.length) {
         html += '<div class="drilldown-empty">No integrations reported.</div>';

@@ -63,3 +63,27 @@ describe('Google Calendar appears on the CEO integrations dashboard', function (
     expect(serverSrc).toMatch(/isGoogleCalendarConfigured\(\) \? pingWithTimeout/);
   });
 });
+
+// Owner hit this on 2026-07-29 while verifying the Google Calendar connection:
+// created a calendar event, returned to the Technical tab, and read
+// "busy blocks next 24h: 0" — the CACHED result from before the event existed,
+// which reads as "still broken". A health panel that can silently serve a
+// stale verdict is worse than no panel, because it is trusted.
+describe('Technical tab cannot silently show a stale health verdict', function () {
+  const fs = require('fs');
+  const path = require('path');
+  const dash = fs.readFileSync(path.join(__dirname, '..', 'pages', 'ceo-dashboard.html'), 'utf8');
+
+  it('exposes a re-run control that bypasses the in-memory cache', function () {
+    expect(dash).toContain('function refreshTechnical()');
+    expect(dash).toContain('onclick="refreshTechnical()"');
+    // Must actually clear the cache, not just re-render it.
+    expect(dash).toMatch(/function refreshTechnical\(\)\s*\{[\s\S]*?techCache = null;[\s\S]*?loadTechnical\(\);/);
+  });
+
+  it('stamps when the checks last ran, so age is visible', function () {
+    expect(dash).toContain('techCheckedAt');
+    expect(dash).toContain('Not yet checked');
+    expect(dash).toMatch(/techCheckedAt = new Date\(\);/);
+  });
+});
