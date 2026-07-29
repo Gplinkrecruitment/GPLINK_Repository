@@ -39586,6 +39586,41 @@ async function handleApi(req, res, pathname) {
       }).catch(function () {});
     }
 
+    // ...and the pipeline stage follows that same signal (owner decision
+    // 2026-07-30). 'reviewing' was the one lane nothing ever reached on its
+    // own: the forward flow ran submitted -> interview, so the only ways in
+    // were a manual drag or an offer being withdrawn — and the doctor-facing
+    // copy for it ("The practice is reviewing your profile now") had never
+    // been shown to anyone. This IS the moment it becomes true.
+    //
+    // Forward-only by rank via planAtsStageReconciliation, so a card already at
+    // interview/offer/hired — including a practice re-opening this page after
+    // accepting — is never dragged back, and terminal lanes never move.
+    // Idempotent: once the card is in 'reviewing' the reconciliation returns
+    // null, so re-opens write nothing (no repeated stage events).
+    //
+    // AWAITED, unlike the stamp above, and deliberately: the accept button
+    // lives on this very page, so a fire-and-forget write could land AFTER the
+    // accept and undo it. The rank guard would catch that anyway — awaiting
+    // means we are not relying on the guard to save us from our own race.
+    //
+    // Runs outside the first-open guard so it also works in local-JSON dev mode
+    // (where practice_opened_at is never stamped) and self-heals a card that
+    // was submitted after an earlier open.
+    //
+    // Deliberately silent to the doctor: 'reviewing' is not in
+    // ATS_GP_NOTIFY_STAGES, so their screen updates on next load but no push or
+    // email fires. A practice merely opening a page is not a milestone worth
+    // waking someone up for, and it must not read as a decision.
+    const practiceOpenStage = atsPracticeUtil.planAtsStageReconciliation(appRow.ats_stage || '', 'reviewing');
+    if (practiceOpenStage) {
+      try {
+        await atsUpdateApplicationStageRow(appRow.id, practiceOpenStage, undefined, 'practice_opened');
+      } catch (openStageErr) {
+        console.warn('[practice open] stage move failed (ignored):', openStageErr && openStageErr.message);
+      }
+    }
+
     // Read-only: resolve labels + interview state, but never create anything.
     const ctx = await atsGetApplicationContext(appRow.id);
     const roleTitle = await careerRoleTitleForApplication(ctx && ctx.careerRoleId);
@@ -69745,6 +69780,7 @@ module.exports.__testUtils = {
   acceptShortlistedMatchRow,
   careerRowIsPendingMatch,
   careerRowIsOwnApplicationAwaitingPractice,
+  ATS_GP_NOTIFY_STAGES,
   buildInternalCareerStatusPresentation,
   countApplicationsInLast24h,
   flagApplicationVelocity,

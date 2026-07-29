@@ -262,7 +262,11 @@ afterAll(async () => {
 });
 
 describe('GET /api/practice/application/decision-context', () => {
-  it('returns candidate summary and never mutates', async () => {
+  it('returns the candidate summary and records no DECISION (the stage moves; nothing is decided)', async () => {
+    // Was "never mutates". As of 2026-07-30 opening this page DOES move the
+    // card into Practice Reviewing — that is the whole point of the change.
+    // What must still never happen here is a decision or an interview: reading
+    // a candidate is not accepting one.
     const res = await httpReq('GET', '/api/practice/application/decision-context?token=tok-test-abc123');
     expect(res.status).toBe(200);
     expect(res.body.gpName).toMatch(/Gate|Smith/);
@@ -274,6 +278,45 @@ describe('GET /api/practice/application/decision-context', () => {
     const row = db.gp_applications.find((a) => a.id === 'app-tok-1');
     expect(row.practice_decision).toBeUndefined();
     expect(db.scheduled_calls.length).toBe(0);
+    // The one intended mutation.
+    expect(row.ats_stage).toBe('reviewing');
+  });
+
+  // Owner decision 2026-07-30. 'reviewing' was the only lane nothing ever
+  // reached on its own — the forward flow ran submitted -> interview — so the
+  // doctor-facing copy written for it had never been shown to anyone. The
+  // practice opening this page is the moment "the practice is reviewing your
+  // profile" becomes true, and it is already stamped (practice_opened_at) by
+  // a request only a real browser makes.
+  describe('opening the page moves the card into Practice Reviewing', () => {
+    it('is idempotent — re-opening writes no second stage event', async () => {
+      const before = (db.ats_stage_events || []).filter((e) => e.application_id === 'app-tok-1').length;
+      await httpReq('GET', '/api/practice/application/decision-context?token=tok-test-abc123');
+      const row = db.gp_applications.find((a) => a.id === 'app-tok-1');
+      expect(row.ats_stage).toBe('reviewing');
+      expect((db.ats_stage_events || []).filter((e) => e.application_id === 'app-tok-1').length).toBe(before);
+    });
+
+    it('never drags a card BACKWARDS out of a later lane', async () => {
+      // The accept button is on this same page, so a practice that accepts and
+      // then reopens must not be pulled back from interview/offer to reviewing.
+      const res = await httpReq('GET', '/api/practice/application/decision-context?token=tok-test-forward9');
+      expect(res.status).toBe(200);
+      expect(db.gp_applications.find((a) => a.id === 'app-tok-9').ats_stage).toBe('offer');
+    });
+
+    it('never moves a terminal card', async () => {
+      const res = await httpReq('GET', '/api/practice/application/decision-context?token=tok-test-secured8');
+      expect(res.status).toBe(200);
+      expect(db.gp_applications.find((a) => a.id === 'app-tok-8').ats_stage).toBe('hired');
+    });
+
+    it('stays silent to the doctor — this is not a milestone', async () => {
+      // 'reviewing' is deliberately absent from ATS_GP_NOTIFY_STAGES: a practice
+      // opening a page must not push a notification that reads like a decision.
+      const { ATS_GP_NOTIFY_STAGES } = (await import('../server.js')).__testUtils;
+      expect(ATS_GP_NOTIFY_STAGES).not.toContain('reviewing');
+    });
   });
 
   it('404s on a bad token', async () => {

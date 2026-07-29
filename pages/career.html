@@ -8984,6 +8984,13 @@
       if (key === "interview_completed") {
         return { label: "Interview done — awaiting the practice's decision", tone: "review", isPlacementSecured: false };
       }
+      // A card the practice has actually opened. Reachable from 2026-07-30, so
+      // it needs a real label here: the startCase fallback below would render a
+      // bare "Reviewing", and this local fallback must agree with the server's
+      // "The practice is reviewing your profile" rather than contradict it.
+      if (key === "reviewing") {
+        return { label: "The practice is reviewing your profile", tone: "review", isPlacementSecured: false };
+      }
       if (["offer", "offer_pending", "offered"].includes(key)) {
         return { label: "Offer Pending", tone: "offer", isPlacementSecured: false };
       }
@@ -9042,6 +9049,12 @@
       if (["interview", "interview_scheduled", "shortlisted"].includes(key)) return "Confirm your interview time";
       if (key === "interview_completed") return "Awaiting the practice's decision";
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "—";
+      // Once the profile has left us, "GP Link screening" is simply untrue —
+      // the ball is with the practice. 'reviewing' became reachable on
+      // 2026-07-30 (the practice opening the decision page moves the card
+      // there); 'submitted' was always reachable and was always wrong here.
+      if (key === "submitted") return "Practice review";
+      if (key === "reviewing") return "The practice's decision";
       return "GP Link screening";
     }
 
@@ -12597,6 +12610,12 @@
       // stage" of the pipeline, just awaiting the practice's decision now.
       else if (isInterview || isInterviewDone) ribbon = '<span class="at-rstatus at-rstatus--offer">INTERVIEW</span>';
       else if (isSubmittedToPractice) ribbon = '<span class="at-rstatus at-rstatus--applied">SUBMITTED</span>';
+      // 'reviewing' needs its own ribbon now that a card actually reaches it
+      // (the practice opening the decision page moves it there — 2026-07-30).
+      // Without this it fell to the generic "UNDER REVIEW" below, so the doctor
+      // watched their application go SUBMITTED -> UNDER REVIEW and read it as a
+      // step BACKWARDS, when it is the opposite: the practice now has it open.
+      else if (isPracticeReviewing) ribbon = '<span class="at-rstatus at-rstatus--applied">WITH PRACTICE</span>';
       else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
 
       let metaLine = "";

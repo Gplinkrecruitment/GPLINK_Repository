@@ -41,6 +41,15 @@ Doctor accepts → status + ats_stage 'applied', match_outcome 'accepted'
 Doctor declines → ats_stage 'not_proceeding', match_outcome 'declined'
 
 Staff submit → 'submitted_to_practice', practice gets the intro email
+Practice OPENS the decision page → ats_stage 'reviewing'   ← new 2026-07-30
+  → stamped off the same first-open signal as practice_opened_at, which only a
+    real browser running that page's JS can trigger (the emailed link points at
+    the static .html; scanners fetch that, not the JSON API)
+  → forward-only by rank, so a re-open after accepting never drags it back, and
+    terminal lanes never move. Idempotent — a second open writes nothing.
+  → SILENT to the doctor ('reviewing' is not in ATS_GP_NOTIFY_STAGES): their
+    screen says "The practice is reviewing your profile" on next load, but no
+    push or email. A practice opening a page must not read as a decision.
 Practice accepts → ats_stage 'interview'  ← NOT 'offer'
 Practice turns down → application CLOSES, doctor emailed, practice hidden (§4)
 
@@ -87,6 +96,22 @@ on 2026-07-28. **Do not "restore" them without asking.**
   unannounced"). Now it closes the application, emails the doctor ("gone with
   another candidate"), and hides that practice from their careers page.
   ⚠️ **RSOs should know the doctor may now hear before they do.**
+- **'reviewing' is now a lane cards actually reach (2026-07-30, owner call).**
+  Before this it was unreachable by any forward path — submitted went straight
+  to interview — so the only ways in were a manual drag or an offer being
+  withdrawn, and the doctor-facing copy written for it had never been shown to
+  a single person. Three doctor-facing things were fixed at the same time,
+  because the stage becoming reachable is what exposed them: the careers ribbon
+  fell through to the generic "UNDER REVIEW" (so SUBMITTED → UNDER REVIEW read
+  as going *backwards*; it is now "WITH PRACTICE"); "Next step" said "GP Link
+  screening" for a profile the practice already had (also wrong for
+  `submitted`, which was always reachable — fixed too); and the local fallback
+  label rendered a bare startCase "Reviewing".
+  ⚠️ There is also a **dead rule** left in `deriveAtsStage`: it maps
+  `practice_submission_status === 'client_reviewed'` to `'reviewing'`, but
+  nothing in the codebase ever writes `client_reviewed`. The only values
+  written are `pending_va_submission`, `submitted_to_practice`,
+  `client_approved`, `client_rejected`. Do not assume that branch is live.
 - **Practice hidden after a turn-down.** Keyed on `practice_id` where present —
   so a corporate group's *whole estate* hides together, which is intended (the
   group said no). Falls back to `practice_name`. Applied inside
