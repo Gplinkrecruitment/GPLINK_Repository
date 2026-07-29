@@ -741,6 +741,29 @@ describe('GET /api/career/role — website + match for a matched GP', () => {
     expect(res.headers['cache-control']).toContain('max-age=60');
   });
 
+  // Owner request 2026-07-30 — the direct applicant's half of the same idea.
+  // Booted end-to-end rather than source-matched, because the value of
+  // `role.applied` is that it comes from the SERVER: it is what lets the
+  // applied state show on a device that never saw the apply.
+  it('a doctor with a live application of their own gets role.applied', async () => {
+    const res = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_role_a'), { cookie: userCookie(REVEALED_NO_MATCH_GP.email, REVEALED_NO_MATCH_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.role.applied).toBe(true);
+    expect(res.body.role.match).toBeUndefined();
+  });
+
+  it('a live match outranks it, and a terminal row does not get it at all', async () => {
+    // Two banners can never race: the match blocks win where both could apply.
+    const matched = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_role_a'), { cookie: userCookie(MATCHED_GP.email, MATCHED_GP.userId) });
+    expect(matched.body.role.match).toBeTruthy();
+    expect(matched.body.role.applied).toBeUndefined();
+
+    // Declined/not_proceeding is not "waiting on us" — telling this doctor
+    // their application is with their RSO would be a plain untruth.
+    const declined = await httpReq('GET', '/api/career/role?id=' + encodeURIComponent('internal_ats:ats_role_a'), { cookie: userCookie(REOPEN_GP.email, REOPEN_GP.userId) });
+    expect(declined.body.role.applied).toBeUndefined();
+  });
+
   it('job.html refuses to serve a cached role detail that carries match state', () => {
     const src = fs.readFileSync(path.join(ROOT, 'pages', 'job.html'), 'utf8');
     const readFn = src.slice(src.indexOf('function readCachedRoleDetail'), src.indexOf('function writeCachedRoleDetail'));
