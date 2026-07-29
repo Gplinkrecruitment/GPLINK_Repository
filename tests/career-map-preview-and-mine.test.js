@@ -30,6 +30,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const career = fs.readFileSync(path.join(ROOT, 'pages', 'career.html'), 'utf8');
+const siteJobs = fs.readFileSync(path.join(ROOT, 'pages', 'site-jobs.html'), 'utf8');
 
 const cmapWrapRule = (career.match(/\.cmap-wrap\{[^}]*\}/) || [''])[0];
 const cmapDetailRule = (career.match(/\.cmap-detail\{[^}]*\}/) || [''])[0];
@@ -68,6 +69,26 @@ describe('career map: the pin preview card can never be clipped away', () => {
 
   it('.cmap-stage is the positioning context for the desktop card', () => {
     expect(career).toMatch(/\.cmap-stage\{position:relative;\}/);
+  });
+});
+
+// The public /jobs map was built from the same pattern and carried the same
+// latent defect: .jobs-finder-band had the clip/visible pair and .pmap-detail
+// parked at translateX(103%), so on iOS the pin tap opened a card nobody saw.
+describe('public /jobs map: the same clipping trap must not come back', () => {
+  const bandRule = (siteJobs.match(/\.jobs-finder-band\{[^}]*\}/) || [''])[0];
+  const detailRule = (siteJobs.match(/\.pmap-detail\{[^}]*\}/) || [''])[0];
+
+  it('.jobs-finder-band does not mix overflow-x:clip with overflow-y:visible', () => {
+    expect(bandRule).toBeTruthy();
+    expect(bandRule).not.toMatch(/overflow-x:\s*clip/);
+    expect(bandRule).toMatch(/overflow:\s*visible/);
+  });
+
+  it('the closed card does not park off to the right', () => {
+    expect(detailRule).toBeTruthy();
+    expect(detailRule).not.toMatch(/translateX\(10\d%\)/);
+    expect(detailRule).toMatch(/visibility:\s*hidden/);
   });
 });
 
