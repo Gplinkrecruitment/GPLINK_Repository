@@ -12,14 +12,17 @@ When you click **Book interview** on a candidate's application in the Jobs board
 
 ## Setup Step 1 — Connect your Google Calendar (the main step)
 
-> ✅ **Done 2026-07-29 — the calendar is connected.** It had never been done
-> until then (a live interview row was carrying the `gcal_local_1` placeholder
-> the app writes when no calendar is configured). Confirmed via the CEO
-> dashboard → Technical → *Google Calendar (interview clashes)* card:
-> `CONNECTED`, `interview clash protection: active`, `ping ok: Yes`.
-> That card is now the way to check this at any time. The click-by-click record
-> of what was configured is in
-> [`connect-google-calendar-walkthrough.md`](connect-google-calendar-walkthrough.md).
+> ⚠️ **Correction 2026-07-29.** This was briefly recorded here as done and
+> working. It was not. The Technical card read CONNECTED because the
+> freebusy call returns HTTP 200 with Google's error *inside the body* —
+> the Calendar API had never been enabled in the Cloud project — and the
+> code read the resulting empty busy list as "the diary is free".
+> Clash protection was entirely off while every indicator was green.
+> Enabling the API is now **Part 1** of
+> [`connect-google-calendar-walkthrough.md`](connect-google-calendar-walkthrough.md),
+> and the card fails loudly instead of reporting zero. The only reading
+> that proves the chain is `busy blocks next 24h` going non-zero against
+> an event you can see in your calendar.
 > The summary below stays as the "why".
 
 Your Google Calendar is the single source of truth for your time. It works in both directions: when we work out interview slots, we read your calendar so we never offer a time that clashes with a consultation already in your diary. When an interview is booked, we write it into your calendar so Calendly sees that time as busy and cannot let a consultation be booked over it. You need to do three things:
