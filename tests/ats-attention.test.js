@@ -464,7 +464,17 @@ describe('GET /api/ats/waiting-on-practice + reminders', () => {
       // Practice turned it down but the card wasn't tidied → shows as "declined"
       { id: 'app-wait-declined', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'review', ats_stage: 'submitted', applied_at: NOW, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: NOW, practice_decision: 'turned_down', practice_decision_reason: 'not right now', practice_contact_email: 'contact@seaside.example', practice_action_token: 'wait-tok-2' },
       // Approved → advanced to interview → must NOT appear in the tracker
-      { id: 'app-wait-approved', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'interview', ats_stage: 'interview', applied_at: NOW, practice_submission_status: 'client_approved', practice_decision: 'approved', submitted_to_practice_at: NOW }
+      { id: 'app-wait-approved', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'interview', ats_stage: 'interview', applied_at: NOW, practice_submission_status: 'client_approved', practice_decision: 'approved', submitted_to_practice_at: NOW },
+      // ── Regression rows (2026-07-31) ──────────────────────────────────────
+      // Nothing clears practice_submission_status when a candidate drops out,
+      // so both of these still read 'submitted_to_practice' with no decision.
+      // The tracker used to test ONLY those two fields, so both sat in the CEO's
+      // queue forever with the days-waiting counter climbing.
+      //
+      // The doctor withdrew the day after being submitted.
+      { id: 'app-wait-withdrawn', user_id: WAIT.userId, career_role_id: 'role-wait', provider_role_id: 'ats_wait1', status: 'withdrawn', ats_stage: 'not_proceeding', applied_at: EIGHT_DAYS_AGO, withdrawn_at: EIGHT_DAYS_AGO, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: EIGHT_DAYS_AGO, practice_contact_email: 'contact@seaside.example', practice_action_token: null },
+      // The opening was filled by someone else; the fan-out detached the role.
+      { id: 'app-wait-filled', user_id: WAIT.userId, career_role_id: null, provider_role_id: 'ats_wait1', status: 'review', ats_stage: 'not_proceeding', match_outcome: 'position_filled', applied_at: EIGHT_DAYS_AGO, practice_submission_status: 'submitted_to_practice', submitted_to_practice_at: EIGHT_DAYS_AGO, practice_contact_email: 'contact@seaside.example', practice_action_token: 'wait-tok-filled' }
     );
   });
 
@@ -497,6 +507,45 @@ describe('GET /api/ats/waiting-on-practice + reminders', () => {
     const r = await atsGet('/api/ats/attention');
     expect(r.body.waiting_on_practice).toBeGreaterThanOrEqual(1);
     expect(r.body.waiting_chase).toBeGreaterThanOrEqual(1);
+  });
+
+  // A candidate is only "waiting on the practice" while they are still in the
+  // running. practice_submission_status is never cleared when someone drops
+  // out, so these two rows look identical to a live one on those fields alone.
+  it('excludes a candidate who withdrew after being submitted', async () => {
+    const r = await atsGet('/api/ats/waiting-on-practice');
+    const ids = (r.body.applications || []).map((a) => a.id);
+    expect(ids).not.toContain('app-wait-withdrawn');
+  });
+
+  it('excludes a candidate whose position was filled by someone else', async () => {
+    const r = await atsGet('/api/ats/waiting-on-practice');
+    const ids = (r.body.applications || []).map((a) => a.id);
+    expect(ids).not.toContain('app-wait-filled');
+  });
+
+  // The tile and the list behind it must never disagree — a badge that says 2
+  // over a list of 0 is the bug the owner actually reported.
+  it('the tile count matches the awaiting rows the tracker actually lists', async () => {
+    const [tile, list] = await Promise.all([atsGet('/api/ats/attention'), atsGet('/api/ats/waiting-on-practice')]);
+    const awaiting = (list.body.applications || []).filter((a) => a.status !== 'declined');
+    expect(tile.body.waiting_on_practice).toBe(awaiting.length);
+  });
+
+  it('refuses to nudge the practice about a candidate who withdrew (409)', async () => {
+    const before = resendCalls.length;
+    const r = await httpReq('POST', '/api/ats/application/remind-practice', { host: SUPER_HOST, cookie: superCookie(), body: { applicationId: 'app-wait-withdrawn' } });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('not_awaiting_practice');
+    // and crucially, no email left the building
+    expect(resendCalls.length).toBe(before);
+  });
+
+  it('refuses to nudge the practice about a filled position, even with a live token (409)', async () => {
+    const before = resendCalls.length;
+    const r = await httpReq('POST', '/api/ats/application/remind-practice', { host: SUPER_HOST, cookie: superCookie(), body: { applicationId: 'app-wait-filled' } });
+    expect(r.status).toBe(409);
+    expect(resendCalls.length).toBe(before);
   });
 
   it('POST /api/ats/application/remind-practice emails the practice and bumps the count', async () => {

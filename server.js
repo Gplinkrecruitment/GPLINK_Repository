@@ -30524,6 +30524,40 @@ function atsIsRejectedApp(a) {
   var stat = String((a && a.status) || '').toLowerCase();
   return st === 'not_proceeding' || stat.indexOf('reject') !== -1 || stat.indexOf('withdraw') !== -1;
 }
+// "Waiting on practice" needs BOTH halves to be true: the practice hasn't
+// accepted or declined yet, AND the candidate is still actually in the running
+// for that opening. Only the first half was ever checked, and because NOTHING
+// clears practice_submission_status when a candidate drops out, terminal rows
+// never left the tracker — they just kept ageing.
+//
+// Seen live 2026-07-31 on the two rows the tile was counting: a doctor who
+// withdrew the day after being submitted still read "11 days waiting", and a
+// doctor whose opening had been filled by someone else read "24 days waiting"
+// against a role that had already been detached from his application (which is
+// why that row rendered with no practice name and no location).
+//
+// The day-3/5/7 reminder cron was never fooled — it selects
+// ats_stage=in.(submitted,reviewing), i.e. it already had the liveness check
+// this predicate is restoring — so no practice was ever chased about a
+// withdrawn candidate. The damage was confined to the CEO's own view: phantom
+// work in the queue and a day-7 "chase personally" banner crying wolf.
+function atsApplicationAwaitsPracticeDecision(a) {
+  if (!a) return false;
+  if (normalizeCareerPracticeSubmissionStatus(a.practice_submission_status) !== 'submitted_to_practice') return false;
+  if (a.practice_decision) return false;
+  // Withdrawal stamps status='withdrawn' + withdrawn_at and drops the kanban
+  // card to 'not_proceeding'; the on-hire fan-out stamps
+  // match_outcome='position_filled'. Each is checked on its own rather than
+  // trusting one to imply the others — they are written by different handlers.
+  if (a.withdrawn_at) return false;
+  if (a.match_outcome === 'position_filled') return false;
+  var st = String(a.ats_stage || '');
+  if (st === 'not_proceeding' || st === 'hired') return false;
+  var stat = normalizeCareerApplicationStatusKey(a.status);
+  if (stat === 'withdrawn' || stat === 'not_proceeding' || stat === 'rejected') return false;
+  if (isCareerPlacementSecuredStatus(stat)) return false;
+  return true;
+}
 // Contact/location from a career_roles row's Zoho source_payload (mirrors the Medical Centres view).
 function atsPracticeContactFromJob(job) {
   var sp = (job && job.source_payload && typeof job.source_payload === 'object') ? job.source_payload : {};
@@ -68304,9 +68338,11 @@ Return ONLY valid JSON with no markdown formatting:
           var atWhen = a.applied_at || a.created_at || '';
           if (atWhen && String(atWhen) >= atSevenDaysAgoIso) atNewApps++;
         }
-        // Waiting on practice: submitted, no accept/decline yet. "Chase" = day 7+.
-        var atSub = normalizeCareerPracticeSubmissionStatus(a.practice_submission_status);
-        if (atSub === 'submitted_to_practice' && !a.practice_decision) {
+        // Waiting on practice: submitted, no accept/decline yet, candidate still
+        // in the running. "Chase" = day 7+. The liveness half of that test lives
+        // in atsApplicationAwaitsPracticeDecision — this tile and the tracker
+        // list behind it MUST share it, or the badge disagrees with the rows.
+        if (atsApplicationAwaitsPracticeDecision(a)) {
           atWaiting++;
           var atSubAt = a.submitted_to_practice_at || '';
           var atDays = atSubAt ? Math.floor((Date.now() - new Date(atSubAt).getTime()) / 86400000) : 0;
@@ -68427,8 +68463,7 @@ Return ONLY valid JSON with no markdown formatting:
     var wpAll = await atsListApplicationRows({});
     var wpRows = (wpAll || []).filter(function (a) {
       if (!a) return false;
-      var sub = normalizeCareerPracticeSubmissionStatus(a.practice_submission_status);
-      if (sub === 'submitted_to_practice' && !a.practice_decision) return true;                                  // awaiting / reviewing
+      if (atsApplicationAwaitsPracticeDecision(a)) return true;                                                  // awaiting / reviewing
       if (a.practice_decision === 'turned_down' && ['submitted', 'reviewing'].indexOf(a.ats_stage) !== -1) return true; // declined, not tidied
       return false;
     });
@@ -68493,6 +68528,18 @@ Return ONLY valid JSON with no markdown formatting:
     var rpApp = (rpRes.ok && rpRes.data && rpRes.data[0]) || null;
     if (!rpApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
     if (rpApp.practice_decision) { sendJson(res, 409, { ok: false, message: 'The practice has already responded.' }); return; }
+    // Defence in depth for the button on a page that was loaded before the
+    // candidate dropped out (the staff console is served stale-while-revalidate,
+    // so a stale row CAN outlive the data). Without this, "Nudge now" on a
+    // withdrawn candidate asks the practice to decide on someone who is gone.
+    // It happened to fail closed today only because withdrawal nulls
+    // practice_action_token and the send bails on a missing token — that is an
+    // accident of a different fix, and it surfaces as a misleading "could not
+    // send" 502 rather than an honest explanation.
+    if (!atsApplicationAwaitsPracticeDecision(rpApp)) {
+      sendJson(res, 409, { ok: false, code: 'not_awaiting_practice', message: 'This candidate is no longer waiting on the practice — they withdrew, or the position was filled.' });
+      return;
+    }
     var rpLabels = await atsResolveAppLabels(rpApp);
     var rpSend = await sendPracticeDecisionReminderEmail({ application: rpApp, gpName: rpLabels.gpName, roleLabel: rpLabels.roleLabel, practiceLabel: rpLabels.practiceLabel, practiceEmail: rpApp.practice_contact_email, firmer: (rpApp.practice_reminder_count || 0) >= 1 });
     if (!rpSend || !rpSend.ok) { sendJson(res, 502, { ok: false, message: 'Could not send the reminder to the practice.' }); return; }
