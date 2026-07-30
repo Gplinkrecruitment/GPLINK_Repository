@@ -6749,6 +6749,11 @@ const USER_STATE_KEYS = [
   'gp_amc_progress',
   'gp_ahpra_progress',
   'gp_registration_intro_seen',
+  // First-visit careers explainer (the process + the application rules). Kept
+  // server-side so a doctor who read it on their phone is not shown it again on
+  // their laptop. Paired with the same key in STATE_KEYS in js/state-sync.js —
+  // a key missing from EITHER list is silently dropped instead of syncing.
+  'gp_career_intro_seen',
   'gp_epic_tutorial_seen',
   'gp_amc_tutorial_seen',
   'gp_ahpra_tutorial_seen',
@@ -13749,10 +13754,18 @@ const PUBLIC_STATIC_ROOT_FILES = new Set([
   'apple-touch-icon.png', 'apple-touch-icon-precomposed.png'
 ]);
 
+// Design-reference pages: real, useful, and deliberately NOT part of the
+// product. They render the app's own components against fixtures so a change to
+// a component shows up in the reference immediately. Served locally, 404 in
+// production — a stray public "here are all our card states" URL is untidy at
+// best, and these pages exist for building, not for doctors.
+const DEV_ONLY_PAGES = new Set(['pages/career-card-states.html']);
+
 function isPubliclyServablePath(filePath) {
   const rel = path.relative(process.cwd(), filePath);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
   const segments = rel.split(path.sep);
+  if (DEV_ONLY_PAGES.has(segments.join('/')) && process.env.NODE_ENV === 'production') return false;
   if (segments.length === 1) return PUBLIC_STATIC_ROOT_FILES.has(segments[0]);
   return PUBLIC_STATIC_DIRS.has(segments[0]);
 }
@@ -32349,18 +32362,45 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
 // visible to module.exports.__testUtils at the bottom of the file, same
 // scoping lesson Task 4 already learned the hard way.
 
-// Active-application cap: a GP may have at most 3 applications "in play" at
-// once (a live team match awaiting response, applied, submitted to the
-// practice, reviewing, or a booked interview) — a 4th NEW application is
-// blocked so the team isn't juggling a doctor's attention across too many
-// practices simultaneously. Terminal stages (offer/hired/not_proceeding)
-// never count. Mirrors the same "effective stage" computation used
-// everywhere else in this file for a gp_applications row (raw ats_stage
-// column when set, else derived from the legacy status fields) so an
-// ordinary self-applied row with no ats_stage value still counts as
-// 'applied' rather than silently escaping the cap.
-var ACTIVE_APPLICATION_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];
-var ACTIVE_APPLICATION_CAP = 3;
+// Active-application cap — the owner rule, stated plainly: a doctor may have
+// at most TWO live applications at once. To start a third they must withdraw
+// one of the two they already have first. "Live" means applied, submitted to
+// the practice, reviewing, or a booked interview; terminal stages
+// (offer/hired/not_proceeding) never count, and a withdrawn row stops
+// counting the moment it is withdrawn (it lands in not_proceeding).
+//
+// 'shortlisted' is DELIBERATELY absent from this list. An unanswered team
+// match is not an application the doctor has made — the exact distinction
+// this file already draws in careerRowIsPendingMatch below — and with a cap
+// of 2, a doctor sitting on a pair of pending matches they have not even
+// looked at yet would otherwise be locked out of applying to anything at all.
+// The match only starts consuming a slot once they accept it (which is where
+// the cap is enforced for the accept paths too — see
+// careerApplicationCapBlock).
+//
+// Mirrors the same "effective stage" computation used everywhere else in this
+// file for a gp_applications row (raw ats_stage column when set, else derived
+// from the legacy status fields) so an ordinary self-applied row with no
+// ats_stage value still counts as 'applied' rather than silently escaping the
+// cap.
+var ACTIVE_APPLICATION_STAGES = ['applied', 'submitted', 'reviewing', 'interview'];
+var ACTIVE_APPLICATION_CAP = 2;
+
+// Monthly application cap (owner rule): at most 3 applications STARTED per
+// calendar month, counted alongside — not instead of — the active cap above.
+// The two answer different questions: the active cap is "how many practices
+// is this doctor juggling right now", the monthly cap is "how many did they
+// start this month".
+var MONTHLY_APPLICATION_CAP = 3;
+
+// The exact wording the doctor sees when a cap blocks them. Kept as constants
+// so the three call sites of careerApplicationCapBlock (apply, self-apply-as-
+// accept, match accept) can never drift into three slightly different
+// sentences. The 'match' variants say "accept this match" instead of "apply
+// for this position" — the doctor is answering a match there, not clicking
+// apply, and copy that says otherwise reads like a bug to them.
+var ACTIVE_CAP_MESSAGE_APPLY = 'You already have 2 live applications. To apply for this position, withdraw one of your current applications first.';
+var ACTIVE_CAP_MESSAGE_MATCH = 'You already have 2 live applications. To accept this match, withdraw one of your current applications first.';
 
 // Withdraw-reason vocabulary for PATCH /api/ats/application's optional
 // `reason` on a move to not_proceeding — must stay in lockstep with the
@@ -32399,6 +32439,55 @@ async function countActiveApplications(userId) {
   }).length;
 }
 
+// The same rows countActiveApplications counts, but returned rather than
+// tallied — GET /api/career/application-usage lists them so the doctor can
+// see WHICH two are holding their slots and pick one to withdraw. Selecting
+// the display columns here (rather than a second query in the endpoint) keeps
+// "what counts" in exactly one place: this function and the counter above
+// share ACTIVE_APPLICATION_STAGES, so the meter and the enforcement can never
+// disagree about which rows are live.
+async function listActiveApplications(userId) {
+  var laaRes = await supabaseDbRequest('gp_applications',
+    'select=id,career_role_id,ats_stage,status,practice_submission_status,applied_at,revealed&user_id=eq.'
+    + encodeURIComponent(userId) + '&limit=500');
+  var laaRows = (laaRes.ok && Array.isArray(laaRes.data)) ? laaRes.data : [];
+  return laaRows.filter(function (row) {
+    var stage = row.ats_stage || atsPracticeUtil.deriveAtsStage(row, false);
+    return ACTIVE_APPLICATION_STAGES.indexOf(stage) !== -1;
+  });
+}
+
+// Monthly application count for the given UTC calendar month, modelled on
+// countMonthlyCareerInterviews above: the single place both the meter (GET
+// /api/career/application-usage) and the enforcement (careerApplicationCapBlock)
+// read from, so they can never disagree.
+//
+// applied_at is the window column because gp_applications has no created_at
+// (see the long note on careerRowIsPendingMatch below).
+//
+// Two deliberate counting rules:
+//  1. Rows still sitting at an UNANSWERED match (careerRowIsPendingMatch) are
+//     filtered OUT. A shortlist INSERT fires the applied_at DEFAULT, so such a
+//     row carries an "applied" timestamp for something the doctor has not
+//     answered yet — counting it would spend their monthly quota on an
+//     application they never made. Accepting the match restamps applied_at
+//     (acceptShortlistedMatchRow), which is when it starts counting.
+//  2. WITHDRAWN rows DO still count. Withdrawing frees a LIVE slot (the active
+//     cap above) but does not refund the month's quota — otherwise the monthly
+//     rule could be bypassed entirely by applying, withdrawing, and reapplying
+//     as many times as you like within the same month.
+async function countMonthlyApplications(userId, monthStart, monthEnd) {
+  var startIso = monthStart.toISOString();
+  var endIso = monthEnd.toISOString();
+  var cmaRes = await supabaseDbRequest('gp_applications',
+    'select=id,ats_stage,status,match_outcome,applied_at&user_id=eq.' + encodeURIComponent(userId) +
+    '&applied_at=gte.' + encodeURIComponent(startIso) +
+    '&applied_at=lt.' + encodeURIComponent(endIso) +
+    '&limit=500');
+  var cmaRows = (cmaRes.ok && Array.isArray(cmaRes.data)) ? cmaRes.data : [];
+  return cmaRows.filter(function (row) { return !careerRowIsPendingMatch(row); }).length;
+}
+
 // Interview cap: 3 interviews per calendar month, counted the SAME way GET
 // /api/career/my-interviews merges the two interview stores (a review of
 // Task 4's original GET /api/career/interview-usage found it counted ONLY
@@ -32411,13 +32500,19 @@ async function countActiveApplications(userId) {
 // /api/career/interview-usage) and the two booking endpoints' enforcement
 // read from, so they can never disagree.
 var INTERVIEW_MONTHLY_CAP = 3;
-function currentInterviewMonthWindow(nowDate) {
+// The UTC calendar-month window BOTH monthly career caps use (interviews and,
+// since the 2026-07-31 owner rules, applications) — renamed off the
+// interview-only name it was born with. `currentInterviewMonthWindow` stays as
+// an alias so the existing interview call sites and their test pins keep
+// working unchanged.
+function currentCareerMonthWindow(nowDate) {
   var now = nowDate || new Date();
   return {
     start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0)),
     end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0))
   };
 }
+var currentInterviewMonthWindow = currentCareerMonthWindow;
 async function countMonthlyCareerInterviews(userId, monthStart, monthEnd) {
   var startIso = monthStart.toISOString();
   var endIso = monthEnd.toISOString();
@@ -32495,6 +32590,66 @@ function careerRowIsPendingMatch(row) {
   var pmStage = String(row.ats_stage || '').trim().toLowerCase();
   var pmStatus = String(row.status || '').trim().toLowerCase();
   return pmStage === 'shortlisted' || pmStatus === 'shortlisted';
+}
+
+// THE cap gate. There are three places a doctor can start an application —
+// POST /api/career/apply (new apply), the self-apply-as-accept branch of that
+// same endpoint, and POST /api/career/match/respond action:'accept' — and all
+// three call this one function so the rules cannot drift apart between them.
+//
+// Returns null when the doctor may start another application, or {status, body}
+// for the caller to send when a cap blocks them. Deliberately returns rather
+// than responds: the call sites own their own sendJson (and the accept sites
+// must block BEFORE any write happens).
+//
+// ACTIVE is checked first, then MONTHLY: "withdraw one to make room" is
+// actionable advice the doctor can act on immediately, so it should not be
+// hidden behind "wait until next month" when both happen to be true.
+//
+// options.context: 'match' swaps the active-cap copy for the accept wording
+// (see ACTIVE_CAP_MESSAGE_MATCH). The monthly message is identical either way
+// — "you have applied for 3 positions this month" is true however the third
+// one started.
+async function careerApplicationCapBlock(userId, options) {
+  var capOpts = options || {};
+  var capIsMatch = capOpts.context === 'match';
+
+  var activeUsed = await countActiveApplications(userId);
+  if (activeUsed >= ACTIVE_APPLICATION_CAP) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: 'active_cap',
+        activeUsed: activeUsed,
+        activeLimit: ACTIVE_APPLICATION_CAP,
+        message: capIsMatch ? ACTIVE_CAP_MESSAGE_MATCH : ACTIVE_CAP_MESSAGE_APPLY
+      }
+    };
+  }
+
+  var capWindow = currentCareerMonthWindow(new Date());
+  var monthlyUsed = await countMonthlyApplications(userId, capWindow.start, capWindow.end);
+  if (monthlyUsed >= MONTHLY_APPLICATION_CAP) {
+    // The reset date is the first instant of NEXT month, printed in en-AU
+    // day-then-month form ("1 August"). timeZone:'UTC' because the window
+    // itself is UTC — formatting it in the server's local zone could print
+    // "31 July" for a boundary that is really 1 August.
+    var resetsLabel = capWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: 'monthly_cap',
+        monthlyUsed: monthlyUsed,
+        monthlyLimit: MONTHLY_APPLICATION_CAP,
+        resetsAt: capWindow.end.toISOString(),
+        message: 'You have applied for ' + MONTHLY_APPLICATION_CAP + ' positions this month, which is the monthly limit. Your limit resets on ' + resetsLabel + '.'
+      }
+    };
+  }
+
+  return null;
 }
 
 // Velocity flag: 5+ NEW self-applies in the last 24h is a "burst-clicking,
@@ -43133,8 +43288,23 @@ async function handleApi(req, res, pathname) {
           }
           return;
         }
-        // Self-apply-as-accept: NOT a new application — no active-application
-        // cap, no rate limiter (both apply to new applies only, below).
+        // Self-apply-as-accept. The application caps DO bind here (owner rule,
+        // 2026-07-31): "at most 2 live applications" is about how many
+        // practices this doctor is juggling at once, which is the same number
+        // whether the application began as a self-apply or as a team match
+        // they accepted. So the cap gate runs BEFORE any write — the same
+        // shared careerApplicationCapBlock the new-apply path below and
+        // /api/career/match/respond's accept both use, in 'match' context so
+        // the copy reads "to accept this match" rather than "to apply".
+        //
+        // The RATE LIMITER is still skipped on this branch — that one is about
+        // burst-clicking new applies, and answering a match you were sent is
+        // not that.
+        const matchCapBlock = await careerApplicationCapBlock(userId, { context: 'match' });
+        if (matchCapBlock) {
+          sendJson(res, matchCapBlock.status, matchCapBlock.body);
+          return;
+        }
         const matchAccept = await acceptShortlistedMatchRow(existingAppRow, userId, email, profile);
         sendJson(res, 200, {
           ok: true, matched: true,
@@ -43159,17 +43329,15 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // AI Matching (Task 7): active-application cap — only reached for a
-    // genuinely NEW application (no existing row on this exact role at all;
-    // accepting a match above already returned). 4th active application →
-    // blocked, per spec §9. (The per-user rate limiter already ran as the
-    // FIRST gate at the top of this handler — review fix.)
-    const activeApplicationCount = await countActiveApplications(userId);
-    if (activeApplicationCount >= ACTIVE_APPLICATION_CAP) {
-      sendJson(res, 409, {
-        ok: false, error: 'active_cap',
-        message: 'You have 3 active applications — focus on those first, or withdraw one.'
-      });
+    // Application caps (active-application cap + monthly application cap) —
+    // only reached for a genuinely NEW application (no existing row on this
+    // exact role at all; accepting a match above already returned). 3rd LIVE
+    // application, or 4th application this calendar month → blocked. Same
+    // shared gate both accept paths use. (The per-user rate limiter already
+    // ran as the FIRST gate at the top of this handler — review fix.)
+    const applyCapBlock = await careerApplicationCapBlock(userId);
+    if (applyCapBlock) {
+      sendJson(res, applyCapBlock.status, applyCapBlock.body);
       return;
     }
 
@@ -43488,6 +43656,113 @@ async function handleApi(req, res, pathname) {
     const iuWindow = currentInterviewMonthWindow(new Date());
     const iuUsed = await countMonthlyCareerInterviews(iuUserId, iuWindow.start, iuWindow.end);
     sendJson(res, 200, { ok: true, used: iuUsed, limit: INTERVIEW_MONTHLY_CAP, resetsAt: iuWindow.end.toISOString() });
+    return;
+  }
+
+  // GET /api/career/application-usage — the application-cap meter, modelled on
+  // /api/career/interview-usage above. Reads the SAME helpers the enforcement
+  // reads (listActiveApplications shares ACTIVE_APPLICATION_STAGES with
+  // countActiveApplications; countMonthlyApplications is literally the
+  // enforcement's own counter), so the number the doctor is shown and the
+  // number that blocks them can never disagree.
+  //
+  // Unlike the interview meter this one also LISTS the live applications: the
+  // block message tells the doctor to withdraw one, so the screen has to be
+  // able to show them which two, with enough detail to tell the roles apart.
+  // Practice identity stays masked unless this specific application has earned
+  // the reveal (canRevealPracticeIdentity) — the meter must not become a
+  // side-channel around the masking every other career surface enforces.
+  if (pathname === '/api/career/application-usage' && req.method === 'GET') {
+    const auSession = requireSession(req, res);
+    if (!auSession) return;
+    const auEmail = getSessionEmail(auSession);
+    if (!auEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const auUserId = getSessionSupabaseUserId(auSession) || await getSupabaseUserIdByEmail(auEmail);
+    if (!auUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const auWindow = currentCareerMonthWindow(new Date());
+    try {
+      const auActiveRows = await listActiveApplications(auUserId);
+      const auMonthlyUsed = await countMonthlyApplications(auUserId, auWindow.start, auWindow.end);
+
+      // Newest first — the doctor reads their most recent application at the
+      // top, same ordering every other career list uses.
+      auActiveRows.sort(function (a, b) {
+        return (Date.parse(b && b.applied_at) || 0) - (Date.parse(a && a.applied_at) || 0);
+      });
+
+      // ONE batched career_roles read for every role on the list (never N+1),
+      // keyed by the collected career_role_ids. A role row that has since been
+      // deleted simply degrades to the masked placeholder below rather than
+      // failing the whole meter.
+      const auRoleIds = [];
+      auActiveRows.forEach(function (row) {
+        const rid = row && row.career_role_id ? String(row.career_role_id) : '';
+        if (rid && auRoleIds.indexOf(rid) === -1) auRoleIds.push(rid);
+      });
+      const auRoleMap = {};
+      if (auRoleIds.length > 0) {
+        const auRolesRes = await supabaseDbRequest('career_roles',
+          'select=id,title,practice_name,suburb,location_city,location_state&id=in.(' + encodeURIComponent(auRoleIds.join(',')) + ')&limit=500');
+        if (auRolesRes.ok && Array.isArray(auRolesRes.data)) {
+          auRolesRes.data.forEach(function (roleRow) { if (roleRow && roleRow.id) auRoleMap[String(roleRow.id)] = roleRow; });
+        }
+      }
+
+      // Reveal checks in PARALLEL — one per listed application, and each one
+      // is itself a DB round-trip, so doing them in sequence would make the
+      // meter's latency a multiple of the list length.
+      const auRevealed = await Promise.all(auActiveRows.map(function (row) {
+        if (!row || !row.career_role_id) return Promise.resolve(false);
+        if (row.revealed === true) return Promise.resolve(true);
+        return canRevealPracticeIdentity(auUserId, row.career_role_id).catch(function () { return false; });
+      }));
+
+      const auApplications = auActiveRows.map(function (row, idx) {
+        const roleRow = auRoleMap[String(row.career_role_id || '')] || null;
+        const isRevealed = auRevealed[idx] === true;
+        const locationParts = [
+          String((roleRow && (roleRow.suburb || roleRow.location_city)) || '').trim(),
+          String((roleRow && roleRow.location_state) || '').trim()
+        ].filter(Boolean);
+        const stage = row.ats_stage || atsPracticeUtil.deriveAtsStage(row, false);
+        return {
+          id: row.id,
+          roleId: row.career_role_id || null,
+          practiceName: (isRevealed && roleRow && roleRow.practice_name) ? String(roleRow.practice_name) : 'Confidential practice',
+          revealed: !!(isRevealed && roleRow && roleRow.practice_name),
+          location: roleRow ? locationParts.join(', ') : '',
+          stage: stage,
+          stageLabel: atsPracticeUtil.ATS_STAGE_LABELS[stage] || '',
+          appliedAt: row.applied_at || null
+        };
+      });
+
+      sendJson(res, 200, {
+        ok: true,
+        active: { used: auApplications.length, limit: ACTIVE_APPLICATION_CAP, applications: auApplications },
+        monthly: { used: auMonthlyUsed, limit: MONTHLY_APPLICATION_CAP, resetsAt: auWindow.end.toISOString() },
+        canApply: auApplications.length < ACTIVE_APPLICATION_CAP && auMonthlyUsed < MONTHLY_APPLICATION_CAP
+      });
+    } catch (auErr) {
+      // DELIBERATE fail-OPEN, and safe here precisely because this endpoint is
+      // a display meter and nothing more. The real enforcement is
+      // careerApplicationCapBlock, which runs inside POST /api/career/apply and
+      // POST /api/career/match/respond and re-counts from the DB every time —
+      // it never consults this response. The scale/security review's rule is
+      // that a helper which swallows DB errors must never be the thing a
+      // security check depends on; nothing depends on this one, so a database
+      // wobble should show an empty meter rather than falsely telling a doctor
+      // they are blocked. If they really are at a cap, the apply call still
+      // 409s.
+      console.error('[career application-usage] meter read failed (failing open):', auErr && auErr.message);
+      sendJson(res, 200, {
+        ok: true,
+        active: { used: 0, limit: ACTIVE_APPLICATION_CAP, applications: [] },
+        monthly: { used: 0, limit: MONTHLY_APPLICATION_CAP, resetsAt: auWindow.end.toISOString() },
+        canApply: true
+      });
+    }
     return;
   }
 
@@ -43880,6 +44155,23 @@ async function handleApi(req, res, pathname) {
         code: 'previously_withdrawn',
         message: "You previously withdrew your application for this position, so it can't be applied for again. If this was a mistake, message your Registration Support Officer."
       });
+      return;
+    }
+
+    // Application caps — ACCEPT ONLY. Accepting a match is the doctor taking
+    // on another live application, so the owner rule (at most 2 live, at most
+    // 3 started per calendar month) binds here exactly as it does on
+    // /api/career/apply. Runs BEFORE acceptShortlistedMatchRow, so a blocked
+    // accept leaves the match untouched and still answerable.
+    // 'decline' and 'enquire' returned earlier and are deliberately UNCAPPED:
+    // declining reduces the doctor's commitments, and asking a question is not
+    // an application at all — neither should ever be gated on a cap.
+    // Telling a doctor to free up a slot for a role they can never re-apply
+    // to would be a lie, so this sits AFTER the previously_withdrawn guard
+    // above: that 409 is permanent and role-specific, and answers first.
+    const mrCapBlock = await careerApplicationCapBlock(mrUserId, { context: 'match' });
+    if (mrCapBlock) {
+      sendJson(res, mrCapBlock.status, mrCapBlock.body);
       return;
     }
 
@@ -44506,6 +44798,45 @@ async function handleApi(req, res, pathname) {
       }
     } catch (contractStageErr) { /* no in-app contract CTA rather than break the list */ }
 
+    // Booked-interview lookup, batched the same way as contractStageMap above.
+    //
+    // Why the list needs it (owner ask 2026-07-31): the careers page now offers
+    // the interview-time picker on the application card itself. Without server
+    // truth about whether a time is already chosen, a card at the interview
+    // stage cannot tell "pick a time" from "your time is confirmed" and would
+    // show the picker to someone who has already booked.
+    //
+    // scheduled_calls is the live store — career_interviews is legacy and empty
+    // in production (see findInterviewForApplication). A row with no
+    // scheduled_at is an 'invited' row created when the slot list was first
+    // opened; that is NOT a booking, and it is exactly the case the picker is
+    // for, so it is returned with scheduledAt null rather than skipped.
+    const interviewMap = {};
+    try {
+      const ivAppIds = mergedApplications
+        .map((entry) => (entry && entry.localApp && entry.localApp.id !== undefined && entry.localApp.id !== null) ? String(entry.localApp.id) : '')
+        .filter(Boolean);
+      if (ivAppIds.length && isSupabaseDbConfigured()) {
+        for (let ivi = 0; ivi < ivAppIds.length; ivi += 200) {
+          const ivChunk = ivAppIds.slice(ivi, ivi + 200);
+          const ivRes = await supabaseDbRequest('scheduled_calls',
+            'select=application_id,status,scheduled_at,zoom_join_url,timezone&application_id=in.(' + encodeURIComponent(_atsInList(ivChunk)) + ')&meeting_kind=eq.interview&status=neq.cancelled&limit=2000');
+          ((ivRes.ok && ivRes.data) || []).forEach((row) => {
+            const key = String(row.application_id);
+            const existing = interviewMap[key];
+            // A booked row always wins over an 'invited' placeholder.
+            if (existing && existing.scheduledAt && !row.scheduled_at) return;
+            interviewMap[key] = {
+              status: String(row.status || ''),
+              scheduledAt: row.scheduled_at || null,
+              zoomJoinUrl: row.zoom_join_url || '',
+              timezone: row.timezone || ''
+            };
+          });
+        }
+      }
+    } catch (interviewMapErr) { /* card falls back to offering the picker */ }
+
     const enriched = [];
     for (const entry of mergedApplications) {
       const localApp = entry && entry.localApp ? entry.localApp : null;
@@ -44737,6 +45068,14 @@ async function handleApi(req, res, pathname) {
         // contractStageMap above. null when there is none (the common case).
         contractStage: (localApp && localApp.id !== undefined && localApp.id !== null)
           ? (contractStageMap[String(localApp.id)] || null)
+          : null,
+        // The doctor's interview for this application, so the card can show a
+        // confirmed time instead of the picker — see interviewMap above. null
+        // when no interview exists at all. Deliberately only the fields the
+        // card renders: never the host join URL, the passcode or internal
+        // notes (the same allowlisting GET /api/career/interview does).
+        interview: (localApp && localApp.id !== undefined && localApp.id !== null)
+          ? (interviewMap[String(localApp.id)] || null)
           : null,
         // null for an unanswered match — see careerRowIsPendingMatch. Checked
         // BEFORE the fallback chain on purpose: falling through would let
@@ -70441,14 +70780,19 @@ module.exports.__testUtils = {
   redirectOthersForJob,
   buildRedirectAlternativeTags,
   countActiveApplications,
+  listActiveApplications,
   ACTIVE_APPLICATION_CAP,
   ACTIVE_APPLICATION_STAGES,
+  countMonthlyApplications,
+  MONTHLY_APPLICATION_CAP,
+  careerApplicationCapBlock,
   ATS_WITHDRAW_REASON_VALUES,
   ATS_GP_SELF_WITHDRAW_REASON,
   applicationIsWithdrawn,
   PRACTICE_WITHDRAWN_MESSAGE,
   countMonthlyCareerInterviews,
   currentInterviewMonthWindow,
+  currentCareerMonthWindow,
   INTERVIEW_MONTHLY_CAP,
   acceptShortlistedMatchRow,
   careerRowIsPendingMatch,

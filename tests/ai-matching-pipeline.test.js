@@ -485,14 +485,22 @@ describe('a pending match presents as matched, not applied', () => {
   });
 
   it('the careers card leads with MATCHED and its own copy', () => {
-    expect(careerHtml).toContain('const isPendingMatch = actionStatusKey === "matched"');
-    expect(careerHtml).toContain('at-rstatus--offer">MATCHED');
-    expect(careerHtml).toContain('open it to accept or decline before it expires');
+    // The pending-match branch is checked FIRST in the shared state map, because
+    // every other branch describes something that has already happened to an
+    // application and none of it is true for an unanswered match.
+    const stateMap = careerHtml.slice(
+      careerHtml.indexOf('function careerApplicationState(application) {'),
+      careerHtml.indexOf('function careerMineStatusLabel')
+    );
+    expect(stateMap).toContain('if (key === "matched")');
+    expect(stateMap).toContain('ribbon: "MATCHED TO YOU"');
+    expect(stateMap.indexOf('if (key === "matched")')).toBeLessThan(stateMap.indexOf('if (key === "submitted")'));
+    expect(careerHtml).toContain('Open it to accept or decline before it expires');
   });
 
   it('tapping a pending match opens the practice page, not the application tracker', () => {
     expect(careerHtml).toContain('String(app.status || "").trim().toLowerCase() === "matched"');
-    expect(careerHtml).toContain('"/pages/job?id=" + encodeURIComponent(appRoleId) + "&match=" + encodeURIComponent(appId)');
+    expect(careerHtml).toContain('"/pages/job?id=" + encodeURIComponent(roleId) + "&match=" + encodeURIComponent(appId)');
   });
 
   it('the tracker bounces a pending match before drawing a false timeline', () => {

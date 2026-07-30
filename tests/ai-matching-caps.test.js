@@ -25,8 +25,12 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('server.js declares the active-application cap helper + constant at true top-level and exports both', () => {
     expect(serverSrc).toMatch(/async function countActiveApplications\(userId\)/);
-    expect(serverSrc).toContain("var ACTIVE_APPLICATION_STAGES = ['shortlisted', 'applied', 'submitted', 'reviewing', 'interview'];");
-    expect(serverSrc).toContain('var ACTIVE_APPLICATION_CAP = 3;');
+    // Owner rule 2026-07-31: cap dropped 3 -> 2, and 'shortlisted' left the
+    // stage list — an UNANSWERED team match is not an application the doctor
+    // made, and at a cap of 2 a pair of pending matches would otherwise lock
+    // them out of applying to anything at all.
+    expect(serverSrc).toContain("var ACTIVE_APPLICATION_STAGES = ['applied', 'submitted', 'reviewing', 'interview'];");
+    expect(serverSrc).toContain('var ACTIVE_APPLICATION_CAP = 2;');
     expect(serverSrc).toContain('countActiveApplications,');
     expect(serverSrc).toContain('ACTIVE_APPLICATION_CAP,');
   });
@@ -97,12 +101,66 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(rateIdx).toBeLessThan(onboardingIdx);
     expect(rateIdx).toBeLessThan(cvIdx);
     expect(rateIdx).toBeLessThan(roleIdx);
-    // The self-apply-as-accept branch still precedes the active cap.
+    // The self-apply-as-accept branch still precedes the NEW-apply cap gate.
+    // (It now has a cap gate of its OWN — 'match' context — asserted below;
+    // this pin is only about branch ORDER inside the handler.)
     const existingIdx = serverSrc.indexOf('const existingAppRow =', idx);
     const acceptIdx = serverSrc.indexOf("existingAppRow.ats_stage === 'shortlisted'", idx);
-    const capIdx = serverSrc.indexOf('const activeApplicationCount = await countActiveApplications(userId);', idx);
+    const capIdx = serverSrc.indexOf('const applyCapBlock = await careerApplicationCapBlock(userId);', idx);
+    expect(capIdx).toBeGreaterThan(idx);
     expect(acceptIdx).toBeGreaterThan(existingIdx);
     expect(acceptIdx).toBeLessThan(capIdx);
+  });
+
+  it('all three application-start sites go through the ONE shared cap gate (apply, self-apply-as-accept, match accept)', () => {
+    expect(serverSrc).toMatch(/async function careerApplicationCapBlock\(userId, options\)/);
+    expect(serverSrc).toContain('careerApplicationCapBlock,');
+    expect(serverSrc).toContain('var MONTHLY_APPLICATION_CAP = 3;');
+    expect(serverSrc).toMatch(/async function countMonthlyApplications\(userId, monthStart, monthEnd\)/);
+
+    const applyIdx = serverSrc.indexOf("pathname === '/api/career/apply'");
+    // (a) new apply — default context
+    expect(serverSrc.indexOf('const applyCapBlock = await careerApplicationCapBlock(userId);', applyIdx)).toBeGreaterThan(applyIdx);
+    // (b) self-apply-as-accept — 'match' context, BEFORE the accept write
+    const selfAcceptCapIdx = serverSrc.indexOf("const matchCapBlock = await careerApplicationCapBlock(userId, { context: 'match' });", applyIdx);
+    const selfAcceptWriteIdx = serverSrc.indexOf('await acceptShortlistedMatchRow(existingAppRow, userId, email, profile)', applyIdx);
+    expect(selfAcceptCapIdx).toBeGreaterThan(applyIdx);
+    expect(selfAcceptCapIdx).toBeLessThan(selfAcceptWriteIdx);
+
+    // (c) /match/respond accept — 'match' context, BEFORE the accept write,
+    // and AFTER the decline branch returns (decline/enquire stay uncapped).
+    const respondIdx = serverSrc.indexOf("pathname === '/api/career/match/respond'");
+    const declineIdx = serverSrc.indexOf("if (mrAction === 'decline') {", respondIdx);
+    const respondCapIdx = serverSrc.indexOf("const mrCapBlock = await careerApplicationCapBlock(mrUserId, { context: 'match' });", respondIdx);
+    const respondWriteIdx = serverSrc.indexOf('await acceptShortlistedMatchRow(mrRow, mrUserId, mrEmail, mrProfile)', respondIdx);
+    expect(respondCapIdx).toBeGreaterThan(declineIdx);
+    expect(respondCapIdx).toBeLessThan(respondWriteIdx);
+  });
+
+  it('the self-apply-as-accept comment no longer claims the cap is skipped', () => {
+    const applyIdx = serverSrc.indexOf("pathname === '/api/career/apply'");
+    const fnSrc = serverSrc.slice(applyIdx, applyIdx + 12000);
+    expect(fnSrc).not.toContain('NOT a new application — no active-application');
+    expect(fnSrc).toContain('The application caps DO bind here');
+  });
+
+  it('GET /api/career/application-usage exists, requires a session, and fails OPEN as a display meter only', () => {
+    const idx = serverSrc.indexOf("pathname === '/api/career/application-usage' && req.method === 'GET'");
+    expect(idx).toBeGreaterThan(-1);
+    const next = serverSrc.indexOf("\n  // GET ", idx + 50);
+    const fnSrc = serverSrc.slice(idx, next > idx ? next : idx + 6000);
+    expect(fnSrc).toContain('requireSession(req, res)');
+    expect(fnSrc).toContain('listActiveApplications(auUserId)');
+    expect(fnSrc).toContain('countMonthlyApplications(auUserId, auWindow.start, auWindow.end)');
+    // Batched role lookup, not an N+1 per application.
+    expect(fnSrc).toContain("supabaseDbRequest('career_roles',");
+    expect(fnSrc).toContain('&id=in.(');
+    // Reveal checks resolved in parallel, and masked by default.
+    expect(fnSrc).toContain('await Promise.all(auActiveRows.map(');
+    expect(fnSrc).toContain("'Confidential practice'");
+    // Fail-open branch, explicitly labelled as deliberate.
+    expect(fnSrc).toContain('DELIBERATE fail-OPEN');
+    expect(fnSrc).toContain('canApply: true');
   });
 
   it('a still-shortlisted-but-expired match self-applied returns the same 410-equivalent expired hint as /match/respond', () => {
@@ -208,9 +266,12 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(fnSrc).not.toContain('fetch("/api/career/apply"');
   });
 
-  it('job.html handles active_cap, expired, and matched:true copy', () => {
+  it('job.html handles active_cap, monthly_cap, expired, and matched:true copy', () => {
     expect(jobHtml).toContain('data.error === "active_cap"');
-    expect(jobHtml).toContain('You have 3 active applications — focus on those first, or withdraw one.');
+    // Owner rule 2026-07-31 copy — replaces the old "3 active applications"
+    // line. Both cap codes the server can send are handled.
+    expect(jobHtml).toContain('You already have 2 live applications');
+    expect(jobHtml).toContain('data.error === "monthly_cap"');
     expect(jobHtml).toContain('data && data.expired');
     expect(jobHtml).toContain('data.matched');
     expect(jobHtml).toContain("You're being fast-tracked — we're putting you forward.");
@@ -497,52 +558,80 @@ function seedRole(id, providerRoleId, extra) {
   }, extra || {}));
 }
 
-describe('Active-application cap (spec §9: 3 active at a time)', () => {
-  it('blocks the 4th genuinely-new application once 3 are already active (409 active_cap)', async () => {
+// Owner rule 2026-07-31 supersedes spec §9's "3 active": TWO live
+// applications at a time, and the cap now binds on the accept paths too.
+// Full coverage of the new rules (incl. the monthly cap and the usage meter)
+// lives in tests/career-application-caps.test.js; these two keep the original
+// Task 7 scenarios honest against the new numbers.
+describe('Active-application cap (owner rule: 2 live at a time)', () => {
+  it('blocks the 3rd genuinely-new application once 2 are already live (409 active_cap)', async () => {
     const GP = { userId: 'u-cap-1', email: 'cap1@gplink-test.local' };
     seedGp(GP.userId, GP.email);
-    seedRole('role-cap-1', 'cap_1'); seedRole('role-cap-2', 'cap_2'); seedRole('role-cap-3', 'cap_3'); seedRole('role-cap-4', 'cap_4');
+    seedRole('role-cap-1', 'cap_1'); seedRole('role-cap-2', 'cap_2'); seedRole('role-cap-3', 'cap_3');
 
-    // Three REAL applies via the endpoint — exercises the actual insert path
+    // Two REAL applies via the endpoint — exercises the actual insert path
     // (not a pre-seeded fixture), so the cap counter sees exactly what
     // production would (including the emulator's ats_stage='applied' DEFAULT).
-    for (const roleId of ['internal_ats:cap_1', 'internal_ats:cap_2', 'internal_ats:cap_3']) {
+    for (const roleId of ['internal_ats:cap_1', 'internal_ats:cap_2']) {
       const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId } });
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
     }
-    expect(db.gp_applications.filter((a) => a.user_id === GP.userId).length).toBe(3);
+    expect(db.gp_applications.filter((a) => a.user_id === GP.userId).length).toBe(2);
 
-    // A genuinely NEW 4th application (a fresh role, no prior match) is blocked.
-    const blockedRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap_4' } });
+    // A genuinely NEW 3rd application (a fresh role, no prior match) is blocked.
+    const blockedRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap_3' } });
     expect(blockedRes.status).toBe(409);
     expect(blockedRes.body.ok).toBe(false);
     expect(blockedRes.body.error).toBe('active_cap');
-    expect(blockedRes.body.message).toMatch(/3 active applications/);
+    expect(blockedRes.body.activeUsed).toBe(2);
+    expect(blockedRes.body.activeLimit).toBe(2);
+    expect(blockedRes.body.message).toBe('You already have 2 live applications. To apply for this position, withdraw one of your current applications first.');
     // Nothing was inserted for the blocked attempt.
-    expect(db.gp_applications.filter((a) => a.user_id === GP.userId && a.career_role_id === 'role-cap-4').length).toBe(0);
+    expect(db.gp_applications.filter((a) => a.user_id === GP.userId && a.career_role_id === 'role-cap-3').length).toBe(0);
   });
 
-  it('a live shortlisted match self-applies as accept even while the GP is already at 3 active applications', async () => {
+  it('a live shortlisted match self-applied as accept is ALSO capped now — blocked at 2 live, and succeeds once under', async () => {
     const GP = { userId: 'u-cap-2', email: 'cap2@gplink-test.local' };
     seedGp(GP.userId, GP.email);
-    seedRole('role-cap2-1', 'cap2_1'); seedRole('role-cap2-2', 'cap2_2'); seedRole('role-cap2-3', 'cap2_3'); seedRole('role-cap2-match', 'cap2_match');
-    for (const roleId of ['internal_ats:cap2_1', 'internal_ats:cap2_2', 'internal_ats:cap2_3']) {
+    seedRole('role-cap2-1', 'cap2_1'); seedRole('role-cap2-2', 'cap2_2'); seedRole('role-cap2-match', 'cap2_match');
+    for (const roleId of ['internal_ats:cap2_1', 'internal_ats:cap2_2']) {
       const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId } });
       expect(res.status).toBe(200);
     }
-    // Now genuinely at 3 active — confirmed by the cap blocking a 4th new apply.
+    // Now genuinely at 2 live — confirmed by the cap blocking a 3rd new apply.
     seedRole('role-cap2-blocked', 'cap2_blocked');
     const preCheck = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap2_blocked' } });
     expect(preCheck.status).toBe(409);
     expect(preCheck.body.error).toBe('active_cap');
 
-    // A live team match on a DIFFERENT role — must succeed regardless.
+    // A live team match on a DIFFERENT role. Under the OLD rule this
+    // deliberately bypassed the cap; under the owner rule it does not — 2 live
+    // applications is 2 live applications however they started.
     db.gp_applications.push({
       id: 'app-cap2-match', user_id: GP.userId, career_role_id: 'role-cap2-match', provider_role_id: 'cap2_match',
       status: 'applied', ats_stage: 'shortlisted', origin: 'ai_matched', job_title: 'General Practitioner — VR',
+      applied_at: new Date().toISOString(),
       matched_at: new Date().toISOString(), match_expires_at: new Date(Date.now() + 5 * 86400000).toISOString()
     });
+    const cappedRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap2_match' } });
+    expect(cappedRes.status).toBe(409);
+    expect(cappedRes.body.error).toBe('active_cap');
+    // Accept wording, not apply wording — the doctor clicked a match here.
+    expect(cappedRes.body.message).toBe('You already have 2 live applications. To accept this match, withdraw one of your current applications first.');
+    // The match itself is untouched and still answerable.
+    const stillMatched = db.gp_applications.find((a) => a.id === 'app-cap2-match');
+    expect(stillMatched.ats_stage).toBe('shortlisted');
+    expect(stillMatched.match_outcome == null).toBe(true);
+
+    // Free a slot (withdraw one of the two live applies) and the SAME accept
+    // now goes through, in place, with no extra row.
+    const liveOne = db.gp_applications.find((a) => a.user_id === GP.userId && a.career_role_id === 'role-cap2-1');
+    const wdRes = await httpReq('POST', '/api/career/application/withdraw', {
+      cookie: userCookie(GP.email, GP.userId), body: { applicationId: liveOne.id }
+    });
+    expect(wdRes.status).toBe(200);
+
     const matchRes = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:cap2_match' } });
     expect(matchRes.status).toBe(200);
     expect(matchRes.body.ok).toBe(true);
@@ -550,9 +639,9 @@ describe('Active-application cap (spec §9: 3 active at a time)', () => {
     const matchedRow = db.gp_applications.find((a) => a.id === 'app-cap2-match');
     expect(matchedRow.ats_stage).toBe('applied');
     expect(matchedRow.match_outcome).toBe('accepted');
-    // No extra row was created for the accept — still exactly 4 rows total
-    // (3 applied + the 1 pre-existing match row, now accepted in place).
-    expect(db.gp_applications.filter((a) => a.user_id === GP.userId).length).toBe(4);
+    // No extra row was created for the accept — still exactly 3 rows total
+    // (2 applied + the 1 pre-existing match row, now accepted in place).
+    expect(db.gp_applications.filter((a) => a.user_id === GP.userId).length).toBe(3);
   });
 });
 
@@ -599,6 +688,18 @@ describe('Self-apply-as-accept (spec §7)', () => {
       const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie(GP.email, GP.userId), body: { roleId: 'internal_ats:sa_rate_' + i } });
       expect(res.status).toBe(200);
       expect(res.body.matched).toBe(true);
+      // Retire the row we just accepted before the next iteration. The accept
+      // paths ARE cap-gated now (owner rule 2026-07-31: 2 live, 3/month), so
+      // without this the 3rd accept would 409 on the cap and this test would
+      // stop saying anything about the RATE LIMITER, which is the one thing it
+      // exists to pin. Retiring = terminal stage + an applied_at in a previous
+      // calendar month, i.e. exactly the state a long-since-closed application
+      // is in. The cap behaviour itself is covered in
+      // tests/career-application-caps.test.js.
+      const accepted = db.gp_applications.find((a) => a.id === 'app-sa-rate-' + i);
+      accepted.status = 'not_proceeding';
+      accepted.ats_stage = 'not_proceeding';
+      accepted.applied_at = new Date(Date.UTC(2020, 0, 15, 9, 0, 0)).toISOString();
     }
   });
 
@@ -800,17 +901,20 @@ describe('Velocity flag (spec §9: 5+ applies/24h)', () => {
   it('is NOT written at 4 applies in 24h, IS written at the 5th (count + at), and never on the accept path', async () => {
     const GP = { userId: 'u-velocity-1', email: 'velocity1@gplink-test.local' };
     seedGp(GP.userId, GP.email);
-    // 3 pre-existing NOT-active (not_proceeding) applications, seeded directly
-    // (not via the endpoint) so they count towards the 24h velocity window
-    // (which counts ALL applied_at rows, any stage) WITHOUT tripping the
-    // separate active-application cap (3 active at a time) — this test is
-    // isolating the velocity signal, not the cap interaction.
+    // 3 pre-existing UNANSWERED team matches, seeded directly (not via the
+    // endpoint) so they count towards the 24h velocity window (which counts
+    // ALL applied_at rows, any stage) WITHOUT touching either application cap
+    // — an unanswered match is neither a LIVE application (it's outside
+    // ACTIVE_APPLICATION_STAGES) nor an application the doctor has started
+    // this month (countMonthlyApplications filters careerRowIsPendingMatch).
+    // This test is isolating the velocity signal, not the cap interaction.
     const recentIso = new Date().toISOString();
     for (let i = 1; i <= 3; i++) {
       seedRole('role-vel-old-' + i, 'vel_old_' + i);
       db.gp_applications.push({
         id: 'app-vel-old-' + i, user_id: GP.userId, career_role_id: 'role-vel-old-' + i, provider_role_id: 'vel_old_' + i,
-        status: 'not_proceeding', ats_stage: 'not_proceeding', applied_at: recentIso
+        status: 'shortlisted', ats_stage: 'shortlisted', origin: 'ai_matched', applied_at: recentIso,
+        matched_at: recentIso, match_expires_at: new Date(Date.now() + 5 * 86400000).toISOString()
       });
     }
     seedRole('role-vel-4', 'vel_4');

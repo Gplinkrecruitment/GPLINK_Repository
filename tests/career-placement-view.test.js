@@ -91,8 +91,8 @@ describe('career application card — submitted-to-practice stage reads correctl
     // The bug: a profile already sent to the practice still read "reviewing
     // your application before it reaches the practice". Submitted + reviewing
     // stages now get honest copy.
-    expect(careerHtml).toContain('actionStatusKey === "submitted"');
-    expect(careerHtml).toContain('actionStatusKey === "reviewing"');
+    expect(careerHtml).toContain('if (key === "submitted")');
+    expect(careerHtml).toContain('if (key === "reviewing")');
     expect(careerHtml).toContain("Your profile has been submitted to the practice");
     expect(careerHtml).toContain("The practice is reviewing your profile now");
     // The pre-submission fallback copy is preserved for the truly-applied stage.

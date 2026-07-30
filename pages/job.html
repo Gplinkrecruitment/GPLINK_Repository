@@ -13,6 +13,10 @@
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
+  <!-- Shared notice dialog. The application-rule refusals (2 live, 3 a month)
+       are explained here and on the careers page from the same module, so the
+       wording and the look can't drift apart. -->
+  <script src="/js/gp-notice.js?v=20260731a"></script>
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
@@ -2936,6 +2940,84 @@
     withdrawnBlockOverlayEl.hidden = true;
   }
 
+  /* ── Application-rule refusals (owner rule 2026-07-31) ─────────────────────
+     Two live applications at a time, three positions a calendar month. Both are
+     refused by the server; this is how the refusal is explained.
+
+     The active-cap dialog fetches /api/career/application-usage so it can NAME
+     the applications standing in the way and link to each one — being told "you
+     have two already" without being told WHICH two is the version of this that
+     sends people to support. The dialog opens immediately with the server's
+     message and fills the list in when it arrives, so a slow or failed lookup
+     degrades to plain wording instead of a spinner. */
+  function applicationDetailHref(appId, roleId) {
+    return "/pages/application-detail?id=" + encodeURIComponent(appId || "") + "&role=" + encodeURIComponent(roleId || "");
+  }
+
+  // Inside the app shell the page lives in an iframe, so navigation has to go
+  // through the shell or its route/history tracking loses the move. Same idiom
+  // career.html uses for the equivalent links.
+  function capNoticeNavigate(route) {
+    if (document.documentElement.classList.contains("gp-shell-embedded")
+      && window.parent !== window
+      && typeof window.parent.gpShellNavigate === "function") {
+      window.parent.gpShellNavigate(route);
+      return;
+    }
+    window.location.href = route.replace(/^\/pages\//, "");
+  }
+
+  function showApplicationCapNotice(kind, data) {
+    const serverMessage = (data && data.message) || "";
+    if (!window.gpNotice || typeof window.gpNotice.show !== "function") {
+      showToast(serverMessage || "You've reached your application limit.");
+      return;
+    }
+
+    if (kind === "monthly") {
+      window.gpNotice.show({
+        tone: "warn",
+        icon: "🗓️",
+        title: "That's your 3 positions for this month",
+        body: serverMessage || "You can apply for three positions each calendar month. Your allowance resets at the start of next month.",
+        primaryLabel: "Got it"
+      });
+      return;
+    }
+
+    const base = {
+      tone: "warn",
+      icon: "✌️",
+      title: "You already have 2 live applications",
+      body: serverMessage || "You can have two applications in play at a time. To apply for this position, withdraw one of your current applications first.",
+      primaryLabel: "Keep my current applications",
+      secondaryLabel: "Manage my applications",
+      onSecondary: function () { capNoticeNavigate("/pages/career?view=offers"); }
+    };
+    window.gpNotice.show(base);
+
+    fetch("/api/career/application-usage", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (usage) {
+        if (!usage || usage.ok !== true || !usage.active || !Array.isArray(usage.active.applications)) return;
+        if (!usage.active.applications.length) return;
+        // Re-show with the list. Same dialog, now specific.
+        window.gpNotice.show(Object.assign({}, base, {
+          body: "These two are in play right now. Withdraw one and you can apply for this position straight away.",
+          bullets: usage.active.applications.map(function (app) {
+            const route = applicationDetailHref(app.id, app.roleId);
+            return {
+              title: app.practiceName || "Confidential practice",
+              meta: [app.stageLabel, app.location].filter(Boolean).join(" · "),
+              href: route,
+              onSelect: function () { capNoticeNavigate(route); }
+            };
+          })
+        }));
+      })
+      .catch(function () { /* the plain dialog above already said the rule */ });
+  }
+
   function openBookConfirm(slot) {
     offerPendingSlot = slot;
     bookTimeLabelEl.textContent = slotDayHeading(slot) + " at " + slotTimeLabel(slot);
@@ -3421,11 +3503,23 @@
       return "not_qualified";
     }
     if (data && data.error === "active_cap") {
-      // AI Matching (Task 7): active-application cap (3 in play at once).
+      // Owner rule 2026-07-31: at most TWO live applications. A toast is the
+      // wrong shape for this — the doctor has to understand the rule and then
+      // go and withdraw something, so it gets a dialog that names the two
+      // applications standing in the way and links straight to them.
       applyState = "idle";
       paintApply();
-      showToast(data.message || "You have 3 active applications — focus on those first, or withdraw one.");
+      showApplicationCapNotice("active", data);
       return "active_cap";
+    }
+    if (data && data.error === "monthly_cap") {
+      // Owner rule 2026-07-31: three positions per calendar month. Nothing the
+      // doctor can do frees this up before the reset, so no withdraw prompt —
+      // just the honest date.
+      applyState = "idle";
+      paintApply();
+      showApplicationCapNotice("monthly", data);
+      return "monthly_cap";
     }
     if (status === 429) {
       // Gentle rate-limit toast; the button stays usable for later.

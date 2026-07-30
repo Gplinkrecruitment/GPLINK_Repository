@@ -125,13 +125,85 @@ describe('career map: your matches & applications under the map', () => {
     expect(career).toMatch(/\.cmap-pin\.mine \.pd svg path\{fill:#16a34a;\}/);
   });
 
-  it('status wording matches the Offers list ribbons', () => {
-    const fn = (career.match(/function careerMineStatusLabel\(application\)[\s\S]*?\n    \}/) || [''])[0];
-    expect(fn).toMatch(/"Matched"/);
-    expect(fn).toMatch(/"Secured"/);
-    expect(fn).toMatch(/"Interview"/);
-    expect(fn).toMatch(/"Submitted"/);
-    expect(fn).toMatch(/"With practice"/);
-    expect(fn).toMatch(/"Under review"/);
+  // The strip and the Offers list used to carry two hand-synced copies of the
+  // same status chain. They now read ONE state map, so the wording cannot drift
+  // between them by construction — that is what these assertions protect.
+  it('status wording lives in one shared state map', () => {
+    const fn = (career.match(/function careerApplicationState\(application\)[\s\S]*?\n    \}\n\n/) || [''])[0];
+    expect(fn).toMatch(/label: "Matched"/);
+    expect(fn).toMatch(/label: "Secured"/);
+    expect(fn).toMatch(/label: "Interview"/);
+    expect(fn).toMatch(/label: "Submitted"/);
+    expect(fn).toMatch(/label: "With practice"/);
+    expect(fn).toMatch(/label: "Under review"/);
+  });
+
+  it('both the strip and the list read that map rather than re-deriving it', () => {
+    expect(career).toMatch(/function careerMineStatusLabel\(application\) \{ return careerApplicationState\(application\)\.label; \}/);
+    expect(career).toMatch(/function careerMineTone\(application\) \{\s*const tone = careerApplicationState\(application\)\.tone;/);
+    // One card builder, used by the Offers list AND the under-map strip.
+    expect(career).toMatch(/function buildCareerApplicationCardHtml\(application, options\)/);
+    expect(career).toMatch(/function buildApplicationRowHtml\(application\) \{\s*return buildCareerApplicationCardHtml\(application, \{\}\);/);
+    expect(career).toMatch(/window\.__careerBuildMineCard = function \(entry, practice\)/);
+    expect(career).toMatch(/window\.__careerBuildMineCard==='function'/);
+  });
+
+  // Owner rule 2026-07-31: an application card must be the SAME card the doctor
+  // is shown when asked to accept a match.
+  it('the application card is the accept-the-match card shell', () => {
+    const builder = (career.match(/function buildCareerApplicationCardHtml[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(builder).toMatch(/class="at-match-pin at-match-pin--app at-match-pin--\$\{escapeHtml\(st\.tone\)\}"/);
+    expect(builder).toMatch(/class="at-match-ribbon at-match-ribbon--/);
+    expect(builder).toMatch(/class="at-match-photo"/);
+    expect(builder).toMatch(/class="at-match-pn"/);
+    expect(builder).toMatch(/class="at-match-inner"/);
+    // The accept-the-match card it must match still uses the same shell.
+    expect(career).toMatch(/<article class="at-match-pin\$\{countdown\.amber/);
+  });
+});
+
+// Owner ask 2026-07-31: "allow the user to select an interview time from the card".
+describe('career cards: pick an interview time in place', () => {
+  it('an interview card that is not booked yet renders the picker', () => {
+    expect(career).toMatch(/function buildInterviewPickerHtml\(appId\)/);
+    expect(career).toMatch(/bookable: !when/);
+    expect(career).toMatch(/booked: !!when/);
+    // interview_completed is behind the doctor — it must never offer a picker.
+    const done = (career.match(/if \(key === "interview_completed"\)[\s\S]*?\}\n/) || [''])[0];
+    expect(done).not.toMatch(/bookable: true/);
+  });
+
+  it('uses the same two endpoints as the application-detail picker', () => {
+    expect(career).toMatch(/"\/api\/career\/interview\/slots\?applicationId=" \+ encodeURIComponent\(appId\)/);
+    expect(career).toMatch(/fetch\("\/api\/career\/interview\/book"/);
+  });
+
+  // Regression guard for the bug fixed on main in 1960ca0: without viewer_tz the
+  // server guesses the doctor's zone from an empty registration_country, falls
+  // back to Europe/London, and silently drops whole days from the list. Listing
+  // and booking must also agree, or a valid pick returns "slot_taken".
+  it('sends the doctor\'s real timezone on BOTH the slots and book calls', () => {
+    expect(career).toMatch(/const careerDeviceTz = \(function \(\) \{/);
+    expect(career).toMatch(/Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
+    const load = (career.match(/function careerIvLoad\(appId\)[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(load).toMatch(/viewer_tz=" \+ encodeURIComponent\(careerDeviceTz\)/);
+    const book = (career.match(/function careerIvBook\(appId\)[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(book).toMatch(/viewer_tz: careerDeviceTz \|\| undefined/);
+  });
+
+  it('choosing a time does not navigate away from the card', () => {
+    // The picker sits inside a clickable card, so its controls must be handled
+    // before the [data-open-application] branch and must return.
+    const slotIdx = career.indexOf('const ivSlotBtn = event.target.closest("[data-iv-slot]")');
+    const openIdx = career.indexOf('const openAppBtn = event.target.closest("[data-open-application]")');
+    expect(slotIdx).toBeGreaterThan(-1);
+    expect(openIdx).toBeGreaterThan(slotIdx);
+    expect(career).toMatch(/if \(event\.target\.closest\("\.ivc"\)\) \{ event\.stopPropagation\(\); return; \}/);
+  });
+
+  it('a confirmed booking updates the card everywhere and drops the cached list', () => {
+    const apply = (career.match(/function careerIvApplyBooking[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(apply).toMatch(/window\.gpCache\.invalidate\("\/api\/career\/applications"\)/);
+    expect(apply).toMatch(/renderApplications\(\)/);
   });
 });

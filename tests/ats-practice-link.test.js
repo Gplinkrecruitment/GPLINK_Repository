@@ -367,6 +367,14 @@ describe('missing practice_id column tolerance', () => {
   });
 
   it('caches the determination: the next apply inserts WITHOUT practice_id on the first try', async () => {
+    // Fixture only: GP1 already applied to role-linked and role-named earlier
+    // in this file, which is the whole of the owner's 2-live-applications cap
+    // (ACTIVE_APPLICATION_CAP, 2026-07-31). Retire one so this apply reaches
+    // the INSERT path — the cap is not what this test is about, and its own
+    // coverage lives in tests/career-application-caps.test.js.
+    const gp1Live = db.gp_applications.find((a) => a.user_id === GP1.userId && a.career_role_id === 'role-linked');
+    if (gp1Live) { gp1Live.status = 'not_proceeding'; gp1Live.ats_stage = 'not_proceeding'; }
+
     // Emulator would reject any practice_id insert — a cached server never sends it.
     const res = await httpReq('POST', '/api/career/apply', {
       cookie: userCookie(GP1.email, GP1.userId),

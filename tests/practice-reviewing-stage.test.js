@@ -50,15 +50,20 @@ describe('what the doctor sees once a card reaches Practice Reviewing', () => {
     // Without its own branch, 'reviewing' fell through to the generic
     // "UNDER REVIEW" ribbon — so the doctor watched SUBMITTED become UNDER
     // REVIEW and read it as going backwards.
-    // Scoped to the ribbon if/else chain — "UNDER REVIEW" appears elsewhere on
-    // the page, so a whole-file indexOf compares the wrong two positions.
-    const chainStart = careerHtml.indexOf('let ribbon = "";');
+    // Scoped to careerApplicationState — the one state map every card reads
+    // (2026-07-31). "UNDER REVIEW" appears elsewhere on the page, so a
+    // whole-file indexOf compares the wrong two positions.
+    const chainStart = careerHtml.indexOf('function careerApplicationState(application) {');
     expect(chainStart).toBeGreaterThan(-1);
-    const chain = careerHtml.slice(chainStart, careerHtml.indexOf('let metaLine = ""', chainStart));
-    expect(chain).toContain('else if (isPracticeReviewing) ribbon =');
-    expect(chain).toContain('WITH PRACTICE');
-    // Must be reached before the catch-all, or it never fires.
-    expect(chain.indexOf('isPracticeReviewing')).toBeLessThan(chain.indexOf('else ribbon ='));
+    const chain = careerHtml.slice(chainStart, careerHtml.indexOf('function careerMineStatusLabel', chainStart));
+    expect(chain).toContain('if (key === "reviewing")');
+    expect(chain).toContain('ribbon: "WITH PRACTICE"');
+    // Must be reached before the catch-all fallback, or it never fires. The
+    // fallback is the map's LAST statement — a bare `return S({ blurb: ... })`
+    // with no key test, which inherits ribbon "UNDER REVIEW" from the defaults.
+    const fallbackIdx = chain.indexOf('return S({ blurb: "Your Registration Support Officer is reviewing your application');
+    expect(fallbackIdx).toBeGreaterThan(-1);
+    expect(chain.indexOf('if (key === "reviewing")')).toBeLessThan(fallbackIdx);
   });
 
   it('the card no longer claims GP Link is screening a profile the practice already has', () => {
@@ -84,8 +89,14 @@ describe('what the doctor sees once a card reaches Practice Reviewing', () => {
   });
 
   it('the meta line says the practice has it, not that we are still checking', () => {
-    const idx = careerHtml.indexOf('} else if (isPracticeReviewing) {');
+    // The copy now sits on the 'reviewing' branch of careerApplicationState, so
+    // the strip under the map and the Offers list cannot disagree about it.
+    // Scoped: getApplicationStatusMeta earlier in the file tests the same key,
+    // and an unscoped indexOf finds that one instead.
+    const mapStart = careerHtml.indexOf('function careerApplicationState(application) {');
+    expect(mapStart).toBeGreaterThan(-1);
+    const idx = careerHtml.indexOf('if (key === "reviewing")', mapStart);
     expect(idx).toBeGreaterThan(-1);
-    expect(careerHtml.slice(idx, idx + 220)).toContain('The practice is reviewing your profile now');
+    expect(careerHtml.slice(idx, idx + 320)).toContain('The practice is reviewing your profile now');
   });
 });

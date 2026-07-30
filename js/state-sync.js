@@ -4,6 +4,11 @@
     'gp_amc_progress',
     'gp_ahpra_progress',
     'gp_registration_intro_seen',
+    // First-visit careers explainer. Server-backed on purpose: a doctor who read
+    // the application rules on their phone must not be shown them again on their
+    // laptop. Must ALSO be listed in USER_STATE_KEYS in server.js or it is
+    // silently dropped on the way up.
+    'gp_career_intro_seen',
     'gp_epic_tutorial_seen',
     'gp_amc_tutorial_seen',
     'gp_ahpra_tutorial_seen',

@@ -11,7 +11,13 @@
   // 20260729a: career.html gained the hired practice's website link on the
   // placement hero. The career page is precached in PAGE_CACHE, so without a
   // bump an already-placed GP would keep being served the old markup.
-  var VERSION = "20260730a";
+  // 20260731a: career.html + job.html + account.html changed together — the
+  // rebuilt application card, the in-card interview picker, and the first-visit
+  // careers explainer. career.html and account.html are both precached in
+  // PAGE_CACHE, so without a bump a doctor keeps being served the old markup
+  // for a navigation (and the explainer would not appear at all on the visit
+  // that matters — their first).
+  var VERSION = "20260731a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

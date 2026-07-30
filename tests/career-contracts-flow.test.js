@@ -2051,9 +2051,12 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
 
   it('career.html renders a CONTRACT ribbon + "Review contract" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
-    expect(html).toMatch(/application\.contractStage === "sent_to_gp"/);
-    expect(html).toContain('<span class="at-rstatus at-rstatus--offer">CONTRACT</span>');
-    expect(html).toContain('Review contract');
+    expect(html).toMatch(/app\.contractStage === "sent_to_gp"/);
+    // The ribbon word + its CTA now come from careerApplicationState, the one
+    // state map every application card reads (2026-07-31).
+    expect(html).toMatch(/ribbon: "CONTRACT", tone: "green"/);
+    expect(html).toContain('ctaLabel: "Review contract"');
+    expect(html).toContain('offerHref = "offer-review?applicationId="');
     // The field must survive BOTH client-side hops or it never reaches the
     // ribbon: the list normalizer (mergeRemoteApplications -> app.contractStage)
     // and the object normalizeCareerApplication actually returns.

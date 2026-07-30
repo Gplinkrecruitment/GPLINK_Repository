@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Career card states — GP Link design reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
+<script src="/js/gp-notice.js?v=20260731a"></script>
+<!--
+  DESIGN REFERENCE — not a product page. 404s in production (DEV_ONLY_PAGES in
+  server.js).
+
+  It does not contain a copy of the card. It fetches pages/career.html at
+  runtime, injects that page's own <style> blocks, and evaluates that page's own
+  card functions against fixtures. So this gallery cannot drift from the real
+  component: change the card in career.html and every state here changes with
+  it. If a function can no longer be extracted the page says so loudly at the
+  top rather than quietly rendering something that is not the real card.
+-->
+<style>
+  body {
+    margin: 0;
+    font-family: var(--gp-font-body);
+    background: var(--gp-canvas);
+    color: var(--gp-text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .ref-head {
+    background: var(--gp-grad-hero);
+    color: #fff;
+    padding: 30px 20px 26px;
+  }
+  .ref-head-in { max-width: 1180px; margin: 0 auto; }
+  .ref-head h1 {
+    font-family: var(--gp-font-display);
+    font-size: var(--gp-fs-xl);
+    margin: 0 0 6px;
+  }
+  .ref-head p { margin: 0; color: #c6d4ea; font-size: 13.5px; line-height: 1.55; max-width: 78ch; }
+  .ref-kicker {
+    display: inline-block; font-size: 10.5px; font-weight: 800;
+    letter-spacing: var(--gp-tracking-label); text-transform: uppercase;
+    color: #9fd0f5; background: rgba(78,183,245,.14);
+    border: 1px solid rgba(78,183,245,.3);
+    border-radius: var(--gp-r-pill); padding: 5px 12px; margin-bottom: 12px;
+  }
+  .ref-links { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .ref-link {
+    font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer;
+    color: #dce8fb; background: rgba(255,255,255,.1);
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: var(--gp-r-pill); padding: 7px 13px; font-family: inherit;
+  }
+  .ref-link:hover { background: rgba(255,255,255,.18); }
+
+  .ref-wrap { max-width: 1180px; margin: 0 auto; padding: 26px 20px 60px; }
+  .ref-note {
+    background: var(--gp-amber-soft); border: 1px solid var(--gp-amber-border);
+    color: var(--gp-amber-ink); border-radius: var(--gp-r-md);
+    padding: 12px 14px; font-size: 12.5px; line-height: 1.5; margin-bottom: 22px;
+  }
+  .ref-note[hidden] { display: none; }
+  .ref-sec-h {
+    font-family: var(--gp-font-display); font-size: var(--gp-fs-md); font-weight: 700;
+    color: var(--gp-ink); margin: 30px 0 4px;
+  }
+  .ref-sec-p { font-size: 12.5px; color: var(--gp-muted); margin: 0 0 16px; line-height: 1.5; max-width: 78ch; }
+  .ref-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 20px; align-items: start; }
+  .ref-cell { min-width: 0; }
+  .ref-cap {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--gp-muted); margin-bottom: 8px;
+  }
+  .ref-cap code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px; letter-spacing: 0; text-transform: none; font-weight: 600;
+    background: var(--gp-surface-sunken); border: 1px solid var(--gp-border);
+    border-radius: 6px; padding: 1px 6px; color: var(--gp-blue-ink);
+  }
+  .ref-cell .at-match-pin { margin-bottom: 0; }
+  .ref-fail {
+    background: var(--gp-red-soft); border: 1px solid var(--gp-red-border);
+    color: var(--gp-red-ink); border-radius: var(--gp-r-md); padding: 16px;
+    font-size: 13px; line-height: 1.6;
+  }
+  .ref-fail code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header class="ref-head">
+  <div class="ref-head-in">
+    <span class="ref-kicker">Design reference · localhost only</span>
+    <h1>Career card states</h1>
+    <p>
+      Every state an application card can be in, rendered by <b>pages/career.html</b>'s own
+      CSS and its own card builder — fetched and evaluated live, so this page cannot drift
+      from the real component. The accept-the-match card is shown alongside for comparison:
+      the application cards are deliberately the same card.
+    </p>
+    <div class="ref-links">
+      <button class="ref-link" type="button" id="demoIntro">Show the first-visit explainer page</button>
+      <button class="ref-link" type="button" id="demoActiveCap">Show the “2 live applications” notice</button>
+      <button class="ref-link" type="button" id="demoMonthlyCap">Show the “3 a month” notice</button>
+      <a class="ref-link" href="/pages/career?intro=1">Open it in the real careers page →</a>
+    </div>
+  </div>
+</header>
+
+<div class="ref-wrap">
+  <div class="ref-note" id="refNote" hidden></div>
+  <div id="refBody"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var noteEl = document.getElementById('refNote');
+  var bodyEl = document.getElementById('refBody');
+
+  function fail(message, detail) {
+    bodyEl.innerHTML = '<div class="ref-fail"><b>' + message + '</b><br>'
+      + (detail ? '<code>' + String(detail).replace(/[<>&]/g, '') + '</code>' : '') + '</div>';
+  }
+
+  // ── Extract a top-level function (or const) from career.html's app script ──
+  // career.html's inline script indents its top-level declarations by exactly
+  // four spaces and closes them with "\n    }". That is the same shape the
+  // existing test suite relies on to read functions out of this page, so this
+  // uses the identical convention rather than inventing a parser.
+  function extractFn(src, name) {
+    var start = src.indexOf('\n    function ' + name + '(');
+    if (start === -1) return null;
+    var end = src.indexOf('\n    }', start);
+    if (end === -1) return null;
+    return src.slice(start + 1, end + 6);
+  }
+  function extractConstLine(src, name) {
+    var re = new RegExp('\\n    (?:const|var|let) ' + name + ' = [^\\n]*\\n');
+    var m = src.match(re);
+    return m ? m[0].trim() : null;
+  }
+  // careerDeviceTz is a multi-line IIFE const; grab it whole.
+  function extractIife(src, name) {
+    var start = src.indexOf('\n    const ' + name + ' = (function () {');
+    if (start === -1) return null;
+    var end = src.indexOf('\n    })();', start);
+    if (end === -1) return null;
+    return src.slice(start + 1, end + 10);
+  }
+
+  var FNS = [
+    'escapeHtml', 'normalizeStatusKey', 'isConfidentialText',
+    'getRoleSuburbLabel', 'getRoleStateCode', 'buildRoleSceneHtml',
+    'careerApplicationState', 'buildCareerApplicationCardHtml',
+    'buildInterviewPickerHtml', 'buildInterviewBookedHtml',
+    'careerIvFormatDay', 'careerIvFormatTime', 'careerIvFormatFull',
+    'careerIvHost', 'careerIvPaint', 'careerIvLoad', 'careerIvSelect',
+    'careerIvBook', 'careerIvApplyBooking', 'careerIvBootAll',
+    'formatMatchCountdown', 'matchSafeUrl', 'buildMatchCardHtml'
+  ];
+
+  // gp_shell_static=1 is the server's own opt-out from the app-shell wrapper
+  // (shouldServeAppShell). Without it /pages/career.html serves app-shell.html
+  // — 25KB of frame, none of the card — and every extraction below silently
+  // finds nothing.
+  fetch('/pages/career.html?gp_shell_static=1', { credentials: 'same-origin' })
+    .then(function (r) {
+      if (!r.ok) throw new Error('career.html responded ' + r.status);
+      return r.text();
+    })
+    .then(function (src) {
+      // 1. The real styles, verbatim.
+      var styles = src.match(/<style[^>]*>([\s\S]*?)<\/style>/g) || [];
+      styles.forEach(function (block) {
+        var css = block.replace(/^<style[^>]*>/, '').replace(/<\/style>$/, '');
+        var el = document.createElement('style');
+        el.textContent = css;
+        document.head.appendChild(el);
+      });
+
+      // 2. The real functions.
+      var missing = [];
+      var parts = [];
+      FNS.forEach(function (name) {
+        var code = extractFn(src, name);
+        if (!code) { missing.push(name); return; }
+        parts.push(code);
+      });
+      var lockSvg = extractConstLine(src, 'AT_LOCK_SVG');
+      if (!lockSvg) missing.push('AT_LOCK_SVG');
+      // The picker's per-application state map. Extracted rather than stubbed:
+      // if career.html changes its shape, this page should follow, not paper
+      // over it with a local guess.
+      var pickerState = extractConstLine(src, 'careerIvPickers');
+      if (!pickerState) missing.push('careerIvPickers');
+      var deviceTz = extractIife(src, 'careerDeviceTz');
+      if (!deviceTz) missing.push('careerDeviceTz');
+
+      if (missing.length) {
+        fail('Could not extract these from pages/career.html, so this page is NOT showing the real card:', missing.join(', '));
+        return;
+      }
+      if (styles.length < 1) {
+        noteEl.hidden = false;
+        noteEl.textContent = 'No <style> blocks were found in career.html — the cards below are unstyled.';
+      }
+
+      // Rendering errors are reported by render() itself with an accurate
+      // message; letting them fall through to the catch below would blame the
+      // fetch for a problem in the extracted code.
+      try {
+        wireIntroPreview(src);
+      render(parts.join('\n\n'), [lockSvg, pickerState].join('\n'), deviceTz);
+      } catch (renderErr) {
+        fail('The card code extracted from pages/career.html did not run.', renderErr && renderErr.message);
+      }
+    })
+    .catch(function (err) { fail('Could not load pages/career.html', err && err.message); });
+
+  /* ── Fixtures ─────────────────────────────────────────────────────────────
+     Deliberately plain: one practice, one role, and an application object of
+     exactly the shape mergeRemoteApplications/normalizeCareerApplication
+     produce on the real page. */
+  var ROLES = [{
+    id: 'r-erina',
+    practiceName: 'DPA - Erina - Mixed Billing',
+    maskedTitle: 'DPA - Erina - Mixed Billing',
+    location: 'Erina',
+    state: 'NSW',
+    billing: 'Mixed Billing',
+    headerImageUrl: ''
+  }];
+
+  function app(overrides) {
+    return Object.assign({
+      id: 'app-' + Math.random().toString(36).slice(2, 8),
+      roleId: 'r-erina',
+      practiceName: 'Confidential practice',
+      revealed: false,
+      location: 'Erina',
+      rawStatus: 'applied',
+      statusLabel: '',
+      statusTone: '',
+      offerPending: false,
+      contractStage: null,
+      interview: null,
+      placement: null,
+      isPlacementSecured: false,
+      status: 'Under Review',
+      tone: 'review',
+      meta: [
+        { label: 'Applied', value: '20/07/2026' },
+        { label: 'Billing', value: 'Mixed' },
+        { label: 'Next step', value: 'GP Link screening' }
+      ]
+    }, overrides || {});
+  }
+
+  var IN_PROGRESS = [
+    ['Matched — awaiting your answer', 'rawStatus: "matched"', app({ rawStatus: 'matched', status: 'Matched' })],
+    ['Under review (fallback)', 'rawStatus: "applied"', app({})],
+    ['Submitted to the practice', 'rawStatus: "submitted"', app({ rawStatus: 'submitted' })],
+    ['With the practice', 'rawStatus: "reviewing"', app({ rawStatus: 'reviewing' })]
+  ];
+
+  var INTERVIEW = [
+    ['Interview — pick a time', 'interview: null', app({
+      rawStatus: 'interview', revealed: true, practiceName: 'Erina Family Medical Centre'
+    })],
+    ['Interview — confirmed', 'interview.scheduledAt set', app({
+      rawStatus: 'interview', revealed: true, practiceName: 'Erina Family Medical Centre',
+      interview: { status: 'booked', scheduledAt: futureIso(6, 10), zoomJoinUrl: 'https://zoom.us/j/000', timezone: 'Australia/Sydney' }
+    })],
+    ['Interview — done, practice deciding', 'rawStatus: "interview_completed"', app({
+      rawStatus: 'interview_completed', revealed: true, practiceName: 'Erina Family Medical Centre'
+    })]
+  ];
+
+  var GOOD_NEWS = [
+    ['Offer', 'offerPending: true', app({ offerPending: true, revealed: true, practiceName: 'Erina Family Medical Centre' })],
+    ['Contract to sign', 'contractStage: "sent_to_gp"', app({ contractStage: 'sent_to_gp', revealed: true, practiceName: 'Erina Family Medical Centre' })],
+    ['Contract — changes being checked', 'contractStage: "changes_requested"', app({ contractStage: 'changes_requested', revealed: true, practiceName: 'Erina Family Medical Centre' })],
+    ['Offer accepted', 'rawStatus: "finalising_placement"', app({ rawStatus: 'finalising_placement', revealed: true, practiceName: 'Erina Family Medical Centre' })],
+    ['Placement secured', 'isPlacementSecured: true', app({ isPlacementSecured: true, revealed: true, practiceName: 'Erina Family Medical Centre' })]
+  ];
+
+  var CLOSED = [
+    ['Not proceeding', 'rawStatus: "not_proceeding"', app({ rawStatus: 'not_proceeding' })],
+    ['Withdrawn by the doctor', 'rawStatus: "withdrawn"', app({ rawStatus: 'withdrawn' })],
+    ['Offer declined', 'rawStatus: "offer_declined"', app({ rawStatus: 'offer_declined' })]
+  ];
+
+  function futureIso(daysAhead, hour) {
+    var d = new Date();
+    d.setDate(d.getDate() + daysAhead);
+    d.setHours(hour, 0, 0, 0);
+    return d.toISOString();
+  }
+
+  // Fixture interview slots, in the exact shape lib/interview-scheduler.js
+  // returns, so the picker below is the real picker driving real data.
+  function fixtureSlots() {
+    var out = [];
+    [4, 5, 7].forEach(function (day) {
+      [9, 10, 14, 16].forEach(function (hour) {
+        out.push({ startUtc: futureIso(day, hour), endUtc: futureIso(day, hour + 1), local: {} });
+      });
+    });
+    return out;
+  }
+
+  /* ── First-visit explainer preview ───────────────────────────────────────
+     career.html itself is heavy to open here (it pulls Leaflet and a tile
+     server for the map), so the explainer is lifted out of that page's markup
+     and shown against the same styles, which are already injected above. The
+     button is a preview; the real first-visit flow is the link beside it. */
+  function wireIntroPreview(src) {
+    var btn = document.getElementById('demoIntro');
+    var start = src.indexOf('<div class="career-intro" id="careerIntro"');
+    var end = src.indexOf('<!-- Careers profile-completion gate modal', start);
+    if (start === -1 || end === -1) {
+      btn.textContent = 'Explainer markup not found in career.html';
+      btn.disabled = true;
+      return;
+    }
+    var markup = src.slice(start, end);
+    btn.addEventListener('click', function () {
+      var host = document.getElementById('introPreviewHost');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'introPreviewHost';
+        host.innerHTML = markup;
+        document.body.appendChild(host);
+        // The real page's Continue button closes it; here it closes the preview.
+        host.addEventListener('click', function (ev) {
+          if (ev.target && ev.target.id === 'careerIntroCta') {
+            host.querySelector('.career-intro').classList.remove('is-open');
+            document.documentElement.classList.remove('career-intro-open');
+            document.body.classList.remove('career-intro-open');
+          }
+        });
+      }
+      host.querySelector('.career-intro').classList.add('is-open');
+      document.documentElement.classList.add('career-intro-open');
+      document.body.classList.add('career-intro-open');
+      // The live counters come from the same endpoint the real page uses; it
+      // needs a session, so locally they simply stay hidden and the rules read
+      // exactly as they do for a doctor opening careers for the first time.
+      var a = host.querySelector('#careerIntroActiveCount');
+      var m = host.querySelector('#careerIntroMonthlyCount');
+      fetch('/api/career/application-usage', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || d.ok !== true) return;
+          if (a && d.active) { a.textContent = d.active.used + ' of ' + d.active.limit + ' in use'; a.hidden = false; }
+          if (m && d.monthly) { m.textContent = d.monthly.used + ' of ' + d.monthly.limit + ' used this month'; m.hidden = false; }
+        })
+        .catch(function () {});
+    });
+  }
+
+  function render(extractedCode, lockSvgLine, deviceTzLine) {
+    var sections = [
+      ['In progress', 'Nothing for the doctor to do yet — the ribbon and the blue ring say "we are working on it".', IN_PROGRESS],
+      ['Interview', 'The practice said yes. The doctor picks a time on the card itself — no separate page. Click a time and Confirm below; it is the real picker, wired to fixture slots.', INTERVIEW],
+      ['Good news', 'Something for the doctor to act on — green ring, green ribbon, green button.', GOOD_NEWS],
+      ['Closed', 'Finished, and deliberately calm. A closed application is never a red alarm.', CLOSED]
+    ];
+
+    var html = '';
+    sections.forEach(function (sec) {
+      html += '<h2 class="ref-sec-h">' + sec[0] + '</h2><p class="ref-sec-p">' + sec[1] + '</p><div class="ref-grid">';
+      sec[2].forEach(function (row, i) {
+        html += '<div class="ref-cell"><div class="ref-cap"><span>' + row[0] + '</span><code>' + row[1] + '</code></div>'
+          + '<div data-card="' + sec[0].replace(/\s/g, '') + '-' + i + '"></div></div>';
+      });
+      html += '</div>';
+    });
+    html += '<h2 class="ref-sec-h">The card these all match</h2>'
+      + '<p class="ref-sec-p">The accept-the-match card, rendered by career.html\'s own buildMatchCardHtml. '
+      + 'Owner rule 2026-07-31: the application cards above are the same card — same ring, same ribbon, '
+      + 'same photo slot, same serif practice name, same full-width button.</p>'
+      + '<div class="ref-grid"><div class="ref-cell"><div class="ref-cap"><span>Accept the match</span>'
+      + '<code>buildMatchCardHtml</code></div><div data-card="matchref"></div></div></div>';
+    bodyEl.innerHTML = html;
+
+    // Stubs for the few page globals the extracted code reaches for. Declared
+    // BEFORE the extracted source is evaluated; function declarations in that
+    // source hoist over any same-named stub, which is why nothing here shares a
+    // name with an extracted function.
+    var stubs = [
+      'var roleData = ROLES;',
+      'function findRole(roleId) { return ROLES.find(function (r) { return r.id === roleId; }) || null; }',
+      'var careerState = { applications: ALL_APPS };',
+      'function renderApplications() { repaintAll(); }',
+      'function showCareerNotice(t, b) { if (window.gpNotice) window.gpNotice.show({ title: t, body: b, tone: "good", icon: "\\u2713" }); }',
+      'function showToast(m) { console.log("[toast]", m); }'
+    ].join('\n');
+
+    var ALL_APPS = [];
+    sections.forEach(function (sec) { sec[2].forEach(function (row) { ALL_APPS.push(row[2]); }); });
+
+    // The picker talks to the network. Answer it here so the gallery is fully
+    // interactive offline: the doctor's real flow, on fixture data.
+    var realFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      var url = String((input && input.url) || input || '');
+      if (url.indexOf('/api/career/interview/slots') === 0) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, slots: fixtureSlots() }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      if (url.indexOf('/api/career/interview/book') === 0) {
+        var chosen = '';
+        try { chosen = JSON.parse((init && init.body) || '{}').slot_start_utc || ''; } catch (e) {}
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, booked: { scheduled_at: chosen, zoom_join_url: 'https://zoom.us/j/demo' } }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return realFetch(input, init);
+    };
+
+    var factory;
+    try {
+      /* eslint-disable no-new-func */
+      factory = new Function('ROLES', 'ALL_APPS', 'repaintAll',
+        stubs + '\n' + lockSvgLine + '\n' + deviceTzLine + '\n' + extractedCode
+        + '\nreturn { build: buildCareerApplicationCardHtml, match: buildMatchCardHtml, boot: careerIvBootAll, state: careerApplicationState };');
+    } catch (err) {
+      fail('pages/career.html\'s card code did not evaluate — the extraction needs updating.', err && err.message);
+      return;
+    }
+
+    var api = factory(ROLES, ALL_APPS, repaintAll);
+
+    function repaintAll() {
+      var n = 0;
+      sections.forEach(function (sec) {
+        sec[2].forEach(function (row, i) {
+          var host = bodyEl.querySelector('[data-card="' + sec[0].replace(/\s/g, '') + '-' + i + '"]');
+          if (host) host.innerHTML = api.build(row[2], {});
+          n += 1;
+        });
+      });
+      var mref = bodyEl.querySelector('[data-card="matchref"]');
+      if (mref) {
+        mref.innerHTML = api.match({
+          applicationId: 'match-demo',
+          roleId: 'r-erina',
+          practiceName: 'Erina Family Medical Centre',
+          jobTitle: 'General Practitioner · Full time',
+          locationCity: 'Erina', locationState: 'NSW', dpa: true,
+          expiresAt: futureIso(3, 12),
+          reasons: ['DPA-approved for your registration pathway', 'Mixed billing, matching your preference'],
+          website: '', introVideoUrl: '', headerImageUrl: '', mapQuery: ''
+        });
+      }
+      api.boot();
+      return n;
+    }
+
+    repaintAll();
+
+    // The two application-rule notices, on demand.
+    document.getElementById('demoActiveCap').addEventListener('click', function () {
+      window.gpNotice.show({
+        tone: 'warn', icon: '✌️',
+        title: 'You already have 2 live applications',
+        body: 'These are in play right now. Withdraw one and you can apply for this position straight away.',
+        bullets: [
+          { title: 'Erina Family Medical Centre', meta: 'Interview · Erina, NSW', href: '#', onSelect: function () {} },
+          { title: 'Confidential practice', meta: 'With practice · Geelong, VIC', href: '#', onSelect: function () {} }
+        ],
+        primaryLabel: 'Keep my current applications',
+        secondaryLabel: 'Manage my applications'
+      });
+    });
+    document.getElementById('demoMonthlyCap').addEventListener('click', function () {
+      window.gpNotice.show({
+        tone: 'warn', icon: '🗓️',
+        title: "That's your 3 positions for this month",
+        body: 'You have applied for 3 positions this month, which is the monthly limit. Your limit resets on 1 August.',
+        primaryLabel: 'Got it'
+      });
+    });
+  }
+}());
+</script>
+</body>
+</html>

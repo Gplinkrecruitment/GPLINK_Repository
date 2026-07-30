@@ -63,8 +63,14 @@
   function pageBlocked() {
     if (shellCoachActive) return true;
     if (frameHidden()) return true; // hidden warm frame — defer unmarked
-    // Career CV gate (pages/career.html): full-screen modal until CV verified.
     try {
+      // First-visit careers explainer (pages/career.html): a full-screen page
+      // ahead of the CV gate. Owner rule 2026-07-31 — the walkthrough must not
+      // start until the doctor has closed this AND uploaded their CV, so it is
+      // a blocker in exactly the same way the gate below is.
+      if (document.body && document.body.classList.contains('career-intro-open')) return true;
+      if (document.querySelector('.career-intro.is-open')) return true;
+      // Career CV gate (pages/career.html): full-screen modal until CV verified.
       if (document.body && document.body.classList.contains('career-gate-open')) return true;
       var gate = document.querySelector('.career-gate-modal.is-open');
       if (gate) return true;
@@ -83,6 +89,7 @@
     function disarm() {
       deferRetry.armed = false;
       window.removeEventListener('gp-career-gate-closed', fire);
+      window.removeEventListener('gp-career-intro-closed', fire);
       window.removeEventListener('resize', fire);
       if (deferRetry.frameObs) { try { deferRetry.frameObs.disconnect(); } catch (e) {} deferRetry.frameObs = null; }
       if (deferRetry.poll) { clearInterval(deferRetry.poll); deferRetry.poll = null; }
@@ -90,6 +97,10 @@
     function fire() { disarm(); scheduleRetry(); }
     // Primary signal: the career gate announces its close.
     window.addEventListener('gp-career-gate-closed', fire);
+    // The explainer announces its own close the same way. Re-checking is what
+    // matters, not which screen closed: the CV gate usually opens straight
+    // after this one, and pageBlocked() will simply defer again.
+    window.addEventListener('gp-career-intro-closed', fire);
     // Warm-frame wake-ups (measured in Chrome): a display:none host firing to
     // visible resizes this window 0x0 → real size, so 'resize' catches it; the
     // shell's opacity:0 warm frame NEVER resizes on activation — the is-active

@@ -61,6 +61,10 @@
   <script src="/js/gp-coach.js?v=20260724a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
+  <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
+       must read identically here and on the job page. NOT defer — the intro
+       overlay and the apply path can both need it during first paint. -->
+  <script src="/js/gp-notice.js?v=20260731a"></script>
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
@@ -5271,6 +5275,176 @@
       flex-wrap: wrap;
     }
 
+    /* ============ First-visit careers explainer (owner ask 2026-07-31) ========
+       "When the GP clicks the careers page for the first time there is a page
+       that opens explaining the process and the rules."
+
+       It is a full-screen takeover rather than a separate route on purpose: the
+       ordering it has to enforce — explainer, THEN the CV gate, THEN the
+       walkthrough — is all in-page state, and a real route would have to be
+       registered in five places in js/app-shell.js plus the service worker just
+       to come back here immediately. It reads as a page: full bleed, its own
+       scroll, its own header and footer, nothing of the careers page behind it.
+
+       z-index sits ABOVE the CV gate's .modal (80) because it comes first, and
+       BELOW the boot overlay (200) so it can never flash over a page that has
+       not decided what it is yet. */
+    .career-intro {
+      position: fixed;
+      inset: 0;
+      z-index: 150;
+      display: none;
+      flex-direction: column;
+      background: var(--gp-canvas);
+      overscroll-behavior: contain;
+    }
+    .career-intro.is-open { display: flex; }
+    /* Same lock the CV gate uses, and for the same reason: a gesture that starts
+       on this overlay must not scroll the careers page underneath. html too —
+       body overflow stops propagating once html has overflow-x: hidden. */
+    html.career-intro-open,
+    body.career-intro-open { overflow: hidden; overscroll-behavior: none; }
+
+    .career-intro-scroll {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .career-intro-inner { max-width: 560px; margin: 0 auto; padding: 0 18px 26px; }
+
+    .career-intro-hero {
+      background: var(--gp-grad-hero);
+      color: #fff;
+      padding: 40px 18px 34px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .career-intro-hero::after {
+      content: '';
+      position: absolute; left: 50%; top: -70px; width: 320px; height: 320px;
+      transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(78, 183, 245, .22) 0%, transparent 68%);
+      pointer-events: none;
+    }
+    .career-intro-hero-in { position: relative; max-width: 560px; margin: 0 auto; }
+    .career-intro-kicker {
+      display: inline-block;
+      font-size: 10.5px; font-weight: 800; letter-spacing: var(--gp-tracking-label);
+      text-transform: uppercase; color: #9fd0f5;
+      background: rgba(78, 183, 245, .14);
+      border: 1px solid rgba(78, 183, 245, .3);
+      border-radius: var(--gp-r-pill); padding: 5px 12px; margin-bottom: 13px;
+    }
+    .career-intro-hero h1 {
+      font-family: var(--gp-font-display);
+      font-size: var(--gp-fs-2xl); font-weight: 700; line-height: 1.18;
+      margin: 0 0 9px; color: #fff;
+    }
+    .career-intro-hero p { font-size: 14px; line-height: 1.55; color: #c6d4ea; margin: 0; }
+
+    .career-intro-sec { margin-top: 24px; }
+    .career-intro-sec h2 {
+      font-family: var(--gp-font-display);
+      font-size: var(--gp-fs-md); font-weight: 700; color: var(--gp-ink);
+      margin: 0 0 4px;
+    }
+    .career-intro-sec .career-intro-sub { font-size: 12.5px; color: var(--gp-muted); margin: 0 0 13px; line-height: 1.45; }
+
+    /* The four steps, as a timeline the eye can follow down the numbers. */
+    .career-intro-steps { display: grid; gap: 11px; }
+    .career-intro-step {
+      display: flex; gap: 13px; align-items: flex-start;
+      background: var(--gp-surface);
+      border: 1px solid var(--gp-border);
+      border-radius: var(--gp-r-lg);
+      box-shadow: var(--gp-shadow-sm);
+      padding: 14px 15px;
+    }
+    .career-intro-num {
+      flex: none; width: 30px; height: 30px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 800; color: #fff;
+      background: var(--gp-grad-brand);
+      box-shadow: 0 6px 14px -6px rgba(37, 99, 235, .8);
+    }
+    .career-intro-step-b { min-width: 0; flex: 1; }
+    .career-intro-step-t { font-size: 14px; font-weight: 700; color: var(--gp-ink); margin-bottom: 3px; }
+    .career-intro-step-d { font-size: 12.5px; line-height: 1.5; color: var(--gp-muted); }
+
+    /* The rules. Amber, because they are limits — but stated as fairness, not
+       as a telling-off. The live counters fill in from
+       /api/career/application-usage when it answers; the static limits stand
+       alone if it doesn't, so the rules are never blank. */
+    .career-intro-rules { display: grid; gap: 11px; }
+    .career-intro-rule {
+      display: flex; gap: 13px; align-items: flex-start;
+      background: var(--gp-amber-soft);
+      border: 1px solid var(--gp-amber-border);
+      border-radius: var(--gp-r-lg);
+      padding: 14px 15px;
+    }
+    .career-intro-rule-ico { flex: none; font-size: 19px; line-height: 1.2; }
+    .career-intro-rule-b { min-width: 0; flex: 1; }
+    .career-intro-rule-t {
+      font-size: 14px; font-weight: 800; color: var(--gp-amber-ink); margin-bottom: 3px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .career-intro-rule-count {
+      font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      background: rgba(217, 119, 6, .16); color: var(--gp-amber-ink);
+      border-radius: var(--gp-r-pill); padding: 3px 9px;
+    }
+    .career-intro-rule-count[hidden] { display: none; }
+    .career-intro-rule-d { font-size: 12.5px; line-height: 1.5; color: var(--gp-amber-ink); opacity: .92; }
+
+    .career-intro-why {
+      margin-top: 22px;
+      background: var(--gp-blue-soft);
+      border: 1px solid var(--gp-blue-border);
+      border-radius: var(--gp-r-lg);
+      padding: 15px 16px;
+    }
+    .career-intro-why h3 {
+      font-size: 12.5px; font-weight: 800; color: var(--gp-blue-ink);
+      letter-spacing: .02em; margin: 0 0 5px;
+    }
+    .career-intro-why p { font-size: 12.5px; line-height: 1.55; color: var(--gp-blue-ink); margin: 0; opacity: .93; }
+
+    /* Sticky footer: the Continue button is the only way out of this page, so it
+       stays on screen while the content above it scrolls. Bottom padding clears
+       the app-shell nav (embedded) and the iOS home indicator (standalone). */
+    .career-intro-foot {
+      flex: none;
+      background: var(--gp-surface);
+      border-top: 1px solid var(--gp-border);
+      padding: 13px 18px calc(13px + max(var(--gp-shell-bottom-clearance, 0px), env(safe-area-inset-bottom, 0px)));
+      box-shadow: 0 -10px 30px -18px rgba(15, 23, 42, .4);
+    }
+    .career-intro-foot-in { max-width: 560px; margin: 0 auto; }
+    .career-intro-cta {
+      display: block; width: 100%; text-align: center; cursor: pointer; border: 0;
+      font-family: inherit; font-size: 14.5px; font-weight: 700; color: #fff;
+      padding: 14px; border-radius: var(--gp-r-md);
+      background: var(--gp-grad-brand);
+      box-shadow: 0 10px 26px -10px rgba(37, 99, 235, .8);
+    }
+    .career-intro-foot-note { font-size: 11px; color: var(--gp-muted); text-align: center; margin: 9px 0 0; }
+
+    html.dark-mode .career-intro { background: #0f1626; }
+    html.dark-mode .career-intro-step,
+    html.dark-mode .career-intro-foot { background: #151e2e; border-color: #26324a; }
+    html.dark-mode .career-intro-sec h2,
+    html.dark-mode .career-intro-step-t { color: #e8eefb; }
+    html.dark-mode .career-intro-sec .career-intro-sub,
+    html.dark-mode .career-intro-step-d,
+    html.dark-mode .career-intro-foot-note { color: #94a3b8; }
+
+    @media (max-width: 420px) {
+      .career-intro-hero { padding: 32px 16px 28px; }
+      .career-intro-inner { padding: 0 14px 22px; }
+    }
+
     /* ============ Careers profile-completion gate modal (Task 5) ============
        Visual source of truth: docs/mockups/career-cv-gate-practice-email.html
        (Section 1). Classes are the mockup's gate-modal/req-row/dropzone/boost/
@@ -7719,6 +7893,97 @@
     .at-match-pass { text-align: center; font-size: 11px; color: var(--gp-faint, #94a3b8); padding-top: 8px; }
     .at-match-pass a { color: var(--gp-muted, #64748b); }
 
+    /* ── Application cards reuse this exact shell ─────────────────────────────
+       Owner rule 2026-07-31: the cards for a doctor's own applications must be
+       uniform with the accept-the-match card. Everything above is shared; all
+       that changes per state is the ribbon colour and the ring, below. Blue
+       (the default) = in progress. Green = something good the doctor can act
+       on. Amber = time-critical. Muted = closed, and deliberately calm — a
+       finished application is never a red alarm. */
+    .at-match-pin--green {
+      border-color: var(--gp-green, #16a34a);
+      box-shadow: 0 0 0 4px rgba(22, 163, 74, .12), 0 14px 34px -14px rgba(22, 163, 74, .42);
+    }
+    .at-match-pin--muted {
+      border-color: var(--gp-border-strong, #cbd7ea);
+      box-shadow: var(--gp-shadow-sm);
+    }
+    .at-match-ribbon--green { background: linear-gradient(135deg, #22b45c 0%, #16a34a 100%); }
+    .at-match-ribbon--muted { background: linear-gradient(135deg, #8494ad 0%, #64748b 100%); }
+    /* The right-hand ribbon slot: on a match card it's the expiry countdown, on
+       an application card it's the applied date. Same pill either way. */
+    .at-match-cd--calm { background: rgba(255, 255, 255, .22); }
+    /* Plain-English "what happens next" line, in place of the match card's
+       reason ticks. Same tinted panel so the two cards read as one family. */
+    .at-match-blurb {
+      background: var(--gp-blue-soft, #eff4ff);
+      border: 1px solid var(--gp-blue-border, #d6e2fb);
+      border-radius: 12px; padding: 9px 11px; margin-bottom: 9px;
+      font-size: 11.5px; line-height: 1.45; color: var(--gp-blue-ink, #173da6);
+    }
+    .at-match-pin--green .at-match-blurb {
+      background: var(--gp-green-soft, #eafaf0);
+      border-color: var(--gp-green-border, #c5ecd4);
+      color: var(--gp-green-ink, #166534);
+    }
+    .at-match-pin--muted .at-match-blurb {
+      background: var(--gp-surface-sunken, #f8fafd);
+      border-color: var(--gp-border, #e3e9f4);
+      color: var(--gp-muted, #64748b);
+    }
+    /* Secondary action, for when the card already has a primary one (e.g. the
+       interview picker owns the green button, so "open the timeline" is ghost). */
+    .at-match-ghost {
+      display: block; width: 100%; text-align: center; cursor: pointer;
+      font-size: 12.5px; font-weight: 700; padding: 10px; border-radius: 12px;
+      color: var(--gp-blue, #2563eb); background: var(--gp-surface, #fff);
+      border: 1px solid var(--gp-blue-border, #d6e2fb); margin-top: 8px;
+    }
+    .at-match-ghost:hover { background: var(--gp-blue-soft, #eff4ff); }
+    .at-match-pin--muted .at-match-ghost { color: var(--gp-muted, #64748b); border-color: var(--gp-border, #e3e9f4); }
+
+    /* ── Pick your interview time, on the card itself ─────────────────────────
+       Owner ask 2026-07-31: the doctor should be able to choose a time straight
+       from the card instead of opening the timeline first. Same slot data and
+       same two endpoints the application-detail picker uses. */
+    .ivc {
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      background: var(--gp-green-soft, #eafaf0);
+      border-radius: 13px; padding: 11px 12px; margin-bottom: 10px;
+    }
+    .ivc-h { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 800; color: var(--gp-green-ink, #166534); }
+    .ivc-note { font-size: 11px; color: var(--gp-green-ink, #166534); opacity: .85; margin: 4px 0 9px; line-height: 1.4; }
+    .ivc-status { font-size: 11.5px; color: var(--gp-green-ink, #166534); margin: 0 0 8px; }
+    .ivc-status[hidden] { display: none; }
+    .ivc-days { display: grid; gap: 9px; margin-bottom: 10px; }
+    .ivc-day-lbl { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--gp-green-ink, #166534); margin-bottom: 5px; }
+    .ivc-slots { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ivc-slot {
+      cursor: pointer; font-size: 12px; font-weight: 700; padding: 8px 11px; border-radius: 10px;
+      background: var(--gp-surface, #fff); color: var(--gp-ink, #0f172a);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
+      transition: background var(--gp-dur-fast, .16s) var(--at-ease), color var(--gp-dur-fast, .16s) var(--at-ease);
+    }
+    .ivc-slot:hover { background: #fff; border-color: var(--gp-green, #16a34a); }
+    .ivc-slot.is-sel { background: var(--gp-green, #16a34a); border-color: var(--gp-green, #16a34a); color: #fff; }
+    .ivc-confirm:disabled { background: #d7e3d9; color: #7d8f85; cursor: not-allowed; box-shadow: none; }
+    /* Booked: the same panel, now stating the confirmed time. */
+    .ivc.is-booked { display: flex; align-items: center; gap: 11px; }
+    .ivc-when { flex: 1; min-width: 0; }
+    .ivc-when b { display: block; font-size: 13px; color: var(--gp-green-ink, #166534); }
+    .ivc-when span { display: block; font-size: 11px; color: var(--gp-green-ink, #166534); opacity: .8; margin-top: 2px; }
+    .ivc-join {
+      flex: none; font-size: 11.5px; font-weight: 800; text-decoration: none; white-space: nowrap;
+      color: #fff; background: var(--gp-green, #16a34a); border-radius: 999px; padding: 8px 13px;
+    }
+    html.dark-mode .ivc { background: rgba(22, 163, 74, .13); border-color: rgba(34, 180, 92, .3); }
+    html.dark-mode .ivc-h, html.dark-mode .ivc-note, html.dark-mode .ivc-status,
+    html.dark-mode .ivc-day-lbl, html.dark-mode .ivc-when b, html.dark-mode .ivc-when span { color: #b7f0cd; }
+    html.dark-mode .ivc-slot { background: #1b2436; border-color: #2c4436; color: #e8eefb; }
+    html.dark-mode .at-match-ghost { background: #1b2436; border-color: #26324a; color: #cfe0ff; }
+    html.dark-mode .at-match-pin--muted .at-match-blurb { background: rgba(148, 163, 184, .12); border-color: #26324a; color: #94a3b8; }
+    html.dark-mode .at-match-pin--green .at-match-blurb { background: rgba(22, 163, 74, .14); border-color: rgba(34, 180, 92, .28); color: #b7f0cd; }
+
     /* Match card (design R6): website button, map preview, "see full job
        opening" row — inserted under the reason ticks, above the 98% line. */
     .at-match-qrow { display: flex; gap: 8px; margin-bottom: 9px; }
@@ -7773,6 +8038,13 @@
     }
     @media (prefers-reduced-motion: reduce) { .shiny::after { animation: none; } }
     @keyframes atMatchShine { 0% { left: -70%; } 55% { left: 135%; } 100% { left: 135%; } }
+    /* Green twin of .shiny, for the application-card states where the action is
+       a good one the doctor can take now (confirm an interview, sign a
+       contract). Same treatment, so the button still reads as THE button. */
+    .shiny--green {
+      background: linear-gradient(180deg, #34d072 0%, #16a34a 45%, #12833c 100%);
+      box-shadow: 0 12px 28px -8px rgba(22, 163, 74, .68), inset 0 1.5px 0 rgba(255, 255, 255, .45), inset 0 -2px 6px rgba(8, 74, 34, .4);
+    }
 
     /* Position-filled notice + "Picked for you next" alternatives */
     .at-match-filled {
@@ -7994,22 +8266,33 @@
     @keyframes cmapCardIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
     @media(prefers-reduced-motion:reduce){.cmap-detail.open{animation:none;}}
 
-    /* ── Your matches & applications, highlighted under the map ── */
+    /* ── Your matches & applications, highlighted under the map ──────────────
+       Owner rule 2026-07-31: an application card must look like the card the
+       doctor is shown when asked to accept a match. So these cards ARE
+       .at-match-pin — same 2px ring, same ribbon, same photo, same serif
+       practice name, same full-width action button — with only the ribbon
+       colour and the body content differing by state. Do not fork a second
+       card shell here; the whole point is that there is one. */
     .cmap-mine{margin:-6px 0 22px;}
     .cmap-mine-h{display:flex;align-items:center;gap:9px;margin:0 2px 10px;}
     .cmap-mine-h .cmap-mine-dot{width:10px;height:10px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 4px rgba(22,163,74,.18);flex:none;}
     .cmap-mine-h b{color:var(--gp-ink);font-size:14px;font-weight:700;}
     .cmap-mine-h .sub{color:var(--gp-muted);font-size:12px;margin-left:auto;}
-    .cmap-mine-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;}
+    /* One column on phones (the card is tall). Two only when there is genuinely
+       room, so the photo and the interview picker never get squeezed. */
+    .cmap-mine-list{display:grid;grid-template-columns:1fr;gap:14px;}
+    @media(min-width:820px){.cmap-mine-list{grid-template-columns:repeat(auto-fill,minmax(340px,1fr));align-items:start;}}
+    /* .at-match-pin carries a bottom margin for the stacked matches list; inside
+       this grid the gap already does that job. */
+    .cmap-mine-list .at-match-pin{margin-bottom:0;}
+    /* FALLBACK ONLY. renderMine draws the real card via the app script's
+       builder; this compact row is what it degrades to if that builder is
+       missing, so the strip is never unstyled markup. Not the design. */
     .cmap-mine-card{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
-      background:var(--gp-surface);border:1px solid var(--gp-border);border-left:4px solid #2563eb;
-      border-radius:14px;padding:10px 12px;box-shadow:var(--gp-shadow-sm);
-      transition:transform .18s ease,box-shadow .18s ease;}
-    .cmap-mine-card:hover{transform:translateY(-2px);box-shadow:0 16px 30px -18px rgba(9,25,45,.5);}
-    .cmap-mine-card.is-live{border-left-color:#16a34a;}
-    .cmap-mine-card.is-closed{border-left-color:var(--gp-border);opacity:.72;}
+      background:var(--gp-surface);border:1px solid var(--gp-border);border-left:4px solid var(--gp-blue);
+      border-radius:14px;padding:10px 12px;box-shadow:var(--gp-shadow-sm);}
     .cmap-mine-thumb{flex:none;width:46px;height:46px;border-radius:11px;overflow:hidden;background:var(--gp-surface-sunken);
-      display:grid;place-items:center;color:#2563eb;}
+      display:grid;place-items:center;color:var(--gp-blue);}
     .cmap-mine-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
     .cmap-mine-thumb svg{width:19px;height:19px;}
     .cmap-mine-txt{min-width:0;flex:1;display:block;}
@@ -8018,13 +8301,10 @@
     .cmap-mine-role{display:block;font-size:11.5px;color:var(--gp-muted);margin-top:2px;
       overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .cmap-mine-pill{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
-      padding:5px 9px;border-radius:999px;background:rgba(37,99,235,.12);color:#2563eb;white-space:nowrap;}
-    .cmap-mine-card.is-live .cmap-mine-pill{background:rgba(22,163,74,.13);color:#15803d;}
-    .cmap-mine-card.is-closed .cmap-mine-pill{background:var(--gp-surface-sunken);color:var(--gp-muted);}
+      padding:5px 9px;border-radius:999px;background:var(--gp-blue-soft);color:var(--gp-blue);white-space:nowrap;}
     /* The doctor's own practices stand out from the eligible-role pins. */
     .cmap-pin.mine .pd svg path{fill:#16a34a;}
     .cmap-pin.mine .pd{filter:drop-shadow(0 5px 7px rgba(22,163,74,.5));}
-    html.dark-mode .cmap-mine-card.is-closed{opacity:.6;}
     html.dark-mode .cmap-loading{background:#1a2332;}
     html.dark-mode .cmap-shell .leaflet-control-attribution{background:rgba(20,28,42,.5);color:rgba(180,200,225,.6);}
   </style>
@@ -8329,6 +8609,105 @@
   <!-- Sticky accept bar (Task 6, design R6): pinned above the app-shell
        bottom nav whenever ≥1 live team match exists — see renderMatchStickyBar(). -->
   <div class="at-match-stickybar" id="matchStickyBar" hidden></div>
+
+  <!-- First-visit careers explainer (owner ask 2026-07-31). Opens BEFORE the CV
+       gate; the walkthrough is blocked until both are closed. Rendered here in
+       the markup rather than built in JS so it is styleable, greppable and
+       testable like the rest of the page. Hidden until careerIntro decides. -->
+  <div class="career-intro" id="careerIntro" role="dialog" aria-modal="true" aria-labelledby="careerIntroTitle">
+    <div class="career-intro-scroll">
+      <header class="career-intro-hero">
+        <div class="career-intro-hero-in">
+          <span class="career-intro-kicker">How careers works</span>
+          <h1 id="careerIntroTitle">Finding you the right practice</h1>
+          <p>Two minutes now, so nothing that follows is a surprise. Here's how we place you — and the few rules that keep it fair for every doctor on the platform.</p>
+        </div>
+      </header>
+
+      <div class="career-intro-inner">
+        <section class="career-intro-sec">
+          <h2>The process</h2>
+          <p class="career-intro-sub">Four steps, and you're never on your own for any of them.</p>
+          <div class="career-intro-steps">
+            <div class="career-intro-step">
+              <span class="career-intro-num">1</span>
+              <div class="career-intro-step-b">
+                <div class="career-intro-step-t">Browse and apply</div>
+                <div class="career-intro-step-d">Every practice on your map is one you're already eligible for — we've checked your registration pathway and DPA status first. Apply to the ones you like the look of.</div>
+              </div>
+            </div>
+            <div class="career-intro-step">
+              <span class="career-intro-num">2</span>
+              <div class="career-intro-step-b">
+                <div class="career-intro-step-t">We introduce you</div>
+                <div class="career-intro-step-d">Your Registration Support Officer sends the practice your CV and a written introduction. The practice's name stays hidden on your side until they say they'd like to meet you.</div>
+              </div>
+            </div>
+            <div class="career-intro-step">
+              <span class="career-intro-num">3</span>
+              <div class="career-intro-step-b">
+                <div class="career-intro-step-t">Meet the practice</div>
+                <div class="career-intro-step-d">If they want to meet you, your application card turns green and you pick an interview time straight from it. Your Registration Support Officer joins the call, so you're never in the room alone.</div>
+              </div>
+            </div>
+            <div class="career-intro-step">
+              <span class="career-intro-num">4</span>
+              <div class="career-intro-step-b">
+                <div class="career-intro-step-t">Offer and contract</div>
+                <div class="career-intro-step-d">An offer comes back through the app. We read the contract with you, you sign it here, and that's your placement secured.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="career-intro-sec">
+          <h2>The rules</h2>
+          <p class="career-intro-sub">There are three, and they apply to everyone.</p>
+          <div class="career-intro-rules">
+            <div class="career-intro-rule">
+              <span class="career-intro-rule-ico" aria-hidden="true">✌️</span>
+              <div class="career-intro-rule-b">
+                <div class="career-intro-rule-t">
+                  <span>2 live applications at a time</span>
+                  <span class="career-intro-rule-count" id="careerIntroActiveCount" hidden></span>
+                </div>
+                <div class="career-intro-rule-d">You can have two applications in play at once. To apply for a third, withdraw one of your current applications first — we'll show you which ones they are.</div>
+              </div>
+            </div>
+            <div class="career-intro-rule">
+              <span class="career-intro-rule-ico" aria-hidden="true">🗓️</span>
+              <div class="career-intro-rule-b">
+                <div class="career-intro-rule-t">
+                  <span>3 positions a month</span>
+                  <span class="career-intro-rule-count" id="careerIntroMonthlyCount" hidden></span>
+                </div>
+                <div class="career-intro-rule-d">Across a calendar month you can apply for three positions in total. Your allowance resets on the 1st. Withdrawing frees up a live slot, but it doesn't give the month's application back.</div>
+              </div>
+            </div>
+            <div class="career-intro-rule">
+              <span class="career-intro-rule-ico" aria-hidden="true">↩️</span>
+              <div class="career-intro-rule-b">
+                <div class="career-intro-rule-t"><span>Withdrawing is final for that position</span></div>
+                <div class="career-intro-rule-d">Once you withdraw from a position you can't apply for it again — the practice has already been told. Message your Registration Support Officer if you withdrew by mistake.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="career-intro-why">
+          <h3>Why the limits?</h3>
+          <p>When we introduce you, a real practice blocks out time to read your CV and meet you. Keeping each doctor to a couple of live applications means every introduction we make is one you actually want — which is why practices take our candidates seriously, and why our doctors get interviews.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="career-intro-foot">
+      <div class="career-intro-foot-in">
+        <button type="button" class="career-intro-cta" id="careerIntroCta">Got it — show me the roles</button>
+        <p class="career-intro-foot-note">You can read this again any time from your account.</p>
+      </div>
+    </div>
+  </div>
 
   <!-- Careers profile-completion gate modal (Task 5). Not dismissible: no close
        button, no scrim-click close, no Escape handler — the CTA only enables
@@ -9148,6 +9527,11 @@
         // offerPending: a contract can be live with NO ats_offers row at all
         // (the CEO's submit-to-gp action only flips gp_applications.status).
         contractStage: source.contractStage || null,
+        // The interview for this application, or null. careerApplicationState
+        // reads scheduledAt to decide between the in-card time picker and a
+        // confirmed time, so it MUST survive normalisation — dropping it here
+        // would show the picker to a doctor who has already booked.
+        interview: source.interview || null,
         isPlacementSecured: meta.isPlacementSecured || source.isPlacementSecured === true,
         meta: Array.isArray(source.meta) ? source.meta : [],
         placement: source.placement && typeof source.placement === "object" ? source.placement : null
@@ -9581,6 +9965,103 @@
       toastEl.classList.add("show");
       window.clearTimeout(showToast._timer);
       showToast._timer = window.setTimeout(() => toastEl.classList.remove("show"), 2200);
+    }
+
+    // A toast vanishes; some of these the doctor has to READ (an application
+    // rule, a confirmed interview). js/gp-notice.js owns the dialog so this page
+    // and the job page explain the same refusal the same way. Falls back to the
+    // toast if the module somehow didn't load — never swallow the message.
+    function showCareerNotice(title, body, options) {
+      if (window.gpNotice && typeof window.gpNotice.show === "function") {
+        window.gpNotice.show(Object.assign({ title, body }, options || {}));
+        return;
+      }
+      showToast([title, body].filter(Boolean).join(" — "));
+    }
+
+    // Open an application's timeline. Extracted from the delegated card handler
+    // so the cap dialog's "these are in play right now" list can route the same
+    // way rather than growing a second copy of the shell-vs-standalone dance.
+    function openApplicationTimeline(appId, roleId) {
+      const app = careerState.applications.find(a => a && ((a.id && a.id === appId) || (a.roleId && a.roleId === roleId)));
+      if (app) {
+        // application-detail.html reads this for an instant first paint.
+        try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch (e) {}
+      }
+      // A live, unanswered match must NOT open the application tracker. That
+      // page is a pipeline view — Applied \u2192 Under Review \u2192 Interview \u2192 Offer
+      // — and every one of those steps is untrue for someone who has not
+      // answered yet. Send them to the practice page instead, which carries
+      // the accept/decline actions (owner report 2026-07-28).
+      const isPendingMatch = app && String(app.status || "").trim().toLowerCase() === "matched";
+      const route = isPendingMatch
+        ? "/pages/job?id=" + encodeURIComponent(roleId) + "&match=" + encodeURIComponent(appId)
+        : "/pages/application-detail?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(roleId);
+      if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
+        window.parent.gpShellNavigate(route);
+        return;
+      }
+      window.location.href = route.replace(/^\/pages\//, "");
+    }
+
+    /* ── Application-rule refusals (owner rule 2026-07-31) ────────────────────
+       Two live applications at a time, three positions a calendar month. The
+       server refuses; this explains the refusal. Reached from here when the
+       doctor accepts a team match — the job page has the twin of this for the
+       Apply button, and both drive the same js/gp-notice.js dialog so the rule
+       reads identically whichever way the doctor met it.
+
+       For the active cap the dialog NAMES the applications in the way and links
+       to each: being told "you already have two" without being told which two
+       is the version of this that generates support messages. The list is
+       filled in from /api/career/application-usage after the dialog is already
+       up, so a slow or failed lookup leaves plain wording rather than a
+       spinner. */
+    function showApplicationCapNotice(kind, data, options) {
+      const opts = options || {};
+      const serverMessage = (data && data.message) || "";
+      if (!window.gpNotice || typeof window.gpNotice.show === "undefined") {
+        showToast(serverMessage || "You've reached your application limit.");
+        return;
+      }
+
+      if (kind === "monthly") {
+        window.gpNotice.show({
+          tone: "warn",
+          icon: "🗓️",
+          title: "That's your 3 positions for this month",
+          body: serverMessage || "You can apply for three positions each calendar month. Your allowance resets at the start of next month.",
+          primaryLabel: "Got it"
+        });
+        return;
+      }
+
+      const verb = opts.context === "match" ? "accept this match" : "apply for this position";
+      const base = {
+        tone: "warn",
+        icon: "✌️",
+        title: "You already have 2 live applications",
+        body: serverMessage || ("You can have two applications in play at a time. To " + verb + ", withdraw one of your current applications first."),
+        primaryLabel: "Keep my current applications"
+      };
+      window.gpNotice.show(base);
+
+      fetch("/api/career/application-usage", { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((usage) => {
+          if (!usage || usage.ok !== true || !usage.active || !Array.isArray(usage.active.applications)) return;
+          if (!usage.active.applications.length) return;
+          window.gpNotice.show(Object.assign({}, base, {
+            body: "These are in play right now. Withdraw one and you can " + verb + " straight away.",
+            bullets: usage.active.applications.map((app) => ({
+              title: app.practiceName || "Confidential practice",
+              meta: [app.stageLabel, app.location].filter(Boolean).join(" · "),
+              href: "/pages/application-detail?id=" + encodeURIComponent(app.id || "") + "&role=" + encodeURIComponent(app.roleId || ""),
+              onSelect: () => openApplicationTimeline(app.id || "", app.roleId || "")
+            }))
+          }));
+        })
+        .catch(() => { /* the plain dialog above already stated the rule */ });
     }
 
     function syncInboxIndicators() {
@@ -12009,6 +12490,10 @@
         statusTone: app.statusTone || "",
         offerPending: app.offerPending === true,
         contractStage: app.contractStage || null,
+        // Server truth about this application's interview: {status, scheduledAt,
+        // zoomJoinUrl, timezone} or null. scheduledAt is what tells the card to
+        // show a confirmed time instead of the picker.
+        interview: app.interview || null,
         placement: app.placement,
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
@@ -12471,6 +12956,15 @@
           renderPage();
           return;
         }
+        // The 2-live / 3-a-month rules bind here too: accepting a match starts a
+        // real application, and the point of the limit is how many practices the
+        // doctor is juggling — not how the application began. Explain it the
+        // same way the job page does rather than dropping the server's sentence
+        // into a toast that disappears.
+        if (res.status === 409 && data && (data.error === "active_cap" || data.error === "monthly_cap")) {
+          showApplicationCapNotice(data.error === "monthly_cap" ? "monthly" : "active", data, { context: "match" });
+          return;
+        }
         if (!res.ok || !data || !data.ok) {
           showToast((data && data.message) || "Could not accept this match — please try again.");
           return;
@@ -12604,32 +13098,144 @@
       } catch (e) { /* map is best-effort; never break the list render */ }
     }
 
-    // Short, honest label for the strip of practices under the map. Mirrors the
-    // ribbon wording of buildApplicationRowHtml so the same application never
-    // reads one way in the Offers list and another under the map.
-    function careerMineStatusLabel(application) {
-      const key = normalizeStatusKey(application.rawStatus);
-      if (key === "matched") return "Matched";
-      if (application.isPlacementSecured) return "Secured";
-      if (key === "finalising_placement") return "Offer accepted";
-      if (application.contractStage === "sent_to_gp"
-        || application.contractStage === "changes_requested"
-        || application.contractStage === "practice_review") return "Contract";
-      if (application.offerPending === true) return "Offer";
-      if (key === "interview" || key === "interview_scheduled" || key === "interview_completed") return "Interview";
-      if (key === "submitted") return "Submitted";
-      if (key === "reviewing") return "With practice";
-      if (key === "not_proceeding") return "Not proceeding";
-      if (key === "withdrawn") return "Withdrawn";
-      if (key === "offer_declined") return "Offer declined";
-      return "Under review";
+    // ── The one state map every application card reads ───────────────────────
+    // Owner rule 2026-07-31: the strip under the map, the Offers/applications
+    // list and the accept-the-match card are ONE card with ONE vocabulary. This
+    // is the single place a gp_applications status becomes words, a colour and
+    // an action. Before it existed the strip and the list each carried their own
+    // copy of the same fifteen-branch chain, with a comment asking the next
+    // person to keep them in sync by hand — which is exactly the kind of thing
+    // that drifts. Add a new state HERE and every card learns it at once.
+    //
+    // tone drives the card ring + ribbon: green = something good the doctor can
+    // act on now, blue = in progress, muted = closed (calm, never a red alarm).
+    // rowTone is the legacy .at-rstatus--* suffix, kept so nothing else breaks.
+    function careerApplicationState(application) {
+      const app = application || {};
+      const key = normalizeStatusKey(app.rawStatus);
+      const appId = String(app.id || app.applicationId || "");
+      const roleId = String(app.roleId || "");
+      const detailHref = "application-detail?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(roleId);
+      const offerHref = "offer-review?applicationId=" + encodeURIComponent(appId);
+      const S = (extra) => Object.assign({
+        key, appId, roleId,
+        label: "Under review", ribbon: "UNDER REVIEW", tone: "blue", rowTone: "applied",
+        blurb: "", ctaLabel: "Open the timeline", ctaHref: detailHref,
+        // bookable: this card offers the interview-time picker inline.
+        bookable: false, booked: false
+      }, extra || {});
+
+      // A live match the doctor has not answered yet. FIRST, because every
+      // branch below describes something that has already happened to an
+      // application and none of it is true here — the ball is in their court.
+      if (key === "matched") {
+        return S({
+          label: "Matched", ribbon: "MATCHED TO YOU", tone: "green", rowTone: "offer",
+          blurb: "Your team matched you to this practice. Open it to accept or decline before it expires.",
+          ctaLabel: "View matched practice",
+          ctaHref: "job?id=" + encodeURIComponent(roleId) + "&match=" + encodeURIComponent(appId)
+        });
+      }
+      if (app.isPlacementSecured) {
+        return S({
+          label: "Secured", ribbon: "SECURED", tone: "green", rowTone: "offer",
+          blurb: "Placement secured — open your placement for the full details.",
+          ctaLabel: "Open my placement"
+        });
+      }
+      if (key === "finalising_placement") {
+        return S({
+          label: "Offer accepted", ribbon: "OFFER ACCEPTED", tone: "blue", rowTone: "offer",
+          blurb: "We're finalising the paperwork — your placement page unlocks shortly."
+        });
+      }
+      if (key === "not_proceeding") {
+        return S({
+          label: "Not proceeding", ribbon: "NOT PROCEEDING", tone: "muted", rowTone: "muted",
+          blurb: "This one didn't work out — your Registration Support Officer can help you find the next fit."
+        });
+      }
+      if (key === "withdrawn") {
+        return S({
+          label: "Withdrawn", ribbon: "WITHDRAWN", tone: "muted", rowTone: "muted",
+          blurb: "You withdrew this application. It no longer counts towards your 2 live applications."
+        });
+      }
+      if (key === "offer_declined") {
+        return S({ label: "Offer declined", ribbon: "OFFER DECLINED", tone: "muted", rowTone: "muted", blurb: "You declined this offer." });
+      }
+      if (app.contractStage === "sent_to_gp") {
+        return S({
+          label: "Contract", ribbon: "CONTRACT", tone: "green", rowTone: "offer",
+          blurb: "Your contract is ready to review and sign.",
+          ctaLabel: "Review contract", ctaHref: offerHref
+        });
+      }
+      if (app.contractStage === "changes_requested") {
+        return S({
+          label: "Contract", ribbon: "CONTRACT", tone: "green", rowTone: "offer",
+          blurb: "We're checking your requested contract changes.",
+          ctaLabel: "View status", ctaHref: offerHref
+        });
+      }
+      if (app.contractStage === "practice_review") {
+        return S({
+          label: "Contract", ribbon: "CONTRACT", tone: "green", rowTone: "offer",
+          blurb: "The practice is considering your requested change.",
+          ctaLabel: "View status", ctaHref: offerHref
+        });
+      }
+      if (app.offerPending === true) {
+        return S({
+          label: "Offer", ribbon: "OFFER", tone: "green", rowTone: "offer",
+          blurb: "The practice wants to interview you — confirm your interview time.",
+          ctaLabel: "Review invitation", ctaHref: offerHref
+        });
+      }
+      // The interview already happened and the practice is deciding — a DISTINCT
+      // state from the one below, and it must never offer a time picker.
+      if (key === "interview_completed") {
+        return S({
+          label: "Interview", ribbon: "INTERVIEW DONE", tone: "blue", rowTone: "offer",
+          blurb: "Interview done — the practice is deciding. We'll let you know the moment they respond."
+        });
+      }
+      if (key === "interview" || key === "interview_scheduled") {
+        // interview: server truth about the booking, added to
+        // /api/career/applications. Absent (older payload) => offer the picker;
+        // booking twice is safe, the endpoint returns the existing booking.
+        const iv = app.interview || null;
+        const when = iv && iv.scheduledAt ? String(iv.scheduledAt) : "";
+        return S({
+          label: "Interview", ribbon: "INTERVIEW", tone: "green", rowTone: "offer",
+          booked: !!when, bookable: !when,
+          blurb: when
+            ? "Your interview is locked in. Your Registration Support Officer joins you, so you're never in the room alone."
+            : "The practice wants to meet you — pick a time below. Your Registration Support Officer joins you, so you're never in the room alone."
+        });
+      }
+      if (key === "submitted") {
+        return S({
+          label: "Submitted", ribbon: "SUBMITTED", tone: "blue", rowTone: "applied",
+          blurb: "Your profile has been submitted to the practice — we'll let you know the moment they respond."
+        });
+      }
+      if (key === "reviewing") {
+        return S({
+          label: "With practice", ribbon: "WITH PRACTICE", tone: "blue", rowTone: "applied",
+          blurb: "The practice is reviewing your profile now — we'll update you as soon as they respond."
+        });
+      }
+      return S({ blurb: "Your Registration Support Officer is reviewing your application before it reaches the practice." });
     }
 
+    // Kept as named helpers because the map script and the tests both speak this
+    // vocabulary — but they are now thin readers of the state map above, not a
+    // second copy of it.
+    function careerMineStatusLabel(application) { return careerApplicationState(application).label; }
     function careerMineTone(application) {
-      const key = normalizeStatusKey(application.rawStatus);
-      if (key === "not_proceeding" || key === "withdrawn" || key === "offer_declined") return "closed";
-      if (key === "matched" || application.offerPending === true || application.isPlacementSecured) return "live";
-      return "open";
+      const tone = careerApplicationState(application).tone;
+      return tone === "green" ? "live" : (tone === "muted" ? "closed" : "open");
     }
 
     // Publish the doctor's own matches/applications so the map script can
@@ -12650,7 +13256,11 @@
               state: getRoleStateCode(source),
               role: String((role && (role.maskedTitle || role.practiceName)) || a.practiceName || ""),
               status: careerMineStatusLabel(a),
-              tone: careerMineTone(a)
+              tone: careerMineTone(a),
+              // The whole application, so the map script can hand it straight
+              // back to the shared card builder instead of the strip growing a
+              // second, poorer copy of the card.
+              app: a
             };
           });
         window.__careerMineApplications = list;
@@ -12658,165 +13268,354 @@
       } catch (e) { /* strip is best-effort; never break the applications render */ }
     }
 
-    // One Atlas row per application. Offer-received rows get the green accent
-    // + a CTA into the existing offer-review flow; interview rows link to the
-    // detail page to book a time; everything else opens application-detail.
-    function buildApplicationRowHtml(application) {
-      const role = findRole(application.roleId);
+    // The map script owns the practice photos (BY_ID, from /api/public/practice-map)
+    // but must not own a card. It calls this; the card stays in one place.
+    window.__careerBuildMineCard = function (entry, practice) {
+      try {
+        const e = entry || {};
+        return buildCareerApplicationCardHtml(e.app || {
+          id: e.appId, roleId: e.roleId, practiceName: e.role, location: e.suburb
+        }, { photoUrl: (practice && practice.img) || "", suburb: e.suburb, state: e.state });
+      } catch (err) { return ""; }
+    };
+
+    // ── The card ─────────────────────────────────────────────────────────────
+    // ONE card for every application this doctor has, and it is deliberately the
+    // SAME .at-match-pin shell as the accept-the-match card: same ring, same
+    // ribbon, same photo, same serif practice name, same full-width button.
+    // Owner rule 2026-07-31 — "the application cards style should be uniform and
+    // the same as the card when the GP is asked to accept the match".
+    //
+    // Rendered in two places, identically: the strip under the map (via
+    // window.__careerBuildMineCard) and the Offers / Your applications lists
+    // (via buildApplicationRowHtml below). Nothing state-dependent is decided
+    // here — it all comes from careerApplicationState.
+    function buildCareerApplicationCardHtml(application, options) {
+      const opts = options || {};
+      const app = application || {};
+      const st = careerApplicationState(app);
+      const role = findRole(app.roleId);
       const thumbSource = role || {
-        id: application.roleId,
-        practiceName: application.practiceName,
-        location: application.location,
+        id: app.roleId,
+        practiceName: app.practiceName,
+        location: app.location,
         state: ""
       };
-      const suburb = getRoleSuburbLabel(thumbSource);
-      const actionAppId = application.id || application.applicationId || "";
-      const actionStatusKey = normalizeStatusKey(application.rawStatus);
-      const isOffer = application.offerPending === true;
-      const isInterview = actionStatusKey === "interview" || actionStatusKey === "interview_scheduled";
-      // Task 15: the interview already happened and Task 9's decision email
-      // already went to the practice — a DISTINCT state from isInterview
-      // (still ahead). Without this branch interview_completed matched none
-      // of the isX flags below and fell through to the generic "UNDER
-      // REVIEW" ribbon + "before it reaches the practice" copy, wrong once
-      // the interview is behind the GP.
-      const isInterviewDone = actionStatusKey === "interview_completed";
-      const tone = isOffer ? "offer" : (application.tone || "review");
+      const suburb = opts.suburb || getRoleSuburbLabel(thumbSource);
+      const stateCode = opts.state || getRoleStateCode(thumbSource);
+      const locationLine = [suburb, stateCode].filter(Boolean).join(", ");
 
-      // Terminal outcomes (G4) + the offer-accepted interim (G5) each carry
-      // their own honest ribbon + copy, so a closed or accepted application is
-      // never mislabelled "UNDER REVIEW". Muted neutral styling, never red.
-      const isNotProceeding = actionStatusKey === "not_proceeding";
-      const isWithdrawn = actionStatusKey === "withdrawn";
-      const isOfferDeclined = actionStatusKey === "offer_declined";
-      const isFinalising = actionStatusKey === "finalising_placement";
-      // The profile has been sent to the practice ("submitted") or the practice
-      // is actively reviewing it ("reviewing") — both mean it HAS reached the
-      // practice, so the copy must not say "before it reaches the practice".
-      const isSubmittedToPractice = actionStatusKey === "submitted";
-      const isPracticeReviewing = actionStatusKey === "reviewing";
-      // In-app contract out for signature (Task 13 fix). The CEO's submit-
-      // to-gp action only flips gp_applications.status to 'offer' — it
-      // never creates an ats_offers row — so offerPending alone (isOffer
-      // above) silently missed this state and the row rendered as a generic
-      // "UNDER REVIEW".
-      const isContractSent = application.contractStage === "sent_to_gp";
-      const isContractChangesRequested = application.contractStage === "changes_requested";
-      const isContractPracticeReview = application.contractStage === "practice_review";
-
-      // A live match the doctor has not answered yet. Checked FIRST: every
-      // branch below describes something that has already happened to an
-      // application, and none of it is true here — the ball is still in their
-      // court (owner report 2026-07-28).
-      const isPendingMatch = actionStatusKey === "matched";
-
-      let ribbon = "";
-      if (isPendingMatch) ribbon = '<span class="at-rstatus at-rstatus--offer">MATCHED</span>';
-      else if (application.isPlacementSecured) ribbon = '<span class="at-rstatus at-rstatus--offer">SECURED</span>';
-      else if (isFinalising) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER ACCEPTED</span>';
-      else if (isNotProceeding) ribbon = '<span class="at-rstatus at-rstatus--muted">NOT PROCEEDING</span>';
-      else if (isWithdrawn) ribbon = '<span class="at-rstatus at-rstatus--muted">WITHDRAWN</span>';
-      else if (isOfferDeclined) ribbon = '<span class="at-rstatus at-rstatus--muted">OFFER DECLINED</span>';
-      else if (isContractSent) ribbon = '<span class="at-rstatus at-rstatus--offer">CONTRACT</span>';
-      else if (isContractChangesRequested) ribbon = '<span class="at-rstatus at-rstatus--offer">CONTRACT</span>';
-      else if (isContractPracticeReview) ribbon = '<span class="at-rstatus at-rstatus--offer">CONTRACT</span>';
-      else if (isOffer) ribbon = '<span class="at-rstatus at-rstatus--offer">OFFER</span>';
-      // Interview stage is post-acceptance — an "UNDER REVIEW" ribbon here
-      // contradicted the "Interview stage" pill + the unlocked identity. Give it
-      // its own positive-accent ribbon. interview_completed keeps the SAME
-      // ribbon text — from the GP's perspective it's still "the interview
-      // stage" of the pipeline, just awaiting the practice's decision now.
-      else if (isInterview || isInterviewDone) ribbon = '<span class="at-rstatus at-rstatus--offer">INTERVIEW</span>';
-      else if (isSubmittedToPractice) ribbon = '<span class="at-rstatus at-rstatus--applied">SUBMITTED</span>';
-      // 'reviewing' needs its own ribbon now that a card actually reaches it
-      // (the practice opening the decision page moves it there — 2026-07-30).
-      // Without this it fell to the generic "UNDER REVIEW" below, so the doctor
-      // watched their application go SUBMITTED -> UNDER REVIEW and read it as a
-      // step BACKWARDS, when it is the opposite: the practice now has it open.
-      else if (isPracticeReviewing) ribbon = '<span class="at-rstatus at-rstatus--applied">WITH PRACTICE</span>';
-      else ribbon = '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>';
-
-      let metaLine = "";
-      if (isPendingMatch) {
-        metaLine = "Your team matched you to this practice — open it to accept or decline before it expires.";
-      } else if (application.isPlacementSecured) {
-        metaLine = "Placement secured \u2014 open your placement for the full details.";
-      } else if (isFinalising) {
-        metaLine = "We're finalising the paperwork \u2014 your placement page unlocks shortly.";
-      } else if (isNotProceeding) {
-        metaLine = "This one didn't work out \u2014 your Registration Support Officer can help you find the next fit.";
-      } else if (isWithdrawn) {
-        metaLine = "You withdrew this application.";
-      } else if (isOfferDeclined) {
-        metaLine = "You declined this offer.";
-      } else if (isContractSent) {
-        metaLine = "Your contract is ready to review and sign.";
-      } else if (isContractChangesRequested) {
-        metaLine = "We're checking your requested contract changes.";
-      } else if (isContractPracticeReview) {
-        metaLine = "The practice is considering your requested change.";
-      } else if (isOffer) {
-        metaLine = "The practice wants to interview you \u2014 confirm your interview time.";
-      } else if (isInterviewDone) {
-        metaLine = "Interview done \u2014 the practice is deciding. We'll let you know the moment they respond.";
-      } else if (isInterview) {
-        metaLine = "Interview scheduled \u2014 your Registration Support Officer will join you, so you're never in the room alone.";
-      } else if (isSubmittedToPractice) {
-        metaLine = "Your profile has been submitted to the practice \u2014 we'll let you know the moment they respond.";
-      } else if (isPracticeReviewing) {
-        metaLine = "The practice is reviewing your profile now \u2014 we'll update you as soon as they respond.";
-      } else {
-        metaLine = "Your Registration Support Officer is reviewing your application before it reaches the practice.";
-      }
-
-      let statusAction = "";
-      if (isContractSent) {
-        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review contract \u2192</a>';
-      } else if (isContractChangesRequested || isContractPracticeReview) {
-        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">View status \u2192</a>';
-      } else if (isOffer) {
-        statusAction = '<a href="offer-review?applicationId=' + encodeURIComponent(actionAppId) + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Review invitation \u2192</a>';
-      } else if (isInterview) {
-        // ONE short CTA \u2014 the foot is a single non-wrapping flex row, so a
-        // second nowrap link overflowed the card on mobile (clipping the card
-        // AND the Offers tab as the shell sized the iframe to the wider
-        // content). Booking a time is the action here; it opens the detail page.
-        statusAction = '<a href="application-detail?id=' + encodeURIComponent(actionAppId) + '&role=' + encodeURIComponent(application.roleId || "") + '" class="at-cta-link at-cta-link--offer" onclick="event.stopPropagation();">Confirm time \u2192</a>';
-      }
-
-      const openAttrs = application.isPlacementSecured
-        ? 'data-open-placement="true"'
-        : `data-open-application="${escapeHtml(application.id || "")}" data-open-application-role="${escapeHtml(application.roleId || "")}"`;
-
-      // Identity reveal (Task 4 polish): only when the SERVER marked this
-      // application revealed does the row show the real practice name +
-      // unlocked chip \u2014 otherwise the locked NAME ON ACCEPTANCE treatment.
-      const revealedName = (application.revealed === true
-        && application.practiceName
-        && !isConfidentialText(application.practiceName))
-        ? String(application.practiceName)
+      // Identity reveal: only when the SERVER marked this application revealed
+      // does the card show the real practice name; otherwise the locked
+      // NAME ON ACCEPTANCE treatment, exactly as the old row did.
+      const revealedName = (app.revealed === true
+        && app.practiceName
+        && !isConfidentialText(app.practiceName))
+        ? String(app.practiceName)
         : "";
-      const rowTitle = revealedName || `General Practice \u00b7 ${suburb}`;
-      const identityChip = revealedName
-        ? '<span class="at-mini at-mini--unlocked">\u2713 IDENTITY UNLOCKED</span>'
-        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
+      const title = revealedName || locationLine || "General Practice";
+      const subtitle = revealedName
+        ? locationLine
+        : String((role && (role.maskedTitle || role.practiceName)) || app.practiceName || "General Practice");
 
-      return `<article class="at-row${isOffer ? " at-row--offer" : ""}" ${openAttrs}>
-        ${ribbon}
-        ${buildRoleThumbHtml(thumbSource)}
-        <div class="at-rbody">
-          <div class="at-rtop">
-            <span class="at-pill at-pill--${escapeHtml(tone)}">${escapeHtml(isOffer ? "Offer received" : application.status)}</span>
-          </div>
-          <h2 class="at-rtitle">${escapeHtml(rowTitle)}</h2>
-          <p class="at-rmeta">${escapeHtml(metaLine)}</p>
-          <div class="at-rfoot">
-            ${identityChip}
-            ${statusAction}
-          </div>
+      // The photo sits in the match card's own slot. A practice-uploaded header
+      // image wins; then the suburb photo the map already fetched; then the
+      // drawn scenery motif, so a card is never a blank grey box.
+      const heroUrl = String((role && (role.headerImageUrl || role.heroImageUrl)) || opts.photoUrl || "");
+      const capHtml = `<div class="at-match-cap">\u{1F4CD} ${escapeHtml(locationLine || title)}</div>`;
+      const photoHtml = heroUrl
+        ? `<div class="at-match-photo"><img src="${escapeHtml(heroUrl)}" alt="" loading="lazy">${capHtml}</div>`
+        : `<div class="at-match-photo">${buildRoleSceneHtml(thumbSource, { hideLabel: true })}${capHtml}</div>`;
+
+      const metaOf = (label) => {
+        const row = (app.meta || []).find((m) => m && m.label === label);
+        return row && row.value && row.value !== "—" ? String(row.value) : "";
+      };
+      const appliedValue = metaOf("Applied");
+      const billingValue = metaOf("Billing");
+      const ribbonRight = appliedValue
+        ? `<span class="at-match-cd at-match-cd--calm">Applied ${escapeHtml(appliedValue)}</span>`
+        : "";
+
+      const identityChip = revealedName
+        ? '<span class="at-mini at-mini--unlocked">✓ IDENTITY UNLOCKED</span>'
+        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
+      const metaBits = [billingValue].filter(Boolean).map((b) => escapeHtml(b)).join(" · ");
+
+      // A secured placement opens the placement view, an unanswered match opens
+      // the practice page (accept/decline lives there); everything else opens
+      // the timeline. Same attributes the existing delegated handler reads, so
+      // there is no routing of our own here.
+      const openAttrs = app.isPlacementSecured
+        ? 'data-open-placement="true"'
+        : `data-open-application="${escapeHtml(app.id || "")}" data-open-application-role="${escapeHtml(app.roleId || "")}"`;
+
+      // The interview picker owns the green button when it is showing, so the
+      // timeline link steps down to a ghost button rather than competing.
+      const interviewHtml = st.bookable
+        ? buildInterviewPickerHtml(st.appId)
+        : (st.booked ? buildInterviewBookedHtml(app.interview) : "");
+      const primaryClass = st.tone === "green" ? "at-match-accept shiny shiny--green" : "at-match-accept shiny";
+      const actionHtml = st.bookable
+        ? `<button type="button" class="at-match-ghost" ${openAttrs}>${escapeHtml(st.ctaLabel)}</button>`
+        : `<button type="button" class="${primaryClass}" ${openAttrs}>${escapeHtml(st.ctaLabel)}</button>`;
+
+      return `<article class="at-match-pin at-match-pin--app at-match-pin--${escapeHtml(st.tone)}" data-app-card="${escapeHtml(st.appId)}" data-app-state="${escapeHtml(st.key)}">
+        <div class="at-match-ribbon at-match-ribbon--${escapeHtml(st.tone)}">
+          <span>${escapeHtml(st.ribbon)}</span>
+          ${ribbonRight}
+        </div>
+        ${photoHtml}
+        <div class="at-match-inner">
+          <div class="at-match-pn">${escapeHtml(title)}</div>
+          <div class="at-match-jt">${escapeHtml(subtitle)}</div>
+          <div class="at-match-jm">${metaBits}</div>
+          <div class="at-match-blurb">${escapeHtml(st.blurb)}</div>
+          ${interviewHtml}
+          ${actionHtml}
+          <div class="at-match-pass">${identityChip}</div>
         </div>
       </article>`;
     }
+
+    // The Offers / Your applications lists render the exact same card. Kept as a
+    // separate name only because renderApplications and its tests call it.
+    function buildApplicationRowHtml(application) {
+      return buildCareerApplicationCardHtml(application, {});
+    }
+
+    // ── Pick an interview time on the card itself ────────────────────────────
+    // Owner ask 2026-07-31: "allow the user to select an interview time from the
+    // card". Same two endpoints the application-detail picker uses, so there is
+    // one booking path, not two:
+    //   GET  /api/career/interview/slots?applicationId=&viewer_tz=
+    //   POST /api/career/interview/book  {applicationId, slot_start_utc, viewer_tz}
+    //
+    // viewer_tz is not optional in practice. Without it the server guesses the
+    // doctor's zone from registration_country, which is routinely empty and
+    // falls back to Europe/London — and any practice window outside 06:00-23:00
+    // there is dropped from the list with nothing shown to say so (the bug fixed
+    // on main in 1960ca0). Both calls must send the SAME zone, or the booking
+    // endpoint recomputes a different list and a valid pick comes back as
+    // "that time was just taken".
+    const careerDeviceTz = (function () {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        if (!tz) return "";
+        new Intl.DateTimeFormat(undefined, { timeZone: tz });
+        return tz;
+      } catch (e) { return ""; }
+    })();
+
+    // appId -> { loading, loaded, slots, selected, error, booking }
+    const careerIvPickers = {};
+
+    function careerIvFormatDay(iso) {
+      try { return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); } catch (e) { return ""; }
+    }
+    function careerIvFormatTime(iso) {
+      try { return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; }
+    }
+    function careerIvFormatFull(iso) {
+      const d = careerIvFormatDay(iso);
+      const t = careerIvFormatTime(iso);
+      return d && t ? d + " · " + t : (d || t || "");
+    }
+
+    function buildInterviewPickerHtml(appId) {
+      return `<div class="ivc" data-iv-app="${escapeHtml(appId)}">
+        <div class="ivc-h"><span>\u{1F4C5}</span><b>Pick your interview time</b></div>
+        <p class="ivc-note">45 minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.</p>
+        <p class="ivc-status" data-iv-status>Loading available times…</p>
+        <div class="ivc-days" data-iv-days></div>
+        <button type="button" class="at-match-accept shiny shiny--green ivc-confirm" data-iv-confirm disabled>Confirm interview time</button>
+      </div>`;
+    }
+
+    function buildInterviewBookedHtml(interview) {
+      const iv = interview || {};
+      const when = iv.scheduledAt ? careerIvFormatFull(iv.scheduledAt) : "";
+      if (!when) return "";
+      const join = iv.zoomJoinUrl
+        ? `<a class="ivc-join" href="${escapeHtml(iv.zoomJoinUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">Join</a>`
+        : "";
+      return `<div class="ivc is-booked"><div class="ivc-when"><b>${escapeHtml(when)}</b><span>Interview confirmed · 45 min on Zoom</span></div>${join}</div>`;
+    }
+
+    function careerIvHost(appId) {
+      const hosts = document.querySelectorAll(".ivc[data-iv-app]");
+      for (let i = 0; i < hosts.length; i += 1) {
+        if (hosts[i].getAttribute("data-iv-app") === appId) return hosts[i];
+      }
+      return null;
+    }
+
+    function careerIvPaint(appId) {
+      const host = careerIvHost(appId);
+      if (!host) return;
+      const st = careerIvPickers[appId];
+      if (!st) return;
+      const statusEl = host.querySelector("[data-iv-status]");
+      const daysEl = host.querySelector("[data-iv-days]");
+      const confirmEl = host.querySelector("[data-iv-confirm]");
+      if (!statusEl || !daysEl || !confirmEl) return;
+
+      if (st.loading) {
+        statusEl.hidden = false;
+        statusEl.textContent = "Loading available times…";
+        daysEl.innerHTML = "";
+        confirmEl.disabled = true;
+        return;
+      }
+      if (st.error) {
+        statusEl.hidden = false;
+        statusEl.textContent = st.error;
+        daysEl.innerHTML = "";
+        confirmEl.disabled = true;
+        return;
+      }
+      if (!st.slots.length) {
+        statusEl.hidden = false;
+        statusEl.textContent = "No times are open yet — we'll email you the moment the practice adds their availability.";
+        daysEl.innerHTML = "";
+        confirmEl.disabled = true;
+        return;
+      }
+
+      // Group by the doctor's own day, in their own timezone — the labels come
+      // from the browser, the slot identity stays the UTC instant.
+      const groups = [];
+      st.slots.forEach((slot) => {
+        const day = careerIvFormatDay(slot.startUtc);
+        let group = groups.find((g) => g.day === day);
+        if (!group) { group = { day, slots: [] }; groups.push(group); }
+        group.slots.push(slot);
+      });
+
+      statusEl.hidden = true;
+      daysEl.innerHTML = groups.map((group) => {
+        const buttons = group.slots.map((slot) => {
+          const sel = st.selected === slot.startUtc ? " is-sel" : "";
+          return `<button type="button" class="ivc-slot${sel}" data-iv-slot="${escapeHtml(slot.startUtc)}" data-iv-slot-app="${escapeHtml(appId)}">${escapeHtml(careerIvFormatTime(slot.startUtc))}</button>`;
+        }).join("");
+        return `<div class="ivc-day"><div class="ivc-day-lbl">${escapeHtml(group.day)}</div><div class="ivc-slots">${buttons}</div></div>`;
+      }).join("");
+      confirmEl.disabled = !st.selected || !!st.booking;
+      confirmEl.textContent = st.booking ? "Confirming…" : "Confirm interview time";
+    }
+
+    function careerIvLoad(appId) {
+      if (!appId) return;
+      const st = careerIvPickers[appId] || (careerIvPickers[appId] = { loading: false, loaded: false, slots: [], selected: "", error: "", booking: false });
+      if (st.loaded || st.loading) { careerIvPaint(appId); return; }
+      st.loading = true;
+      careerIvPaint(appId);
+      const url = "/api/career/interview/slots?applicationId=" + encodeURIComponent(appId)
+        + (careerDeviceTz ? "&viewer_tz=" + encodeURIComponent(careerDeviceTz) : "");
+      fetch(url, { credentials: "same-origin" })
+        .then((r) => r.json().catch(() => ({})).then((d) => ({ status: r.status, data: d })))
+        .then((res) => {
+          st.loading = false;
+          st.loaded = true;
+          st.slots = (res.data && Array.isArray(res.data.slots)) ? res.data.slots : [];
+          if (res.status === 403) {
+            // not_available: the practice hasn't accepted yet, so there is
+            // genuinely nothing to book. Say that, don't show an error.
+            st.error = "Your interview opens as soon as the practice confirms — we'll let you know.";
+          } else if (res.status !== 200) {
+            st.error = (res.data && res.data.message) || "We couldn't load your interview times just now.";
+          } else {
+            st.error = "";
+          }
+          careerIvPaint(appId);
+        })
+        .catch(() => {
+          st.loading = false;
+          st.loaded = true;
+          st.error = "We couldn't load your interview times just now — check your connection and try again.";
+          careerIvPaint(appId);
+        });
+    }
+
+    function careerIvSelect(appId, startUtc) {
+      const st = careerIvPickers[appId];
+      if (!st || st.booking) return;
+      st.selected = startUtc;
+      careerIvPaint(appId);
+    }
+
+    function careerIvBook(appId) {
+      const st = careerIvPickers[appId];
+      if (!st || !st.selected || st.booking) return;
+      st.booking = true;
+      careerIvPaint(appId);
+      fetch("/api/career/interview/book", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        // Same tz the slots were listed with — see careerDeviceTz.
+        body: JSON.stringify({ applicationId: appId, slot_start_utc: st.selected, viewer_tz: careerDeviceTz || undefined })
+      })
+        .then((r) => r.json().catch(() => ({})).then((d) => ({ status: r.status, data: d })))
+        .then((res) => {
+          st.booking = false;
+          if (res.status === 200 && res.data && res.data.ok) {
+            const booked = res.data.booked || {};
+            careerIvApplyBooking(appId, {
+              scheduledAt: booked.scheduled_at || st.selected,
+              zoomJoinUrl: booked.zoom_join_url || ""
+            });
+            return;
+          }
+          if (res.status === 409 && res.data && res.data.error === "slot_taken") {
+            // Someone took it while the card was open — reload the real list.
+            st.loaded = false;
+            st.selected = "";
+            st.error = "";
+            careerIvLoad(appId);
+            showCareerNotice("That time was just taken", "Someone booked that slot a moment ago. Here are the times still open.");
+            return;
+          }
+          if (res.status === 409 && res.data && res.data.error === "interview_cap") {
+            showCareerNotice("Interview limit reached", (res.data && res.data.message) || "You've used your 3 interviews for this month.");
+            careerIvPaint(appId);
+            return;
+          }
+          st.error = (res.data && res.data.message) || "We couldn't confirm that time — please try again.";
+          careerIvPaint(appId);
+        })
+        .catch(() => {
+          st.booking = false;
+          st.error = "We couldn't confirm that time — please try again.";
+          careerIvPaint(appId);
+        });
+    }
+
+    // Booking flips the card to its confirmed state everywhere it appears (the
+    // strip under the map AND the applications list) by updating the one
+    // application object both renders read, then re-rendering. The gp-cache
+    // entry is dropped too, or a reload inside the 10-minute window would show
+    // the picker again for an interview that is already booked.
+    function careerIvApplyBooking(appId, interview) {
+      try {
+        const app = (careerState.applications || []).find((a) => a && String(a.id || a.applicationId || "") === String(appId));
+        if (app) app.interview = interview;
+        if (window.gpCache && typeof window.gpCache.invalidate === "function") {
+          window.gpCache.invalidate("/api/career/applications");
+        }
+      } catch (e) { /* display-only */ }
+      renderApplications();
+      showCareerNotice("Interview confirmed", "You're booked for " + careerIvFormatFull(interview.scheduledAt) + ". We've emailed you the Zoom link, and your Registration Support Officer will join you.");
+    }
+
+    // Start (or repaint) every picker currently on the page. Called after both
+    // renders; the per-app state above means a repaint never refetches.
+    function careerIvBootAll() {
+      document.querySelectorAll(".ivc[data-iv-app]").forEach((host) => {
+        careerIvLoad(host.getAttribute("data-iv-app") || "");
+      });
+    }
+    window.__careerIvBoot = careerIvBootAll;
 
     function renderApplications() {
       applicationsGridEl.innerHTML = "";
@@ -12838,6 +13637,9 @@
       }
       html += others.map((application) => buildApplicationRowHtml(application)).join("");
       applicationsGridEl.innerHTML = html;
+      // Any interview card that just appeared needs its times. Cheap to call on
+      // every render — careerIvLoad only fetches once per application.
+      careerIvBootAll();
     }
 
     // G2: only ever surface an https Zoom link.
@@ -13407,36 +14209,36 @@
         return;
       }
 
+      // The interview picker lives INSIDE the card, and the card is clickable.
+      // Handle the picker's own controls first and return, or choosing a time
+      // would navigate to the timeline instead of selecting the slot.
+      const ivSlotBtn = event.target.closest("[data-iv-slot]");
+      if (ivSlotBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        careerIvSelect(ivSlotBtn.getAttribute("data-iv-slot-app") || "", ivSlotBtn.getAttribute("data-iv-slot") || "");
+        return;
+      }
+      const ivConfirmBtn = event.target.closest("[data-iv-confirm]");
+      if (ivConfirmBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const ivHost = ivConfirmBtn.closest(".ivc[data-iv-app]");
+        if (ivHost) careerIvBook(ivHost.getAttribute("data-iv-app") || "");
+        return;
+      }
+      // Any other tap inside the picker (the heading, the note, dead space)
+      // belongs to the picker too — swallow it rather than opening the timeline.
+      if (event.target.closest(".ivc")) { event.stopPropagation(); return; }
+
       const openAppBtn = event.target.closest("[data-open-application]");
       if (openAppBtn) {
         event.preventDefault();
         event.stopPropagation();
-        const appId = openAppBtn.getAttribute("data-open-application") || "";
-        const appRoleId = openAppBtn.getAttribute("data-open-application-role") || "";
-        const app = careerState.applications.find(a => a && ((a.id && a.id === appId) || (a.roleId && a.roleId === appRoleId)));
-        if (app) {
-          try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch {}
-        }
-        // A live, unanswered match must NOT open the application tracker. That
-        // page is a pipeline view — Applied → Under Review → Interview → Offer
-        // — and every one of those steps is untrue for someone who has not
-        // answered yet. Send them to the practice page instead, which carries
-        // the accept/decline actions (owner report 2026-07-28).
-        if (app && String(app.status || "").trim().toLowerCase() === "matched") {
-          const matchRoute = "/pages/job?id=" + encodeURIComponent(appRoleId) + "&match=" + encodeURIComponent(appId);
-          if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
-            window.parent.gpShellNavigate(matchRoute);
-          } else {
-            window.location.href = "job?id=" + encodeURIComponent(appRoleId) + "&match=" + encodeURIComponent(appId);
-          }
-          return;
-        }
-        const detailRoute = "/pages/application-detail?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
-        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
-          window.parent.gpShellNavigate(detailRoute);
-        } else {
-          window.location.href = "application-detail?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
-        }
+        openApplicationTimeline(
+          openAppBtn.getAttribute("data-open-application") || "",
+          openAppBtn.getAttribute("data-open-application-role") || ""
+        );
         return;
       }
 
@@ -13594,6 +14396,111 @@
       }));
     }
 
+    /* ============ First-visit careers explainer (owner ask 2026-07-31) ========
+       Order is the whole point: the explainer, THEN the CV gate, THEN the
+       walkthrough. init() awaits ensureCareerIntro() before calling
+       ensureCareerGate(), and js/gp-walkthrough.js treats `career-intro-open`
+       on <body> as a blocker exactly like it already treats the gate — so a
+       first-visit tip cannot fire over either screen, and (because the
+       walkthrough defers UNMARKED) the doctor does not silently burn their one
+       chance to see it. */
+    const CAREER_INTRO_SEEN_KEY = "gp_career_intro_seen";
+    let careerIntroPending = null;
+
+    function careerIntroSeen() {
+      try { return !!localStorage.getItem(CAREER_INTRO_SEEN_KEY); } catch (e) { return false; }
+    }
+
+    // The seen flag round-trips through user_state, so a doctor who read this on
+    // their phone does not read it again on their laptop. But localStorage is
+    // empty until state-sync hydrates, and reading it too early would show the
+    // explainer to someone who has already seen it. Wait for hydration — with a
+    // ceiling, because a state round-trip that never arrives must not hang the
+    // careers page behind a blank screen.
+    function careerIntroWaitForState() {
+      return new Promise((resolve) => {
+        try {
+          const sync = window.gpLinkStateSync;
+          if (!sync || typeof sync.isHydrated !== "function" || sync.isHydrated()) { resolve(); return; }
+          let settled = false;
+          const go = () => { if (settled) return; settled = true; resolve(); };
+          window.addEventListener("gp-state-hydrated", go, { once: true });
+          window.setTimeout(go, 2500);
+        } catch (e) { resolve(); }
+      });
+    }
+
+    // Real numbers on the rules, when the server can give them. Purely
+    // decorative — the limits are stated in the copy either way, so a failed or
+    // slow request leaves the rules complete rather than blank.
+    function careerIntroFillCounts() {
+      fetch("/api/career/application-usage", { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data || data.ok !== true) return;
+          const activeEl = document.getElementById("careerIntroActiveCount");
+          const monthlyEl = document.getElementById("careerIntroMonthlyCount");
+          if (activeEl && data.active) {
+            activeEl.textContent = data.active.used + " of " + data.active.limit + " in use";
+            activeEl.hidden = false;
+          }
+          if (monthlyEl && data.monthly) {
+            monthlyEl.textContent = data.monthly.used + " of " + data.monthly.limit + " used this month";
+            monthlyEl.hidden = false;
+          }
+        })
+        .catch(() => { /* the rules read fine without the live counts */ });
+    }
+
+    function openCareerIntro() {
+      const el = document.getElementById("careerIntro");
+      if (!el) return;
+      el.classList.add("is-open");
+      document.documentElement.classList.add("career-intro-open");
+      document.body.classList.add("career-intro-open");
+      careerIntroFillCounts();
+    }
+
+    function closeCareerIntro() {
+      const el = document.getElementById("careerIntro");
+      if (el) el.classList.remove("is-open");
+      document.documentElement.classList.remove("career-intro-open");
+      document.body.classList.remove("career-intro-open");
+      try {
+        localStorage.setItem(CAREER_INTRO_SEEN_KEY, new Date().toISOString());
+        if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+      } catch (e) { /* a doctor who reads it twice is a far smaller problem than a broken close */ }
+      // Wakes the walkthrough's deferral retry: it re-checks its blockers and
+      // will find the CV gate next if that is about to open.
+      try { window.dispatchEvent(new CustomEvent("gp-career-intro-closed")); } catch (e) {}
+      if (careerIntroPending) { const done = careerIntroPending; careerIntroPending = null; done(); }
+    }
+
+    // Resolves when it is safe to run the CV gate: immediately if the explainer
+    // is not needed, otherwise when the doctor presses Continue.
+    function ensureCareerIntro() {
+      // A placed doctor is locked to their placement view and never job-hunting,
+      // so none of this applies to them — same carve-out the CV gate makes.
+      if (shouldLockCareerToSecuredView()) return Promise.resolve();
+      // ?intro=1 re-opens it on demand (the account page's "How careers works"
+      // link, and how the owner previews it without clearing storage).
+      let forced = false;
+      try { forced = new URLSearchParams(window.location.search).get("intro") === "1"; } catch (e) {}
+      if (!forced && careerIntroSeen()) return Promise.resolve();
+
+      return careerIntroWaitForState().then(() => {
+        if (!forced && careerIntroSeen()) return undefined;
+        return new Promise((resolve) => {
+          careerIntroPending = resolve;
+          openCareerIntro();
+        });
+      });
+    }
+
+    document.addEventListener("click", (ev) => {
+      if (ev.target && ev.target.id === "careerIntroCta") closeCareerIntro();
+    });
+
     /* ============ Careers profile-completion gate (Task 5) ============
        Shown to non-placed GPs the first time they open Careers, until they
        have an AI-verified CV on file. Placed GPs never see this — guarded by
@@ -13750,7 +14657,11 @@
       syncCareerViewFromLocation();
       renderPage();
       clearCareerBoot(); // live data picked the correct view — reveal it once
-      ensureCareerGate();
+      // Owner rule 2026-07-31: the explainer comes FIRST, and the CV gate only
+      // after the doctor has closed it. ensureCareerIntro resolves immediately
+      // for anyone who has already read it, so this costs a returning doctor
+      // nothing.
+      ensureCareerIntro().then(ensureCareerGate);
       loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
@@ -13867,13 +14778,21 @@
     function renderMine(){
       if(!mineEl||!mineListEl)return;
       if(!MINE.length){mineListEl.innerHTML='';mineEl.hidden=true;return;}
+      // The card itself belongs to the app script (window.__careerBuildMineCard)
+      // so this strip and the Offers list are literally the same markup — owner
+      // rule 2026-07-31. All this script contributes is the suburb photo it
+      // already fetched for the pins. If the app script somehow hasn't defined
+      // the builder yet, fall back to a plain row rather than an empty strip.
       mineListEl.innerHTML=MINE.map(function(m){
         var p=BY_ID[String(m.roleId)];
+        if(typeof window.__careerBuildMineCard==='function'){
+          var card=window.__careerBuildMineCard(m,p);
+          if(card)return card;
+        }
         var thumb=(p&&p.img)?'<img src="'+esc(p.img)+'" alt="" loading="lazy">':THUMB_FALLBACK;
         var suburb=m.suburb||(p&&p.suburb)||'Australia';
         var state=m.state||(p&&p.state)||'';
-        var cls='cmap-mine-card'+(m.tone==='live'?' is-live':(m.tone==='closed'?' is-closed':''));
-        return '<button type="button" class="'+cls+'" data-open-application="'+esc(m.appId)+'" data-open-application-role="'+esc(m.roleId)+'">'
+        return '<button type="button" class="cmap-mine-card" data-open-application="'+esc(m.appId)+'" data-open-application-role="'+esc(m.roleId)+'">'
           +'<span class="cmap-mine-thumb">'+thumb+'</span>'
           +'<span class="cmap-mine-txt">'
           +'<span class="cmap-mine-sub">'+esc(suburb)+(state?', '+esc(state):'')+'</span>'
@@ -13883,6 +14802,8 @@
           +'</button>';
       }).join('');
       mineEl.hidden=false;
+      // Cards rendered here can carry the interview picker too.
+      if(typeof window.__careerIvBoot==='function')window.__careerIvBoot();
     }
 
     // Defined before the fetch for the same reason as __careerMapApply: a

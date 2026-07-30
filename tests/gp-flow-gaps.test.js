@@ -78,16 +78,21 @@ describe('offer-review.html — post-accept interview path (G1 + G3)', () => {
 });
 
 describe('career.html — terminal ribbons + finalising meta (G4 + G5)', () => {
+  // The ribbon words now live in careerApplicationState — the one state map the
+  // Offers list, the under-map strip and the card builder all read (2026-07-31).
   it('renders honest terminal ribbons, not UNDER REVIEW', () => {
-    expect(careerHtml).toContain('>NOT PROCEEDING<');
-    expect(careerHtml).toContain('>WITHDRAWN<');
-    expect(careerHtml).toContain('>OFFER DECLINED<');
+    expect(careerHtml).toContain('ribbon: "NOT PROCEEDING"');
+    expect(careerHtml).toContain('ribbon: "WITHDRAWN"');
+    expect(careerHtml).toContain('ribbon: "OFFER DECLINED"');
+    // ...and they are calm, not alarming.
+    expect(careerHtml).toMatch(/ribbon: "NOT PROCEEDING", tone: "muted"/);
+    expect(careerHtml).toMatch(/ribbon: "WITHDRAWN", tone: "muted"/);
   });
 
-  it('branches the row builder on the terminal server statuses', () => {
-    expect(careerHtml).toContain('actionStatusKey === "not_proceeding"');
-    expect(careerHtml).toContain('actionStatusKey === "withdrawn"');
-    expect(careerHtml).toContain('actionStatusKey === "offer_declined"');
+  it('branches the state map on the terminal server statuses', () => {
+    expect(careerHtml).toContain('if (key === "not_proceeding")');
+    expect(careerHtml).toContain('if (key === "withdrawn")');
+    expect(careerHtml).toContain('if (key === "offer_declined")');
   });
 
   it('gives terminal outcomes an honest, non-review metaLine', () => {
@@ -102,7 +107,7 @@ describe('career.html — terminal ribbons + finalising meta (G4 + G5)', () => {
     // The metaLine string uses a — escape for the em-dash, so match around it.
     expect(careerHtml).toContain("We're finalising the paperwork");
     expect(careerHtml).toContain('your placement page unlocks shortly.');
-    expect(careerHtml).toContain('>OFFER ACCEPTED<');
+    expect(careerHtml).toContain('ribbon: "OFFER ACCEPTED"');
   });
 
   it('never uses the bare "RSO" abbreviation in GP-visible copy', () => {

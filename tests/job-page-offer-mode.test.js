@@ -157,9 +157,11 @@ describe('job.html — offer mode wiring (Phase 2 Task 4)', () => {
 
 describe('career.html — Offers tab reveal chip (folded Task-2 minor)', () => {
   it('buildApplicationRowHtml shows the real name + unlocked chip only when server-revealed', () => {
-    const fn = careerHtml.match(/function buildApplicationRowHtml\(application\) \{[\s\S]*?\n    \}/);
+    // buildApplicationRowHtml is now a one-line wrapper; the reveal logic lives
+    // in the shared card builder both it and the under-map strip render through.
+    const fn = careerHtml.match(/function buildCareerApplicationCardHtml\(application, options\) \{[\s\S]*?\n    \}\n/);
     expect(fn).toBeTruthy();
-    expect(fn[0]).toContain('application.revealed === true');
+    expect(fn[0]).toContain('app.revealed === true');
     expect(fn[0]).toContain('isConfidentialText');
     // The checkmark may be stored raw or as a ✓ JS escape — both render
     // identically in the browser.
