@@ -799,10 +799,16 @@ describe('cache buster + dead CSS pruned', () => {
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
   });
   it('ceo-dashboard.html loads the bumped board stylesheet (a stale pin serves pre-board CSS from cache)', () => {
-    // Bumped to 20260729a by the practice-website link in the job-detail meta
-    // row (.ats-board-weblink).
-    // Any edit to css/ceo-ats.css must move this forward.
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260729a');
+    // Bumped to 20260731a to actually DELIVER the .cr-strip action-band rules
+    // added on 2026-07-30 — they shipped behind this stale key, so browsers
+    // painted 29 July CSS over 30 July markup and the band looked broken.
+    // Any edit to css/ceo-ats.css must move this forward. NOTE this assertion
+    // only pins the CURRENT value — it cannot notice that a stylesheet gained
+    // new rules without a bump, which is exactly how that happened. The guard
+    // for it lives in ats-endpoints.test.js ("never lets the CSS cache key
+    // fall behind the JS one").
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260731a');
+    expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260729a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260722a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260720a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260717b');

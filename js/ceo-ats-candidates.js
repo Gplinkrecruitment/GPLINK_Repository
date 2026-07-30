@@ -629,10 +629,17 @@
       ? '<span class="ats-pill green">Complete</span>'
       : '<span class="ats-pill amber">' + (c.onboarding_pct != null ? c.onboarding_pct : 0) + '%</span>';
     var docs = c.docs || {};
-    // Owner request 2026-07-30 (option D): every live application gets a
+    // Owner request 2026-07-30 (option D): a live application gets a
     // full-width action strip across the bottom of the card — visible, not
     // behind a 3-dot. The card wraps the row so the two read as one object.
-    var strips = (c.live_apps || []).map(appActionStripHtml).join('');
+    //
+    // Owner correction 2026-07-31: "every live application" was too many. The
+    // strip exists to SUBMIT a doctor to the practice, so it belongs only on
+    // an application still waiting to go out — submit it and the strip is
+    // gone on the next render, and a hired doctor never had one. The drawer
+    // still shows a strip per application, which is where the rest of the
+    // actions (score, navigate, withdraw) stay reachable.
+    var strips = (c.live_apps || []).filter(isSubmitEligible).map(appActionStripHtml).join('');
     return '<div class="ats-cand-card' + (strips ? ' has-strip' : '') + '">' +
       '<div class="ats-cand-row" data-case-id="' + ATS.escAttr(c.case_id) + '">' +
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
@@ -972,6 +979,17 @@
    *   "Practice listing" -> the actual job ON THIS DASHBOARD (Jobs tab)
    *   "Job board"        -> the PUBLIC website listing for that job
    */
+  /* The one rule that decides whether an application still needs a human to
+     push it to the practice: not withdrawn, not already sent, and still in an
+     early lane. It gates the LIST strip (owner call 2026-07-31), so a doctor
+     who has been submitted — or hired — carries no strip at all. */
+  function isSubmitEligible(a) {
+    return !!a
+      && !isWithdrawn(a)
+      && !SUBMISSION_STATUS_LABELS[a.practice_submission_status || '']
+      && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
+  }
+
   var STRIP_STAGE_TONE = {
     shortlisted: 'purple', applied: 'amber', submitted: 'blue',
     reviewing: 'blue', interview: 'blue', offer: 'green', hired: 'green'
@@ -987,9 +1005,7 @@
     var score = (a.match_score != null && a.match_score !== '') ? Math.round(Number(a.match_score)) : null;
     var where = [a.job_title, a.practice_name].filter(Boolean).join(' · ');
 
-    var submitEligible = !isWithdrawn(a)
-      && !SUBMISSION_STATUS_LABELS[a.practice_submission_status || '']
-      && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
+    var submitEligible = isSubmitEligible(a);
     var live = !isWithdrawn(a) && a.ats_stage !== 'not_proceeding' && a.ats_stage !== 'hired';
 
     var btns = '';

@@ -596,17 +596,30 @@
  *  owner request 2026-07-30)
  *
  *  The row keeps its columns; the card wraps it and carries a
- *  full-width tinted band per LIVE application underneath. Every
- *  action is visible — the earlier 3-dot dropdown was rejected.
+ *  full-width tinted band underneath for an application still
+ *  waiting to go to the practice. Every action is visible — the
+ *  3-dot dropdown was rejected twice.
+ *
+ *  SCOPED to .ats-cand-table on purpose. `.ats-cand-card` is also
+ *  the Jobs-tab kanban drag card (ceo-ats-jobs.js), declared ~line
+ *  131; an unscoped rule here sits LATER in the file and quietly
+ *  won, restyling those cards' radius and hover as a side effect.
  * ============================================================ */
-.ats-cand-card { background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:12px; overflow:hidden;
-                 transition:border-color .15s, transform .15s; }
-.ats-cand-card:hover { border-color:var(--ats-border-hover); transform:translateY(-1px); }
+.ats-cand-table .ats-cand-card {
+  background:var(--ats-panel); border:1px solid var(--ats-border);
+  border-radius:12px; overflow:hidden;
+  /* The kanban rule above also matches, and it carries padding + a bottom
+     margin + cursor:grab. Zero them here or the band cannot reach the card's
+     edges and the list gains a second gap on top of .ats-cand-table's own. */
+  padding:0; margin-bottom:0; cursor:pointer;
+  transition:border-color .15s, transform .15s;
+}
+.ats-cand-table .ats-cand-card:hover { border-color:var(--ats-border-hover); transform:translateY(-1px); box-shadow:none; }
 /* The row is the card's own top half now, so it drops its panel chrome and
    its hover lift (the card owns both) — otherwise you get a border inside a
    border and two competing hover states. */
-.ats-cand-card > .ats-cand-row { background:transparent; border:0; border-radius:0; }
-.ats-cand-card > .ats-cand-row:hover { background:transparent; transform:none; border:0; }
+.ats-cand-table .ats-cand-card > .ats-cand-row { background:transparent; border:0; border-radius:0; }
+.ats-cand-table .ats-cand-card > .ats-cand-row:hover { background:transparent; transform:none; border:0; }
 
 .cr-strip { display:flex; align-items:center; gap:9px; flex-wrap:wrap;
             padding:11px 16px; background:rgba(96,165,250,0.06);

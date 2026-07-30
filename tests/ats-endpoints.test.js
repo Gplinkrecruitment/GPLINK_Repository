@@ -580,10 +580,15 @@ describe('Ops deep links point at the CEO dashboard host, not the doctor app', (
   });
 });
 
-// The per-application action strip (owner request 2026-07-30, third pass).
-// The dropdown was rejected: the owner wants every action visible in the card,
-// not behind a 3-dot. Layout "option D" — a full-width tinted band per LIVE
-// application across the bottom of the candidate card.
+// The per-application action strip (owner request 2026-07-30, "option D",
+// reconfirmed 2026-07-31 over a second attempt to make it a dropdown).
+// Every action is visible in the card, not behind a 3-dot — a full-width
+// tinted band across the bottom of the candidate card.
+//
+// The 2026-07-31 correction: the band was rendering for every application in
+// live_apps, so hired doctors carried a full action bar with nothing left to
+// action. The band exists to SUBMIT a doctor to the practice, so on the list
+// it now appears only while that is still pending.
 describe('The per-application action strip', () => {
   const js = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
   const css = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
@@ -596,12 +601,40 @@ describe('The per-application action strip', () => {
     expect(css).not.toContain('.ats-menu-pop');
   });
 
-  it('renders one strip per live application, on the list and in the drawer', () => {
+  it('renders the strip on the list and in the drawer, from one builder', () => {
     expect(js).toContain('function appActionStripHtml');
     // list card
-    expect(js).toMatch(/c\.live_apps \|\| \[\]\)\.map\(appActionStripHtml\)/);
+    expect(js).toMatch(/c\.live_apps \|\| \[\]\)\.filter\(isSubmitEligible\)\.map\(appActionStripHtml\)/);
     // drawer application card — same builder, so they cannot drift
     expect(js).toMatch(/markPlacementLineHtml\(a\) \+\s*\n\s*appActionStripHtml\(a\)/);
+  });
+
+  // THE 2026-07-31 fix. A list card carries a band only while the doctor is
+  // still waiting to go out to the practice; submit them and it disappears.
+  it('puts the list strip ONLY on applications still waiting to be submitted', () => {
+    expect(js).toContain('function isSubmitEligible');
+    const fn = js.slice(js.indexOf('function isSubmitEligible'), js.indexOf('var STRIP_STAGE_TONE'));
+    expect(fn).toContain('isWithdrawn(a)');
+    expect(fn).toContain('SUBMISSION_STATUS_LABELS[a.practice_submission_status');
+    expect(fn).toContain('SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage)');
+    // The eligible lanes are deliberate — a doctor at interview has already
+    // been through the practice, so there is nothing left to submit. 'hired'
+    // is absent, which is what keeps a hired doctor's card clean.
+    expect(js).toContain("var SUBMIT_ELIGIBLE_STAGES = ['applied', 'submitted', 'reviewing'];");
+    // the builder reuses the same predicate, so the button and the band that
+    // carries it can never disagree about eligibility
+    expect(js).toContain('var submitEligible = isSubmitEligible(a);');
+  });
+
+  // The list card and the Jobs-tab kanban drag card share the class name
+  // `.ats-cand-card`. An unscoped rule for one silently restyles the other,
+  // and the kanban rule brings padding + a margin that stop the band reaching
+  // the card's edges.
+  it('scopes the card styling to the list so the kanban card is untouched', () => {
+    expect(css).toContain('.ats-cand-table .ats-cand-card');
+    expect(css).not.toMatch(/\n\.ats-cand-card \{[^}]*overflow:hidden/);
+    const scoped = css.slice(css.indexOf('.ats-cand-table .ats-cand-card {'));
+    expect(scoped).toMatch(/padding:0; margin-bottom:0/);
   });
 
   it('names the application it acts on, so Withdraw is never a guess', () => {
@@ -641,5 +674,20 @@ describe('The per-application action strip', () => {
     expect(fn).toContain('ats-danger-ghost');
     expect(fn.indexOf('ats-strip-public')).toBeLessThan(fn.indexOf('ats-strip-withdraw'));
     expect(css).toContain('.ats-danger-ghost');
+  });
+
+  // The regression that made this band look broken on the owner's screen: the
+  // stylesheet gained the .cr-strip rules but the page still asked for the OLD
+  // cache key, and sw.js treats a versioned .css as immutable — so browsers
+  // painted the previous day's CSS over the new markup (no band, no gap, the
+  // job title running into "Not scored"). Bumping only the JS key is the trap;
+  // the existing pins assert the CURRENT value, so they cannot catch it.
+  it('never lets the CSS cache key fall behind the JS one', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
+    const cssV = html.match(/ceo-ats\.css\?v=(\d{8})/);
+    const jsV = html.match(/ceo-ats-candidates\.js\?v=(\d{8})/);
+    expect(cssV).toBeTruthy();
+    expect(jsV).toBeTruthy();
+    expect(Number(cssV[1])).toBeGreaterThanOrEqual(Number(jsV[1]));
   });
 });

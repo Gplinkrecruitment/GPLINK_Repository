@@ -30931,6 +30931,11 @@ function atsApplicationToCard(app, label) {
     withdrawn_at: app.withdrawn_at || null,
     ats_notes: app.ats_notes || app.notes || '',
     job_id: app.career_role_id || app.job_id || '',
+    // "Job board ↗" in the drawer's action menu opens the PUBLIC listing.
+    // Built server-side, same as the list's live_apps, so the client never has
+    // to guess the public host (the drawer previously had no public link at
+    // all, so that menu item silently never rendered there).
+    public_url: (app.career_role_id || app.job_id) ? buildPublicJobUrl({ id: app.career_role_id || app.job_id }) : '',
     provider_role_id: app.provider_role_id || '',
     // Task 12: lets the CEO drawer hide the "Practice accepted" button once
     // the acceptance has already been recorded.
