@@ -34195,46 +34195,68 @@ async function resolveFullInterviewRow(ref) {
 // entries, real calendar dates from today through +60 days, integer minute
 // bounds with 0 <= fromMin < toMin <= 1560 (26:00 — allows past-midnight).
 // Returns null when valid, else a plain user-facing message.
+// The bookable date range, as YMD strings plus the sentence explaining it.
+// Bounds are UTC-based (toISOString() is always UTC), so around midnight a
+// practice's local "today" can differ from this UTC day by one — acceptable
+// over this horizon, called out here so it isn't mistaken for a bug later.
+//
+// These track the SCHEDULER's window rather than an independent 0..60 days.
+// They used to disagree: a date up to 60 days out was accepted, saved, and
+// confirmed to the practice, then never looked at again because
+// computeInterviewSlots only spans INTERVIEW_HORIZON_DAYS. Same at the near
+// end — anything inside the notice period produced no slots. Both ends are
+// now refused with a reason instead of accepted and ignored (2026-07-31).
+// `nowMs` exists because the pasted-reply path is handed an explicit "now" and
+// parses dates relative to IT. If the bounds silently used the wall clock
+// instead, a reply parsed against one moment would be judged against another —
+// which is a real bug at a day boundary, not just a testing inconvenience.
+// The form path passes nothing and gets the wall clock, as before.
+function practiceAvailabilityDateBounds(nowMs) {
+  var base = Number.isFinite(nowMs) ? nowMs : Date.now();
+  var leadMs = interviewMeetings.INTERVIEW_LEAD_HOURS * 60 * 60 * 1000;
+  var horizonMs = interviewMeetings.INTERVIEW_HORIZON_DAYS * 24 * 60 * 60 * 1000;
+  var minYmd = new Date(base + leadMs).toISOString().slice(0, 10);
+  var maxYmd = new Date(base + horizonMs).toISOString().slice(0, 10);
+  return {
+    minYmd: minYmd,
+    maxYmd: maxYmd,
+    rangeMsg: 'each window date must be between ' + minYmd + ' and ' + maxYmd
+      + ' — we need ' + interviewMeetings.INTERVIEW_LEAD_HOURS + ' hours’ notice, and can only offer times in the next '
+      + interviewMeetings.INTERVIEW_HORIZON_DAYS + ' days.'
+  };
+}
+
+// ONE window, one verdict. Split out so the pasted-email route can apply the
+// identical rules the practice's own form gets — it previously applied none at
+// all and wrote raw model output straight to the row (2026-07-31).
+// Returns null when the window is usable, else a plain user-facing reason.
+function validateOnePracticeAvailabilityWindow(w, bounds) {
+  var b = bounds || practiceAvailabilityDateBounds();
+  if (!w || typeof w !== 'object') return 'each window must be an object.';
+  var d = String(w.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'each window date must be in YYYY-MM-DD format.';
+  var parsed = new Date(d + 'T00:00:00Z');
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) return 'each window date must be a real calendar date.';
+  if (d < b.minYmd || d > b.maxYmd) return b.rangeMsg;
+  if (!Number.isInteger(w.fromMin) || !Number.isInteger(w.toMin)) return 'fromMin and toMin must be integers.';
+  // Reachable from the form (the two selects are independent), so worded for
+  // a human rather than as a bounds expression.
+  if (w.toMin <= w.fromMin) return 'Each time must finish after it starts — please check the “to” time.';
+  if (w.fromMin < 0 || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
+  return null;
+}
+
 function validatePracticeAvailabilityWindows(windows) {
-  // These strings are now shown VERBATIM to the practice contact, so the ones
-  // they can actually trigger read like English. The rest stay terse — they
-  // guard against malformed API calls the form cannot produce.
+  // These strings are shown VERBATIM to the practice contact, so the ones they
+  // can actually trigger read like English. The rest stay terse — they guard
+  // against malformed API calls the form cannot produce.
   if (!Array.isArray(windows) || windows.length < 1 || windows.length > 10) {
     return 'Please add between 1 and 10 times that work for your practice.';
   }
-  // Bounds are UTC-based (toISOString() is always UTC), so around midnight a
-  // practice's local "today" can differ from this UTC day by one — acceptable
-  // over this horizon, called out here so it isn't mistaken for a bug later.
-  //
-  // These now track the SCHEDULER's window rather than an independent 0..60
-  // days. They disagreed: a date up to 60 days out was accepted, saved, and
-  // confirmed to the practice, then never looked at again because
-  // computeInterviewSlots only spans INTERVIEW_HORIZON_DAYS. Same at the near
-  // end — anything inside the 48-hour notice period produced no slots. Both
-  // ends are now refused with a reason instead of accepted and ignored
-  // (owner decision 2026-07-31).
-  var leadMs = interviewMeetings.INTERVIEW_LEAD_HOURS * 60 * 60 * 1000;
-  var horizonMs = interviewMeetings.INTERVIEW_HORIZON_DAYS * 24 * 60 * 60 * 1000;
-  var minYmd = new Date(Date.now() + leadMs).toISOString().slice(0, 10);
-  var maxYmd = new Date(Date.now() + horizonMs).toISOString().slice(0, 10);
-  var rangeMsg = 'each window date must be between ' + minYmd + ' and ' + maxYmd
-    + ' — we need ' + interviewMeetings.INTERVIEW_LEAD_HOURS + ' hours’ notice, and can only offer times in the next '
-    + interviewMeetings.INTERVIEW_HORIZON_DAYS + ' days.';
+  var bounds = practiceAvailabilityDateBounds();
   for (var i = 0; i < windows.length; i++) {
-    var w = windows[i];
-    if (!w || typeof w !== 'object') return 'each window must be an object.';
-    var d = String(w.date || '');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'each window date must be in YYYY-MM-DD format.';
-    var parsed = new Date(d + 'T00:00:00Z');
-    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) return 'each window date must be a real calendar date.';
-    if (d < minYmd || d > maxYmd) return rangeMsg;
-    if (!Number.isInteger(w.fromMin) || !Number.isInteger(w.toMin)) return 'fromMin and toMin must be integers.';
-    // Reachable from the form (the two selects are independent), so worded for
-    // a human rather than as a bounds expression.
-    if (Number.isInteger(w.fromMin) && Number.isInteger(w.toMin) && w.toMin <= w.fromMin) {
-      return 'Each time must finish after it starts — please check the “to” time.';
-    }
-    if (w.fromMin < 0 || w.toMin <= w.fromMin || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
+    var reason = validateOnePracticeAvailabilityWindow(windows[i], bounds);
+    if (reason) return reason;
   }
   return null;
 }
@@ -67407,7 +67429,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (!ingAppId || !ingReplyText) { sendJson(res, 400, { ok: false, message: 'application_id and reply_text required' }); return; }
     var ingInterviewRef = await findInterviewForApplication(ingAppId);
     if (!ingInterviewRef) { sendJson(res, 404, { ok: false, message: 'no interview for this application' }); return; }
-    await ingestPracticeAvailabilityReply(ingInterviewRef.id, ingReplyText, new Date().toISOString());
+    // 'replace' only when the operator explicitly chose it — the default ADDS
+    // to whatever the practice already gave us. This used to always replace,
+    // so pasting "we can also do Friday" wiped the days they had submitted by
+    // form (2026-07-31).
+    var ingMode = (bodyIngR && String(bodyIngR.mode || '').trim() === 'replace') ? 'replace' : 'add';
+    var ingResult = await ingestPracticeAvailabilityReply(ingInterviewRef.id, ingReplyText, new Date().toISOString(), { mode: ingMode });
     // Re-read the row (dual-mode) to get the updated status and windows.
     var ingRow;
     if (isSupabaseDbConfigured()) {
@@ -67418,7 +67445,22 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var ingStatus = (ingRow && ingRow.practice_availability_status) || '';
     var ingWindowsCount = (ingRow && Array.isArray(ingRow.practice_availability_windows)) ? ingRow.practice_availability_windows.length : 0;
-    sendJson(res, 200, { ok: true, status: ingStatus, windows_count: ingWindowsCount });
+    // Report what actually happened — how many were added, what was ignored
+    // and why, and which timezone the times were read in. Previously only a
+    // count came back, so a silently dropped or misread window looked
+    // identical to a clean read.
+    sendJson(res, 200, {
+      ok: true,
+      status: ingStatus,
+      windows_count: ingWindowsCount,
+      mode: ingMode,
+      added: (ingResult && ingResult.added) || 0,
+      parsed: (ingResult && ingResult.parsed) || 0,
+      duplicates: (ingResult && ingResult.duplicates) || 0,
+      overflow: (ingResult && ingResult.overflow) || 0,
+      dropped: (ingResult && ingResult.dropped) || [],
+      practice_tz: (ingResult && ingResult.tz) || ''
+    });
     return;
   }
 
@@ -69911,8 +69953,8 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   return { booked: { scheduled_at: slotStartUtc, zoom_join_url: resolvedJoin }, zoom: zoom, gcal: gcal, notifyPromise: notifyPromise };
 }
 
-async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
-  if (!interviewId || !replyText) return;
+async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, opts) {
+  if (!interviewId || !replyText) return null;
   var now = nowIso || new Date().toISOString();
 
   // 1. Load the interview row (dual-mode).
@@ -69926,15 +69968,88 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
       return String(r.id) === String(interviewId) && r.meeting_kind === 'interview';
     }) || null;
   }
-  if (!row) return;
+  if (!row) return null;
+
+  // 1a. Which timezone this practice's "6pm" means. Resolved BEFORE parsing so
+  //     the model can be told — it used to be instructed to "use
+  //     Australia/Sydney" for every practice in the country, so a Perth
+  //     practice saying "6pm" became 6pm Sydney, which is 3pm or 4pm to them.
+  var ingCtx = null;
+  try {
+    ingCtx = row.application_id ? await atsGetApplicationContext(row.application_id) : null;
+  } catch (e) { ingCtx = null; }
+  var ingTz = interviewMeetings.practiceTzForLocation(
+    (ingCtx && ingCtx.practiceName) || row.practice_name || '',
+    ingCtx && ingCtx.practiceState,
+    ingCtx && ingCtx.practiceCity
+  );
 
   // 2. Parse reply into windows.
-  var windows;
+  var parsedWindows;
   if (process.env.ANTHROPIC_API_KEY) {
-    windows = await _parseAvailabilityViaAI(replyText, now);
+    parsedWindows = await _parseAvailabilityViaAI(replyText, now, ingTz);
   } else {
-    windows = _parseAvailabilityFallback(replyText, now);
+    parsedWindows = _parseAvailabilityFallback(replyText, now);
   }
+  parsedWindows = Array.isArray(parsedWindows) ? parsedWindows : [];
+
+  // 2a. VALIDATE what the model produced — the same rules the practice's own
+  //     form gets. This route applied NONE: raw model output went straight to
+  //     the row, so a misread month ("the 20th" read as September) was saved,
+  //     the card said "times received", and the doctor was offered nothing,
+  //     because the scheduler never looks that far ahead (2026-07-31).
+  //
+  //     Per-window rather than all-or-nothing, deliberately: the operator did
+  //     not write the email and cannot correct the model's guess, so one bad
+  //     date must not throw away four good ones. Nothing is dropped SILENTLY —
+  //     every rejection is returned with its reason and shown to the operator.
+  // Judged against the SAME "now" the reply was parsed against.
+  var ingBounds = practiceAvailabilityDateBounds(Date.parse(now));
+  var ingKept = [];
+  var ingDropped = [];
+  parsedWindows.forEach(function (w) {
+    var reason = validateOnePracticeAvailabilityWindow(w, ingBounds);
+    if (reason) ingDropped.push({ date: (w && w.date) || '', reason: reason });
+    else ingKept.push({ date: w.date, fromMin: w.fromMin, toMin: w.toMin });
+  });
+
+  // 2b. Stamp that timezone onto every window we keep. The form path records
+  //     the contact's device tz; an email has no device to ask, so we record
+  //     the one derived above. Recording it FREEZES the interpretation —
+  //     without it buildInterviewPracticeConfig re-derives the zone on every
+  //     read, so editing the practice's state later would silently change what
+  //     already-saved times mean.
+  if (ingTz) ingKept.forEach(function (w) { w.tz = ingTz; });
+
+  // 2c. ADD to what the practice already gave us instead of replacing it. A
+  //     pasted reply used to overwrite the whole array, so a practice that
+  //     submitted three days by form and then emailed "we can also do Friday"
+  //     ended up with Friday ALONE — the other three gone, no warning, no way
+  //     back. Pass mode:'replace' to deliberately start over; the operator is
+  //     asked which they want before this runs.
+  var ingExisting = Array.isArray(row.practice_availability_windows) ? row.practice_availability_windows : [];
+  var ingReplace = !!(opts && opts.mode === 'replace');
+  var ingMerged = ingReplace ? [] : ingExisting.slice();
+  var ingSeen = {};
+  ingMerged.forEach(function (w) { if (w) ingSeen[[w.date, w.fromMin, w.toMin].join('|')] = true; });
+  var ingAdded = 0;
+  var ingDuplicates = 0;
+  ingKept.forEach(function (w) {
+    var key = [w.date, w.fromMin, w.toMin].join('|');
+    if (ingSeen[key]) { ingDuplicates++; return; }
+    ingSeen[key] = true;
+    ingMerged.push(w);
+    ingAdded++;
+  });
+  // The same 1..10 ceiling the form enforces. Report the overflow rather than
+  // trimming quietly — silent truncation is the fault this whole change is about.
+  var ingOverflow = 0;
+  if (ingMerged.length > 10) {
+    ingOverflow = ingMerged.length - 10;
+    ingMerged = ingMerged.slice(0, 10);
+    ingAdded = Math.max(0, ingAdded - ingOverflow);
+  }
+  var windows = ingMerged;
 
   // 3. Store on the row (dual-mode).
   //    Folded T3 fix: when the parser finds ZERO windows we must NOT flip the
@@ -69951,7 +70066,12 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
       : interviewMeetings.PRACTICE_AVAIL.REQUESTED,
     updated_at: now
   };
-  if (hasWindows) patch.practice_availability_received_at = now;
+  // Only re-stamp "received" when this paste actually contributed something,
+  // so re-reading the same email doesn't keep moving the clock. Still stamps
+  // if the row somehow has windows but no timestamp.
+  if (hasWindows && (ingAdded > 0 || !row.practice_availability_received_at)) {
+    patch.practice_availability_received_at = now;
+  }
   if (isSupabaseDbConfigured()) {
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(interviewId)), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
@@ -69967,7 +70087,10 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
   try {
     var gpUserId = row.user_id;
     var gpCaseId = row.case_id;
-    if (hasWindows && (gpUserId || gpCaseId) && isSupabaseDbConfigured()) {
+    // Nudge the doctor only when this paste added something NEW. Re-reading the
+    // same email, or one that produced nothing usable, must not tell them again
+    // that fresh times are waiting.
+    if (ingAdded > 0 && (gpUserId || gpCaseId) && isSupabaseDbConfigured()) {
       var pFilter = gpCaseId
         ? 'case_id=eq.' + encodeURIComponent(gpCaseId)
         : 'user_id=eq.' + encodeURIComponent(gpUserId);
@@ -70017,13 +70140,36 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso) {
     console.warn('[interview] ingestPracticeAvailabilityReply notify error (ignored):', notifyErr && notifyErr.message);
   }
 
-  return { windows: windows };
+  // Everything the operator needs to see what this paste actually did. The
+  // route used to return nothing at all, so a misread date, a dropped window
+  // or a wiped set was completely invisible from the dashboard.
+  return {
+    windows: windows,
+    parsed: parsedWindows.length,
+    added: ingAdded,
+    total: windows.length,
+    duplicates: ingDuplicates,
+    overflow: ingOverflow,
+    dropped: ingDropped,
+    tz: ingTz || '',
+    mode: ingReplace ? 'replace' : 'add'
+  };
 }
 
 // AI path: call Claude to parse the reply into windows.
-async function _parseAvailabilityViaAI(replyText, nowIso) {
-  var horizonEnd = new Date(new Date(nowIso).getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  var prompt = 'A medical practice has replied to an interview-availability request.\n\nReply:\n"""\n' + replyText + '\n"""\n\nToday is ' + nowIso.slice(0, 10) + '. Extract all interview availability windows. Only include dates from today to ' + horizonEnd + ' (the next 14 days). Return ONLY a raw JSON array (no markdown, no commentary) with this exact shape:\n[{"date":"YYYY-MM-DD","fromMin":<integer minutes from local midnight>,"toMin":<integer minutes from local midnight>}]\nUse Australia/Sydney time. Map weekday names to their next concrete date(s) in the 14-day window. Cap open-ended "after X pm" at toMin=1320 (22:00). Return [] if no clear windows can be extracted.';
+async function _parseAvailabilityViaAI(replyText, nowIso, practiceTz) {
+  // The window the scheduler will actually read, and THIS practice's timezone.
+  // Both used to be hardcoded — 14 days regardless of the real horizon, and
+  // "Australia/Sydney" for every practice in the country, so a Perth reply of
+  // "6pm" came back as 6pm Sydney (3pm or 4pm to them). Anything the model
+  // still gets wrong is now caught by the per-window validation in the caller
+  // rather than saved unchecked.
+  var horizonDays = interviewMeetings.INTERVIEW_HORIZON_DAYS;
+  var leadHours = interviewMeetings.INTERVIEW_LEAD_HOURS;
+  var startFrom = new Date(new Date(nowIso).getTime() + leadHours * 60 * 60 * 1000).toISOString().slice(0, 10);
+  var horizonEnd = new Date(new Date(nowIso).getTime() + horizonDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  var tzLabel = interviewMeetings.sanitizeViewerTz(practiceTz) || 'Australia/Sydney';
+  var prompt = 'A medical practice has replied to an interview-availability request.\n\nReply:\n"""\n' + replyText + '\n"""\n\nToday is ' + nowIso.slice(0, 10) + '. Extract all interview availability windows. Only include dates from ' + startFrom + ' to ' + horizonEnd + ' (we need ' + leadHours + ' hours notice and can only offer times in the next ' + horizonDays + ' days). Return ONLY a raw JSON array (no markdown, no commentary) with this exact shape:\n[{"date":"YYYY-MM-DD","fromMin":<integer minutes from local midnight>,"toMin":<integer minutes from local midnight>}]\nUse ' + tzLabel + ' time — this is the practice\'s own timezone. Map weekday names to their next concrete date(s) in that window. Cap open-ended "after X pm" at toMin=1320 (22:00). Return [] if no clear windows can be extracted.';
   var controller = new AbortController();
   var aiTimeout = setTimeout(function () { controller.abort(); }, 20000);
   try {
@@ -70259,6 +70405,9 @@ module.exports.__testUtils = {
   isBackupSafeEnvKey,
   BACKUP_TABLES,
   ingestPracticeAvailabilityReply,
+  validatePracticeAvailabilityWindows,
+  validateOnePracticeAvailabilityWindow,
+  practiceAvailabilityDateBounds,
   reconcileAtsStageAfterStatusSync,
   notifyGpOfAtsStageChange,
   buildRsoWritePayload,

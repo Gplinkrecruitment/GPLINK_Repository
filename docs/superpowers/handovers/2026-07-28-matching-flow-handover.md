@@ -300,11 +300,35 @@ both. Pages themselves are `must-revalidate`, so HTML changes need no bump.
    practice had chosen five and one was out of range. It now returns the real
    reason (the sibling `/availability` endpoint always did), and the reasons a
    practice can actually trigger are worded for a human.
-   **Still open, same family:** `ingestPracticeAvailabilityReply` (the
-   paste-the-email route) writes raw AI output with **no validation at all** —
-   no date bounds, no count cap, no `tz` stamped — and it **replaces** rather
-   than merges, so pasting a reply wipes windows the practice submitted by
-   form.
+   ~~**Still open, same family:** the paste-the-email route.~~
+   **FIXED 2026-07-31, same session.** `ingestPracticeAvailabilityReply` now:
+   - **validates per window** against the same rules the form gets
+     (`validateOnePracticeAvailabilityWindow`, split out so there is one
+     source of truth). Per-window, not all-or-nothing — the operator did not
+     write the email and cannot correct the model, so one bad date must not
+     bin four good ones. Every rejection is **returned with its reason** and
+     shown in the dashboard; nothing is dropped silently.
+   - **stamps the practice's timezone** on every window it keeps, freezing the
+     interpretation. Without it `buildInterviewPracticeConfig` re-derived the
+     zone on every read, so editing the practice's state later silently
+     changed what already-saved times meant. The AI prompt is also told *this
+     practice's* zone — it used to say "use Australia/Sydney" for every
+     practice in the country — and the horizon it asks for now comes from
+     `INTERVIEW_HORIZON_DAYS`/`INTERVIEW_LEAD_HOURS`.
+   - **adds instead of replacing**, de-duplicating on (date, from, to) and
+     capping at 10 with the overflow reported. `mode: 'replace'` still exists
+     and the operator picks it explicitly in the paste box (default: add).
+   - `practiceAvailabilityDateBounds(nowMs)` takes an explicit "now" because
+     this route parses relative to one — judging against the wall clock
+     instead is a real bug at a day boundary, not just a test nuisance.
+   ⚠️ **NEW known gap, pinned but NOT fixed** (outside the agreed scope, flagged
+   to the owner): `_parseAvailabilityFallback` has no "I could not read this"
+   answer. No day signal → it assumes **every weekday** in the horizon; no time
+   signal → **17:00–21:00**. So a reply mentioning no times at all still
+   produces availability the practice never offered, and a doctor could book
+   into a slot nobody expects. It only bites when `ANTHROPIC_API_KEY` is unset
+   (the AI path returns `[]`), so production is not currently exposed. Pinned
+   by `tests/practice-reply-ingest-safety.test.js` → "KNOWN GAP".
 7. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
    and the zoomless cron branch stamp — so it is not Zoom-only. Cadence: day 3,
    day 5, owner escalation day 7, weekends skipped for practice-facing sends

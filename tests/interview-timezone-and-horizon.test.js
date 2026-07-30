@@ -165,8 +165,12 @@ describe('a refused submission says why', () => {
   });
 
   it('the reasons a practice can actually trigger read like English', () => {
-    const idx = serverSrc.indexOf('function validatePracticeAvailabilityWindows');
-    const fnSrc = serverSrc.slice(idx, idx + 5000);
+    // The validator was split on 2026-07-31 into bounds + one-window + array
+    // (so the pasted-email route could reuse the identical rules), so slice
+    // from the FIRST of the three rather than the last.
+    const idx = serverSrc.indexOf('function practiceAvailabilityDateBounds');
+    expect(idx).toBeGreaterThan(-1);
+    const fnSrc = serverSrc.slice(idx, serverSrc.indexOf('function savePracticeAvailabilityWindows'));
     expect(fnSrc).toContain('Please add between 1 and 10 times that work for your practice.');
     expect(fnSrc).toContain('hours’ notice');
     expect(fnSrc).toContain('Each time must finish after it starts');

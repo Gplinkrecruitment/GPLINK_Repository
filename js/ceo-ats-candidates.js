@@ -1504,7 +1504,18 @@
           '<div class="ats-modal-body">' +
             '<label>Practice availability email</label>' +
             '<textarea id="ats-paste-text" placeholder="Paste the times the practice sent, e.g. “Tuesday and Thursday evenings after 6pm, or Saturday morning”" style="min-height:120px;resize:vertical"></textarea>' +
-            '<p style="font-size:11.5px;color:var(--ats-dim);margin-top:10px">We read the times from the email and turn them into bookable slots.</p>' +
+            '<p style="font-size:11.5px;color:var(--ats-dim);margin-top:10px">We read the times from the email and turn them into bookable slots. Anything we can\'t use is listed back to you rather than dropped.</p>' +
+            // Pasting used to REPLACE everything the practice had already given
+            // us, so "we can also do Friday" wiped the days they submitted by
+            // form. Adding is now the default and the choice is explicit.
+            '<div style="margin-top:12px;display:flex;flex-direction:column;gap:7px">' +
+              '<label style="font-size:12.5px;display:flex;gap:8px;align-items:center;cursor:pointer">' +
+                '<input type="radio" name="ats-paste-mode" value="add" checked> Add to the times already saved' +
+              '</label>' +
+              '<label style="font-size:12.5px;display:flex;gap:8px;align-items:center;cursor:pointer">' +
+                '<input type="radio" name="ats-paste-mode" value="replace"> Replace the saved times with these' +
+              '</label>' +
+            '</div>' +
           '</div>' +
           '<div class="ats-modal-foot">' +
             '<button class="ats-btn ats-btn-ghost" id="ats-paste-cancel">Cancel</button>' +
@@ -1525,17 +1536,32 @@
     if (submit) submit.addEventListener('click', function () {
       var text = (root.querySelector('#ats-paste-text') || {}).value || '';
       if (!text.trim()) { ATS.toast('Paste the practice\'s reply first.'); return; }
+      var modeEl = root.querySelector('input[name="ats-paste-mode"]:checked');
+      var mode = (modeEl && modeEl.value === 'replace') ? 'replace' : 'add';
       submit.disabled = true; submit.textContent = 'Reading…';
-      ATS.api('/api/ats/interview/ingest-reply', { method: 'POST', body: { application_id: String(applicationId), reply_text: text } }).then(function (r) {
+      ATS.api('/api/ats/interview/ingest-reply', { method: 'POST', body: { application_id: String(applicationId), reply_text: text, mode: mode } }).then(function (r) {
         if (r && r.ok) {
           close();
           if (r.status === 'received' && r.windows_count) {
-            ATS.toast('Availability read — ' + r.windows_count + ' window' + (r.windows_count === 1 ? '' : 's') + ' found.');
+            // Say what actually happened. A count alone made a misread date, a
+            // dropped window and a clean read look identical.
+            var msg = (r.added ? ('Added ' + r.added + ' time' + (r.added === 1 ? '' : 's')) : 'No new times added')
+              + ' — ' + r.windows_count + ' saved in total'
+              + (r.practice_tz ? ', read as ' + r.practice_tz : '') + '.';
+            if (r.duplicates) msg += ' ' + r.duplicates + ' already saved.';
+            if (r.overflow) msg += ' ' + r.overflow + ' over the 10-time limit were not added.';
+            if (r.dropped && r.dropped.length) {
+              msg += ' ' + r.dropped.length + ' ignored: ' + (r.dropped[0].reason || 'could not be used') ;
+            }
+            ATS.toast(msg);
           } else {
-            // Folded T3: the parser found no usable times — the card stays on
-            // 'requested' so its actions remain. Point the operator at the
-            // standard-times escape hatch.
-            ATS.toast('We couldn\'t read any interview times from that reply — try "Use standard times" instead.');
+            // The parser found nothing usable — the card stays on 'requested'
+            // so its actions remain. Give the reason when we have one, rather
+            // than the generic line, then point at the escape hatch.
+            var noneMsg = 'We couldn\'t use any times from that reply';
+            if (r.dropped && r.dropped.length) noneMsg += ' — ' + (r.dropped[0].reason || 'they were outside the bookable dates');
+            else noneMsg += ' — try "Use standard times" instead.';
+            ATS.toast(noneMsg);
           }
           if (containerEl) window.atsRenderSlotPicker(applicationId, containerEl, caseId);
           else if (caseId) window.atsOpenCandidate(caseId);
