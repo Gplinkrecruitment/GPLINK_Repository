@@ -33353,6 +33353,153 @@ async function maybeSendInterviewBookingInvite(applicationId) {
   return { ok: true };
 }
 
+/* ---- Interview booking chase (owner call 2026-07-31) ----------------------
+ *
+ * maybeSendInterviewBookingInvite above is deliberately ONE-SHOT. Nothing
+ * followed up: /api/cron/interview-reminders only fires for interviews that are
+ * already BOOKED, so a doctor who ignored that single email was never chased
+ * and no screen said so. This is the chase.
+ *
+ * Deliberately conservative — it emails real doctors:
+ *   • only after the one-shot invite actually went out,
+ *   • only while times exist, none are booked, and at least one is still in the
+ *     future (once they have all passed, chasing the doctor is pointless — the
+ *     practice needs to re-offer, which the band surfaces instead),
+ *   • at most every 48h, at most 3 times, then it stops and stays stopped.
+ * A chase that never gives up just teaches people to ignore us.
+ *
+ * INTERVIEW_NUDGE_ENABLED=false is the kill switch: it keeps evaluating and
+ * logging so you can see what WOULD have gone out, and sends nothing. Manual
+ * sends from the dashboard ignore both the interval and the switch (a human
+ * asked for it) but still respect the cap.
+ */
+var INTERVIEW_NUDGE_MAX = 3;
+var INTERVIEW_NUDGE_INTERVAL_MS = 48 * 60 * 60 * 1000;
+
+function interviewNudgeSendingEnabled() {
+  return String(process.env.INTERVIEW_NUDGE_ENABLED || 'true').toLowerCase() !== 'false';
+}
+
+// Any window still ahead of us? Windows are {date:'YYYY-MM-DD', fromMin, toMin}
+// and a date compare is enough — being a few hours out either side of midnight
+// only ever costs one extra (or one fewer) chase, never a wrong send.
+function interviewWindowsHaveFuture(windows) {
+  if (!Array.isArray(windows) || !windows.length) return false;
+  var todayIso = new Date().toISOString().slice(0, 10);
+  return windows.some(function (w) { return w && String(w.date || '') >= todayIso; });
+}
+
+async function interviewBookingIsBooked(applicationId) {
+  var id = String(applicationId || '');
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('scheduled_calls',
+      'select=id,status,scheduled_at&meeting_kind=eq.interview&application_id=eq.' + encodeURIComponent(id) + '&limit=5');
+    var rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    return rows.some(function (x) { return x && (x.status === 'booked' || x.status === 'completed'); });
+  }
+  return (dbState.scheduledCalls || []).some(function (x) {
+    return x && x.meeting_kind === 'interview' && String(x.application_id) === id
+      && (x.status === 'booked' || x.status === 'completed');
+  });
+}
+
+/* opts.manual — a human clicked "Nudge doctor to book": skip the interval and
+ * the kill switch, keep every other gate (including the cap). */
+async function sendInterviewBookingNudge(applicationId, opts) {
+  var id = String(applicationId || '').trim();
+  var manual = !!(opts && opts.manual);
+  if (!id) return { ok: false, skipped: 'missing_application_id' };
+
+  var ctx = null;
+  try { ctx = await atsGetApplicationContext(id); } catch (e) { ctx = null; }
+  var app = ctx && ctx.app;
+  if (!app) return { ok: false, skipped: 'application_not_found' };
+
+  var statusKey = normalizeCareerApplicationStatusKey(app.status);
+  if (statusKey !== 'interview' && statusKey !== 'interview_scheduled') {
+    return { ok: false, skipped: 'not_interview_stage' };
+  }
+  if (app.revealed !== true) return { ok: false, skipped: 'not_revealed' };
+  // Only ever a FOLLOW-UP: if the first invite never went, that is the bug to
+  // fix, and sending a chase in its place would read as the first thing they
+  // ever heard about an interview.
+  if (!app.booking_invite_sent_at) return { ok: false, skipped: 'no_invite_yet' };
+
+  var count = Number(app.booking_nudge_count || 0);
+  if (count >= INTERVIEW_NUDGE_MAX) return { ok: false, skipped: 'cap_reached', count: count };
+
+  if (await interviewBookingIsBooked(id)) return { ok: false, skipped: 'already_booked' };
+
+  var ref = await findInterviewForApplication(id);
+  if (!ref) return { ok: false, skipped: 'no_interview_row' };
+  var full = await resolveFullInterviewRow(ref);
+  var windows = full && full.practice_availability_windows;
+  if (!Array.isArray(windows) || !windows.length) return { ok: false, skipped: 'no_windows' };
+  if (!interviewWindowsHaveFuture(windows)) return { ok: false, skipped: 'windows_expired' };
+
+  var nowMs = Date.now();
+  if (!manual) {
+    var lastMs = app.booking_nudge_last_at ? new Date(app.booking_nudge_last_at).getTime() : 0;
+    var sinceRef = lastMs || new Date(app.booking_invite_sent_at).getTime();
+    if (sinceRef && (nowMs - sinceRef) < INTERVIEW_NUDGE_INTERVAL_MS) {
+      return { ok: false, skipped: 'too_soon' };
+    }
+    if (!interviewNudgeSendingEnabled()) {
+      console.log('[interview-nudge] DRY RUN — would chase app ' + id + ' (nudge ' + (count + 1) + '/' + INTERVIEW_NUDGE_MAX + ')');
+      return { ok: false, skipped: 'sending_disabled', would_send: true };
+    }
+  }
+
+  // Write-then-send, same shape as the one-shot invite: stamp first so two
+  // concurrent runs cannot both send, and roll the stamp back if the send dies.
+  var nowIso = new Date(nowMs).toISOString();
+  var stamped = await patchApplicationDecisionFields(id, {
+    booking_nudge_count: count + 1,
+    booking_nudge_last_at: nowIso,
+    updated_at: nowIso
+  });
+  if (!stamped) return { ok: false, skipped: 'stamp_failed' };
+
+  var practiceLabel = String((ctx && ctx.practiceName) || app.practice_name || '').trim() || 'the practice';
+  var securePath = '/pages/secure-interview?applicationId=' + encodeURIComponent(id);
+  var nudgeTitle = 'Your interview time is still waiting';
+  var nudgeBody = practiceLabel + ' has offered times to meet you and we have not had your pick yet. '
+    + 'Choose whichever suits and we will set it all up, including the meeting link. '
+    + 'If none of them work, reply to this email and we will ask for more.';
+  try {
+    await sendGpNotificationEmail(
+      ctx && ctx.userId,
+      'Still need your interview time — GP Link',
+      nudgeTitle,
+      nudgeBody,
+      'Choose interview time',
+      APP_BASE_URL + securePath,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+    );
+  } catch (sendErr) {
+    console.warn('[interview-nudge] send failed, rolling back stamp for app', id, ':', sendErr && sendErr.message);
+    await patchApplicationDecisionFields(id, {
+      booking_nudge_count: count, booking_nudge_last_at: app.booking_nudge_last_at || null
+    }).catch(function () {});
+    return { ok: false, skipped: 'send_failed' };
+  }
+
+  // In-app + push are best-effort extras: the email is the channel of record,
+  // and a push outage must never cost us the (already stamped) chase.
+  try {
+    await pushCareerNotificationToUser(ctx && ctx.userId, { type: 'info', title: nudgeTitle, body: nudgeBody });
+  } catch (e) { /* best effort */ }
+  try {
+    await sendPushNotification(ctx && ctx.userId, {
+      title: nudgeTitle, body: nudgeBody,
+      data: { type: 'career', action: 'interview_booking_nudge', url: securePath }
+    });
+  } catch (e) { /* best effort */ }
+
+  console.log('[interview-nudge] chased app ' + id + ' (' + (count + 1) + '/' + INTERVIEW_NUDGE_MAX + ', manual=' + manual + ')');
+  return { ok: true, count: count + 1, manual: manual };
+}
+
 // G6: congratulate the GP on their OWN in-app acceptance (self-accept via
 // POST /api/career/offer/accept). Identity is already revealed once the offer
 // is accepted, so the real practice name is fine here. Mirrors the
@@ -34359,6 +34506,69 @@ async function sendPracticeAvailabilityEmail(opts) {
   }
 }
 
+/* Ask a practice for their interview availability (owner call 2026-07-31).
+ *
+ * POST /api/ats/interview/request does this as an explicit staff action. This
+ * is the same thing fired automatically when an application reaches Interview
+ * with no times on file — which only happens when STAFF record an acceptance
+ * the practice gave by phone or email. (The practice's own approval screen
+ * validates windows first and 400s with `windows_required`, so it can never
+ * land a case here.) Without it the doctor sits at Interview with nothing to
+ * book and no request outstanding.
+ *
+ * Idempotent on purpose: it will not overwrite times we already hold, and it
+ * will not re-email a practice we are already waiting on. The follow-up cadence
+ * belongs to the chase cron, not to however many times someone clicks Accept.
+ */
+async function requestPracticeAvailabilityForApplication(appId, ctx, actorEmail) {
+  var id = String(appId || '').trim();
+  if (!id) return { ok: false, skipped: 'missing_application_id' };
+  if (!ctx) return { ok: false, skipped: 'no_context' };
+
+  var ref = await ensureInterviewRowForApplication(id, ctx, actorEmail || 'ats_accept');
+  if (!ref) return { ok: false, skipped: 'no_interview_row' };
+  var full = await resolveFullInterviewRow(ref);
+
+  // Times already exist — the booking invite is the right thing here, not this.
+  var existingWindows = full && full.practice_availability_windows;
+  if (Array.isArray(existingWindows) && existingWindows.length) {
+    return { ok: false, skipped: 'already_have_windows' };
+  }
+  // Already asked and still waiting — say so rather than emailing again.
+  if (String((full && full.practice_availability_status) || '') === 'requested'
+    && (full && full.practice_availability_requested_at)) {
+    return { ok: false, skipped: 'already_requested' };
+  }
+
+  var nowIso = new Date().toISOString();
+  var patch = {
+    practice_availability_status: 'requested',
+    practice_availability_requested_at: nowIso,
+    updated_at: nowIso
+  };
+  if (isSupabaseDbConfigured()) {
+    var reqWriteRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(ref.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+    });
+    if (!reqWriteRes || !reqWriteRes.ok) return { ok: false, skipped: 'write_failed' };
+  } else {
+    Object.assign(ref, patch);
+    saveDbState();
+  }
+
+  // Best-effort, exactly like the explicit endpoint: a missing practice email or
+  // a Resend outage must not undo the acceptance we just recorded. The request
+  // is now ON FILE either way, so the "awaiting availability" tile counts it and
+  // staff can chase by hand.
+  var gpNameReq = (ctx && ctx.gpName) || 'the candidate';
+  await sendPracticeAvailabilityEmail({
+    to: ctx.practiceEmail,
+    subject: 'Interview availability — Dr ' + gpNameReq,
+    text: 'Which evenings/weekends over the next 2 weeks suit to interview Dr ' + gpNameReq + '?'
+  });
+  return { ok: true, interview_id: ref.id };
+}
+
 // ---- Candidate document flags (prod) ---------------------------------------
 async function atsGetDocFlagsProd(userId) {
   var docsRes = await supabaseDbRequest('user_documents',
@@ -34746,8 +34956,23 @@ function atsCandidateListRow(facts, intent) {
     // themselves — previously it was candidate-only and the strip had to fetch
     // on demand. Terminal rows are excluded: there is nothing left to action,
     // and a strip per dead application would bury the live one.
-    live_apps: atsCandidateLiveApps(facts.apps)
+    live_apps: atsCandidateLiveApps(facts.apps, null, atsLocalInterviewRowMap())
   };
+}
+
+// Local-JSON twin of the prod list's ONE bulk scheduled_calls read. dbState is
+// already in memory, so this stays synchronous and costs nothing — without it
+// local mode (and therefore the test suite) would report every interview as
+// "waiting on the practice" regardless of what the row actually says.
+function atsLocalInterviewRowMap() {
+  if (isSupabaseDbConfigured()) return {};
+  var map = {};
+  (dbState.scheduledCalls || []).forEach(function (iv) {
+    if (!iv || iv.meeting_kind !== 'interview' || !iv.application_id) return;
+    var k = String(iv.application_id);
+    if (!map[k] || iv.status === 'booked' || iv.status === 'completed') map[k] = iv;
+  });
+  return map;
 }
 
 // Compact per-application payload for the candidates list action strip.
@@ -34758,8 +34983,9 @@ function atsCandidateListRow(facts, intent) {
 // which reads gp_applications in ONE bulk query and therefore has no role
 // names on the rows. Local mode's apps already carry job_title/practice_name,
 // so it passes nothing and the fallbacks below apply.
-function atsCandidateLiveApps(apps, roleMap) {
+function atsCandidateLiveApps(apps, roleMap, interviewRowMap) {
   var roles = roleMap || {};
+  var ivRows = interviewRowMap || {};
   return (Array.isArray(apps) ? apps : [])
     .filter(function (a) {
       if (!a) return false;
@@ -34770,7 +34996,7 @@ function atsCandidateLiveApps(apps, roleMap) {
     .map(function (a) {
       var jobId = a.job_id || a.career_role_id || '';
       var role = roles[String(jobId)] || {};
-      return {
+      var out = {
         id: a.id,
         job_id: jobId,
         job_title: a.job_title || role.title || '',
@@ -34783,7 +35009,64 @@ function atsCandidateLiveApps(apps, roleMap) {
         // Built server-side so the client never has to guess the public host.
         public_url: jobId ? buildPublicJobUrl({ id: jobId }) : ''
       };
+      if (a.ats_stage === 'interview') out.interview = atsInterviewCardState(a, ivRows[String(a.id)]);
+      return out;
     });
+}
+
+/* The interview band's whole payload, computed server-side so the browser is
+ * never the thing deciding who we are waiting on (owner call 2026-07-31).
+ *
+ * `state` is the single field the band renders from:
+ *   waiting_practice — no times yet; the practice owes us availability
+ *   waiting_doctor   — times offered, none picked. The gap that had no owner.
+ *   booked           — a time is locked in
+ *   past             — the interview has happened, no outcome recorded yet
+ *   expired          — every offered time has passed and nothing was booked
+ *   blocked          — identity never revealed, so no booking email can send
+ */
+function atsInterviewCardState(app, ivRow) {
+  var windows = (ivRow && Array.isArray(ivRow.practice_availability_windows))
+    ? ivRow.practice_availability_windows : [];
+  var booked = !!(ivRow && (ivRow.status === 'booked' || ivRow.status === 'completed') && ivRow.scheduled_at);
+  var todayIso = new Date().toISOString().slice(0, 10);
+  var hasFuture = windows.some(function (w) { return w && String(w.date || '') >= todayIso; });
+
+  var state;
+  if (booked) {
+    state = (new Date(ivRow.scheduled_at).getTime() < Date.now()) ? 'past' : 'booked';
+  } else if (app.revealed !== true) {
+    // Checked AFTER booked: a doctor who somehow booked is plainly not blocked,
+    // and shouting "blocked" over a real booking would be worse than useless.
+    state = 'blocked';
+  } else if (!windows.length) {
+    state = 'waiting_practice';
+  } else if (!hasFuture) {
+    state = 'expired';
+  } else {
+    state = 'waiting_doctor';
+  }
+
+  return {
+    state: state,
+    windows_count: windows.length,
+    scheduled_at: (ivRow && ivRow.scheduled_at) || null,
+    // The doctor's own timezone as last seen on their device (79ff68a) — the
+    // band shows both ends, because a slot that is 1:30am for a GB doctor looks
+    // completely normal on an AEST screen.
+    doctor_tz: (ivRow && ivRow.timezone) || '',
+    availability_status: (ivRow && ivRow.practice_availability_status) || 'not_requested',
+    requested_at: (ivRow && ivRow.practice_availability_requested_at) || null,
+    invite_sent_at: app.booking_invite_sent_at || null,
+    nudge_count: Number(app.booking_nudge_count || 0),
+    nudge_last_at: app.booking_nudge_last_at || null,
+    nudge_max: INTERVIEW_NUDGE_MAX,
+    stage_since: app.ats_stage_updated_at || null,
+    // The DOCTOR-facing picker. Built here because the dashboard is served on
+    // the super-admin host and has no way to know the doctor app's origin —
+    // same reasoning as public_url on the action strip.
+    booking_url: APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(String(app.id))
+  };
 }
 
 // AI Matching (Task 8): shape the raw career_lock blob for the candidate
@@ -36016,7 +36299,63 @@ async function handleApi(req, res, pathname) {
         }
       }
 
-      sendJson(res, 200, { ok: true, checked: irInterviews.length + irScRows.length, sent: irSent + irScSent });
+      /* ---- Chase doctors who never booked (owner call 2026-07-31) ----------
+       * Everything above reminds people about an interview that IS booked.
+       * This is the opposite case and had no owner at all: times are on the
+       * table, the one-shot invite went out, and the doctor never picked one.
+       *
+       * It lives inside this cron rather than getting its own vercel.json entry
+       * because the Hobby plan only allows DAILY schedules — a second daily
+       * cron would buy nothing, and the 48h spacing is enforced per-application
+       * anyway, so running this once a day is exactly right.
+       *
+       * Bounded: the candidate query is capped, and sendInterviewBookingNudge
+       * re-checks every gate per row (booked / expired / capped / too soon), so
+       * a bad query here can still never over-send.
+       */
+      var nudgeSent = 0, nudgeSkipped = 0, nudgeWouldSend = 0, nudgeCandidates = [];
+      try {
+        if (isSupabaseDbConfigured()) {
+          var nudgeCutoff = new Date(Date.now() - INTERVIEW_NUDGE_INTERVAL_MS).toISOString();
+          var nudgeRes = await supabaseDbRequest('gp_applications',
+            'select=id&booking_invite_sent_at=not.is.null'
+            + '&booking_invite_sent_at=lt.' + encodeURIComponent(nudgeCutoff)
+            + '&booking_nudge_count=lt.' + INTERVIEW_NUDGE_MAX
+            + '&ats_stage=eq.interview&limit=200');
+          nudgeCandidates = (nudgeRes.ok && Array.isArray(nudgeRes.data)) ? nudgeRes.data : [];
+        } else {
+          nudgeCandidates = (dbState.atsApplications || []).filter(function (a) {
+            return a && a.ats_stage === 'interview' && a.booking_invite_sent_at
+              && Number(a.booking_nudge_count || 0) < INTERVIEW_NUDGE_MAX;
+          });
+        }
+        for (var nI = 0; nI < nudgeCandidates.length; nI++) {
+          try {
+            var nRes = await sendInterviewBookingNudge(nudgeCandidates[nI].id, { manual: false });
+            if (nRes && nRes.ok) nudgeSent++;
+            else { nudgeSkipped++; if (nRes && nRes.would_send) nudgeWouldSend++; }
+          } catch (nErr) {
+            nudgeSkipped++;
+            console.error('[interview-nudge] cron send failed for app', nudgeCandidates[nI].id, ':', nErr && nErr.message);
+          }
+        }
+        console.log('[interview-nudge] cron: candidates=' + nudgeCandidates.length
+          + ' sent=' + nudgeSent + ' skipped=' + nudgeSkipped
+          + (interviewNudgeSendingEnabled() ? '' : ' DRY-RUN would_send=' + nudgeWouldSend));
+      } catch (nudgeErr) {
+        // Never let the chase break the reminders above — they are time-critical
+        // (a 1h reminder that does not send is a missed interview).
+        console.error('[interview-nudge] cron pass failed (ignored):', nudgeErr && nudgeErr.message);
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        checked: irInterviews.length + irScRows.length,
+        sent: irSent + irScSent,
+        booking_nudges_sent: nudgeSent,
+        booking_nudges_skipped: nudgeSkipped,
+        booking_nudge_sending_enabled: interviewNudgeSendingEnabled()
+      });
     } catch (err) {
       console.error('[Cron] Interview reminders failed:', err);
       await respondServerError(res, err, { route: pathname, method: req.method });
@@ -66778,6 +67117,43 @@ Return ONLY valid JSON with no markdown formatting:
     var newStage = bodyAP.stage != null ? String(bodyAP.stage) : null;
     if (newStage && validStages.indexOf(newStage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
     if (!newStage && typeof bodyAP.notes !== 'string') { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
+
+    /* Fail-closed job gate (owner report 2026-07-31).
+     *
+     * Every route that legitimately advances a card to Interview resolves a job
+     * first: the practice's own approval, the CEO "Practice accepted" flow, and
+     * the GP accepting an invitation (which additionally requires a booking).
+     * This route — the kanban drag — checked only that the stage NAME was
+     * valid. So a card with no career_role_id could be dropped straight into
+     * Interview, leaving a doctor at interview stage with no job, no practice,
+     * no interview row and nothing that could ever book: exactly the orphaned
+     * row the owner found on the dashboard.
+     *
+     * Interview and beyond are gated; the early lanes are not, because a
+     * shortlisted/applied card without a job is a normal working state.
+     * not_proceeding is never gated — closing a broken card must always work.
+     */
+    var apJobGatedStages = ['interview', 'offer', 'hired'];
+    if (newStage && apJobGatedStages.indexOf(newStage) !== -1) {
+      var apGateRow = null;
+      if (isSupabaseDbConfigured()) {
+        var apGateSel = await supabaseDbRequest('gp_applications',
+          'select=id,career_role_id&id=eq.' + encodeURIComponent(apId) + '&limit=1');
+        apGateRow = (apGateSel.ok && Array.isArray(apGateSel.data) && apGateSel.data[0]) ? apGateSel.data[0] : null;
+      } else {
+        apGateRow = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(apId); });
+      }
+      if (!apGateRow) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+      if (!apGateRow.career_role_id) {
+        sendJson(res, 409, {
+          ok: false,
+          code: 'job_required',
+          message: 'This application is not attached to a job, so it cannot move to ' + newStage
+            + '. Add it to a job first — a candidate at interview with no role cannot be booked or submitted.'
+        });
+        return;
+      }
+    }
     // AI Matching (Task 7): optional withdraw reason — only meaningful on a
     // move INTO not_proceeding (the client's withdraw-reason prompt only ever
     // sends it there); stored on the stage event as the strike-source data
@@ -66996,8 +67372,28 @@ Return ONLY valid JSON with no markdown formatting:
     // Owner (2026-07-23): the congratulations-and-book email waits for the
     // practice's interview times — this records the acceptance; the invite sends
     // once times land (skips here when none exist yet). Guarded/awaited.
-    await maybeSendInterviewBookingInvite(acAppId)
-      .catch(function (e) { console.error('[ats accept] booking invite failed for app', acAppId, ':', e && e.message); });
+    var acInvite = null;
+    try { acInvite = await maybeSendInterviewBookingInvite(acAppId); }
+    catch (e) { console.error('[ats accept] booking invite failed for app', acAppId, ':', e && e.message); }
+
+    // Owner call 2026-07-31. The practice's OWN approval screen cannot reach
+    // this state — it validates windows and 400s with `windows_required`. But
+    // this route is staff recording an acceptance the practice gave by phone or
+    // email, where the times usually have NOT been collected yet. The invite
+    // above then skips ('no_windows' / 'no_interview_row') and the doctor sits
+    // at Interview with nothing bookable and nobody chasing anyone — the dead
+    // end the owner spotted. Ask the practice for their availability instead of
+    // silently doing nothing, so the case always leaves this route with a live
+    // next step.
+    if (acInvite && acInvite.ok === false
+      && (acInvite.skipped === 'no_windows' || acInvite.skipped === 'no_interview_row')) {
+      try {
+        var acAsk = await requestPracticeAvailabilityForApplication(acAppId, acCtx, ctxAC && ctxAC.email);
+        if (!acAsk.ok) console.warn('[ats accept] availability request skipped for app', acAppId, ':', acAsk.skipped);
+      } catch (e) {
+        console.error('[ats accept] availability request failed for app', acAppId, ':', e && e.message);
+      }
+    }
 
     sendJson(res, 200, { ok: true });
     return;
@@ -67561,6 +67957,43 @@ Return ONLY valid JSON with no markdown formatting:
   // We create a fresh row rather than reset the cancelled one because
   // _interviewSlotContext/findInterviewForApplication intentionally exclude
   // cancelled rows — so the cancelled row can never block a new booking.
+  // ---- Chase the doctor to book (owner call 2026-07-31) --------------------
+  // The manual twin of the nightly chase. A human asked, so this ignores the
+  // 48h spacing and the kill switch — but never the cap, and never the gates
+  // that decide whether chasing is even the right move (times must exist, be
+  // unbooked, and still be in the future). The reason a send was skipped is
+  // returned verbatim so the dashboard can say WHY rather than "failed".
+  if (pathname === '/api/ats/interview/nudge-doctor' && req.method === 'POST') {
+    var ctxND = requireAtsSession(req, res); if (!ctxND) return;
+    var bodyND; try { bodyND = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var ndAppId = (bodyND && bodyND.application_id != null) ? String(bodyND.application_id) : '';
+    if (!ndAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var ndResult;
+    try {
+      ndResult = await sendInterviewBookingNudge(ndAppId, { manual: true });
+    } catch (e) {
+      console.error('[interview-nudge] manual send failed for app', ndAppId, ':', e && e.message);
+      sendJson(res, 502, { ok: false, message: 'Could not send the reminder.' });
+      return;
+    }
+    if (ndResult && ndResult.ok) {
+      sendJson(res, 200, { ok: true, count: ndResult.count, max: INTERVIEW_NUDGE_MAX });
+      return;
+    }
+    var ndWhy = {
+      cap_reached: 'Already chased ' + INTERVIEW_NUDGE_MAX + ' times — give them a call instead.',
+      already_booked: 'They have already booked a time.',
+      no_windows: 'No interview times on file yet — chase the practice, not the doctor.',
+      no_interview_row: 'No interview has been set up for this application yet.',
+      windows_expired: 'Every offered time has passed — ask the practice for new times.',
+      no_invite_yet: 'The first booking invitation has not gone out yet.',
+      not_revealed: 'The practice identity has not been revealed to this doctor yet.',
+      not_interview_stage: 'This application is not at the interview stage.'
+    }[(ndResult && ndResult.skipped) || ''] || 'Could not send the reminder.';
+    sendJson(res, 409, { ok: false, code: (ndResult && ndResult.skipped) || 'unknown', message: ndWhy });
+    return;
+  }
+
   if (pathname === '/api/ats/interview/cancel' && req.method === 'POST') {
     var ctxCX = requireAtsSession(req, res); if (!ctxCX) return;
     var bodyCX; try { bodyCX = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
@@ -68186,8 +68619,34 @@ Return ONLY valid JSON with no markdown formatting:
           lrRes.data.forEach(function (j) { liveRoleMap[String(j.id)] = j; });
         }
       }
+      // Owner call 2026-07-31: a card at Interview shows booking state, so the
+      // list also needs the interview row per application. ONE bulk read for
+      // the page, scoped to the interview-stage applications actually on it —
+      // never a query per row (2026-07-29 load handover). Skipped entirely when
+      // nothing on the page is at interview, which is the common case.
+      var ivAppIds = [];
+      Object.keys(byUser2).forEach(function (uid) {
+        (byUser2[uid] || []).forEach(function (a) {
+          if (a && a.ats_stage === 'interview' && a.id) ivAppIds.push(String(a.id));
+        });
+      });
+      var ivRowMap = {};
+      if (ivAppIds.length) {
+        var ivRes = await supabaseDbRequest('scheduled_calls',
+          'select=id,application_id,status,scheduled_at,timezone,practice_availability_status,'
+          + 'practice_availability_windows,practice_availability_requested_at'
+          + '&meeting_kind=eq.interview&application_id=in.(' + encodeURIComponent(ivAppIds.join(',')) + ')&limit=500');
+        if (ivRes.ok && Array.isArray(ivRes.data)) {
+          ivRes.data.forEach(function (iv) {
+            var k = String(iv.application_id);
+            // An application can carry more than one interview row (cancel &
+            // rebook). A booked one always wins; otherwise the last seen does.
+            if (!ivRowMap[k] || iv.status === 'booked' || iv.status === 'completed') ivRowMap[k] = iv;
+          });
+        }
+      }
       rows.forEach(function (r) {
-        r.live_apps = atsCandidateLiveApps(byUser2[r.user_id], liveRoleMap);
+        r.live_apps = atsCandidateLiveApps(byUser2[r.user_id], liveRoleMap, ivRowMap);
       });
     }
     // AI Matching (Task 7): "high application velocity" chip — a LIVE

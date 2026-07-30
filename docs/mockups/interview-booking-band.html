@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup — Interview booking band</title>
+<link rel="stylesheet" href="/css/ceo-ats.css" />
+<style>
+  /* Page chrome for the mockup only — NOT proposed for ceo-ats.css. */
+  body { margin:0; background:#0f1117; color:#e2e8f0;
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .mk-wrap { max-width:1500px; margin:0 auto; padding:26px 24px 80px; }
+  .mk-h1 { font-size:20px; font-weight:600; margin:0 0 4px; letter-spacing:-.01em; }
+  .mk-sub { font-size:13px; color:rgba(255,255,255,.45); margin:0 0 26px; }
+  .mk-state { margin:30px 0 10px; padding-top:18px; border-top:1px solid rgba(255,255,255,.07); }
+  .mk-state h2 { font-size:13.5px; font-weight:600; margin:0 0 3px; }
+  .mk-state p { font-size:12px; color:rgba(255,255,255,.4); margin:0 0 12px; max-width:900px; line-height:1.5; }
+  .mk-tag { display:inline-block; font-family:'SF Mono',monospace; font-size:10px; letter-spacing:.06em;
+            text-transform:uppercase; padding:2px 7px; border-radius:4px; margin-right:8px;
+            background:rgba(96,165,250,.14); color:#60a5fa; vertical-align:2px; }
+  .mk-tag.new { background:rgba(52,211,153,.14); color:#34d399; }
+  .mk-note { font-size:11.5px; color:rgba(255,255,255,.32); margin-top:9px; padding-left:13px;
+             border-left:2px solid rgba(255,255,255,.09); line-height:1.55; }
+  .mk-note b { color:rgba(255,255,255,.6); font-weight:600; }
+
+  /* ---- PROPOSED: would move into css/ceo-ats.css ---- */
+
+  /* The band reuses .cr-strip wholesale. Only the tone changes: the action
+     band is blue (something to do), this one is keyed to WHO we are waiting
+     on, because that is the question the row has to answer at a glance. */
+  .cr-strip.wait-practice { background:rgba(251,191,36,.06); border-top-color:rgba(251,191,36,.20); }
+  .cr-strip.wait-doctor   { background:rgba(167,139,250,.07); border-top-color:rgba(167,139,250,.24); }
+  .cr-strip.booked        { background:rgba(52,211,153,.06);  border-top-color:rgba(52,211,153,.20); }
+  .cr-strip.overdue       { background:rgba(239,68,68,.07);   border-top-color:rgba(239,68,68,.24); }
+
+  /* "Waiting on: X" — the primary read. Everything else is supporting detail. */
+  .cr-who { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .cr-who .dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .wait-practice .cr-who { color:#fbbf24; } .wait-practice .cr-who .dot { background:#fbbf24; }
+  .wait-doctor   .cr-who { color:#a78bfa; } .wait-doctor   .cr-who .dot { background:#a78bfa; }
+  .booked        .cr-who { color:#34d399; } .booked        .cr-who .dot { background:#34d399; }
+  .overdue       .cr-who { color:#f87171; } .overdue       .cr-who .dot { background:#f87171; }
+
+  /* Supporting facts: age in stage, nudge history, timezone. Muted, never bold. */
+  .cr-facts { display:flex; align-items:center; gap:7px; flex-wrap:wrap; font-size:11px;
+              color:rgba(255,255,255,.38); min-width:0; }
+  .cr-facts .sep { opacity:.35; }
+  .cr-facts .warn { color:#fbbf24; }
+  /* Timezone is called out, not buried — a GB doctor reading AEST times is the
+     single biggest cause of a missed interview. */
+  .cr-tz { font-size:10.5px; padding:2px 7px; border-radius:999px; white-space:nowrap;
+           background:rgba(96,165,250,.10); color:#93c5fd; border:1px solid rgba(96,165,250,.22); }
+  .cr-stale { color:#f87171; font-weight:600; }
+</style>
+</head>
+<body>
+<div class="mk-wrap ats-scope">
+
+  <h1 class="mk-h1">Interview booking band — proposed</h1>
+  <p class="mk-sub">
+    The band that sits under a candidate card while they are at <b>Interview</b>. Same
+    <code>.cr-strip</code> component as the action band already on main, so nothing new to learn.
+    Every state below is a real state the data can already be in.
+  </p>
+
+  <!-- ============ STATE A ============ -->
+  <div class="mk-state">
+    <h2><span class="mk-tag">State A</span>Waiting on the practice for times</h2>
+    <p><b>Owner correction:</b> the practice's own approval screen cannot produce this — it validates
+      the windows and 400s with <code>windows_required</code> before changing anything. It is only
+      reachable when STAFF record an acceptance the practice gave by phone or email. That route now
+      emails the practice for availability automatically, so this state always arrives with a request
+      already outstanding rather than as a dead end. Nothing the doctor can do yet, so the band
+      offers no doctor action at all.</p>
+  </div>
+  <div class="ats-cand-table">
+    <div class="ats-cand-card">
+      <div class="ats-cand-row">
+        <div class="cr-id">
+          <div class="ats-avatar" style="background:#38bdf8">KC</div>
+          <div><div class="cr-name">Khaleed Crypto</div><div class="cr-sub">khaleedmahmoudcrypto1211@gmail.com</div></div>
+        </div>
+        <div class="cr-sub">🇬🇧 GB</div>
+        <div><span class="ats-pill blue">MyIntealth</span></div>
+        <div class="ats-intent-chip">
+          <div class="ats-intent-bar"><i class="ats-fill-cold" style="width:33%"></i></div>
+          <span class="ats-intent-score ats-band-cold">33</span><span class="ats-pill muted">Cold</span>
+        </div>
+        <div><span class="ats-pill green">Complete</span></div>
+        <div class="ats-doc-chips">
+          <span class="ats-doc-chip">CV ✗</span><span class="ats-doc-chip">Cover ✗</span>
+        </div>
+      </div>
+      <div class="cr-strip wait-practice">
+        <span class="ats-pill blue">Interview</span>
+        <span class="cr-strip-job">DPA – Erina (Central Coast) · Erina Medical Centre</span>
+        <span class="cr-who"><span class="dot"></span>Waiting on practice</span>
+        <span class="cr-facts">
+          <span>times requested 3d ago</span><span class="sep">·</span>
+          <span class="warn">reminded 1×, 2d ago</span><span class="sep">·</span>
+          <span>at interview 4d</span>
+        </span>
+        <span class="cr-strip-btns">
+          <button class="ats-btn ats-btn-primary ats-btn-sm">Nudge practice</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Paste practice reply</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Use standard times</button>
+        </span>
+      </div>
+    </div>
+  </div>
+  <div class="mk-note">
+    All three actions already exist — <b>Nudge practice</b> is <code>/api/ats/application/remind-practice</code>,
+    the other two are in the drawer today. This state is only surfacing them one level up.
+  </div>
+
+  <!-- ============ STATE B ============ -->
+  <div class="mk-state">
+    <h2><span class="mk-tag new">State B — the one you asked for</span>Times are on the table, the doctor has not booked</h2>
+    <p>The practice sent times and the doctor got the one-shot booking email — then nothing.
+      <b>Today this is invisible and nothing chases them.</b> The invite is deliberately send-once
+      (<code>booking_invite_sent_at</code>), and the interview-reminder cron only fires for interviews
+      that are <em>already booked</em>. So a doctor who ignores that first email is never followed up.</p>
+  </div>
+  <div class="ats-cand-table">
+    <div class="ats-cand-card">
+      <div class="ats-cand-row">
+        <div class="cr-id">
+          <div class="ats-avatar" style="background:#818cf8">HW</div>
+          <div><div class="cr-name">Helen Wazalski</div><div class="cr-sub">helenwazalski@gmail.com</div></div>
+        </div>
+        <div class="cr-sub">🇬🇧 GB</div>
+        <div><span class="ats-pill blue">MyIntealth</span></div>
+        <div class="ats-intent-chip">
+          <div class="ats-intent-bar"><i class="ats-fill-cold" style="width:30%"></i></div>
+          <span class="ats-intent-score ats-band-cold">30</span><span class="ats-pill muted">Cold</span>
+        </div>
+        <div><span class="ats-pill green">Complete</span></div>
+        <div class="ats-doc-chips">
+          <span class="ats-doc-chip">CV ✗</span><span class="ats-doc-chip">Cover ✗</span>
+        </div>
+      </div>
+      <div class="cr-strip wait-doctor">
+        <span class="ats-pill blue">Interview</span>
+        <span class="cr-strip-job">GP — Kearneys Spring · Pipeline Practice Three</span>
+        <span class="cr-who"><span class="dot"></span>Waiting on doctor</span>
+        <span class="cr-facts">
+          <span><b style="color:rgba(255,255,255,.62)">4 times offered</b>, none booked</span><span class="sep">·</span>
+          <span>invited 5d ago</span><span class="sep">·</span>
+          <span class="warn">nudged 2×, last 2d ago</span>
+          <span class="cr-tz">times are AEST · doctor is GB (+9h)</span>
+        </span>
+        <span class="cr-strip-btns">
+          <button class="ats-btn ats-btn-primary ats-btn-sm">Nudge doctor to book</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Copy booking link</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Book for them</button>
+          <span class="cr-strip-gap"></span>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm ats-danger-ghost">Withdraw</button>
+        </span>
+      </div>
+    </div>
+  </div>
+  <div class="mk-note">
+    <b>The nudge system.</b> A cron mirroring the existing post-interview chase: if times exist,
+    nothing is booked and the doctor was invited more than <b>48h</b> ago, send a booking email
+    deep-linked to the same slot picker. Repeat every 48h, <b>cap at 3</b>, then stop emailing and
+    raise it on the attention tiles instead — an automated chase that never gives up just trains
+    people to ignore it. <b>Nudge doctor to book</b> fires the same email by hand, and the count is
+    shown so you never nudge someone who was nudged an hour ago by the cron. Needs two new columns
+    (<code>booking_nudge_count</code>, <code>booking_nudge_last_at</code>); the send-once invite
+    stamp stays untouched so the two can't fight.
+  </div>
+
+  <!-- ============ STATE C ============ -->
+  <div class="mk-state">
+    <h2><span class="mk-tag">State C</span>Booked</h2>
+    <p>Nobody is blocked. The band stops asking for anything and becomes the place you join from.</p>
+  </div>
+  <div class="ats-cand-table">
+    <div class="ats-cand-card">
+      <div class="ats-cand-row">
+        <div class="cr-id">
+          <div class="ats-avatar" style="background:#34d399">SA</div>
+          <div><div class="cr-name">Sana Ahsan</div><div class="cr-sub">sana.ahsan3@nhs.net</div></div>
+        </div>
+        <div class="cr-sub">🇬🇧 GB</div>
+        <div><span class="ats-pill blue">AMC</span></div>
+        <div class="ats-intent-chip">
+          <div class="ats-intent-bar"><i class="ats-fill-warm" style="width:59%"></i></div>
+          <span class="ats-intent-score ats-band-warm">59</span><span class="ats-pill amber">Warm</span>
+        </div>
+        <div><span class="ats-pill green">Complete</span></div>
+        <div class="ats-doc-chips">
+          <span class="ats-doc-chip yes">CV ✓</span><span class="ats-doc-chip">Cover ✗</span>
+        </div>
+      </div>
+      <div class="cr-strip booked">
+        <span class="ats-pill blue">Interview</span>
+        <span class="cr-strip-job">General Practitioner · Halekulani Medical Centre</span>
+        <span class="cr-who"><span class="dot"></span>Booked — Tue 5 Aug, 10:30am</span>
+        <span class="cr-facts">
+          <span>in 3 days</span><span class="sep">·</span>
+          <span>30 min, video</span><span class="sep">·</span>
+          <span>RSO: Amelia on the call</span>
+          <span class="cr-tz">10:30 AEST · 1:30am GB</span>
+        </span>
+        <span class="cr-strip-btns">
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Join meeting ↗</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Add to calendar</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Reschedule</button>
+        </span>
+      </div>
+    </div>
+  </div>
+  <div class="mk-note">
+    That timezone chip is doing real work: <b>1:30am</b> in the doctor's own timezone is a booking
+    they will not attend. Both doctors at interview right now are in GB. The picker shows the
+    doctor their own timezone, but nothing shows <em>you</em> what they picked in theirs, so an
+    unattendable slot looks completely normal on this screen.
+  </div>
+
+  <!-- ============ STATE D ============ -->
+  <div class="mk-state">
+    <h2><span class="mk-tag">State D</span>Interview has happened — no outcome recorded</h2>
+    <p>There is already a cron that chases a silent practice after an interview. Its state belongs
+      here too, otherwise the only place you learn about it is an ops email.</p>
+  </div>
+  <div class="ats-cand-table">
+    <div class="ats-cand-card">
+      <div class="ats-cand-row">
+        <div class="cr-id">
+          <div class="ats-avatar" style="background:#f97316">MO</div>
+          <div><div class="cr-name">Mercy Obanimoh</div><div class="cr-sub">dzungwemb@gmail.com</div></div>
+        </div>
+        <div class="cr-sub">🇬🇧 UK</div>
+        <div><span class="ats-pill blue">MyIntealth</span></div>
+        <div class="ats-intent-chip">
+          <div class="ats-intent-bar"><i class="ats-fill-warm" style="width:53%"></i></div>
+          <span class="ats-intent-score ats-band-warm">53</span><span class="ats-pill amber">Warm</span>
+        </div>
+        <div><span class="ats-pill green">Complete</span></div>
+        <div class="ats-doc-chips">
+          <span class="ats-doc-chip yes">CV ✓</span><span class="ats-doc-chip">Cover ✗</span>
+        </div>
+      </div>
+      <div class="cr-strip overdue">
+        <span class="ats-pill blue">Interview</span>
+        <span class="cr-strip-job">General Practitioner · The Doctors Werribee</span>
+        <span class="cr-who"><span class="dot"></span>Interview was 2 days ago</span>
+        <span class="cr-facts">
+          <span class="cr-stale">no outcome recorded</span><span class="sep">·</span>
+          <span>practice chased 1×</span><span class="sep">·</span>
+          <span>doctor told we're waiting</span>
+        </span>
+        <span class="cr-strip-btns">
+          <button class="ats-btn ats-btn-primary ats-btn-sm">Practice accepted</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Practice declined</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Chase practice</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STATE E ============ -->
+  <div class="mk-state">
+    <h2><span class="mk-tag">State E</span>Every offered time has passed, nothing booked</h2>
+    <p>The dead end State B decays into. Nudging the doctor now is pointless — the times are gone —
+      so the band changes what it asks for rather than repeating itself.</p>
+  </div>
+  <div class="ats-cand-table">
+    <div class="ats-cand-card">
+      <div class="ats-cand-row">
+        <div class="cr-id">
+          <div class="ats-avatar" style="background:#a78bfa">JD</div>
+          <div><div class="cr-name">Jane Doe</div><div class="cr-sub">jane.doe@example.com</div></div>
+        </div>
+        <div class="cr-sub">🇬🇧 GB</div>
+        <div><span class="ats-pill blue">AHPRA</span></div>
+        <div class="ats-intent-chip">
+          <div class="ats-intent-bar"><i class="ats-fill-hot" style="width:81%"></i></div>
+          <span class="ats-intent-score ats-band-hot">81</span><span class="ats-pill red">Hot</span>
+        </div>
+        <div><span class="ats-pill green">Complete</span></div>
+        <div class="ats-doc-chips">
+          <span class="ats-doc-chip yes">CV ✓</span><span class="ats-doc-chip yes">Cover ✓</span>
+        </div>
+      </div>
+      <div class="cr-strip overdue">
+        <span class="ats-pill blue">Interview</span>
+        <span class="cr-strip-job">GP — Newtown · Pipeline Practice Two</span>
+        <span class="cr-who"><span class="dot"></span>Stalled</span>
+        <span class="cr-facts">
+          <span class="cr-stale">all 3 offered times have passed</span><span class="sep">·</span>
+          <span>nudged 3× — chase stopped</span><span class="sep">·</span>
+          <span>at interview 12d</span>
+        </span>
+        <span class="cr-strip-btns">
+          <button class="ats-btn ats-btn-primary ats-btn-sm">Request new times</button>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm">Call the doctor</button>
+          <span class="cr-strip-gap"></span>
+          <button class="ats-btn ats-btn-ghost ats-btn-sm ats-danger-ghost">Withdraw</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STATE F ============ -->
+  <div class="mk-state">
+    <h2><span class="mk-tag">State F</span>Blocked — identity not revealed</h2>
+    <p>A real gate that exists in the code today: the booking invite refuses to send unless
+      <code>revealed === true</code>, because it names the practice. Both real accept routes DO
+      reveal, so this is now unreachable going forward — but the kanban drag could previously drop a
+      card straight into Interview with no reveal and no job, which is how the orphaned row on the
+      dashboard got there. That drag is now gated (<code>job_required</code>). The band keeps this
+      state as a safety net for rows already sitting in it, because the alternative is what happened
+      before: a silent <code>skipped: 'not_revealed'</code> and a doctor told nothing at all.</p>
+  </div>
+  <div class="ats-cand-table">
+    <div class="ats-cand-card">
+      <div class="ats-cand-row">
+        <div class="cr-id">
+          <div class="ats-avatar" style="background:#64748b">SM</div>
+          <div><div class="cr-name">Smith Miller</div><div class="cr-sub">smithmiller1234@gmail.com</div></div>
+        </div>
+        <div class="cr-sub">🇬🇧 GB</div>
+        <div><span class="ats-pill blue">MyIntealth</span></div>
+        <div class="ats-intent-chip">
+          <div class="ats-intent-bar"><i class="ats-fill-cold" style="width:33%"></i></div>
+          <span class="ats-intent-score ats-band-cold">33</span><span class="ats-pill muted">Cold</span>
+        </div>
+        <div><span class="ats-pill green">Complete</span></div>
+        <div class="ats-doc-chips">
+          <span class="ats-doc-chip yes">CV ✓</span><span class="ats-doc-chip">Cover ✗</span>
+        </div>
+      </div>
+      <div class="cr-strip overdue">
+        <span class="ats-pill blue">Interview</span>
+        <span class="cr-strip-job">GP — Rangeville · Pipeline Practice One</span>
+        <span class="cr-who"><span class="dot"></span>Booking email blocked</span>
+        <span class="cr-facts">
+          <span class="cr-stale">practice identity not revealed to the doctor</span><span class="sep">·</span>
+          <span>4 times waiting, unusable</span>
+        </span>
+        <span class="cr-strip-btns">
+          <button class="ats-btn ats-btn-primary ats-btn-sm">Reveal practice &amp; send invite</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mk-state">
+    <h2>Not in this mockup, on purpose</h2>
+    <p>
+      <b>An interview count on the attention tiles.</b> "Interviews awaiting availability" already
+      exists and counts the practice side. A doctor-side twin ("Doctors who haven't booked") is the
+      natural pair, but it is a separate change and I would rather land the band first and see which
+      states actually come up in your data.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

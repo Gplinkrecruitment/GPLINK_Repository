@@ -488,6 +488,59 @@
     });
   }
 
+  /* ---- Interview band actions (owner call 2026-07-31) ---------------------
+   * The server owns every rule about whether a chase is appropriate, so these
+   * stay thin: fire, then say exactly what came back. A 409 is not a failure —
+   * it is the server explaining why chasing is the wrong move right now (they
+   * already booked, the times expired, we have chased enough), so its message
+   * is surfaced verbatim rather than flattened into "could not send". */
+  function nudgeDoctorToBook(appId, c, btn) {
+    if (!appId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    ATS.api('/api/ats/interview/nudge-doctor', { method: 'POST', body: { application_id: String(appId) } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Emailed the doctor to book (' + res.count + ' of ' + res.max + ').');
+        refreshAfterAppAction(c);
+        return;
+      }
+      ATS.toast((res && (res.message || res.error)) || 'Could not send the reminder.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Nudge doctor to book'; }
+    });
+  }
+
+  function requestPracticeTimes(appId, c, btn) {
+    if (!appId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Asking…'; }
+    ATS.api('/api/ats/interview/request', { method: 'POST', body: { application_id: String(appId) } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast(res.already
+          ? 'Already asked — the request is on file with the practice.'
+          : 'Asked the practice for their interview times.');
+        refreshAfterAppAction(c);
+        return;
+      }
+      ATS.toast((res && (res.message || res.error)) || 'Could not ask the practice.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Ask practice for times'; }
+    });
+  }
+
+  // Same endpoint as the drawer's "Practice accepted", but reachable from the
+  // list, where there is no candidate object — so it re-renders the list rather
+  // than reopening a drawer that was never open.
+  function acceptApplicationFromBand(appId, c) {
+    if (!appId) return;
+    if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
+    ATS.api('/api/ats/application/accept?id=' + encodeURIComponent(appId), { method: 'POST' }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast(res.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+        if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+        refreshAfterAppAction(c);
+      } else {
+        ATS.toast((res && (res.error || res.message)) || 'Could not record the practice\'s acceptance.');
+      }
+    });
+  }
+
   function closeWaitingApp(appId, verb) {
     if (!appId) return;
     // Same optional-reason prompt as the kanban/drawer withdraw; doubles as confirm.
@@ -639,7 +692,13 @@
     // gone on the next render, and a hired doctor never had one. The drawer
     // still shows a strip per application, which is where the rest of the
     // actions (score, navigate, withdraw) stay reachable.
-    var strips = (c.live_apps || []).filter(isSubmitEligible).map(appActionStripHtml).join('');
+    // Two bands, never both for one application: the submit band while it is
+    // still going out to the practice, the interview band once it is there.
+    var strips = (c.live_apps || []).map(function (a) {
+      if (isSubmitEligible(a)) return appActionStripHtml(a);
+      if (a && a.ats_stage === 'interview' && a.interview) return interviewBandHtml(a);
+      return '';
+    }).join('');
     return '<div class="ats-cand-card' + (strips ? ' has-strip' : '') + '">' +
       '<div class="ats-cand-row" data-case-id="' + ATS.escAttr(c.case_id) + '">' +
       '<div class="cr-id"><div class="ats-avatar" style="background:' + ATS.avatarColor(c.name) + '">' + ATS.esc(ATS.initials(c.name)) + '</div>' +
@@ -944,6 +1003,25 @@
     e.stopPropagation();
     var appId = btn.getAttribute('data-app-id');
 
+    // ---- Interview band (2026-07-31) ----
+    if (btn.classList.contains('ats-iv-nudge')) { nudgeDoctorToBook(appId, c, btn); return true; }
+    if (btn.classList.contains('ats-iv-request')) { requestPracticeTimes(appId, c, btn); return true; }
+    if (btn.classList.contains('ats-iv-accepted')) { acceptApplicationFromBand(appId, c); return true; }
+    if (btn.classList.contains('ats-iv-copylink')) {
+      var bandEl = btn.closest('.cr-strip');
+      var link = bandEl && bandEl.getAttribute('data-booking-url');
+      if (!link) { ATS.toast('No booking link for this application.'); return true; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(
+          function () { ATS.toast('Booking link copied.'); },
+          function () { window.prompt('Copy this booking link:', link); }
+        );
+      } else {
+        window.prompt('Copy this booking link:', link);
+      }
+      return true;
+    }
+
     if (btn.classList.contains('ats-strip-submit')) { submitToPractice(appId, c, btn); return true; }
     if (btn.classList.contains('ats-strip-score')) { scoreApplicationWithAi(appId, c, btn); return true; }
     if (btn.classList.contains('ats-strip-withdraw')) { withdrawFromDrawer(appId, c, btn); return true; }
@@ -988,6 +1066,105 @@
       && !isWithdrawn(a)
       && !SUBMISSION_STATUS_LABELS[a.practice_submission_status || '']
       && SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage) !== -1;
+  }
+
+  /* ---- Interview band (owner call 2026-07-31) -----------------------------
+   * The Interview twin of the action strip. The action strip asks "submit this
+   * doctor?"; this one answers "is this interview actually going to happen, and
+   * if not, who is holding it up?" — which is the only question that matters
+   * once a doctor is at interview, and which nothing on this dashboard could
+   * answer before. Server-computed (`a.interview.state`) so the browser never
+   * has to work out who we are waiting on.
+   */
+  var IV_TONE = {
+    waiting_practice: 'wait-practice', waiting_doctor: 'wait-doctor',
+    booked: 'booked', past: 'overdue', expired: 'overdue', blocked: 'overdue'
+  };
+  var IV_LABEL = {
+    waiting_practice: 'Waiting on practice', waiting_doctor: 'Waiting on doctor',
+    booked: 'Booked', past: 'Interview has happened', expired: 'Stalled',
+    blocked: 'Booking email blocked'
+  };
+
+  function ivAgo(iso) {
+    if (!iso) return '';
+    var ms = Date.now() - new Date(iso).getTime();
+    if (!(ms > 0)) return 'just now';
+    var days = Math.floor(ms / 86400000);
+    if (days >= 1) return days + 'd ago';
+    var hrs = Math.floor(ms / 3600000);
+    return hrs >= 1 ? hrs + 'h ago' : 'just now';
+  }
+  // The booked time in the PRACTICE's timezone and again in the DOCTOR's. A
+  // 10:30 Sydney slot is 1:30am in the UK: correct on this screen, and an
+  // interview the doctor was never going to attend.
+  function ivWhen(iso, doctorTz) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    var opts = { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' };
+    var out = '';
+    try { out = d.toLocaleString('en-AU', opts); } catch (e) { out = d.toISOString(); }
+    if (doctorTz) {
+      try {
+        out += ' · ' + d.toLocaleString('en-AU', Object.assign({}, opts, { timeZone: doctorTz }))
+          + ' for the doctor';
+      } catch (e) { /* an unknown tz string must never break the row */ }
+    }
+    return out;
+  }
+
+  function interviewBandHtml(a) {
+    var iv = a.interview || {};
+    var appId = ATS.escAttr(String(a.id));
+    var where = [a.job_title, a.practice_name].filter(Boolean).join(' · ');
+    var tone = IV_TONE[iv.state] || 'overdue';
+    var facts = [], btns = '';
+
+    if (iv.state === 'waiting_practice') {
+      facts.push(iv.requested_at ? 'times requested ' + ivAgo(iv.requested_at) : 'times not requested yet');
+      btns += '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-iv-request" data-app-id="' + appId + '">Ask practice for times</button>';
+    } else if (iv.state === 'waiting_doctor') {
+      facts.push('<b>' + iv.windows_count + ' time' + (iv.windows_count === 1 ? '' : 's') + ' offered</b>, none booked');
+      if (iv.invite_sent_at) facts.push('invited ' + ivAgo(iv.invite_sent_at));
+      facts.push(iv.nudge_count
+        ? '<span class="warn">nudged ' + iv.nudge_count + '×, last ' + ivAgo(iv.nudge_last_at) + '</span>'
+        : 'not nudged yet');
+      var capped = iv.nudge_count >= (iv.nudge_max || 3);
+      btns += '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-iv-nudge" data-app-id="' + appId + '"' +
+        (capped ? ' disabled title="Chased the maximum number of times — call them instead"' : '') +
+        '>Nudge doctor to book</button>';
+      btns += '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-iv-copylink" data-app-id="' + appId + '">Copy booking link</button>';
+    } else if (iv.state === 'booked') {
+      facts.push(ivWhen(iv.scheduled_at, iv.doctor_tz));
+    } else if (iv.state === 'past') {
+      facts.push('<span class="cr-stale">no outcome recorded</span>');
+      facts.push('was ' + ivAgo(iv.scheduled_at));
+      btns += '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-iv-accepted" data-app-id="' + appId + '">Practice accepted</button>';
+    } else if (iv.state === 'expired') {
+      facts.push('<span class="cr-stale">all ' + iv.windows_count + ' offered time' + (iv.windows_count === 1 ? '' : 's') + ' have passed</span>');
+      if (iv.nudge_count) facts.push('nudged ' + iv.nudge_count + '×');
+      btns += '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-iv-request" data-app-id="' + appId + '">Request new times</button>';
+    } else { // blocked
+      facts.push('<span class="cr-stale">practice identity not revealed to the doctor</span>');
+      if (iv.windows_count) facts.push(iv.windows_count + ' times waiting, unusable');
+      btns += '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-iv-accepted" data-app-id="' + appId + '">Reveal &amp; send invite</button>';
+    }
+
+    // Withdraw stays available on every state except a live booking, where the
+    // reflex click would cancel a real appointment.
+    if (iv.state !== 'booked') {
+      btns += '<span class="cr-strip-gap"></span>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-strip-withdraw ats-danger-ghost" data-app-id="' + appId + '">Withdraw</button>';
+    }
+
+    return '<div class="cr-strip iv-band ' + tone + '" data-app-id="' + appId + '"' +
+      (iv.booking_url ? ' data-booking-url="' + ATS.escAttr(String(iv.booking_url)) + '"' : '') + '>' +
+      '<span class="ats-pill blue">Interview</span>' +
+      (where ? '<span class="cr-strip-job" title="' + ATS.escAttr(where) + '">' + ATS.esc(where) + '</span>' : '') +
+      '<span class="cr-who"><span class="dot"></span>' + ATS.esc(IV_LABEL[iv.state] || 'Interview') + '</span>' +
+      (facts.length ? '<span class="cr-facts">' + facts.join('<span class="sep">·</span>') + '</span>' : '') +
+      '<span class="cr-strip-btns">' + btns + '</span>' +
+    '</div>';
   }
 
   var STRIP_STAGE_TONE = {

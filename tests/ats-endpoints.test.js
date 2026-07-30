@@ -604,7 +604,10 @@ describe('The per-application action strip', () => {
   it('renders the strip on the list and in the drawer, from one builder', () => {
     expect(js).toContain('function appActionStripHtml');
     // list card
-    expect(js).toMatch(/c\.live_apps \|\| \[\]\)\.filter\(isSubmitEligible\)\.map\(appActionStripHtml\)/);
+    // One pass over live_apps picks the right band per application: the submit
+    // strip while it is still going out, the interview band once it is there.
+    // They are mutually exclusive — 'interview' is not a submit-eligible stage.
+    expect(js).toMatch(/isSubmitEligible\(a\)\) return appActionStripHtml\(a\)/);
     // drawer application card — same builder, so they cannot drift
     expect(js).toMatch(/markPlacementLineHtml\(a\) \+\s*\n\s*appActionStripHtml\(a\)/);
   });
@@ -613,7 +616,7 @@ describe('The per-application action strip', () => {
   // still waiting to go out to the practice; submit them and it disappears.
   it('puts the list strip ONLY on applications still waiting to be submitted', () => {
     expect(js).toContain('function isSubmitEligible');
-    const fn = js.slice(js.indexOf('function isSubmitEligible'), js.indexOf('var STRIP_STAGE_TONE'));
+    const fn = js.slice(js.indexOf('function isSubmitEligible'), js.indexOf('var IV_TONE'));
     expect(fn).toContain('isWithdrawn(a)');
     expect(fn).toContain('SUBMISSION_STATUS_LABELS[a.practice_submission_status');
     expect(fn).toContain('SUBMIT_ELIGIBLE_STAGES.indexOf(a.ats_stage)');

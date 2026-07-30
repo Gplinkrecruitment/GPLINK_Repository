@@ -227,7 +227,7 @@ describe('the operator can see what happened', () => {
 
   it('the changed script is cache-busted, or the dashboard keeps serving the old one', () => {
     const dash = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
-    expect(dash).toContain('ceo-ats-candidates.js?v=20260731b');
+    expect(dash).toContain('ceo-ats-candidates.js?v=20260731c');
     expect(dash).not.toContain('ceo-ats-candidates.js?v=20260730c');
   });
 });

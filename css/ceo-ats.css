@@ -644,6 +644,38 @@
    edge-to-edge treatment inside its own padding. */
 .ats-app-card .cr-strip { margin:10px -14px -12px; border-radius:0 0 10px 10px; }
 
+/* ---- Interview band (owner call 2026-07-31) ----------------------------
+   The Interview twin of the action strip: same component, but tinted by WHO
+   we are waiting on, because that is the question the row exists to answer. */
+.cr-strip.iv-band.wait-practice { background:rgba(251,191,36,0.06); border-top-color:rgba(251,191,36,0.20); }
+.cr-strip.iv-band.wait-doctor   { background:rgba(167,139,250,0.07); border-top-color:rgba(167,139,250,0.24); }
+.cr-strip.iv-band.booked        { background:rgba(52,211,153,0.06);  border-top-color:rgba(52,211,153,0.20); }
+.cr-strip.iv-band.overdue       { background:rgba(239,68,68,0.07);   border-top-color:rgba(239,68,68,0.24); }
+
+.cr-who { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; white-space:nowrap; }
+.cr-who .dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.iv-band.wait-practice .cr-who { color:var(--ats-amber); }
+.iv-band.wait-practice .cr-who .dot { background:var(--ats-amber); }
+.iv-band.wait-doctor .cr-who { color:var(--ats-purple); }
+.iv-band.wait-doctor .cr-who .dot { background:var(--ats-purple); }
+.iv-band.booked .cr-who { color:var(--ats-green); }
+.iv-band.booked .cr-who .dot { background:var(--ats-green); }
+.iv-band.overdue .cr-who { color:#f87171; }
+.iv-band.overdue .cr-who .dot { background:#f87171; }
+
+/* Supporting facts — age in stage, nudge history, the booked time in both
+   timezones. Muted and never bold, so they read under .cr-who, not over it. */
+.cr-facts { display:flex; align-items:center; gap:7px; flex-wrap:wrap; min-width:0;
+            font-size:11px; color:var(--ats-dim); }
+.cr-facts b { color:var(--ats-muted); font-weight:600; }
+.cr-facts .sep { opacity:.35; }
+.cr-facts .warn { color:var(--ats-amber); }
+.cr-stale { color:#f87171; font-weight:600; }
+
+@media (max-width: 1100px) {
+  .cr-facts { width:100%; }
+}
+
 @media (max-width: 1100px) {
   .cr-strip-btns { margin-left:0; width:100%; }
   .cr-strip-job { max-width:100%; }
