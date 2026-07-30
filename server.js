@@ -42843,6 +42843,24 @@ async function handleApi(req, res, pathname) {
     const ciSlotCtx = await _interviewSlotContext(ciAppId, Date.now(), ciViewerTz);
     if (ciSlotCtx.error) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
+    // Remember where the doctor actually is. Staff screens have no doctor's
+    // browser to ask, so this is the only way they can show the same times the
+    // doctor is looking at rather than a guess from registration_country.
+    // Written only when it CHANGED (so this stays a read path in the normal
+    // case) and never on a booked row — that value is the one the confirmation
+    // email and the calendar invite were built from.
+    try {
+      const ciRowNow = ciSlotCtx.meetingRow;
+      if (ciViewerTz && ciRowNow && ciRowNow.status !== 'booked'
+        && String(ciRowNow.timezone || '') !== ciViewerTz && isSupabaseDbConfigured()) {
+        await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(ciRowNow.id)), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { timezone: ciViewerTz }
+        });
+      }
+    } catch (ciTzErr) {
+      console.warn('[interview] could not record the doctor timezone (ignored):', ciTzErr && ciTzErr.message);
+    }
+
     sendJson(res, 200, { ok: true, slots: ciSlotCtx.slots });
     return;
   }
@@ -69583,7 +69601,14 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   // slot view and any server-side recompute — and keep the old behaviour.
   // Already sanitized by the caller; re-checked here because this is the last
   // point before the value reaches Intl.
+  // Order matters: the tz on THIS request (the doctor's live device) beats the
+  // last one we saw them use, which beats the country guess. The middle step is
+  // what makes STAFF screens agree with the doctor's — their dashboard has no
+  // doctor's browser to ask, so without it the owner was reading 9:00 am London
+  // for a doctor whose own picker said 6:00 pm Sydney (owner report
+  // 2026-07-31). It also means a doctor who travels is followed on both.
   var gpTz = interviewMeetings.sanitizeViewerTz(gpTzOverride)
+    || interviewMeetings.sanitizeViewerTz(row && row.timezone)
     || interviewMeetings.gpTzForCountry(appCtx.gpCountry);
   var gp = {
     tz: gpTz,

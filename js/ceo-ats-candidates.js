@@ -1458,8 +1458,13 @@
         containerEl.innerHTML =
           '<span class="ats-app-interview-pending">No mutually available times in the next 2 weeks — we\'ll widen the search.</span>' +
           '<div class="ats-slot-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
+            // The likeliest fix here is the practice sending different times, so
+            // offer the paste box rather than only the standard-times override.
+            '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-paste-reply" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Paste practice reply</button>' +
             '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-use-default" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Use standard times</button>' +
           '</div>';
+        var emptyPasteBtn = containerEl.querySelector('.ats-int-paste-reply');
+        if (emptyPasteBtn) emptyPasteBtn.addEventListener('click', function () { atsPastePracticeReply(applicationId, containerEl, caseId); });
         var emptyDefBtn = containerEl.querySelector('.ats-int-use-default');
         if (emptyDefBtn) emptyDefBtn.addEventListener('click', function () {
           emptyDefBtn.disabled = true; emptyDefBtn.textContent = 'Applying…';
@@ -1476,19 +1481,49 @@
         return;
       }
       var html = '<div class="ats-slot-grid">' + slots.map(function (slot) {
-        var gp = (slot.local && slot.local.gp) || {};
+        var L = slot.local || {};
+        var gp = L.gp || {}, pr = L.practice || {}, host = L.host || {};
         var label = gp.label || slot.startUtc || '';
+        // The old note claimed these were "your" local times. That wording was
+        // written for the DOCTOR's copy of this picker and reused verbatim on
+        // the staff dashboard, where "your" reads as the staff member — so a
+        // 9:00 am London slot looked like 9:00 am Sydney and you would block
+        // out the wrong morning for what is really a 6:00 pm call.
+        var conv = [];
+        if (pr.label) conv.push('Practice ' + pr.label);
+        if (host.label) conv.push('You ' + host.label);
         return '<button type="button" class="ats-slot" data-slot-utc="' + ATS.escAttr(slot.startUtc || '') + '" data-gp-label="' + ATS.escAttr(label) + '">' +
-          ATS.esc(label) + '<span class="ats-slot-note">(your local time)</span>' +
+          ATS.esc(label) +
+          '<span class="ats-slot-note">doctor\'s local time</span>' +
+          (conv.length ? '<span class="ats-slot-conv">' + ATS.esc(conv.join(' · ')) + '</span>' : '') +
         '</button>';
-      }).join('') + '</div>';
+      }).join('') + '</div>' +
+      // The practice can always send MORE times — "we could also do Friday".
+      // Until now this button only existed while the card was still waiting for
+      // a first reply, so the add-to-existing behaviour was unreachable exactly
+      // when it was needed (owner report 2026-07-31).
+      '<div class="ats-slot-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-paste-reply" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Paste practice reply</button>' +
+      '</div>';
       containerEl.innerHTML = html;
+      var morePasteBtn = containerEl.querySelector('.ats-int-paste-reply');
+      if (morePasteBtn) morePasteBtn.addEventListener('click', function () { atsPastePracticeReply(applicationId, containerEl, caseId); });
+      // Wire the slot-click handler ONCE. This function re-renders the same
+      // container (after a paste, after applying standard times), and the
+      // listener lives on the container rather than the buttons — so without
+      // this guard every re-render stacked another handler and a single click
+      // would have fired two booking requests.
+      if (containerEl.__atsSlotClickWired) return;
+      containerEl.__atsSlotClickWired = true;
       containerEl.addEventListener('click', function (e) {
         var btn = e.target.closest ? e.target.closest('.ats-slot') : null;
         if (!btn || btn.disabled) return;
         var slotUtc = btn.getAttribute('data-slot-utc');
         var gpLabel = btn.getAttribute('data-gp-label');
         if (!slotUtc) return;
+        // Keep the button's real markup so a failed booking restores all three
+        // times, not just the doctor's line.
+        var slotHtmlBefore = btn.innerHTML;
         btn.disabled = true;
         btn.textContent = 'Booking…';
         ATS.api('/api/ats/interview/book', { method: 'POST', body: { application_id: applicationId, slot_start_utc: slotUtc } }).then(function (r) {
@@ -1503,7 +1538,7 @@
             // code string instead.
             ATS.toast((r && (r.message || r.error)) || 'Could not book the interview.');
             btn.disabled = false;
-            btn.innerHTML = ATS.esc(gpLabel) + '<span class="ats-slot-note">(your local time)</span>';
+            btn.innerHTML = slotHtmlBefore;
           }
         });
       });

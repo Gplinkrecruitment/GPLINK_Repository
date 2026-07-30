@@ -301,6 +301,11 @@
 .ats-slot:hover { background:var(--ats-blue-dim); border-color:var(--ats-blue); color:var(--ats-blue); }
 .ats-slot:disabled { opacity:.5; cursor:not-allowed; }
 .ats-slot-note { font-size:10.5px; color:var(--ats-dim); font-weight:400; }
+/* The same instant in the practice's and the CEO's own zones. Deliberately
+   quieter than the doctor's time above it — it is there to stop a staff member
+   reading the doctor's 9:00 am as 9:00 am theirs and blocking out the wrong
+   morning (owner report 2026-07-31). */
+.ats-slot-conv { font-size:10px; color:var(--ats-dim); opacity:.72; font-weight:400; line-height:1.35; text-align:center; }
 
 @media (max-width: 900px) {
   .ats-cand-profile-grid { grid-template-columns:1fr; }

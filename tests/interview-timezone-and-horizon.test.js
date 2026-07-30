@@ -179,3 +179,83 @@ describe('a refused submission says why', () => {
     expect(fnSrc).toContain('maxYmd');
   });
 });
+
+// ── Follow-up 2026-07-31 (same day, owner report) ───────────────────────────
+// The owner opened the candidate card and saw "Sun 9 Aug, 9:00 am (your local
+// time)" for an interview the doctor's own picker showed as 6:00 pm. Same
+// instant — 9:00 London is 18:00 Sydney — but two separate faults:
+//   a) staff screens had no doctor's browser to ask, so they fell back to the
+//      country guess and disagreed with what the doctor was looking at;
+//   b) the label said "your local time" on a screen where "your" is the STAFF
+//      member, so a 6pm call reads as a 9am one.
+// Plus: the "Paste practice reply" button only existed while a card was still
+// waiting for a FIRST reply, so the add-to-existing behaviour shipped earlier
+// that day was unreachable exactly when it was needed.
+describe('staff and doctor see the same moment, correctly labelled', () => {
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-candidates.js'), 'utf8');
+  const cssSrc = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
+  const dashSrc = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
+
+  it('the slot computation remembers where the doctor last logged in from', () => {
+    const idx = serverSrc.indexOf('async function _interviewComputeSlots');
+    const fnSrc = serverSrc.slice(idx, idx + 2600);
+    // Live request tz → last-seen tz → country guess. Order is the point.
+    expect(fnSrc).toContain('interviewMeetings.sanitizeViewerTz(gpTzOverride)');
+    expect(fnSrc).toContain('interviewMeetings.sanitizeViewerTz(row && row.timezone)');
+    expect(fnSrc).toContain('|| interviewMeetings.gpTzForCountry(appCtx.gpCountry)');
+    expect(fnSrc.indexOf('sanitizeViewerTz(gpTzOverride)'))
+      .toBeLessThan(fnSrc.indexOf('sanitizeViewerTz(row && row.timezone)'));
+    expect(fnSrc.indexOf('sanitizeViewerTz(row && row.timezone)'))
+      .toBeLessThan(fnSrc.indexOf('gpTzForCountry(appCtx.gpCountry)'));
+  });
+
+  it('it is recorded only when it changed, and never on a booked row', () => {
+    // A booked row's timezone is what the confirmation email and the calendar
+    // invite were built from — overwriting it would rewrite history.
+    const idx = serverSrc.indexOf('could not record the doctor timezone');
+    expect(idx).toBeGreaterThan(-1);
+    const block = serverSrc.slice(idx - 900, idx);
+    expect(block).toContain("ciRowNow.status !== 'booked'");
+    expect(block).toContain("String(ciRowNow.timezone || '') !== ciViewerTz");
+  });
+
+  it('the staff slot button no longer claims the doctor’s time is yours', () => {
+    expect(uiSrc).toContain("doctor\\'s local time");
+    expect(uiSrc).not.toContain('(your local time)');
+  });
+
+  it('it also shows the practice’s and the CEO’s own time, quieter', () => {
+    expect(uiSrc).toContain("conv.push('Practice ' + pr.label)");
+    expect(uiSrc).toContain("conv.push('You ' + host.label)");
+    expect(uiSrc).toContain('ats-slot-conv');
+    expect(cssSrc).toContain('.ats-slot-conv');
+  });
+
+  it('a failed booking restores all three times, not just the doctor’s line', () => {
+    expect(uiSrc).toContain('var slotHtmlBefore = btn.innerHTML;');
+    expect(uiSrc).toContain('btn.innerHTML = slotHtmlBefore;');
+  });
+
+  it('“Paste practice reply” is reachable once times already exist', () => {
+    // Otherwise the add-to-existing behaviour can only ever run against an
+    // empty list — i.e. never in the case it was built for.
+    const gridIdx = uiSrc.indexOf("var html = '<div class=\"ats-slot-grid\">'");
+    expect(gridIdx).toBeGreaterThan(-1);
+    expect(uiSrc.slice(gridIdx, gridIdx + 2200)).toContain('ats-int-paste-reply');
+    // ...and in the "no mutual times" state too.
+    const emptyIdx = uiSrc.indexOf('No mutually available times');
+    expect(uiSrc.slice(emptyIdx, emptyIdx + 900)).toContain('ats-int-paste-reply');
+  });
+
+  it('re-rendering the picker cannot double-fire a booking', () => {
+    // The click handler lives on the container, and this function re-renders
+    // that same container after a paste — so it must only ever be wired once.
+    expect(uiSrc).toContain('containerEl.__atsSlotClickWired');
+  });
+
+  it('both changed assets are cache-busted, or the dashboard serves the old ones', () => {
+    expect(dashSrc).toContain('ceo-ats-candidates.js?v=20260731b');
+    expect(dashSrc).toContain('ceo-ats.css?v=20260731c');
+    expect(dashSrc).not.toContain('ceo-ats.css?v=20260731b');
+  });
+});
