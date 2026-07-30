@@ -31782,6 +31782,104 @@ async function atsResolveAppLabels(app) {
   return out;
 }
 
+// Confirm a withdrawal to the DOCTOR, and use the moment to land the rules
+// (owner ask 2026-07-31). Withdrawing is the one point where a doctor is
+// actually paying attention to how many applications they have, so it is the
+// right place to say what it cost them and to ask them to be selective.
+//
+// Deliberate choices, do not "simplify" these back:
+//  • Sent for EVERY withdrawal, including ones that never reached a practice —
+//    unlike the practice + ops notifications, which stay gated on the intro
+//    having gone out (owner: a pre-submission withdrawal is internal noise, but
+//    the doctor should still be told where they now stand).
+//  • The practice is NAMED ONLY when `revealed === true`. Until a practice asks
+//    to meet them, its identity is masked on the doctor's side — naming it in
+//    this email would leak exactly what the career page hides.
+//  • The standing paragraph is CONDITIONAL on the penalty actually biting. The
+//    first withdrawal is free by design (lib/ats-intent.js WITHDRAWAL_PENALTIES
+//    = [0,0,6,14,24]), so telling a first-time withdrawer their rating dropped
+//    would simply be false. Callers pass the penalty they computed.
+//  • Plain words, never the score itself. The intent number is a CEO-dashboard
+//    ranking signal; publishing it to candidates invites gaming and argument.
+// Never throws — the withdrawal is already committed by the time this runs.
+async function sendGpWithdrawalConfirmationEmail(opts) {
+  opts = opts || {};
+  var toEmail = String(opts.gpEmail || '').trim();
+  if (!toEmail) return { ok: false, error: 'missing_gp_email' };
+  if (typeof isEmailConfigured === 'function' && !isEmailConfigured()) return { ok: false, error: 'email_not_configured' };
+
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var firstName = String(opts.gpFirstName || '').trim();
+  var greeting = firstName ? ('Hi Dr ' + firstName + ',') : 'Hi,';
+  var roleTitle = String(opts.roleTitle || '').trim() || 'the General Practitioner position';
+  // Masked unless the practice already asked to meet them — same rule the
+  // career page and the redirect emails use (canRevealPracticeIdentityCore).
+  var practiceName = opts.revealed === true ? String(opts.practiceName || '').trim() : '';
+  var roleLabel = practiceName ? (roleTitle + ' at ' + practiceName) : roleTitle;
+
+  var monthlyLimit = Number(opts.monthlyLimit || 0);
+  var monthlyUsed = Math.min(Number(opts.monthlyUsed || 0), monthlyLimit || Number(opts.monthlyUsed || 0));
+  var monthlyLeft = Math.max(0, monthlyLimit - Number(opts.monthlyUsed || 0));
+  var activeLimit = Number(opts.activeLimit || 0);
+  var activeUsed = Number(opts.activeUsed || 0);
+  var resetsLabel = String(opts.resetsLabel || '').trim();
+
+  var standingLine = (Number(opts.penalty || 0) > 0)
+    ? 'Withdrawing does affect your standing with our team, and this one has lowered your placement priority. Each further withdrawal lowers it more.'
+    : 'This one has not affected your placement priority — circumstances change, and your first withdrawal is free. Further withdrawals will lower it.';
+
+  var monthlySentence = monthlyLimit
+    ? ('You have used ' + monthlyUsed + ' of your ' + monthlyLimit + ' applications for this month, so you have ' + monthlyLeft + ' left'
+        + (resetsLabel ? ('. Your allowance resets on ' + resetsLabel + '.') : '.'))
+    : '';
+  var activeSentence = activeLimit
+    ? ('You now have ' + activeUsed + ' of your ' + activeLimit + ' live applications in play.')
+    : '';
+  // The exact rule wording the first-visit explainer uses, so the doctor reads
+  // the same sentence twice rather than two versions of one rule.
+  var quotaNote = 'Withdrawing frees up a live slot, but it does not give the month\'s application back — the position you just withdrew from still counts towards your ' + (monthlyLimit || 'monthly') + '.';
+
+  var askLine = 'One ask: please only apply for positions you would genuinely be happy to take. Every introduction we make puts your CV in front of a real practice who sets aside time to consider you, so a few well-chosen applications will always get you further than a wide net.';
+  var mistakeLine = 'If you withdrew by mistake, message your Registration Support Officer and we will sort it out.';
+
+  var lines = [
+    greeting, '',
+    'This confirms you have withdrawn your application for ' + roleLabel + '. That application is now closed, and this position cannot be applied for again.',
+    ''
+  ];
+  if (monthlySentence) lines.push(monthlySentence);
+  if (activeSentence) lines.push(activeSentence);
+  if (monthlySentence || activeSentence) lines.push('', quotaNote, '');
+  lines.push(standingLine, '', askLine, '', mistakeLine, '', 'Kind regards,', 'GP Link Recruitment Team');
+
+  var p = function (html) { return '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">' + html + '</p>'; };
+  var bodyHtml =
+    p(esc(greeting)) +
+    p('This confirms you have withdrawn your application for <b>' + esc(roleLabel) + '</b>. That application is now closed, and this position cannot be applied for again.');
+  if (monthlySentence || activeSentence) {
+    bodyHtml +=
+      '<div style="background:#f4f7fb;border-radius:10px;padding:14px 16px;margin:0 0 14px">' +
+        (monthlySentence ? '<div style="font-size:14.5px;color:#1f2b43;margin:0 0 6px">' + esc(monthlySentence) + '</div>' : '') +
+        (activeSentence ? '<div style="font-size:14.5px;color:#1f2b43;margin:0">' + esc(activeSentence) + '</div>' : '') +
+      '</div>' +
+      p('<span style="color:#4a5670">' + esc(quotaNote) + '</span>');
+  }
+  bodyHtml += p(esc(standingLine)) + p(esc(askLine)) + p('<span style="color:#4a5670">' + esc(mistakeLine) + '</span>') +
+    '<p style="font-size:14.5px;color:#1f2b43;margin:0">Kind regards,<br>GP Link Recruitment Team</p>';
+
+  try {
+    return await sendEmail({
+      to: toEmail,
+      subject: 'You have withdrawn from ' + roleTitle,
+      from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+      html: buildCareerEmailHtml({ title: 'Application withdrawn', bodyHtml: bodyHtml }),
+      text: lines.join('\n')
+    });
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || 'send_failed' };
+  }
+}
+
 // Re-nudge a practice that hasn't accepted/declined a submitted candidate.
 // Reuses the SAME stable approve/turn_down links (practice_action_token) as the
 // original intro email, sent to the contact we emailed at submission. Returns
@@ -46018,26 +46116,38 @@ async function handleApi(req, res, pathname) {
         // uses — no shared escapeHtml export exists.
         const wdEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const wdGreeting = wdPracticeLabel ? ('Dear ' + wdPracticeLabel + ' team,') : 'Dear team,';
+        // Tone (owner 2026-07-31): a withdrawal is a moment where a practice can
+        // quietly lose confidence in the pipeline, so this email leads with
+        // reassurance rather than apology — the search has NOT stalled, the role
+        // is still being worked, and the next candidate is already being sourced.
+        // "Sorry for the change" was doing the opposite: it framed a normal event
+        // as a failure and gave the practice nothing to be reassured by.
         const wdLines = [
           wdGreeting,
           '',
-          wdDisplayName + ' has withdrawn their application for your ' + wdRoleTitle + ' position, so no action is needed from you.',
+          wdDisplayName + ' has withdrawn their application for your ' + wdRoleTitle + ' position, so no action is needed from you. Any approve or turn-down links we sent you for this candidate are no longer active.',
           '',
-          'Any approve or turn-down links we sent you for this candidate are no longer active. We\'re sorry for the change — we\'ll be in touch with other candidates for this role.',
+          'Please don\'t let this hold up your search, because it hasn\'t. Your role stays open with us and our sourcing team is already working on it — we\'re actively presenting it to other qualified GPs and we\'ll introduce the next suitable candidate as soon as we have one.',
+          '',
+          'Doctors occasionally withdraw when their own circumstances change. We\'d always rather it happened at this stage than after you\'d set aside time to interview.',
+          '',
+          'If anything about the role has changed, or you\'d like to talk through what you\'re looking for, just reply to this email and we\'ll pick it up.',
           '',
           'Kind regards,',
           'GP Link Recruitment Team'
         ];
         const wdSendResult = await sendEmail({
           to: wdContactEmail,
-          subject: wdDisplayName + ' has withdrawn, ' + wdRoleTitle,
+          subject: wdDisplayName + ' has withdrawn — we\'re already sourcing for your ' + wdRoleTitle,
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           html: buildCareerEmailHtml({
-            title: 'Candidate withdrawn',
+            title: 'Your search is still moving',
             bodyHtml:
               '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">' + wdEsc(wdGreeting) + '</p>' +
-              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px"><b>' + wdEsc(wdDisplayName) + '</b> has withdrawn their application for your <b>' + wdEsc(wdRoleTitle) + '</b> position, so <b>no action is needed from you</b>.</p>' +
-              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">Any approve or turn-down links we sent you for this candidate are no longer active. We&rsquo;re sorry for the change &mdash; we&rsquo;ll be in touch with other candidates for this role.</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px"><b>' + wdEsc(wdDisplayName) + '</b> has withdrawn their application for your <b>' + wdEsc(wdRoleTitle) + '</b> position, so <b>no action is needed from you</b>. Any approve or turn-down links we sent you for this candidate are no longer active.</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">Please don&rsquo;t let this hold up your search, because it hasn&rsquo;t. <b>Your role stays open with us and our sourcing team is already working on it</b> &mdash; we&rsquo;re actively presenting it to other qualified GPs, and we&rsquo;ll introduce the next suitable candidate as soon as we have one.</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">Doctors occasionally withdraw when their own circumstances change. We&rsquo;d always rather it happened at this stage than after you&rsquo;d set aside time to interview.</p>' +
+              '<p style="font-size:14.5px;color:#1f2b43;margin:0 0 14px">If anything about the role has changed, or you&rsquo;d like to talk through what you&rsquo;re looking for, just reply to this email and we&rsquo;ll pick it up.</p>' +
               '<p style="font-size:14.5px;color:#1f2b43;margin:0">Kind regards,<br>GP Link Recruitment Team</p>'
           }),
           text: wdLines.join('\n')
@@ -46079,6 +46189,69 @@ async function handleApi(req, res, pathname) {
       }
     } catch (wdIntentErr) {
       console.error('[career withdraw] intent recompute failed for user', userId, ':', wdIntentErr && wdIntentErr.message);
+    }
+
+    // ── Confirm to the DOCTOR, and land the rules while they are actually
+    // paying attention (owner ask 2026-07-31) ─────────────────────────────
+    // Unlike the practice + ops notifications above, this one fires for EVERY
+    // withdrawal, including applications that never reached a practice: the
+    // doctor still needs to know the position is now closed to them and where
+    // it leaves their monthly allowance. Owner was explicit that a
+    // pre-submission withdrawal is internal noise — that ruling is about the
+    // TEAM's alerts, not about leaving the doctor uninformed.
+    //
+    // Entirely best-effort and last in the handler: the withdrawal is already
+    // committed, and an email problem must never undo it or fail the request.
+    try {
+      if (isEmailConfigured()) {
+        const wdWindow = currentCareerMonthWindow(new Date());
+        // Counted AFTER the withdrawal on purpose. The live count therefore
+        // reflects the slot this withdrawal just freed, while the monthly tally
+        // still includes it — countMonthlyApplications filters only pending
+        // matches, never status, which is exactly the rule the first-visit
+        // explainer states out loud ("withdrawing frees up a live slot, but it
+        // doesn't give the month's application back").
+        const [wdMonthlyUsed, wdActiveUsed, wdWithdrawnRes, wdProfRes] = await Promise.all([
+          countMonthlyApplications(userId, wdWindow.start, wdWindow.end),
+          countActiveApplications(userId),
+          supabaseDbRequest('gp_applications', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.withdrawn&limit=200'),
+          supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1')
+        ]);
+
+        // The count INCLUDES the withdrawal just made, which is the same basis
+        // atsProdCandidateFacts uses to feed the score — so the penalty quoted
+        // here is the one the doctor actually just incurred. Falling back to 1
+        // (rather than 0) on a failed read keeps us on the "first one is free"
+        // branch, i.e. we never wrongly tell someone their rating dropped.
+        const wdTotalWithdrawn = (wdWithdrawnRes.ok && Array.isArray(wdWithdrawnRes.data)) ? wdWithdrawnRes.data.length : 1;
+        const wdPenalty = atsIntent.withdrawalPenalty(wdTotalWithdrawn);
+
+        let wdRoleRow = {};
+        if (app.career_role_id != null) {
+          const wdRoleRes = await supabaseDbRequest('career_roles', 'select=title,practice_name&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
+          wdRoleRow = (wdRoleRes.ok && wdRoleRes.data && wdRoleRes.data[0]) || {};
+        }
+
+        await sendGpWithdrawalConfirmationEmail({
+          gpEmail: email,
+          gpFirstName: ((wdProfRes.ok && wdProfRes.data && wdProfRes.data[0]) || {}).first_name || '',
+          roleTitle: wdRoleRow.title || '',
+          practiceName: wdRoleRow.practice_name || '',
+          // Masked until the practice asked to meet them — see the note on the
+          // sender. `app.revealed` is selected by this handler's own query.
+          revealed: app.revealed === true,
+          monthlyUsed: wdMonthlyUsed,
+          monthlyLimit: MONTHLY_APPLICATION_CAP,
+          // en-AU, UTC — the window is UTC, and formatting it in the server's
+          // local zone could print "31 July" for a boundary that is 1 August.
+          resetsLabel: wdWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'UTC' }),
+          activeUsed: wdActiveUsed,
+          activeLimit: ACTIVE_APPLICATION_CAP,
+          penalty: wdPenalty
+        });
+      }
+    } catch (wdGpMailErr) {
+      console.error('[career withdraw] GP confirmation email failed for app', applicationId, ':', wdGpMailErr && wdGpMailErr.message);
     }
 
     sendJson(res, 200, { ok: true, message: 'Application withdrawn.' });

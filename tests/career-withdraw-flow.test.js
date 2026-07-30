@@ -571,6 +571,98 @@ describe('DEFECT 3 — an application that never reached the practice', () => {
   });
 });
 
+// ── Owner ask 2026-07-31 — the withdrawal emails ──────────────────────────
+// Runs AFTER the two withdrawals above, and depends on that order the same way
+// the intent + strike describes below already do. app-submitted was the FIRST
+// withdrawal (revealed, and it had reached the practice); app-internal was the
+// SECOND (never submitted, never revealed). Between them they cover both
+// branches of the standing paragraph and both sides of the identity mask.
+describe('withdrawal emails — the practice is reassured, the doctor is told the rules', () => {
+  const gpEmails = () => resendCalls
+    .map((c) => c.body || {})
+    .filter((b) => [].concat(b.to || []).includes(GP.email));
+  const blobOf = (b) => String(b.html || '') + '\n' + String(b.text || '');
+
+  it('the practice email leads with the search continuing, not an apology', () => {
+    const toPractice = resendCalls
+      .map((c) => c.body || {})
+      .filter((b) => [].concat(b.to || []).includes('anna@erina-test.local'))
+      .pop();
+    expect(toPractice).toBeTruthy();
+    const blob = blobOf(toPractice);
+    // The reassurance is the point of the rewrite: the role is still being
+    // worked, and somebody else is already being sourced for it.
+    expect(blob).toContain('sourcing team is already working on it');
+    expect(blob).toMatch(/next suitable candidate/i);
+    expect(String(toPractice.subject)).toMatch(/already sourcing/i);
+    // Still says the operationally important part.
+    expect(blob).toContain('no action is needed');
+    // And no longer frames a routine event as a failure.
+    expect(blob).not.toMatch(/sorry for the change/i);
+  });
+
+  it('emails the doctor a confirmation quoting the REAL monthly cap', () => {
+    const first = gpEmails()[0];
+    expect(first).toBeTruthy();
+    const blob = blobOf(first);
+    expect(String(first.subject)).toMatch(/withdrawn/i);
+    expect(blob).toMatch(/cannot be applied for again/i);
+    // The number must come from MONTHLY_APPLICATION_CAP, not be invented.
+    expect(blob).toMatch(/of your 3 applications for this month/);
+    expect(blob).toMatch(/you have \d+ left/);
+    expect(blob).toMatch(/of your 2 live applications/);
+    // Reset date is spelled out rather than left as "next month".
+    expect(blob).toMatch(/Your allowance resets on \d{1,2} \w+/);
+    // Word-for-word the rule the first-visit explainer states, so the doctor
+    // reads one rule twice rather than two versions of it.
+    expect(blob).toContain("does not give the month's application back");
+    // The behavioural ask the owner wanted.
+    expect(blob).toMatch(/only apply for positions you would genuinely be happy to take/i);
+  });
+
+  it('does NOT tell a first-time withdrawer their rating dropped (it did not)', () => {
+    // WITHDRAWAL_PENALTIES = [0,0,6,14,24] — the first withdrawal is free by
+    // design, so claiming a drop here would simply be a lie to the doctor.
+    const blob = blobOf(gpEmails()[0]);
+    expect(blob).toMatch(/has not affected your placement priority/i);
+    expect(blob).not.toMatch(/has lowered your placement priority/i);
+  });
+
+  it('DOES tell a repeat withdrawer their priority has dropped', () => {
+    const blob = blobOf(gpEmails()[1]);
+    expect(blob).toMatch(/has lowered your placement priority/i);
+  });
+
+  it('never publishes the internal intent score to the doctor', () => {
+    // Guard the guard: without this the forEach below passes vacuously on a
+    // tree where no doctor email is sent at all.
+    expect(gpEmails().length).toBeGreaterThanOrEqual(2);
+    gpEmails().forEach((b) => {
+      const blob = blobOf(b);
+      expect(blob).not.toMatch(/intent/i);
+      expect(blob).not.toMatch(/\b\d+\s*points?\b/i);
+    });
+  });
+
+  it('names the practice only once it has been revealed to the doctor', () => {
+    // app-submitted: revealed === true, so naming it tells them nothing they
+    // cannot already see on the career page.
+    expect(blobOf(gpEmails()[0])).toContain('Erina Medical Centre');
+    // app-internal: never revealed. Naming the practice here would leak exactly
+    // what the career page masks until a practice asks to meet them.
+    const second = blobOf(gpEmails()[1]);
+    expect(second).not.toContain('Erina Medical Centre');
+    expect(second).toContain('General Practitioner');
+  });
+
+  it('still confirms to the doctor when the application never reached a practice', () => {
+    // The owner ruled a pre-submission withdrawal is internal noise — that is
+    // about the TEAM's alerts. The doctor is still told where they stand.
+    expect(gpEmails().length).toBeGreaterThanOrEqual(2);
+    expect(blobOf(gpEmails()[1])).toMatch(/of your 3 applications for this month/);
+  });
+});
+
 // ── DEFECT 2 (product rule) ────────────────────────────────────────────────
 describe('DEFECT 2 — a GP self-withdrawal must NOT cost them a career strike', () => {
   it('computeCareerStrikes ignores the two self-withdrawals just recorded', async () => {
