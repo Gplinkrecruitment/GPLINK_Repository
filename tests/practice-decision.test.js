@@ -29,8 +29,14 @@ const NOW = new Date().toISOString();
 function ymdOffset(days) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
-const AVAIL_DATE_1 = ymdOffset(1);
-const AVAIL_DATE_2 = ymdOffset(2);
+// Must sit inside the scheduler's bookable window: at least
+// INTERVIEW_LEAD_HOURS (48h) out and no further than INTERVIEW_HORIZON_DAYS
+// (14). These were +1 and +2 days; +1 is now refused, because a date the
+// scheduler will never look at is no longer accepted and silently ignored
+// (2026-07-31). Kept a few days clear of both edges so the UTC-vs-local
+// boundary in the validator can't flip them.
+const AVAIL_DATE_1 = ymdOffset(3);
+const AVAIL_DATE_2 = ymdOffset(5);
 
 const db = {
   user_profiles: [
@@ -368,7 +374,10 @@ describe('POST /api/practice/application/decision — approve', () => {
     const capturedBefore = resendCaptured.length;
     const res = await httpReq('POST', '/api/practice/application/decision', { body: { token: 'tok-test-nowin11', action: 'approve' } });
     expect(res.status).toBe(400);
-    expect(res.body).toEqual({ ok: false, code: 'windows_required', message: 'Please choose at least one interview time window before approving.' });
+    // The message is now the validator's REAL reason rather than a fixed
+    // "you didn't choose a time" — which was actively misleading when the
+    // practice HAD chosen times and one was out of range (2026-07-31).
+    expect(res.body).toEqual({ ok: false, code: 'windows_required', message: 'Please add between 1 and 10 times that work for your practice.' });
 
     // The application is untouched — no decision, no status move, no interview row.
     const row = db.gp_applications.find((a) => a.id === 'app-tok-11');
@@ -653,7 +662,10 @@ describe('notification-email HTML injection is escaped (public turn-down reason)
 describe('availability stores ONLY the canonical window shape (extra keys stripped)', () => {
   it('drops any extra keys that rode in on the public request body', async () => {
     // app-tok-4 was approved by the email-resilience test above, so availability is allowed.
-    const soon = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // +6 days, not +20: this test is about stripping extra keys, and a date
+    // beyond the 14-day scheduler horizon is now refused rather than stored
+    // and quietly never offered (2026-07-31).
+    const soon = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const res = await httpReq('POST', '/api/practice/application/availability', {
       body: { token: 'tok-test-resil999', windows: [{ date: soon, fromMin: 540, toMin: 600, evil: '<script>', sneaky: 1 }] }
     });

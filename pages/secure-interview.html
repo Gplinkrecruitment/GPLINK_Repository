@@ -545,7 +545,13 @@
 
   function loadSlots() {
     showOnly(loadingState);
-    fetch('/api/career/interview/slots?applicationId=' + encodeURIComponent(applicationId), { credentials: 'same-origin' })
+    // Send the device tz we already resolved above. Until now it was only used
+    // to LABEL the times and was only sent when booking, so the server built
+    // the list around a guess from registration_country — empty on most
+    // profiles, which means London, which quietly deleted any day that fell
+    // outside 06:00–23:00 there (owner report 2026-07-31).
+    fetch('/api/career/interview/slots?applicationId=' + encodeURIComponent(applicationId)
+      + (viewerTz ? '&viewer_tz=' + encodeURIComponent(viewerTz) : ''), { credentials: 'same-origin' })
       .then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) { return { status: res.status, data: data }; });
       })

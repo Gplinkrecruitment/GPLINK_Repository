@@ -1701,6 +1701,20 @@
   let pageRoleId = "";
   let offerContext = null;          // the /api/career/my-offer payload when it targets THIS role
   let offerBookedInterview = null;  // { scheduled_at, zoom_join_url } | null
+  // The doctor's real device timezone. Resolved ONCE and used by BOTH the slots
+  // request and the booking request — they must agree, because the booking
+  // endpoint recomputes the same list to re-check the chosen slot. Listing in
+  // one timezone and booking in another turns a valid pick into "that time was
+  // just taken".
+  const offerDeviceTz = (() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      if (!tz) return "";
+      new Intl.DateTimeFormat(undefined, { timeZone: tz });
+      return tz;
+    } catch (e) { return ""; }
+  })();
+
   let offerSlots = [];              // [{ startUtc, local: { gp: { tz, label } } }]
   let offerSlotsStatus = "idle";    // idle | loading | ready | error | not_available
   let offerSelectedDayKey = null;
@@ -2867,7 +2881,12 @@
     offerSlotsStatus = "loading";
     renderSched();
     try {
-      const res = await fetch("/api/career/interview/slots?applicationId=" + encodeURIComponent(offerContext.applicationId), { credentials: "same-origin" });
+      // Same reason as the other two slot pickers: send the doctor's real
+      // device timezone, or the server falls back to guessing from
+      // registration_country (empty → London) and silently drops any day that
+      // lands outside 06:00–23:00 there.
+      const res = await fetch("/api/career/interview/slots?applicationId=" + encodeURIComponent(offerContext.applicationId)
+        + (offerDeviceTz ? "&viewer_tz=" + encodeURIComponent(offerDeviceTz) : ""), { credentials: "same-origin" });
       const data = await res.json().catch(() => ({}));
       if (res.status === 200 && data && data.ok) {
         offerSlots = Array.isArray(data.slots) ? data.slots : [];
@@ -2939,7 +2958,8 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId: offerContext.applicationId, slot_start_utc: slot.startUtc })
+        // Same tz the slots were listed with — see offerDeviceTz.
+        body: JSON.stringify({ applicationId: offerContext.applicationId, slot_start_utc: slot.startUtc, viewer_tz: offerDeviceTz || undefined })
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 200 && data && data.ok) {

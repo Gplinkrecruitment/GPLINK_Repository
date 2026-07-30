@@ -34196,15 +34196,30 @@ async function resolveFullInterviewRow(ref) {
 // bounds with 0 <= fromMin < toMin <= 1560 (26:00 — allows past-midnight).
 // Returns null when valid, else a plain user-facing message.
 function validatePracticeAvailabilityWindows(windows) {
+  // These strings are now shown VERBATIM to the practice contact, so the ones
+  // they can actually trigger read like English. The rest stay terse — they
+  // guard against malformed API calls the form cannot produce.
   if (!Array.isArray(windows) || windows.length < 1 || windows.length > 10) {
-    return 'windows must contain between 1 and 10 entries.';
+    return 'Please add between 1 and 10 times that work for your practice.';
   }
   // Bounds are UTC-based (toISOString() is always UTC), so around midnight a
   // practice's local "today" can differ from this UTC day by one — acceptable
-  // for a 0..60-day availability horizon, called out here so it isn't mistaken
-  // for a bug later.
-  var todayYmd = new Date().toISOString().slice(0, 10);
-  var maxYmd = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // over this horizon, called out here so it isn't mistaken for a bug later.
+  //
+  // These now track the SCHEDULER's window rather than an independent 0..60
+  // days. They disagreed: a date up to 60 days out was accepted, saved, and
+  // confirmed to the practice, then never looked at again because
+  // computeInterviewSlots only spans INTERVIEW_HORIZON_DAYS. Same at the near
+  // end — anything inside the 48-hour notice period produced no slots. Both
+  // ends are now refused with a reason instead of accepted and ignored
+  // (owner decision 2026-07-31).
+  var leadMs = interviewMeetings.INTERVIEW_LEAD_HOURS * 60 * 60 * 1000;
+  var horizonMs = interviewMeetings.INTERVIEW_HORIZON_DAYS * 24 * 60 * 60 * 1000;
+  var minYmd = new Date(Date.now() + leadMs).toISOString().slice(0, 10);
+  var maxYmd = new Date(Date.now() + horizonMs).toISOString().slice(0, 10);
+  var rangeMsg = 'each window date must be between ' + minYmd + ' and ' + maxYmd
+    + ' — we need ' + interviewMeetings.INTERVIEW_LEAD_HOURS + ' hours’ notice, and can only offer times in the next '
+    + interviewMeetings.INTERVIEW_HORIZON_DAYS + ' days.';
   for (var i = 0; i < windows.length; i++) {
     var w = windows[i];
     if (!w || typeof w !== 'object') return 'each window must be an object.';
@@ -34212,8 +34227,13 @@ function validatePracticeAvailabilityWindows(windows) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'each window date must be in YYYY-MM-DD format.';
     var parsed = new Date(d + 'T00:00:00Z');
     if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) return 'each window date must be a real calendar date.';
-    if (d < todayYmd || d > maxYmd) return 'each window date must be between today and 60 days from now.';
+    if (d < minYmd || d > maxYmd) return rangeMsg;
     if (!Number.isInteger(w.fromMin) || !Number.isInteger(w.toMin)) return 'fromMin and toMin must be integers.';
+    // Reachable from the form (the two selects are independent), so worded for
+    // a human rather than as a bounds expression.
+    if (Number.isInteger(w.fromMin) && Number.isInteger(w.toMin) && w.toMin <= w.fromMin) {
+      return 'Each time must finish after it starts — please check the “to” time.';
+    }
     if (w.fromMin < 0 || w.toMin <= w.fromMin || w.toMin > 1560) return 'fromMin/toMin must satisfy 0 <= fromMin < toMin <= 1560.';
   }
   return null;
@@ -40287,7 +40307,13 @@ async function handleApi(req, res, pathname) {
       const approveWindows = body && body.windows;
       const approveWindowsError = validatePracticeAvailabilityWindows(approveWindows);
       if (approveWindowsError) {
-        sendJson(res, 400, { ok: false, code: 'windows_required', message: 'Please choose at least one interview time window before approving.' });
+        // Return the REAL reason. This always said "please choose at least one
+        // interview time window" — even when the practice had chosen five and
+        // one of them was out of range. The only actionable detail was thrown
+        // away and they were told they had done nothing, so the natural next
+        // move was to resubmit the identical thing (owner decision
+        // 2026-07-31). The sibling /availability endpoint already did this.
+        sendJson(res, 400, { ok: false, code: 'windows_required', message: approveWindowsError });
         return;
       }
 
@@ -42745,7 +42771,15 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    const ciSlotCtx = await _interviewSlotContext(ciAppId, Date.now());
+    // The doctor's own device tz, so the picker is built around when THEY are
+    // actually awake rather than around a guess from registration_country
+    // (routinely empty → London). Sanitized hard; '' falls back to the guess,
+    // so an old client that sends nothing behaves exactly as before.
+    // POST /api/career/interview/book re-checks the chosen slot with the same
+    // value — the two must agree or a valid pick 409s.
+    const ciViewerTz = interviewMeetings.sanitizeViewerTz(url.searchParams.get('viewer_tz'));
+
+    const ciSlotCtx = await _interviewSlotContext(ciAppId, Date.now(), ciViewerTz);
     if (ciSlotCtx.error) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
 
     sendJson(res, 200, { ok: true, slots: ciSlotCtx.slots });
@@ -69440,17 +69474,33 @@ function buildInterviewPracticeConfig(interviewRow, practiceTz) {
 // (maxSlots 12, no self-exclusion — matches the original GET query exactly)
 // and both book paths (maxSlots 500, self-excluded so a not-yet-booked row
 // can never shadow its own slot).
-async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
+async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpTzOverride) {
   var host = interviewMeetings.DEFAULT_HOST_CONFIG;
   var practice = buildInterviewPracticeConfig(row, interviewMeetings.practiceTzForLocation(appCtx.practiceName || '', appCtx.practiceState, appCtx.practiceCity));
+  // The doctor's REAL zone, straight off their device, beats the guess derived
+  // from registration_country — which is routinely empty and then defaults to
+  // London. Getting this wrong does not shift the times on screen, it deletes
+  // whole days from the picker: the GP interval is intersected below, so a
+  // practice window that lands outside the assumed 06:00–23:00 vanishes with
+  // nothing logged. A real 2026-07-31 booking offered one day instead of two
+  // because 10:00–13:00 Sydney was judged as 01:00–04:00 London.
+  //
+  // Callers pass '' (or nothing) when there is no browser to ask — the admin
+  // slot view and any server-side recompute — and keep the old behaviour.
+  // Already sanitized by the caller; re-checked here because this is the last
+  // point before the value reaches Intl.
+  var gpTz = interviewMeetings.sanitizeViewerTz(gpTzOverride)
+    || interviewMeetings.gpTzForCountry(appCtx.gpCountry);
   var gp = {
-    tz: interviewMeetings.gpTzForCountry(appCtx.gpCountry),
+    tz: gpTz,
     weekday: interviewMeetings.DEFAULT_GP_CONFIG.weekday,
     weekend: interviewMeetings.DEFAULT_GP_CONFIG.weekend
   };
 
   var nowIso = now.toISOString();
-  var horizonIso = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  // Same constant the practice's date picker and the window validator use, so
+  // a date they were allowed to submit is always a date this actually reads.
+  var horizonIso = new Date(now.getTime() + interviewMeetings.INTERVIEW_HORIZON_DAYS * 24 * 60 * 60 * 1000).toISOString();
   var busy = await gcalReadBusy({ fromUtc: nowIso, toUtc: horizonIso });
 
   // Everything already in the host's diary that a new interview must not land
@@ -69511,9 +69561,9 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
 
   return interviewScheduler.computeInterviewSlots({
     now: now,
-    horizonDays: 14,
+    horizonDays: interviewMeetings.INTERVIEW_HORIZON_DAYS,
     durationMin: 45,
-    leadHours: 48,
+    leadHours: interviewMeetings.INTERVIEW_LEAD_HOURS,
     gridMin: 30,
     maxSlots: maxSlots,
     host: host,
@@ -69529,7 +69579,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId) {
 // slots at the default GET cap (maxSlots:12). Returns
 // { error: 'no_interview' | 'no_row' | 'no_application' } on failure,
 // otherwise { meetingRow, app, status, slots }.
-async function _interviewSlotContext(applicationId, nowMs) {
+async function _interviewSlotContext(applicationId, nowMs, gpTzOverride) {
   var now = nowMs ? new Date(nowMs) : new Date();
 
   var interviewRef = await findInterviewForApplication(applicationId);
@@ -69552,7 +69602,7 @@ async function _interviewSlotContext(applicationId, nowMs) {
   var appCtx = await atsGetApplicationContext(applicationId);
   if (!appCtx) return { error: 'no_application' };
 
-  var result = await _interviewComputeSlots(row, appCtx, now, 12, null);
+  var result = await _interviewComputeSlots(row, appCtx, now, 12, null, gpTzOverride);
   return { meetingRow: row, app: appCtx, status: status, slots: result.slots };
 }
 
@@ -69584,7 +69634,11 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   // the country-derived fallback everywhere below.
   var gpViewerTz = (bookOpts && bookOpts.gpViewerTz) || '';
 
-  var slotResult = await _interviewComputeSlots(meetingRow, appCtx, now, 500, meetingRow.id);
+  // MUST use the same GP tz the doctor's picker was built with, or this
+  // re-check disagrees with what they were just shown and a legitimate pick
+  // 409s as "slot taken". The GP book path passes their device tz; the admin
+  // path passes none and keeps the country-derived guess on both sides.
+  var slotResult = await _interviewComputeSlots(meetingRow, appCtx, now, 500, meetingRow.id, gpViewerTz);
   var slotValid = slotResult.slots.some(function (s) { return s.startUtc === slotStartUtc; });
   if (!slotValid) return { error: 'slot_taken' };
 

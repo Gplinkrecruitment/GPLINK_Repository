@@ -355,8 +355,16 @@
     var dateInput = document.createElement('input');
     dateInput.type = 'date';
     dateInput.className = 'pd-w-date';
-    dateInput.min = localYmd(new Date());
-    dateInput.max = localYmd(new Date(Date.now() + 60 * 24 * 60 * 60 * 1000));
+    // These MUST match lib/interview-meetings.js INTERVIEW_LEAD_HOURS (48) and
+    // INTERVIEW_HORIZON_DAYS (14) — a test pins them together. This page is
+    // static and cannot import the module, so the numbers are restated here.
+    //
+    // They used to be "today" and "+60 days", which let a practice pick a date
+    // the scheduler never looks at: it was saved, confirmed back to them, and
+    // then silently offered to nobody. Same for anything inside the 48-hour
+    // notice period. Offer only what can actually be booked.
+    dateInput.min = localYmd(new Date(Date.now() + 48 * 60 * 60 * 1000));
+    dateInput.max = localYmd(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
     dateField.appendChild(dateLabel);
     dateField.appendChild(dateInput);
     row.appendChild(dateField);

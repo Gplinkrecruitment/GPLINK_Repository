@@ -944,6 +944,20 @@
       // "Cannot read properties of undefined (reading 'review')".
       var ivSched = { appId: null, loaded: false, loading: false, slots: [], selectedStart: null, wired: false };
 
+      // The doctor's real device timezone. Resolved ONCE and used by BOTH the
+      // slots request and the booking request — they must agree, because the
+      // booking endpoint recomputes the same list to re-check the chosen slot.
+      // Listing in one timezone and booking in another makes a perfectly valid
+      // pick come back as "that time was just taken".
+      var ivDeviceTz = (function () {
+        try {
+          var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+          if (!tz) return '';
+          new Intl.DateTimeFormat(undefined, { timeZone: tz });
+          return tz;
+        } catch (e) { return ''; }
+      })();
+
       // Load from sessionStorage cache first, then fetch from API
       var appData = null;
       try {
@@ -1642,7 +1656,12 @@
         daysEl.innerHTML = '';
         statusEl.hidden = false;
         statusEl.textContent = 'Loading available times…';
-        fetch('/api/career/interview/slots?applicationId=' + encodeURIComponent(schedAppId), { credentials: 'same-origin' })
+        // Without this the server guesses the doctor's zone from
+        // registration_country — empty on most profiles, which means London,
+        // and any practice window falling outside 06:00–23:00 there is dropped
+        // from this list entirely, with nothing shown to say so.
+        fetch('/api/career/interview/slots?applicationId=' + encodeURIComponent(schedAppId)
+          + (ivDeviceTz ? '&viewer_tz=' + encodeURIComponent(ivDeviceTz) : ''), { credentials: 'same-origin' })
           .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
           .then(function (res) {
             ivSched.loading = false; ivSched.loaded = true;
@@ -1715,7 +1734,8 @@
           fetch('/api/career/interview/book', {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ applicationId: ivSched.appId, slot_start_utc: ivSched.selectedStart })
+            // Same tz the slots were listed with — see ivDeviceTz.
+            body: JSON.stringify({ applicationId: ivSched.appId, slot_start_utc: ivSched.selectedStart, viewer_tz: ivDeviceTz || undefined })
           })
             .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
             .then(function (res) {

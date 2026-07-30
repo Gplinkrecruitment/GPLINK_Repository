@@ -259,7 +259,53 @@ both. Pages themselves are `must-revalidate`, so HTML changes need no bump.
    only for withdrawal strikes — so this is an audit gap, not a bug. Setting
    `ats_stage` on the insert would need adding to the unknown-column retry
    loop alongside `origin`/`practice_id`.
-5. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
+5. ~~**The doctor's interview picker silently deleted whole days.**~~
+   **FIXED 2026-07-31.** Reported as "the practice entered multiple days but
+   the doctor only sees Sunday". The windows were stored perfectly — verified
+   against production, both were on the row. `computeInterviewSlots`
+   intersects the practice window with the host's hours **and the doctor's
+   assumed waking hours (06:00–23:00)**, and the doctor's zone came from
+   `gpTzForCountry(registration_country)`. That column is routinely **empty**,
+   and empty fell through to `Europe/London`. Wed 5 Aug 10:00–13:00 Sydney was
+   therefore judged as **01:00–04:00 London**, missed the waking-hours window
+   entirely, and the day vanished — nothing logged, nothing shown. The
+   surviving Sunday window (18:00–20:00 → 09:00–11:00 London) yielded exactly
+   the three slots the owner screenshotted.
+   ⚠️ **The failure mode is deletion, not displacement.** A wrong GP timezone
+   does not shift the times on screen — the page labels them from the
+   *browser*, so they looked right. It removes days from the intersection.
+   Three fixes:
+   - `_interviewComputeSlots` takes a `gpTzOverride`; `/api/career/interview/slots`
+     reads `viewer_tz` and all three pickers (`secure-interview`,
+     `application-detail`, `job`) now send it. Falls back to the country guess
+     when absent, so an old client is unchanged.
+   - **`_bookInterviewSlot` passes the SAME tz into its recompute.** It did not
+     before — it used `gpViewerTz` only for the confirmation email and the
+     stored `timezone`. Listing in one zone and re-checking in another turns a
+     valid pick into `slot_taken`. If you touch either side, touch both.
+   - `gpTzForCountry` now knows Australia. London is still the default and
+     still correct for the overseas cohort this was built for.
+6. ~~**The practice could offer dates nobody would ever look at.**~~
+   **FIXED 2026-07-31.** The date picker allowed today..+60 days, the validator
+   accepted today..+60, and `computeInterviewSlots` only ever spanned 14 days
+   with a 48-hour lead. So a practice could pick a date three weeks out, be
+   told it was received, and have it silently offered to nobody — and the same
+   at the near end, inside the notice period. All three now read
+   `INTERVIEW_LEAD_HOURS` / `INTERVIEW_HORIZON_DAYS` from
+   `lib/interview-meetings.js`. `pages/practice-decision.html` is static and
+   cannot import it, so it restates the numbers — **a test pins them
+   together**, and that pin is the only thing stopping the drift recurring.
+   Also: the approve endpoint discarded the validator's message and always
+   said *"please choose at least one interview time window"*, even when the
+   practice had chosen five and one was out of range. It now returns the real
+   reason (the sibling `/availability` endpoint always did), and the reasons a
+   practice can actually trigger are worded for a human.
+   **Still open, same family:** `ingestPracticeAvailabilityReply` (the
+   paste-the-email route) writes raw AI output with **no validation at all** —
+   no date bounds, no count cap, no `tz` stamped — and it **replaces** rather
+   than merges, so pasting a reply wipes windows the practice submitted by
+   form.
+7. **Auto-chase hangs off `interview_completed`**, which *both* the Zoom webhook
    and the zoomless cron branch stamp — so it is not Zoom-only. Cadence: day 3,
    day 5, owner escalation day 7, weekends skipped for practice-facing sends
    (`/api/cron/practice-decision-reminders`, Pass B).
