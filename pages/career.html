@@ -65,6 +65,9 @@
        must read identically here and on the job page. NOT defer — the intro
        overlay and the apply path can both need it during first paint. -->
   <script src="/js/gp-notice.js?v=20260731a"></script>
+  <!-- The contract card's gold burst. Same module offer-review.html uses, so
+       the two celebrations of the same milestone look like one product. -->
+  <script src="/js/gp-confetti.js?v=20260731a"></script>
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
@@ -7910,6 +7913,50 @@
     }
     .at-match-ribbon--green { background: linear-gradient(135deg, #22b45c 0%, #16a34a 100%); }
     .at-match-ribbon--muted { background: linear-gradient(135deg, #8494ad 0%, #64748b 100%); }
+
+    /* ── The contract card: black and gold ───────────────────────────────────
+       Owner call 2026-07-31. Exactly ONE state gets this treatment — a real
+       contract, from a real practice, waiting for this doctor's signature. If a
+       second state ever borrows it, it stops meaning anything.
+       Gold on white fails contrast for text, so gold is used for surfaces,
+       borders and the ribbon; all type on those surfaces is near-black or
+       white. --gold-ink is the only gold dark enough to set copy in. */
+    .at-match-pin--gold {
+      --gold: #d4af37;
+      --gold-soft: #fdf6e3;
+      --gold-line: #e8d48a;
+      --gold-ink: #6b5312;
+      --gold-black: #14110a;
+      border-color: var(--gold);
+      box-shadow: 0 0 0 4px rgba(212, 175, 55, .18), 0 18px 40px -16px rgba(20, 17, 10, .55);
+    }
+    .at-match-ribbon--gold {
+      background: linear-gradient(135deg, #14110a 0%, #2c2411 55%, #14110a 100%);
+      color: #f2cf63;
+      position: relative;
+      overflow: hidden;
+    }
+    /* A slow sheen across the ribbon — the same shine language as the primary
+       button, so the card reads as one object rather than two effects. */
+    .at-match-ribbon--gold::after {
+      content: '';
+      position: absolute; top: 0; bottom: 0; left: -60%; width: 40%;
+      background: linear-gradient(115deg, transparent 0%, rgba(242, 207, 99, .35) 50%, transparent 100%);
+      transform: skewX(-22deg);
+      animation: atGoldSheen 4.5s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes atGoldSheen { 0% { left: -60%; } 60% { left: 130%; } 100% { left: 130%; } }
+    @media (prefers-reduced-motion: reduce) { .at-match-ribbon--gold::after { animation: none; } }
+    .at-match-pin--gold .at-match-cd { background: rgba(242, 207, 99, .18); color: #f2cf63; }
+    .at-match-pin--gold .at-match-blurb {
+      background: var(--gold-soft);
+      border-color: var(--gold-line);
+      color: var(--gold-ink);
+    }
+    .at-match-pin--gold .at-match-pn { color: var(--gold-black); }
+    html.dark-mode .at-match-pin--gold .at-match-blurb { background: rgba(212, 175, 55, .12); border-color: rgba(212, 175, 55, .32); color: #f2cf63; }
+    html.dark-mode .at-match-pin--gold .at-match-pn { color: #f7e6a8; }
     /* The right-hand ribbon slot: on a match card it's the expiry countdown, on
        an application card it's the applied date. Same pill either way. */
     .at-match-cd--calm { background: rgba(255, 255, 255, .22); }
@@ -8044,6 +8091,18 @@
     .shiny--green {
       background: linear-gradient(180deg, #34d072 0%, #16a34a 45%, #12833c 100%);
       box-shadow: 0 12px 28px -8px rgba(22, 163, 74, .68), inset 0 1.5px 0 rgba(255, 255, 255, .45), inset 0 -2px 6px rgba(8, 74, 34, .4);
+    }
+    /* The gold button: black face, gold type and edge. Reads as premium without
+       putting light-gold text on white anywhere.
+       MUST sit after .shiny — same specificity, so source order decides, and a
+       .shiny--gold declared earlier silently loses its background to it. */
+    .shiny--gold {
+      background: linear-gradient(180deg, #2c2411 0%, #14110a 55%, #0c0a06 100%);
+      color: #f2cf63;
+      box-shadow: 0 12px 28px -8px rgba(20, 17, 10, .7), inset 0 1.5px 0 rgba(242, 207, 99, .45), inset 0 0 0 1px rgba(212, 175, 55, .55);
+    }
+    .shiny--gold::after {
+      background: linear-gradient(115deg, transparent 0%, rgba(242, 207, 99, .5) 50%, transparent 100%);
     }
 
     /* Position-filled notice + "Picked for you next" alternatives */
@@ -13122,7 +13181,9 @@
         label: "Under review", ribbon: "UNDER REVIEW", tone: "blue", rowTone: "applied",
         blurb: "", ctaLabel: "Open the timeline", ctaHref: detailHref,
         // bookable: this card offers the interview-time picker inline.
-        bookable: false, booked: false
+        bookable: false, booked: false,
+        // celebrate: fire the confetti once, the first time this card is seen.
+        celebrate: false
       }, extra || {});
 
       // A live match the doctor has not answered yet. FIRST, because every
@@ -13164,11 +13225,16 @@
       if (key === "offer_declined") {
         return S({ label: "Offer declined", ribbon: "OFFER DECLINED", tone: "muted", rowTone: "muted", blurb: "You declined this offer." });
       }
+      // The one card in this product that gets its own treatment: black and
+      // gold, and a confetti burst the first time it appears (owner call
+      // 2026-07-31). The practice has chosen this doctor and put a real
+      // contract behind it — every other state is a step on the way to here.
       if (app.contractStage === "sent_to_gp") {
         return S({
-          label: "Contract", ribbon: "CONTRACT", tone: "green", rowTone: "offer",
-          blurb: "Your contract is ready to review and sign.",
-          ctaLabel: "Review contract", ctaHref: offerHref
+          label: "Contract", ribbon: "YOUR CONTRACT IS READY", tone: "gold", rowTone: "offer",
+          celebrate: true,
+          blurb: "The practice has offered you the position. Read your contract, then sign it here.",
+          ctaLabel: "Review and sign", ctaHref: offerHref
         });
       }
       if (app.contractStage === "changes_requested") {
@@ -13185,13 +13251,18 @@
           ctaLabel: "View status", ctaHref: offerHref
         });
       }
-      if (app.offerPending === true) {
-        return S({
-          label: "Offer", ribbon: "OFFER", tone: "green", rowTone: "offer",
-          blurb: "The practice wants to interview you — confirm your interview time.",
-          ctaLabel: "Review invitation", ctaHref: offerHref
-        });
-      }
+      // NO "Offer" card. Owner call 2026-07-31: a practice extending an offer
+      // only becomes real for the doctor when the contract lands, and uploading
+      // that contract is a required step for the practice — so the doctor goes
+      // straight from "interview done" to "contract to sign" with nothing
+      // in between promising something they cannot yet act on.
+      //
+      // This also matches what the server actually does. `offerPending` is fed
+      // by an `ats_offers` row with status 'sent', and NOTHING in the
+      // post-interview pipeline writes one: /api/ceo/contract/decision
+      // submit_to_gp flips gp_applications.status to 'offer' and creates no
+      // offer row at all. So the branch that used to sit here was already
+      // unreachable in the live flow — `contractStage` above is the real gate.
       // The interview already happened and the practice is deciding — a DISTINCT
       // state from the one below, and it must never offer a time picker.
       if (key === "interview_completed") {
@@ -13209,9 +13280,25 @@
         return S({
           label: "Interview", ribbon: "INTERVIEW", tone: "green", rowTone: "offer",
           booked: !!when, bookable: !when,
+          // The "never in the room alone" reassurance lives on the picker
+          // itself (buildInterviewPickerHtml) when there is one, so it is NOT
+          // repeated here — the two sit directly on top of each other on the
+          // card and read as a stutter. The booked state has no picker, so it
+          // carries the line instead.
           blurb: when
             ? "Your interview is locked in. Your Registration Support Officer joins you, so you're never in the room alone."
-            : "The practice wants to meet you — pick a time below. Your Registration Support Officer joins you, so you're never in the room alone."
+            : "The practice wants to meet you — pick a time below."
+        });
+      }
+      // gp_applications.status is flipped to 'offer' by the same request that
+      // releases the contract, so contractStage above almost always wins. This
+      // branch is the honest answer for the sliver in between (or if the
+      // contract read failed) — never the generic "under review" fallback,
+      // which would read as going backwards.
+      if (key === "offer") {
+        return S({
+          label: "Offer", ribbon: "OFFER", tone: "green", rowTone: "offer",
+          blurb: "The practice has offered you the position — your contract is on its way."
         });
       }
       if (key === "submitted") {
@@ -13355,12 +13442,13 @@
       const interviewHtml = st.bookable
         ? buildInterviewPickerHtml(st.appId)
         : (st.booked ? buildInterviewBookedHtml(app.interview) : "");
-      const primaryClass = st.tone === "green" ? "at-match-accept shiny shiny--green" : "at-match-accept shiny";
+      const TONE_BUTTON = { green: "at-match-accept shiny shiny--green", gold: "at-match-accept shiny shiny--gold" };
+      const primaryClass = TONE_BUTTON[st.tone] || "at-match-accept shiny";
       const actionHtml = st.bookable
         ? `<button type="button" class="at-match-ghost" ${openAttrs}>${escapeHtml(st.ctaLabel)}</button>`
         : `<button type="button" class="${primaryClass}" ${openAttrs}>${escapeHtml(st.ctaLabel)}</button>`;
 
-      return `<article class="at-match-pin at-match-pin--app at-match-pin--${escapeHtml(st.tone)}" data-app-card="${escapeHtml(st.appId)}" data-app-state="${escapeHtml(st.key)}">
+      return `<article class="at-match-pin at-match-pin--app at-match-pin--${escapeHtml(st.tone)}" data-app-card="${escapeHtml(st.appId)}" data-app-state="${escapeHtml(st.key)}"${st.celebrate ? ' data-app-celebrate="1"' : ''}>
         <div class="at-match-ribbon at-match-ribbon--${escapeHtml(st.tone)}">
           <span>${escapeHtml(st.ribbon)}</span>
           ${ribbonRight}
@@ -13608,12 +13696,55 @@
       showCareerNotice("Interview confirmed", "You're booked for " + careerIvFormatFull(interview.scheduledAt) + ". We've emailed you the Zoom link, and your Registration Support Officer will join you.");
     }
 
+    // ── The contract moment ─────────────────────────────────────────────────
+    // Owner call 2026-07-31: the contract card gets black and gold AND a
+    // confetti burst. Once per application per browser — the card stays on the
+    // page for days while the doctor reads the contract, and confetti on every
+    // render (or every visit) turns a moment into an irritation. sessionStorage
+    // would re-fire on each new tab; localStorage is the honest scope for
+    // "this doctor has already seen this land".
+    const CAREER_CELEBRATED_KEY = "gp_career_celebrated_contracts";
+    function careerCelebratedSet() {
+      try { return new Set(JSON.parse(localStorage.getItem(CAREER_CELEBRATED_KEY) || "[]")); }
+      catch (e) { return new Set(); }
+    }
+    function careerMarkCelebrated(appId) {
+      try {
+        const seen = careerCelebratedSet();
+        seen.add(String(appId));
+        // Keep the list small — a doctor will never have many contracts, and an
+        // unbounded array in localStorage is a slow leak.
+        localStorage.setItem(CAREER_CELEBRATED_KEY, JSON.stringify(Array.from(seen).slice(-20)));
+      } catch (e) { /* the burst is decoration; never break the render for it */ }
+    }
+    function careerCelebrateNewContracts() {
+      const cards = document.querySelectorAll("[data-app-celebrate]");
+      if (!cards.length) return;
+      const seen = careerCelebratedSet();
+      let fired = false;
+      cards.forEach((card) => {
+        const appId = card.getAttribute("data-app-card") || "";
+        if (!appId || seen.has(appId) || fired) return;
+        careerMarkCelebrated(appId);
+        fired = true;
+        // Let the card paint first, so the burst lands over it rather than
+        // over an empty page.
+        window.setTimeout(() => {
+          if (window.gpConfetti && typeof window.gpConfetti.launch === "function") {
+            window.gpConfetti.launch({ palette: window.gpConfetti.GOLD, pieces: 160, durationMs: 3200 });
+          }
+        }, 260);
+      });
+    }
+
     // Start (or repaint) every picker currently on the page. Called after both
     // renders; the per-app state above means a repaint never refetches.
     function careerIvBootAll() {
       document.querySelectorAll(".ivc[data-iv-app]").forEach((host) => {
         careerIvLoad(host.getAttribute("data-iv-app") || "");
       });
+      // One "after a render" hook, not two to keep in step.
+      careerCelebrateNewContracts();
     }
     window.__careerIvBoot = careerIvBootAll;
 

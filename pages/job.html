@@ -13,6 +13,7 @@
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
+  <script src="/js/gp-confetti.js?v=20260731a"></script>
   <!-- Shared notice dialog. The application-rule refusals (2 live, 3 a month)
        are explained here and on the careers page from the same module, so the
        wording and the look can't drift apart. -->
@@ -2585,53 +2586,13 @@
 
   // ── Confetti (ported from pages/secure-interview.html — self-contained
   // canvas burst, removes its own canvas after) ──
-  function launchConfetti() {
-    const palette = ["#2563eb", "#22c55e", "#f59e0b", "#ef4444", "#a855f7"];
-    const canvas = document.createElement("canvas");
-    canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;";
-    document.body.appendChild(canvas);
-    const ctx = canvas.getContext("2d");
-    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-    resize();
-    window.addEventListener("resize", resize);
-    const pieces = [];
-    for (let i = 0; i < 140; i++) {
-      pieces.push({
-        x: Math.random() * canvas.width,
-        y: -20 - Math.random() * canvas.height * 0.5,
-        w: 6 + Math.random() * 6,
-        h: 4 + Math.random() * 8,
-        color: palette[Math.floor(Math.random() * palette.length)],
-        vx: (Math.random() - 0.5) * 2.2,
-        vy: 2 + Math.random() * 3.2,
-        rotation: Math.random() * 360,
-        vr: (Math.random() - 0.5) * 12
-      });
+  // One confetti implementation, in js/gp-confetti.js. This page kept its own
+  // copy until 2026-07-31; the two copies had already drifted apart, which is
+  // what happens to a 50-line animation duplicated across pages.
+  function launchConfetti(options) {
+    if (window.gpConfetti && typeof window.gpConfetti.launch === 'function') {
+      window.gpConfetti.launch(options);
     }
-    let startTs = null;
-    const DURATION_MS = 2800;
-    function frame(ts) {
-      if (!startTs) startTs = ts;
-      const elapsed = ts - startTs;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < pieces.length; i++) {
-        const p = pieces[i];
-        p.x += p.vx; p.y += p.vy; p.rotation += p.vr;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate((p.rotation * Math.PI) / 180);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      }
-      if (elapsed < DURATION_MS) {
-        requestAnimationFrame(frame);
-      } else {
-        window.removeEventListener("resize", resize);
-        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-      }
-    }
-    requestAnimationFrame(frame);
   }
 
   /* ── Slot label helpers — same grouping rules as secure-interview.html ── */

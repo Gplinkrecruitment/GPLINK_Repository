@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Offer band states — GP Link design reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/css/ceo-ats.css?v=20260731d" />
+<!--
+  DESIGN REFERENCE — not a product page. 404s in production (DEV_ONLY_PAGES in
+  server.js).
+
+  The CEO dashboard is behind an admin sign-in, so the offer band cannot be
+  looked at without logging in and finding a candidate who happens to be at the
+  right stage. This page renders the REAL band — js/ceo-ats-offer.js, loaded as
+  itself, against css/ceo-ats.css — by stubbing the two things it depends on:
+  window.ATS, and the fetch that returns GET /api/ats/application/offer-state.
+
+  Nothing here re-implements the band. If js/ceo-ats-offer.js changes, every
+  state below changes with it; if it stops loading, the page says so.
+-->
+<style>
+  body { margin:0; background:var(--ats-bg,#0b0f17); color:var(--ats-text,#e6edf7);
+         font-family:var(--gp-font-body,"DM Sans",-apple-system,sans-serif); }
+  .ref-head { padding:28px 22px 24px; border-bottom:1px solid var(--ats-border,#1e2836);
+              background:linear-gradient(160deg,#0f1726 0%,#0b0f17 100%); }
+  .ref-head-in { max-width:1120px; margin:0 auto; }
+  .ref-head h1 { font-family:var(--gp-font-display,"Source Serif 4",Georgia,serif);
+                 font-size:24px; margin:0 0 6px; color:#fff; }
+  .ref-head p { margin:0; font-size:13px; line-height:1.55; color:var(--ats-muted,#93a4bd); max-width:80ch; }
+  .ref-kicker { display:inline-block; font-size:10.5px; font-weight:800; letter-spacing:.08em;
+                text-transform:uppercase; color:#7ec8ff; background:rgba(96,165,250,.12);
+                border:1px solid rgba(96,165,250,.28); border-radius:999px; padding:5px 12px; margin-bottom:12px; }
+  .ref-wrap { max-width:1120px; margin:0 auto; padding:24px 22px 70px; }
+  .ref-case { margin-bottom:26px; }
+  .ref-cap { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-bottom:9px;
+             font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+             color:var(--ats-muted,#93a4bd); }
+  .ref-cap code { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; letter-spacing:0;
+                  text-transform:none; font-weight:600; color:#7ec8ff;
+                  background:rgba(96,165,250,.1); border:1px solid rgba(96,165,250,.22);
+                  border-radius:6px; padding:1px 7px; }
+  /* The band lives inside .ats-app-offer inside .ats-app-card on the real page —
+     reproduce that nesting exactly, or the band is judged in a container it
+     never actually sits in. */
+  .ref-host { background:var(--ats-panel,#111827); border:1px solid var(--ats-border,#1e2836);
+              border-radius:12px; overflow:hidden; }
+  .ref-host .ats-app-card { margin:0; border:0; }
+  .ref-fail { background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.35);
+              color:#ffb0b0; border-radius:12px; padding:16px; font-size:13px; line-height:1.6; }
+  .ref-role { display:flex; gap:8px; margin-top:14px; }
+  .ref-role button { font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;
+                     color:#dce8fb; background:rgba(255,255,255,.08);
+                     border:1px solid rgba(255,255,255,.18); border-radius:999px; padding:7px 14px; }
+  .ref-role button[aria-pressed="true"] { background:rgba(96,165,250,.22); border-color:rgba(96,165,250,.5); color:#fff; }
+</style>
+</head>
+<body>
+
+<header class="ref-head">
+  <div class="ref-head-in">
+    <span class="ref-kicker">Design reference · localhost only</span>
+    <h1>Offer band — every state</h1>
+    <p>
+      The post-interview offer band from the candidate card, rendered by the real
+      <b>js/ceo-ats-offer.js</b> against the real <b>css/ceo-ats.css</b>. The CEO dashboard needs an
+      admin sign-in and a candidate at exactly the right stage, so this page stubs the
+      offer-state endpoint instead and shows all of them at once.
+    </p>
+    <div class="ref-role">
+      <button type="button" data-role="ceo" aria-pressed="true">View as CEO</button>
+      <button type="button" data-role="consultant" aria-pressed="false">View as consultant</button>
+    </div>
+  </div>
+</header>
+
+<div class="ref-wrap" id="refBody"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var bodyEl = document.getElementById('refBody');
+  var ROLE = 'ceo';
+
+  function iso(daysAgo) { return new Date(Date.now() - daysAgo * 86400000).toISOString(); }
+
+  /* ── The fixtures. Each is a full GET /api/ats/application/offer-state body,
+        in the shape server.js actually returns. ─────────────────────────── */
+  function practice(over) {
+    return Object.assign({
+      decision: 'awaiting', name: 'Southbank Medical',
+      contactEmail: 'practice@example.com', contactName: 'Dr Rowe',
+      emailSentAt: iso(2), daysSinceEmail: 2, remindersSent: 0,
+      lastReminderAt: null, declineReason: '', interviewCompletedAt: iso(2)
+    }, over || {});
+  }
+  function ai(over) {
+    return Object.assign({
+      status: 'done', overall: 'aligned', summary: 'The contract matches what was agreed at interview.',
+      discrepancies: [], interviewTermsAvailable: true
+    }, over || {});
+  }
+  function contract(over) {
+    return Object.assign({
+      id: 'c-1', version: 1, status: 'uploaded', statusLabel: 'Awaiting your review',
+      uploadedAt: iso(1), sentToGpAt: null, signedAt: null,
+      daysSinceUploaded: 1, daysSinceSentToGp: null,
+      fileUrl: '#contract.pdf', signedFileUrl: null,
+      ai: ai(), changeRequest: '', changeResponse: '', ceoNote: ''
+    }, over || {});
+  }
+
+  var CASES = [
+    ['Waiting on the practice — 2 days', 'decision: awaiting', {
+      stage: 'interview', status: 'interview_completed', outOfPipeline: false,
+      practice: practice(), contract: null, history: []
+    }],
+    ['Waiting on the practice — 8 days, needs a personal chase', 'daysSinceEmail: 8', {
+      stage: 'interview', status: 'interview_completed', outOfPipeline: false,
+      practice: practice({ emailSentAt: iso(8), daysSinceEmail: 8, remindersSent: 2, lastReminderAt: iso(3) }),
+      contract: null, history: []
+    }],
+    ['Offer extended, contract not uploaded yet', 'contract.status: awaiting_upload', {
+      stage: 'interview', status: 'interview_completed', outOfPipeline: false,
+      practice: practice({ decision: 'extended', daysSinceEmail: 4, emailSentAt: iso(4) }),
+      contract: contract({ status: 'awaiting_upload', statusLabel: 'Waiting on the practice to upload', uploadedAt: null, daysSinceUploaded: null, fileUrl: null, ai: ai({ status: 'not_run' }) }),
+      history: []
+    }],
+    ['Contract uploaded — AI clean, ready to release', 'contract.status: uploaded', {
+      stage: 'interview', status: 'interview_completed', outOfPipeline: false,
+      practice: practice({ decision: 'extended', daysSinceEmail: 6, emailSentAt: iso(6) }),
+      contract: contract(), history: []
+    }],
+    ['Contract uploaded — AI found discrepancies, v2', 'ai.overall: major_discrepancies', {
+      stage: 'interview', status: 'interview_completed', outOfPipeline: false,
+      practice: practice({ decision: 'extended', daysSinceEmail: 6, emailSentAt: iso(6) }),
+      contract: contract({
+        id: 'c-2', version: 2,
+        ai: ai({
+          overall: 'major_discrepancies',
+          summary: 'The billing split and start date do not match what was agreed at interview.',
+          discrepancies: [
+            { field: 'Billing split', severity: 'major', contract_says: '60/40', expected: '70/30', source: 'interview summary' },
+            { field: 'Start date', severity: 'minor', contract_says: '3 Mar 2027', expected: '1 Feb 2027', source: 'offer terms' }
+          ]
+        })
+      }),
+      history: [{ id: 'c-1', version: 1, status: 'void', statusLabel: 'Replaced by a later version', createdAt: iso(20), updatedAt: iso(14), isLive: false }]
+    }],
+    ['AI review failed — nothing shown today, no retry', 'ai.status: error', {
+      stage: 'interview', status: 'interview_completed', outOfPipeline: false,
+      practice: practice({ decision: 'extended' }),
+      contract: contract({ ai: ai({ status: 'error', overall: '', summary: '' }) }),
+      history: []
+    }],
+    ['With the doctor — 6 days, no signature', 'contract.status: sent_to_gp', {
+      stage: 'offer', status: 'offer', outOfPipeline: false,
+      practice: practice({ decision: 'extended', daysSinceEmail: 12, emailSentAt: iso(12) }),
+      contract: contract({ status: 'sent_to_gp', statusLabel: 'With the doctor to sign', sentToGpAt: iso(6), daysSinceSentToGp: 6 }),
+      history: []
+    }],
+    ['Doctor asked for a change', 'contract.status: changes_requested', {
+      stage: 'offer', status: 'offer', outOfPipeline: false,
+      practice: practice({ decision: 'extended' }),
+      contract: contract({
+        status: 'changes_requested', statusLabel: 'Doctor requested changes',
+        sentToGpAt: iso(4), daysSinceSentToGp: 4,
+        changeRequest: 'Could the start date move to after my AHPRA registration lands?'
+      }),
+      history: []
+    }],
+    ['Signed', 'contract.status: signed', {
+      stage: 'hired', status: 'placement_secured', outOfPipeline: true,
+      practice: practice({ decision: 'extended' }),
+      contract: contract({ status: 'signed', statusLabel: 'Signed', sentToGpAt: iso(9), daysSinceSentToGp: 9, signedAt: iso(1), signedFileUrl: '#signed.pdf' }),
+      history: [{ id: 'c-1', version: 1, status: 'void', statusLabel: 'Replaced by a later version', createdAt: iso(30), updatedAt: iso(22), isLive: false }]
+    }],
+    ['Practice declined after the interview', 'outOfPipeline: true', {
+      stage: 'not_proceeding', status: 'not_proceeding', outOfPipeline: true,
+      practice: practice({ decision: 'declined', name: 'Bayside Clinic', declineReason: 'Went with an internal candidate', daysSinceEmail: 9, emailSentAt: iso(9) }),
+      contract: null, history: []
+    }]
+  ];
+
+  /* ── Stub the two things the band depends on ─────────────────────────── */
+  var byApp = {};
+  CASES.forEach(function (c, i) { byApp['app-' + i] = c[2]; });
+
+  window.ATS = {
+    esc: function (v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, function (ch) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+      });
+    },
+    escAttr: function (v) { return window.ATS.esc(v); },
+    toast: function (m) { console.log('[toast]', m); },
+    isConsultant: function () { return ROLE === 'consultant'; },
+    api: function (url) {
+      var m = /applicationId=([^&]+)/.exec(url) || /application_id=([^&]+)/.exec(url);
+      var id = m ? decodeURIComponent(m[1]) : '';
+      var payload = byApp[id];
+      if (!payload) return Promise.resolve({ ok: false, message: 'no fixture' });
+      return Promise.resolve(Object.assign({ ok: true, applicationId: id }, payload));
+    }
+  };
+
+  // Everything above installs the stub and the fixtures. The module is loaded
+  // BELOW this point on purpose — it captures window.ATS at parse time and
+  // silently does nothing if it is not there yet.
+  window.__refCases = CASES;
+  window.__refSetRole = function (r) { ROLE = r; };
+}());
+</script>
+
+<script src="/js/ceo-ats-offer.js?v=20260731d"></script>
+
+<script>
+(function () {
+  'use strict';
+  var bodyEl = document.getElementById('refBody');
+  var CASES = window.__refCases;
+
+  function render() {
+    if (typeof window.atsRenderOfferBand !== 'function') {
+      bodyEl.innerHTML = '<div class="ref-fail"><b>js/ceo-ats-offer.js did not expose window.atsRenderOfferBand</b>'
+        + '<br>This page is NOT showing the real band.</div>';
+      return;
+    }
+    bodyEl.innerHTML = CASES.map(function (c, i) {
+      return '<div class="ref-case">'
+        + '<div class="ref-cap"><span>' + window.ATS.esc(c[0]) + '</span><code>' + window.ATS.esc(c[1]) + '</code></div>'
+        + '<div class="ref-host"><div class="ats-app-card"><div class="ats-app-offer">'
+        + '<span class="ats-app-lbl">Offer / contract</span>'
+        + '<div class="ats-offer-box" style="flex:1;min-width:0" data-host="' + i + '"></div>'
+        + '</div></div></div>'
+        + '</div>';
+    }).join('');
+    CASES.forEach(function (c, i) {
+      var host = bodyEl.querySelector('[data-host="' + i + '"]');
+      if (host) window.atsRenderOfferBand('app-' + i, host, 'case-demo');
+    });
+  }
+
+  document.querySelectorAll('[data-role]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      window.__refSetRole(btn.getAttribute('data-role'));
+      document.querySelectorAll('[data-role]').forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
+      render();
+    });
+  });
+
+  render();
+}());
+</script>
+</body>
+</html>

@@ -157,8 +157,27 @@ describe('the design reference page', () => {
   const server = read('server.js');
 
   it('is not reachable in production', () => {
-    expect(server).toContain("const DEV_ONLY_PAGES = new Set(['pages/career-card-states.html']);");
+    expect(server).toContain("const DEV_ONLY_PAGES = new Set([");
+    expect(server).toContain("'pages/career-card-states.html'");
+    expect(server).toContain("'pages/ceo-offer-band-states.html'");
     expect(server).toContain("if (DEV_ONLY_PAGES.has(segments.join('/')) && process.env.NODE_ENV === 'production') return false;");
+  });
+
+  // The offer band is behind an admin sign-in AND needs a candidate at exactly
+  // the right stage, so it could not be looked at at all without this page.
+  it('the offer band reference renders the REAL band, not a copy', () => {
+    const band = read('pages/ceo-offer-band-states.html');
+    expect(band).toContain('<script src="/js/ceo-ats-offer.js?v=20260731d"></script>');
+    expect(band).toContain('/css/ceo-ats.css?v=20260731d');
+    expect(band).toContain('window.atsRenderOfferBand');
+    // js/ceo-ats-offer.js captures window.ATS at parse time and silently does
+    // nothing when it is missing — the stub MUST be installed above the module
+    // tag or the page renders ten empty boxes and looks like the band is broken.
+    expect(band.indexOf('window.ATS = {')).toBeLessThan(band.indexOf('<script src="/js/ceo-ats-offer.js'));
+    expect(band).toContain('did not expose window.atsRenderOfferBand');
+    // It renders inside the same nesting the real card uses, or the band is
+    // being judged in a container it never sits in.
+    expect(band).toContain('<div class="ats-app-card"><div class="ats-app-offer">');
   });
 
   it('renders the REAL card rather than a copy that can drift', () => {
@@ -167,5 +186,81 @@ describe('the design reference page', () => {
     expect(ref).toContain('buildMatchCardHtml');
     // It must fail loudly rather than quietly show something that is not the card.
     expect(ref).toContain('so this page is NOT showing the real card');
+  });
+});
+
+/* Owner changes 2026-07-31 (second round), on the card states. */
+describe('the contract card is the moment', () => {
+  const confetti = read('js/gp-confetti.js');
+  const offerReview = read('pages/offer-review.html');
+
+  it('black and gold, and only this one state gets it', () => {
+    expect(career).toMatch(/ribbon: "YOUR CONTRACT IS READY", tone: "gold"/);
+    expect(career).toContain('.at-match-pin--gold');
+    expect(career).toContain('.at-match-ribbon--gold');
+    expect(career).toContain('.shiny--gold');
+    // Exactly one state may claim gold — the treatment stops meaning anything
+    // the moment a second one borrows it.
+    const stateMap = career.slice(
+      career.indexOf('function careerApplicationState(application) {'),
+      career.indexOf('function careerMineStatusLabel')
+    );
+    expect(stateMap.match(/tone: "gold"/g)).toHaveLength(1);
+  });
+
+  it('the gold button rule sits AFTER .shiny or it silently loses', () => {
+    // Same specificity, so source order decides. Declared earlier, .shiny's own
+    // blue background wins and the button renders blue on a gold card.
+    expect(career.indexOf('.shiny {')).toBeLessThan(career.indexOf('.shiny--gold {'));
+    expect(career).toContain('const TONE_BUTTON = { green: "at-match-accept shiny shiny--green", gold: "at-match-accept shiny shiny--gold" };');
+  });
+
+  it('fires confetti once per contract, not once per render', () => {
+    expect(career).toContain('data-app-celebrate');
+    expect(career).toContain('const CAREER_CELEBRATED_KEY = "gp_career_celebrated_contracts"');
+    const fn = career.slice(career.indexOf('function careerCelebrateNewContracts()'));
+    expect(fn.slice(0, 900)).toContain('seen.has(appId)');
+    expect(fn.slice(0, 900)).toContain('careerMarkCelebrated(appId)');
+    // One "after a render" hook, so the two render paths cannot drift.
+    expect(career).toMatch(/function careerIvBootAll\(\) \{[\s\S]*?careerCelebrateNewContracts\(\);/);
+  });
+
+  it('one confetti implementation, shared', () => {
+    expect(confetti).toContain('root.gpConfetti = { launch: launch, BRAND: BRAND, GOLD: GOLD };');
+    expect(confetti).toContain("prefers-reduced-motion");
+    for (const page of [career, job, offerReview]) {
+      expect(page).toContain('<script src="/js/gp-confetti.js?v=20260731a"></script>');
+    }
+    // job.html and offer-review.html each had their OWN copy, already drifted
+    // apart by 2026-07-31. Neither may grow one back.
+    expect(job).not.toMatch(/var palette = \['#2563eb'/);
+    expect(offerReview).not.toMatch(/var palette = \['#2563eb'/);
+  });
+});
+
+describe('the states the doctor no longer sees', () => {
+  it('there is no Offer card — the contract is the offer', () => {
+    const stateMap = career.slice(
+      career.indexOf('function careerApplicationState(application) {'),
+      career.indexOf('function careerMineStatusLabel')
+    );
+    expect(stateMap).not.toContain('app.offerPending === true');
+    // ...and the state that replaced it is honest about what has happened.
+    expect(stateMap).toContain('if (key === "offer")');
+    expect(stateMap).toContain('your contract is on its way');
+  });
+
+  it('the interview card does not say the same reassurance twice', () => {
+    // The picker carries "never in the room alone"; the blurb directly above it
+    // must not repeat it. The BOOKED card has no picker, so it keeps the line.
+    const stateMap = career.slice(
+      career.indexOf('function careerApplicationState(application) {'),
+      career.indexOf('function careerMineStatusLabel')
+    );
+    const interviewBranch = stateMap.slice(stateMap.indexOf('if (key === "interview" || key === "interview_scheduled")'));
+    const unbooked = interviewBranch.slice(interviewBranch.indexOf(': "The practice wants to meet you'));
+    expect(unbooked.slice(0, 120)).not.toContain('never in the room alone');
+    expect(interviewBranch).toContain("Your interview is locked in. Your Registration Support Officer joins you");
+    expect(career).toMatch(/45 minutes on Zoom\. Your Registration Support Officer joins you/);
   });
 });

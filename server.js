@@ -13759,7 +13759,10 @@ const PUBLIC_STATIC_ROOT_FILES = new Set([
 // a component shows up in the reference immediately. Served locally, 404 in
 // production — a stray public "here are all our card states" URL is untidy at
 // best, and these pages exist for building, not for doctors.
-const DEV_ONLY_PAGES = new Set(['pages/career-card-states.html']);
+const DEV_ONLY_PAGES = new Set([
+  'pages/career-card-states.html',
+  'pages/ceo-offer-band-states.html'
+]);
 
 function isPubliclyServablePath(filePath) {
   const rel = path.relative(process.cwd(), filePath);
@@ -31955,7 +31958,31 @@ async function sendPracticeDecisionReminderEmail(opts) {
 // would otherwise never be retried by the main loop alone. status/
 // interview_completed_at are deliberately NOT rolled back on a send failure
 // — the interview genuinely happened; only the notification needs retrying.
-async function sendPostInterviewDecisionEmail(applicationId) {
+//
+// options (2026-07-31 — the silent-nudge fix):
+//   force:true    — skip ONLY the already-sent guard. Every FIRST-send caller
+//                   (the Zoom meeting.ended webhook, the detect-no-shows
+//                   fallback + retry sweep, the stale-interview rescue) leaves
+//                   this off, so a duplicate webhook delivery still cannot
+//                   double-send. Deliberate CHASES (the practice-decision
+//                   reminder cron's Pass B, the staff "nudge" button) pass it,
+//                   because the stamp this helper itself wrote was otherwise
+//                   silently swallowing every follow-up: the cron counted a
+//                   send, patched last_practice_reminder_at and reported
+//                   success while nothing left the building.
+//   reminder:true — reword the subject/intro as a follow-up. A forced send
+//                   that reproduced the original email verbatim reads to the
+//                   practice as a system glitch, not as a chase.
+// A forced send does NOT re-stamp status/interview_completed_at: those are
+// already correct and re-stamping them would keep resetting the cron's day-3/
+// day-5/day-7 clock, so the escalation could never arrive. It only refreshes
+// post_interview_email_sent_at, and its rollback restores the PREVIOUS stamp
+// (never null) so a failed chase cannot make the retry sweep re-send the
+// original first-contact email to a practice that already has it.
+async function sendPostInterviewDecisionEmail(applicationId, options) {
+  var piaOpts = (options && typeof options === 'object') ? options : {};
+  var piaForce = piaOpts.force === true;
+  var piaReminder = piaOpts.reminder === true;
   var id = String(applicationId || '').trim();
   if (!id) return { ok: false, error: 'missing_application_id' };
   if (!isSupabaseDbConfigured()) return { ok: false, error: 'db_not_configured' };
@@ -31963,17 +31990,20 @@ async function sendPostInterviewDecisionEmail(applicationId) {
   var appRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
   var app = (appRes.ok && Array.isArray(appRes.data) && appRes.data[0]) ? appRes.data[0] : null;
   if (!app) return { ok: false, error: 'application_not_found' };
-  if (app.post_interview_email_sent_at) return { ok: false, skipped: 'already_sent' };
+  if (app.post_interview_email_sent_at && !piaForce) return { ok: false, skipped: 'already_sent' };
   // Terminal-application guard — a withdrawn/not_proceeding/secured application
   // must never be stamped back to 'interview_completed'. No live call site can
   // reach here for a terminal app today, but this closes the gap one call away.
   var piaStatusKey = normalizeCareerApplicationStatusKey(app.status);
   if (piaStatusKey === 'withdrawn' || piaStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(piaStatusKey)) return { ok: false, skipped: 'terminal' };
 
+  var piaPriorSentAt = app.post_interview_email_sent_at || null;
   var stampIso = new Date().toISOString();
   var stampRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
     method: 'PATCH', headers: { Prefer: 'return=minimal' },
-    body: { post_interview_email_sent_at: stampIso, status: 'interview_completed', interview_completed_at: stampIso, updated_at: stampIso }
+    body: piaForce
+      ? { post_interview_email_sent_at: stampIso, updated_at: stampIso }
+      : { post_interview_email_sent_at: stampIso, status: 'interview_completed', interview_completed_at: stampIso, updated_at: stampIso }
   });
   if (!stampRes.ok) return { ok: false, error: 'stamp_failed' };
 
@@ -31981,7 +32011,10 @@ async function sendPostInterviewDecisionEmail(applicationId) {
     try {
       await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
         method: 'PATCH', headers: { Prefer: 'return=minimal' },
-        body: { post_interview_email_sent_at: null }
+        // null on a first send (the guard above proved there was no stamp);
+        // the ORIGINAL stamp on a forced chase, so a failed follow-up never
+        // hands the row back to the "never emailed" retry sweep.
+        body: { post_interview_email_sent_at: piaPriorSentAt }
       });
     } catch (e) { /* best-effort — worst case a missed retry, never a double-send */ }
     return { ok: false, error: error };
@@ -32071,7 +32104,11 @@ async function sendPostInterviewDecisionEmail(applicationId) {
     // Subjects aren't HTML, but strip angle brackets from the GP-controlled
     // name so a crafted profile name can't visually spoof the subject line.
     var subjectName = gpDisplayName.replace(/[<>]/g, '');
-    var subject = 'How did the interview with ' + subjectName + ' go?';
+    // A chase must not arrive as a byte-for-byte copy of the first email —
+    // that reads as a system glitch rather than as "we are still waiting".
+    var subject = piaReminder
+      ? ('Still thinking about ' + subjectName + '?')
+      : ('How did the interview with ' + subjectName + ' go?');
     // esc() + bodyHtml (NOT the plain-text `body` path) — mirrors
     // sendPracticeDecisionReminderEmail above. buildCareerEmailHtml's `body`
     // path only escapes via formatPlainTextEmailHtml when the assembled
@@ -32082,15 +32119,21 @@ async function sendPostInterviewDecisionEmail(applicationId) {
     // Escaping every interpolated value here and handing buildCareerEmailHtml
     // pre-built HTML sidesteps that sniff entirely.
     var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var piaIntroHtml = piaReminder
+      ? ('<p>We haven\'t heard back yet about ' + esc(gpDisplayName) + ' for your ' + esc(roleLabel) + ' position, and they are still waiting on your decision. A quick yes or no either way would really help:</p>')
+      : ('<p>Thanks for meeting with ' + esc(gpDisplayName) + ' for your ' + esc(roleLabel) + ' position. Let us know how it went:</p>');
+    var piaIntroText = piaReminder
+      ? ('We haven\'t heard back yet about ' + gpDisplayName + ' for your ' + roleLabel + ' position, and they are still waiting on your decision. A quick yes or no either way would really help:')
+      : ('Thanks for meeting with ' + gpDisplayName + ' for your ' + roleLabel + ' position. Let us know how it went:');
     var bodyHtml =
       '<p>Hi ' + esc(practiceLabel) + ',</p>' +
-      '<p>Thanks for meeting with ' + esc(gpDisplayName) + ' for your ' + esc(roleLabel) + ' position. Let us know how it went:</p>' +
+      piaIntroHtml +
       '<p><strong>Extend an offer</strong> — you\'ll be asked to upload your employment contract for our review.</p>' +
       '<p><strong>Not proceeding</strong> — we\'ll let the doctor down gently and keep searching for you.</p>' +
       '<p>Thank you,<br>GP Link Recruitment Team</p>';
     var text = [
       'Hi ' + practiceLabel + ',', '',
-      'Thanks for meeting with ' + gpDisplayName + ' for your ' + roleLabel + ' position. Let us know how it went:',
+      piaIntroText,
       '', 'Extend an offer — you\'ll be asked to upload your employment contract for our review: ' + offerUrl,
       '', 'Not proceeding — we\'ll let the doctor down gently and keep searching for you: ' + declineUrl,
       '', 'Thank you,', 'GP Link Recruitment Team'
@@ -32100,7 +32143,7 @@ async function sendPostInterviewDecisionEmail(applicationId) {
       to: contactEmail,
       subject: subject,
       html: buildCareerEmailHtml({
-        title: 'How did the interview go?',
+        title: piaReminder ? 'Still waiting on your decision' : 'How did the interview go?',
         bodyHtml: bodyHtml,
         ctaText: 'Extend an offer',
         ctaUrl: offerUrl,
@@ -34222,6 +34265,32 @@ async function listCareerContractsForApplication(applicationId) {
 async function getLatestLiveCareerContractForApplication(applicationId) {
   var rows = await listCareerContractsForApplication(applicationId);
   return rows.find(function (r) { return String(r.status) !== 'void'; }) || null;
+}
+// Whole days elapsed since a timestamp — the ONE place that arithmetic lives
+// for the staff offer band, so "5 days waiting" can never mean two different
+// things on two lines of the same card. null (not 0, not NaN) when the anchor
+// timestamp is absent or unparseable, so the UI can render "—" rather than a
+// confident zero.
+function wholeDaysSince(value, nowMs) {
+  if (!value) return null;
+  var t = new Date(value).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.floor(((Number(nowMs) || Date.now()) - t) / 86400000));
+}
+// Plain-English label for a career_contracts.status, written from the STAFF
+// point of view ("Awaiting your review"), because that is the only surface
+// that renders it.
+var CAREER_CONTRACT_STATUS_LABELS = {
+  awaiting_upload: 'Waiting on the practice to upload',
+  uploaded: 'Awaiting your review',
+  sent_to_gp: 'With the doctor to sign',
+  changes_requested: 'Doctor requested changes',
+  practice_review: 'With the practice to approve the change',
+  signed: 'Signed',
+  void: 'Replaced by a later version'
+};
+function careerContractStatusLabel(status) {
+  return CAREER_CONTRACT_STATUS_LABELS[String(status || '')] || 'Unknown';
 }
 // Fetch a gp_applications row ONLY when it belongs to `userId` — the ownership
 // check every GP contract endpoint runs (mirrors POST /api/career/application/
@@ -37327,10 +37396,26 @@ async function handleApi(req, res, pathname) {
         try {
           // Re-send the SAME post-interview decision email the practice already
           // has — same ask, same token-authed accept/decline links — rather
-          // than inventing a second message they would have to reconcile.
-          await sendPostInterviewDecisionEmail(piApp.id);
-          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(piApp.id), { method: 'PATCH', body: { last_practice_reminder_at: new Date().toISOString() } });
-          pdSent++;
+          // than inventing a second message they would have to reconcile,
+          // reworded as a follow-up.
+          //
+          // force:true is load-bearing, not decorative. Without it this call
+          // hit sendPostInterviewDecisionEmail's own already-sent guard (the
+          // stamp THAT function wrote when the interview ended, which nothing
+          // ever clears) and returned {skipped:'already_sent'} — so day 3 and
+          // day 5 sent nothing at all while this loop still counted a send,
+          // patched last_practice_reminder_at and reported success. Only the
+          // day-7 CEO chase above ever reached anyone.
+          var piSend = await sendPostInterviewDecisionEmail(piApp.id, { force: true, reminder: true });
+          if (piSend && piSend.ok) {
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(piApp.id), { method: 'PATCH', body: { last_practice_reminder_at: new Date().toISOString() } });
+            pdSent++;
+          } else {
+            // Do NOT stamp last_practice_reminder_at on a failure — leaving it
+            // alone is what lets the next run retry instead of silently
+            // skipping to the day-5 slot.
+            pdErrors.push({ id: piApp.id, error: (piSend && (piSend.error || piSend.skipped)) || 'post_interview_send_failed' });
+          }
         } catch (epS) { pdErrors.push({ id: piApp.id, error: 'post_interview_send_error' }); }
       }
 
@@ -69076,6 +69161,328 @@ Return ONLY valid JSON with no markdown formatting:
     var rpNow = new Date().toISOString();
     await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(rpId), { method: 'PATCH', body: { practice_reminder_count: (rpApp.practice_reminder_count || 0) + 1, last_practice_reminder_at: rpNow, updated_at: rpNow } });
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ══ Staff offer band (2026-07-31) ══════════════════════════════════════════
+  // GET /api/ats/application/offer-state?applicationId=<uuid>
+  //
+  // ONE aggregate the offer band renders from, so the band never has to stitch
+  // three endpoints together and disagree with itself: where the practice's
+  // post-interview decision sits, the live (non-void) contract with its 1h
+  // signed download links and AI-review verdict, and EVERY contract iteration
+  // including the discarded ones.
+  //
+  // requireAtsSession, not requireCeoSession: this is read-only, and a
+  // consultant working a candidate has to be able to see where that
+  // candidate's offer is. The contract ACTIONS (submit to GP, return to
+  // practice, change-decision, AI re-check) stay CEO-only — see the note on
+  // POST /api/ats/contract/nudge below.
+  //
+  // Never leaks the practice's upload/consent token, the raw storage path, or
+  // any internal note beyond ceoNote.
+  if (pathname === '/api/ats/application/offer-state' && req.method === 'GET') {
+    var ctxOS = requireAtsSession(req, res); if (!ctxOS) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
+    var osId = String(url.searchParams.get('applicationId') || '').trim();
+    if (!osId) { sendJson(res, 400, { ok: false, message: 'applicationId is required.' }); return; }
+
+    var osRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(osId) + '&limit=1');
+    var osApp = (osRes.ok && Array.isArray(osRes.data) && osRes.data[0]) ? osRes.data[0] : null;
+    if (!osApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    // Practice label + contact: the application's OWN columns first (the
+    // ATS-native source, written at submission time), then the role row, then
+    // the practices row — the same precedence sendPostInterviewDecisionEmail
+    // uses, minus the registration-case fallback (a display surface does not
+    // need to dig that far).
+    var osRole = null;
+    if (osApp.career_role_id != null) {
+      var osRoleRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,practice_id&id=eq.' + encodeURIComponent(osApp.career_role_id) + '&limit=1');
+      osRole = (osRoleRes.ok && Array.isArray(osRoleRes.data) && osRoleRes.data[0]) ? osRoleRes.data[0] : null;
+    }
+    var osPracticeName = String((osRole && osRole.practice_name) || osApp.practice_name || '').trim();
+    var osContactEmail = String(osApp.practice_contact_email || '').trim();
+    var osContactName = String(osApp.practice_contact_name || '').trim();
+    if (!osPracticeName || !osContactEmail) {
+      var osPracticeId = osApp.practice_id || (osRole && osRole.practice_id) || null;
+      if (osPracticeId) {
+        var osPracticeRow = null;
+        try { osPracticeRow = await atsGetPracticeRow(osPracticeId); } catch (e) { osPracticeRow = null; }
+        if (osPracticeRow) {
+          if (!osPracticeName) osPracticeName = String(osPracticeRow.name || '').trim();
+          if (!osContactEmail) osContactEmail = String(osPracticeRow.contact_email || '').trim();
+          if (!osContactName) osContactName = String(osPracticeRow.contact_name || '').trim();
+        }
+      }
+    }
+
+    // ONE version-sorted read (newest version first) drives both the live
+    // contract and the iteration history — no second sorting query.
+    var osContracts = await listCareerContractsForApplication(osId);
+    var osLive = osContracts.find(function (c) { return String(c.status) !== 'void'; }) || null;
+
+    var osStatusKey = normalizeCareerApplicationStatusKey(osApp.status);
+    var osDeclineReason = String(osApp.practice_decision_reason || '').trim();
+    // A practice decline is either the pre-interview turn-down
+    // (practice_decision='turned_down', which does carry a reason) or the
+    // post-interview "not proceeding" from /api/practice/offer/decision, which
+    // deliberately writes NO reason column — a doctor walking away is stamped
+    // 'withdrawn', never 'not_proceeding', so treating a bare 'not_proceeding'
+    // as a practice decline cannot misattribute a GP withdrawal.
+    var osDeclined = String(osApp.practice_decision || '') === 'turned_down' || osStatusKey === 'not_proceeding';
+    var osDecision = osDeclined ? 'declined' : (osContracts.length ? 'extended' : 'awaiting');
+    // The band uses this to say the doctor has left the offer pipeline for
+    // THIS application — declined, withdrawn, or already placed.
+    var osOutOfPipeline = osDeclined
+      || osStatusKey === 'withdrawn'
+      || isCareerPlacementSecuredStatus(osStatusKey)
+      || String(osApp.ats_stage || '') === 'not_proceeding';
+
+    // Mirrors GET /api/ceo/contracts exactly (supabaseStorageCreateSignedUrl,
+    // 1h TTL, download filename). A signing failure degrades to a null link,
+    // never a failed request — a broken download button is survivable, a blank
+    // offer band is not.
+    var osSignedUrl = async function (bucket, objectPath, fileName) {
+      if (!bucket || !objectPath) return null;
+      try { return (await supabaseStorageCreateSignedUrl(bucket, objectPath, fileName)) || null; }
+      catch (e) { return null; }
+    };
+
+    var osContract = null;
+    if (osLive) {
+      var osReview = (osLive.ai_review && typeof osLive.ai_review === 'object') ? osLive.ai_review : {};
+      osContract = {
+        id: osLive.id,
+        version: Number(osLive.version) || 0,
+        status: String(osLive.status || ''),
+        statusLabel: careerContractStatusLabel(osLive.status),
+        uploadedAt: osLive.uploaded_at || null,
+        sentToGpAt: osLive.sent_to_gp_at || null,
+        signedAt: osLive.signed_at || null,
+        daysSinceUploaded: wholeDaysSince(osLive.uploaded_at),
+        daysSinceSentToGp: wholeDaysSince(osLive.sent_to_gp_at),
+        fileUrl: await osSignedUrl(osLive.contract_bucket, osLive.contract_path, osLive.contract_filename || 'contract.pdf'),
+        signedFileUrl: await osSignedUrl(osLive.signed_bucket, osLive.signed_path, osLive.signed_filename || 'signed-contract.pdf'),
+        ai: {
+          status: String(osLive.ai_review_status || 'not_run'),
+          overall: String(osReview.overall || ''),
+          summary: String(osReview.summary || ''),
+          discrepancies: (Array.isArray(osReview.discrepancies) ? osReview.discrepancies : []).map(function (d) {
+            d = (d && typeof d === 'object') ? d : {};
+            return {
+              field: String(d.field || ''),
+              severity: String(d.severity || ''),
+              contract_says: String(d.contract_says || ''),
+              expected: String(d.expected || ''),
+              source: String(d.source || '')
+            };
+          }),
+          interviewTermsAvailable: osReview.interview_terms_available === true
+        },
+        changeRequest: String(osLive.change_request || ''),
+        changeResponse: String(osLive.change_response || ''),
+        ceoNote: String(osLive.ceo_note || '')
+      };
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      applicationId: osId,
+      stage: String(osApp.ats_stage || ''),
+      status: String(osApp.status || ''),
+      outOfPipeline: osOutOfPipeline,
+      practice: {
+        decision: osDecision,
+        name: osPracticeName,
+        contactEmail: osContactEmail,
+        contactName: osContactName,
+        emailSentAt: osApp.post_interview_email_sent_at || null,
+        daysSinceEmail: wholeDaysSince(osApp.post_interview_email_sent_at),
+        // practice_reminder_count is the only reminder counter on the row; the
+        // post-interview cron pass only refreshes last_practice_reminder_at,
+        // so this can under-count post-interview chases. It is still the
+        // honest "how many times have we chased this practice" number.
+        remindersSent: Number(osApp.practice_reminder_count || 0),
+        lastReminderAt: osApp.last_practice_reminder_at || null,
+        declineReason: osDeclineReason,
+        interviewCompletedAt: osApp.interview_completed_at || null
+      },
+      contract: osContract,
+      // EVERY version, void rows included, newest version first — the
+      // "contract iterations" view.
+      history: osContracts.map(function (c) {
+        return {
+          id: c.id,
+          version: Number(c.version) || 0,
+          status: String(c.status || ''),
+          statusLabel: careerContractStatusLabel(c.status),
+          createdAt: c.created_at || null,
+          updatedAt: c.updated_at || null,
+          isLive: !!(osLive && String(osLive.id) === String(c.id))
+        };
+      })
+    });
+    return;
+  }
+
+  // POST /api/ats/contract/nudge  { applicationId }
+  //
+  // Chases whoever the ball is actually with, and tells the caller which — the
+  // band shows one button, not three, and staff never have to work out whether
+  // the practice or the doctor is the blocker.
+  //
+  // requireAtsSession: a nudge is a reminder, not a decision. It cannot move a
+  // contract's status, approve anything, or spend money — unlike the CEO-only
+  // contract actions (/api/ceo/contract/decision, /change-decision, /ai-check).
+  if (pathname === '/api/ats/contract/nudge' && req.method === 'POST') {
+    var ctxNG = requireAtsSession(req, res); if (!ctxNG) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
+    var ngBody; try { ngBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    var ngId = String((ngBody && (ngBody.applicationId || ngBody.id)) || '').trim();
+    if (!ngId) { sendJson(res, 400, { ok: false, message: 'applicationId is required.' }); return; }
+
+    var ngRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(ngId) + '&limit=1');
+    var ngApp = (ngRes.ok && Array.isArray(ngRes.data) && ngRes.data[0]) ? ngRes.data[0] : null;
+    if (!ngApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    // Terminal application — same defence the rest of the contract pipeline
+    // runs. Chasing a practice about a doctor who withdrew, or a doctor whose
+    // placement is already secured, is worse than doing nothing.
+    var ngStatusKey = normalizeCareerApplicationStatusKey(ngApp.status);
+    if (ngStatusKey === 'withdrawn' || ngStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(ngStatusKey)) {
+      sendJson(res, 409, { ok: false, code: 'nothing_to_nudge', message: 'This application is no longer active.' });
+      return;
+    }
+
+    var ngContracts = await listCareerContractsForApplication(ngId);
+    var ngLive = ngContracts.find(function (c) { return String(c.status) !== 'void'; }) || null;
+    // Who has the ball:
+    //   no contract at all / awaiting_upload → the practice still owes us a
+    //     decision (or the file that follows it)
+    //   sent_to_gp / changes_requested       → the doctor
+    //   practice_review                      → the practice, on the consent ask
+    //   signed, or nothing but void rows     → nobody; 409
+    var ngKind = '';
+    if (!ngContracts.length) ngKind = 'practice_decision';
+    else if (ngLive && String(ngLive.status) === 'awaiting_upload') ngKind = 'practice_decision';
+    else if (ngLive && (String(ngLive.status) === 'sent_to_gp' || String(ngLive.status) === 'changes_requested')) ngKind = 'gp';
+    else if (ngLive && String(ngLive.status) === 'practice_review') ngKind = 'practice_consent';
+    if (!ngKind) {
+      sendJson(res, 409, { ok: false, code: 'nothing_to_nudge', message: 'There is nobody to chase on this application right now.' });
+      return;
+    }
+
+    // One nudge per application per 6 hours. checkRateLimitWindow is the
+    // atomic gate (it is the file's only rate-limit primitive); the runtime-KV
+    // stamp beside it exists so the 429 can quote an exact retryAfterMinutes
+    // — checkRateLimitWindow only answers yes/no, and its Supabase-side
+    // counter is not readable from here.
+    //
+    // That stamp doubles as the GP-side "last nudged" record: gp_applications
+    // has a column for a practice chase (last_practice_reminder_at, patched
+    // below) but none for a GP chase, and this change deliberately ships NO
+    // migration — so the GP-side stamp lives in the rate-limit store only.
+    var NG_WINDOW_MS = 6 * 60 * 60 * 1000;
+    var ngStampKey = 'career_contract_nudge:' + ngId;
+    var ngRetryMinutes = function (fromMs) {
+      return Math.max(1, Math.ceil(((Number(fromMs) || 0) + NG_WINDOW_MS - Date.now()) / 60000));
+    };
+    var ngStampRow = await getRuntimeKv(ngStampKey);
+    var ngLastMs = (ngStampRow && ngStampRow.value && ngStampRow.value.at) ? new Date(ngStampRow.value.at).getTime() : 0;
+    if (Number.isFinite(ngLastMs) && ngLastMs > 0 && (Date.now() - ngLastMs) < NG_WINDOW_MS) {
+      sendJson(res, 429, { ok: false, code: 'too_soon', retryAfterMinutes: ngRetryMinutes(ngLastMs) });
+      return;
+    }
+    if (!(await checkRateLimitWindow('contract-nudge:' + ngId, 1, NG_WINDOW_MS))) {
+      sendJson(res, 429, { ok: false, code: 'too_soon', retryAfterMinutes: Math.ceil(NG_WINDOW_MS / 60000) });
+      return;
+    }
+
+    var ngNowIso = new Date().toISOString();
+    var ngStamp = async function (target) {
+      await setRuntimeKv(ngStampKey, { at: ngNowIso, target: target }, Date.now() + NG_WINDOW_MS + 60000);
+    };
+
+    if (ngKind === 'practice_decision') {
+      // force:true — the practice already has one of these, and the guard in
+      // sendPostInterviewDecisionEmail would otherwise swallow the chase
+      // silently. reminder:true rewords it as a follow-up.
+      var ngSend = await sendPostInterviewDecisionEmail(ngId, { force: true, reminder: true });
+      if (!ngSend || !ngSend.ok) {
+        sendJson(res, 502, { ok: false, message: 'Could not send the reminder to the practice.', reason: (ngSend && (ngSend.error || ngSend.skipped)) || 'send_failed' });
+        return;
+      }
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(ngId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { last_practice_reminder_at: ngNowIso, updated_at: ngNowIso }
+      });
+      await ngStamp('practice');
+      sendJson(res, 200, { ok: true, target: 'practice' });
+      return;
+    }
+
+    if (ngKind === 'practice_consent') {
+      var ngConsentEmail = await resolveContractPracticeEmail(ngLive, ngApp);
+      if (!ngConsentEmail) { sendJson(res, 502, { ok: false, message: 'No practice contact email on file.' }); return; }
+      var ngEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+      var ngRoleTitle = await careerRoleTitleForApplication(ngLive.career_role_id || ngApp.career_role_id).catch(function () { return ''; });
+      // A FRESH consent token, minted against the same live row — the one in
+      // the original email may already have expired.
+      var ngConsentToken = mintContractConsentToken(ngLive.id);
+      var ngApproveUrl = APP_BASE_URL + '/pages/practice-consent.html?token=' + encodeURIComponent(ngConsentToken) + '&intent=approve';
+      var ngDeclineUrl = APP_BASE_URL + '/pages/practice-consent.html?token=' + encodeURIComponent(ngConsentToken) + '&intent=decline';
+      var ngConsentSend = await sendEmail({
+        to: ngConsentEmail,
+        subject: 'Still waiting: the doctor\'s requested contract change',
+        from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
+        html: buildCareerEmailHtml({
+          title: 'A contract change is still waiting on you',
+          bodyHtml:
+            '<p>Hi ' + ngEsc(ngLive.practice_contact_name || 'there') + ',</p>' +
+            '<p>We haven\'t heard back about the change the doctor asked for on their employment contract'
+            + (ngRoleTitle ? ' for the ' + ngEsc(ngRoleTitle) + ' role' : '') + '.</p>' +
+            '<p><strong>What they asked for:</strong><br>' + ngEsc(ngLive.change_request || '').replace(/\n/g, '<br>') + '</p>' +
+            '<p>Either answer is fine — we just need to know so the doctor isn\'t left waiting.</p>',
+          ctaText: 'Yes, I can make this change',
+          ctaUrl: ngApproveUrl,
+          secondaryCtaText: 'No, the contract stands as is',
+          secondaryCtaUrl: ngDeclineUrl
+        })
+      }).catch(function (err) { console.warn('[contract-nudge] consent chase failed:', err && err.message); return { ok: false }; });
+      if (!ngConsentSend || !ngConsentSend.ok) { sendJson(res, 502, { ok: false, message: 'Could not send the reminder to the practice.' }); return; }
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(ngId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { last_practice_reminder_at: ngNowIso, updated_at: ngNowIso }
+      });
+      await ngStamp('practice');
+      sendJson(res, 200, { ok: true, target: 'practice' });
+      return;
+    }
+
+    // ngKind === 'gp' — the contract is with the doctor. Same in-app + push +
+    // email trio POST /api/ceo/contract/decision's submit_to_gp branch fires,
+    // deep-linked to the same offer-review page.
+    var ngGpUserId = (ngLive && ngLive.user_id) || ngApp.user_id || null;
+    if (!ngGpUserId) { sendJson(res, 502, { ok: false, message: 'No doctor is linked to this application.' }); return; }
+    var ngChanges = String(ngLive.status) === 'changes_requested';
+    var ngTitle = ngChanges ? 'Your contract is still open 📄' : 'Your contract is still waiting 📄';
+    var ngBodyMsg = ngChanges
+      ? 'We are still working through the change you asked for on your employment contract. You can review the contract as it stands at any time — we will let you know the moment the practice responds.'
+      : 'Your employment contract is still waiting for you. Please review it, then sign and upload it, or request changes if something needs to be adjusted.';
+    var ngNextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(ngId);
+    var ngGpEmail = await sendGpNotificationEmail(ngGpUserId, ngTitle + ' — GP Link', ngTitle, ngBodyMsg,
+      ngChanges ? 'View position' : 'Accept position', APP_BASE_URL + ngNextPath,
+      'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(function () { return { ok: false }; });
+    await Promise.all([
+      pushCareerNotificationToUser(ngGpUserId, { type: 'info', title: ngTitle, body: ngBodyMsg }).catch(function () {}),
+      sendPushNotification(ngGpUserId, { title: ngTitle, body: ngBodyMsg, data: { type: 'career', action: 'contract_reminder', url: ngNextPath } }).catch(function () {})
+    ]);
+    await ngStamp('gp');
+    // emailed:false when the doctor has no reachable address — the in-app
+    // notification still landed, so this is a partial success, not a failure,
+    // but the band must be able to say so rather than claim an email went out.
+    sendJson(res, 200, { ok: true, target: 'gp', emailed: !!(ngGpEmail && ngGpEmail.ok) });
     return;
   }
 

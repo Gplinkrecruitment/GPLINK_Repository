@@ -435,8 +435,20 @@ describe('post-interview silence gets chased', () => {
     expect(cron).toContain("'select=*&status=eq.interview_completed&limit=500'");
   });
 
-  it('re-sends the SAME decision email rather than inventing a second one', () => {
-    expect(cron).toContain('sendPostInterviewDecisionEmail(piApp.id)');
+  // NOTE (2026-07-31): every assertion in this describe block is a SOURCE
+  // GREP. They all passed for weeks while pass B sent literally nothing —
+  // sendPostInterviewDecisionEmail short-circuits on the
+  // post_interview_email_sent_at stamp it wrote itself, so this call returned
+  // {skipped:'already_sent'} and the loop still counted a send. A grep cannot
+  // see that. The behavioural proof now lives in
+  // tests/contract-nudge-and-offer-state.test.js.
+  it('re-sends the SAME decision email rather than inventing a second one, FORCED past the already-sent guard', () => {
+    expect(cron).toContain('sendPostInterviewDecisionEmail(piApp.id, { force: true, reminder: true })');
+  });
+
+  it('only counts a reminder the helper actually sent', () => {
+    expect(cron).toContain('if (piSend && piSend.ok)');
+    expect(cron).toContain("error: (piSend && (piSend.error || piSend.skipped)) || 'post_interview_send_failed'");
   });
 
   it('mirrors pass A: day 3, day 5, escalate at 7, and skips weekends', () => {

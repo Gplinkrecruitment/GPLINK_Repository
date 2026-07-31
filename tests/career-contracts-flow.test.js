@@ -125,8 +125,11 @@ describe('sendPostInterviewDecisionEmail — wiring (Task 9)', () => {
     expect(SERVER_SRC).toContain("POST_INTERVIEW_TOKEN_PURPOSE = 'post_interview_decision'");
   });
 
-  it('defines sendPostInterviewDecisionEmail(applicationId)', () => {
-    expect(SERVER_SRC).toMatch(/async function sendPostInterviewDecisionEmail\(applicationId\)/);
+  // Signature gained an `options` bag on 2026-07-31 (the silent-nudge fix):
+  // { force, reminder }. See tests/contract-nudge-and-offer-state.test.js for
+  // the behavioural coverage of what force actually does.
+  it('defines sendPostInterviewDecisionEmail(applicationId, options)', () => {
+    expect(SERVER_SRC).toMatch(/async function sendPostInterviewDecisionEmail\(applicationId, options\)/);
   });
 
   it('is wired into at least two completion call sites (declaration + >= 2 invocations)', () => {
@@ -147,7 +150,7 @@ describe('sendPostInterviewDecisionEmail — wiring (Task 9)', () => {
   // terminal application today, but it's one future call-site away, so the
   // guard must exist and must run BEFORE the stamping PATCH.
   it('skips terminal applications (withdrawn/not_proceeding/secured) BEFORE stamping interview_completed', () => {
-    const fnStart = SERVER_SRC.indexOf('async function sendPostInterviewDecisionEmail(applicationId)');
+    const fnStart = SERVER_SRC.indexOf('async function sendPostInterviewDecisionEmail(applicationId, options)');
     expect(fnStart).toBeGreaterThan(-1);
     const guardIdx = SERVER_SRC.indexOf(
       "piaStatusKey === 'withdrawn' || piaStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(piaStatusKey)",
@@ -2052,10 +2055,15 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
   it('career.html renders a CONTRACT ribbon + "Review contract" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
     expect(html).toMatch(/app\.contractStage === "sent_to_gp"/);
-    // The ribbon word + its CTA now come from careerApplicationState, the one
-    // state map every application card reads (2026-07-31).
+    // The ribbon word + its CTA come from careerApplicationState, the one state
+    // map every application card reads (2026-07-31). sent_to_gp is the ONE card
+    // in the product with its own treatment — black and gold, and a confetti
+    // burst — so it has its own ribbon and CTA; the other two contract states
+    // stay green.
+    expect(html).toMatch(/ribbon: "YOUR CONTRACT IS READY", tone: "gold"/);
+    expect(html).toContain('ctaLabel: "Review and sign"');
     expect(html).toMatch(/ribbon: "CONTRACT", tone: "green"/);
-    expect(html).toContain('ctaLabel: "Review contract"');
+    expect(html).toContain('ctaLabel: "View status"');
     expect(html).toContain('offerHref = "offer-review?applicationId="');
     // The field must survive BOTH client-side hops or it never reaches the
     // ribbon: the list normalizer (mergeRemoteApplications -> app.contractStage)

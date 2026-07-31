@@ -856,7 +856,7 @@
         '<div class="ats-app-interview"><span class="ats-app-lbl">Practice</span>' + submitPracticeLineHtml(a) + acceptApplicationLineHtml(a) + '</div>' +
         '<div class="ats-app-interview"><span class="ats-app-lbl">Interview</span>' + interviewHtml + '</div>' +
         '<div class="ats-app-offer"><span class="ats-app-lbl">Offer / contract</span>' +
-          '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerLineHtml(a) + '</div>' +
+          '<div class="ats-offer-box" data-offer-app-id="' + ATS.escAttr(String(a.id)) + '" style="flex:1;min-width:0">' + offerBoxInnerHtml(a) + '</div>' +
         '</div>' +
         markPlacementLineHtml(a) +
         appActionStripHtml(a) +
@@ -931,6 +931,10 @@
     if (window.refreshPipelineWidget) window.refreshPipelineWidget();
     if (window.loadCandidatesTab) window.loadCandidatesTab();
   }
+  // Exposed so the lazily-hydrated offer band (js/ceo-ats-offer.js) refreshes
+  // the card through the SAME convention as every other in-card action rather
+  // than inventing its own reload path.
+  window.atsRefreshAfterAppAction = refreshAfterAppAction;
 
   /* One click handler for the strip, shared by the candidate list and the
      drawer. Returns true when it handled the event, so each caller can bail
@@ -1309,6 +1313,34 @@
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-offer-send" data-app-id="' + ATS.escAttr(String(a.id)) + '">Send offer</button>';
   }
 
+  /* ---- Two offer paths, one box (owner request 2026-07-31) ----
+   * BEFORE the interview the legacy `ats_offers` "Send offer" form above is
+   * still the path: staff type the terms and the doctor sees them in-app.
+   * AFTER the interview none of that is used — the practice decides, uploads a
+   * real contract, the AI reviews it and the CEO releases it to the doctor —
+   * so the box hands over to the offer band (js/ceo-ats-offer.js), which is
+   * hydrated lazily by wireDetailEvents exactly like the interview slot
+   * picker. Everything earlier keeps offerLineHtml, so nothing regresses. */
+  var POST_INTERVIEW_STAGES = ['interview', 'offer', 'hired'];
+  function isPostInterviewApp(a) {
+    if (!a) return false;
+    return POST_INTERVIEW_STAGES.indexOf(a.ats_stage) !== -1 || a.status === 'interview_completed';
+  }
+  function offerBoxInnerHtml(a) {
+    if (!isPostInterviewApp(a)) return offerLineHtml(a);
+    // The placeholder carries its own quiet line, so an un-hydrated box (the
+    // offer module failed to load) is never blank.
+    return '<div class="ats-app-offer-band" data-offer-band-id="' + ATS.escAttr(String(a.id)) + '">' +
+      '<span class="ats-ob-loading">Loading the offer…</span></div>';
+  }
+  function hydrateOfferBands(root, caseId) {
+    if (!root || typeof window.atsRenderOfferBand !== 'function') return;
+    var els = root.querySelectorAll('.ats-app-offer-band[data-offer-band-id]');
+    for (var i = 0; i < els.length; i++) {
+      window.atsRenderOfferBand(els[i].getAttribute('data-offer-band-id'), els[i], caseId);
+    }
+  }
+
   function offerFormHtml(appId) {
     var lbl = 'display:grid;gap:3px;font-size:11px;color:var(--ats-dim)';
     return '<div class="ats-offer-form" data-offer-form-id="' + ATS.escAttr(String(appId)) + '"' +
@@ -1346,7 +1378,9 @@
   function closeOfferForm(appId) {
     var box = offerBoxFor(appId);
     var app = appFromCurrent(appId);
-    if (box) box.innerHTML = app ? offerLineHtml(app) : '—';
+    if (!box) return;
+    box.innerHTML = app ? offerBoxInnerHtml(app) : '—';
+    hydrateOfferBands(box, currentCandidate && currentCandidate.case_id);
   }
 
   function submitOffer(appId, c) {
@@ -1909,6 +1943,9 @@
         window.atsRenderSlotPicker(appId, el, c.case_id);
       })(pickEls[pi]);
     }
+    // Same pattern for the post-interview offer band (js/ceo-ats-offer.js):
+    // one lazy fetch per placeholder, only once the drawer is actually open.
+    hydrateOfferBands(host, c.case_id);
     // delegated change: a per-application stage <select> moves the GP along the pipeline.
     function commitAppStageMove(sel, appId, newStage, reason) {
       sel.disabled = true;

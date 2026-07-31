@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/css/gp-tokens.css?v=20260612" />
 <script src="/js/gp-notice.js?v=20260731a"></script>
+<script src="/js/gp-confetti.js?v=20260731a"></script>
 <!--
   DESIGN REFERENCE — not a product page. 404s in production (DEV_ONLY_PAGES in
   server.js).
@@ -161,6 +162,7 @@
     'careerApplicationState', 'buildCareerApplicationCardHtml',
     'buildInterviewPickerHtml', 'buildInterviewBookedHtml',
     'careerIvFormatDay', 'careerIvFormatTime', 'careerIvFormatFull',
+    'careerCelebratedSet', 'careerMarkCelebrated', 'careerCelebrateNewContracts',
     'careerIvHost', 'careerIvPaint', 'careerIvLoad', 'careerIvSelect',
     'careerIvBook', 'careerIvApplyBooking', 'careerIvBootAll',
     'formatMatchCountdown', 'matchSafeUrl', 'buildMatchCardHtml'
@@ -200,6 +202,10 @@
       // over it with a local guess.
       var pickerState = extractConstLine(src, 'careerIvPickers');
       if (!pickerState) missing.push('careerIvPickers');
+      // The once-per-contract confetti guard, so the gallery fires the real
+      // burst under the real rules rather than a decorative imitation.
+      var celebratedKey = extractConstLine(src, 'CAREER_CELEBRATED_KEY');
+      if (!celebratedKey) missing.push('CAREER_CELEBRATED_KEY');
       var deviceTz = extractIife(src, 'careerDeviceTz');
       if (!deviceTz) missing.push('careerDeviceTz');
 
@@ -217,7 +223,7 @@
       // fetch for a problem in the extracted code.
       try {
         wireIntroPreview(src);
-      render(parts.join('\n\n'), [lockSvg, pickerState].join('\n'), deviceTz);
+      render(parts.join('\n\n'), [lockSvg, pickerState, celebratedKey].join('\n'), deviceTz);
       } catch (renderErr) {
         fail('The card code extracted from pages/career.html did not run.', renderErr && renderErr.message);
       }
@@ -284,8 +290,9 @@
   ];
 
   var GOOD_NEWS = [
-    ['Offer', 'offerPending: true', app({ offerPending: true, revealed: true, practiceName: 'Erina Family Medical Centre' })],
-    ['Contract to sign', 'contractStage: "sent_to_gp"', app({ contractStage: 'sent_to_gp', revealed: true, practiceName: 'Erina Family Medical Centre' })],
+    // No "Offer" card any more — owner call 2026-07-31. The practice extending
+    // an offer only becomes real for the doctor when the contract lands.
+    ['Contract to sign (black + gold, confetti)', 'contractStage: "sent_to_gp"', app({ contractStage: 'sent_to_gp', revealed: true, practiceName: 'Erina Family Medical Centre' })],
     ['Contract — changes being checked', 'contractStage: "changes_requested"', app({ contractStage: 'changes_requested', revealed: true, practiceName: 'Erina Family Medical Centre' })],
     ['Offer accepted', 'rawStatus: "finalising_placement"', app({ rawStatus: 'finalising_placement', revealed: true, practiceName: 'Erina Family Medical Centre' })],
     ['Placement secured', 'isPlacementSecured: true', app({ isPlacementSecured: true, revealed: true, practiceName: 'Erina Family Medical Centre' })]
@@ -370,7 +377,7 @@
     var sections = [
       ['In progress', 'Nothing for the doctor to do yet — the ribbon and the blue ring say "we are working on it".', IN_PROGRESS],
       ['Interview', 'The practice said yes. The doctor picks a time on the card itself — no separate page. Click a time and Confirm below; it is the real picker, wired to fixture slots.', INTERVIEW],
-      ['Good news', 'Something for the doctor to act on — green ring, green ribbon, green button.', GOOD_NEWS],
+      ['Good news', 'Something for the doctor to act on. Green for progress; black and gold for the one that matters — a real contract, waiting to be signed.', GOOD_NEWS],
       ['Closed', 'Finished, and deliberately calm. A closed application is never a red alarm.', CLOSED]
     ];
 

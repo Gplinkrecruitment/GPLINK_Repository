@@ -15,6 +15,7 @@
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
+  <script src="/js/gp-confetti.js?v=20260731a"></script>
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260614a" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
@@ -1023,57 +1024,13 @@
   // when a revealed offer lands (either the practice-accept congrats moment,
   // or a returning visit while the offer is still sent/accepted). Removes its
   // own canvas after the burst so it never lingers over the page. ──
-  function launchConfetti() {
-    var palette = ['#2563eb', '#22c55e', '#f59e0b', '#ef4444', '#a855f7'];
-    var canvas = document.createElement('canvas');
-    canvas.id = 'confettiCanvas';
-    canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999;';
-    document.body.appendChild(canvas);
-    var ctx = canvas.getContext('2d');
-    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-    resize();
-    window.addEventListener('resize', resize);
-
-    var pieces = [];
-    for (var i = 0; i < 140; i++) {
-      pieces.push({
-        x: Math.random() * canvas.width,
-        y: -20 - Math.random() * canvas.height * 0.5,
-        w: 6 + Math.random() * 6,
-        h: 4 + Math.random() * 8,
-        color: palette[Math.floor(Math.random() * palette.length)],
-        vx: (Math.random() - 0.5) * 2.2,
-        vy: 2 + Math.random() * 3.2,
-        rotation: Math.random() * 360,
-        vr: (Math.random() - 0.5) * 12
-      });
+  // One confetti implementation, in js/gp-confetti.js. This page kept its own
+  // copy until 2026-07-31; the two copies had already drifted apart, which is
+  // what happens to a 50-line animation duplicated across pages.
+  function launchConfetti(options) {
+    if (window.gpConfetti && typeof window.gpConfetti.launch === 'function') {
+      window.gpConfetti.launch(options);
     }
-
-    var startTs = null;
-    var DURATION_MS = 2800;
-    var rafId = null;
-    function frame(ts) {
-      if (!startTs) startTs = ts;
-      var elapsed = ts - startTs;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      for (var i = 0; i < pieces.length; i++) {
-        var p = pieces[i];
-        p.x += p.vx; p.y += p.vy; p.rotation += p.vr;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate((p.rotation * Math.PI) / 180);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
-      }
-      if (elapsed < DURATION_MS) {
-        rafId = requestAnimationFrame(frame);
-      } else {
-        window.removeEventListener('resize', resize);
-        if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
-      }
-    }
-    rafId = requestAnimationFrame(frame);
   }
 
   // ── No-offer state: hide the offer content, show the friendly empty card ──
