@@ -10463,7 +10463,7 @@ VERIFICATION RULES:
    - FRNZCGP: "Royal New Zealand College of General Practitioners" (New Zealand)
    - RNZCGP Confirmation Letter: Letter from RNZCGP confirming fellowship under RNZCGP curriculum after GPEP
    All countries:
-   - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
+   - Primary Medical Degree: The degree certificate itself (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) AWARDED BY a university or medical school. Any country or institution is fine. A medical council or medical board REGISTRATION certificate is NOT the primary medical degree, even though it usually lists the degree in a "Qualifications" line — if you are sent one, set verified to false, set documentType to name it as a registration certificate, and write the issue as "This looks like a Certificate of Registration from <issuing body>, not Primary Medical Degree."
    - Certificate of Good Standing / Registration Status: Issued by the relevant medical regulatory body (GMC, IMC, MCNZ, etc.)
    - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
    - CV (Signed and dated): The doctor's curriculum vitae. It MUST be signed, dated, AND contain the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, set verified to false and add an issue naming exactly what is missing.

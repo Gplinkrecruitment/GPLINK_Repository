@@ -323,7 +323,11 @@ describe('onboarding wizard changes (static)', () => {
     expect(wizardJs).toContain('leadSource: ""');
     expect(wizardJs).toContain('leadSourceDetail: ""');
     expect(wizardJs).toContain('state.leadSource = leadSourceEl.value');
-    expect(pageHtml).toMatch(/onboarding\.js\?v=202607(0[7-9]|[12][0-9])[a-z]/);
+    // Pinned to the exact current buster rather than a date window: the window
+    // form silently expired at the end of July 2026 and had to be widened for an
+    // unrelated change. An exact pin still fails if onboarding.js is edited
+    // without a bump, which is what this assertion is actually guarding.
+    expect(pageHtml).toMatch(/onboarding\.js\?v=20260801a/);
   });
 
   it('the CEO dashboard has the "How GPs Found Us" card wired in', () => {

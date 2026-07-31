@@ -98,19 +98,34 @@
     };
   });
 
+  // "MRCGP Certificate" names exactly one piece of paper; "Primary Medical Degree"
+  // names a category, and the doctor has to work out which document that is. GPs
+  // trained overseas routinely resolve it to their home medical council's
+  // REGISTRATION certificate, because that certificate lists the MBBS by name — so
+  // the slot now states both what we need and what we don't. `label` stays short:
+  // it is reused for the camera title, the uploaded filename and the review row.
+  // Defined once and spread per country so the three lists cannot drift apart.
+  const PRIMARY_MED_DEGREE_DOC = {
+    key: "primary_med_degree",
+    label: "Primary Medical Degree",
+    displayLabel: "Primary Medical Degree (MBBS, MBChB, MD)",
+    hint: "The degree certificate issued by your university — not your medical council registration.",
+    type: "Primary Medical Degree",
+  };
+
   const COUNTRY_DOCS = {
     GB: [
       { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
       { key: "cct_cert", label: "CCT Certificate", type: "CCT Certificate" },
-      { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
+      { ...PRIMARY_MED_DEGREE_DOC },
     ],
     IE: [
       { key: "micgp_cert", label: "MICGP Certificate", type: "MICGP Certificate" },
-      { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
+      { ...PRIMARY_MED_DEGREE_DOC },
     ],
     NZ: [
       { key: "frnzcgp_cert", label: "FRNZCGP Certificate", type: "FRNZCGP Certificate" },
-      { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
+      { ...PRIMARY_MED_DEGREE_DOC },
     ],
   };
 
@@ -531,14 +546,38 @@
     return title || "the requested document";
   }
 
+  // "Please upload Primary Medical Degree." reads like a form field, not a
+  // sentence. Say "your Primary Medical Degree" when we know the document, and
+  // leave the generic fallback alone ("your the requested document" is worse).
+  function friendlyTargetPhrase(options) {
+    var label = getFriendlyIssueTarget(options);
+    return label === "the requested document" ? label : "your " + label;
+  }
+
+  function isPrimaryMedDegreeTarget(options) {
+    return /primary medical degree/i.test(getFriendlyIssueTarget(options));
+  }
+
   function humanizeScanIssue(issue, options) {
     var clean = stripIssueHtml(issue);
     var lower = clean.toLowerCase();
     var targetLabel = getFriendlyIssueTarget(options);
-    var wrongDocMatch = clean.match(/appears to be\s+(.+?),\s+not\s+(.+?)(?:\.|$)/i);
+    // The model writes this verdict as "appears to be", "looks like" or "seems to
+    // be" interchangeably; matching only the first let the useful "X, not Y"
+    // wording fall through to the raw model text.
+    var wrongDocMatch = clean.match(/(?:appears to be|looks like|seems to be)\s+(.+?),\s+not\s+(.+?)(?:\.|$)/i);
 
     if (!clean) {
       return "We could not complete the scan. Please try again with a clear image of the full document.";
+    }
+    // Overseas-trained GPs very often send their home medical council's
+    // REGISTRATION certificate for this slot, because it lists their MBBS by
+    // name — so "this is not your primary medical degree" reads to them as
+    // simply wrong, and they re-upload the same file. Name what they sent AND
+    // what we need; saying only what it is not is what drove the repeat tries.
+    if (isPrimaryMedDegreeTarget(options) &&
+        /registration certificate|certificate of registration|medical council|medical board/.test(lower)) {
+      return "This looks like your medical council registration certificate. It does list your medical degree, so it's an easy mix-up — but we need the degree certificate itself, the one your university or medical school issued you when you graduated. Please upload that instead, and keep this certificate safe as we'll need it later.";
     }
     // A name that differs from the account on a genuine qualification is a name change
     // (e.g. marriage), not a wrong document. Never tell the GP to upload a "matching"
@@ -546,7 +585,7 @@
     if (/looks like a previous name|changed your name|name change|previous name/.test(lower)) {
       return "The name on this document looks like a previous name. If you've changed your name, for example after marriage, that's fine — we'll record it and ask you for proof of your name change at a later step. You don't need to upload a different document.";
     }
-    if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
+    if (/does not match your account|doesn.?t match your profile|different from your account|different from the name on your account|same name as your qualifications/.test(lower)) {
       return "The name on this document is different from the name on your account. If you've changed your name, that's fine — we'll confirm it with you. Otherwise, please check you have uploaded the correct document.";
     }
     if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
@@ -556,10 +595,10 @@
       return "We could not read this document clearly. Retake the photo in good light and make sure all text is sharp and fully visible.";
     }
     if (/does not appear to be the correct document|wrong document|correct document type/.test(lower)) {
-      return "This looks like a different document from the one needed here. Please upload " + targetLabel + ".";
+      return "This looks like a different document from the one needed here. Please upload " + friendlyTargetPhrase(options) + ".";
     }
     if (wrongDocMatch) {
-      return "This looks like " + wrongDocMatch[1] + ", not " + targetLabel + ". Please upload the correct document for this step.";
+      return "This looks like " + wrongDocMatch[1] + ", not " + targetLabel + ". Please upload " + friendlyTargetPhrase(options) + " instead.";
     }
     if (/dated before|date on the document must be from|issue date/.test(lower)) {
       return "The issue date on this document is outside the accepted date range for this pathway. Please upload the correct certificate or a later version if available.";
@@ -682,9 +721,10 @@
 
       slot.innerHTML =
         '<div class="qual-doc-slot-header">' +
-          '<span class="qual-doc-slot-label">' + doc.label + '</span>' +
+          '<span class="qual-doc-slot-label">' + (doc.displayLabel || doc.label) + '</span>' +
           '<span class="qual-doc-slot-badge ' + badgeClass + '">' + badgeText + '</span>' +
         '</div>' +
+        (doc.hint ? '<p class="qual-doc-slot-hint">' + doc.hint + '</p>' : '') +
         (showActions ?
           '<div class="qual-doc-slot-actions">' +
             '<button class="qual-doc-btn" data-qual-upload="' + doc.key + '" type="button">' +
