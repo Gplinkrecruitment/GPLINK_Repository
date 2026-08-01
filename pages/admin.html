@@ -2604,6 +2604,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(t.status==='completed')return{prompt:'Section G auto-delivered',label:'Done',action:null,taskId:t.id};
         return{prompt:'Will auto-deliver when GP enters AHPRA stage',label:'Waiting',action:null,taskId:t.id};
       }
+      // The practice has ALREADY replied on this task (recorded by the inbound-mail path).
+      // Everything below this point describes the state before they answered, so falling
+      // through would re-print the very first step — "Email the practice requesting X" — and
+      // walk the RSO into sending a duplicate of an email the practice has already answered.
+      // Note: an emailed document lands in task_documents, NOT task.attachment_url, so the
+      // hasAttachment checks below never see it — practice_reply.has_document is what knows.
+      // (No button is rendered for these task types — the row expands on click, see ~2937 —
+      // but `action` must be non-null or the prompt itself is hidden at the render gate.)
+      // Skipped once the task is back in a waiting_* status: that means we have ALREADY answered
+      // their reply and the ball is with the practice again, so the waiting pill should win. A
+      // fresh reply flips the task back to open server-side, which re-arms this branch.
+      var _prMeta=t.metadata; if(typeof _prMeta==='string'){try{_prMeta=JSON.parse(_prMeta);}catch(e){_prMeta=null;}}
+      var _pr=(_prMeta&&_prMeta.practice_reply)||null;
+      if(_pr&&!hasHtml&&String(t.status||'').indexOf('waiting')!==0){
+        if(_pr.has_document)return{prompt:'Practice sent the document — review it',label:'Review Doc',action:'expandTask',taskId:t.id};
+        return{prompt:'Practice replied — read the reply',label:'Read Reply',action:'expandTask',taskId:t.id};
+      }
       if(dk==='position_description'){
         if(hasHtml)return{prompt:'Review the generated position description and approve',label:'Edit & Review',action:'editPD',taskId:t.id};
         if(hasAttachment)return{prompt:'Review the uploaded position description',label:'Review Doc',action:'previewDoc',taskId:t.id};
@@ -5421,6 +5438,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ── Practice Pack Child ── */
+  // Plain-text draft -> composer HTML. Escapes FIRST (the draft quotes practice-supplied text,
+  // so it must never be able to inject markup), then blank line -> paragraph break.
+  // Mirrors plainTextToHtml in lib/practice-reply-followup.js.
+  function opsPlainTextToHtml(text){
+    var raw=String(text==null?'':text).replace(/\r\n/g,'\n').trim();
+    if(!raw)return '';
+    return raw.split(/\n{2,}/).map(function(p){return esc(p).replace(/\n/g,'<br>');}).join('<br><br>');
+  }
+  // Plain-English gloss of what a no-document practice reply amounted to.
+  // Mirrors outcomeGuidance in lib/practice-reply-followup.js.
+  function opsPracticeReplyGuidance(outcome){
+    if(outcome==='delegated')return 'They passed it to someone else — nothing has arrived yet, so this still needs chasing.';
+    if(outcome==='content_in_body')return 'They put the content in the email itself instead of attaching a file — we still need it as a document.';
+    if(outcome==='will_send_later')return 'They said they will send it — no document has arrived yet.';
+    if(outcome==='question_for_us')return 'They asked us something before they can send it — answer them to unblock it.';
+    if(outcome==='cannot_provide')return 'They said they cannot provide it — this may need a different route.';
+    return 'No document was attached to this reply — read it and decide what to send back.';
+  }
+
   function renderOpsPracticePackChild(task,msgs,docs){
     var st=task.status||'open';
     var gpName=task.gp_name||'the GP';
@@ -5490,8 +5526,60 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h;
     }
 
-    // State C: Waiting on practice (outbound sent, no response yet)
-    if(st==='waiting_on_practice'&&!hasInbound){
+    // State D: the practice replied but did NOT send the document. Show what they said, what
+    // the AI made of it, and a follow-up draft that answers it. This must come before the
+    // State A fallback below — otherwise the RSO is shown the ORIGINAL request composer again,
+    // i.e. asked to re-send an email the practice has already answered.
+    // Gated on the LAST message being theirs: once we have sent the follow-up, the ball is back
+    // with the practice and State C ("Waiting on practice") is the truthful panel — otherwise
+    // this panel would keep insisting they had just replied long after we answered them.
+    var lastMsg=msgs.length?msgs[msgs.length-1]:null;
+    var awaitingOurReply=!!(lastMsg&&lastMsg.direction==='inbound');
+    if(hasInbound&&!hasDoc&&awaitingOurReply){
+      var prMeta=task.metadata; if(typeof prMeta==='string'){try{prMeta=JSON.parse(prMeta);}catch(e){prMeta=null;}}
+      var pr=(prMeta&&prMeta.practice_reply)||null;
+      var prReady=!!(pr&&pr.suggested_reply);
+      var h4='<div class="ops-expand-section">';
+      h4+='<div class="ops-response-banner">';
+      h4+='<div class="ops-response-title">Practice replied — no document attached</div>';
+      if(lastInbound)h4+='<div class="ops-response-text">'+esc(opsSnippet(lastInbound.body_text||lastInbound.body_html||'',600))+'</div>';
+      if(lastInbound)h4+='<div class="ops-response-meta">From: '+esc(lastInbound.sender||'—')+' · '+opsFormatDate(lastInbound.created_at)+'</div>';
+      h4+='</div>';
+      if(pr&&(pr.summary||pr.outcome)){
+        h4+='<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12px;color:#1d4ed8">';
+        if(pr.summary)h4+='<div><strong>What they said:</strong> '+esc(pr.summary)+'</div>';
+        if(pr.outcome)h4+='<div style="margin-top:4px">'+esc(opsPracticeReplyGuidance(pr.outcome))+'</div>';
+        if(pr.handed_to)h4+='<div style="margin-top:4px"><strong>Passed to:</strong> '+esc(pr.handed_to)+'</div>';
+        h4+='</div>';
+      }
+      h4+='<div class="ops-expand-label">'+(prReady?'Suggested follow-up — review, edit, then send':'Follow-up reply')+'</div>';
+      h4+='<div class="ops-email-composer">';
+      h4+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc((lastInbound&&lastInbound.sender)||practiceEmail)+'" /></div>';
+      h4+='<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="'+esc(task.id)+'" multiple style="min-height:28px"><option value="">Loading contacts...</option></select></div>';
+      h4+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc((pr&&pr.suggested_subject)||('Re: '+docTitle+' for Dr '+gpName))+'" /></div>';
+      h4+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
+        +(prReady?opsPlainTextToHtml(pr.suggested_reply)
+          :'Hi '+esc(contactName||'')+',<br><br>Thank you for coming back to us about the <strong>'+esc(docTitle)+'</strong> for Dr '+esc(gpName)+'.<br><br>We could not see the document attached to your reply — could you please send it through as an attachment?'+(signReq?' '+signReq:'')+'<br><br>Kind regards,<br>Hazel — GP Link Registration Team')
+        +'</div>';
+      h4+='<div class="ops-email-actions">';
+      h4+='<button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send follow-up</button>';
+      h4+='<button class="ops-btn-secondary" data-ops-practice-draft="'+esc(task.id)+'">'+(prReady?'Re-draft with AI':'Draft with AI')+'</button>';
+      h4+='</div>';
+      h4+='</div>';
+      h4+='<div class="ops-action-row">';
+      h4+='<button class="ops-btn-secondary" data-ops-upload-own="'+esc(task.id)+'">Upload the document myself</button>';
+      h4+='</div>';
+      h4+='<div class="ops-upload-area" id="opsUpload_'+esc(task.id)+'" style="display:none"><input type="file" data-ops-file-input="'+esc(task.id)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"></div>';
+      h4+='</div>';
+      if(msgs.length)h4+=opsRenderThread(msgs);
+      return h4;
+    }
+
+    // State C: Waiting on practice — nothing back from them yet, OR they replied and we have
+    // already answered (last message is ours). Was `!hasInbound`, which meant that once we
+    // answered a reply the task matched no state at all and fell through to the State A
+    // request composer, re-offering the original request all over again.
+    if(st==='waiting_on_practice'&&!awaitingOurReply){
       var h2='<div class="ops-expand-section">';
       h2+='<div class="ops-expand-label">Waiting on practice</div>';
       h2+=opsRenderThread(msgs);
@@ -6727,6 +6815,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return;
       }
 
+      // Draft / re-draft the follow-up for a practice reply that carried no document. The
+      // inbound-mail path does this automatically on arrival; this covers replies that landed
+      // before the feature shipped, and retries when the AI was unavailable at the time.
+      var gpPracticeDraftBtn=e.target.closest("[data-ops-practice-draft]");
+      if(gpPracticeDraftBtn){
+        var tid=gpPracticeDraftBtn.getAttribute("data-ops-practice-draft");
+        var origLabel=gpPracticeDraftBtn.textContent;
+        gpPracticeDraftBtn.disabled=true;gpPracticeDraftBtn.textContent='Drafting…';
+        try{
+          var r=await fetch('/api/admin/practice-reply/draft',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tid})});
+          var d=await r.json().catch(()=>({}));
+          if(d.ok){
+            showOpsToast('Follow-up drafted — review it before sending');
+            loadTasks().then(function(){renderDetail();});
+          }else{showOpsToast(d.message||'Could not draft a follow-up','red');gpPracticeDraftBtn.disabled=false;gpPracticeDraftBtn.textContent=origLabel;}
+        }catch(err){showOpsToast(err.message||'Network error','red');gpPracticeDraftBtn.disabled=false;gpPracticeDraftBtn.textContent=origLabel;}
+        return;
+      }
+
       var gpSubmitDriveBtn=e.target.closest("[data-ops-submit-drive]");
       if(gpSubmitDriveBtn){
         var tid=gpSubmitDriveBtn.getAttribute("data-ops-submit-drive");
@@ -7402,6 +7509,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             showOpsToast('Email sent to AHPRA — SPPA updated in Drive & GP documents');loadOpsQueue();
           }else{showOpsToast(d5.message||'Email failed','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
+        return;
+      }
+
+      /* ── Draft / re-draft the follow-up to a practice reply that had no document ── */
+      var practiceDraftBtn=e.target.closest("[data-ops-practice-draft]");
+      if(practiceDraftBtn){
+        var tidPd=practiceDraftBtn.getAttribute("data-ops-practice-draft");
+        var origLabelPd=practiceDraftBtn.textContent;
+        practiceDraftBtn.disabled=true;practiceDraftBtn.textContent='Drafting…';
+        try{
+          var rPd=await fetch('/api/admin/practice-reply/draft',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tidPd})});
+          var dPd=await rPd.json().catch(()=>({}));
+          if(dPd.ok){showOpsToast('Follow-up drafted — review it before sending');loadOpsQueue();}
+          else{showOpsToast(dPd.message||'Could not draft a follow-up','red');practiceDraftBtn.disabled=false;practiceDraftBtn.textContent=origLabelPd;}
+        }catch(err){showOpsToast(err.message||'Network error','red');practiceDraftBtn.disabled=false;practiceDraftBtn.textContent=origLabelPd;}
         return;
       }
 

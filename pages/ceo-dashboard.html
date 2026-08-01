@@ -5234,6 +5234,20 @@
           if (t.status === 'completed') return { prompt: 'Section G auto-delivered', label: 'Done', action: null, taskId: t.id };
           return { prompt: 'Will auto-deliver when GP enters AHPRA stage', label: 'Waiting', action: null, taskId: t.id };
         }
+        // The practice has ALREADY replied (recorded by the inbound-mail path). Everything
+        // below describes the state before they answered, so falling through would re-print
+        // "Email the practice requesting X" and walk the user into sending a duplicate of an
+        // email the practice already answered. Mirrors admin.html getGuidedAction.
+        // An emailed document lands in task_documents, NOT task.attachment_url, so the
+        // hasAttachment checks below never see it — practice_reply.has_document does.
+        // Skipped once the task is back in a waiting_* status: we have already answered their
+        // reply, so the waiting pill should win. A fresh reply flips it back to open server-side.
+        var _prMeta = t.metadata; if (typeof _prMeta === 'string') { try { _prMeta = JSON.parse(_prMeta); } catch (e) { _prMeta = null; } }
+        var _pr = (_prMeta && _prMeta.practice_reply) || null;
+        if (_pr && !hasHtml && String(t.status || '').indexOf('waiting') !== 0) {
+          if (_pr.has_document) return { prompt: 'Practice sent the document — review it', label: 'Review Doc', action: 'expandTask', taskId: t.id };
+          return { prompt: 'Practice replied — read the reply', label: 'Read Reply', action: 'expandTask', taskId: t.id };
+        }
         if (dk === 'position_description') {
           if (hasHtml) return { prompt: 'Review the generated position description and approve', label: 'Edit & Review', action: 'editPD', taskId: t.id };
           if (hasAttachment) return { prompt: 'Review the uploaded position description', label: 'Review Doc', action: 'previewDoc', taskId: t.id };
@@ -5740,6 +5754,25 @@
     // Shows the practice response banner (+ AI match badge), the current document(s), the
     // thread, and the CEO document controls. Admin's send/revision email composers depend on
     // admin-only data-ops-send-* handlers and are surfaced as an RSO-tool note (Task 3d.6 NOTE).
+    // Plain-text draft -> composer HTML. Escapes FIRST (the draft quotes practice-supplied
+    // text, so it must never inject markup). Mirrors admin.html opsPlainTextToHtml and
+    // plainTextToHtml in lib/practice-reply-followup.js.
+    function ceoPlainTextToHtml(text) {
+      var raw = String(text == null ? '' : text).replace(/\r\n/g, '\n').trim();
+      if (!raw) return '';
+      return raw.split(/\n{2,}/).map(function (p) { return esc(p).replace(/\n/g, '<br>'); }).join('<br><br>');
+    }
+    // Plain-English gloss of what a no-document practice reply amounted to.
+    // Mirrors admin.html opsPracticeReplyGuidance and outcomeGuidance in the lib.
+    function ceoPracticeReplyGuidance(outcome) {
+      if (outcome === 'delegated') return 'They passed it to someone else — nothing has arrived yet, so this still needs chasing.';
+      if (outcome === 'content_in_body') return 'They put the content in the email itself instead of attaching a file — we still need it as a document.';
+      if (outcome === 'will_send_later') return 'They said they will send it — no document has arrived yet.';
+      if (outcome === 'question_for_us') return 'They asked us something before they can send it — answer them to unblock it.';
+      if (outcome === 'cannot_provide') return 'They said they cannot provide it — this may need a different route.';
+      return 'No document was attached to this reply — read it and decide what to send back.';
+    }
+
     function renderCeoOpsPracticePackChild(task, msgs, docs) {
       var hasInbound = msgs.some(function(m) { return m.direction === 'inbound'; });
       var currentDocs = docs.filter(function(d) { return d.is_current !== false; });
@@ -5777,9 +5810,54 @@
         return h;
       }
 
-      // State C: waiting on practice — thread + collapsible nudge email composer (functional;
-      // port of admin renderOpsPracticePackChild State C 5388).
-      if (task.status === 'waiting_on_practice' && !hasInbound) {
+      // State D: the practice replied but sent no document. Show what they said, the AI's read
+      // of it, and a follow-up draft that answers it — never the original request composer
+      // (State A below), which would re-ask for something they have already responded about.
+      // Port of admin renderOpsPracticePackChild State D.
+      // Gated on the LAST message being theirs: once we have sent the follow-up the ball is back
+      // with the practice, so State C is the truthful panel. Mirrors admin.html.
+      var lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+      var awaitingOurReply = !!(lastMsg && lastMsg.direction === 'inbound');
+      if (hasInbound && !hasDoc && awaitingOurReply) {
+        var prMeta = task.metadata; if (typeof prMeta === 'string') { try { prMeta = JSON.parse(prMeta); } catch (e) { prMeta = null; } }
+        var pr = (prMeta && prMeta.practice_reply) || null;
+        var prReady = !!(pr && pr.suggested_reply);
+        var dTitle = task.title || 'Document', dGp = task.gp_name || 'the GP', dContact = task.practice_contact_name || '';
+        h += '<div class="ops-response-banner">';
+        h += '<div class="ops-response-title">Practice replied — no document attached</div>';
+        if (lastInbound) h += '<div class="ops-response-text">' + esc(ceoOpsSnippet(lastInbound.body_text || lastInbound.body_html || '', 600)) + '</div>';
+        if (lastInbound) h += '<div class="ops-response-meta">From: ' + esc(lastInbound.sender || '—') + ' · ' + ceoOpsFormatDate(lastInbound.created_at) + '</div>';
+        h += '</div>';
+        if (pr && (pr.summary || pr.outcome)) {
+          h += '<div style="background:var(--blue-dim,#eff6ff);border:1px solid rgba(59,130,246,0.3);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12px;color:var(--text)">';
+          if (pr.summary) h += '<div><strong>What they said:</strong> ' + esc(pr.summary) + '</div>';
+          if (pr.outcome) h += '<div style="margin-top:4px">' + esc(ceoPracticeReplyGuidance(pr.outcome)) + '</div>';
+          if (pr.handed_to) h += '<div style="margin-top:4px"><strong>Passed to:</strong> ' + esc(pr.handed_to) + '</div>';
+          h += '</div>';
+        }
+        h += '<div class="ops-expand-label">' + (prReady ? 'Suggested follow-up — review, edit, then send' : 'Follow-up reply') + '</div>';
+        h += '<div class="ops-email-composer">';
+        h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc((lastInbound && lastInbound.sender) || task.practice_contact_email || '') + '" /></div>';
+        h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
+        h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="' + esc((pr && pr.suggested_subject) || ('Re: ' + dTitle + ' for Dr ' + dGp)) + '" /></div>';
+        h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
+          + (prReady ? ceoPlainTextToHtml(pr.suggested_reply)
+            : 'Hi ' + esc(dContact) + ',<br><br>Thank you for coming back to us about the <strong>' + esc(dTitle) + '</strong> for Dr ' + esc(dGp) + '.<br><br>We could not see the document attached to your reply — could you please send it through as an attachment?' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel — GP Link Registration Team')
+          + '</div>';
+        h += '<div class="ops-email-actions">';
+        h += '<button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice">Send follow-up</button>';
+        h += '<button class="ops-btn-secondary" data-ops-practice-draft="' + esc(task.id) + '">' + (prReady ? 'Re-draft with AI' : 'Draft with AI') + '</button>';
+        h += '</div>';
+        h += '</div>';
+        if (msgs.length) h += ceoOpsRenderThread(msgs);
+        h += '</div>';
+        return h;
+      }
+
+      // State C: waiting on practice — nothing back yet, OR they replied and we have already
+      // answered (last message is ours). Was `!hasInbound`, which dropped an answered reply
+      // through to the State A request composer. Port of admin State C.
+      if (task.status === 'waiting_on_practice' && !awaitingOurReply) {
         h += '<div class="ops-expand-label">Waiting on practice</div>';
         h += ceoOpsRenderThread(msgs);
         if (!msgs.length) h += '<div style="font-size:12px;color:var(--muted)">Email sent to practice. Awaiting response.</div>';
@@ -7843,6 +7921,26 @@
       // expand toggle so the click acts on the Send button, not the row.
       var ceoSendEmailBtn = e.target.closest('[data-ops-send-email]');
       if (ceoSendEmailBtn) { e.stopPropagation(); ceoSendComposerEmail(ceoSendEmailBtn); return; }
+
+      // Draft / re-draft the follow-up to a practice reply that carried no document. The
+      // inbound-mail path drafts automatically on arrival; this covers replies that landed
+      // before the feature shipped, and retries when the AI was unavailable at the time.
+      var ceoPracticeDraftBtn = e.target.closest('[data-ops-practice-draft]');
+      if (ceoPracticeDraftBtn) {
+        e.stopPropagation();
+        var cpTid = ceoPracticeDraftBtn.getAttribute('data-ops-practice-draft');
+        var cpLabel = ceoPracticeDraftBtn.textContent;
+        ceoPracticeDraftBtn.disabled = true; ceoPracticeDraftBtn.textContent = 'Drafting…';
+        apiFetch('/api/admin/practice-reply/draft', { method: 'POST', body: { taskId: cpTid } }).then(function (d) {
+          if (d && d.ok) { showToast('Follow-up drafted — review it before sending', 'success'); refreshGpDetailTasks(); return; }
+          showToast((d && d.message) || 'Could not draft a follow-up', 'error');
+          ceoPracticeDraftBtn.disabled = false; ceoPracticeDraftBtn.textContent = cpLabel;
+        }).catch(function (err) {
+          showToast('Error: ' + ((err && err.message) || 'network'), 'error');
+          ceoPracticeDraftBtn.disabled = false; ceoPracticeDraftBtn.textContent = cpLabel;
+        });
+        return;
+      }
 
       // GP-file task action buttons (alt-CV / AHPRA / SPPA), ported from admin. Handle BEFORE
       // the expand toggle so the click acts on the button, not the row.

@@ -170,6 +170,7 @@ const registrationHub = require('./lib/registration-hub.js');
 const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
+const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
@@ -5324,6 +5325,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.' + encodeURIComponent(earlyTask.related_document_key), { method: 'PATCH', body: { ops_status: 'completed' } });
               }).catch(function (err) { console.error('[Gmail] Early match practice_doc_ops update failed:', err.message); });
             }
+            // Record the reply on the task and, when no document came with it, draft the
+            // follow-up that fits what they actually said. AWAITED, not fire-and-forget: the
+            // serverless instance can freeze the moment the webhook is acked, which would
+            // silently lose the draft with no retry (same reasoning as _processAhpraEmail).
+            try {
+              await _recordPracticeReplyFollowup(earlyGpCase.id, earlyTask, {
+                messageId: currentMsgId, sender: emailMeta.sender || '', subject: emailMeta.subject || '',
+                text: emailMeta.bodyText || emailMeta.bodyHtml || '', hasDocument: !!earlyIsDoc,
+              });
+            } catch (prErr) { console.error('[Gmail] Early match practice reply follow-up failed:', prErr.message); }
             }
             await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'status_change',
               (earlyIsDoc ? 'Document received — review needed' : 'New message on task'),
@@ -6049,6 +6060,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   'system');
                 console.log('[ResponseMatch] Medium-confidence match to task', rTask.id, 'via', responseMatch.method, '(' + Math.round(responseMatch.confidence * 100) + '%)');
               }
+
+              // Same practice-reply handling as the early thread-match path above, covering all
+              // three confidence branches: mark the task as "they replied" and, when the reply
+              // brought no document, draft the follow-up that fits what they said.
+              try {
+                await _recordPracticeReplyFollowup(gpCase.id, rTask, {
+                  messageId: currentMsgId, sender: emailMeta.sender || '', subject: emailMeta.subject || '',
+                  text: emailMeta.bodyText || emailMeta.bodyHtml || '', hasDocument: !!isDocDelivery,
+                });
+              } catch (prErr) { console.error('[ResponseMatch] Practice reply follow-up failed:', prErr.message); }
 
               responseMatchedToTask = true;
             }
@@ -18104,6 +18125,187 @@ async function _ensurePracticeDocOps(caseId) {
   }
   const all = await supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.asc');
   return all.ok && Array.isArray(all.data) ? all.data : [];
+}
+
+// Signing requirement spelled out for each practice pack document. Keep in sync with the
+// two dashboard copies (pages/admin.html renderOpsPracticePackChild, pages/ceo-dashboard.html)
+// — they build the request email, this builds the follow-up draft.
+const PRACTICE_DOC_SIGN_REQUIREMENT = {
+  supervisor_cv: 'Please make sure the CV is dated and signed by the supervisor.',
+  position_description: 'Please make sure the position description is signed by the practice owner/employer.',
+  offer_contract: 'Please make sure the contract carries both the candidate and employer signatures.',
+};
+
+/**
+ * A practice replied on a practice pack task. Record that on the task so the dashboards can
+ * say "Practice replied — read the reply" instead of re-printing the original request, and —
+ * when the reply carried NO document — read what they actually said and draft the follow-up.
+ *
+ * Deliberately two-phase: the deterministic marker is written FIRST and always, so the task's
+ * next-step line is correct even when the AI is unconfigured, over budget, slow or wrong. The
+ * AI draft is layered on top afterwards. Never sends anything — the RSO reviews and sends.
+ *
+ * @param {string} caseId
+ * @param {Object} task            The matched registration_tasks row.
+ * @param {Object} reply           { messageId, sender, subject, text, hasDocument }
+ * @returns {Promise<Object|null>} The stored practice_reply metadata, or null if not applicable.
+ */
+async function _recordPracticeReplyFollowup(caseId, task, reply) {
+  if (!isSupabaseDbConfigured()) return null;
+  if (!task || task.task_type !== 'practice_pack_child' || !task.related_document_key) return null;
+  // sppa_00 runs its own state machine (sent_to_candidate → gp_returned → sent_to_practice →
+  // practice_returned) with its own panel and its own wording; section_g auto-delivers and has
+  // no detail panel at all. Neither should be driven by this generic reply handling.
+  if (task.related_document_key === 'sppa_00' || task.related_document_key === 'section_g') return null;
+  reply = reply || {};
+
+  // Re-read metadata rather than trusting the (possibly stale) matched row, so a concurrent
+  // SPPA state write on the same task is not clobbered by this patch.
+  var metaRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+  var meta = (metaRes.ok && Array.isArray(metaRes.data) && metaRes.data[0]) ? metaRes.data[0].metadata : null;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+  if (!meta || typeof meta !== 'object') meta = {};
+
+  var hasDocument = !!reply.hasDocument;
+  meta.practice_reply = {
+    received_at: new Date().toISOString(),
+    message_id: reply.messageId || null,
+    sender: reply.sender || '',
+    subject: reply.subject || '',
+    has_document: hasDocument,
+    draft_status: hasDocument ? 'not_needed' : 'pending',
+  };
+  // A reply — with or without the document — means the ball is back with us, so the task must
+  // not sit under a "⏳ Waiting on practice" pill. The thread-match path already flips to open;
+  // this makes every path agree (the conversation-match path used to leave it waiting).
+  var firstPatch = { metadata: meta, updated_at: new Date().toISOString() };
+  if (String(task.status || '').indexOf('waiting') === 0) firstPatch.status = 'open';
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
+    { method: 'PATCH', body: firstPatch });
+
+  // They sent the document — State B in the dashboards already handles reviewing it.
+  if (hasDocument) return meta.practice_reply;
+
+  var draft = await _buildPracticeReplyDraft(caseId, task, reply);
+  if (!draft) return meta.practice_reply;
+
+  // Re-read again: the AI call takes seconds, during which another path may have written.
+  var metaRes2 = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+  var meta2 = (metaRes2.ok && Array.isArray(metaRes2.data) && metaRes2.data[0]) ? metaRes2.data[0].metadata : null;
+  if (typeof meta2 === 'string') { try { meta2 = JSON.parse(meta2); } catch (e) { meta2 = null; } }
+  if (!meta2 || typeof meta2 !== 'object') meta2 = meta;
+
+  meta2.practice_reply = Object.assign({}, meta2.practice_reply || meta.practice_reply, draft, {
+    draft_status: 'ready',
+    drafted_at: new Date().toISOString(),
+  });
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
+    { method: 'PATCH', body: { metadata: meta2, updated_at: new Date().toISOString() } });
+
+  await _logCaseEvent(caseId, task.id, 'note',
+    'Practice replied without the document — follow-up drafted',
+    (draft.summary || '') + (draft.outcome ? ' (' + draft.outcome + ')' : ''), 'system').catch(function () {});
+
+  return meta2.practice_reply;
+}
+
+/**
+ * Read one practice reply and draft the follow-up. Falls back to a deterministic draft
+ * (which still acknowledges the reply — it is never the original request) whenever the AI
+ * is unavailable, over budget, times out, or returns something unparseable.
+ */
+async function _buildPracticeReplyDraft(caseId, task, reply) {
+  var docTitle = task.title || 'the requested document';
+  var signRequirement = PRACTICE_DOC_SIGN_REQUIREMENT[task.related_document_key] || '';
+
+  var gpName = '';
+  var contactName = '';
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,practice_contact_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var regCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : {};
+    contactName = regCase.practice_contact_name || '';
+    if (regCase.user_id) {
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+      var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
+      gpName = ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+    }
+  } catch (e) { /* names are cosmetic — never block the draft on them */ }
+
+  var rsoName = '';
+  try { rsoName = await resolveCaseSenderName(caseId); } catch (e) { rsoName = ''; }
+
+  // The request we sent, so the draft can acknowledge what was asked without re-asking it.
+  var requestText = '';
+  try {
+    var outRes = await supabaseDbRequest('task_messages',
+      'select=subject,body_text,body_html&task_id=eq.' + encodeURIComponent(task.id) + '&direction=eq.outbound&order=created_at.desc&limit=1');
+    if (outRes.ok && Array.isArray(outRes.data) && outRes.data[0]) {
+      var o = outRes.data[0];
+      requestText = (o.subject || '') + '\n\n' + String(o.body_text || o.body_html || '').replace(/<[^>]+>/g, ' ');
+    }
+  } catch (e) { requestText = ''; }
+
+  var fallback = practiceReplyFollowup.buildFallbackFollowup({
+    docTitle: docTitle, gpName: gpName, contactName: contactName, rsoName: rsoName, signRequirement: signRequirement,
+  });
+
+  var apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return fallback;
+  var withinBudget = true;
+  try { withinBudget = await checkAnthropicBudget(); } catch (e) { withinBudget = true; }
+  if (!withinBudget) {
+    console.warn('[practice-reply] Anthropic daily budget exhausted — using deterministic follow-up for task', task.id);
+    return fallback;
+  }
+
+  var msgs = practiceReplyFollowup.buildPracticeReplyMessages({
+    docTitle: docTitle,
+    signRequirement: signRequirement,
+    gpName: gpName,
+    contactName: contactName,
+    rsoName: rsoName,
+    replyText: reply.text || '',
+    replySender: reply.sender || '',
+    requestText: requestText,
+  });
+
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 30000);
+  try {
+    var aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: SUGGEST_REPLY_MODEL,
+        max_tokens: 1200,
+        system: msgs.system,
+        messages: [{ role: 'user', content: msgs.userText }],
+      }),
+    });
+    clearTimeout(timer);
+    if (!aiResp.ok) {
+      console.warn('[practice-reply] AI request failed', aiResp.status, '— using deterministic follow-up for task', task.id);
+      return fallback;
+    }
+    var aiData = await aiResp.json();
+    if (aiData.usage) {
+      recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0,
+        aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
+    }
+    var parsed = practiceReplyFollowup.parsePracticeReplyResult(
+      (aiData.content && aiData.content[0] && aiData.content[0].text) || '');
+    if (!parsed) {
+      console.warn('[practice-reply] AI returned no usable draft — using deterministic follow-up for task', task.id);
+      return fallback;
+    }
+    if (!parsed.suggested_subject) parsed.suggested_subject = fallback.suggested_subject;
+    parsed.source = 'ai';
+    return parsed;
+  } catch (aiErr) {
+    clearTimeout(timer);
+    console.warn('[practice-reply] AI draft error:', aiErr.message, '— using deterministic follow-up for task', task.id);
+    return fallback;
+  }
 }
 
 function getTimestampMs(value) {
@@ -56873,6 +57075,58 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 405, { ok: false, message: 'Method not allowed.' });
+    return;
+  }
+
+  // Draft (or re-draft) the follow-up for a practice pack task whose practice reply carried no
+  // document. The inbound-mail path does this automatically on arrival; this endpoint covers the
+  // two cases that path cannot: tasks whose reply landed BEFORE this feature shipped, and a
+  // retry when the AI was down/over budget and only the deterministic draft got stored.
+  if (pathname === '/api/admin/practice-reply/draft' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var prCtx = requireAdminSession(req, res);
+    if (!prCtx) return;
+    var prBody;
+    try { prBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    var prTaskId = String(prBody.taskId || '').trim();
+    if (!prTaskId) { sendJson(res, 400, { ok: false, message: 'taskId required.' }); return; }
+    try {
+      var prTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(prTaskId) + '&limit=1');
+      var prTask = (prTaskRes.ok && Array.isArray(prTaskRes.data) && prTaskRes.data[0]) ? prTaskRes.data[0] : null;
+      if (!prTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+      // RSO scoping: an RSO may only draft on tasks for the GPs assigned to them (CEO exempt).
+      var prScope = await resolveAdminGpScope(prCtx, url);
+      if (!prScope.superAdmin) {
+        var prCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,assigned_va,assigned_rso&id=eq.' + encodeURIComponent(prTask.case_id) + '&limit=1');
+        var prCaseRow = (prCaseRes.ok && Array.isArray(prCaseRes.data) && prCaseRes.data[0]) ? prCaseRes.data[0] : null;
+        if (!taskVisibleToRso(prScope, prTask, prCaseRow)) { sendJson(res, 403, { ok: false, message: 'Not your GP.' }); return; }
+      }
+
+      // The reply to draft against = the most recent inbound message on this task.
+      var prInRes = await supabaseDbRequest('task_messages',
+        'select=id,sender,subject,body_text,body_html,created_at&task_id=eq.' + encodeURIComponent(prTaskId) + '&direction=eq.inbound&order=created_at.desc&limit=1');
+      var prInbound = (prInRes.ok && Array.isArray(prInRes.data) && prInRes.data[0]) ? prInRes.data[0] : null;
+      if (!prInbound) { sendJson(res, 400, { ok: false, message: 'No practice reply on this task yet.' }); return; }
+
+      // Only draft a chase-up when no document is actually held — if one arrived, the
+      // review panel is the right place, not a follow-up email.
+      var prDocRes = await supabaseDbRequest('task_documents', 'select=id&task_id=eq.' + encodeURIComponent(prTaskId) + '&is_current=eq.true&limit=1');
+      var prHasDoc = !!(prDocRes.ok && Array.isArray(prDocRes.data) && prDocRes.data.length > 0);
+
+      var prResult = await _recordPracticeReplyFollowup(prTask.case_id, prTask, {
+        messageId: prInbound.id,
+        sender: prInbound.sender || '',
+        subject: prInbound.subject || '',
+        text: prInbound.body_text || String(prInbound.body_html || '').replace(/<[^>]+>/g, ' '),
+        hasDocument: prHasDoc,
+      });
+      if (!prResult) { sendJson(res, 400, { ok: false, message: 'This task does not take a practice follow-up draft.' }); return; }
+      sendJson(res, 200, { ok: true, practice_reply: prResult });
+    } catch (prErr) {
+      console.error('[practice-reply-draft] Error:', prErr.message);
+      sendJson(res, 500, { ok: false, message: 'Internal error.' });
+    }
     return;
   }
 
