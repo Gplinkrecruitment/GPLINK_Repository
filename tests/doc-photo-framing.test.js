@@ -338,6 +338,16 @@ describe('camera framing measurement', () => {
     expect(measureFraming(frame(30, 240, { x: 1, y: 1, w: 62, h: 46 })).code).not.toBe('too_small');
   });
 
+  it('will not show a green tick over a small page on a pale desk', () => {
+    // Caught in the live demo: a white page on a white desk read as "ok" via the
+    // mostly-bright short-circuit, so a badly framed shot got the lock-on tick.
+    // We cannot separate page from desk here — "unknown" is the honest answer,
+    // and it stays neutral instead of endorsing the shot.
+    const smallPageOnWhiteDesk = measureFraming(frame(228, 247, { x: 24, y: 18, w: 16, h: 12 }));
+    expect(smallPageOnWhiteDesk.code).toBe('unknown');
+    expect(smallPageOnWhiteDesk.code).not.toBe('ok');
+  });
+
   it('does not mistake scattered highlights for a small document', () => {
     const px = frame(20, 20, null);
     // A dozen unrelated bright specks — a lamp, reflections, pale clutter.
@@ -373,6 +383,39 @@ describe('camera guidance', () => {
     const darkAt = cameraJs.indexOf('Too dark — find more light');
     const framingAt = cameraJs.indexOf('var framing = measureFraming(video');
     expect(darkAt).toBeLessThan(framingAt);
+  });
+
+  it('locks on visually once the document fills the frame', () => {
+    // Green brackets + tick + a full-strength shutter are the "take it now" signal.
+    expect(cameraJs).toContain('qcam-lockmark');
+    expect(cameraJs).toContain('id="qcamLockMark"');
+    expect(cameraJs).toContain('.qcam-locked .qcam-bracket{animation:qcamGlowOk');
+    expect(cameraJs).toContain('.qcam-locked .qcam-capture{opacity:1;transform:scale(1.06);}');
+    expect(cameraJs).toContain('.qcam-locked .qcam-lockmark{opacity:1;transform:translateX(-50%) scale(1);}');
+    expect(cameraJs).toContain('Looks good — take the photo');
+    expect(cameraJs).toContain('overlay.classList.toggle("qcam-locked", state === "ok")');
+  });
+
+  it('dims the shutter without ever disabling it', () => {
+    // A doctor whose page the phone cannot measure still has to be able to shoot.
+    expect(cameraJs).toMatch(/\.qcam-capture\{[^}]*opacity:\.5/);
+    expect(cameraJs).not.toMatch(/qcamCapture[^\n]*\.disabled\s*=/);
+    // The dimming is opacity only — the button must still take a tap.
+    expect(cameraJs).not.toMatch(/\.qcam-capture\{[^}]*pointer-events:\s*none/);
+  });
+
+  it('stays neutral — not green — on a scene it could not measure', () => {
+    // "unknown" must never show a tick: that would be a guess dressed as a check.
+    expect(cameraJs).toContain('else if (framing.code === "ok") setLiveHint("ok", "Looks good — take the photo");');
+    expect(cameraJs).toContain('else setLiveHint("idle", "Hold steady");');
+    expect(cameraJs).toContain('setLiveHint("idle", "Checking the frame…")');
+  });
+
+  it('does not leave the first warning\'s wording on screen', () => {
+    // Two different warnings share the "warn" state; keying the no-op check on
+    // the state alone kept showing "Too dark" after the reason had changed.
+    expect(cameraJs).toContain('var key = state + "|" + text;');
+    expect(cameraJs).toContain('if (key === lastLiveState) return;');
   });
 
   it('asks before it accepts a badly framed shot — and never locks the doctor out', () => {

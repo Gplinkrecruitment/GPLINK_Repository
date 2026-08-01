@@ -107,14 +107,23 @@
       ".qcam-tips li:last-child{margin-bottom:0;}" +
       ".qcam-tips li::before{content:'\\2713';flex:0 0 auto;width:16px;height:16px;border-radius:50%;background:rgba(0,229,255,0.18);color:#00e5ff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px;}" +
       /* Live lighting hint chip */
-      ".qcam-live{display:inline-flex;align-items:center;gap:7px;font-family:'DM Sans',sans-serif;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:999px;margin-bottom:14px;background:rgba(22,163,74,0.18);border:1px solid rgba(22,163,74,0.4);color:#86efac;}" +
+      /* Neutral by default ("we cannot tell"), green only once we have measured a
+         well-framed document, amber when something is actually wrong. */
+      ".qcam-live{display:inline-flex;align-items:center;gap:7px;font-family:'DM Sans',sans-serif;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:999px;margin-bottom:14px;background:rgba(148,163,184,0.16);border:1px solid rgba(148,163,184,0.36);color:#e2e8f0;transition:background .2s,border-color .2s,color .2s;}" +
+      ".qcam-live.ok{background:rgba(22,163,74,0.18);border-color:rgba(22,163,74,0.45);color:#86efac;}" +
       ".qcam-live.warn{background:rgba(251,191,36,0.16);border-color:rgba(251,191,36,0.45);color:#fde68a;}" +
-      ".qcam-live-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;animation:qcamPulse 1.6s infinite;}" +
-      ".qcam-live.warn .qcam-live-dot{background:#f59e0b;}" +
+      ".qcam-live-dot{width:7px;height:7px;border-radius:50%;background:#94a3b8;}" +
+      ".qcam-live.ok .qcam-live-dot{background:#22c55e;animation:qcamPulse 1.6s infinite;}" +
+      ".qcam-live.warn .qcam-live-dot{background:#f59e0b;animation:qcamPulse 1.6s infinite;}" +
       "@keyframes qcamPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}" +
-      ".qcam-capture{width:64px;height:64px;border-radius:50%;border:4px solid #fff;background:transparent;cursor:pointer;margin:0 auto;display:block;position:relative;}" +
+      /* Shutter: dimmed until the framing reads good — but never disabled. */
+      ".qcam-capture{width:64px;height:64px;border-radius:50%;border:4px solid #fff;background:transparent;cursor:pointer;margin:0 auto;display:block;position:relative;opacity:.5;transition:opacity .2s,transform .2s;}" +
+      "#" + OVERLAY_ID + ".qcam-locked .qcam-capture{opacity:1;transform:scale(1.06);}" +
       ".qcam-capture::after{content:'';position:absolute;inset:4px;border-radius:50%;background:#fff;transition:transform 0.15s;}" +
       ".qcam-capture:active::after{transform:scale(0.85);}" +
+      /* Lock-on tick, bottom-right inside the viewfinder so it never covers the page */
+      ".qcam-lockmark{position:absolute;left:50%;bottom:-18px;width:36px;height:36px;border-radius:50%;background:#22c55e;color:#04240f;display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:900;font-family:'DM Sans',sans-serif;opacity:0;transform:translateX(-50%) scale(0.6);transition:opacity .18s ease,transform .18s ease;box-shadow:0 0 0 4px rgba(34,197,94,0.25);}" +
+      "#" + OVERLAY_ID + ".qcam-locked .qcam-lockmark{opacity:1;transform:translateX(-50%) scale(1);}" +
       /* Close button */
       ".qcam-close{position:absolute;top:16px;right:16px;z-index:10;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,0.5);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;}" +
       /* "Check your photo" gate — covers the whole overlay, bottom bar included */
@@ -129,7 +138,11 @@
       ".qcam-btn.ghost{background:transparent;color:#e2e8f0;border-color:rgba(255,255,255,0.28);}" +
       /* Glow animation on brackets */
       ".qcam-bracket{animation:qcamGlow 2s ease-in-out infinite alternate;}" +
-      "@keyframes qcamGlow{0%{border-color:#00e5ff;filter:drop-shadow(0 0 4px #00e5ff)}100%{border-color:#00bcd4;filter:drop-shadow(0 0 8px #00e5ff)}}";
+      "@keyframes qcamGlow{0%{border-color:#00e5ff;filter:drop-shadow(0 0 4px #00e5ff)}100%{border-color:#00bcd4;filter:drop-shadow(0 0 8px #00e5ff)}}" +
+      /* Locked on: the brackets snap green and the scanning sweep stops hunting */
+      "#" + OVERLAY_ID + ".qcam-locked .qcam-bracket{animation:qcamGlowOk 1.6s ease-in-out infinite alternate;}" +
+      "@keyframes qcamGlowOk{0%{border-color:#22c55e;filter:drop-shadow(0 0 5px #22c55e)}100%{border-color:#4ade80;filter:drop-shadow(0 0 10px #22c55e)}}" +
+      "#" + OVERLAY_ID + ".qcam-locked .qcam-scanline{opacity:0;}";
     document.head.appendChild(s);
   }
 
@@ -147,6 +160,7 @@
           '<div class="qcam-bracket tr"></div>' +
           '<div class="qcam-bracket bl"></div>' +
           '<div class="qcam-bracket br"></div>' +
+          '<div class="qcam-lockmark" id="qcamLockMark" aria-hidden="true">&#10003;</div>' +
         '</div>' +
         '<div class="qcam-scanline"></div>' +
         '<div class="qcam-toplabel">' +
@@ -302,9 +316,12 @@
       if (lum[b] > threshold) { bright[b] = 1; brightCount++; }
     }
     var brightFraction = brightCount / total;
-    // Almost everything is bright: either the page already fills the frame or the
-    // page and the surface are the same shade. Either way, nothing to complain about.
-    if (brightFraction > 0.9) return { code: "ok", coverage: brightFraction };
+    // Almost everything is bright. That is either a page already filling the frame
+    // or a white page on a white desk, and we cannot tell which — so say so. It
+    // must NOT come back "ok": a green tick over a small page on a pale kitchen
+    // table is a guess presented as a check, and it teaches doctors to trust the
+    // tick. "unknown" is neutral and still never blocks the shutter.
+    if (brightFraction > 0.9) return { code: "unknown", coverage: brightFraction };
     if (brightFraction < 0.06) return { code: "unknown", coverage: brightFraction };
 
     // Largest connected bright region — the page, if there is one. Iterative flood
@@ -351,22 +368,38 @@
     return { code: coverage >= FRAMING_MIN_COVERAGE ? "ok" : "too_small", coverage: coverage };
   }
 
-  /* ── Rule-based live lighting hint (local heuristics only — no AI) ── */
+  /* ── Rule-based live guidance (local heuristics only — no AI) ─────────────
+   * Three states, and the difference between the last two matters:
+   *   "ok"    measured, and the document fills the frame — lock on, brackets
+   *           turn green, tick appears, shutter goes to full strength
+   *   "warn"  measured, and something is wrong — amber, shutter dimmed
+   *   "idle"  could not measure this scene (a white page on a white desk, a dark
+   *           document, a frame that is already all page). Neutral, shutter
+   *           dimmed, never blocked — "we cannot tell, your call" is honest,
+   *           where a green tick would be a guess.
+   * The shutter is only ever dimmed, never disabled: a doctor whose page the
+   * phone cannot read still has to be able to take the photo.
+   */
   function resetLiveHint() {
     lastLiveState = "";
-    setLiveHint("ok", "Hold steady");
+    setLiveHint("idle", "Checking the frame…");
   }
 
   function setLiveHint(state, text) {
-    if (state === lastLiveState) return;
-    lastLiveState = state;
+    // Keyed on state AND text: two different warnings share a state, and keying
+    // on the state alone left the first one's wording on screen.
+    var key = state + "|" + text;
+    if (key === lastLiveState) return;
+    lastLiveState = key;
     var live = document.getElementById("qcamLive");
     var txt = document.getElementById("qcamLiveText");
     if (txt) txt.textContent = text;
     if (live) {
-      if (state === "warn") live.classList.add("warn");
-      else live.classList.remove("warn");
+      live.classList.toggle("warn", state === "warn");
+      live.classList.toggle("ok", state === "ok");
     }
+    var overlay = document.getElementById(OVERLAY_ID);
+    if (overlay) overlay.classList.toggle("qcam-locked", state === "ok");
   }
 
   function startLiveHint() {
@@ -403,7 +436,8 @@
       if (avg > 238) { setLiveHint("warn", "Too bright — reduce glare"); return; }
       var framing = measureFraming(video, video.videoWidth, video.videoHeight);
       if (framing.code === "too_small") setLiveHint("warn", "Move closer — fill the frame with the document");
-      else setLiveHint("ok", "Looks good — hold steady");
+      else if (framing.code === "ok") setLiveHint("ok", "Looks good — take the photo");
+      else setLiveHint("idle", "Hold steady");
     } catch (e) {
       // getImageData can throw on some tainted/!ready frames; ignore this tick
     }
@@ -515,9 +549,11 @@
     if (stream) closeCamera();
   });
 
-  // Expose globally
+  // Expose globally. measureFraming is exported so the framing rules can be
+  // exercised against a known frame without standing in front of a camera.
   window.QualCamera = {
     open: openCamera,
-    close: closeCamera
+    close: closeCamera,
+    measureFraming: measureFraming
   };
 })();
