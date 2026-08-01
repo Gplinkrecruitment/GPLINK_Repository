@@ -56,6 +56,7 @@
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/bypass-config.js?v=20260724c"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
+  <script src="../js/interview-card-state.js?v=20260801a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <script src="../js/state-sync.js?v=20260711a" defer></script>
   <script src="/js/gp-coach.js?v=20260724a" defer></script>
@@ -13691,13 +13692,20 @@
         .then((r) => r.json())
         .then((data) => {
           const list = (data && data.ok && Array.isArray(data.interviews)) ? data.interviews : [];
-          const now = Date.now();
+          // Keep the card up while the interview is actually RUNNING, not just until it
+          // starts — the old `t < now` test made it vanish at the stroke of the start time,
+          // taking the join link with it. Same shared window as the application-detail card
+          // (/js/interview-card-state.js), so the two pages can never disagree.
           const upcoming = list.filter((iv) => {
             if (!iv || !iv.scheduled_at) return false;
-            const t = Date.parse(iv.scheduled_at);
-            if (!isFinite(t) || t < now) return false;
-            const st = String(iv.status || "").toLowerCase();
-            return st !== "cancelled" && st !== "completed" && st !== "no_show";
+            if (typeof deriveInterviewCardState !== "function") {
+              const t = Date.parse(iv.scheduled_at);
+              if (!isFinite(t) || t < Date.now()) return false;
+              const st = String(iv.status || "").toLowerCase();
+              return st !== "cancelled" && st !== "completed" && st !== "no_show";
+            }
+            const phase = deriveInterviewCardState(iv).phase;
+            return phase === "upcoming" || phase === "live";
           });
           if (upcoming.length) renderSecuredInterviewCard(upcoming[0]);
         })

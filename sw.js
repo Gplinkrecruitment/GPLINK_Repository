@@ -17,7 +17,7 @@
   // PAGE_CACHE, so without a bump a doctor keeps being served the old markup
   // for a navigation (and the explainer would not appear at all on the visit
   // that matters — their first).
-  var VERSION = "20260801b";
+  var VERSION = "20260801c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

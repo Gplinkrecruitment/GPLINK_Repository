@@ -11,6 +11,7 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a" defer></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
+  <script src="../js/interview-card-state.js?v=20260801a"></script>
   <script src="../js/auth-guard.js?v=20260706a" defer></script>
   <!-- gp-cache: this page must be able to invalidate the cached
        /api/career/applications list after a withdrawal, even when opened
@@ -368,6 +369,14 @@
       color: var(--muted);
       line-height: 1.5;
       margin: 0 0 14px;
+    }
+    /* Where things stand once the interview has happened (or was missed/cancelled) —
+       sits under the meeting details in place of the Join button. */
+    .iv-status-note {
+      font-size: var(--gp-fs-sm);
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 12px 0 0;
     }
     .iv-sched-status {
       font-size: var(--gp-fs-sm);
@@ -819,6 +828,7 @@
         <!-- BOOKED: shown once a slot is confirmed -->
         <div id="interviewBooked" hidden>
           <div class="interview-meta" id="interviewMeta"></div>
+          <p class="iv-status-note" id="interviewStatusNote" hidden></p>
           <button class="btn-join-interview" id="joinInterviewBtn" type="button">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
             Join Video Call
@@ -1033,6 +1043,9 @@
       // they always act on the freshest data.
       var latestApp = null;
       var latestInterview = null;
+      // Latest derived interview card state (see /js/interview-card-state.js) so the
+      // once-wired button handlers can read the CURRENT phase, not the one at wire time.
+      var latestInterviewState = null;
 
       // ── Withdraw confirmation modal ──────────────────────────────────────
       // Replaces the old browser confirm(). The warning ESCALATES with how many
@@ -1375,7 +1388,17 @@
         var interviewCard = document.getElementById("interviewCard");
         var interviewObj = app.interview || null;
         latestInterview = interviewObj;
-        var interviewIsBooked = !!(interviewObj && interviewObj.scheduled_at);
+        // What the doctor should see RIGHT NOW — see /js/interview-card-state.js. This used to
+        // be "has a scheduled_at" alone, which meant the card still said "Upcoming Interview"
+        // with a working Join button for days after the interview had finished.
+        var ivState = (typeof deriveInterviewCardState === "function")
+          ? deriveInterviewCardState(interviewObj || {})
+          : { phase: (interviewObj && interviewObj.scheduled_at) ? "upcoming" : "scheduling",
+              title: (interviewObj && interviewObj.scheduled_at) ? "Upcoming Interview" : "Schedule your interview",
+              message: "", showJoin: true, showCalendar: true,
+              isBooked: !!(interviewObj && interviewObj.scheduled_at) };
+        latestInterviewState = ivState;
+        var interviewIsBooked = ivState.isBooked;
         if (isInterview || interviewObj) {
           interviewCard.hidden = false;
           var ivSchedWrap = document.getElementById("interviewScheduler");
@@ -1383,10 +1406,10 @@
           var ivTitleEl = document.getElementById("interviewCardTitle");
 
           if (interviewIsBooked) {
-            ivTitleEl.textContent = "Upcoming Interview";
+            ivTitleEl.textContent = ivState.title;
             ivSchedWrap.hidden = true;
             ivBookedWrap.hidden = false;
-            renderBookedInterview(interviewObj, app);
+            renderBookedInterview(interviewObj, app, ivState);
           } else {
             // Not locked in yet → show the inline slot picker. The slots endpoint
             // is reveal-gated server-side, so it only returns real times once the
@@ -1458,9 +1481,10 @@
           });
         }
 
-        // Add to Calendar (also wired once; reads the latest refs)
+        // Add to Calendar (also wired once; reads the latest refs). Pointless once the
+        // interview has been and gone, so it follows the same window as Join.
         var calendarBtn = document.getElementById("addCalendarBtn");
-        if (interviewObj && interviewObj.scheduled_at) {
+        if (interviewObj && interviewObj.scheduled_at && ivState.showCalendar) {
           calendarBtn.hidden = false;
           if (calendarBtn.dataset.wired !== "1") {
           calendarBtn.dataset.wired = "1";
@@ -1606,7 +1630,8 @@
       }
 
       // ── Booked-state renderer ────────────────────────────────────────────
-      function renderBookedInterview(interviewObj) {
+      function renderBookedInterview(interviewObj, app, ivState) {
+        ivState = ivState || latestInterviewState || { showJoin: true, showCalendar: true, message: "" };
         var rows = [];
         var dt = new Date(interviewObj.scheduled_at);
         if (!isNaN(dt.getTime())) {
@@ -1622,8 +1647,18 @@
         document.getElementById("interviewMeta").innerHTML = rows.map(function (m) {
           return '<div class="interview-meta-row"><span class="interview-meta-label">' + esc(m.label) + '</span><span class="interview-meta-value">' + esc(m.value) + '</span></div>';
         }).join("");
-        // Join button is only meaningful for a video interview (the default).
-        document.getElementById("joinInterviewBtn").hidden = !!(interviewObj.format && interviewObj.format !== "video");
+        // Join is only meaningful for a video interview (the default) AND only while the
+        // meeting is still joinable — before it starts, during it, and for a short overrun
+        // grace after. Once that window closes the button goes, so the doctor is never left
+        // staring at a live "Join" for an interview that finished days ago.
+        document.getElementById("joinInterviewBtn").hidden =
+          !ivState.showJoin || !!(interviewObj.format && interviewObj.format !== "video");
+        // Plain-English note about where things stand once the interview is over.
+        var ivNoteEl = document.getElementById("interviewStatusNote");
+        if (ivNoteEl) {
+          ivNoteEl.textContent = ivState.message || "";
+          ivNoteEl.hidden = !ivState.message;
+        }
       }
 
       // ── Inline slot scheduler ────────────────────────────────────────────
