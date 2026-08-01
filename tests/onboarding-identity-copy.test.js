@@ -79,6 +79,6 @@ describe('GET /pages/onboarding — identity document storage copy', () => {
 
   it('bumps the onboarding.js cache-buster', async () => {
     const res = await get('/pages/onboarding');
-    expect(res.raw).toContain('onboarding.js?v=20260801a');
+    expect(res.raw).toContain('onboarding.js?v=20260801b');
   });
 });

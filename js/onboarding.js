@@ -558,6 +558,39 @@
     return /primary medical degree/i.test(getFriendlyIssueTarget(options));
   }
 
+  /*
+   * Photo framing. The scan endpoints reject a picture that does not show the whole
+   * document, or that has something lying on top of it (applyPhotoFramingPolicy in
+   * server.js) — a doctor's degree photographed with a keyboard resting on it is
+   * the case that prompted this. The server phrases those in the finished wording,
+   * so each pattern maps its own message back to itself: an issue is humanized more
+   * than once on its way to the screen and must not decay into the generic
+   * fallback on the second pass. Kept in step with the copy in
+   * js/qualification-scan.js, which does the same job for the prepared-document
+   * scans outside onboarding.
+   */
+  var PHOTO_FRAMING_MESSAGES = [
+    {
+      test: /only fills part of this photo|only fills part of the photo|fills only part of the photo|most of the picture is the desk|document is too small in the (?:photo|picture)/,
+      text: "The document only fills part of this photo — most of the picture is the desk or the room around it. Please retake it with the document filling the frame."
+    },
+    {
+      test: /outside this photo|outside the photo|corners of the page are inside|cut off at the edge|part of the (?:document|page) is missing from the (?:photo|picture)/,
+      text: "Part of the document is outside this photo. Please retake it so all four corners of the page are inside the frame."
+    },
+    {
+      test: /covering part of the document|is covering part of|lying on top of the document|on top of the document|obstruct/,
+      text: "Something is covering part of the document in this photo — for example a hand, a keyboard, a phone or another piece of paper. Please move everything off the page and retake it."
+    }
+  ];
+
+  function matchPhotoFramingIssue(lower) {
+    for (var i = 0; i < PHOTO_FRAMING_MESSAGES.length; i++) {
+      if (PHOTO_FRAMING_MESSAGES[i].test.test(lower)) return PHOTO_FRAMING_MESSAGES[i].text;
+    }
+    return "";
+  }
+
   function humanizeScanIssue(issue, options) {
     var clean = stripIssueHtml(issue);
     var lower = clean.toLowerCase();
@@ -570,6 +603,11 @@
     if (!clean) {
       return "We could not complete the scan. Please try again with a clear image of the full document.";
     }
+    // Framing comes before the blurry/name branches: when the page is half out of
+    // shot or under a keyboard, "retake it properly" is the one useful instruction,
+    // and an unreadable name is a symptom of it rather than a separate problem.
+    var framingMessage = matchPhotoFramingIssue(lower);
+    if (framingMessage) return framingMessage;
     // Overseas-trained GPs very often send their home medical council's
     // REGISTRATION certificate for this slot, because it lists their MBBS by
     // name — so "this is not your primary medical degree" reads to them as
@@ -702,7 +740,11 @@
       } else if (status === "failed") {
         const issues = humanizeScanIssues((docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues : ["Verification failed"], { documentTitle: doc.label, mode: "qualification" });
         infoHtml = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>';
-        infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
+        // A retake asked for because of the photo does not increment retryCount, so
+        // there is no attempt to report — "Attempt 0 of 5" would only worry them.
+        if (retryCount > 0) {
+          infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
+        }
         // Actionable tips based on retry count
         var tips = ["Try removing any frame or cover", "Ensure there is no glare on the document", "Hold camera steady and use good lighting", "Try uploading a flat scan or screenshot instead"];
         if (retryCount > 0 && retryCount <= tips.length) {
@@ -1239,7 +1281,16 @@
           state.accountReviewFlag = true;
         } else {
           state.qualDocs[docKey].status = "failed";
-          state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+          // The document was the right one and the name matched — the PHOTO was
+          // the problem (page half out of shot, or something lying on it). Ask for
+          // a retake without spending one of the five verification attempts, the
+          // same call the server makes on its own counter. Otherwise a correct
+          // degree photographed badly five times ends up in manual review with
+          // five unusable pictures attached.
+          var retakePhotoOnly = v.retakePhoto === true && v.framingOnly === true && nameConfirmed;
+          if (!retakePhotoOnly) {
+            state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+          }
           var failIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Document could not be verified. Check it's the correct document type and clearly visible."];
           state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(failIssues, { documentTitle: doc.label, mode: "qualification" }) };
         }

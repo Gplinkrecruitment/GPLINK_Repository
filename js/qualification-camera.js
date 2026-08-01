@@ -10,7 +10,28 @@
   var currentDocLabel = "";
   var liveTimer = null;
   var sampleCanvas = null;
+  var framingCanvas = null;
   var lastLiveState = "";
+  var pendingBlob = null;
+  var pendingPreviewUrl = "";
+
+  /*
+   * Framing check. Doctors photograph a certificate lying on a desk and send us a
+   * picture that is mostly desk — or worse, one with a keyboard resting on the
+   * page. The scan endpoints reject those (applyPhotoFramingPolicy in server.js),
+   * but a round trip to the model to be told "move closer" is a poor way to find
+   * out, so the camera makes the same judgement locally, live and for free.
+   *
+   * The measurement is deliberately timid. It looks for one bright, page-shaped
+   * region against a darker surround and reports how much of the frame it covers;
+   * anything it cannot read confidently comes back "unknown" and is waved through.
+   * It never blocks a capture — at worst it asks "is this the photo you meant?"
+   * and offers a retake. The model remains the actual gate.
+   */
+  var FRAMING_MIN_COVERAGE = 0.55; // page bounding box vs the whole frame
+  var FRAMING_MIN_FILL = 0.55;     // page pixels vs its own bounding box (is it page-shaped?)
+  var FRAMING_SAMPLE_W = 64;
+  var FRAMING_SAMPLE_H = 48;
 
   /*
    * Per-document camera guidance. Keyed by the document key used in
@@ -18,32 +39,37 @@
    *   explicit key  ->  _certifiedDefault (when requireCert)  ->  _plainDefault
    * Wording is intentionally plain so it can be tuned without touching logic.
    */
+  // Framing is far and away the most common reason a photo has to be redone, so
+  // it leads every checklist rather than sitting third in one of them.
+  var FRAMING_TIPS = [
+    "The document fills the frame — nothing else in the photo",
+    "Nothing resting on the page: no keyboard, phone or fingers"
+  ];
+  var CERT_TIP = "The certifier's stamp, signature & “true copy” line show";
   var SCAN_TIPS = {
-    _certifiedDefault: [
-      "All four corners of the page are inside the frame",
-      "The certifier's stamp & signature are sharp",
-      "The “I certify this a true copy” line is readable"
-    ],
+    _certifiedDefault: [CERT_TIP],
     _plainDefault: [
       "Show your full name and the document date",
-      "Whole page in frame — no fingers over the text",
       "Even lighting, no glare across the page"
     ],
     primary_medical_degree: [
-      "Fit the whole certificate inside the frame",
-      "Your full name is clear and matches your account",
-      "The certifier's stamp, signature & “true copy” line show"
+      "Your full name is clear and matches your account"
     ],
     criminal_history: [
       "Show the reference number (e.g. FIT1234567)",
-      "Your full name and the issue date are readable",
-      "Whole page in frame, no glare"
+      "Your full name and the issue date are readable"
     ]
   };
 
   function resolveTips(docKey, requireCert) {
-    if (docKey && SCAN_TIPS[docKey]) return SCAN_TIPS[docKey];
-    return requireCert ? SCAN_TIPS._certifiedDefault : SCAN_TIPS._plainDefault;
+    var specific = (docKey && SCAN_TIPS[docKey]) ? SCAN_TIPS[docKey].slice() : null;
+    if (!specific) {
+      return FRAMING_TIPS.concat(requireCert ? SCAN_TIPS._certifiedDefault : SCAN_TIPS._plainDefault);
+    }
+    // A per-document list still needs the certification line when the document is
+    // one AHPRA wants as a certified true copy.
+    if (requireCert && specific.indexOf(CERT_TIP) === -1) specific.push(CERT_TIP);
+    return FRAMING_TIPS.concat(specific);
   }
 
   function injectStyles() {
@@ -91,6 +117,16 @@
       ".qcam-capture:active::after{transform:scale(0.85);}" +
       /* Close button */
       ".qcam-close{position:absolute;top:16px;right:16px;z-index:10;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,0.5);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;}" +
+      /* "Check your photo" gate — covers the whole overlay, bottom bar included */
+      ".qcam-review{position:absolute;inset:0;z-index:12;background:rgba(3,7,18,0.95);display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px 20px calc(env(safe-area-inset-bottom,12px) + 24px);text-align:center;}" +
+      ".qcam-review.open{display:flex;}" +
+      ".qcam-review-img{max-width:100%;max-height:44vh;border-radius:12px;border:1px solid rgba(255,255,255,0.18);object-fit:contain;}" +
+      ".qcam-review-title{margin-top:18px;color:#fff;font-family:'DM Sans',sans-serif;font-size:17px;font-weight:800;}" +
+      ".qcam-review-text{margin:8px 0 0;max-width:340px;color:#cbd5e1;font-family:'DM Sans',sans-serif;font-size:13.5px;font-weight:600;line-height:1.45;}" +
+      ".qcam-review-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:20px;}" +
+      ".qcam-btn{font-family:'DM Sans',sans-serif;font-size:14px;font-weight:800;padding:12px 22px;border-radius:999px;cursor:pointer;border:1px solid transparent;}" +
+      ".qcam-btn.primary{background:#00e5ff;color:#04202a;}" +
+      ".qcam-btn.ghost{background:transparent;color:#e2e8f0;border-color:rgba(255,255,255,0.28);}" +
       /* Glow animation on brackets */
       ".qcam-bracket{animation:qcamGlow 2s ease-in-out infinite alternate;}" +
       "@keyframes qcamGlow{0%{border-color:#00e5ff;filter:drop-shadow(0 0 4px #00e5ff)}100%{border-color:#00bcd4;filter:drop-shadow(0 0 8px #00e5ff)}}";
@@ -128,11 +164,22 @@
         '</div>' +
         '<div class="qcam-live" id="qcamLive"><span class="qcam-live-dot"></span><span id="qcamLiveText">Checking lighting…</span></div>' +
         '<button class="qcam-capture" id="qcamCapture" type="button" aria-label="Capture photo"></button>' +
+      '</div>' +
+      '<div class="qcam-review" id="qcamReview">' +
+        '<img class="qcam-review-img" id="qcamReviewImg" alt="The photo you just took" />' +
+        '<div class="qcam-review-title">Is the whole document in shot?</div>' +
+        '<p class="qcam-review-text">There is a lot of background in this photo. Move closer so the document fills the frame, with nothing resting on top of it.</p>' +
+        '<div class="qcam-review-actions">' +
+          '<button class="qcam-btn primary" id="qcamRetake" type="button">Retake photo</button>' +
+          '<button class="qcam-btn ghost" id="qcamUseAnyway" type="button">Use this photo</button>' +
+        '</div>' +
       '</div>';
     document.body.appendChild(el);
 
     document.getElementById("qcamClose").addEventListener("click", closeCamera);
     document.getElementById("qcamCapture").addEventListener("click", capturePhoto);
+    document.getElementById("qcamRetake").addEventListener("click", retakePhoto);
+    document.getElementById("qcamUseAnyway").addEventListener("click", useReviewedPhoto);
 
     return el;
   }
@@ -174,6 +221,7 @@
       }
     }
 
+    hideReview(); // a photo left under review from a previous open must not reappear
     resetLiveHint();
     overlay.classList.add("open");
 
@@ -191,6 +239,116 @@
       closeCamera();
       if (onCapture) onCapture(null, "Camera access was denied. To enable it, go to your browser settings and allow camera access for this site, or use the file upload option instead.");
     });
+  }
+
+  /* ── Local framing measurement (no AI) ────────────────────────────────────
+   * Returns { code, coverage } where code is:
+   *   "ok"        the page fills enough of the frame
+   *   "too_small" a page-shaped region was found and it is too small
+   *   "unknown"   nothing measurable — caller must treat this as a pass
+   */
+  function measureFraming(source, sourceW, sourceH) {
+    if (!source || !sourceW || !sourceH) return { code: "unknown", coverage: 0 };
+    var w = FRAMING_SAMPLE_W;
+    var h = FRAMING_SAMPLE_H;
+    var data;
+    try {
+      if (!framingCanvas) {
+        framingCanvas = document.createElement("canvas");
+        framingCanvas.width = w;
+        framingCanvas.height = h;
+      }
+      var ctx = framingCanvas.getContext("2d");
+      ctx.drawImage(source, 0, 0, w, h);
+      data = ctx.getImageData(0, 0, w, h).data;
+    } catch (e) {
+      return { code: "unknown", coverage: 0 }; // not ready, or a tainted frame
+    }
+
+    var total = w * h;
+    var lum = new Uint8Array(total);
+    var hist = new Uint32Array(256);
+    var min = 255, max = 0;
+    for (var i = 0; i < total; i++) {
+      var p = i * 4;
+      var v = (0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]) | 0;
+      lum[i] = v;
+      hist[v]++;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    // A flat frame (all desk, all page, or a dark room) carries no edge to find.
+    if (max - min < 60) return { code: "unknown", coverage: 0 };
+
+    // Otsu: the threshold that best splits the frame into "page" and "not page".
+    var sum = 0;
+    for (var t = 0; t < 256; t++) sum += t * hist[t];
+    var sumB = 0, wB = 0, best = 0, threshold = 128;
+    for (var k = 0; k < 256; k++) {
+      wB += hist[k];
+      if (!wB) continue;
+      var wF = total - wB;
+      if (!wF) break;
+      sumB += k * hist[k];
+      var mB = sumB / wB;
+      var mF = (sum - sumB) / wF;
+      var between = wB * wF * (mB - mF) * (mB - mF);
+      if (between > best) { best = between; threshold = k; }
+    }
+
+    var brightCount = 0;
+    var bright = new Uint8Array(total);
+    for (var b = 0; b < total; b++) {
+      if (lum[b] > threshold) { bright[b] = 1; brightCount++; }
+    }
+    var brightFraction = brightCount / total;
+    // Almost everything is bright: either the page already fills the frame or the
+    // page and the surface are the same shade. Either way, nothing to complain about.
+    if (brightFraction > 0.9) return { code: "ok", coverage: brightFraction };
+    if (brightFraction < 0.06) return { code: "unknown", coverage: brightFraction };
+
+    // Largest connected bright region — the page, if there is one. Iterative flood
+    // fill: a recursive one blows the stack on a full-frame region.
+    var seen = new Uint8Array(total);
+    var stack = new Int32Array(total);
+    var bestSize = 0, bestBox = null;
+    for (var s = 0; s < total; s++) {
+      if (!bright[s] || seen[s]) continue;
+      var top = 0;
+      stack[top++] = s;
+      seen[s] = 1;
+      var size = 0, minX = w, maxX = -1, minY = h, maxY = -1;
+      while (top > 0) {
+        var idx = stack[--top];
+        var x = idx % w;
+        var y = (idx - x) / w;
+        size++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (x > 0 && bright[idx - 1] && !seen[idx - 1]) { seen[idx - 1] = 1; stack[top++] = idx - 1; }
+        if (x < w - 1 && bright[idx + 1] && !seen[idx + 1]) { seen[idx + 1] = 1; stack[top++] = idx + 1; }
+        if (y > 0 && bright[idx - w] && !seen[idx - w]) { seen[idx - w] = 1; stack[top++] = idx - w; }
+        if (y < h - 1 && bright[idx + w] && !seen[idx + w]) { seen[idx + w] = 1; stack[top++] = idx + w; }
+      }
+      if (size > bestSize) {
+        bestSize = size;
+        bestBox = { minX: minX, maxX: maxX, minY: minY, maxY: maxY };
+      }
+    }
+    if (!bestBox) return { code: "unknown", coverage: 0 };
+
+    var boxArea = (bestBox.maxX - bestBox.minX + 1) * (bestBox.maxY - bestBox.minY + 1);
+    var coverage = boxArea / total;
+    // If the biggest region is only a fraction of everything bright in the frame,
+    // we are looking at clutter — a lamp, a window, a scatter of pale objects —
+    // not at one page. Say nothing rather than call a highlight "the document".
+    if (bestSize / brightCount < 0.4) return { code: "unknown", coverage: coverage };
+    // A page is a solid rectangle. A scatter of bright specks that happens to span
+    // the frame is not one, and we should not draw conclusions from it.
+    if (bestSize / boxArea < FRAMING_MIN_FILL) return { code: "unknown", coverage: coverage };
+    return { code: coverage >= FRAMING_MIN_COVERAGE ? "ok" : "too_small", coverage: coverage };
   }
 
   /* ── Rule-based live lighting hint (local heuristics only — no AI) ── */
@@ -239,9 +397,13 @@
         count++;
       }
       var avg = count ? sum / count : 0;
-      if (avg < 55) setLiveHint("warn", "Too dark — find more light");
-      else if (avg > 238) setLiveHint("warn", "Too bright — reduce glare");
-      else setLiveHint("ok", "Lighting looks good — hold steady");
+      // Lighting first: a frame that is too dark or blown out makes the framing
+      // measurement unreliable, and it is the thing to fix before moving closer.
+      if (avg < 55) { setLiveHint("warn", "Too dark — find more light"); return; }
+      if (avg > 238) { setLiveHint("warn", "Too bright — reduce glare"); return; }
+      var framing = measureFraming(video, video.videoWidth, video.videoHeight);
+      if (framing.code === "too_small") setLiveHint("warn", "Move closer — fill the frame with the document");
+      else setLiveHint("ok", "Looks good — hold steady");
     } catch (e) {
       // getImageData can throw on some tainted/!ready frames; ignore this tick
     }
@@ -266,18 +428,77 @@
     var ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0, w, h);
 
+    // Judge the shot we actually took, not the last live frame.
+    var framing = measureFraming(canvas, w, h);
+
     canvas.toBlob(function (blob) {
-      closeCamera();
       if (!blob) {
+        closeCamera();
         if (onCaptureCallback) onCaptureCallback(null, new Error("Could not capture image"));
         return;
       }
-      if (onCaptureCallback) onCaptureCallback(blob, null);
+      if (framing.code === "too_small") {
+        showReview(blob);
+        return;
+      }
+      acceptPhoto(blob);
     }, "image/jpeg", 0.85);
+  }
+
+  /* ── "Check your photo" gate ──────────────────────────────────────────────
+   * Shown when the document does not fill enough of the shot. It is a prompt, not
+   * a lock: the measurement can be wrong (a dark certificate, a page on a white
+   * desk), and a doctor who cannot get past their own camera has no way to finish
+   * onboarding at all. "Retake" is the obvious choice; "Use this photo" is there
+   * for when we called it wrong.
+   */
+  function showReview(blob) {
+    clearPendingPreview();
+    pendingBlob = blob;
+    try { pendingPreviewUrl = URL.createObjectURL(blob); } catch (e) { pendingPreviewUrl = ""; }
+    var img = document.getElementById("qcamReviewImg");
+    if (img) img.src = pendingPreviewUrl;
+    var panel = document.getElementById("qcamReview");
+    if (panel) panel.classList.add("open");
+    stopLiveHint();
+  }
+
+  function hideReview() {
+    var panel = document.getElementById("qcamReview");
+    if (panel) panel.classList.remove("open");
+    clearPendingPreview();
+    pendingBlob = null;
+  }
+
+  function clearPendingPreview() {
+    if (pendingPreviewUrl) {
+      try { URL.revokeObjectURL(pendingPreviewUrl); } catch (e) {}
+      pendingPreviewUrl = "";
+    }
+    var img = document.getElementById("qcamReviewImg");
+    if (img) img.removeAttribute("src");
+  }
+
+  function retakePhoto() {
+    hideReview();
+    resetLiveHint();
+    if (stream) startLiveHint();
+  }
+
+  function useReviewedPhoto() {
+    var blob = pendingBlob;
+    hideReview();
+    if (blob) acceptPhoto(blob);
+  }
+
+  function acceptPhoto(blob) {
+    closeCamera();
+    if (onCaptureCallback) onCaptureCallback(blob, null);
   }
 
   function closeCamera() {
     stopLiveHint();
+    hideReview();
     if (stream) {
       stream.getTracks().forEach(function (t) { t.stop(); });
       stream = null;

@@ -10263,6 +10263,71 @@ function pushVerificationIssue(verification, message) {
   if (!verification.issues.includes(clean)) verification.issues.push(clean);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Photo framing safeguard
+ *
+ * Doctors photograph their certificates on a desk, and a lot of those pictures
+ * contain as much desk as document: a keyboard resting on the top of the page,
+ * a phone across a corner, the bottom edge cropped off. The model can still read
+ * enough of the page to answer questions about it, so nothing ever stopped them
+ * — the photo only failed later, by hand, at AHPRA or with the practice.
+ *
+ * So every vision scan now judges the PICTURE as well as the document: the page
+ * must be the subject of the shot, whole, and with nothing lying on top of it.
+ *
+ * Only ever applied to photographs. A PDF, a flat scan or a screenshot has no
+ * framing to speak of and must pass through untouched.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const PHOTO_FRAMING_PROMPT_RULE = `PHOTO FRAMING CHECK (photographs only — a PDF, a flat scan or a screenshot always passes):
+Judge the picture itself, not what the document says, and report it in "framing":
+- "ok": the document is the subject of the photo. It fills most of the frame, every edge and corner of the page is inside the picture, and nothing is lying on top of it. Plain desk or table around the page is fine.
+- "too_small": the document takes up less than about half of the picture, so most of the photo is the desk, the room or other surroundings.
+- "cut_off": part of the document is outside the picture — an edge or a corner of the page is missing or runs past the frame.
+- "obstructed": something lying on or across the document hides part of it — a hand, a keyboard, a phone, a cable, another sheet of paper — or glare or shadow hides part of it. Fingers holding the edge of a card or page are fine, as long as nothing printed is covered.
+Only report a problem you can actually see. If you are unsure, or the file is a PDF, scan or screenshot, return "ok".`;
+
+const PHOTO_FRAMING_JSON_FIELD = ',"framing":"ok or too_small or cut_off or obstructed"';
+
+// The GP reads these verbatim, so they are written as the finished message rather
+// than a code the client has to translate. The client humanizers map each one back
+// to itself (they can be re-humanized two or three times on the way to the screen).
+const PHOTO_FRAMING_ISSUES = {
+  too_small: 'The document only fills part of this photo — most of the picture is the desk or the room around it. Please retake it with the document filling the frame.',
+  cut_off: 'Part of the document is outside this photo. Please retake it so all four corners of the page are inside the frame.',
+  obstructed: 'Something is covering part of the document in this photo — for example a hand, a keyboard, a phone or another piece of paper. Please move everything off the page and retake it.'
+};
+
+/**
+ * Fail a scan whose photo is unusable, whatever the document turned out to be.
+ *
+ * @param {Object} result    the parsed AI verdict — mutated in place
+ * @param {Object} options
+ *   options.isImage   only true for photographs; PDFs/scans are never judged
+ *   options.passKey   the field the caller treats as the verdict
+ *                     ("verified" | "certified" | "matches")
+ * @returns {boolean} true when the result was failed for framing
+ */
+function applyPhotoFramingPolicy(result, options) {
+  const opts = options || {};
+  if (!result || opts.isImage !== true) return false;
+  const framing = String(result.framing || '').trim().toLowerCase();
+  const message = Object.prototype.hasOwnProperty.call(PHOTO_FRAMING_ISSUES, framing)
+    ? PHOTO_FRAMING_ISSUES[framing]
+    : '';
+  if (!message) return false; // "ok", missing, or a value we don't know — let it through
+  const passKey = opts.passKey || 'verified';
+  // Was the photo the ONLY thing wrong? A doctor whose document is the right one
+  // should not spend one of their few verification attempts on a bad picture, so
+  // callers use this to skip the fail counter and just ask for a retake.
+  result.framingOnly = result[passKey] === true;
+  result[passKey] = false;
+  result.retakePhoto = true;
+  result.framingMessage = message;
+  pushVerificationIssue(result, message);
+  return true;
+}
+
 async function resolveVerificationProfileName(session, suppliedProfileName) {
   const directName = sanitizeUserString(suppliedProfileName, 200);
   if (hasUsableFullName(directName)) return directName;
@@ -10474,6 +10539,8 @@ VERIFICATION RULES:
 
 4. Is the document legible?${certRule}
 
+${PHOTO_FRAMING_PROMPT_RULE}
+
 IMPORTANT:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing documents. This is an authorized system.
 - Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
@@ -10484,7 +10551,7 @@ IMPORTANT:
 - Never include warnings about privacy, security, or data sharing in the issues.
 
 Return ONLY valid JSON with no markdown formatting:
-{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false${certJsonField},"issues":["list of issues if any"]}`;
+{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false${certJsonField}${PHOTO_FRAMING_JSON_FIELD},"issues":["list of issues if any"]}`;
 
   const qualUserPrompt = `Expected document type: ${documentType}
 ${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}\n`}${isPrimaryMedDegree ? 'The date does not matter for primary medical degrees.' : `The date on the document must be from ${dateRule}.`}
@@ -10581,6 +10648,13 @@ Verify this document.`;
         'This does not look like a certified copy. AHPRA requires a certified true copy — the document must be certified by an authorised person (e.g. JP, solicitor, notary) showing their name, profession, signature or stamp, and the date.'
       );
     }
+
+    // The picture has to be usable too — a page that is half desk, cropped, or has
+    // a keyboard lying across it goes back for a retake however good the document.
+    applyPhotoFramingPolicy(verification, {
+      isImage: !!(contentBlock && contentBlock.type === 'image'),
+      passKey: 'verified'
+    });
 
     return { ok: true, verification };
   } catch (fetchErr) {
@@ -27648,7 +27722,14 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
   var contentBlocks = [];
 
   if (isVisuallyClassifiable(mime)) {
-    var normalizedImage = await normalizeImageForAi(buffer, mime);
+    // normalizeImageForAi takes base64, not bytes. Handing it the raw Buffer made
+    // String(buffer) decode the JPEG as UTF-8, so what reached Anthropic was
+    // mojibake rather than an image and every call came back 400 ("AI API returned
+    // 400" on the reviewer's card). With confidence null every document then fell
+    // to classifyConfidenceAction's va_review default, which is why this looked
+    // like "the pipeline is just cautious" rather than a broken call.
+    var imageBase64 = Buffer.isBuffer(buffer) ? buffer.toString('base64') : buffer;
+    var normalizedImage = await normalizeImageForAi(imageBase64, mime);
     if (!normalizedImage || !normalizedImage.base64) {
       return { confidence: null, identifiedAs: '', reason: 'Image normalization failed' };
     }
@@ -27675,6 +27756,14 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
   // Scoped to cv_signed_dated only — the Career-page CV (career_cv) uses a different checker.
   if (expectedKey === 'cv_signed_dated') {
     systemPrompt += '\n\nSPECIAL RULE for the AHPRA "CV (signed and dated)": set "matches": true ONLY if the document is a CV/resume that has ALL THREE of (a) a visible signature, (b) a visible date, and (c) the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, set "matches": false and make "reason" state exactly what is missing, for example: The CV must include the signed, dated declaration "The curriculum vitae is true and correct as at [date]".';
+  }
+
+  // Photos get the same framing check as the GP-facing scans, so a picture that is
+  // half desk — or has a keyboard lying on the certificate — can never slip
+  // through this pipeline on a confidence score.
+  var isPhotoInput = isVisuallyClassifiable(mime);
+  if (isPhotoInput) {
+    systemPrompt += '\n\n' + PHOTO_FRAMING_PROMPT_RULE + '\n\nAdd "framing" to the JSON you return.';
   }
 
   var controller = new AbortController();
@@ -27707,6 +27796,25 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
     if (!jsonMatch) return { confidence: null, identifiedAs: '', reason: 'AI returned non-JSON response' };
 
     var parsed = JSON.parse(jsonMatch[0]);
+
+    var framingVerdict = isPhotoInput ? String(parsed.framing || '').trim().toLowerCase() : '';
+    var framingIssue = Object.prototype.hasOwnProperty.call(PHOTO_FRAMING_ISSUES, framingVerdict)
+      ? PHOTO_FRAMING_ISSUES[framingVerdict]
+      : '';
+    if (framingIssue) {
+      // A null confidence routes to va_review (see classifyConfidenceAction). The
+      // document may well be the right one, so a person decides — but a photo we
+      // would have to send back anyway must never auto-approve, and the reviewer
+      // is told what is wrong with the picture rather than left to spot it.
+      return {
+        confidence: null,
+        identifiedAs: String(parsed.identifiedAs || '').trim(),
+        reason: framingIssue,
+        matches: false,
+        retakePhoto: true
+      };
+    }
+
     return {
       confidence: typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : null,
       identifiedAs: String(parsed.identifiedAs || '').trim(),
@@ -49718,7 +49826,12 @@ async function handleApi(req, res, pathname) {
       // Don't burn a retry or demand a re-upload — the client accepts it as
       // "Verified (name change pending)" and we record the change below.
       const qNameChange = vq.nameChange === true;
-      if (!qNameChange && !(vq.verified === true && qNameOk)) {
+      // A badly framed photo of the RIGHT document is a retake, not a failed
+      // attempt. Don't spend one of the doctor's few tries on it — otherwise a
+      // correct degree photographed on a cluttered desk five times lands in
+      // manual review with five unusable pictures attached.
+      const qRetakePhotoOnly = vq.retakePhoto === true && vq.framingOnly === true && qNameOk;
+      if (!qNameChange && !qRetakePhotoOnly && !(vq.verified === true && qNameOk)) {
         const qRaw = stripBase64DataUrlPrefix(imageBase64);
         qualScanMeta = await handleServerScanFailure(session, {
           docKey: qualDocKey,
@@ -49832,8 +49945,10 @@ IMPORTANT:
 - Be lenient: if you can see clear evidence of at least a certification statement + signature + name, consider it certified even if some minor elements are missing.
 - If certified is false, the "issues" array MUST contain short, helpful reasons the user can act on.
 
+${PHOTO_FRAMING_PROMPT_RULE}
+
 Return ONLY valid JSON with no markdown formatting:
-{"certified":true,"statementPresent":true,"signaturePresent":true,"certifierName":"name or null","certifierOccupation":"occupation or null","certifierDate":"date or null","contactPresent":true,"stampPresent":true,"issues":[]}`;
+{"certified":true,"statementPresent":true,"signaturePresent":true,"certifierName":"name or null","certifierOccupation":"occupation or null","certifierDate":"date or null","contactPresent":true,"stampPresent":true${PHOTO_FRAMING_JSON_FIELD},"issues":[]}`;
 
     const certUserPrompt = `The user has uploaded what should be a CERTIFIED COPY of: ${documentType || 'a qualification document'}
 
@@ -49897,11 +50012,21 @@ Check this document for certification markings.`;
         return;
       }
 
+      // A certification we can only half see is not a certification — hold the
+      // photo to the same framing standard as the qualification scan.
+      const certFramingFailed = applyPhotoFramingPolicy(certVerification, {
+        isImage: !isPdf,
+        passKey: 'certified'
+      });
+
       // F3 server-side fail counting + at-threshold escalation (the server holds
       // the file here, so the manual-review handoff can't be lost with the cache).
+      // A retake of an otherwise properly certified copy does not burn an attempt
+      // (same rule as the qualification scan).
+      const certRetakePhotoOnly = certFramingFailed && certVerification.framingOnly === true;
       let certScanMeta = {};
       const certDocKey = sanitizeUserString(body.docKey, 120);
-      if (certDocKey && certVerification.certified !== true) {
+      if (certDocKey && !certRetakePhotoOnly && certVerification.certified !== true) {
         const cRaw = stripBase64DataUrlPrefix(imageBase64);
         certScanMeta = await handleServerScanFailure(session, {
           docKey: certDocKey,
@@ -50159,8 +50284,10 @@ IMPORTANT:
 - If it is clearly a different type of document, identify what it actually appears to be.
 - If the expected document is "CV (Signed and dated)", return "matches": true ONLY when the file is clearly a CV/resume that has (a) a visible signature, (b) a visible date, and (c) the declaration statement "The curriculum vitae is true and correct as at" followed by a date. If the signature, the date, or that declaration is missing, return "matches": false and explain exactly what is missing (for a missing declaration, say the CV must include the signed, dated declaration "The curriculum vitae is true and correct as at [date]").
 
+${PHOTO_FRAMING_PROMPT_RULE}
+
 Return ONLY valid JSON with no markdown formatting:
-{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation", "expiryDate": "YYYY-MM-DD or null — any printed expiry / valid-until date on the document (null if none is visible)"}`;
+{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation"${PHOTO_FRAMING_JSON_FIELD}, "expiryDate": "YYYY-MM-DD or null — any printed expiry / valid-until date on the document (null if none is visible)"}`;
 
     const classifyUserPrompt = `The user is trying to upload a document for: ${expectedLabel}
 
@@ -50221,10 +50348,21 @@ Classify this document.`;
         return;
       }
 
+      // The photo has to show the whole document, unobstructed. When that is the
+      // only problem, say so in "reason" — the card would otherwise read "this
+      // appears to be X, not Y", which is wrong when X and Y are the same thing.
+      const classifyFramingFailed = applyPhotoFramingPolicy(classifyResult, {
+        isImage: !isPdf,
+        passKey: 'matches'
+      });
+      if (classifyFramingFailed) classifyResult.reason = classifyResult.framingMessage;
+
       // F3 server-side fail counting + at-threshold escalation for the
-      // non-certification prepared docs (CV, letters, ...).
+      // non-certification prepared docs (CV, letters, ...). A retake of the right
+      // document does not burn an attempt.
+      const classifyRetakePhotoOnly = classifyFramingFailed && classifyResult.framingOnly === true;
       let classifyScanMeta = {};
-      if (classifyResult.matches !== true) {
+      if (!classifyRetakePhotoOnly && classifyResult.matches !== true) {
         const clRaw = stripBase64DataUrlPrefix(fileBase64);
         classifyScanMeta = await handleServerScanFailure(session, {
           docKey: expectedKey,
@@ -50462,8 +50600,10 @@ IMPORTANT RULES:
   - "This document expired on 2024-03-15. Please upload a valid, non-expired ID."
 - Never include warnings about privacy, security, or data sharing in the issues.
 
+${PHOTO_FRAMING_PROMPT_RULE}
+
 Return ONLY valid JSON with no markdown formatting:
-{"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","expiryDate":"YYYY-MM-DD or null","expired":true/false,"legible":true/false,"issues":["list of issues if any"]}`;
+{"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","expiryDate":"YYYY-MM-DD or null","expired":true/false,"legible":true/false${PHOTO_FRAMING_JSON_FIELD},"issues":["list of issues if any"]}`;
 
     const idUserPrompt = 'Verify this ID document.';
 
@@ -50521,6 +50661,12 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 502, { ok: false, message: 'AI returned invalid response.' });
         return;
       }
+
+      // The ID is always a photo here (no PDF branch on this endpoint), so the
+      // framing rules apply to every upload: whole card/page in shot, nothing on
+      // top of it. Run it before the type check so a half-covered passport is
+      // sent back as "retake the photo" rather than "this is not an ID".
+      applyPhotoFramingPolicy(verification, { isImage: true, passKey: 'verified' });
 
       // Check document type is passport or licence
       const docType = String(verification.documentType || '').toLowerCase();

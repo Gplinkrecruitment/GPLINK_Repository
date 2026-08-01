@@ -208,6 +208,36 @@
       + "plus their signature, printed name, occupation and the date. Then upload the certified copy.";
   }
 
+  /*
+   * Photo framing. The scan endpoints reject a picture that does not show the whole
+   * document, or that has something lying on top of it (applyPhotoFramingPolicy in
+   * server.js). The server already phrases those in the finished wording, so each
+   * pattern below maps its own message back to itself — an issue can pass through
+   * the humanizer two or three times on its way to the screen, and it must not
+   * decay into the generic fallback on the second pass.
+   */
+  var PHOTO_FRAMING_MESSAGES = [
+    {
+      test: /only fills part of this photo|only fills part of the photo|fills only part of the photo|most of the picture is the desk|document is too small in the (?:photo|picture)/,
+      text: "The document only fills part of this photo — most of the picture is the desk or the room around it. Please retake it with the document filling the frame."
+    },
+    {
+      test: /outside this photo|outside the photo|corners of the page are inside|cut off at the edge|part of the (?:document|page) is missing from the (?:photo|picture)/,
+      text: "Part of the document is outside this photo. Please retake it so all four corners of the page are inside the frame."
+    },
+    {
+      test: /covering part of the document|is covering part of|lying on top of the document|on top of the document|obstruct/,
+      text: "Something is covering part of the document in this photo — for example a hand, a keyboard, a phone or another piece of paper. Please move everything off the page and retake it."
+    }
+  ];
+
+  function matchPhotoFramingIssue(lower) {
+    for (var i = 0; i < PHOTO_FRAMING_MESSAGES.length; i++) {
+      if (PHOTO_FRAMING_MESSAGES[i].test.test(lower)) return PHOTO_FRAMING_MESSAGES[i].text;
+    }
+    return "";
+  }
+
   function humanizeScanIssue(issue, options) {
     var clean = stripHtml(issue);
     var lower = clean.toLowerCase();
@@ -223,6 +253,11 @@
     if (/too large|request entity too large|payload too large|image too large|file too large/.test(lower)) {
       return "This file is too large to scan. Please upload a smaller photo, or the PDF version, and try again.";
     }
+    // Framing comes before the blurry/name branches: when the page is half out of
+    // shot or under a keyboard, "retake it properly" is the one useful instruction,
+    // and the unreadable name is a symptom of it rather than a separate problem.
+    var framingMessage = matchPhotoFramingIssue(lower);
+    if (framingMessage) return framingMessage;
     // A name that differs from the account on a genuine qualification is a name change
     // (e.g. marriage), not a wrong document. Never tell the GP to upload a "matching"
     // document — a certificate can only carry the name it was issued in.
