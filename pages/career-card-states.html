@@ -399,7 +399,15 @@
       'var roleData = ROLES;',
       'function findRole(roleId) { return ROLES.find(function (r) { return r.id === roleId; }) || null; }',
       'var careerState = { applications: ALL_APPS };',
+      // careerApplicationState only offers the interview picker once the real
+      // page has server truth for every card. This gallery IS the fixtures, so
+      // it always has it — without this stub the extracted function throws a
+      // ReferenceError and every card below fails to render.
+      'var careerAppsAreServerTruth = true;',
       'function renderApplications() { repaintAll(); }',
+      // careerIvApplyBooking writes the booking through to the saved copy on
+      // the real page. Here there is nothing to save.
+      'function persistCareerState() {}',
       'function showCareerNotice(t, b) { if (window.gpNotice) window.gpNotice.show({ title: t, body: b, tone: "good", icon: "\\u2713" }); }',
       'function showToast(m) { console.log("[toast]", m); }'
     ].join('\n');

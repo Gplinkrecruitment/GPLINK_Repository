@@ -388,6 +388,40 @@ describe('A4 + A2 — book (ops-notified) then cancel & rebook', () => {
     expect(booked.length).toBe(1);
   });
 
+  // Owner report 2026-08-01. The idempotency guard on both booking endpoints
+  // asked `status === 'booked'` alone, so the instant an interview was sat
+  // (status -> 'completed') or missed ('no_show') it stopped being protected
+  // while still holding a real scheduled_at — and a booking POST re-wrote the
+  // interview that had already happened. A stale time-picker on the careers
+  // card is precisely what sends that POST.
+  it('A2: an interview that has already been sat is never overwritten by a late booking', async () => {
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-2' && c.meeting_kind === 'interview' && c.status === 'booked');
+    expect(row).toBeTruthy();
+    const originalWhen = row.scheduled_at;
+
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-mgmt-2');
+    const otherSlot = (slotsRes.body.slots || []).find((s) => s.startUtc !== originalWhen);
+    expect(otherSlot).toBeTruthy();
+
+    for (const sat of ['completed', 'no_show']) {
+      row.status = sat;
+      const book = await gpPost('/api/career/interview/book', { applicationId: 'app-mgmt-2', slot_start_utc: otherSlot.startUtc });
+      // Answered, not refused — the doctor is simply told the time they have.
+      expect(book.status).toBe(200);
+      expect(book.body.already).toBe(true);
+      expect(book.body.booked.scheduled_at).toBe(originalWhen);
+      // The row itself is untouched: same time, same status, no second row.
+      expect(row.scheduled_at).toBe(originalWhen);
+      expect(row.status).toBe(sat);
+      const live = db.scheduled_calls.filter((c) => c.application_id === 'app-mgmt-2' && c.meeting_kind === 'interview' && c.status !== 'cancelled');
+      expect(live.length).toBe(1);
+    }
+
+    // A cancelled interview stays deliberately re-bookable (the row above is
+    // restored so the later cases see the state they expect).
+    row.status = 'booked';
+  });
+
   it('A2: 404 when there is no interview to cancel', async () => {
     const r = await atsPost('/api/ats/interview/cancel', { applicationId: 'app-mgmt-3' });
     expect(r.status).toBe(404);

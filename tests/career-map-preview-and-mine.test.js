@@ -166,11 +166,44 @@ describe('career map: your matches & applications under the map', () => {
 describe('career cards: pick an interview time in place', () => {
   it('an interview card that is not booked yet renders the picker', () => {
     expect(career).toMatch(/function buildInterviewPickerHtml\(appId\)/);
-    expect(career).toMatch(/bookable: !when/);
+    expect(career).toMatch(/const canOfferPicker = !when && careerAppsAreServerTruth;/);
+    expect(career).toMatch(/bookable: canOfferPicker/);
     expect(career).toMatch(/booked: !!when/);
     // interview_completed is behind the doctor — it must never offer a picker.
     const done = (career.match(/if \(key === "interview_completed"\)[\s\S]*?\}\n/) || [''])[0];
     expect(done).not.toMatch(/bookable: true/);
+  });
+
+  // Owner report 2026-08-01: a doctor already booked for Wed 5 Aug 11:00 was
+  // shown "Pick your interview time" for a beat before the card corrected
+  // itself. The first paint comes from the copy saved in localStorage, which
+  // predated the booking (he booked from the email link, which never touches
+  // this page's cache) — so `interview` was missing and the card read that as
+  // "no time chosen". init()'s 3s failsafe reveals the page even when the fetch
+  // has not landed, so that stale paint is reachable on a slow mobile load.
+  it('never offers the picker from the saved copy — only once the server has answered', () => {
+    // The flag starts false and is only set where the server payload is applied.
+    expect(career).toMatch(/let careerAppsAreServerTruth = false;/);
+    const merge = (career.match(/function mergeRemoteApplications\(payload, shouldRender\)[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(merge).toMatch(/careerAppsAreServerTruth = true;/);
+    // Set BEFORE the render at the end of the merge, or the very paint that
+    // reconciles to server truth would still suppress the picker.
+    expect(merge.indexOf('careerAppsAreServerTruth = true;'))
+      .toBeLessThan(merge.indexOf('if (shouldRender) renderPage();'));
+    // Nothing else may flip it on — a second writer would reopen the hole.
+    expect(career.match(/careerAppsAreServerTruth = true/g) || []).toHaveLength(1);
+    // Cached truth is still enough to show a CONFIRMED time: a booking can only
+    // have come from the server, and it does not un-book itself.
+    expect(career).toMatch(/booked: !!when, bookable: canOfferPicker/);
+  });
+
+  // The booking must reach the saved copy immediately, not on some later sync —
+  // closing the tab straight after booking used to leave localStorage still
+  // saying "no interview".
+  it('writes a card booking through to the saved copy', () => {
+    const apply = (career.match(/function careerIvApplyBooking\(appId, interview\)[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(apply).toMatch(/if \(app\) app\.interview = interview;/);
+    expect(apply).toMatch(/if \(app\) persistCareerState\(\);/);
   });
 
   it('uses the same two endpoints as the application-detail picker', () => {

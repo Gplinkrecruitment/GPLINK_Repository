@@ -9906,6 +9906,21 @@
       activeOverlays: []
     };
     let remoteApplicationsSettled = false;
+    // TRUE only once /api/career/applications has actually been applied this
+    // page load — i.e. `interview` on every card is server truth, not the copy
+    // saved in localStorage on a previous visit.
+    //
+    // Why it exists (owner report 2026-08-01): a doctor who had already booked
+    // Wed 5 Aug 11:00 was shown "Pick your interview time" for a beat, then the
+    // card corrected itself. The first paint comes from the saved copy, which
+    // predated the booking (he booked from the email link, which never touches
+    // this page's cache), so `interview` was absent and the card read that as
+    // "no time chosen yet". Normally the boot overlay hides that paint until
+    // the fetch lands — but init()'s 3s failsafe reveals the page regardless so
+    // it can never hang, and on a slow mobile load the stale card is what gets
+    // revealed. Absent server truth the honest answer is "we're checking", NOT
+    // a live picker for an interview that is already booked.
+    let careerAppsAreServerTruth = false;
 
     function getSecuredPlacementApp() {
       return careerState.applications.find((application) => application && application.isPlacementSecured) || null;
@@ -12514,6 +12529,10 @@
       // careerState locally (apply persists server-side, then we refetch), so
       // there is no un-synced local-only application to preserve here.
       careerState.applications = remote;
+      // Every card's `interview` is now server truth, so the interview picker
+      // may be offered (see careerAppsAreServerTruth). Set BEFORE the render
+      // below, or the paint that follows this merge would still suppress it.
+      careerAppsAreServerTruth = true;
       if (remote.some((application) => application.isPlacementSecured)) {
         careerState.activeView = "secured";
       } else if (careerState.activeView === "secured" && !shouldLockCareerToSecuredView()) {
@@ -13203,16 +13222,25 @@
       }
       if (key === "interview" || key === "interview_scheduled") {
         // interview: server truth about the booking, added to
-        // /api/career/applications. Absent (older payload) => offer the picker;
-        // booking twice is safe, the endpoint returns the existing booking.
+        // /api/career/applications.
         const iv = app.interview || null;
         const when = iv && iv.scheduledAt ? String(iv.scheduledAt) : "";
+        // A confirmed time is safe to show from the saved copy — it can only
+        // have got there from the server, and a booking does not un-book
+        // itself. The PICKER is not: "no interview on this card" is also what a
+        // saved copy written before the booking looks like, so offering a live
+        // picker on that basis showed "pick a time" to a doctor who was already
+        // booked (see careerAppsAreServerTruth). Until the server answers, hold
+        // the neutral middle state — no picker, no invented confirmation.
+        const canOfferPicker = !when && careerAppsAreServerTruth;
         return S({
           label: "Interview", ribbon: "INTERVIEW", tone: "green", rowTone: "offer",
-          booked: !!when, bookable: !when,
+          booked: !!when, bookable: canOfferPicker,
           blurb: when
             ? "Your interview is locked in. Your Registration Support Officer joins you, so you're never in the room alone."
-            : "The practice wants to meet you — pick a time below. Your Registration Support Officer joins you, so you're never in the room alone."
+            : (canOfferPicker
+              ? "The practice wants to meet you — pick a time below. Your Registration Support Officer joins you, so you're never in the room alone."
+              : "The practice wants to meet you — checking your interview time…")
         });
       }
       if (key === "submitted") {
@@ -13604,6 +13632,13 @@
         if (window.gpCache && typeof window.gpCache.invalidate === "function") {
           window.gpCache.invalidate("/api/career/applications");
         }
+        // Write the booking to the saved copy NOW, not on some later sync. This
+        // object only lived in memory before, so closing the tab straight after
+        // booking left localStorage still saying "no interview" — and the next
+        // cold load first-painted from that. Harmless while the picker was
+        // suppressed pre-server-truth, but the saved copy should simply be
+        // right: it is what the confirmed time is safe to paint from.
+        if (app) persistCareerState();
       } catch (e) { /* display-only */ }
       renderApplications();
       showCareerNotice("Interview confirmed", "You're booked for " + careerIvFormatFull(interview.scheduledAt) + ". We've emailed you the Zoom link, and your Registration Support Officer will join you.");

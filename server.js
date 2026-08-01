@@ -43597,8 +43597,10 @@ async function handleApi(req, res, pathname) {
     }
     if (!cbRow) { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
 
-    // Idempotent: already booked.
-    if (cbRow.status === 'booked') {
+    // Idempotent: this interview already exists (booked, sat, or missed) —
+    // hand back the real time instead of overwriting it. See
+    // _interviewRowIsAlreadyBooked.
+    if (_interviewRowIsAlreadyBooked(cbRow)) {
       sendJson(res, 200, { ok: true, already: true, booked: { scheduled_at: cbRow.scheduled_at, zoom_join_url: cbRow.zoom_join_url || '' } });
       return;
     }
@@ -68408,8 +68410,10 @@ Return ONLY valid JSON with no markdown formatting:
     }
     if (!bkRow) { sendJson(res, 404, { ok: false, message: 'Interview row not found.' }); return; }
 
-    // Idempotent: already booked.
-    if (bkRow.status === 'booked') {
+    // Idempotent: this interview already exists (booked, sat, or missed) —
+    // hand back the real time instead of overwriting it. See
+    // _interviewRowIsAlreadyBooked.
+    if (_interviewRowIsAlreadyBooked(bkRow)) {
       sendJson(res, 200, { ok: true, interview_id: bkRow.id, scheduled_at: bkRow.scheduled_at, zoom_join_url: bkRow.zoom_join_url || '', already: true });
       return;
     }
@@ -70714,6 +70718,28 @@ async function _interviewSlotContext(applicationId, nowMs, gpTzOverride) {
 // calendar can match and remove the original event.
 function _interviewIcsUid(interviewRowId) {
   return 'gplink-interview-' + String(interviewRowId) + '@mygplink.com.au';
+}
+
+// Does this scheduled_calls row already hold a real interview, i.e. must a
+// booking request return it rather than overwrite it?
+//
+// Both booking endpoints used to ask `status === 'booked'` alone. That left a
+// hole: the moment an interview is sat (status -> 'completed') or missed
+// ('no_show'), the row stops being 'booked' while still holding a real
+// scheduled_at — so a booking POST sailed past the guard and re-wrote the
+// interview that had already happened. A stale time-picker on the careers card
+// is exactly what would send that POST (owner report 2026-08-01).
+//
+// 'invited' is the placeholder written when the slot list is first opened and
+// carries no scheduled_at; 'cancelled' is deliberately re-bookable, matching
+// the interview lookup in /api/career/applications, which also ignores only
+// cancelled rows. Anything else with a time on it is real history — staff
+// reschedule it explicitly (the reset path clears completed_at/no_show_at/
+// cancelled_at), a doctor's picker never overwrites it.
+function _interviewRowIsAlreadyBooked(row) {
+  if (!row || !row.scheduled_at) return false;
+  var st = String(row.status || '').trim();
+  return st !== 'invited' && st !== 'cancelled';
 }
 
 async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail, bookOpts) {

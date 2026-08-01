@@ -233,7 +233,12 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('ATS book cap window comes from the REAL clock, never the bodyBK.now slot-math hook (review fix)', () => {
     const idx = serverSrc.indexOf("pathname === '/api/ats/interview/book'");
-    const fnSrc = serverSrc.slice(idx, idx + 3200);
+    // Slice to the START OF THE NEXT ROUTE rather than a fixed byte count. The
+    // window was 3200 chars, which sat 67 bytes below the _bookInterviewSlot
+    // call — so adding three lines of comment inside this handler pushed the
+    // assertion out of the window and reported a passing handler as broken.
+    const end = serverSrc.indexOf("if (pathname === '", idx);
+    const fnSrc = serverSrc.slice(idx, end > idx ? end : idx + 3900);
     expect(fnSrc).toContain('currentInterviewMonthWindow(new Date())');
     expect(fnSrc).not.toContain('currentInterviewMonthWindow(bkNow)');
     // The pre-existing slot-math determinism hook is untouched.
