@@ -10483,7 +10483,42 @@ async function resolveVerificationProfileName(session, suppliedProfileName) {
 
   const fallbackProfile = buildFallbackApiProfile(email, session && session.userProfile);
   const fallbackName = sanitizeUserString(getFullNameFromProfileLike(fallbackProfile), 200);
-  return hasUsableFullName(fallbackName) ? fallbackName : '';
+  if (hasUsableFullName(fallbackName)) return fallbackName;
+
+  // Last resort: the identity the doctor actually signed in with. A Google
+  // account carries its name only as `full_name`, and until that was read the
+  // user_profiles row stayed blank — so the scan refused the document and told
+  // them to "update your account name", which a Google sign-in cannot do.
+  // Reading it here also rescues every account created before the fix, without
+  // waiting for them to log in again.
+  const authName = sanitizeUserString(await getSupabaseAuthUserFullName(session), 200);
+  return hasUsableFullName(authName) ? authName : '';
+}
+
+// Full name from the Supabase auth identity (Google/Apple/etc), '' if unavailable.
+// Best-effort: never throws, and a failure just means we fall back to no name.
+async function getSupabaseAuthUserFullName(session) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return '';
+  const userId = getSessionSupabaseUserId(session) || (await getSupabaseUserIdByEmail(getSessionEmail(session)).catch(() => null));
+  if (!userId) return '';
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const resp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+        signal: controller.signal,
+        headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
+      });
+      if (!resp.ok) return '';
+      const user = await resp.json();
+      const { firstName, lastName } = deriveSupabaseUserNames(user && user.user_metadata);
+      return [firstName, lastName].filter(Boolean).join(' ').trim();
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (e) {
+    return '';
+  }
 }
 
 function applyQualificationNameMatchPolicy(verification, profileName, verifiedNames) {
@@ -28993,6 +29028,44 @@ function getSessionProfileFromUser(email) {
   };
 }
 
+/**
+ * First and last name out of a Supabase user's metadata.
+ *
+ * Our own email+password signup writes `firstName`/`lastName`, and some social
+ * providers send `given_name`/`family_name` — but **Google sends neither**. A
+ * Google account arrives with only `full_name` / `name` ("Khaleed Mahmoud"),
+ * so reading just the first two fields left every Google signup with a blank
+ * name. The qualification scan then refused the document with "your account
+ * does not have a full first and last name yet — please update your account
+ * name", which a doctor who signed in with Google has no way to act on.
+ *
+ * Splitting a full name is imperfect (first token first, the rest last), but a
+ * name we can compare beats no name at all, and the doctor's own documents
+ * correct it later via the cross-document legal-name check.
+ *
+ * Kept in ONE place because the three call sites below had drifted copies of
+ * this same expression — which is how the Google gap survived.
+ */
+function deriveSupabaseUserNames(metadata) {
+  const meta = metadata && typeof metadata === 'object' ? metadata : {};
+  let firstName = String(meta.firstName || meta.given_name || '').trim();
+  let lastName = String(meta.lastName || meta.family_name || '').trim();
+  if (firstName && lastName) return { firstName, lastName };
+
+  const full = String(meta.full_name || meta.name || '').trim().replace(/\s+/g, ' ');
+  if (!full) return { firstName, lastName };
+  const parts = full.split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    if (!firstName) firstName = parts[0];
+    if (!lastName) lastName = parts.slice(1).join(' ');
+  } else if (!firstName) {
+    // A single-word name gives us no surname; leave lastName empty rather than
+    // inventing one, so the "no usable full name" path stays honest.
+    firstName = parts[0];
+  }
+  return { firstName, lastName };
+}
+
 function getSessionProfileFromSupabaseUser(supaUser, fallbackEmail = '') {
   const email = String(
     (supaUser && typeof supaUser.email === 'string' && supaUser.email) || fallbackEmail || ''
@@ -29000,9 +29073,10 @@ function getSessionProfileFromSupabaseUser(supaUser, fallbackEmail = '') {
   const metadata = supaUser && supaUser.user_metadata && typeof supaUser.user_metadata === 'object'
     ? supaUser.user_metadata
     : {};
+  const derivedNames = deriveSupabaseUserNames(metadata);
   return {
-    firstName: String(metadata.firstName || metadata.given_name || '').trim(),
-    lastName: String(metadata.lastName || metadata.family_name || '').trim(),
+    firstName: derivedNames.firstName,
+    lastName: derivedNames.lastName,
     email,
     supabaseUserId: String((supaUser && supaUser.id) || '').trim(),
     countryDial: String(metadata.countryDial || '').trim(),
@@ -29023,8 +29097,7 @@ async function ensureSupabaseUserProfile(supaUser) {
   const meta = supaUser && typeof supaUser.user_metadata === 'object' && supaUser.user_metadata
     ? supaUser.user_metadata
     : {};
-  const firstName = String(meta.firstName || meta.given_name || '').trim();
-  const lastName = String(meta.lastName || meta.family_name || '').trim();
+  const { firstName, lastName } = deriveSupabaseUserNames(meta);
 
   // Check if row already exists (may be created by DB trigger with empty names)
   const existing = await supabaseDbRequest(
@@ -29085,8 +29158,7 @@ function upsertLocalUserFromSupabaseUser(supaUser) {
   const meta = supaUser && typeof supaUser.user_metadata === 'object' && supaUser.user_metadata
     ? supaUser.user_metadata
     : {};
-  const firstName = String(meta.firstName || meta.given_name || '').trim();
-  const lastName = String(meta.lastName || meta.family_name || '').trim();
+  const { firstName, lastName } = deriveSupabaseUserNames(meta);
   const countryDial = String(meta.countryDial || '').trim();
   const phoneNumber = String(meta.phoneNumber || '').trim();
   const registrationCountry = String(meta.registrationCountry || '').trim();
@@ -51665,27 +51737,28 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    // Update in Supabase
+    // Update in Supabase.
+    // 🧨 This wrote to `profiles`, which does not exist in this project (PostgREST
+    // answers 404) — every account this table is read from is `user_profiles`. The
+    // 404 was logged and swallowed, and the endpoint still answered {ok:true}, so
+    // the client believed the rename had happened while nothing changed. The
+    // caller is the "adopt the legal name off the documents" rescue in
+    // js/onboarding.js, which means that rescue has never worked in production.
+    let supabaseUpdated = true;
     if (isSupabaseDbConfigured()) {
+      supabaseUpdated = false;
       try {
-        const patchController = new AbortController();
-        const patchTimeout = setTimeout(() => patchController.abort(), 10000);
-        try {
-          const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}`, {
-            method: 'PATCH',
-            signal: patchController.signal,
-            headers: {
-              'Content-Type': 'application/json',
-              apikey: SUPABASE_SERVICE_ROLE_KEY,
-              Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-              Prefer: 'return=minimal'
-            },
-            body: JSON.stringify({ first_name: firstName, last_name: lastName })
-          });
-          if (!patchRes.ok) console.error('[UpdateName] Supabase PATCH error:', patchRes.status);
-        } finally {
-          clearTimeout(patchTimeout);
-        }
+        const nameUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+        const filter = nameUserId
+          ? 'user_id=eq.' + encodeURIComponent(nameUserId)
+          : 'email=eq.' + encodeURIComponent(email);
+        const patch = await supabaseDbRequest('user_profiles', filter, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: { first_name: firstName, last_name: lastName, updated_at: new Date().toISOString() }
+        });
+        supabaseUpdated = !!(patch && patch.ok);
+        if (!supabaseUpdated) console.error('[UpdateName] user_profiles PATCH failed:', patch && patch.status);
       } catch (e) { console.error('[UpdateName] Supabase error:', e.message); }
     }
 
@@ -51695,6 +51768,13 @@ Return ONLY valid JSON with no markdown formatting:
       dbState.userProfiles[email].first_name = firstName;
       dbState.userProfiles[email].last_name = lastName;
       saveDbState();
+    }
+
+    // Say so when the write did not land: the caller shows the doctor a notice,
+    // and silently claiming success is how this stayed broken.
+    if (!supabaseUpdated) {
+      sendJson(res, 502, { ok: false, message: 'We could not update your account name just now. Please try again.' });
+      return;
     }
 
     console.log(`[UpdateName] Account ${email} name updated to: ${firstName} ${lastName} (auto-matched from documents)`);

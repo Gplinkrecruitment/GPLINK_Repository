@@ -266,10 +266,12 @@ describe('camera framing measurement', () => {
   // getImageData, so it runs headless against synthetic pixels.
   const measureFraming = (() => {
     const src = extractFunction(cameraJs, 'measureFraming');
+    const drawSrc = extractFunction(cameraJs, 'drawSource');
     expect(src, 'measureFraming not found').toBeTruthy();
+    expect(drawSrc, 'drawSource not found').toBeTruthy();
     const factory = new Function(
-      'document', 'FRAMING_SAMPLE_W', 'FRAMING_SAMPLE_H', 'FRAMING_MIN_COVERAGE', 'FRAMING_MIN_FILL',
-      'var framingCanvas = null;\n' + src + '\nreturn measureFraming;'
+      'document', 'FRAMING_SAMPLE_W', 'FRAMING_MIN_COVERAGE', 'FRAMING_MIN_FILL', 'FRAMING_EDGE_RUN',
+      'var framingCanvas = null;\n' + drawSrc + '\n' + src + '\nreturn measureFraming;'
     );
     return (pixels) => {
       const doc = {
@@ -282,7 +284,7 @@ describe('camera framing measurement', () => {
           })
         })
       };
-      return factory(doc, 64, 48, 0.55, 0.55)({ dummy: true }, 640, 480);
+      return factory(doc, 64, 0.55, 0.55, 0.25)({ dummy: true }, null);
     };
   })();
 
@@ -338,6 +340,23 @@ describe('camera framing measurement', () => {
     expect(measureFraming(frame(30, 240, { x: 1, y: 1, w: 62, h: 46 })).code).not.toBe('too_small');
   });
 
+  it('catches a certificate running off the edge of the frame', () => {
+    // The failure the owner photographed: an A4 certificate held too close reads
+    // as "filling the frame" on coverage alone while its top and bottom are
+    // outside the photo — and the old check called that "looks good".
+    const r = measureFraming(frame(30, 235, { x: 0, y: 0, w: 64, h: 40 }));
+    expect(r.code).toBe('cut_off');
+    // ...and it is NOT reported as too_small: it is the opposite problem.
+    expect(r.code).not.toBe('too_small');
+  });
+
+  it('does not cry "cut off" when a corner merely grazes the edge', () => {
+    // A page that touches an edge briefly is not a page running past it, which
+    // is why the test is a share of the border rather than any contact at all.
+    const r = measureFraming(frame(30, 235, { x: 52, y: 40, w: 12, h: 8 }));
+    expect(r.code).not.toBe('cut_off');
+  });
+
   it('will not show a green tick over a small page on a pale desk', () => {
     // Caught in the live demo: a white page on a white desk read as "ok" via the
     // mostly-bright short-circuit, so a badly framed shot got the lock-on tick.
@@ -365,24 +384,69 @@ describe('camera framing measurement', () => {
   });
 });
 
+describe('the frame is A4, and the photo is what is inside it', () => {
+  it('shapes the viewfinder to a portrait certificate', () => {
+    // A certificate is A4 portrait. The old frame was a fixed inset box inside a
+    // short, wide preview strip, so an A4 page could not fit in it — the doctor
+    // watched the top and bottom of their degree get cropped away.
+    expect(cameraJs).toContain('var A4_RATIO = 1.414;');
+    expect(cameraJs).toMatch(/\.qcam-viewfinder\{[^}]*aspect-ratio:1 \/ " \+ A4_RATIO/);
+  });
+
+  it('captures the region behind the brackets, not the whole camera frame', () => {
+    const fn = extractFunction(cameraJs, 'getCaptureCrop');
+    expect(fn, 'getCaptureCrop not found').toBeTruthy();
+    // object-fit: cover has to be undone to find where the brackets fall on the
+    // source frame, or the crop lands somewhere else entirely.
+    expect(fn).toContain('Math.max(vRect.width / vw, vRect.height / vh)');
+    expect(fn).toContain('var bleedX = fRect.width * CAPTURE_BLEED;');
+    // Never ask drawImage for pixels outside the frame.
+    expect(fn).toContain('if (sx + sw > vw) sw = vw - sx;');
+    expect(cameraJs).toContain('var crop = getCaptureCrop(video);');
+    expect(cameraJs).toContain('drawSource(ctx, video, crop, w, h);');
+  });
+
+  it('captures slightly beyond the brackets so a neat shot is not clipped', () => {
+    expect(cameraJs).toContain('var CAPTURE_BLEED = 0.06;');
+  });
+
+  it('puts the camera behind everything instead of a black slab', () => {
+    // The owner asked for the black background to go and the instructions to sit
+    // on glass over the live picture.
+    expect(cameraJs).toContain('.qcam-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}');
+    expect(cameraJs).toMatch(/\.qcam-tipcard\{[^}]*backdrop-filter:blur\(14px\)/);
+    expect(cameraJs).toMatch(/\.qcam-tipcard\{[^}]*background:rgba\(15,23,42,0\.34\)/);
+    expect(cameraJs).not.toContain('.qcam-bottom{background:rgba(0,0,0,0.85)');
+    // Outside the frame is dimmed rather than blacked out.
+    expect(cameraJs).toMatch(/\.qcam-viewfinder\{[^}]*box-shadow:0 0 0 9999px rgba\(0,0,0,0\.55\)/);
+  });
+
+  it('keeps the checklist short so the frame stays big', () => {
+    expect(cameraJs).toContain('var MAX_TIPS = 3;');
+    expect(cameraJs).toContain('.slice(0, MAX_TIPS)');
+  });
+});
+
 describe('camera guidance', () => {
   it('leads every checklist with framing', () => {
-    expect(cameraJs).toContain('The document fills the frame — nothing else in the photo');
-    expect(cameraJs).toContain('Nothing resting on the page: no keyboard, phone or fingers');
+    expect(cameraJs).toContain('Line the page up inside the frame');
+    expect(cameraJs).toContain('Nothing resting on it: no keyboard, phone or fingers');
     expect(cameraJs).toContain('return FRAMING_TIPS.concat(');
   });
 
   it('keeps the certification line on a per-document checklist', () => {
-    expect(cameraJs).toContain('if (requireCert && specific.indexOf(CERT_TIP) === -1) specific.push(CERT_TIP);');
+    expect(cameraJs).toContain('if (requireCert) specific.unshift(CERT_TIP);');
   });
 
   it('nudges live, while the shot is being lined up', () => {
     expect(cameraJs).toContain('Move closer — fill the frame with the document');
-    // Lighting is judged first: a dark or blown-out frame makes the measurement
-    // unreliable and is the thing to fix first.
-    const darkAt = cameraJs.indexOf('Too dark — find more light');
-    const framingAt = cameraJs.indexOf('var framing = measureFraming(video');
-    expect(darkAt).toBeLessThan(framingAt);
+    expect(cameraJs).toContain('Move back — the whole page must be inside the frame');
+    // Lighting is reported first: a dark or blown-out frame makes the framing
+    // measurement unreliable and is the thing to fix before moving the camera.
+    const darkAt = cameraJs.indexOf('setLiveHint("warn", "Too dark');
+    const cutAt = cameraJs.indexOf('setLiveHint("warn", "Move back');
+    expect(darkAt).toBeGreaterThan(-1);
+    expect(darkAt).toBeLessThan(cutAt);
   });
 
   it('locks on visually once the document fills the frame', () => {
@@ -419,8 +483,11 @@ describe('camera guidance', () => {
   });
 
   it('asks before it accepts a badly framed shot — and never locks the doctor out', () => {
-    expect(cameraJs).toContain('if (framing.code === "too_small") {');
-    expect(cameraJs).toContain('showReview(blob);');
+    // Both ways of getting it wrong stop for a look: too much background, and
+    // the page running off the edge.
+    expect(cameraJs).toContain('if (framing.code === "too_small" || framing.code === "cut_off") {');
+    expect(cameraJs).toContain('showReview(blob, framing.code);');
+    expect(cameraJs).toMatch(/REVIEW_COPY = \{[\s\S]*too_small:[\s\S]*cut_off:/);
     expect(cameraJs).toContain('Is the whole document in shot?');
     expect(cameraJs).toContain('id="qcamRetake"');
     // The measurement can be wrong, and a doctor who cannot get past their own
