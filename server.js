@@ -2173,6 +2173,111 @@ async function resolvePlacedPracticeContact(userId) {
   return practiceContactLib.toPracticeContact(practiceContactLib.pickPlacedApplication(placedRows));
 }
 
+/**
+ * Where is this GP placed, resolved from the OWNED rows (gp_applications -> career_roles ->
+ * practices) rather than the user_state.gp_career_state mirror.
+ *
+ * The mirror is what the AI summary and the task-list enrichment used to read first, and it
+ * can be flatly wrong: a hand-created account can carry another GP's placement block (Dr
+ * Mercy Obanimoh's career state held Sana Ahsan's Halekulani placement and contact email
+ * while her real application said The Doctors Werribee). Callers should prefer this and use
+ * the mirror only when this returns null.
+ *
+ * @returns {Promise<{practiceName,contactName,contactEmail,contactPhone,roleTitle,location}|null>}
+ */
+async function resolvePlacedPracticeProfile(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return null;
+  try {
+    const placedRows = await fetchPlacedApplicationRows([userId]);
+    const app = practiceContactLib.pickPlacedApplication(placedRows);
+    if (!app) return null;
+    let role = null;
+    if (app.career_role_id != null && app.career_role_id !== '') {
+      const roleRes = await supabaseDbRequest('career_roles',
+        'select=id,practice_name,title,location_city,location_state,practice_id&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
+      role = (roleRes.ok && Array.isArray(roleRes.data) && roleRes.data[0]) ? roleRes.data[0] : null;
+    }
+    let practice = null;
+    const practiceId = practiceContactLib.practiceIdForRow(app, role && role.practice_id ? { [app.career_role_id]: role.practice_id } : {});
+    if (practiceId) {
+      const pRes = await supabaseDbRequest('practices',
+        'select=id,name,contact_name,contact_email&id=eq.' + encodeURIComponent(practiceId) + '&limit=1');
+      practice = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
+    }
+    return practiceContactLib.buildPlacementProfile(app, role, practice);
+  } catch (e) {
+    console.warn('[placement] resolvePlacedPracticeProfile failed:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Batch form of resolvePlacedPracticeProfile for the task-list enrichments.
+ * @returns {Promise<Object>} { [userId]: placementProfile }
+ */
+async function resolvePlacedPracticeProfiles(userIds) {
+  const out = {};
+  const ids = [...new Set((Array.isArray(userIds) ? userIds : []).filter(Boolean))];
+  if (!ids.length || !isSupabaseDbConfigured()) return out;
+  try {
+    const placedApps = await fetchPlacedApplicationRows(ids);
+    if (!placedApps.length) return out;
+
+    // Both lookups go through supabaseDbRequestByIds so a large caseload chunks instead of
+    // building one oversized in.(...) URL — the failure mode that silently 400'd task views.
+    const roleIds = [...new Set(placedApps.map(function (a) { return a.career_role_id; }).filter(function (v) { return v != null && v !== ''; }))];
+    const roleMap = {};
+    if (roleIds.length) {
+      const roleRows = await supabaseDbRequestByIds('career_roles', roleIds, function (inList) {
+        return 'select=id,practice_name,title,location_city,location_state,practice_id&id=in.(' + inList + ')&limit=' + SUPABASE_IN_CHUNK_SIZE;
+      });
+      roleRows.forEach(function (r) { if (r && r.id != null) roleMap[r.id] = r; });
+    }
+    const practiceIds = [...new Set(placedApps.map(function (a) {
+      const role = roleMap[a.career_role_id];
+      return practiceContactLib.practiceIdForRow(a, role && role.practice_id ? { [a.career_role_id]: role.practice_id } : {});
+    }).filter(Boolean))];
+    const practiceMap = {};
+    if (practiceIds.length) {
+      const pracRows = await supabaseDbRequestByIds('practices', practiceIds, function (inList) {
+        return 'select=id,name,contact_name,contact_email,contact_phone&id=in.(' + inList + ')&limit=' + SUPABASE_IN_CHUNK_SIZE;
+      });
+      pracRows.forEach(function (p) { if (p && p.id) practiceMap[p.id] = p; });
+    }
+
+    placedApps.forEach(function (app) {
+      const role = roleMap[app.career_role_id] || null;
+      const pid = practiceContactLib.practiceIdForRow(app, role && role.practice_id ? { [app.career_role_id]: role.practice_id } : {});
+      const profile = practiceContactLib.buildPlacementProfile(app, role, practiceMap[pid] || null);
+      if (!profile) return;
+      // Preserve the old display behaviour of falling back to the role title when the role
+      // carries no practice name of its own.
+      if (!profile.practiceName && role && role.title) profile.practiceName = String(role.title).trim();
+      const existing = out[app.user_id];
+      if (!existing || (!existing.contactEmail && profile.contactEmail)) out[app.user_id] = profile;
+    });
+  } catch (e) {
+    console.warn('[placement] resolvePlacedPracticeProfiles failed:', e.message);
+  }
+  return out;
+}
+
+/**
+ * Merge the authoritative placement profiles with the career-state mirror, authoritative
+ * first. The mirror is used ONLY for GPs with no placed application at all.
+ */
+function buildPracticeContactMap(profilesByUser, stateMap, userIds) {
+  const map = {};
+  (Array.isArray(userIds) ? userIds : []).forEach(function (uid) {
+    const st = (stateMap || {})[uid] || {};
+    const career = typeof st.gp_career_state === 'string' ? {} : (st.gp_career_state || {});
+    const mirror = practiceContactLib.placementFromCareerStateMirror(career);
+    const merged = practiceContactLib.mergePlacementSources((profilesByUser || {})[uid], mirror);
+    if (merged) map[uid] = merged;
+  });
+  return map;
+}
+
 // Helper: create placeholder alt supervisor CV entries when SPPA-00 reveals alt supervisors
 // Creates user_documents (pending) and updates gp_prepared_docs state (ready: false → "Preparing")
 async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
@@ -54791,12 +54896,22 @@ Return ONLY valid JSON with no markdown formatting:
       });
 
       // 3. Build the prompt
-      // Placement/practice: registration_cases.practice_name is NOT populated by the
-      // career placement flow, so fall back to the GP's secured placement in
-      // gp_career_state (the SAME source the dashboard header uses). Otherwise the
-      // summary wrongly reports "no practice assigned" for GPs placed via the career
-      // flow even though the header shows their practice.
+      // Placement/practice. `registration_cases.practice_name` is NOT populated by the career
+      // placement flow, so it is usually empty and something else has to supply the practice.
+      //
+      // That fallback used to be the user_state.gp_career_state mirror — and the mirror LIES.
+      // A hand-created account can carry another GP's placement block outright: Dr Mercy
+      // Obanimoh's career state held Sana Ahsan's "Halekulani Medical Centre" placement and
+      // that other practice's contact email, so the summary confidently reported the wrong
+      // practice while every authoritative view showed The Doctors Werribee. Resolve from the
+      // OWNED rows first (gp_applications -> career_roles -> practices, the same source the
+      // email composer trusts) and keep the mirror only as a last resort.
       let practiceName = regCase.practice_name || '';
+      const placedProfile = await resolvePlacedPracticeProfile(userId);
+      if (placedProfile) {
+        if (!practiceName) practiceName = placedProfile.practiceName || '';
+        if (!practiceEmail) practiceEmail = placedProfile.contactEmail || '';
+      }
       if (!practiceName) {
         try {
           const usRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
@@ -55949,51 +56064,14 @@ Return ONLY valid JSON with no markdown formatting:
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
       if (sRes.ok && Array.isArray(sRes.data)) { sRes.data.forEach(function (s) { stateMap[s.user_id] = (s && typeof s.state === 'object') ? s.state : {}; }); }
     }
-    // Build practice contact lookup from career state + gp_applications (hired)
-    const practiceContactMap = {};
-    for (const uid of userIds) {
-      const st = stateMap[uid] || {};
-      const career = typeof st.gp_career_state === 'string' ? {} : (st.gp_career_state || {});
-      const apps = Array.isArray(career.applications) ? career.applications : [];
-      const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
-      if (secured && secured.placement) {
-        practiceContactMap[uid] = {
-          practiceName: secured.placement.practiceName || '',
-          contactName: secured.placement.practiceContact ? secured.placement.practiceContact.name : '',
-          contactEmail: secured.placement.practiceContact ? secured.placement.practiceContact.email : '',
-          contactPhone: secured.placement.practiceContact ? secured.placement.practiceContact.phone : '',
-          roleTitle: secured.placement.roleTitle || '',
-          location: secured.placement.location || ''
-        };
-      }
-    }
-    if (userIds.length > 0) {
-      const placedApps = await fetchPlacedApplicationRows(userIds);
-      if (placedApps.length > 0) {
-        const roleIds = [...new Set(placedApps.map(a => a.career_role_id).filter(Boolean))];
-        let roleMap = {};
-        if (roleIds.length > 0) {
-          const roleRes = await supabaseDbRequest('career_roles', 'select=id,practice_name,title,location_city,location_state&id=in.(' + roleIds.join(',') + ')');
-          if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
-        }
-        placedApps.forEach(function (app) {
-          var existing = practiceContactMap[app.user_id];
-          // Only skip if we already have a USABLE contact email. A career-state secured
-          // placement can set an entry with an empty email, which previously blocked this
-          // gp_applications fallback and left the practice "To" / greeting blank.
-          if (existing && existing.contactEmail) return;
-          const role = roleMap[app.career_role_id] || {};
-          practiceContactMap[app.user_id] = {
-            practiceName: (existing && existing.practiceName) || role.practice_name || role.title || '',
-            contactName: app.practice_contact_name || (existing && existing.contactName) || '',
-            contactEmail: app.practice_contact_email || '',
-            contactPhone: (existing && existing.contactPhone) || '',
-            roleTitle: (existing && existing.roleTitle) || role.title || '',
-            location: (existing && existing.location) || [role.location_city, role.location_state].filter(Boolean).join(', ')
-          };
-        });
-      }
-    }
+    // Practice contact lookup. The OWNED gp_applications rows are AUTHORITATIVE and resolve
+    // first; the user_state.gp_career_state mirror only fills gaps. This order used to be
+    // reversed, so a stale or cloned mirror shadowed the real practice on every task row —
+    // Dr Mercy Obanimoh's career state carried another GP's Halekulani Medical Centre
+    // placement (and that practice's contact email) while her application said The Doctors
+    // Werribee. See resolvePlacedPracticeProfile + lib/practice-contact.js.
+    const practiceContactMap = buildPracticeContactMap(
+      await resolvePlacedPracticeProfiles(userIds), stateMap, userIds);
     const enriched = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
@@ -57491,52 +57569,12 @@ Return ONLY valid JSON with no markdown formatting:
       return p.phone || [p.country_dial, p.phone_number].filter(Boolean).join(' ').trim() || '';
     }
 
-    // Build practice contact lookup from career state + gp_applications (hired)
-    const practiceContactMap = {};
-    for (const uid of userIds) {
-      const st = stateMap[uid] || {};
-      const career = typeof st.gp_career_state === 'string' ? {} : (st.gp_career_state || {});
-      const apps = Array.isArray(career.applications) ? career.applications : [];
-      const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
-      if (secured && secured.placement) {
-        practiceContactMap[uid] = {
-          practiceName: secured.placement.practiceName || '',
-          contactName: secured.placement.practiceContact ? secured.placement.practiceContact.name : '',
-          contactEmail: secured.placement.practiceContact ? secured.placement.practiceContact.email : '',
-          contactPhone: secured.placement.practiceContact ? secured.placement.practiceContact.phone : '',
-          roleTitle: secured.placement.roleTitle || '',
-          location: secured.placement.location || ''
-        };
-      }
-    }
-    // Fallback: check gp_applications table for placements not in career state
-    if (userIds.length > 0) {
-      const placedApps = await fetchPlacedApplicationRows(userIds);
-      if (placedApps.length > 0) {
-        // Build role lookup for practice names
-        const roleIds = [...new Set(placedApps.map(a => a.career_role_id).filter(Boolean))];
-        let roleMap = {};
-        if (roleIds.length > 0) {
-          const roleRes = await supabaseDbRequest('career_roles', 'select=id,practice_name,title,location_city,location_state&id=in.(' + roleIds.join(',') + ')');
-          if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
-        }
-        placedApps.forEach(function (app) {
-          var existing = practiceContactMap[app.user_id];
-          // Only skip if the career-state entry already has a usable contact email;
-          // otherwise fall back to the hired gp_applications contact (fixes blank "To").
-          if (existing && existing.contactEmail) return;
-          const role = roleMap[app.career_role_id] || {};
-          practiceContactMap[app.user_id] = {
-            practiceName: (existing && existing.practiceName) || role.practice_name || role.title || '',
-            contactName: app.practice_contact_name || (existing && existing.contactName) || '',
-            contactEmail: app.practice_contact_email || '',
-            contactPhone: (existing && existing.contactPhone) || '',
-            roleTitle: (existing && existing.roleTitle) || role.title || '',
-            location: (existing && existing.location) || [role.location_city, role.location_state].filter(Boolean).join(', ')
-          };
-        });
-      }
-    }
+    // Practice contact lookup — authoritative gp_applications rows first, career-state mirror
+    // only for GPs with no placed application. Same ordering (and same reason) as the
+    // /api/admin/tasks copy above: a stale or cloned mirror must never shadow the real
+    // practice. See resolvePlacedPracticeProfiles + lib/practice-contact.js.
+    const practiceContactMap = buildPracticeContactMap(
+      await resolvePlacedPracticeProfiles(userIds), stateMap, userIds);
 
     // Task/ticket counts per case + latest DoubleTick conversation URL per case
     const taskCountsByCase = {};
