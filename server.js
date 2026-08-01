@@ -304,6 +304,13 @@ const AHPRA_S80_EXTRACT_MODEL = String(process.env.AHPRA_S80_EXTRACT_MODEL || 'c
 // Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+// Whether the document pipeline may decide a PHOTO on its own (approve it into
+// Drive, or bounce it back to the doctor) instead of routing it to a person.
+// Held off by default: image classification never actually reached the model
+// until the Buffer→base64 fix in classifyDocumentWithAI, so those two automatic
+// outcomes have never run against a real document and are unproven. The AI's
+// verdict shows on the reviewer's card either way. Set to "true" to enable.
+const DOC_PIPELINE_PHOTO_AUTO_DECIDE = String(process.env.DOC_PIPELINE_PHOTO_AUTO_DECIDE || '').trim().toLowerCase() === 'true';
 // Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
 const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 // AI Matching (candidate <-> job ranking, lib/ai-candidate-job-match.js) — env-pinned,
@@ -27811,7 +27818,8 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
         identifiedAs: String(parsed.identifiedAs || '').trim(),
         reason: framingIssue,
         matches: false,
-        retakePhoto: true
+        retakePhoto: true,
+        fromPhoto: true
       };
     }
 
@@ -27819,7 +27827,8 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
       confidence: typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : null,
       identifiedAs: String(parsed.identifiedAs || '').trim(),
       reason: String(parsed.reason || '').trim(),
-      matches: !!parsed.matches
+      matches: !!parsed.matches,
+      fromPhoto: isPhotoInput
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -28170,6 +28179,17 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
     var aiResult = await classifyDocumentWithAI(fileBuffer, mimeType || doc.mime_type, documentKey, expectedLabel);
     var confidence = aiResult.confidence;
     var action = classifyConfidenceAction(confidence);
+
+    // Photos have only just started reaching the model at all (the Buffer→base64
+    // fix in classifyDocumentWithAI), so approving one into Drive unseen, or
+    // bouncing it back to the doctor, is an automatic decision that has never run
+    // against a real document. Until DOC_PIPELINE_PHOTO_AUTO_DECIDE is turned on,
+    // a photo always goes to a person — who now sees the AI's actual verdict and
+    // any framing problem on the card, instead of "AI API returned 400".
+    if (aiResult.fromPhoto && !DOC_PIPELINE_PHOTO_AUTO_DECIDE && action !== 'va_review') {
+      console.log('[DocumentPipeline] photo classified ' + action + ' (confidence ' + confidence + ') — routing to review; set DOC_PIPELINE_PHOTO_AUTO_DECIDE=true to let it decide');
+      action = 'va_review';
+    }
 
     await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
       method: 'PATCH',

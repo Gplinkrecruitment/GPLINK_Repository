@@ -169,6 +169,18 @@ describe('background document classifier', () => {
     const fn = extractFunction(serverJs, 'classifyDocumentWithAI');
     expect(fn).toContain("var framingVerdict = isPhotoInput ? String(parsed.framing || '').trim().toLowerCase() : '';");
   });
+
+  it('does not start deciding photos on its own just because the call works now', () => {
+    // Image classification never reached the model before the Buffer fix, so
+    // auto-approve and auto-reject have never run against a real document. A
+    // person keeps the decision until the owner turns them on deliberately.
+    expect(serverJs).toContain('const DOC_PIPELINE_PHOTO_AUTO_DECIDE =');
+    expect(serverJs).toContain("String(process.env.DOC_PIPELINE_PHOTO_AUTO_DECIDE || '').trim().toLowerCase() === 'true'");
+    expect(serverJs).toContain("if (aiResult.fromPhoto && !DOC_PIPELINE_PHOTO_AUTO_DECIDE && action !== 'va_review') {");
+    expect(serverJs).toContain("action = 'va_review';");
+    // DOCX classification already worked and already decides — leave it alone.
+    expect(extractFunction(serverJs, 'classifyDocumentWithAI')).toContain('fromPhoto: isPhotoInput');
+  });
 });
 
 /* ── what the doctor actually reads ──────────────────────────────────────── */
