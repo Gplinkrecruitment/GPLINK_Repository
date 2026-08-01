@@ -10498,8 +10498,22 @@ async function resolveVerificationProfileName(session, suppliedProfileName) {
 // Full name from the Supabase auth identity (Google/Apple/etc), '' if unavailable.
 // Best-effort: never throws, and a failure just means we fall back to no name.
 async function getSupabaseAuthUserFullName(session) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return '';
   const userId = getSessionSupabaseUserId(session) || (await getSupabaseUserIdByEmail(getSessionEmail(session)).catch(() => null));
+  return getSupabaseAuthUserFullNameById(userId);
+}
+
+/**
+ * Same, by user id — for the identity guards, which work from a user id rather
+ * than a session.
+ *
+ * Those guards ("is this CV actually this doctor's?") compare the name on the
+ * document to the account name, and skip themselves entirely when the account
+ * has no usable name. With every Google signup landing a blank name in
+ * user_profiles, that meant the wrong-owner CV protection was silently doing
+ * nothing for social sign-ins — so the guards now come here before giving up.
+ */
+async function getSupabaseAuthUserFullNameById(userId) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return '';
   if (!userId) return '';
   try {
     const controller = new AbortController();
@@ -45028,7 +45042,10 @@ async function handleApi(req, res, pathname) {
     if (cvScan.ok && cvScan.isCv !== false && cvScan.nameFound) {
       const cvProfRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,name_change_detected,name_change_note&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
       const cvProf = (cvProfRes.ok && Array.isArray(cvProfRes.data) && cvProfRes.data[0]) ? cvProfRes.data[0] : null;
-      const cvAccountName = cvProf ? [cvProf.first_name, cvProf.last_name].filter(Boolean).join(' ').trim() : '';
+      let cvAccountName = cvProf ? [cvProf.first_name, cvProf.last_name].filter(Boolean).join(' ').trim() : '';
+      // A blank profile name used to switch this whole guard off — which is what
+      // a Google signup had. Fall back to the name on the sign-in identity.
+      if (!hasUsableFullName(cvAccountName)) cvAccountName = await getSupabaseAuthUserFullNameById(userId);
       const cvKnownNames = [];
       if (cvProf && cvProf.name_change_detected && cvProf.name_change_note) {
         const cvFormer = String(cvProf.name_change_note).replace(/^\s*Document name:\s*/i, '').trim();
@@ -48376,14 +48393,18 @@ async function handleApi(req, res, pathname) {
     if (inAppCvBuffer && inAppCvAttachment) {
       try {
         const attScan = await verifyCareerCvWithAI(inAppCvBuffer, (inAppCvRow && inAppCvRow.mime_type) || 'application/pdf', (inAppCvRow && inAppCvRow.file_name) || 'cv.pdf');
-        if (attScan && attScan.ok && attScan.nameFound && hasUsableFullName(inAppGpName)) {
+        // As at upload time: a blank profile name switched this guard off, and a
+        // Google signup had one. Ask the sign-in identity before giving up.
+        let attAccountName = hasUsableFullName(inAppGpName) ? inAppGpName : '';
+        if (!attAccountName) attAccountName = await getSupabaseAuthUserFullNameById(appRow.user_id);
+        if (attScan && attScan.ok && attScan.nameFound && hasUsableFullName(attAccountName)) {
           const attKnown = [];
           if (inAppProfile && inAppProfile.name_change_detected && inAppProfile.name_change_note) {
             const attFormer = String(inAppProfile.name_change_note).replace(/^\s*Document name:\s*/i, '').trim();
             if (attFormer) attKnown.push(attFormer);
           }
-          if (crossCheckDocumentName(attScan.nameFound, inAppGpName, attKnown).match === 'mismatch') {
-            console.error('[submit-to-practice] BLOCKED wrong-owner CV attachment — CV name "' + attScan.nameFound + '" vs candidate "' + inAppGpName + '" (user ' + appRow.user_id + '). Sending the introduction WITHOUT the CV.');
+          if (crossCheckDocumentName(attScan.nameFound, attAccountName, attKnown).match === 'mismatch') {
+            console.error('[submit-to-practice] BLOCKED wrong-owner CV attachment — CV name "' + attScan.nameFound + '" vs candidate "' + attAccountName + '" (user ' + appRow.user_id + '). Sending the introduction WITHOUT the CV.');
             inAppCvAttachment = null; inAppCvBuffer = null; inAppCvRow = null;
           }
         }

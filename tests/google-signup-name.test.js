@@ -126,11 +126,36 @@ describe('the scan can find a name we already hold', () => {
   });
 
   it('reads that identity through the same derivation', () => {
-    const fn = extractFunction(serverJs, 'getSupabaseAuthUserFullName');
+    // The session wrapper resolves a user id and hands off; the id variant does
+    // the fetch, so the identity guards (which have no session) can use it too.
+    const wrapper = extractFunction(serverJs, 'getSupabaseAuthUserFullName');
+    expect(wrapper).toContain('getSupabaseAuthUserFullNameById(userId)');
+
+    const fn = extractFunction(serverJs, 'getSupabaseAuthUserFullNameById');
     expect(fn).toContain('/auth/v1/admin/users/');
     expect(fn).toContain('deriveSupabaseUserNames(user && user.user_metadata)');
-    // Best-effort: a failure here must never break a scan.
+    // Best-effort: a failure here must never break a scan or a submission.
     expect(fn).toContain('return \'\';');
+  });
+});
+
+describe('the wrong-owner CV guards are not switched off by a blank name', () => {
+  // Both guards skip themselves when the account has no usable full name — and a
+  // Google signup had exactly that, so the protection that exists because Sana
+  // Ahsan's CV was emailed to a practice as Helen Wazalski's was doing nothing
+  // for social sign-ins.
+  it('falls back to the sign-in identity at upload time', () => {
+    expect(serverJs).toContain('if (!hasUsableFullName(cvAccountName)) cvAccountName = await getSupabaseAuthUserFullNameById(userId);');
+    // It has to be a `let` now, not a `const`.
+    expect(serverJs).toMatch(/let cvAccountName = cvProf \?/);
+  });
+
+  it('falls back to the sign-in identity when attaching to a practice email', () => {
+    expect(serverJs).toContain('if (!attAccountName) attAccountName = await getSupabaseAuthUserFullNameById(appRow.user_id);');
+    // ...and the resolved name is what is actually compared and logged, not the
+    // display string (which falls back to an email address).
+    expect(serverJs).toContain('crossCheckDocumentName(attScan.nameFound, attAccountName, attKnown)');
+    expect(serverJs).not.toContain('crossCheckDocumentName(attScan.nameFound, inAppGpName, attKnown)');
   });
 });
 

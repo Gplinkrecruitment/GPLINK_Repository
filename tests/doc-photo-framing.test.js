@@ -410,6 +410,16 @@ describe('the frame is A4, and the photo is what is inside it', () => {
     expect(cameraJs).toContain('var CAPTURE_BLEED = 0.06;');
   });
 
+  it('does not force an A4 frame on a passport or licence', () => {
+    // Both are LANDSCAPE. Shaping every scan to A4 would ask the doctor to line
+    // an ID card up inside a tall rectangle — the same mismatch in reverse.
+    expect(cameraJs).toContain('var ID_CARD_RATIO = 0.68;');
+    expect(cameraJs).toContain('currentFrameRatio = Number(opts.frameRatio) > 0 ? Number(opts.frameRatio) : A4_RATIO;');
+    expect(cameraJs).toContain('availableH / currentFrameRatio');
+    // The identity capture in onboarding must actually pass it.
+    expect(onboardingJs).toMatch(/QualCamera\.open\(\{[\s\S]{0,400}frameRatio: 0\.68/);
+  });
+
   it('puts the camera behind everything instead of a black slab', () => {
     // The owner asked for the black background to go and the instructions to sit
     // on glass over the live picture.
@@ -514,6 +524,6 @@ describe('cache busting', () => {
       expect(html, file).not.toMatch(/qualification-camera\.js\?v=20260614a/);
       expect(html, file).not.toMatch(/qualification-scan\.js\?v=20260715a/);
     }
-    expect(onboardingHtml).toContain('onboarding.js?v=20260801b');
+    expect(onboardingHtml).toContain('onboarding.js?v=20260801c');
   });
 });

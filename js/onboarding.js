@@ -1703,7 +1703,19 @@
   if (idVerifyCameraBtn) {
     idVerifyCameraBtn.addEventListener("click", () => {
       if (!window.QualCamera) return;
-      window.QualCamera.open("Passport or Driver's Licence", (blob, err) => {
+      // A passport photo page and a driver's licence are both LANDSCAPE. The
+      // scan frame defaults to A4 portrait because nearly everything else we
+      // capture is a certificate, so this one has to say otherwise — an ID
+      // lined up inside a tall frame is the same shape mismatch in reverse.
+      window.QualCamera.open({
+        docLabel: "Passport or Driver's Licence",
+        frameRatio: 0.68,
+        tips: [
+          "Line the whole card or photo page up inside the frame",
+          "Your full name and the expiry date are readable",
+          "No glare across the photo or the printed lines"
+        ]
+      }, (blob, err) => {
         if (err) {
           showError("docsError", err);
           return;

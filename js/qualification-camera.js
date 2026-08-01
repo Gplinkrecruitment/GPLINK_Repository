@@ -45,6 +45,15 @@
   var A4_RATIO = 1.414; // height ÷ width
 
   /*
+   * ...but not everything we scan is a certificate. A passport photo page
+   * (125×88mm) and a driver's licence (85.6×54mm) are both landscape, and an A4
+   * portrait frame would ask the doctor to line an ID card up inside a tall
+   * rectangle — the same shape mismatch, in reverse. Callers pass frameRatio.
+   */
+  var ID_CARD_RATIO = 0.68; // landscape: between a passport page and a licence
+  var currentFrameRatio = A4_RATIO;
+
+  /*
    * ...and we capture a little BEYOND the brackets. A doctor who lines the page
    * up neatly with the frame would otherwise be millimetres from losing an edge,
    * and "the page touches the border" would be indistinguishable from "the page
@@ -237,6 +246,9 @@
     var docLabel = opts.docLabel || "Scan Document";
     var requireCert = !!opts.requireCert;
     var tips = (opts.tips && opts.tips.length) ? opts.tips.slice(0, MAX_TIPS) : resolveTips(opts.docKey, requireCert);
+    // Shape the frame to the document. Defaults to A4 because almost everything
+    // we scan is a certificate; an ID card passes ID_CARD_RATIO.
+    currentFrameRatio = Number(opts.frameRatio) > 0 ? Number(opts.frameRatio) : A4_RATIO;
 
     currentDocLabel = docLabel;
     onCaptureCallback = onCapture;
@@ -295,10 +307,10 @@
     var availableW = area.clientWidth;
     var availableH = area.clientHeight;
     if (!availableW || !availableH) return;
-    var w = Math.min(availableW * 0.92, availableH / A4_RATIO);
+    var w = Math.min(availableW * 0.92, availableH / currentFrameRatio);
     if (!(w > 0)) return;
     frame.style.width = Math.round(w) + "px";
-    frame.style.height = Math.round(w * A4_RATIO) + "px";
+    frame.style.height = Math.round(w * currentFrameRatio) + "px";
   }
 
   /* ── What actually gets photographed ──────────────────────────────────────
@@ -359,7 +371,14 @@
     var w = FRAMING_SAMPLE_W;
     // Sample at the shape of the region we are judging, so a tall A4 crop is not
     // squashed into a landscape thumbnail before we measure it.
-    var aspect = crop && crop.sw ? (crop.sh / crop.sw) : ((source.videoHeight && source.videoWidth) ? source.videoHeight / source.videoWidth : 0.75);
+    // Video first, then a canvas's own dimensions (the post-capture check hands
+    // us the A4 crop as a canvas — sampling that into a landscape thumbnail
+    // still preserves the ratios we measure, but it throws away vertical detail).
+    var aspect = crop && crop.sw
+      ? (crop.sh / crop.sw)
+      : ((source.videoHeight && source.videoWidth)
+        ? source.videoHeight / source.videoWidth
+        : ((source.height && source.width) ? source.height / source.width : 0.75));
     var h = Math.max(32, Math.min(128, Math.round(w * aspect)));
     var data;
     try {
