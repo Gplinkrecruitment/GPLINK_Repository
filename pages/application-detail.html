@@ -317,6 +317,13 @@
     }
     .interview-meta-value { font-weight: 600; color: var(--text); }
 
+    /* `[hidden] { display: none }` is a BROWSER-level rule, so ANY author rule that sets
+       `display` beats it. Both buttons below set display:flex, which meant `el.hidden = true`
+       changed nothing on screen — the doctor kept seeing "Join Video Call" under an
+       "Interview complete" heading. This also silently broke the long-standing
+       `format !== "video"` gate, so a phone interview still showed "Join Video Call".
+       Applied page-wide: any element told to hide must actually hide. */
+    [hidden] { display: none !important; }
     .btn-join-interview {
       display: flex;
       align-items: center;
@@ -1426,6 +1433,20 @@
         var displayMeta = (app.meta || []).filter(function (m) {
           return ["Interview", "Format", "Lead"].indexOf(m.label) === -1;
         });
+        // "Next step" is baked into the cached career-page preview, and that is derived from
+        // the application STAGE — which marking an interview done never advances. So a doctor
+        // who had already been interviewed was still told to "Confirm your interview time".
+        // Correct it here from the live interview this page already holds, so the row is right
+        // even when the cached preview behind it is stale.
+        if (ivState.phase === "done" || ivState.phase === "no_show") {
+          displayMeta = displayMeta.map(function (m) {
+            if (!m || String(m.label || "").toLowerCase() !== "next step") return m;
+            return {
+              label: m.label,
+              value: ivState.phase === "done" ? "Awaiting the practice's decision" : "Contact GP Link to rebook"
+            };
+          });
+        }
         metaGrid.innerHTML = displayMeta.map(function (m) {
           return '<div class="detail-row"><span class="detail-label">' + esc(m.label) + '</span><span class="detail-value">' + esc(m.value) + '</span></div>';
         }).join("");

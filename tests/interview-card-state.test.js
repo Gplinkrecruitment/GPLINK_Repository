@@ -195,3 +195,59 @@ describe('application-detail renderBookedInterview (real function, stub DOM)', (
     expect(els.interviewMeta.innerHTML).toContain('Duration');
   });
 });
+
+// ── The buttons must ACTUALLY disappear ───────────────────────────────────────
+// `el.hidden = true` was already being set correctly, but `.btn-join-interview` and
+// `.btn-add-calendar` set `display: flex`, and an author `display` beats the browser's
+// `[hidden] { display: none }`. So the doctor kept seeing "Join Video Call" under an
+// "Interview complete" heading. This also silently broke the pre-existing
+// `format !== "video"` gate.
+describe('hiding actually hides on application-detail', () => {
+  it('neutralises the display rules that overrode [hidden]', () => {
+    expect(pageSrc).toContain('[hidden] { display: none !important; }');
+  });
+
+  it('the override is declared BEFORE the display:flex buttons that need it', () => {
+    const rule = pageSrc.indexOf('[hidden] { display: none !important; }');
+    const joinCss = pageSrc.indexOf('.btn-join-interview {');
+    const calCss = pageSrc.indexOf('.btn-add-calendar {');
+    expect(rule).toBeGreaterThan(-1);
+    expect(rule).toBeLessThan(joinCss);
+    expect(rule).toBeLessThan(calCss);
+  });
+
+  it('nothing toggled via style.display also carries the hidden attribute', () => {
+    // A page-wide !important hide is only dangerous if something is SHOWN via
+    // style.display while still carrying [hidden]. #offerCard is the page's only
+    // style.display user and it has no hidden attribute (it uses an inline
+    // style="display:none"), so the rule cannot reach it.
+    const users = (pageSrc.match(/(\w+)\.style\.display\s*=/g) || []).map((m) => m.split('.')[0]);
+    expect(users).toEqual(['offerCard']);
+    expect(pageSrc).toMatch(/id="offerCard" style="display:none;"/);
+    expect(pageSrc).not.toMatch(/id="offerCard"[^>]*\shidden/);
+  });
+});
+
+// ── "Next step" must not tell an interviewed doctor to book an interview ──────
+describe('next step respects a finished interview', () => {
+  const careerSrc2 = readFileSync(path.join(__dirname, '..', 'pages', 'career.html'), 'utf8');
+
+  it('application-detail overrides the cached "Next step" from the live interview', () => {
+    expect(pageSrc).toContain('String(m.label || "").toLowerCase() !== "next step"');
+    expect(pageSrc).toContain("Awaiting the practice's decision");
+    expect(pageSrc).toContain('Contact GP Link to rebook');
+  });
+
+  it('career.html checks the interview BEFORE falling back to the stage', () => {
+    const fn = careerSrc2.slice(careerSrc2.indexOf('function nextStepForApplication'));
+    const body = fn.slice(0, fn.indexOf('\n    }\n'));
+    const ivAt = body.indexOf('deriveInterviewCardState(interview).phase');
+    const stageAt = body.indexOf('return "Confirm your interview time"');
+    expect(ivAt).toBeGreaterThan(-1);
+    expect(ivAt).toBeLessThan(stageAt);
+  });
+
+  it('the meta builder passes the interview through', () => {
+    expect(careerSrc2).toContain('nextStepForApplication(app.status, app.interview)');
+  });
+});

@@ -9485,11 +9485,20 @@
     // cached preview meta. Was hard-coded to "GP Link screening" for everything
     // that wasn't a secured placement, so an interview-stage doctor wrongly saw
     // "GP Link screening" instead of "Confirm your interview time".
-    function nextStepForApplication(status) {
+    function nextStepForApplication(status, interview) {
       const key = normalizeStatusKey(status);
       if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) return "Relocation handover";
       if (key === "finalising_placement") return "Finalising your placement";
       if (["offer", "offer_pending", "offered"].includes(key)) return "Review your offer";
+      // The interview row is checked BEFORE the stage, because marking an interview done
+      // does not advance gp_applications — an interview held early (or swept by the
+      // no-show cron) leaves the stage on "interview" forever, and this line then told a
+      // doctor who had already been interviewed to "Confirm your interview time".
+      if (interview && typeof deriveInterviewCardState === "function") {
+        const ivPhase = deriveInterviewCardState(interview).phase;
+        if (ivPhase === "done") return "Awaiting the practice's decision";
+        if (ivPhase === "no_show") return "Contact GP Link to rebook";
+      }
       if (["interview", "interview_scheduled", "shortlisted"].includes(key)) return "Confirm your interview time";
       if (key === "interview_completed") return "Awaiting the practice's decision";
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "—";
@@ -12514,7 +12523,7 @@
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
           { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
-          { label: "Next step", value: nextStepForApplication(app.status) }
+          { label: "Next step", value: nextStepForApplication(app.status, app.interview) }
         ]
       }));
       // The server is the source of truth for applications, so reconcile to

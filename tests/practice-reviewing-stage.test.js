@@ -68,7 +68,10 @@ describe('what the doctor sees once a card reaches Practice Reviewing', () => {
 
   it('the card no longer claims GP Link is screening a profile the practice already has', () => {
     const idx = careerHtml.indexOf('function nextStepForApplication');
-    const fnSrc = careerHtml.slice(idx, idx + 1400);
+    // Slice to the function's own closing brace, not a fixed byte window — a fixed 1400
+    // silently stopped covering the tail of the function the moment it grew (the
+    // interview-aware branch), and the assertions below then failed for no real reason.
+    const fnSrc = careerHtml.slice(idx, careerHtml.indexOf('\n    }', idx));
     expect(fnSrc).toContain('if (key === "submitted") return "Practice review";');
     expect(fnSrc).toContain('if (key === "reviewing") return "The practice\'s decision";');
     // The catch-all is still there for the stages it IS true for.
