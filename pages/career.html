@@ -13233,6 +13233,27 @@
         // booked (see careerAppsAreServerTruth). Until the server answers, hold
         // the neutral middle state — no picker, no invented confirmation.
         const canOfferPicker = !when && careerAppsAreServerTruth;
+        // The interview row carries its OWN status and time, and they can disagree with the
+        // application stage. An interview can be held EARLY and marked done days before the
+        // booked slot (Khaleed Crypto's was), and the no-show sweep marks stale ones — but
+        // gp_applications is not advanced by either, so keying only on the stage (and on
+        // "is there a scheduled time") left the doctor looking at "Interview confirmed"
+        // and a live Join button for an interview they had already attended.
+        const ivPhase = (iv && typeof deriveInterviewCardState === "function")
+          ? deriveInterviewCardState(iv).phase
+          : "";
+        if (ivPhase === "done") {
+          return S({
+            label: "Interview", ribbon: "INTERVIEW DONE", tone: "blue", rowTone: "offer",
+            blurb: "Interview done — the practice is deciding. We'll let you know the moment they respond."
+          });
+        }
+        if (ivPhase === "no_show") {
+          return S({
+            label: "Interview", ribbon: "INTERVIEW MISSED", tone: "blue", rowTone: "offer",
+            blurb: "This interview was recorded as missed. Please contact GP Link so we can rebook it for you."
+          });
+        }
         return S({
           label: "Interview", ribbon: "INTERVIEW", tone: "green", rowTone: "offer",
           booked: !!when, bookable: canOfferPicker,
@@ -13465,10 +13486,20 @@
       const iv = interview || {};
       const when = iv.scheduledAt ? careerIvFormatFull(iv.scheduledAt) : "";
       if (!when) return "";
-      const join = iv.zoomJoinUrl
+      // Belt and braces: the caller already routes a finished interview to the
+      // "INTERVIEW DONE" state (no chip at all), but never render a live Join here for
+      // an interview that is over — this chip is the one the doctor actually taps.
+      const ivState = (typeof deriveInterviewCardState === "function")
+        ? deriveInterviewCardState(iv)
+        : { showJoin: true };
+      const join = (iv.zoomJoinUrl && ivState.showJoin)
         ? `<a class="ivc-join" href="${escapeHtml(iv.zoomJoinUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">Join</a>`
         : "";
-      return `<div class="ivc is-booked"><div class="ivc-when"><b>${escapeHtml(when)}</b><span>Interview confirmed · 45 min on Zoom</span></div>${join}</div>`;
+      // Duration comes from the booking; 45 is only the fallback when the row omits it
+      // (it was hardcoded, so a 30-minute interview still advertised 45).
+      const mins = Number(iv.durationMinutes);
+      const durationLabel = (isFinite(mins) && mins > 0 ? mins : 45) + " min on Zoom";
+      return `<div class="ivc is-booked"><div class="ivc-when"><b>${escapeHtml(when)}</b><span>Interview confirmed · ${escapeHtml(durationLabel)}</span></div>${join}</div>`;
     }
 
     function careerIvHost(appId) {

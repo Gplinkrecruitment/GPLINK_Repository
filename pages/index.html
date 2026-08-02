@@ -1045,11 +1045,22 @@
       var controller = typeof AbortController === "function" ? new AbortController() : null;
       var timer = controller ? setTimeout(function () { controller.abort(); }, 8000) : null;
       fetch("/api/state", { credentials: "same-origin", signal: controller ? controller.signal : undefined })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
+        .then(function (r) { return r.json().catch(function () { return null; }).then(function (d) { return { httpOk: r.ok, body: d }; }); })
+        .then(function (res) {
           if (timer) clearTimeout(timer);
-          var s = d && d.state && typeof d.state === 'object' ? d.state : {};
-          if (s.gp_onboarding_complete) {
+          // FAIL OPEN unless the server actually answered. requireSession replies 401 with a
+          // VALID JSON body, so a session that is not applied yet (the moment right after
+          // sign-in) never reaches .catch() below — it used to land here with no `state`,
+          // read as "not onboarded", and bounce a fully-onboarded doctor into onboarding.
+          // 503 (Supabase not configured) and any malformed body did the same. Only a
+          // successful answer may send anyone to onboarding.
+          if (!res.httpOk || !res.body || res.body.ok !== true) { releaseGate(); return; }
+          var s = res.body.state && typeof res.body.state === 'object' ? res.body.state : {};
+          // onboardingComplete is the CANONICAL server marker (user_profiles
+          // .onboarding_completed_at). user_state can be reset or lost; the profile marker
+          // is written once at completion, so it is what stops a returning doctor with an
+          // empty state row being marched through onboarding again.
+          if (s.gp_onboarding_complete || res.body.onboardingComplete === true) {
             try { localStorage.setItem("gp_onboarding_complete", "true"); } catch (e) {}
             releaseGate();
           } else {

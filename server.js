@@ -16119,6 +16119,27 @@ async function _completeRegTask(taskId, caseId, actor) {
   } catch (e) { console.error('[SPPA-00] completeRegTask trigger lookup error:', e.message); }
 }
 
+// Canonical "has this GP finished onboarding" answer for the home-screen gateway.
+//
+// user_state.gp_onboarding_complete is the fast path, but that row can be reset, cleared or
+// simply absent — and when it is, /api/state returns `state: {}`, which the gateway reads as
+// "not onboarded" and marches a returning doctor back through onboarding. user_profiles
+// .onboarding_completed_at is written ONCE at completion and never cleared, so it is the real
+// answer. Only consulted when the state does not already say complete, so the common path
+// costs nothing extra.
+async function resolveOnboardingCompleteFlag(email, stateObj) {
+  var st = stateObj || {};
+  if (st.gp_onboarding_complete === true || st.gp_onboarding_complete === 'true') return true;
+  if (!email || !isSupabaseDbConfigured()) return false;
+  try {
+    var pRes = await supabaseDbRequest('user_profiles',
+      'select=onboarding_completed_at&email=eq.' + encodeURIComponent(email) + '&limit=1');
+    return !!(pRes.ok && Array.isArray(pRes.data) && pRes.data[0] && pRes.data[0].onboarding_completed_at);
+  } catch (e) {
+    return false;
+  }
+}
+
 async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, metadata) {
   if (!isSupabaseDbConfigured()) return;
   var entry = { case_id: caseId, task_id: taskId || null, event_type: eventType, title: title, detail: detail || null, actor: actor || 'system' };
@@ -45444,7 +45465,7 @@ async function handleApi(req, res, pathname) {
         for (let ivi = 0; ivi < ivAppIds.length; ivi += 200) {
           const ivChunk = ivAppIds.slice(ivi, ivi + 200);
           const ivRes = await supabaseDbRequest('scheduled_calls',
-            'select=application_id,status,scheduled_at,zoom_join_url,timezone&application_id=in.(' + encodeURIComponent(_atsInList(ivChunk)) + ')&meeting_kind=eq.interview&status=neq.cancelled&limit=2000');
+            'select=application_id,status,scheduled_at,duration_minutes,zoom_join_url,timezone&application_id=in.(' + encodeURIComponent(_atsInList(ivChunk)) + ')&meeting_kind=eq.interview&status=neq.cancelled&limit=2000');
           ((ivRes.ok && ivRes.data) || []).forEach((row) => {
             const key = String(row.application_id);
             const existing = interviewMap[key];
@@ -45453,6 +45474,9 @@ async function handleApi(req, res, pathname) {
             interviewMap[key] = {
               status: String(row.status || ''),
               scheduledAt: row.scheduled_at || null,
+              // The card needs the real length to work out when the interview is OVER
+              // (and to stop advertising every interview as 45 minutes).
+              durationMinutes: row.duration_minutes || null,
               zoomJoinUrl: row.zoom_join_url || '',
               timezone: row.timezone || ''
             };
@@ -54119,7 +54143,7 @@ Return ONLY valid JSON with no markdown formatting:
     var warmedState = warmCacheGet(email);
     if (warmedState) {
       var warmResetAt = Number(warmedState.__gp_reset_at);
-      sendJson(res, 200, { ok: true, state: warmedState, resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
+      sendJson(res, 200, { ok: true, state: warmedState, onboardingComplete: await resolveOnboardingCompleteFlag(email, warmedState), resetAt: Number.isFinite(warmResetAt) && warmResetAt > 0 ? warmResetAt : 0 });
       return;
     }
 
@@ -54131,6 +54155,7 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 200, {
           ok: true,
           state: filtered,
+          onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
           updatedAt: remoteState.updatedAt,
           resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
         });
@@ -54140,6 +54165,7 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, {
         ok: true,
         state: {},
+        onboardingComplete: await resolveOnboardingCompleteFlag(email, null),
         updatedAt: null,
         resetAt: 0
       });
@@ -54153,6 +54179,7 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, {
       ok: true,
       state: filtered,
+      onboardingComplete: await resolveOnboardingCompleteFlag(email, filtered),
       updatedAt: state.updatedAt || null,
       resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
     });

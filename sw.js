@@ -17,7 +17,14 @@
   // PAGE_CACHE, so without a bump a doctor keeps being served the old markup
   // for a navigation (and the explainer would not appear at all on the visit
   // that matters — their first).
-  var VERSION = "20260801f";
+  // 20260803a: index.html + career.html + application-detail.html changed together —
+  // the onboarding gateway now fails open when /api/state does not actually answer
+  // (a 401 straight after sign-in was marching fully-onboarded doctors back through
+  // onboarding), and the interview cards now end the interview instead of showing
+  // "Interview confirmed" plus a live Join forever. index and career are both
+  // precached in PAGE_CACHE, so without a bump a doctor keeps the old markup for a
+  // navigation — which for the gateway means being bounced to onboarding one more time.
+  var VERSION = "20260803a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
