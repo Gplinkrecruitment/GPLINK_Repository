@@ -359,82 +359,90 @@
 .ats-mini-job .mj-title { font-size:13.5px; font-weight:500; }
 .ats-mini-job .mj-sub { font-size:11.5px; color:var(--ats-dim); }
 
-/* ---------- Practices map (leads the Practices directory) ---------- */
+/* ---------- Jobs map (leads the Jobs list) ---------- */
 /* Keyless Leaflet + CARTO dark tiles, same stack as the public /jobs map and
    the in-app career map — no Google Maps key (it is referrer-restricted and
-   not authorised for geocoding). Clicking a pin names the practice, which is
-   the reason this internal map exists at all.
-   ⚠️ NEVER give .ats-pmap-wrap `overflow-x:clip; overflow-y:visible` — iOS
+   not authorised for geocoding). One pin per JOB OPENING; clicking it names
+   the role AND its practice, which is the reason this internal map exists at
+   all — the public maps are masked and can never do that.
+   ⚠️ NEVER give .ats-jmap-wrap `overflow-x:clip; overflow-y:visible` — iOS
    Safari resolves that pair as overflow-y:auto and silently clips the open
    detail card away ("tapping a pin does nothing"). The closed card fades in
    place instead of parking off to the right, so nothing needs clipping. */
-.ats-pmap-wrap { position:relative; z-index:5; margin:0 0 20px; background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:var(--ats-radius-lg); }
-.ats-pmap-head { display:flex; align-items:center; gap:9px; padding:12px 16px; border-bottom:1px solid var(--ats-border); }
-.ats-pmap-dot { width:9px; height:9px; border-radius:50%; background:var(--ats-blue); box-shadow:0 0 0 4px var(--ats-blue-dim); flex:none; }
-.ats-pmap-head b { font-size:14px; font-weight:600; color:var(--ats-text); }
-.ats-pmap-head b span { color:var(--ats-blue); font-family:var(--ats-mono); }
-.ats-pmap-head .sub { margin-left:auto; font-size:12px; color:var(--ats-dim); }
-.ats-pmap-stage { position:relative; }
-.ats-pmap-shell { position:relative; height:clamp(320px,42vh,440px); }
-.ats-pmap-frame { position:absolute; inset:0; overflow:hidden; border-radius:0 0 var(--ats-radius-lg) var(--ats-radius-lg); background:#0b0e15; }
-.ats-pmap { position:absolute; inset:0; }
-.ats-pmap-shell .leaflet-container { font:inherit; background:#0b0e15; }
+.ats-jmap-wrap { position:relative; z-index:5; margin:0 0 20px; background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:var(--ats-radius-lg); }
+.ats-jmap-head { display:flex; align-items:center; gap:9px; padding:12px 16px; border-bottom:1px solid var(--ats-border); }
+.ats-jmap-dot { width:9px; height:9px; border-radius:50%; background:var(--ats-blue); box-shadow:0 0 0 4px var(--ats-blue-dim); flex:none; }
+.ats-jmap-head b { font-size:14px; font-weight:600; color:var(--ats-text); }
+.ats-jmap-head b span { color:var(--ats-blue); font-family:var(--ats-mono); }
+.ats-jmap-head .sub { margin-left:auto; font-size:12px; color:var(--ats-dim); }
+.ats-jmap-stage { position:relative; }
+.ats-jmap-shell { position:relative; height:clamp(320px,42vh,440px); }
+.ats-jmap-frame { position:absolute; inset:0; overflow:hidden; border-radius:0 0 var(--ats-radius-lg) var(--ats-radius-lg); background:#0b0e15; }
+.ats-jmap { position:absolute; inset:0; }
+.ats-jmap-shell .leaflet-container { font:inherit; background:#0b0e15; }
 /* Leaflet's stylesheet is injected at runtime, so it lands AFTER this file in
    the cascade. `.leaflet-container .leaflet-control-attribution` ties this rule
    on specificity and then wins on order — which is how the credit rendered as a
    white pill on the dark map. The extra `.ats-scope` breaks the tie. */
-.ats-scope .ats-pmap-shell .leaflet-control-attribution { font-size:10px; line-height:1.3; background:rgba(15,17,23,.72); color:rgba(226,232,240,.42); box-shadow:none; padding:1px 6px; border-radius:5px 0 0 0; }
-.ats-scope .ats-pmap-shell .leaflet-control-attribution a { color:rgba(226,232,240,.6); }
-.ats-pmap-shell .leaflet-bar a { background:var(--ats-panel); color:var(--ats-text); border-bottom-color:var(--ats-border); }
-.ats-pmap-shell .leaflet-bar a:hover { background:var(--ats-panel-hover); color:var(--ats-text); }
-.ats-pmap-loading { position:absolute; inset:0; z-index:400; display:grid; place-items:center; background:var(--ats-bg-elev); color:var(--ats-dim); font-size:13px; font-weight:500; }
-.ats-pmap-loading.hide { display:none; }
+.ats-scope .ats-jmap-shell .leaflet-control-attribution { font-size:10px; line-height:1.3; background:rgba(15,17,23,.72); color:rgba(226,232,240,.42); box-shadow:none; padding:1px 6px; border-radius:5px 0 0 0; }
+.ats-scope .ats-jmap-shell .leaflet-control-attribution a { color:rgba(226,232,240,.6); }
+.ats-jmap-shell .leaflet-bar a { background:var(--ats-panel); color:var(--ats-text); border-bottom-color:var(--ats-border); }
+.ats-jmap-shell .leaflet-bar a:hover { background:var(--ats-panel-hover); color:var(--ats-text); }
+.ats-jmap-loading { position:absolute; inset:0; z-index:400; display:grid; place-items:center; background:var(--ats-bg-elev); color:var(--ats-dim); font-size:13px; font-weight:500; }
+.ats-jmap-loading.hide { display:none; }
 
 /* Pins + clusters */
-.ats-pmap-pin-wrap { background:none; border:0; }
-.ats-pmap-pin { position:relative; width:28px; height:38px; cursor:pointer; }
-.ats-pmap-pin .pd { position:absolute; inset:0; filter:drop-shadow(0 4px 6px rgba(0,0,0,.55)); transition:transform .18s ease; }
-.ats-pmap-pin .pd svg { display:block; width:28px; height:38px; }
-.ats-pmap-pin:hover .pd { transform:translateY(-4px); }
-.ats-pmap-pin.on .pd { transform:translateY(-3px) scale(1.16); filter:drop-shadow(0 8px 13px rgba(96,165,250,.6)); }
-/* Prospective (lead, not yet a client) pins read amber so the CEO can see the
-   pipeline geographically without opening a single card. */
-.ats-pmap-pin.prospective .pd svg path { fill:#fbbf24; }
-.ats-pmap-pin.prospective .pd { filter:drop-shadow(0 4px 6px rgba(251,191,36,.45)); }
-.ats-pmap-cluster { background:none!important; }
-.ats-pmap-cluster > div { width:36px; height:36px; border-radius:50%; background:var(--ats-blue); color:#0b1220; font-weight:800; font-size:13px; display:grid; place-items:center; border:3px solid rgba(15,17,23,.92); box-shadow:0 7px 18px -6px rgba(96,165,250,.8); }
-.ats-pmap-cluster.lg > div { width:44px; height:44px; font-size:15px; }
+.ats-jmap-pin-wrap { background:none; border:0; }
+.ats-jmap-pin { position:relative; width:28px; height:38px; cursor:pointer; }
+.ats-jmap-pin .pd { position:absolute; inset:0; filter:drop-shadow(0 4px 6px rgba(0,0,0,.55)); transition:transform .18s ease; }
+.ats-jmap-pin .pd svg { display:block; width:28px; height:38px; }
+.ats-jmap-pin:hover .pd { transform:translateY(-4px); }
+.ats-jmap-pin.on .pd { transform:translateY(-3px) scale(1.16); filter:drop-shadow(0 8px 13px rgba(96,165,250,.6)); }
+/* Pin colour carries the job's state, so the board reads geographically
+   without opening a single card: amber = waiting on your approval,
+   grey = filled or closed, blue = live and open. */
+.ats-jmap-pin.pending .pd svg path { fill:#fbbf24; }
+.ats-jmap-pin.pending .pd { filter:drop-shadow(0 4px 6px rgba(251,191,36,.45)); }
+.ats-jmap-pin.inactive .pd svg path { fill:#8f9bb3; }
+.ats-jmap-pin.inactive .pd { filter:drop-shadow(0 4px 6px rgba(0,0,0,.5)); }
+.ats-jmap-cluster { background:none!important; }
+.ats-jmap-cluster > div { width:36px; height:36px; border-radius:50%; background:var(--ats-blue); color:#0b1220; font-weight:800; font-size:13px; display:grid; place-items:center; border:3px solid rgba(15,17,23,.92); box-shadow:0 7px 18px -6px rgba(96,165,250,.8); }
+.ats-jmap-cluster.lg > div { width:44px; height:44px; font-size:15px; }
 
-/* Pin detail card — the practice NAME lives here */
+/* Pin detail card — the role title and its PRACTICE NAME live here */
 /* z-index above Leaflet's own control panes (.leaflet-top/.leaflet-bottom are
    1000) — otherwise the attribution credit paints THROUGH the open card. */
-.ats-pmap-detail { position:absolute; top:0; right:0; width:min(330px,92%); min-height:100%; height:auto; z-index:1100;
+.ats-jmap-detail { position:absolute; top:0; right:0; width:min(330px,92%); min-height:100%; height:auto; z-index:1100;
   background:var(--ats-bg-elev); border-left:1px solid var(--ats-border); border-radius:0 var(--ats-radius-lg) var(--ats-radius-lg) 0;
   box-shadow:var(--ats-shadow-lg); padding:17px; display:flex; flex-direction:column; gap:13px;
   opacity:0; visibility:hidden; transform:translateY(-10px); pointer-events:none;
   transition:opacity .28s ease, transform .28s ease, visibility 0s linear .28s; }
-.ats-pmap-detail.open { opacity:1; visibility:visible; transform:translateY(0); pointer-events:auto; transition-delay:0s; }
-.ats-pmap-x { position:absolute; top:11px; right:11px; width:28px; height:28px; border-radius:50%; border:1px solid var(--ats-border); background:var(--ats-panel); color:var(--ats-text); font-size:16px; line-height:1; cursor:pointer; display:grid; place-items:center; }
-.ats-pmap-x:hover { background:var(--ats-panel-hover); }
-.ats-pmap-idc { display:flex; align-items:center; gap:12px; padding-right:30px; }
-.ats-pmap-name { font-size:15.5px; font-weight:600; color:var(--ats-text); line-height:1.25; margin:0; }
-.ats-pmap-loc { font-size:12px; color:var(--ats-dim); margin-top:3px; }
-.ats-pmap-type { font-size:12.5px; color:var(--ats-muted); }
-.ats-pmap-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.ats-jmap-detail.open { opacity:1; visibility:visible; transform:translateY(0); pointer-events:auto; transition-delay:0s; }
+.ats-jmap-x { position:absolute; top:11px; right:11px; width:28px; height:28px; border-radius:50%; border:1px solid var(--ats-border); background:var(--ats-panel); color:var(--ats-text); font-size:16px; line-height:1; cursor:pointer; display:grid; place-items:center; }
+.ats-jmap-x:hover { background:var(--ats-panel-hover); }
+.ats-jmap-idc { display:flex; align-items:center; gap:12px; padding-right:30px; }
+.ats-jmap-name { font-size:15.5px; font-weight:600; color:var(--ats-text); line-height:1.25; margin:0; }
+.ats-jmap-loc { font-size:12px; color:var(--ats-dim); margin-top:3px; }
+.ats-jmap-type { font-size:12.5px; color:var(--ats-muted); }
+.ats-jmap-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.ats-jmap-prac { display:flex; align-items:center; gap:7px; font-size:13px; color:var(--ats-text); font-weight:500; }
+.ats-jmap-facts { display:grid; grid-template-columns:auto 1fr; gap:6px 12px; font-size:12.5px; }
+.ats-jmap-facts dt { color:var(--ats-dim); }
+.ats-jmap-facts dd { color:var(--ats-muted); margin:0; }
 /* Content stacks from the top; only the CTA is pinned to the bottom, so a
-   sparse practice doesn't leave a hole in the middle of the card. */
-.ats-pmap-cta { width:100%; justify-content:center; margin-top:auto; }
+   sparse role doesn't leave a hole in the middle of the card. */
+.ats-jmap-cta { width:100%; justify-content:center; margin-top:auto; }
 
 @media (max-width:760px) {
-  .ats-pmap-shell { height:clamp(250px,32vh,330px); }
+  .ats-jmap-shell { height:clamp(250px,32vh,330px); }
   /* In-flow on mobile: an absolutely-positioned card can be clipped by an
      ancestor's overflow, an in-flow block never can. It pushes the practice
      list down instead of covering the map. */
-  .ats-pmap-detail { position:static; display:none; width:auto; min-height:0; padding:16px;
+  .ats-jmap-detail { position:static; display:none; width:auto; min-height:0; padding:16px;
     border-left:0; border-top:1px solid var(--ats-border); border-radius:0 0 var(--ats-radius-lg) var(--ats-radius-lg);
     box-shadow:none; opacity:1; visibility:visible; transform:none; pointer-events:auto; transition:none; }
-  .ats-pmap-detail.open { display:flex; }
-  .ats-pmap-frame { border-radius:0; }
+  .ats-jmap-detail.open { display:flex; }
+  .ats-jmap-frame { border-radius:0; }
 }
 
 /* ---------- Applications section (candidate detail) ---------- */

@@ -169,6 +169,262 @@
   }
 
   /* ============================================================
+   * JOBS MAP
+   * ------------------------------------------------------------
+   * Australia map above the jobs list: one pin per JOB OPENING.
+   * Keyless Leaflet + markercluster from jsdelivr + CARTO dark raster tiles
+   * (all three already allowed by the CSP) — the Google Maps key is
+   * referrer-restricted and not authorised for geocoding, so it is a dead end
+   * for this. Fed by the internal /api/ats/job-map, which unlike the public
+   * maps is NOT masked: a pin can name the role and the practice behind it.
+   * ========================================================== */
+  var JMAP_LEAFLET = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
+  var JMAP_MARKERCLUSTER = 'https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/';
+  var JMAP_PIN_SVG = '<svg viewBox="0 0 28 38"><path d="M14 0C6.3 0 0 6.2 0 14c0 9.5 14 24 14 24s14-14.5 14-24C28 6.2 21.7 0 14 0z" fill="#60a5fa"/><circle cx="14" cy="14" r="5.6" fill="#0f1117"/></svg>';
+
+  var jmapDataPromise = null;   // one fetch shared across re-renders
+  var jmapL = null, jmapMap = null, jmapCluster = null;
+  var jmapAll = [], jmapActivePin = null, jmapOpenId = '';
+
+  function jmapLoadCss(href) {
+    if (document.querySelector('link[data-jmap="' + href + '"]')) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = href; l.setAttribute('data-jmap', href);
+      // Resolve either way — a missing stylesheet costs looks, not function.
+      // (Leaflet's own CSS positions the tiles, so it is awaited before L.map.)
+      l.onload = function () { resolve(); };
+      l.onerror = function () { resolve(); };
+      document.head.appendChild(l);
+    });
+  }
+  function jmapLoadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var existing = document.querySelector('script[data-jmap="' + src + '"]');
+      if (existing) {
+        if (existing.getAttribute('data-loaded')) resolve();
+        else {
+          existing.addEventListener('load', function () { resolve(); });
+          existing.addEventListener('error', function () { reject(); });
+        }
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = src; s.setAttribute('data-jmap', src);
+      s.onload = function () { s.setAttribute('data-loaded', '1'); resolve(); };
+      s.onerror = function () { reject(); };
+      document.head.appendChild(s);
+    });
+  }
+  function jmapLoadLibs() {
+    return Promise.all([
+      jmapLoadCss(JMAP_LEAFLET + 'leaflet.css'),
+      jmapLoadCss(JMAP_MARKERCLUSTER + 'MarkerCluster.css')
+    ])
+      .then(function () { return jmapLoadScript(JMAP_LEAFLET + 'leaflet.js'); })
+      .then(function () { return jmapLoadScript(JMAP_MARKERCLUSTER + 'leaflet.markercluster.js'); })
+      .then(function () { return window.L; });
+  }
+
+  function jobMapSectionHtml() {
+    return '<section class="ats-jmap-wrap" id="atsJobMapWrap" aria-label="Job openings on a map">' +
+      '<div class="ats-jmap-head">' +
+        '<span class="ats-jmap-dot"></span>' +
+        '<b><span id="atsJmapCount">—</span> openings on the map</b>' +
+        '<span class="sub">Click a pin to see the opening · pinch to zoom</span>' +
+      '</div>' +
+      '<div class="ats-jmap-stage">' +
+        '<div class="ats-jmap-shell" id="atsJmapShell">' +
+          '<div class="ats-jmap-frame">' +
+            '<div class="ats-jmap" id="atsJmap"></div>' +
+            '<div class="ats-jmap-loading" id="atsJmapLoading">Loading the map…</div>' +
+          '</div>' +
+        '</div>' +
+        '<aside class="ats-jmap-detail" id="atsJmapDetail" aria-hidden="true"></aside>' +
+      '</div>' +
+    '</section>';
+  }
+
+  // The card a pin opens: the ROLE, then the practice it belongs to. "Open"
+  // routes exactly like clicking the job's card in the list below — a job still
+  // awaiting approval goes to the review screen, everything else to the board.
+  function jmapDetailHtml(j) {
+    var pending = j.approval_status === 'pending';
+    var chips = statusPill(j.status) +
+      (pending ? ' <span class="ats-pill amber">Awaiting approval</span>' : '');
+    var facts = '';
+    if (j.type) facts += '<dt>Type</dt><dd>' + A.esc(j.type) + '</dd>';
+    if (j.billing) facts += '<dt>Billing</dt><dd>' + A.esc(j.billing) + '</dd>';
+    facts += '<dt>Pipeline</dt><dd>' + (j.applicants || 0) + ' candidate' + ((j.applicants === 1) ? '' : 's') + '</dd>';
+    return '<button type="button" class="ats-jmap-x" id="atsJmapClose" aria-label="Close">&times;</button>' +
+      '<div class="ats-jmap-idc">' +
+        '<div>' +
+          '<h3 class="ats-jmap-name">' + A.esc(j.display_title || j.title || 'Untitled role') + '</h3>' +
+          '<div class="ats-jmap-loc">📍 ' + A.esc([j.suburb || j.city, j.state].filter(Boolean).join(', ') || '—') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ats-jmap-prac">🏥 ' + A.esc(j.practice_name || '—') + '</div>' +
+      '<div class="ats-jmap-chips">' + chips + '</div>' +
+      '<dl class="ats-jmap-facts">' + facts + '</dl>' +
+      '<button type="button" class="ats-btn ats-btn-primary ats-jmap-cta" id="atsJmapOpen">' +
+        (pending ? 'Review &amp; approve →' : 'Open this opening →') +
+      '</button>';
+  }
+
+  function jmapFail() {
+    var wrap = el('atsJobMapWrap');
+    if (wrap) wrap.style.display = 'none'; // never leave an empty grey box
+  }
+  function jmapSetActivePin(node) {
+    if (jmapActivePin) jmapActivePin.classList.remove('on');
+    jmapActivePin = node || null;
+    if (jmapActivePin) jmapActivePin.classList.add('on');
+  }
+  function jmapCloseDetail() {
+    var d = el('atsJmapDetail');
+    if (d) { d.classList.remove('open'); d.setAttribute('aria-hidden', 'true'); }
+    jmapOpenId = '';
+    jmapSetActivePin(null);
+  }
+  function jmapOpenDetail(j, marker) {
+    var d = el('atsJmapDetail');
+    if (!d) return;
+    jmapOpenId = String(j.id);
+    d.innerHTML = jmapDetailHtml(j);
+    d.classList.add('open');
+    d.setAttribute('aria-hidden', 'false');
+    jmapSetActivePin(marker && marker._icon ? marker._icon.querySelector('.ats-jmap-pin') : null);
+    on('atsJmapClose', 'click', jmapCloseDetail);
+    on('atsJmapOpen', 'click', function () {
+      if (j.approval_status === 'pending') openJobReview(j.id);
+      else atsOpenJobBoard(j.id);
+    });
+  }
+
+  // Rebuild the cluster from jmapAll, honouring the SAME search/state/open
+  // filters the list below uses — the pins and the cards must answer the same
+  // question, or the map quietly contradicts the list.
+  function jmapMatchesFilters(j, f) {
+    if (f.q) {
+      var hay = (String(j.title || '') + ' ' + String(j.practice_name || '')).toLowerCase();
+      if (hay.indexOf(f.q) === -1) return false;
+    }
+    if (f.state && String(j.state || '').toLowerCase() !== f.state) return false;
+    if (f.status === 'open' && j.status !== 'open') return false;
+    return true;
+  }
+  function jmapRenderPins() {
+    if (!jmapCluster || !jmapL) return;
+    jmapCluster.clearLayers();
+    var raw = currentJobFilters();
+    var f = { q: String(raw.q || '').toLowerCase(), state: String(raw.state || '').toLowerCase(), status: raw.status };
+    var shown = 0, present = {};
+    jmapAll.forEach(function (j) {
+      if (!jmapMatchesFilters(j, f)) return;
+      var cls = 'ats-jmap-pin';
+      if (j.approval_status === 'pending') cls += ' pending';
+      else if (j.status && j.status !== 'open') cls += ' inactive';
+      var icon = jmapL.divIcon({
+        className: 'ats-jmap-pin-wrap',
+        html: '<div class="' + cls + '"><span class="pd">' + JMAP_PIN_SVG + '</span></div>',
+        iconSize: [28, 38], iconAnchor: [14, 38]
+      });
+      var marker = jmapL.marker([j.lat, j.lng], { icon: icon, riseOnHover: true, title: j.display_title || '' });
+      marker.on('click', function (e) {
+        if (jmapL.DomEvent) jmapL.DomEvent.stopPropagation(e);
+        jmapOpenDetail(j, marker);
+      });
+      jmapCluster.addLayer(marker);
+      shown++; present[String(j.id)] = 1;
+    });
+    var countEl = el('atsJmapCount');
+    if (countEl) countEl.textContent = shown;
+    // If the open card's job was filtered out, close it — the card must never
+    // describe an opening that is no longer on the map.
+    if (jmapOpenId && !present[jmapOpenId]) jmapCloseDetail();
+  }
+
+  // Pinch-to-zoom. Leaflet's own touchZoom covers real touchscreens; a Mac
+  // trackpad pinch instead arrives as a wheel event with ctrlKey set, which
+  // Leaflet only reads when scrollWheelZoom is on — and turning that on would
+  // hijack ordinary two-finger scrolling of the dashboard. So: plain scroll
+  // passes through to the page, a pinch zooms the map.
+  function jmapBindPinchZoom(container, map, L) {
+    container.addEventListener('wheel', function (e) {
+      if (!e.ctrlKey) return;      // ordinary scroll — let the page move
+      e.preventDefault();
+      var around = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+      // deltaY is small and continuous for a pinch; scale it into zoom levels.
+      var next = map.getZoom() - e.deltaY * 0.012;
+      map.setZoomAround(around, Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), next)), { animate: false });
+    }, { passive: false });
+    // Double-tap/click still zooms in, and the +/- buttons stay whole-step.
+    if (L && L.Browser && L.Browser.touch) map.touchZoom.enable();
+  }
+
+  function jmapBoot() {
+    var container = el('atsJmap');
+    var shell = el('atsJmapShell');
+    if (!container || !shell) return;
+    // loadJobsTab replaces the whole panel, so any previous instance is bound
+    // to a node no longer in the document — drop it before rebuilding.
+    if (jmapMap) { try { jmapMap.remove(); } catch (e) { /* already gone */ } }
+    jmapMap = null; jmapCluster = null; jmapActivePin = null; jmapOpenId = '';
+
+    if (!jmapDataPromise) {
+      jmapDataPromise = A.api('/api/ats/job-map').then(function (d) {
+        return (d && d.ok && Array.isArray(d.jobs)) ? d.jobs : [];
+      });
+    }
+    Promise.all([jmapDataPromise, jmapLoadLibs()]).then(function (results) {
+      var jobs = results[0], L = results[1];
+      // The panel can re-render while the libraries load — if this boot's
+      // container is no longer the live one, a newer boot owns the map.
+      if (el('atsJmap') !== container) return;
+      if (!jobs.length || !L || !L.markerClusterGroup) { jmapFail(); return; }
+      jmapL = L;
+      jmapAll = jobs.filter(function (j) { return isFinite(j.lat) && isFinite(j.lng); });
+      if (!jmapAll.length) { jmapFail(); return; }
+      jmapMap = L.map(container, {
+        center: [-27.8, 134.0], zoom: 4, minZoom: 3, maxZoom: 17,
+        // zoomSnap:0 lets a pinch land on fractional zooms so it feels
+        // continuous instead of jumping a whole level at a time; zoomDelta
+        // keeps the +/- buttons on whole steps.
+        zoomSnap: 0, zoomDelta: 1,
+        scrollWheelZoom: false, touchZoom: true, zoomControl: true,
+        attributionControl: true, worldCopyJump: true
+      });
+      jmapMap.attributionControl.setPrefix(false);
+      // Dark CARTO basemap — the Command Centre is a dark UI; the light Voyager
+      // tiles the public site uses would glare against it.
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd', maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'
+      }).addTo(jmapMap);
+      jmapMap.on('click', jmapCloseDetail);
+      jmapBindPinchZoom(container, jmapMap, L);
+      jmapCluster = L.markerClusterGroup({
+        showCoverageOnHover: false, maxClusterRadius: 46, spiderfyOnMaxZoom: true,
+        iconCreateFunction: function (c) {
+          var n = c.getChildCount();
+          return L.divIcon({ html: '<div>' + n + '</div>', className: 'ats-jmap-cluster' + (n >= 25 ? ' lg' : ''), iconSize: [36, 36] });
+        }
+      });
+      jmapMap.addLayer(jmapCluster);
+      jmapRenderPins();
+      var loading = el('atsJmapLoading');
+      if (loading) loading.classList.add('hide');
+      // The Jobs panel is display:none until its tab is opened, so the map is
+      // often built at zero size. Several beats, not one: a single late
+      // invalidateSize still left an unpainted column down the right edge.
+      var fix = function () { try { jmapMap.invalidateSize(); } catch (e) { /* removed */ } };
+      [0, 120, 350, 800].forEach(function (ms) { setTimeout(fix, ms); });
+      if (typeof ResizeObserver === 'function') { try { new ResizeObserver(fix).observe(shell); } catch (e) { /* unsupported */ } }
+      window.addEventListener('resize', fix);
+    }).catch(jmapFail);
+  }
+
+  /* ============================================================
    * JOBS LIST VIEW
    * ========================================================== */
   function loadJobsTab() {
@@ -177,6 +433,11 @@
     var panel = panelEl();
     if (!panel) return;
     panel.innerHTML = listShellHtml();
+    // Re-ask for the pins on every tab visit, so a job added (or approved,
+    // filled, closed) since last time shows up. The endpoint is briefly cached
+    // server-side, so this is close to free.
+    jmapDataPromise = null;
+    jmapBoot();
 
     on('atsAddJobBtn', 'click', openAddJobModal);
     on('ats-job-search', 'input', fetchAndRenderJobList);
@@ -222,6 +483,7 @@
         '<select id="atsJobOpenFilter" style="width:auto">' +
           '<option value="all">All jobs</option><option value="open">Open only</option></select>' +
       '</div>' +
+      jobMapSectionHtml() +
       '<div class="ats-job-list" id="atsJobList"></div>' +
     '</div>';
   }
@@ -253,6 +515,7 @@
       var mc = el('masterJobsCount');
       if (mc && d.open_count != null) mc.textContent = d.open_count;
       var jobs = d.jobs || [];
+      jmapRenderPins(); // pins narrow with the list, never independently of it
       if (!jobs.length) { list.innerHTML = A.emptyHtml('No jobs match your search.'); return; }
       list.innerHTML = jobs.map(jobCardHtml).join('');
     });

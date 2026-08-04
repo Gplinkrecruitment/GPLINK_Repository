@@ -31566,43 +31566,70 @@ async function atsListPracticesDerived() {
   return Object.keys(byKey).map(function (k) { return byKey[k]; });
 }
 
-// ── CEO practice map (GET /api/ats/practice-map) ────────────────────────────
-// The SAME directory the Practices tab lists, plus a suburb lat/lng per
-// practice so each one can be pinned on an Australia map.
+// ── CEO job map (GET /api/ats/job-map) ──────────────────────────────────────
+// Every job opening the Jobs tab lists, plus a suburb lat/lng so each one can
+// be pinned on an Australia map.
 //
-// This is the internal twin of /api/public/practice-map, and the ONE difference
-// is the whole point of it: the public map is masked (never a practice name),
-// this one is behind requireAtsSession and therefore keeps the REAL name — a
-// CEO clicking a pin is asking "which practice is that?".
+// This is the internal twin of the public /api/public/practice-map, and the ONE
+// difference is the whole point of it: the public map is masked (never a real
+// practice name), this one is behind requireAtsSession and so a pin can say
+// which practice the opening belongs to.
 //
-// Coordinates reuse the keyless, cached geocoder both public maps already use
+// Coordinates reuse the keyless, cached geocoder the public maps already use
 // (career_suburb_geo_cache → Nominatim). No Google Maps key is involved; see
 // the KEYLESS_MAP_CSP_* note for why that key is a dead end here.
-let _atsPracticeMapCache = null; // { data, at }
-const ATS_PRACTICE_MAP_CACHE_TTL_MS = 3 * 60 * 1000;
-function __resetAtsPracticeMapCacheForTest() { _atsPracticeMapCache = null; }
+let _atsJobMapCache = null; // { data, at }
+const ATS_JOB_MAP_CACHE_TTL_MS = 3 * 60 * 1000;
+function __resetAtsJobMapCacheForTest() { _atsJobMapCache = null; }
 
-async function buildAtsPracticeMapData(options = {}) {
+// atsListJobRows() returns is_active=true rows only, so a freshly-signed
+// practice's job (is_active:false, approval_status:'pending') would be missing
+// from any admin surface built on it — including the map, where a job awaiting
+// approval is exactly the one worth seeing. Merged here, deduped by id, so the
+// Jobs list and the Jobs map are drawn from one definition of "every job".
+async function atsListJobRowsWithPending() {
+  const jobs = await atsListJobRows();
+  let pendingJobs = [];
+  if (isSupabaseDbConfigured()) {
+    const pendingR = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&order=updated_at.desc&limit=1000');
+    if (pendingR.ok && Array.isArray(pendingR.data)) pendingJobs = pendingR.data;
+  } else {
+    pendingJobs = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
+  }
+  const seen = {};
+  jobs.forEach(function (j) { seen[String(j.id)] = true; });
+  pendingJobs.forEach(function (j) { if (!seen[String(j.id)]) { seen[String(j.id)] = true; jobs.push(j); } });
+  return jobs;
+}
+
+async function buildAtsJobMapData(options = {}) {
   const geoFetcher = options.geoFetcher || readAllSuccessfulSuburbGeo;
   const now = Date.now();
-  if (_atsPracticeMapCache && (now - _atsPracticeMapCache.at) < ATS_PRACTICE_MAP_CACHE_TTL_MS) {
-    return _atsPracticeMapCache.data;
+  if (_atsJobMapCache && (now - _atsJobMapCache.at) < ATS_JOB_MAP_CACHE_TTL_MS) {
+    return _atsJobMapCache.data;
   }
-  const derived = await atsListPracticesDerived();
-  const mapApps = await atsListApplicationRows({});
-  const appsByJobM = {};
-  mapApps.forEach(function (a) {
-    const k = String(a.career_role_id || a.job_id || '');
-    (appsByJobM[k] = appsByJobM[k] || []).push(a);
-  });
 
-  // Where to look each practice up: its own suburb when the intake captured
-  // one, else the city carried on its jobs. A practice with neither can never
-  // be pinned — it is still counted in `total` so the caption stays honest.
-  const targets = derived.map((p) => {
-    const suburb = String(p.suburb || p.location_city || '').trim();
-    const state = normalizeAuStateCode(p.location_state);
-    return { p, suburb, state, key: suburbGeoKey(suburb, state) };
+  // Built through atsJobCard — the SAME shaper /api/ats/jobs uses — so a pin
+  // and the card it corresponds to in the list below can never disagree.
+  const jobRows = await atsListJobRowsWithPending();
+  const practiceRows = await atsListPracticeRows();
+  const practicesById = {};
+  practiceRows.forEach(function (p) { practicesById[p.id] = p; });
+  const jobApps = await atsListApplicationRows({});
+  const appsByJobId = {};
+  jobApps.forEach(function (a) {
+    const k = String(a.career_role_id || a.job_id || '');
+    (appsByJobId[k] = appsByJobId[k] || []).push(a);
+  });
+  const cards = jobRows.map(function (j) { return atsJobCard(j, practicesById, appsByJobId); });
+
+  // Where to look a job up: its own suburb when it has one, else the city on
+  // the role. A job with neither can never be pinned — it is still counted in
+  // `total`, so the caption never overstates what the map is showing.
+  const targets = cards.map((c) => {
+    const suburb = String(c.suburb || c.city || '').trim();
+    const state = normalizeAuStateCode(c.state);
+    return { c, suburb, state, key: suburbGeoKey(suburb, state) };
   }).filter((t) => t.suburb);
 
   const geoMap = await geoFetcher();
@@ -31637,34 +31664,42 @@ async function buildAtsPracticeMapData(options = {}) {
     settled.forEach((s) => { if (s) geoMap[s.key] = s.coords; });
   }
 
-  // Same card fields the directory shows, so a pin and its card can't disagree.
-  const practices = [];
+  // Several openings routinely share one suburb (a corporate group runs many
+  // clinics in the same town), and identical coordinates would stack into a
+  // single unclickable pin. A tiny deterministic offset — keyed off the job id,
+  // so it never moves between loads — fans them out once you zoom in, while
+  // staying far inside the suburb.
+  const spreadCount = {};
+  const jobs = [];
   for (const t of targets) {
     const coords = geoMap[t.key];
     if (!coords) continue;
-    const p = t.p;
-    let cand = 0;
-    (p.jobs || []).forEach(function (j) {
-      (appsByJobM[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; });
-    });
-    practices.push({
-      id: p.id,
-      name: p.name || '',
-      city: p.location_city || t.suburb,
-      state: p.location_state || t.state,
-      lat: coords.lat,
-      lng: coords.lng,
-      type: p.practice_type || '',
-      stage: p.stage || 'active',
-      agreement_status: p.agreement_status || 'unsigned',
-      org_type: p.org_type === 'corporation' ? 'corporation' : 'practice',
-      job_count: (p.jobs || []).length,
-      candidate_count: cand
+    const c = t.c;
+    const n = (spreadCount[t.key] = (spreadCount[t.key] || 0) + 1) - 1;
+    const angle = n * 2.399963; // golden angle — no two early points align
+    const radius = n === 0 ? 0 : 0.0045 * Math.sqrt(n);
+    jobs.push({
+      id: c.id,
+      title: c.title || 'Untitled role',
+      display_title: c.masked_title || c.title || 'Untitled role',
+      practice_name: c.practice_name || '',
+      practice_id: c.practice_id || '',
+      suburb: c.suburb || '',
+      city: c.city || t.suburb,
+      state: c.state || t.state,
+      lat: coords.lat + radius * Math.sin(angle),
+      lng: coords.lng + radius * Math.cos(angle),
+      billing: c.billing || '',
+      type: c.type || '',
+      status: c.status || 'open',
+      approval_status: c.approval_status || 'approved',
+      applicants: c.active_count || 0
     });
   }
-  practices.sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  const data = { practices, total: derived.length };
-  _atsPracticeMapCache = { data, at: now };
+  jobs.sort((a, b) => String(a.practice_name).localeCompare(String(b.practice_name)) ||
+                      String(a.display_title).localeCompare(String(b.display_title)));
+  const data = { jobs, total: cards.length };
+  _atsJobMapCache = { data, at: now };
   return data;
 }
 
@@ -67327,19 +67362,10 @@ Return ONLY valid JSON with no markdown formatting:
   // ---- Jobs ----------------------------------------------------------------
   if (pathname === '/api/ats/jobs' && req.method === 'GET') {
     var ctxJ = requireAtsSession(req, res); if (!ctxJ) return;
-    var jobs = await atsListJobRows();
-    // atsListJobRows() only returns is_active=true rows — pending jobs created by
-    // the practice-client pipeline (Task 6) are is_active:false, so they'd never
-    // reach the CEO/admin Jobs tab for approval. Merge them in here, deduped by id.
-    var pendingJobs = [];
-    if (isSupabaseDbConfigured()) {
-      var pendingR = await supabaseDbRequest('career_roles', 'select=*&approval_status=eq.pending&order=updated_at.desc&limit=1000');
-      if (pendingR.ok && Array.isArray(pendingR.data)) pendingJobs = pendingR.data;
-    } else {
-      pendingJobs = (dbState.atsJobs || []).filter(function (j) { return j.approval_status === 'pending'; });
-    }
-    var seenJobIds = {}; jobs.forEach(function (j) { seenJobIds[String(j.id)] = true; });
-    pendingJobs.forEach(function (j) { if (!seenJobIds[String(j.id)]) { seenJobIds[String(j.id)] = true; jobs.push(j); } });
+    // is_active=true rows PLUS the pending ones the practice-client pipeline
+    // creates (is_active:false), which the CEO has to approve. Shared with the
+    // Jobs map so the pins and this list are drawn from one definition.
+    var jobs = await atsListJobRowsWithPending();
     var pracs = await atsListPracticeRows();
     var pById = {}; pracs.forEach(function (p) { pById[p.id] = p; });
     var allApps = await atsListApplicationRows({});
@@ -67361,6 +67387,22 @@ Return ONLY valid JSON with no markdown formatting:
     });
     var pendingCount = cards.filter(function (c) { return c.approval_status === 'pending'; }).length;
     sendJson(res, 200, { ok: true, jobs: cards, open_count: cards.filter(function (c) { return c.status === 'open'; }).length, pending_count: pendingCount, total: cards.length });
+    return;
+  }
+
+  // Pins for the map that leads the Jobs tab. Deliberately a SEPARATE request
+  // from the list above: the geocode step can reach out to Nominatim for a
+  // never-seen suburb, and the job cards must never wait on that. The tab
+  // paints its list first, then the map fills in behind it.
+  if (pathname === '/api/ats/job-map' && req.method === 'GET') {
+    var ctxJMap = requireAtsSession(req, res); if (!ctxJMap) return;
+    var jmapData = await buildAtsJobMapData();
+    sendJson(res, 200, {
+      ok: true,
+      jobs: jmapData.jobs,
+      pinned: jmapData.jobs.length,
+      total: jmapData.total
+    });
     return;
   }
 
@@ -69733,22 +69775,6 @@ Return ONLY valid JSON with no markdown formatting:
     if (plq) plCards = plCards.filter(function (c) { return (c.name || '').toLowerCase().indexOf(plq) !== -1 || (c.city || '').toLowerCase().indexOf(plq) !== -1; });
     plCards.sort(function (a, b) { return (b.job_count - a.job_count) || String(a.name).localeCompare(String(b.name)); });
     sendJson(res, 200, { ok: true, practices: plCards, total: plCards.length, counts: plCounts });
-    return;
-  }
-
-  // Pins for the map that leads the Practices tab. Deliberately a SEPARATE
-  // request from the directory above: the geocode step can reach out to
-  // Nominatim for a never-seen suburb, and the practice cards must never wait
-  // on that. The tab paints its list, then the map fills in.
-  if (pathname === '/api/ats/practice-map' && req.method === 'GET') {
-    var ctxPMap = requireAtsSession(req, res); if (!ctxPMap) return;
-    var pmapData = await buildAtsPracticeMapData();
-    sendJson(res, 200, {
-      ok: true,
-      practices: pmapData.practices,
-      pinned: pmapData.practices.length,
-      total: pmapData.total
-    });
     return;
   }
 
@@ -72611,8 +72637,9 @@ module.exports.__testUtils = {
   filterPracticeMapPractices,
   practiceMapHasFilters,
   shapeMapPractice,
-  buildAtsPracticeMapData,
-  __resetAtsPracticeMapCacheForTest,
+  buildAtsJobMapData,
+  atsListJobRowsWithPending,
+  __resetAtsJobMapCacheForTest,
   mapCareerRoleRowToClient,
   mapCareerRoleDetailToClient,
   isInternalAtsRoleOpenForGp,
