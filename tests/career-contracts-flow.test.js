@@ -1631,8 +1631,8 @@ describe('CEO Contracts tab UI (Task 12)', () => {
     // Bumped 2026-08-05 for the inline contract reader + red highlighting.
     // JS is served with max-age=3600, so a stale pin here means the owner keeps
     // getting the previous file for an hour after a deploy.
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805b');
-    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805a');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805c');
+    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805b');
   });
 
   it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {
@@ -3949,7 +3949,7 @@ describe('inline contract reader — red highlighting', () => {
   it('wraps the AI-quoted clause in <mark> and leaves the rest of the contract alone', () => {
     const text = 'The Practitioner shall receive a billing split of 60%. Leave is four weeks.';
     const out = highlight(text, ['a billing split of 60%']);
-    expect(out.html).toContain('<mark>a billing split of 60%</mark>');
+    expect(out.html).toMatch(/<mark data-disc="0">a billing split of 60%<\/mark>/);
     expect(out.html).toContain('Leave is four weeks.');
     expect(out.unmatched).toHaveLength(0);
   });
@@ -3959,16 +3959,16 @@ describe('inline contract reader — red highlighting', () => {
     // back on one line. An exact === match would find nothing here.
     const text = 'The Practitioner shall receive\n   a billing split\tof 60% of billings.';
     const out = highlight(text, ['a billing split of 60%']);
-    expect(out.html).toContain('<mark>');
+    expect(out.html).toContain('<mark ');
     expect(out.unmatched).toHaveLength(0);
     // The original spacing is preserved inside the highlight — we mark up the
     // real text, we don't reformat it.
-    expect(out.html).toMatch(/<mark>a billing split\s+of 60%<\/mark>/);
+    expect(out.html).toMatch(/<mark data-disc="0">a billing split\s+of 60%<\/mark>/);
   });
 
   it('is case-insensitive but never rewrites the contract\'s own casing', () => {
     const out = highlight('RESTRAINT OF TRADE: five kilometres.', ['restraint of trade: five kilometres']);
-    expect(out.html).toContain('<mark>RESTRAINT OF TRADE: five kilometres</mark>');
+    expect(out.html).toMatch(/<mark data-disc="0">RESTRAINT OF TRADE: five kilometres<\/mark>/);
   });
 
   it('escapes HTML in the contract so a crafted clause cannot inject markup', () => {
@@ -3980,18 +3980,18 @@ describe('inline contract reader — red highlighting', () => {
   it('reports a quote it could not find instead of silently dropping it', () => {
     const out = highlight('Nothing about pay in here at all.', ['a billing split of 60%']);
     expect(out.unmatched).toHaveLength(1);
-    expect(out.html).not.toContain('<mark>');
+    expect(out.html).not.toContain('<mark');
   });
 
   it('ignores fragments too short to be meaningful (they would paint everything red)', () => {
     const out = highlight('a b c a b c a b c', ['a b']);
-    expect(out.html).not.toContain('<mark>');
+    expect(out.html).not.toContain('<mark');
   });
 
   it('merges overlapping quotes into one highlight rather than nesting <mark>s', () => {
     const text = 'The billing split of 60% applies from the start date.';
     const out = highlight(text, ['billing split of 60% applies', 'split of 60%']);
-    expect((out.html.match(/<mark>/g) || []).length).toBe(1);
+    expect((out.html.match(/<mark[ >]/g) || []).length).toBe(1);
   });
 
   it('returns the plain escaped contract when there are no discrepancies at all', () => {
@@ -4197,5 +4197,127 @@ describe('inline reader renders the document and highlights inside it', () => {
     expect(CSS).toMatch(/\.ats-doc-rich table/);
     expect(CSS).toMatch(/\.ats-doc-rich h1/);
     expect(CSS).toMatch(/\.ats-doc-rich img/);
+  });
+});
+
+// ============================================================================
+// Owner request 2026-08-05: "when i click on one of the ai discrepancies it
+// should auto scroll the document to that point". The findings sit below a
+// long scrolling contract, so without this you read a quoted clause and then
+// hunt for it by eye.
+// ============================================================================
+describe('click a discrepancy → jump to that clause', () => {
+  let highlight;
+  const JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8');
+  const CSS = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
+
+  beforeAll(async () => {
+    const vm = await import('node:vm');
+    const sandbox = {
+      window: {},
+      document: { readyState: 'complete', getElementById: () => null, addEventListener: () => {}, querySelectorAll: () => [], querySelector: () => null },
+      console, setTimeout, clearTimeout,
+      location: { hash: '' }, history: { replaceState: () => {} }
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/ceo-ats-shared.js'), 'utf8'), sandbox, { filename: 'shared' });
+    vm.runInContext(JS, sandbox, { filename: 'contracts' });
+    highlight = sandbox.window.__ceoContractHighlight;
+  });
+
+  it('stamps every highlight with the discrepancy it came from', () => {
+    const text = 'Rate is $170.00 per hour. Bonus is $20,000 over two years.';
+    const out = highlight(text, ['Rate is $170.00 per hour', 'Bonus is $20,000 over two years']);
+    expect(out.html).toMatch(/<mark data-disc="0">Rate is \$170\.00 per hour<\/mark>/);
+    expect(out.html).toMatch(/<mark data-disc="1">Bonus is \$20,000 over two years<\/mark>/);
+  });
+
+  it('a clause quoted by two findings is reachable from BOTH of them', () => {
+    // The real Erina contract states its hourly rate twice and two findings
+    // quote the same words — one mark must answer to both row indexes.
+    const out = highlight('the rate is $170.00 per Guaranteed Hour', [
+      'the rate is $170.00 per Guaranteed Hour',
+      'the rate is $170.00 per Guaranteed Hour'
+    ]);
+    const m = out.html.match(/data-disc="([^"]+)"/);
+    expect(m).toBeTruthy();
+    expect(m[1].split(',').sort()).toEqual(['0', '1']);
+  });
+
+  it('merged overlapping quotes keep every index that produced them', () => {
+    const out = highlight('a billing split of 60% applies from the start', [
+      'billing split of 60% applies',
+      'split of 60% applies from'
+    ]);
+    expect((out.html.match(/<mark/g) || []).length).toBe(1);
+    const m = out.html.match(/data-disc="([^"]+)"/);
+    expect(m[1].split(',').sort()).toEqual(['0', '1']);
+  });
+
+  it('an unmatched quote produces no mark, so its row can report it honestly', () => {
+    const out = highlight('nothing relevant in here', ['a billing split of 60%']);
+    expect(out.html).not.toContain('<mark');
+    expect(out.unmatched).toHaveLength(1);
+  });
+
+  it('rows are real buttons — clickable AND keyboard reachable', () => {
+    expect(JS).toContain('data-jump-disc');
+    expect(JS).toContain('role="button" tabindex="0"');
+    expect(JS).toContain("e.key !== 'Enter'");
+    expect(CSS).toMatch(/\.ats-disc-row \{[^}]*cursor:pointer/);
+  });
+
+  it('clicking a finding does not collapse the card it lives in', () => {
+    // The rows sit INSIDE the expanded card, whose header toggles on click —
+    // the jump handler must run first and stop the event.
+    const jumpAt = JS.indexOf('data-jump-disc');
+    const toggleAt = JS.indexOf("closest('[data-toggle]')");
+    expect(jumpAt).toBeGreaterThan(-1);
+    expect(toggleAt).toBeGreaterThan(-1);
+    const handlerStart = JS.indexOf('function wireEvents');
+    const handler = JS.slice(handlerStart, handlerStart + 1200);
+    expect(handler.indexOf('data-jump-disc')).toBeLessThan(handler.indexOf("closest('[data-toggle]')"));
+    expect(handler).toContain('stopPropagation');
+  });
+
+  it('scrolls the PANE by rect deltas, not offsetTop (table cells are positioned)', () => {
+    const start = JS.indexOf('function jumpToDiscrepancy');
+    const body = JS.slice(start, start + 4200);
+    expect(body).toContain('getBoundingClientRect');
+    // No real offsetTop USE (the identifier appears once, in the comment
+    // explaining why it is wrong here).
+    expect(body).not.toMatch(/\b(pane|target|t|mk)\.offsetTop\b/);
+    expect(body).toContain('clientHeight / 3');   // lands where the eye is
+  });
+
+  it('still lands on the clause where smooth scrolling is a silent no-op', () => {
+    // Verified in headless Chrome: scrollTop and behavior:'auto' both work
+    // there, but behavior:'smooth' does nothing at all. Without the fallback
+    // the pane never moved.
+    const start = JS.indexOf('function jumpToDiscrepancy');
+    const body = JS.slice(start, start + 4200);
+    expect(body).toContain("behavior: 'smooth'");
+    expect(body).toContain('pane.scrollTop === startTop');
+    expect(body).toContain('pane.scrollTop = wantTop');
+  });
+
+  it('flashes only the clause you asked for', () => {
+    const start = JS.indexOf('function jumpToDiscrepancy');
+    const body = JS.slice(start, start + 4200);
+    expect(body).toContain("classList.remove('is-target')");
+    expect(body).toContain("classList.add('is-target')");
+    expect(CSS).toContain('mark.is-target');
+  });
+
+  it('says so instead of doing nothing when the clause cannot be jumped to', () => {
+    const start = JS.indexOf('function jumpToDiscrepancy');
+    const body = JS.slice(start, start + 4200);
+    expect(body).toMatch(/PDF/);                       // iframe cannot be scrolled
+    expect(body).toMatch(/could not be located/);      // unmatched quote
+    expect(body).toContain('ATS.toast');
+  });
+
+  it('the list tells the CEO the rows are clickable', () => {
+    expect(JS).toContain('click one to jump to it in the contract');
   });
 });

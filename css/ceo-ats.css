@@ -84,8 +84,20 @@
 /* A flagged clause we could NOT locate verbatim in the text — the finding is
    still real, so say so rather than silently dropping the highlight. */
 .ats-doc-unmatched { margin-top:8px; font-size:11.5px; color:var(--ats-dim); }
-.ats-disc-row { border-left:3px solid #ef4444; padding-left:10px; margin-top:10px; }
+/* Each finding is a button that scrolls the contract to its clause. */
+.ats-disc-row { border-left:3px solid #ef4444; padding-left:10px; margin-top:10px; cursor:pointer; border-radius:0 6px 6px 0; transition:background .12s, border-left-width .12s; }
 .ats-disc-row.minor { border-left-color:#f59e0b; }
+.ats-disc-row:hover { background:rgba(239,68,68,.07); }
+.ats-disc-row.minor:hover { background:rgba(245,158,11,.07); }
+.ats-disc-row:focus-visible { outline:2px solid var(--ats-blue); outline-offset:2px; }
+.ats-disc-row::after { content:'Jump to clause ↑'; display:block; margin-top:5px; font-size:10.5px; letter-spacing:.02em; color:var(--ats-dim); opacity:0; transition:opacity .12s; }
+.ats-disc-row:hover::after, .ats-disc-row:focus-visible::after { opacity:1; }
+
+/* The clause you jumped to, flashed briefly so it is obvious which highlight
+   was meant when several sit close together. */
+.ats-doc-view mark.is-target { background:#ff9d9d; box-shadow:0 0 0 4px rgba(239,68,68,.28); animation:atsJumpFlash .55s ease-out 2; }
+@keyframes atsJumpFlash { 0%,100% { box-shadow:0 0 0 4px rgba(239,68,68,.28); } 50% { box-shadow:0 0 0 9px rgba(239,68,68,.10); } }
+@media (prefers-reduced-motion: reduce) { .ats-doc-view mark.is-target { animation:none; } }
 
 /* Keep the existing sub-nav from overlapping the new master bar */
 #panel-registration .ceo-topnav { top: 106px; }

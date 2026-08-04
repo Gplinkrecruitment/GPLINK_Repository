@@ -60,51 +60,72 @@
     var raw = String(text == null ? '' : text);
     if (!raw) return { html: '', unmatched: [] };
 
-    var wanted = [];
-    (quotes || []).forEach(function (q) {
-      var n = normaliseQuote(q);
-      // Very short fragments ("$180", "GP") would paint the whole document
-      // red — a highlight that matches everything highlights nothing.
-      if (n.length >= 8 && wanted.indexOf(n) === -1) wanted.push(n);
-    });
+    var wanted = collateQuotes(quotes);
     if (!wanted.length) return { html: ATS.esc(raw), unmatched: [] };
-    wanted.sort(function (a, b) { return b.length - a.length; });
 
     var nm = normaliseWithMap(raw);
     var ranges = [], unmatched = [];
-    wanted.forEach(function (q) {
+    wanted.forEach(function (w) {
       var from = 0, found = false, guard = 0;
       while (guard++ < 50) {
-        var at = nm.norm.indexOf(q, from);
+        var at = nm.norm.indexOf(w.norm, from);
         if (at === -1) break;
         found = true;
         var startOrig = nm.map[at];
-        var endOrig = nm.map[at + q.length - 1];
-        if (startOrig != null && endOrig != null) ranges.push([startOrig, endOrig + 1]);
-        from = at + q.length;
+        var endOrig = nm.map[at + w.norm.length - 1];
+        if (startOrig != null && endOrig != null) ranges.push({ s: startOrig, e: endOrig + 1, idxs: w.idxs.slice() });
+        from = at + w.norm.length;
       }
-      if (!found) unmatched.push(q);
+      if (!found) unmatched.push(w.norm);
     });
 
     if (!ranges.length) return { html: ATS.esc(raw), unmatched: unmatched };
 
-    // Merge overlaps so nested/adjacent hits become one <mark>.
-    ranges.sort(function (a, b) { return a[0] - b[0]; });
-    var merged = [ranges[0].slice()];
-    for (var r = 1; r < ranges.length; r++) {
-      var last = merged[merged.length - 1];
-      if (ranges[r][0] <= last[1]) { last[1] = Math.max(last[1], ranges[r][1]); }
-      else merged.push(ranges[r].slice());
-    }
+    var merged = mergeRanges(ranges);
 
     var out = '', cursor = 0;
     merged.forEach(function (rg) {
-      out += ATS.esc(raw.slice(cursor, rg[0]));
-      out += '<mark>' + ATS.esc(raw.slice(rg[0], rg[1])) + '</mark>';
-      cursor = rg[1];
+      out += ATS.esc(raw.slice(cursor, rg.s));
+      // data-disc carries which discrepancy (or discrepancies) produced this
+      // mark, so clicking a row in the list can scroll straight to it.
+      out += '<mark data-disc="' + ATS.escAttr(rg.idxs.join(',')) + '">' + ATS.esc(raw.slice(rg.s, rg.e)) + '</mark>';
+      cursor = rg.e;
     });
     out += ATS.esc(raw.slice(cursor));
     return { html: out, unmatched: unmatched };
+  }
+
+  // Normalise the quotes ONCE and remember which discrepancy row each one came
+  // from. Two rows can quote the same clause (the Erina contract states its
+  // hourly rate twice), so a normalised quote maps to a LIST of row indexes.
+  function collateQuotes(quotes) {
+    var byNorm = {}, order = [];
+    (quotes || []).forEach(function (q, i) {
+      var n = normaliseQuote(q);
+      // Very short fragments ("$180", "GP") would paint the whole document
+      // red — a highlight that matches everything highlights nothing.
+      if (n.length < 8) return;
+      if (!byNorm[n]) { byNorm[n] = { norm: n, idxs: [] }; order.push(byNorm[n]); }
+      if (byNorm[n].idxs.indexOf(i) === -1) byNorm[n].idxs.push(i);
+    });
+    // Longest first, so a short quote nested inside a longer one can't split it.
+    return order.sort(function (a, b) { return b.norm.length - a.norm.length; });
+  }
+
+  // Merge overlapping/adjacent ranges into one mark, unioning their row indexes.
+  function mergeRanges(ranges) {
+    ranges.sort(function (a, b) { return a.s - b.s; });
+    var merged = [{ s: ranges[0].s, e: ranges[0].e, idxs: ranges[0].idxs.slice() }];
+    for (var i = 1; i < ranges.length; i++) {
+      var last = merged[merged.length - 1];
+      if (ranges[i].s <= last.e) {
+        last.e = Math.max(last.e, ranges[i].e);
+        ranges[i].idxs.forEach(function (ix) { if (last.idxs.indexOf(ix) === -1) last.idxs.push(ix); });
+      } else {
+        merged.push({ s: ranges[i].s, e: ranges[i].e, idxs: ranges[i].idxs.slice() });
+      }
+    }
+    return merged;
   }
 
   // Highlighting inside the RENDERED document. The text version can be marked
@@ -138,37 +159,26 @@
     }
     if (!full.trim()) return { marks: 0, unmatched: [] };
 
-    var wanted = [];
-    quotes.forEach(function (q) {
-      var n = normaliseQuote(q);
-      if (n.length >= 8 && wanted.indexOf(n) === -1) wanted.push(n);
-    });
+    var wanted = collateQuotes(quotes);
     if (!wanted.length) return { marks: 0, unmatched: [] };
-    wanted.sort(function (a, b) { return b.length - a.length; });
 
     var nm = normaliseWithMap(full);
     var ranges = [], unmatched = [];
-    wanted.forEach(function (q) {
+    wanted.forEach(function (w) {
       var from = 0, found = false, guard = 0;
       while (guard++ < 50) {
-        var at = nm.norm.indexOf(q, from);
+        var at = nm.norm.indexOf(w.norm, from);
         if (at === -1) break;
         found = true;
-        var s = nm.map[at], e = nm.map[at + q.length - 1];
-        if (s != null && e != null) ranges.push([s, e + 1]);
-        from = at + q.length;
+        var s = nm.map[at], e = nm.map[at + w.norm.length - 1];
+        if (s != null && e != null) ranges.push({ s: s, e: e + 1, idxs: w.idxs.slice() });
+        from = at + w.norm.length;
       }
-      if (!found) unmatched.push(q);
+      if (!found) unmatched.push(w.norm);
     });
     if (!ranges.length) return { marks: 0, unmatched: unmatched };
 
-    ranges.sort(function (a, b) { return a[0] - b[0]; });
-    var merged = [ranges[0].slice()];
-    for (var i = 1; i < ranges.length; i++) {
-      var last = merged[merged.length - 1];
-      if (ranges[i][0] <= last[1]) last[1] = Math.max(last[1], ranges[i][1]);
-      else merged.push(ranges[i].slice());
-    }
+    var merged = mergeRanges(ranges);
 
     // Group the slices by the text node they land in, so each node is rebuilt
     // exactly once — replacing a node mid-loop would invalidate every offset
@@ -177,8 +187,8 @@
     infos.forEach(function (info) {
       var pieces = [];
       merged.forEach(function (rg) {
-        var s = Math.max(rg[0], info.start), e = Math.min(rg[1], info.end);
-        if (s < e) pieces.push([s - info.start, e - info.start]);
+        var s = Math.max(rg.s, info.start), e = Math.min(rg.e, info.end);
+        if (s < e) pieces.push({ from: s - info.start, to: e - info.start, idxs: rg.idxs });
       });
       if (pieces.length) perNode.push({ info: info, pieces: pieces });
     });
@@ -190,17 +200,84 @@
       var frag = document.createDocumentFragment();
       var cursor = 0;
       entry.pieces.forEach(function (p) {
-        if (p[0] > cursor) frag.appendChild(document.createTextNode(val.slice(cursor, p[0])));
+        if (p.from > cursor) frag.appendChild(document.createTextNode(val.slice(cursor, p.from)));
         var mk = document.createElement('mark');
-        mk.textContent = val.slice(p[0], p[1]);
+        // Which discrepancy row(s) produced this mark — the click-to-jump
+        // handler looks it up by this attribute.
+        mk.setAttribute('data-disc', p.idxs.join(','));
+        mk.textContent = val.slice(p.from, p.to);
         frag.appendChild(mk);
         marks++;
-        cursor = p[1];
+        cursor = p.to;
       });
       if (cursor < val.length) frag.appendChild(document.createTextNode(val.slice(cursor)));
       if (t.parentNode) t.parentNode.replaceChild(frag, t);
     });
     return { marks: marks, unmatched: unmatched };
+  }
+
+  /* =====================================================================
+   *  CLICK A DISCREPANCY → JUMP TO IT IN THE CONTRACT
+   *  Owner request 2026-08-05. The findings list sits below a long scrolling
+   *  document; without this you read "the Contractor will receive not less
+   *  than $170.00…" and then hunt for it by eye.
+   * ===================================================================== */
+  function jumpToDiscrepancy(contractId, index) {
+    var slot = document.querySelector('[data-doc-slot="' + cssEscape(contractId) + '"]');
+    if (!slot) return;
+    var pane = slot.querySelector('.ats-doc-view');
+    var doc = state.docs[contractId];
+
+    if (!pane) {
+      // A PDF renders inside an <iframe> we cannot reach into or scroll.
+      ATS.toast(doc && doc.kind === 'pdf'
+        ? 'This contract is a PDF — open it to find the clause.'
+        : 'The contract is still loading.');
+      return;
+    }
+
+    // Marks carry a comma-separated list because one clause can be quoted by
+    // more than one finding — match on the exact index, not a substring.
+    var marks = pane.querySelectorAll('mark[data-disc]');
+    var target = null;
+    for (var i = 0; i < marks.length; i++) {
+      var list = String(marks[i].getAttribute('data-disc') || '').split(',');
+      if (list.indexOf(String(index)) !== -1) { target = marks[i]; break; }
+    }
+    if (!target) {
+      ATS.toast('That clause could not be located word-for-word in the contract — read it against the document.');
+      return;
+    }
+
+    // Scroll the PANE, not the page: getBoundingClientRect deltas work no
+    // matter how deeply the mark is nested (table cells are positioned, so
+    // offsetTop would be measured against the wrong ancestor).
+    var pRect = pane.getBoundingClientRect();
+    var tRect = target.getBoundingClientRect();
+    // A third of the way down the pane, so the clause lands where the eye is
+    // rather than jammed against the top edge.
+    var wantTop = Math.max(0, pane.scrollTop + (tRect.top - pRect.top) - (pane.clientHeight / 3));
+    var startTop = pane.scrollTop;
+    try {
+      if (pane.scrollTo) pane.scrollTo({ top: wantTop, behavior: 'smooth' });
+      else pane.scrollTop = wantTop;
+    } catch (e) { pane.scrollTop = wantTop; }
+    // 🧨 `behavior:'smooth'` is silently IGNORED by some engines (verified: it
+    // is a complete no-op in headless Chrome, while scrollTop and
+    // behavior:'auto' both work). Landing on the clause matters more than the
+    // animation, so if nothing has moved shortly after, jump there outright.
+    // Checking "moved at all" rather than "arrived" leaves a real smooth
+    // scroll mid-animation untouched.
+    setTimeout(function () {
+      if (pane.scrollTop === startTop && startTop !== wantTop) pane.scrollTop = wantTop;
+    }, 250);
+
+    // Flash it, so it's obvious WHICH highlight was meant when several sit
+    // close together.
+    for (var j = 0; j < marks.length; j++) marks[j].classList.remove('is-target');
+    target.classList.add('is-target');
+    if (jumpToDiscrepancy._t) clearTimeout(jumpToDiscrepancy._t);
+    jumpToDiscrepancy._t = setTimeout(function () { target.classList.remove('is-target'); }, 2200);
   }
 
   function quotesFor(c) {
@@ -309,6 +386,7 @@
   // The DOM variant needs a real browser to exercise (this repo has no jsdom),
   // so it is verified with headless Chrome against the real rendered contract.
   window.__ceoContractDomHighlight = applyDomHighlights;
+  window.__ceoContractJump = jumpToDiscrepancy;
 
   window.loadContractsTab = function () {
     var el = panel();
@@ -386,11 +464,17 @@
     return '<div class="ats-card" data-contract-card="' + ATS.escAttr(c.id) + '">' + head + (open ? detailHtml(c) : '') + '</div>';
   }
 
-  function discrepancyRow(d) {
+  // `i` is the discrepancy's position in ai_review.discrepancies — the same
+  // number stamped onto its <mark> in the document, which is what makes
+  // click-to-jump possible. Rendered as a real button role + tabindex so it is
+  // reachable by keyboard, not mouse-only.
+  function discrepancyRow(d, i, contractId) {
     d = d || {};
     var minor = String(d.severity || '').toLowerCase() === 'minor';
     return '' +
-      '<div class="ats-detail-field ats-disc-row ' + (minor ? 'minor' : '') + '">' +
+      '<div class="ats-detail-field ats-disc-row ' + (minor ? 'minor' : '') + '"' +
+        ' data-jump-disc="' + ATS.escAttr(String(i)) + '" data-jump-contract="' + ATS.escAttr(contractId) + '"' +
+        ' role="button" tabindex="0" title="Jump to this clause in the contract">' +
         '<div class="df-lbl">' + ATS.esc(d.field || 'Unspecified') + (d.severity ? ' — ' + ATS.esc(d.severity) : '') + '</div>' +
         '<div class="df-val">Contract says: ' + ATS.esc(d.contract_says || '—') + '<br>Expected: ' + ATS.esc(d.expected || '—') + ' (' + ATS.esc(d.source || 'unknown source') + ')</div>' +
       '</div>';
@@ -428,7 +512,8 @@
       : '';
 
     var discrepanciesHtml = discrepancies.length
-      ? '<div class="df-lbl" style="margin:14px 0 4px">Discrepancies — highlighted in red in the contract above</div>' + discrepancies.map(discrepancyRow).join('')
+      ? '<div class="df-lbl" style="margin:14px 0 4px">Discrepancies — click one to jump to it in the contract above</div>' +
+        discrepancies.map(function (d, i) { return discrepancyRow(d, i, c.id); }).join('')
       : (review && !reviewFailed ? '<div class="ats-detail-field"><div class="df-val">The AI found nothing that contradicts the interview or the advertised terms.</div></div>' : '');
 
     // The contract itself, read INLINE — downloading it was the only way to
@@ -483,6 +568,15 @@
    * ===================================================================== */
   function wireEvents(el) {
     el.addEventListener('click', function (e) {
+      // Checked BEFORE the card toggle: a discrepancy row sits inside the open
+      // card, so falling through would collapse the very card you're reading.
+      var jump = e.target.closest ? e.target.closest('[data-jump-disc]') : null;
+      if (jump) {
+        e.stopPropagation();
+        jumpToDiscrepancy(jump.getAttribute('data-jump-contract'), jump.getAttribute('data-jump-disc'));
+        return;
+      }
+
       var toggle = e.target.closest ? e.target.closest('[data-toggle]') : null;
       if (toggle) {
         var tid = toggle.getAttribute('data-toggle');
@@ -508,6 +602,16 @@
           submitDecision(contractId, action, note);
         }
       }
+    });
+
+    // Keyboard parity for the jump rows — they present as buttons (role +
+    // tabindex), so Enter and Space must do what a click does.
+    el.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+      var jump = e.target.closest ? e.target.closest('[data-jump-disc]') : null;
+      if (!jump) return;
+      e.preventDefault();
+      jumpToDiscrepancy(jump.getAttribute('data-jump-contract'), jump.getAttribute('data-jump-disc'));
     });
   }
 
