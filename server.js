@@ -2984,7 +2984,16 @@ async function aiReviewCareerContract(contractRow) {
         },
         body: JSON.stringify({
           model: ANTHROPIC_SCAN_MODEL,
-          max_tokens: 1500,
+          // 🧨 Was 1500, which was NOT enough and was the second bug hiding
+          // behind the media_type 400 (found 2026-08-05 re-running the real
+          // Erina contract: a 22,000-character agreement). The verdict JSON
+          // carries a summary, the extracted terms AND a verbatim quote per
+          // discrepancy, so it blew the cap, the JSON arrived truncated, and
+          // JSON.parse died with "Unexpected end of JSON input" — reported to
+          // the CEO as yet another unexplained failure. The model stops when
+          // it is done, so a generous ceiling costs nothing on a short
+          // contract; it only stops a long one being cut off mid-sentence.
+          max_tokens: 8000,
           // No temperature — ANTHROPIC_SCAN_MODEL defaults to claude-opus-4-8,
           // which REJECTS temperature/top_p/top_k with a 400. Every other
           // scan caller already omits it; this one must too.
@@ -3013,12 +3022,22 @@ async function aiReviewCareerContract(contractRow) {
       throw new Error('the AI service rejected the request (' + (resp && resp.status) + ')' + (errDetail ? ': ' + errDetail : ''));
     }
     var respJson = await resp.json();
-    var text = (respJson.content && respJson.content[0] && respJson.content[0].text) || '';
+    // Truncation is its own failure and must say so. A cut-off response fails
+    // JSON.parse with "Unexpected end of JSON input", which tells the CEO
+    // nothing about what to do — this names the real problem instead.
+    if (respJson && respJson.stop_reason === 'max_tokens') {
+      throw new Error('this contract is long enough that the review was cut off before it finished. Try "Re-run AI review"; if it keeps happening the contract needs a manual read.');
+    }
+    // The text block isn't guaranteed to be content[0] (a thinking block can
+    // precede it) — find the first text block rather than assuming the index.
+    var textBlock = (respJson.content || []).filter(function (b) { return b && b.type === 'text'; })[0];
+    var text = (textBlock && textBlock.text) || '';
     var cleaned = text.trim()
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
       .replace(/```\s*$/i, '')
       .trim();
+    if (!cleaned) throw new Error('the AI returned an empty response');
     var parsed = JSON.parse(cleaned);
     if (!parsed || typeof parsed !== 'object') throw new Error('AI response was not a JSON object');
 

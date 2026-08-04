@@ -1405,7 +1405,9 @@ describe('AI contract review vs Zoom-summary terms (Task 11, live-boot)', () => 
     expect(anthropicCalls.length).toBe(before + 1);
     const sent = anthropicCalls[anthropicCalls.length - 1];
     expect(sent.model).toBeTruthy();
-    expect(sent.max_tokens).toBe(1500);
+    // Raised from 1500 on 2026-08-05: a real 22,000-character contract's
+    // verdict JSON exceeded that cap and arrived truncated.
+    expect(sent.max_tokens).toBe(8000);
     // Opus 4.8 (ANTHROPIC_SCAN_MODEL default) rejects temperature/top_p/top_k
     // with a 400 — sending it would 400 every real review.
     expect(sent.temperature).toBeUndefined();
@@ -3815,6 +3817,31 @@ describe('contract file reading — what we actually send the AI', () => {
     expect(body).toMatch(/VERBATIM/);
     // The old unconditional passthrough must be gone for good.
     expect(body).not.toContain("media_type: normalizedMime");
+  });
+
+  // The SECOND bug, found only by re-running the real Erina contract once the
+  // 400 was fixed: max_tokens was 1500, the verdict JSON for a 22,000-character
+  // agreement (summary + terms + a verbatim quote per discrepancy) exceeded it,
+  // and the truncated JSON died in JSON.parse as "Unexpected end of JSON input".
+  it('gives the verdict room to finish, and names truncation instead of dying in JSON.parse', () => {
+    const src = fs.readFileSync(SERVER_PATH, 'utf8');
+    const start = src.indexOf('async function aiReviewCareerContract');
+    const body = src.slice(start, start + 14000);
+    expect(body).not.toContain('max_tokens: 1500');
+    const cap = body.match(/max_tokens:\s*(\d+)/);
+    expect(cap).toBeTruthy();
+    expect(Number(cap[1])).toBeGreaterThanOrEqual(4000);
+    // A cut-off response is reported as a cut-off response.
+    expect(body).toContain("stop_reason === 'max_tokens'");
+    expect(body).toMatch(/cut off/i);
+  });
+
+  it('reads the first TEXT block rather than assuming content[0]', () => {
+    const src = fs.readFileSync(SERVER_PATH, 'utf8');
+    const start = src.indexOf('async function aiReviewCareerContract');
+    const body = src.slice(start, start + 14000);
+    expect(body).not.toContain('respJson.content && respJson.content[0] && respJson.content[0].text');
+    expect(body).toContain("b.type === 'text'");
   });
 
   it('an API failure reports the service\'s own explanation, not a bare status', () => {
