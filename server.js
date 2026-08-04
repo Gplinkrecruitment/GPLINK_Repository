@@ -8056,7 +8056,11 @@ async function saveCareerProfileDocument(userId, key, payload) {
         user_id: userId,
         country_code: ACCOUNT_CAREER_DOCUMENT_COUNTRY,
         document_key: key,
-        status: 'uploaded',
+        // The doctor's own upload lands 'uploaded'. Staff filing a CV they
+        // were emailed pass 'approved' — the staff member accepting it IS the
+        // human review, matching the admin candidate-doc upload convention
+        // (there is no review task that would ever move it on otherwise).
+        status: payload.status === 'approved' ? 'approved' : 'uploaded',
         file_name: payload.fileName,
         file_url: storagePath,
         storage_bucket: SUPABASE_DOCUMENT_BUCKET,
@@ -35413,7 +35417,13 @@ async function atsGetDocFlagsProd(userId) {
     'select=id_copy_name,id_copy_data_url,cv_file_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
   return {
-    cv: present(function (r) { return r.document_key === 'cv_signed_dated'; }) || !!String(prof.cv_file_name || '').trim(),
+    // EITHER CV counts — the AI-verified careers CV ('career_cv', which is
+    // what the career page and submit-to-practice actually use) or the legacy
+    // registration one. Reading only cv_signed_dated meant a doctor with a
+    // perfectly good careers CV showed "Not uploaded" here, and a CV filed by
+    // staff would have looked like it hadn't saved. Same rule as the matching
+    // board's hasCv.
+    cv: present(function (r) { return r.document_key === 'career_cv' || r.document_key === 'cv_signed_dated'; }) || !!String(prof.cv_file_name || '').trim(),
     coverLetter: present(function (r) { return r.document_key === 'career_cover_letter'; }),
     primaryDegree: present(function (r) { return r.document_key === 'primary_medical_degree' || r.document_key === 'onboarding_primary_med_degree'; }),
     idDoc: present(function (r) { return r.document_key === 'identity'; }) || !!String(prof.id_copy_data_url || '').trim() || !!String(prof.id_copy_name || '').trim()
@@ -68699,6 +68709,124 @@ Return ONLY valid JSON with no markdown formatting:
   // Consultants are explicitly allowed (that's the point — they can't open the
   // RSO file). NEVER exposes ID/passport or any other document type: it looks
   // up exactly one document_key (cv_signed_dated) and nothing else.
+  // ---- Staff-filed careers CV ----------------------------------------------
+  // Owner request 2026-08-05: "i sometimes get sent CVs via email so let me
+  // upload them directly onto their profile from the ceo dashboard which then
+  // unlocks the career page".
+  //
+  // Writes the SAME document the doctor's own upload writes — `career_cv` via
+  // saveCareerProfileDocument — so it satisfies every downstream gate by
+  // construction: the career-page apply gate, the matching board's hasCv, and
+  // the CV attached to a submit-to-practice introduction. Nothing needed a
+  // special "staff uploaded it" branch.
+  //
+  // Deliberately base64 (not the signed direct-to-Storage flow the
+  // certificate uploads use): the AI check and the identity guard both need
+  // the bytes server-side anyway, and the careers CV is capped at 3 MB, well
+  // inside the serverless body limit.
+  if (pathname === '/api/ats/candidate/career-cv' && req.method === 'POST') {
+    var ctxCCV = requireAtsSession(req, res); if (!ctxCCV) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var bodyCCV; try { bodyCCV = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+
+    var ccvUserId = String((bodyCCV && (bodyCCV.user_id || bodyCCV.userId)) || '').trim();
+    var ccvCaseId = String((bodyCCV && (bodyCCV.case_id || bodyCCV.caseId)) || '').trim();
+    if (!ccvUserId && ccvCaseId) {
+      var ccvCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(ccvCaseId) + '&limit=1');
+      ccvUserId = (ccvCaseRes.ok && Array.isArray(ccvCaseRes.data) && ccvCaseRes.data[0] && ccvCaseRes.data[0].user_id) || '';
+    }
+    if (!ccvUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
+
+    var ccvFileName = sanitizeUserString(bodyCCV && bodyCCV.fileName, 240) || 'cv.pdf';
+    var ccvBase64 = typeof (bodyCCV && bodyCCV.fileBase64) === 'string' ? bodyCCV.fileBase64.trim() : '';
+    var ccvMime = String((bodyCCV && bodyCCV.mimeType) || '').trim().toLowerCase();
+    if (!ccvBase64) { sendJson(res, 400, { ok: false, message: 'Missing file data.' }); return; }
+
+    var ccvBuffer;
+    try { ccvBuffer = Buffer.from(ccvBase64, 'base64'); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid file data.' }); return; }
+    if (!ccvBuffer.length) { sendJson(res, 400, { ok: false, message: 'Invalid file data.' }); return; }
+    // Authoritative size check on the decoded bytes, not the browser's claim.
+    if (ccvBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
+      sendJson(res, 413, { ok: false, message: 'That file is too large — please keep the CV under 3 MB.' });
+      return;
+    }
+    var ccvKnownMime = ccvMime && ccvMime !== 'application/octet-stream';
+    var ccvTypeAllowed = ccvKnownMime
+      ? CAREER_PROFILE_ALLOWED_MIME_TYPES.has(ccvMime)
+      : /\.(pdf|docx|png|jpe?g|webp)$/i.test(ccvFileName);
+    if (!ccvTypeAllowed) {
+      sendJson(res, 422, { ok: false, message: 'That file type isn\'t supported — save the CV as a PDF or Word (.docx) file and try again.' });
+      return;
+    }
+
+    // Scanned on a SEPARATE rate-limit key from the doctor's own. Spending one
+    // of their 5 daily scans on a staff upload could lock the doctor out of
+    // their own (non-dismissible) apply gate for 24h.
+    var ccvRateKey = 'ats-cv-upload:' + (ctxCCV.email || 'staff');
+    var ccvAllowed = await checkRateLimitWindow(ccvRateKey, 40, CAREER_PROFILE_SCAN_WINDOW_MS);
+    if (!ccvAllowed) { sendJson(res, 429, { ok: false, message: 'Too many CV uploads today — please try again tomorrow.' }); return; }
+
+    var ccvScan = await verifyCareerCvWithAI(ccvBuffer, ccvMime, ccvFileName);
+    if (ccvScan.ok && ccvScan.isCv === false) {
+      sendJson(res, 422, { ok: false, message: 'That doesn\'t look like a CV' + (ccvScan.reason ? (' — ' + ccvScan.reason) : '.') });
+      return;
+    }
+    if (!ccvScan.ok) {
+      // Never block a staff upload on our own AI outage — same rule the
+      // doctor's path follows.
+      console.warn('[ats career-cv] scan unavailable, accepting unscanned:', ccvScan.reason);
+    }
+
+    // IDENTITY GUARD — the reason this endpoint scans at all. A CV that
+    // arrived by email is exactly the case where the wrong attachment gets
+    // filed, and a CV stored under the wrong doctor is a PII breach the
+    // moment it is emailed to a practice as them (this is what happened with
+    // Sana Ahsan's CV under Helen Wazalski's account). Only a CONFIDENT
+    // mismatch blocks; an unreadable name never does.
+    if (ccvScan.ok && ccvScan.isCv !== false && ccvScan.nameFound) {
+      var ccvProfRes = await supabaseDbRequest('user_profiles',
+        'select=first_name,last_name,name_change_detected,name_change_note&user_id=eq.' + encodeURIComponent(ccvUserId) + '&limit=1');
+      var ccvProf = (ccvProfRes.ok && Array.isArray(ccvProfRes.data) && ccvProfRes.data[0]) ? ccvProfRes.data[0] : null;
+      var ccvAccountName = ccvProf ? [ccvProf.first_name, ccvProf.last_name].filter(Boolean).join(' ').trim() : '';
+      if (!hasUsableFullName(ccvAccountName)) ccvAccountName = await getSupabaseAuthUserFullNameById(ccvUserId);
+      var ccvKnownNames = [];
+      if (ccvProf && ccvProf.name_change_detected && ccvProf.name_change_note) {
+        var ccvFormer = String(ccvProf.name_change_note).replace(/^\s*Document name:\s*/i, '').trim();
+        if (ccvFormer) ccvKnownNames.push(ccvFormer);
+      }
+      if (hasUsableFullName(ccvAccountName)) {
+        var ccvNameCheck = crossCheckDocumentName(ccvScan.nameFound, ccvAccountName, ccvKnownNames);
+        if (ccvNameCheck.match === 'mismatch') {
+          console.warn('[ats career-cv] IDENTITY MISMATCH — rejected: CV name "' + ccvScan.nameFound + '" vs account "' + ccvAccountName + '" (user ' + ccvUserId + ', by ' + (ctxCCV.email || '') + ')');
+          sendJson(res, 422, {
+            ok: false,
+            code: 'identity_mismatch',
+            message: 'This CV is in the name “' + ccvScan.nameFound + '” but the account is “' + ccvAccountName + '”. Check you\'ve attached the right doctor\'s CV. If they have changed their name, record that on their file first.'
+          });
+          return;
+        }
+      }
+    }
+
+    var ccvSaved = await saveCareerProfileDocument(ccvUserId, 'career_cv', {
+      fileName: ccvFileName,
+      fileBase64: ccvBase64,
+      mimeType: ccvMime || 'application/octet-stream',
+      fileSize: ccvBuffer.length,
+      // Staff filing it IS the review — see the status note in
+      // saveCareerProfileDocument.
+      status: 'approved'
+    });
+    if (!ccvSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the CV — please try again.' }); return; }
+
+    await logAdminAction(req, ctxCCV, 'ats_cv_uploaded', {
+      targetType: 'gp', targetId: ccvUserId,
+      detail: { file_name: ccvFileName, scanned: !!ccvScan.ok }
+    });
+    sendJson(res, 200, { ok: true, fileName: ccvFileName });
+    return;
+  }
+
   if (pathname === '/api/ats/candidate-cv' && req.method === 'GET') {
     var ctxCV = requireAtsSession(req, res); if (!ctxCV) return;
     var cvCaseId = url.searchParams.get('case_id') || url.searchParams.get('caseId') || '';
@@ -68715,12 +68843,25 @@ Return ONLY valid JSON with no markdown formatting:
     }
     if (!cvResolvedUserId) { sendJson(res, 400, { ok: false, message: 'Missing case_id or user_id.' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 404, { ok: false, message: 'No CV on file for this doctor.' }); return; }
+    // BOTH CV keys, newest first — the AI-verified careers CV ('career_cv',
+    // what the career page and submit-to-practice use, and what staff upload
+    // here) as well as the legacy registration one. Reading a single key meant
+    // "View CV" 404'd on a doctor whose only CV was the careers one. Each
+    // candidate row is TRIED in turn so a dead storage path can't mask a live
+    // sibling — the same failure mode as the gp-document-preview fix.
     var cvRes = await supabaseDbRequest('user_documents',
-      'select=file_name,file_url,storage_path,storage_bucket&user_id=eq.' + encodeURIComponent(cvResolvedUserId) + '&document_key=eq.cv_signed_dated&order=updated_at.desc&limit=1');
-    var cvRow = (cvRes.ok && Array.isArray(cvRes.data) && cvRes.data[0]) ? cvRes.data[0] : null;
-    var cvPath = cvRow ? String(cvRow.storage_path || cvRow.file_url || '').trim() : '';
-    if (!cvRow || !cvPath) { sendJson(res, 404, { ok: false, message: 'No CV on file for this doctor.' }); return; }
-    var cvUrl = await supabaseStorageCreateSignedUrl(cvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET, cvPath, cvRow.file_name || 'CV.pdf');
+      'select=file_name,file_url,storage_path,storage_bucket,document_key,updated_at&user_id=eq.' + encodeURIComponent(cvResolvedUserId) +
+      '&document_key=in.(career_cv,cv_signed_dated)&order=updated_at.desc&limit=10');
+    var cvRows = (cvRes.ok && Array.isArray(cvRes.data)) ? cvRes.data : [];
+    var cvUrl = null, cvRow = null;
+    for (var cvi = 0; cvi < cvRows.length; cvi++) {
+      var cvCandidate = cvRows[cvi];
+      var cvPath = String(cvCandidate.storage_path || cvCandidate.file_url || '').trim();
+      if (!cvPath) continue;
+      cvUrl = await supabaseStorageCreateSignedUrl(cvCandidate.storage_bucket || SUPABASE_DOCUMENT_BUCKET, cvPath, cvCandidate.file_name || 'CV.pdf');
+      if (cvUrl) { cvRow = cvCandidate; break; }
+    }
+    if (!cvRow) { sendJson(res, 404, { ok: false, message: 'No CV on file for this doctor.' }); return; }
     if (!cvUrl) { sendJson(res, 502, { ok: false, message: 'Could not create a link to the CV.' }); return; }
     // C3 audit breadth: WHO was issued a signed URL to WHOSE CV (ids only —
     // never the document contents or the signed URL itself).

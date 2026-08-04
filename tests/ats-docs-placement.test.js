@@ -485,6 +485,28 @@ describe('UI static pins', () => {
     expect(candJs).toContain('ats-mark-placement');
   });
 
+  // Owner request 2026-08-05: staff receive CVs by email, so the CV slot is
+  // fileable straight from the drawer. It posts the doctor's CAREERS CV, which
+  // is what unlocks their career page.
+  it('the CV slot can be filed from the drawer, on an empty AND a filled slot', () => {
+    expect(candJs).toContain('ats-cv-upload');
+    expect(candJs).toContain('/api/ats/candidate/career-cv');
+    expect(candJs).toContain('↑ Upload CV');
+    expect(candJs).toContain('↑ Replace');
+    expect(candJs).toContain('function pickCandidateCv');
+    expect(candJs).toContain('function uploadCandidateCv');
+    // The control is NOT gated on `has` — a doctor with a CV can have it
+    // replaced, one without can have the first filed.
+    expect(candJs).toMatch(/if \(d\.k === 'cv'\) \{/);
+    // Reads as a data URL then strips the prefix — the endpoint takes base64.
+    expect(candJs).toContain('readAsDataURL');
+    // Client-side size guard mirrors the server's 3 MB cap.
+    expect(candJs).toContain('CV_MAX_BYTES');
+    // A failed upload surfaces the server's message (the identity-mismatch
+    // text names both names) rather than a generic toast.
+    expect(candJs).toMatch(/res\.message \|\| res\.error/);
+  });
+
   it('A10: relabels the legacy id + source chip (no bare "Zoho")', () => {
     expect(candJs).toContain('Legacy candidate ID');
     expect(candJs).toContain("'Imported' : 'In-app'");
@@ -506,6 +528,6 @@ describe('UI static pins', () => {
   });
 
   it('cache-buster on the candidates script is bumped', () => {
-    expect(dashHtml).toContain('ceo-ats-candidates.js?v=20260731b');
+    expect(dashHtml).toContain('ceo-ats-candidates.js?v=20260805a');
   });
 });

@@ -1672,8 +1672,16 @@
         // A6b: the onboarding identity document (ID/passport) is now viewable
         // by the same CEO + ATS-consultant audience via a "View ID" link.
         var right;
-        if (d.k === 'cv' && has) {
-          right = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-cv-view" data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '">View CV</button>';
+        if (d.k === 'cv') {
+          // Staff receive CVs by email, so the CV slot is fileable from here
+          // (owner request 2026-08-05). Uploading stores the doctor's careers
+          // CV — the same document their own upload writes — which is what
+          // unlocks their career page and makes them matchable.
+          var cvIds = ' data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+          right =
+            (has ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-cv-view"' + cvIds + '>View CV</button>' : '') +
+            '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-cv-upload"' + cvIds +
+              ' title="Upload a CV you were sent — this unlocks their career page">' + (has ? '↑ Replace' : '↑ Upload CV') + '</button>';
         } else if (d.k === 'idDoc' && has) {
           right = '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view" data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '">View ID</button>';
         } else {
@@ -1709,6 +1717,70 @@
     var userId = btn.getAttribute('data-user-id') || '';
     var q = caseId ? ('case_id=' + encodeURIComponent(caseId)) : ('user_id=' + encodeURIComponent(userId));
     openSignedDoc('/api/ats/candidate-cv?' + q, btn, 'Could not open the CV.');
+  }
+
+  // File a CV that arrived by email straight onto the doctor's profile
+  // (owner request 2026-08-05). It is stored as their careers CV — the same
+  // document their own upload writes — so it unlocks their career page and
+  // makes them matchable, with no separate "staff uploaded" state to reconcile.
+  //
+  // The picker is created per click and discarded after: the drawer re-renders
+  // on every reload, so a persistent input would be orphaned mid-upload.
+  var CV_MAX_BYTES = 3 * 1024 * 1024;
+
+  function pickCandidateCv(btn, c) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    input.style.display = 'none';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      if (file) uploadCandidateCv(btn, c, file);
+      if (input.parentNode) input.parentNode.removeChild(input);
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  function uploadCandidateCv(btn, c, file) {
+    if (file.size > CV_MAX_BYTES) { ATS.toast('That CV is too large — please keep it under 3 MB.'); return; }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Uploading…';
+    var restore = function () { btn.disabled = false; btn.textContent = label; };
+
+    var reader = new FileReader();
+    reader.onerror = function () { restore(); ATS.toast('Could not read that file — please try again.'); };
+    reader.onload = function () {
+      // reader.result is a data URL; the server wants the base64 payload only.
+      var raw = String(reader.result || '');
+      var comma = raw.indexOf(',');
+      var base64 = comma >= 0 ? raw.slice(comma + 1) : '';
+      if (!base64) { restore(); ATS.toast('Could not read that file — please try again.'); return; }
+      ATS.api('/api/ats/candidate/career-cv', {
+        method: 'POST',
+        body: {
+          case_id: btn.getAttribute('data-case-id') || '',
+          user_id: btn.getAttribute('data-user-id') || '',
+          fileName: file.name || 'cv.pdf',
+          mimeType: file.type || '',
+          fileSize: file.size,
+          fileBase64: base64
+        }
+      }).then(function (res) {
+        if (!res || !res.ok) {
+          restore();
+          // The identity-mismatch message names both names and what to do —
+          // show it in full rather than a generic failure.
+          ATS.toast((res && (res.message || res.error)) || 'Could not upload the CV.');
+          return;
+        }
+        ATS.toast('CV uploaded — their career page is unlocked.');
+        if (c && c.case_id) window.atsOpenCandidate(c.case_id); // re-render so the slot flips to Uploaded
+        else restore();
+      });
+    };
+    reader.readAsDataURL(file);
   }
 
   // A6b: open the candidate's onboarding identity document (CEO + consultant).
@@ -1884,6 +1956,9 @@
       // A6: open the candidate's CV (consultant-accessible).
       var cvBtn = e.target.closest('.ats-cv-view');
       if (cvBtn) { viewCandidateCv(cvBtn); return; }
+      // File a CV that arrived by email straight onto the doctor's profile.
+      var cvUpBtn = e.target.closest('.ats-cv-upload');
+      if (cvUpBtn) { pickCandidateCv(cvUpBtn, c); return; }
       // A6b: open the candidate's onboarding identity document (consultant-accessible).
       var idBtn = e.target.closest('.ats-id-view');
       if (idBtn) { viewCandidateId(idBtn); return; }

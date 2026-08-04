@@ -147,9 +147,14 @@ function startAnthropicEmulator() {
         res.end('not valid json');
         return;
       }
-      const genuine = aiMode === 'genuine_cv';
+      const genuine = aiMode === 'genuine_cv' || aiMode === 'wrong_name';
+      // nameFound drives the identity guard. 'genuine_cv' reads the account
+      // holder's own name; 'wrong_name' reads a DIFFERENT doctor's, which is
+      // the wrong-attachment case the guard exists to stop.
+      const nameFound = aiMode === 'wrong_name' ? 'Sana Ahsan'
+        : (aiMode === 'genuine_cv' ? 'Gate Tester' : null);
       const payload = {
-        content: [{ type: 'text', text: JSON.stringify({ isCv: genuine, reason: genuine ? 'Curriculum vitae with work history' : 'This appears to be an employment contract, not a CV' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ isCv: genuine, nameFound: nameFound, reason: genuine ? 'Curriculum vitae with work history' : 'This appears to be an employment contract, not a CV' }) }],
         usage: { input_tokens: 100, output_tokens: 20 }
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -165,10 +170,11 @@ function userCookie(email, userId) {
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
 }
-function httpReq(method, p, { cookie, body } = {}) {
+function httpReq(method, p, { cookie, body, host } = {}) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
     const headers = {};
+    if (host) headers.Host = host;
     if (cookie) headers.Cookie = cookie;
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
@@ -184,12 +190,21 @@ function httpReq(method, p, { cookie, body } = {}) {
 }
 
 const PDF_B64 = Buffer.from('%PDF-1.4 fake cv for tests').toString('base64');
+const ATS_HOST = 'ats-cv-test.local';
+function adminCookie() {
+  const payload = b64url(JSON.stringify({ userProfile: { email: 'ceo@gplink-test.local', adminRole: 'super_admin' }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+}
 
 beforeAll(async () => {
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
   process.env.AUTH_SECRET = 'test-secret-' + RUN_ID;
   process.env.ENFORCE_SAME_ORIGIN = 'false';
+  process.env.SUPER_ADMIN_ALLOWED_HOSTS = ATS_HOST;
+  process.env.SUPER_ADMIN_EMAILS = 'ceo@gplink-test.local';
+  process.env.ADMIN_EMAILS = '';
   // start emulators first, then point env at them BEFORE importing server.js
   await startSupabaseEmulator();
   await startAnthropicEmulator();
@@ -349,5 +364,101 @@ describe('career_cv approved status is not excluded from the gate', () => {
     expect(res.body.cv).not.toBeNull();
     expect(res.body.cv.fileName).toBe('Approved-CV.pdf');
     expect(res.body.gateRequired).toBe(false);
+  });
+});
+
+// Owner request 2026-08-05: "i sometimes get sent CVs via email so let me
+// upload them directly onto their profile from the ceo dashboard which then
+// unlocks the career page since their cv has been uploaded".
+//
+// The point of these tests is the CONSEQUENCE, not just the write: a CV filed
+// by staff must satisfy the same career-page gate the doctor's own upload
+// satisfies. It does so by construction (identical document_key via
+// saveCareerProfileDocument), and the gate assertion below is what pins that.
+describe('staff-filed careers CV (POST /api/ats/candidate/career-cv)', () => {
+  const ats = (body) => httpReq('POST', '/api/ats/candidate/career-cv', { cookie: adminCookie(), host: ATS_HOST, body });
+
+  beforeAll(() => {
+    db.user_profiles.push(
+      { user_id: 'u-staff-cv', email: 'staff-cv@example.com', first_name: 'Gate', last_name: 'Tester', registration_country: 'uk' },
+      { user_id: 'u-staff-cv2', email: 'staff-cv2@example.com', first_name: 'Gate', last_name: 'Tester', registration_country: 'uk' }
+    );
+    db.user_state.push(
+      { user_id: 'u-staff-cv', state: { gp_onboarding_complete: true } },
+      { user_id: 'u-staff-cv2', state: { gp_onboarding_complete: true } }
+    );
+  });
+
+  it('stores the CV as career_cv and UNLOCKS the career page for that doctor', async () => {
+    aiMode = 'genuine_cv';
+    // Before: the doctor is gated.
+    const before = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie('staff-cv@example.com', 'u-staff-cv') });
+    expect(before.body.cv).toBeNull();
+    expect(before.body.gateRequired).toBe(true);
+
+    const res = await ats({ user_id: 'u-staff-cv', fileName: 'emailed-cv.pdf', mimeType: 'application/pdf', fileSize: 1000, fileBase64: PDF_B64 });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    // It is the SAME document key the doctor's own upload writes — that is
+    // what makes every downstream gate work without a special case.
+    const row = db.user_documents.find((d) => d.user_id === 'u-staff-cv' && d.document_key === 'career_cv');
+    expect(row).toBeTruthy();
+    expect(row.file_name).toBe('emailed-cv.pdf');
+    // Staff filing it IS the review, so it lands approved rather than parked
+    // in a pending state nothing would ever clear.
+    expect(row.status).toBe('approved');
+
+    // After: the gate is satisfied. THE point of the feature.
+    const after = await httpReq('GET', '/api/career/profile/status', { cookie: userCookie('staff-cv@example.com', 'u-staff-cv') });
+    expect(after.body.cv).not.toBeNull();
+    expect(after.body.gateRequired).toBe(false);
+  });
+
+  it('refuses a CV in someone else\'s name and stores NOTHING', async () => {
+    // The wrong-attachment case. A CV filed under the wrong doctor becomes a
+    // PII breach the moment it is emailed to a practice as them — which is
+    // exactly what happened once with Sana Ahsan's CV under another account.
+    aiMode = 'wrong_name';
+    const res = await ats({ user_id: 'u-staff-cv2', fileName: 'someone-else.pdf', mimeType: 'application/pdf', fileSize: 1000, fileBase64: PDF_B64 });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('identity_mismatch');
+    // The message names BOTH names so the mistake is obvious.
+    expect(res.body.message).toMatch(/Sana Ahsan/);
+    expect(res.body.message).toMatch(/Gate Tester/);
+    expect(db.user_documents.filter((d) => d.user_id === 'u-staff-cv2' && d.document_key === 'career_cv')).toHaveLength(0);
+    aiMode = 'genuine_cv';
+  });
+
+  it('refuses a document that is not a CV', async () => {
+    aiMode = 'not_cv';
+    const res = await ats({ user_id: 'u-staff-cv2', fileName: 'contract.pdf', mimeType: 'application/pdf', fileSize: 1000, fileBase64: PDF_B64 });
+    expect(res.status).toBe(422);
+    expect(db.user_documents.filter((d) => d.user_id === 'u-staff-cv2' && d.document_key === 'career_cv')).toHaveLength(0);
+    aiMode = 'genuine_cv';
+  });
+
+  it('still files the CV when the AI check is unavailable (our outage must not block staff)', async () => {
+    aiMode = 'ai_down';
+    const res = await ats({ user_id: 'u-staff-cv2', fileName: 'unscanned.pdf', mimeType: 'application/pdf', fileSize: 1000, fileBase64: PDF_B64 });
+    expect(res.status).toBe(200);
+    expect(db.user_documents.filter((d) => d.user_id === 'u-staff-cv2' && d.document_key === 'career_cv')).toHaveLength(1);
+    aiMode = 'genuine_cv';
+  });
+
+  it('rejects an unsupported file type and an oversized file', async () => {
+    const bad = await ats({ user_id: 'u-staff-cv', fileName: 'legacy.doc', mimeType: 'application/msword', fileSize: 1000, fileBase64: PDF_B64 });
+    expect(bad.status).toBe(422);
+    // Size is checked on the DECODED bytes, not the browser's claim.
+    const big = Buffer.alloc(3 * 1024 * 1024 + 10, 0x41).toString('base64');
+    const large = await ats({ user_id: 'u-staff-cv', fileName: 'huge.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: big });
+    expect(large.status).toBe(413);
+  });
+
+  it('needs a case_id or user_id, and an ATS session', async () => {
+    const noTarget = await ats({ fileName: 'cv.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: PDF_B64 });
+    expect(noTarget.status).toBe(400);
+    const anon = await httpReq('POST', '/api/ats/candidate/career-cv', { host: ATS_HOST, body: { user_id: 'u-staff-cv', fileName: 'cv.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: PDF_B64 } });
+    expect([302, 401, 403, 404]).toContain(anon.status);
   });
 });
