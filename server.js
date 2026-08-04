@@ -29817,7 +29817,7 @@ function resendRetryDelayMs(res, attempt) {
 // category (optional): 'transactional' (default) | 'marketing'. Only
 // 'marketing' respects the email_suppression list — bounced/complained
 // recipients are silently skipped (result: { ok:false, suppressed:true }).
-async function sendEmail({ to, subject, html, text, from, replyTo, attachments, scheduledAt, headers, category, paced }) {
+async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachments, scheduledAt, headers, category, paced }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   let recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
   const isMarketing = String(category || 'transactional') === 'marketing';
@@ -29862,6 +29862,31 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
   } else {
     sendPlans = [{ to: recipients, headers: callerHeaders }];
   }
+  // Optional CC list. Deliberately NOT applied to the marketing/one-token-per-
+  // recipient plans above: those fan a send out per recipient so each gets its
+  // own unsubscribe token, and copying the same CC onto every one of them would
+  // mail the CC'd person N times. CC is a transactional-only affordance here
+  // (today: the practice introduction email's secondary contacts).
+  let ccRecipients = (Array.isArray(cc) ? cc : [cc])
+    .filter(Boolean)
+    .map((c) => String(c).trim())
+    .filter(Boolean);
+  if (ccRecipients.length) {
+    // Never CC someone who is already in the To — mail clients show the
+    // duplicate and a reply-all then addresses them twice.
+    const toKeys = new Set(recipients.map((r) => String(r).trim().toLowerCase()));
+    const ccSeen = new Set();
+    ccRecipients = ccRecipients.filter((c) => {
+      const key = c.toLowerCase();
+      if (toKeys.has(key) || ccSeen.has(key)) return false;
+      ccSeen.add(key);
+      return true;
+    });
+  }
+  if (ccRecipients.length && isMarketing) {
+    console.warn('[sendEmail] ignoring cc on a marketing send (per-recipient unsubscribe tokens would multi-send the CC)');
+    ccRecipients = [];
+  }
   let cleanAttachments = null;
   if (Array.isArray(attachments) && attachments.length > 0) {
     cleanAttachments = attachments
@@ -29882,6 +29907,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, attachments, 
       text: text || ''
     };
     if (replyTo) emailPayload.reply_to = Array.isArray(replyTo) ? replyTo : [replyTo];
+    if (ccRecipients.length) emailPayload.cc = ccRecipients;
     if (cleanAttachments) emailPayload.attachments = cleanAttachments;
     // Resend-native delayed send (ISO 8601, up to ~30 days out) — used to stagger
     // per-task sequences without a queue table or cron on serverless.
@@ -48533,11 +48559,33 @@ async function handleApi(req, res, pathname) {
       .concat(['', 'Kind regards,', 'GP Link Recruitment Team'])
       .join('\n');
 
+    // Secondary practice contacts — CC'd on THIS email and nothing else
+    // (owner rule 2026-08-05). The primary contact is the To and receives
+    // every practice-facing email; secondary contacts exist purely so the
+    // rest of the practice's team sees the candidate the first time they are
+    // introduced. Every downstream practice email (decision reminders, the
+    // post-interview decision, interview confirm/cancel, offers, contracts,
+    // SPPA correspondence) deliberately sends to the primary alone.
+    //
+    // Gated on submitted_to_practice_at so this really is the INITIAL send:
+    // the pending_va_submission check above already 409s a repeat submit, but
+    // an application reset back to pending (a reopened match, a manual fix)
+    // would otherwise re-copy the whole team on a second introduction.
+    //
+    // Sourced from the practices row only — the role/case fallbacks that can
+    // supply the primary contact carry no secondary list, so a job with no
+    // practice_id simply CCs nobody. normalizeSecondaryContacts drops the
+    // primary if it also appears in the list.
+    const inAppSecondaryCc = (!appRow.submitted_to_practice_at && inAppPractice)
+      ? atsPracticeUtil.secondaryContactEmails(inAppPractice.secondary_contacts, inAppContactEmail)
+      : [];
+
     // Compose + send the introduction. From/branding matches the other
     // ATS practice-facing emails (interview confirmations): the registration
     // hub mailbox as 'GP Link', via the shared sendEmail helper.
     const introSendResult = await sendEmail({
       to: inAppContactEmail,
+      cc: inAppSecondaryCc.length ? inAppSecondaryCc : undefined,
       subject: introSubject,
       html: buildCareerEmailHtml({
         title: introTitleHtml,
@@ -68870,6 +68918,14 @@ Return ONLY valid JSON with no markdown formatting:
       contact_email: String(bodyP.email || ''), contact_phone: String(bodyP.phone || ''), ahpra_number: String(bodyP.ahpra || ''),
       source: 'internal_ats', stage: pcStage, is_active: true, created_by: ctxPC.email || '', org_type: pcOrgType
     };
+    // Secondary contacts (CC'd on the candidate introduction only). Only sent
+    // when the caller actually supplied some, so a create keeps working on a
+    // DB where the 20260805120000 migration hasn't been applied yet — same
+    // guard the parent_corporation_id link uses above.
+    if (bodyP.secondary_contacts !== undefined) {
+      var pcSecondary = atsPracticeUtil.normalizeSecondaryContacts(bodyP.secondary_contacts, pracRow.contact_email);
+      if (pcSecondary.length) pracRow.secondary_contacts = pcSecondary;
+    }
     if (pcParent) pracRow.parent_corporation_id = pcParent;
     var createdP = await atsInsertPracticeRow(pracRow);
     if (!createdP) { sendJson(res, 502, { ok: false, message: 'Could not create practice.' }); return; }
@@ -68942,6 +68998,11 @@ Return ONLY valid JSON with no markdown formatting:
         id: pg.id, name: pg.name, location_city: pg.location_city, location_state: pg.location_state,
         practice_type: pg.practice_type, contact_name: pg.contact_name, contact_email: pg.contact_email,
         contact_phone: pg.contact_phone, ahpra_number: pg.ahpra_number, source: pg.source,
+        // Normalized on the way out too, not just on write: rows created
+        // before the secondary_contacts column existed have no value at all,
+        // and the primary contact may have been changed to an address that is
+        // also sitting in the list. The UI must never show a CC it wouldn't send.
+        secondary_contacts: atsPracticeUtil.normalizeSecondaryContacts(pg.secondary_contacts, pg.contact_email),
         stage: pg.stage || 'active', agreement_status: pgAgreementStatus,
         org_type: pg.org_type === 'corporation' ? 'corporation' : 'practice',
         parent_corporation_id: pg.parent_corporation_id || null,
@@ -68972,6 +69033,24 @@ Return ONLY valid JSON with no markdown formatting:
       var validStagesPP = ['prospective', 'active', 'declined', 'archived'];
       if (validStagesPP.indexOf(bodyPP.stage) === -1) { sendJson(res, 400, { ok: false, message: 'Invalid stage.' }); return; }
       patchP.stage = bodyPP.stage;
+    }
+    // Secondary contacts. An explicit [] clears the list, so this branch runs
+    // on any present key (unlike the string fields above, which skip blanks).
+    // The primary contact is excluded against the email this save ENDS with —
+    // the same PATCH can move contact_email, and excluding against the stale
+    // stored one would leave the new primary sitting in its own CC list.
+    if (bodyPP.secondary_contacts !== undefined) {
+      var ppPrimaryEmail;
+      if (typeof patchP.contact_email === 'string') {
+        // This save sets the primary (possibly to blank) — that value wins.
+        ppPrimaryEmail = patchP.contact_email;
+      } else {
+        // Untouched by this save — read the one already on file. Only fetched
+        // in this branch, so an ordinary edit costs no extra round-trip.
+        var ppCurForEmail = await atsResolvePractice(ppgId);
+        ppPrimaryEmail = (ppCurForEmail && ppCurForEmail.contact_email) || '';
+      }
+      patchP.secondary_contacts = atsPracticeUtil.normalizeSecondaryContacts(bodyPP.secondary_contacts, ppPrimaryEmail);
     }
     if (bodyPP.org_type !== undefined) {
       if (bodyPP.org_type !== 'practice' && bodyPP.org_type !== 'corporation') { sendJson(res, 400, { ok: false, message: 'Invalid org_type.' }); return; }

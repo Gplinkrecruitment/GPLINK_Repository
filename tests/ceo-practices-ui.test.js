@@ -83,7 +83,49 @@ describe('CEO Practices tab UI (Phase 3 Task 3)', () => {
   });
 
   it('ceo-dashboard.html loads the bumped script', () => {
-    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260724b/);
+    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260805a/);
+  });
+});
+
+// Secondary practice contacts (owner spec 2026-08-05) — multiple extra people
+// per practice, CC'd on the candidate introduction only.
+describe('CEO Practices tab — secondary contacts', () => {
+  it('detail view lists secondary contacts with the CC-scope explainer', () => {
+    expect(detail).toMatch(/secondaryContactsFieldHtml\(p\)/);
+    expect(src).toMatch(/function secondaryContactsFieldHtml/);
+    expect(src).toMatch(/Secondary contacts/);
+    // The rule is stated in the UI, not just in code comments.
+    expect(src).toMatch(/presented or matched/);
+    expect(src).toMatch(/not on later emails/);
+  });
+
+  it('modal renders repeatable rows with add + remove wired through delegation', () => {
+    expect(src).toMatch(/function secondaryRowHtml/);
+    expect(src).toMatch(/id="atsFSecondaryList"/);
+    expect(src).toMatch(/data-sec-email/);
+    expect(src).toMatch(/data-sec-name/);
+    expect(src).toMatch(/data-ats="add-secondary"/);
+    expect(src).toMatch(/data-ats="remove-secondary"/);
+    expect(src).toMatch(/action === 'add-secondary'\) addSecondaryRow\(\)/);
+    expect(src).toMatch(/action === 'remove-secondary'\) removeSecondaryRow\(btn\)/);
+    // Rows are appended, never re-rendered — a rebuild would wipe typed values.
+    expect(src).toMatch(/insertAdjacentHTML\('beforeend', secondaryRowHtml/);
+  });
+
+  it('readForm collects the rows and savePractice diffs them (including a clear)', () => {
+    expect(src).toMatch(/secondary_contacts:\s*readSecondaryContacts\(\)/);
+    expect(src).toMatch(/function readSecondaryContacts/);
+    expect(src).toMatch(/function secondaryKey/);
+    expect(src).toMatch(/secondaryKey\(cur\.secondary_contacts\) !== secondaryKey\(p\.secondary_contacts\)/);
+    // Edit modal seeds from the loaded practice.
+    expect(src).toMatch(/secondary_contacts:\s*p\.secondary_contacts\s*\|\|\s*\[\]/);
+    // Create omits the key entirely when empty (pre-migration safety).
+    expect(src).toMatch(/if \(!body\.secondary_contacts\.length\) delete body\.secondary_contacts/);
+  });
+
+  it('primary contact labels say "primary" so the two fields cannot be confused', () => {
+    expect(src).toMatch(/Primary contact name/);
+    expect(src).toMatch(/Primary contact email/);
   });
 });
 

@@ -327,6 +327,41 @@
       '</div><div class="df-val">' + html + '</div></div>';
   }
 
+  // -------------------- secondary contacts --------------------
+  // Extra people at the practice who are CC'd on ONE email: the introduction
+  // sent when a candidate is first presented/matched to them. The primary
+  // contact is the "To" and gets every practice email; secondary contacts are
+  // copied on that first introduction and nothing after it. The explainer line
+  // is deliberately shown next to the list, not buried in a tooltip — it is
+  // the whole reason the field behaves differently from the primary contact.
+  var SECONDARY_CC_NOTE = 'CC’d on the first introduction when a candidate is presented or matched — not on later emails.';
+
+  function normalizeSecondaryList(list) {
+    return (Array.isArray(list) ? list : []).map(function (c) {
+      return {
+        name: String((c && c.name) || '').trim(),
+        email: String((c && c.email) || '').trim()
+      };
+    }).filter(function (c) { return c.email; });
+  }
+
+  function secondaryContactsFieldHtml(p) {
+    var list = normalizeSecondaryList(p && p.secondary_contacts);
+    var body = list.length
+      ? list.map(function (c) {
+        return '<div style="margin-bottom:4px">' + ATS.esc(c.email) +
+          (c.name ? ' <span style="color:var(--ats-dim)">· ' + ATS.esc(c.name) + '</span>' : '') +
+        '</div>';
+      }).join('')
+      : '<div style="color:var(--ats-dim)">—</div>';
+    return '<div class="ats-detail-field">' +
+      '<div class="df-lbl">Secondary contacts' + (list.length ? ' (' + list.length + ')' : '') + '</div>' +
+      '<div class="df-val">' + body +
+        '<div style="font-size:11.5px;color:var(--ats-dim);margin-top:6px;font-weight:400">' + ATS.esc(SECONDARY_CC_NOTE) + '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
   function resendIntake(id, btn) {
     if (!id) return;
     var origLabel = btn ? btn.textContent : '';
@@ -488,6 +523,7 @@
       detailField('Primary contact', p.contact_name) +
       detailField('Email', p.contact_email) +
       detailField('Phone', p.contact_phone) +
+      secondaryContactsFieldHtml(p) +
       detailFieldHtml('Stage', stageHtml);
 
     var jobsHtml = jobs.length ? jobs.map(function (j) {
@@ -579,6 +615,57 @@
     '</div>';
   }
 
+  // One editable secondary-contact row. Values are read back by position via
+  // data-sec-email/data-sec-name (NOT ids) — rows are added and removed
+  // freely, so a fixed id per row would collide the moment one is deleted.
+  function secondaryRowHtml(c) {
+    var v = c || {};
+    return '<div class="ats-sec-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">' +
+      // min-width:0 matters: a text input's intrinsic min-content width is ~20
+      // characters, and two of them plus the remove button would otherwise
+      // overflow the 480px modal instead of shrinking.
+      '<input type="text" data-sec-email placeholder="name@practice.com.au"' + ivAttr(v.email) + ' style="flex:1.4;min-width:0;margin:0" />' +
+      '<input type="text" data-sec-name placeholder="Name (optional)"' + ivAttr(v.name) + ' style="flex:1;min-width:0;margin:0" />' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="remove-secondary" title="Remove this contact" style="flex:none">✕</button>' +
+    '</div>';
+  }
+
+  function secondaryFieldsetHtml(list) {
+    var rows = normalizeSecondaryList(list).map(secondaryRowHtml).join('');
+    return '<div style="margin-top:6px">' +
+      '<label>Secondary contacts (optional)</label>' +
+      '<p style="font-size:11.5px;color:var(--ats-dim);margin:0 0 8px">' + ATS.esc(SECONDARY_CC_NOTE) + ' The primary contact above still receives every email.</p>' +
+      '<div id="atsFSecondaryList">' + rows + '</div>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="add-secondary">＋ Add contact</button>' +
+    '</div>';
+  }
+
+  // Reads the rows back in DOM order, dropping blanks. The server normalizes
+  // again (lowercase, dedupe, drop the primary, cap) — this is only here so an
+  // empty row the user added and left alone isn't sent as a contact.
+  function readSecondaryContacts() {
+    var host = document.getElementById('atsFSecondaryList');
+    if (!host) return [];
+    var out = [];
+    var rows = host.querySelectorAll('.ats-sec-row');
+    for (var i = 0; i < rows.length; i++) {
+      var emailEl = rows[i].querySelector('[data-sec-email]');
+      var nameEl = rows[i].querySelector('[data-sec-name]');
+      var email = emailEl ? String(emailEl.value || '').trim() : '';
+      if (!email) continue;
+      out.push({ name: nameEl ? String(nameEl.value || '').trim() : '', email: email });
+    }
+    return out;
+  }
+
+  // Stable comparison key for the save-diff — order and letter-case are not
+  // meaningful edits, so re-opening the modal and saving nothing sends nothing.
+  function secondaryKey(list) {
+    return normalizeSecondaryList(list).map(function (c) {
+      return c.email.toLowerCase() + ' ' + c.name;
+    }).sort().join('');
+  }
+
   // opts: { title, btn, action ('create-practice'|'save-practice'), vals, corps }
   function practiceModalHtml(opts) {
     var v = opts.vals || {};
@@ -603,13 +690,14 @@
           '</div>' +
           parentCorpSelectHtml(opts.corps, v) +
           '<div class="ats-form-row">' +
-            '<div><label>Contact name</label><input type="text" id="atsFContact" placeholder="Dr. Helen Carter"' + ivAttr(v.contact) + ' /></div>' +
-            '<div><label>Contact email</label><input type="text" id="atsFEmail" placeholder="admin@practice.com.au"' + ivAttr(v.email) + ' /></div>' +
+            '<div><label>Primary contact name</label><input type="text" id="atsFContact" placeholder="Dr. Helen Carter"' + ivAttr(v.contact) + ' /></div>' +
+            '<div><label>Primary contact email</label><input type="text" id="atsFEmail" placeholder="admin@practice.com.au"' + ivAttr(v.email) + ' /></div>' +
           '</div>' +
           '<div class="ats-form-row">' +
             '<div><label>Phone</label><input type="text" id="atsFPhone" placeholder="07 0000 0000"' + ivAttr(v.phone) + ' /></div>' +
             '<div><label>AHPRA / reg no.</label><input type="text" id="atsFAhpra" placeholder="PRA-QLD-00000"' + ivAttr(v.ahpra) + ' /></div>' +
           '</div>' +
+          secondaryFieldsetHtml(v.secondary_contacts) +
         '</div>' +
         '<div class="ats-modal-foot">' +
           '<button class="ats-btn ats-btn-ghost" data-ats="close-modal">Cancel</button>' +
@@ -630,7 +718,8 @@
       phone: val('atsFPhone').trim(),
       ahpra: val('atsFAhpra').trim(),
       org_type: val('atsFOrgType') || 'practice',
-      parent_corporation_id: val('atsFParentCorp')
+      parent_corporation_id: val('atsFParentCorp'),
+      secondary_contacts: readSecondaryContacts()
     };
   }
 
@@ -653,7 +742,8 @@
         vals: {
           name: p.name, city: p.location_city, state: p.location_state, type: p.practice_type,
           contact: p.contact_name, email: p.contact_email, phone: p.contact_phone, ahpra: p.ahpra_number,
-          org_type: p.org_type, parent_corporation_id: p.parent_corporation_id || ''
+          org_type: p.org_type, parent_corporation_id: p.parent_corporation_id || '',
+          secondary_contacts: p.secondary_contacts || []
         },
         corps: corps
       }));
@@ -666,6 +756,10 @@
     // Only send a parent link when one is actually chosen (and never for a
     // corporation — the dropdown is hidden but may still hold a stale value).
     if (body.org_type === 'corporation' || !body.parent_corporation_id) delete body.parent_corporation_id;
+    // Same reasoning for secondary contacts: omit the key entirely when none
+    // were entered, so a create still works against a DB that hasn't had the
+    // secondary_contacts migration applied.
+    if (!body.secondary_contacts.length) delete body.secondary_contacts;
     ATS.api('/api/ats/practices', { method: 'POST', body: body }).then(function (d) {
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not create practice'); return; }
       closeModal();
@@ -694,6 +788,13 @@
       var k = keys[i];
       var o = orig[k] == null ? '' : String(orig[k]);
       if (cur[k] !== o) body[k] = cur[k];
+    }
+    // Secondary contacts diff separately — they're a list, not a string, so
+    // the String() comparison above can't see them. Sent whenever the set
+    // changed, INCLUDING when it emptied: an explicit [] is how the server is
+    // told to clear the list (removing the last contact must actually remove it).
+    if (secondaryKey(cur.secondary_contacts) !== secondaryKey(p.secondary_contacts)) {
+      body.secondary_contacts = cur.secondary_contacts;
     }
     if (!hasKeys(body)) { closeModal(); openPractice(p.id); return; }
     ATS.api('/api/ats/practice?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: body }).then(function (d) {
@@ -760,6 +861,26 @@
     if (action === 'close-modal') closeModal();
     else if (action === 'create-practice') createPractice();
     else if (action === 'save-practice') savePractice();
+    else if (action === 'add-secondary') addSecondaryRow();
+    else if (action === 'remove-secondary') removeSecondaryRow(btn);
+  }
+
+  // Appends a blank row and focuses its email input — the field the user is
+  // there to fill. Rebuilding the whole list would wipe what they've typed
+  // into the other rows, so this appends rather than re-renders.
+  function addSecondaryRow() {
+    var host = document.getElementById('atsFSecondaryList');
+    if (!host) return;
+    host.insertAdjacentHTML('beforeend', secondaryRowHtml({}));
+    var rows = host.querySelectorAll('.ats-sec-row');
+    var last = rows[rows.length - 1];
+    var input = last ? last.querySelector('[data-sec-email]') : null;
+    if (input && input.focus) input.focus();
+  }
+
+  function removeSecondaryRow(btn) {
+    var row = btn.closest ? btn.closest('.ats-sec-row') : null;
+    if (row && row.parentNode) row.parentNode.removeChild(row);
   }
 
   function ensureDelegation() {

@@ -268,3 +268,73 @@ describe('ats-practices API surface', () => {
     });
   });
 });
+
+// Secondary practice contacts (owner spec 2026-08-05): extra people at a
+// practice who are CC'd on the candidate introduction only. The normalizer is
+// the single gate between free-text admin input / legacy rows and a real CC
+// line on an email that goes to a client, so it is deliberately strict.
+describe('normalizeSecondaryContacts', () => {
+  it('keeps valid contacts, lowercasing the address and trimming the name', () => {
+    expect(M.normalizeSecondaryContacts([
+      { name: '  Bob Nurse ', email: '  Bob@Practice.com.au ' }
+    ])).toEqual([{ name: 'Bob Nurse', email: 'bob@practice.com.au' }]);
+  });
+
+  it('accepts bare email strings as well as objects', () => {
+    expect(M.normalizeSecondaryContacts(['a@b.com', { email: 'c@d.com', name: 'C' }]))
+      .toEqual([{ name: '', email: 'a@b.com' }, { name: 'C', email: 'c@d.com' }]);
+  });
+
+  it('drops anything that is not a usable address', () => {
+    expect(M.normalizeSecondaryContacts([
+      { email: 'no-at-sign' }, { email: 'no@tld' }, { email: '' }, { email: null },
+      { email: 'has space@x.com' }, { email: 'trailing@comma.com,' }, { name: 'nameless' }, null, 42
+    ])).toEqual([]);
+  });
+
+  it('de-duplicates case-insensitively, keeping the first name given', () => {
+    expect(M.normalizeSecondaryContacts([
+      { name: 'First', email: 'dup@x.com' },
+      { name: 'Second', email: 'DUP@x.com' }
+    ])).toEqual([{ name: 'First', email: 'dup@x.com' }]);
+  });
+
+  it('excludes the primary contact so the To can never also be a CC', () => {
+    expect(M.normalizeSecondaryContacts(
+      [{ email: 'anna@x.com' }, { email: 'bob@x.com' }],
+      'ANNA@X.com'
+    )).toEqual([{ name: '', email: 'bob@x.com' }]);
+  });
+
+  it('caps the list so one practice can never fan an email out endlessly', () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ email: `p${i}@x.com` }));
+    expect(M.normalizeSecondaryContacts(many)).toHaveLength(M.MAX_SECONDARY_CONTACTS);
+  });
+
+  it('parses a JSON string (jsonb column read back as text) and splits a plain list', () => {
+    expect(M.normalizeSecondaryContacts('[{"email":"a@b.com","name":"A"}]'))
+      .toEqual([{ name: 'A', email: 'a@b.com' }]);
+    expect(M.normalizeSecondaryContacts('a@b.com, c@d.com'))
+      .toEqual([{ name: '', email: 'a@b.com' }, { name: '', email: 'c@d.com' }]);
+  });
+
+  it('normalizes junk to an empty list instead of throwing', () => {
+    // A malformed row must never break a practice save or an introduction email.
+    expect(M.normalizeSecondaryContacts(null)).toEqual([]);
+    expect(M.normalizeSecondaryContacts(undefined)).toEqual([]);
+    expect(M.normalizeSecondaryContacts({})).toEqual([]);
+    expect(M.normalizeSecondaryContacts('not json at all')).toEqual([]);
+    expect(M.normalizeSecondaryContacts('')).toEqual([]);
+  });
+});
+
+describe('secondaryContactEmails', () => {
+  it('returns just the addresses, ready for sendEmail cc', () => {
+    expect(M.secondaryContactEmails([{ email: 'A@b.com' }, { email: 'c@d.com' }], 'c@d.com'))
+      .toEqual(['a@b.com']);
+  });
+
+  it('returns an empty array (never null) for an empty practice', () => {
+    expect(M.secondaryContactEmails(null)).toEqual([]);
+  });
+});

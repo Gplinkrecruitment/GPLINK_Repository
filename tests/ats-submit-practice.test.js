@@ -92,7 +92,21 @@ const db = {
   task_timeline: [],
   rso_team: [],
   practices: [
-    { id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW },
+    // secondary_contacts deliberately seeded dirty — it exercises the whole
+    // normalizer on the send path: a good contact, the PRIMARY repeated in a
+    // different case (must never be CC'd alongside its own To), a duplicate,
+    // and a junk address. Only bob@ should survive into the CC.
+    {
+      id: 'p1', name: 'Greenslopes Family Medical', source: 'internal_ats',
+      contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local',
+      secondary_contacts: [
+        { name: 'Bob Nurse', email: 'Bob@greenslopes-test.local' },
+        { name: 'Anna again', email: 'ANNA@greenslopes-test.local' },
+        { name: 'Bob dupe', email: 'bob@greenslopes-test.local' },
+        { name: 'Typo', email: 'not-an-email' }
+      ],
+      is_active: true, created_at: NOW
+    },
     { id: 'p2', name: 'Riverside Medical', source: 'internal_ats', contact_name: '', contact_email: '', is_active: true, created_at: NOW }
   ],
   career_roles: [
@@ -113,7 +127,11 @@ const db = {
     // Kanban control: NOT previously submitted → not_proceeding must not touch it.
     { id: 'app-6', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', practice_submission_status: 'pending_va_submission', applied_at: NOW },
     // Zoho-managed app for the connection-read-failure case (F5).
-    { id: 'app-7', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'z-job-2', zoho_application_id: 'z-app-2', zoho_candidate_id: 'z-cand-2', status: 'applied', ats_stage: 'applied', applied_at: NOW }
+    { id: 'app-7', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'z-job-2', zoho_application_id: 'z-app-2', zoho_candidate_id: 'z-cand-2', status: 'applied', ats_stage: 'applied', applied_at: NOW },
+    // Already introduced once, then reset back to pending (reopened match /
+    // manual fix). Secondary contacts must NOT be copied a second time — they
+    // are CC'd on the INITIAL introduction only.
+    { id: 'app-8', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'applied', practice_submission_status: 'pending_va_submission', submitted_to_practice_at: NOW, applied_at: NOW }
   ],
   ats_stage_events: [],
   user_documents: [
@@ -398,6 +416,10 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     expect(sends.length).toBe(1);
     const email = sends[0].body;
     expect(email.to).toContain('anna@greenslopes-test.local');
+    // Secondary practice contacts are CC'd on THIS email (the introduction) —
+    // normalized down from the deliberately dirty seed: bob@ once, lowercased,
+    // with the primary contact and the junk address both dropped.
+    expect(email.cc).toEqual(['bob@greenslopes-test.local']);
     expect(String(email.subject)).toContain('Test Doctor');
     expect(String(email.subject)).toContain('General Practitioner — VR');
     expect(String(email.from)).toContain('GP Link');
@@ -515,6 +537,24 @@ describe('POST submit-to-practice — in-app branch (no Zoho)', () => {
     const app = db.gp_applications.find((a) => a.id === 'app-2');
     expect(app.practice_submission_status).toBe('submitted_to_practice');
     expect(app.ats_stage).toBe('submitted');
+  });
+
+  it('CCs the secondary contacts on the FIRST introduction only', async () => {
+    // app-2 (submitted a moment ago, above) was a first introduction and DID
+    // carry the CC. app-8 is the same practice but has already been introduced
+    // once (submitted_to_practice_at set) and was reset back to pending — the
+    // practice team must not be copied all over again on the repeat.
+    const before = resendCalls.length;
+    const r = await submitApp('app-8');
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    const sends = resendCalls.slice(before);
+    expect(sends.length).toBe(1);
+    const email = sends[0].body;
+    // Primary contact still gets it — they receive every practice email.
+    expect(email.to).toContain('anna@greenslopes-test.local');
+    expect(email.cc).toBeUndefined();
   });
 
   it('422s with no_practice_contact when no contact email is resolvable', async () => {
