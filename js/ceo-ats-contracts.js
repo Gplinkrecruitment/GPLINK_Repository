@@ -107,6 +107,102 @@
     return { html: out, unmatched: unmatched };
   }
 
+  // Highlighting inside the RENDERED document. The text version can be marked
+  // up as a string, but the rich version is real HTML — wrapping a quote there
+  // means walking the DOM's text nodes, because a single clause routinely spans
+  // several of them (a bolded dollar amount mid-sentence is its own text node).
+  // Naively string-replacing into the HTML would corrupt the tags.
+  function applyDomHighlights(root, quotes) {
+    if (!root || !quotes || !quotes.length) return { marks: 0, unmatched: [] };
+
+    // Walk ELEMENTS as well as text so block boundaries can be turned into a
+    // real break in the flattened string. Without this, "…Guaranteed Hours per
+    // week" in one cell and "[____] hours" in the next concatenate as
+    // "week[____]" and the clause can never be matched — verified against the
+    // real Erina contract, where exactly one of nine quotes was lost this way.
+    // The inserted "\n" belongs to no text node, so it simply never falls
+    // inside a highlight range; it only restores the word gap for matching.
+    var BLOCK_TAGS = /^(P|DIV|LI|UL|OL|TR|TD|TH|TABLE|THEAD|TBODY|TFOOT|H[1-6]|BLOCKQUOTE|HR|SECTION|ARTICLE)$/;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, null, false);
+    var infos = [], full = '', node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === 1) {
+        var tag = node.tagName || '';
+        if (tag === 'BR' || BLOCK_TAGS.test(tag)) full += '\n';
+        continue;
+      }
+      var v = node.nodeValue || '';
+      if (!v) continue;
+      infos.push({ node: node, start: full.length, end: full.length + v.length });
+      full += v;
+    }
+    if (!full.trim()) return { marks: 0, unmatched: [] };
+
+    var wanted = [];
+    quotes.forEach(function (q) {
+      var n = normaliseQuote(q);
+      if (n.length >= 8 && wanted.indexOf(n) === -1) wanted.push(n);
+    });
+    if (!wanted.length) return { marks: 0, unmatched: [] };
+    wanted.sort(function (a, b) { return b.length - a.length; });
+
+    var nm = normaliseWithMap(full);
+    var ranges = [], unmatched = [];
+    wanted.forEach(function (q) {
+      var from = 0, found = false, guard = 0;
+      while (guard++ < 50) {
+        var at = nm.norm.indexOf(q, from);
+        if (at === -1) break;
+        found = true;
+        var s = nm.map[at], e = nm.map[at + q.length - 1];
+        if (s != null && e != null) ranges.push([s, e + 1]);
+        from = at + q.length;
+      }
+      if (!found) unmatched.push(q);
+    });
+    if (!ranges.length) return { marks: 0, unmatched: unmatched };
+
+    ranges.sort(function (a, b) { return a[0] - b[0]; });
+    var merged = [ranges[0].slice()];
+    for (var i = 1; i < ranges.length; i++) {
+      var last = merged[merged.length - 1];
+      if (ranges[i][0] <= last[1]) last[1] = Math.max(last[1], ranges[i][1]);
+      else merged.push(ranges[i].slice());
+    }
+
+    // Group the slices by the text node they land in, so each node is rebuilt
+    // exactly once — replacing a node mid-loop would invalidate every offset
+    // still queued against it.
+    var perNode = [];
+    infos.forEach(function (info) {
+      var pieces = [];
+      merged.forEach(function (rg) {
+        var s = Math.max(rg[0], info.start), e = Math.min(rg[1], info.end);
+        if (s < e) pieces.push([s - info.start, e - info.start]);
+      });
+      if (pieces.length) perNode.push({ info: info, pieces: pieces });
+    });
+
+    var marks = 0;
+    perNode.forEach(function (entry) {
+      var t = entry.info.node;
+      var val = t.nodeValue || '';
+      var frag = document.createDocumentFragment();
+      var cursor = 0;
+      entry.pieces.forEach(function (p) {
+        if (p[0] > cursor) frag.appendChild(document.createTextNode(val.slice(cursor, p[0])));
+        var mk = document.createElement('mark');
+        mk.textContent = val.slice(p[0], p[1]);
+        frag.appendChild(mk);
+        marks++;
+        cursor = p[1];
+      });
+      if (cursor < val.length) frag.appendChild(document.createTextNode(val.slice(cursor)));
+      if (t.parentNode) t.parentNode.replaceChild(frag, t);
+    });
+    return { marks: marks, unmatched: unmatched };
+  }
+
   function quotesFor(c) {
     var review = c && c.ai_review;
     var ds = (review && Array.isArray(review.discrepancies)) ? review.discrepancies : [];
@@ -124,14 +220,37 @@
       } else {
         state.docs[c.id] = d;
       }
-      var slot = document.querySelector('[data-doc-slot="' + cssEscape(c.id) + '"]');
-      if (slot) slot.innerHTML = docHtml(c);
+      paintDoc(c);
     });
+  }
+
+  // Write the reader into its slot, then run the DOM highlight pass. The rich
+  // (rendered Word) view can only be highlighted after it is in the document,
+  // so painting and highlighting always happen together — never innerHTML alone.
+  function paintDoc(c) {
+    var slot = document.querySelector('[data-doc-slot="' + cssEscape(c.id) + '"]');
+    if (!slot) return;
+    slot.innerHTML = docHtml(c);
+    var rich = slot.querySelector('[data-doc-rich]');
+    if (!rich) return;
+    var res = applyDomHighlights(rich, quotesFor(c));
+    var note = slot.querySelector('[data-doc-note]');
+    if (note && res.unmatched.length) {
+      note.textContent = res.unmatched.length + ' flagged '
+        + (res.unmatched.length === 1 ? 'clause is' : 'clauses are')
+        + ' listed below but could not be located word-for-word in the document — read them against the contract yourself.';
+    }
   }
 
   function docHtml(c) {
     var doc = state.docs[c.id];
     if (!doc || doc.loading) return ATS.loadingHtml('Opening the contract…');
+    if (doc.kind === 'html') {
+      // The document as Word actually formats it — headings, bold, tables,
+      // embedded images. Server-sanitised to an allow-list before it gets here.
+      return '<div class="ats-doc-view ats-doc-rich" data-doc-rich="1">' + doc.html + '</div>' +
+             '<div class="ats-doc-unmatched" data-doc-note></div>';
+    }
     if (doc.kind === 'pdf') {
       return doc.url
         ? '<iframe class="ats-doc-frame" src="' + ATS.escAttr(doc.url) + '#view=FitH" title="Contract"></iframe>' +
@@ -187,6 +306,9 @@
   // the only real algorithm in this file — a silent regression there means the
   // CEO reads a contract with nothing marked and assumes it is clean.
   window.__ceoContractHighlight = highlightContract;
+  // The DOM variant needs a real browser to exercise (this repo has no jsdom),
+  // so it is verified with headless Chrome against the real rendered contract.
+  window.__ceoContractDomHighlight = applyDomHighlights;
 
   window.loadContractsTab = function () {
     var el = panel();
@@ -232,7 +354,13 @@
     // has asked to see.
     if (state.expanded) {
       var openCard = state.contracts.filter(function (c) { return c.id === state.expanded; })[0];
-      if (openCard) ensureDoc(openCard);
+      if (openCard) {
+        ensureDoc(openCard);
+        // Already cached (re-render after a toggle): detailHtml embedded the
+        // markup but nothing has highlighted it yet — that pass only runs here.
+        var cached = state.docs[openCard.id];
+        if (cached && !cached.loading) paintDoc(openCard);
+      }
     }
   }
 

@@ -2733,6 +2733,106 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
 //                  plain words instead of leaking an HTTP status code.
 // `text` is also what powers the inline viewer, so extraction happens once
 // here and both callers share the same result shape.
+// ── Rendering an uploaded contract so it looks like the contract ────────────
+// The AI only needs the WORDS (readContractFileForReview below), but the CEO
+// needs the DOCUMENT. Owner report 2026-08-05: the first version of the inline
+// reader showed mammoth's raw text extraction — every heading, bold run, table
+// and indent stripped out, so a contract rendered as an undifferentiated column
+// of double-spaced lines. It was readable but it wasn't the contract.
+//
+// mammoth.convertToHtml keeps the structure Word actually carries (headings,
+// bold/italic, lists, tables, embedded images), which is as close to "the
+// actual contract submitted" as we can get without a Word/LibreOffice renderer
+// — neither of which exists on Vercel. PDFs never come through here: the
+// browser renders those natively in an <iframe>.
+
+// Tags mammoth can emit that we are willing to render, and the only attributes
+// allowed on them. Anything else is dropped (the tag is unwrapped, its text
+// kept) — the document is an UNTRUSTED upload, so this is an allow-list by
+// construction rather than a blocklist of things we thought of.
+const CONTRACT_HTML_ALLOWED_TAGS = {
+  p: [], br: [], hr: [], div: [], span: [],
+  h1: [], h2: [], h3: [], h4: [], h5: [], h6: [],
+  strong: [], b: [], em: [], i: [], u: [], s: [], sup: [], sub: [],
+  ul: [], ol: [], li: [], blockquote: [],
+  table: [], thead: [], tbody: [], tfoot: [], tr: [],
+  td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'],
+  a: ['href'], img: ['src', 'alt']
+};
+
+function sanitizeContractHtml(html) {
+  var s = String(html || '');
+  // Drop comments and any script/style block outright, contents included.
+  s = s.replace(/<!--[\s\S]*?-->/g, '');
+  s = s.replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, '');
+  s = s.replace(/<\/?(script|style)\b[^>]*>/gi, '');
+
+  return s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, function (full, rawTag, rawAttrs) {
+    var tag = String(rawTag).toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(CONTRACT_HTML_ALLOWED_TAGS, tag)) return '';
+    if (full.charAt(1) === '/') return '</' + tag + '>';
+
+    var allowed = CONTRACT_HTML_ALLOWED_TAGS[tag];
+    var out = '';
+    if (allowed.length) {
+      var attrRe = /([a-zA-Z-]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
+      var m;
+      while ((m = attrRe.exec(rawAttrs)) !== null) {
+        var name = m[1].toLowerCase();
+        if (allowed.indexOf(name) === -1) continue;
+        var val = (m[3] !== undefined ? m[3] : m[4]) || '';
+        if (name === 'href') {
+          // Links out of a contract are fine, but only to somewhere safe —
+          // javascript:/data: hrefs are how a crafted document would run code.
+          if (!/^(https?:|mailto:)/i.test(val.trim())) continue;
+        }
+        if (name === 'src') {
+          // Images ride inline as data: URIs (CSP allows data: for img-src).
+          if (!/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml);base64,/i.test(val.trim())) continue;
+          // SVG can carry script — refuse it even as a data URI.
+          if (/^data:image\/svg/i.test(val.trim())) continue;
+        }
+        out += ' ' + name + '="' + val.replace(/[<>"]/g, '') + '"';
+      }
+    }
+    var selfClosing = (tag === 'br' || tag === 'hr' || tag === 'img');
+    return '<' + tag + out + (selfClosing ? '/>' : '') + '>';
+  });
+}
+
+// Returns { ok, kind:'html'|'text', html?, text?, reason? } for the CEO viewer.
+async function renderContractDocumentHtml(buffer, mimeType, filename) {
+  var buf = Buffer.isBuffer(buffer) ? buffer : null;
+  if (!buf || !buf.length) return { ok: false, reason: 'The uploaded contract file is empty.' };
+
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var name = String(filename || '').trim().toLowerCase();
+  var ext = (name.match(/\.([a-z0-9]+)$/) || [, ''])[1];
+  var isDocx = ext === 'docx' || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  if (isDocx) {
+    try {
+      var mammoth = require('mammoth');
+      var result = await mammoth.convertToHtml({ buffer: buf });
+      var html = sanitizeContractHtml((result && result.value) || '');
+      if (html.replace(/<[^>]*>/g, '').trim()) {
+        // The plain text goes back too: the client highlights against the
+        // rendered DOM, but the text is the fallback if rendering is empty.
+        var plain = await extractDocxTextWithMammoth(buf);
+        return { ok: true, kind: 'html', html: html, text: plain || '' };
+      }
+    } catch (err) {
+      console.error('[contract-render] DOCX → HTML failed:', err && err.message);
+      // Fall through to the plain-text reader below rather than failing the
+      // whole preview — words with no formatting still beat nothing.
+    }
+  }
+
+  var read = await readContractFileForReview(buf, mimeType, filename);
+  if (!read.ok) return { ok: false, reason: read.reason };
+  return { ok: true, kind: 'text', text: read.text || '' };
+}
+
 async function readContractFileForReview(buffer, mimeType, filename) {
   var buf = Buffer.isBuffer(buffer) ? buffer : null;
   if (!buf || !buf.length) return { ok: false, kind: 'empty', reason: 'The uploaded contract file is empty.' };
@@ -42422,9 +42522,18 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const cpvRead = await readContractFileForReview(cpvFile.buffer, cpvRow.contract_mime || cpvFile.mimeType, cpvRow.contract_filename);
+    // Render the DOCUMENT, not just its words — headings, bold, tables and
+    // embedded images all survive, so the CEO sees the contract the practice
+    // actually submitted rather than a flat text dump (owner report 2026-08-05).
+    const cpvRead = await renderContractDocumentHtml(cpvFile.buffer, cpvRow.contract_mime || cpvFile.mimeType, cpvRow.contract_filename);
     if (!cpvRead.ok) { sendJson(res, 200, { ok: true, kind: 'error', message: cpvRead.reason }); return; }
-    sendJson(res, 200, { ok: true, kind: 'text', text: cpvRead.text || '', filename: cpvRow.contract_filename || '' });
+    sendJson(res, 200, {
+      ok: true,
+      kind: cpvRead.kind,
+      html: cpvRead.html || '',
+      text: cpvRead.text || '',
+      filename: cpvRow.contract_filename || ''
+    });
     return;
   }
 
@@ -72123,6 +72232,8 @@ module.exports.__testUtils = {
   CONTRACT_CONSENT_TOKEN_PURPOSE,
   aiReviewCareerContract,
   readContractFileForReview,
+  renderContractDocumentHtml,
+  sanitizeContractHtml,
   recordServerError,
   recordCronRun,
   classifyClientErrorNoise,

@@ -1631,8 +1631,8 @@ describe('CEO Contracts tab UI (Task 12)', () => {
     // Bumped 2026-08-05 for the inline contract reader + red highlighting.
     // JS is served with max-age=3600, so a stale pin here means the owner keeps
     // getting the previous file for an hour after a deploy.
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805a');
-    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260724b');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805b');
+    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805a');
   });
 
   it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {
@@ -4012,10 +4012,11 @@ describe('Contracts tab wiring — inline reader, nav alert, re-run', () => {
     expect(SRV).toContain("pathname === '/api/ceo/contract/preview'");
     const start = SRV.indexOf("pathname === '/api/ceo/contract/preview'");
     const body = SRV.slice(start, start + 2600);
-    expect(body).toContain('requireCeoSession');           // never public
-    expect(body).toContain("kind: 'pdf'");
-    expect(body).toContain("kind: 'text'");
-    expect(body).toContain('readContractFileForReview');   // one shared reader
+    expect(body).toContain('requireCeoSession');              // never public
+    expect(body).toContain("kind: 'pdf'");                    // browser renders PDFs itself
+    expect(body).toContain('renderContractDocumentHtml');     // DOCX → rendered document
+    expect(body).toContain('kind: cpvRead.kind');             // html | text passed through
+    expect(body).toContain('html: cpvRead.html');
   });
 
   it('the contracts list reports how many need review, for the nav alert', () => {
@@ -4049,5 +4050,152 @@ describe('Contracts tab wiring — inline reader, nav alert, re-run', () => {
   it('highlighted clauses are actually red in the stylesheet', () => {
     expect(CSS).toContain('.ats-doc-view mark');
     expect(CSS).toMatch(/\.ats-doc-view mark \{[^}]*#ef4444/);
+  });
+});
+
+// ============================================================================
+// Owner report 2026-08-05 (second round): "the contract preview should be the
+// actual contract submitted not this" — the first inline reader showed
+// mammoth's RAW TEXT extraction, so every heading, bold run, table and indent
+// was stripped and a contract rendered as a column of double-spaced lines.
+// It was readable, but it wasn't the contract. Now rendered via
+// mammoth.convertToHtml and sanitised to an allow-list.
+// ============================================================================
+describe('contract rendering — the actual document, not a text dump', () => {
+  let renderContractDocumentHtml, sanitizeContractHtml;
+  beforeAll(async () => {
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    const mod = await import('../server.js');
+    renderContractDocumentHtml = mod.__testUtils.renderContractDocumentHtml;
+    sanitizeContractHtml = mod.__testUtils.sanitizeContractHtml;
+  });
+
+  function docxFixture(bodyXml) {
+    const docXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+      + bodyXml + '</w:body></w:document>';
+    const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+      + '</Types>';
+    const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+      + '</Relationships>';
+    return buildStoredZip([
+      { name: '[Content_Types].xml', data: Buffer.from(contentTypes, 'utf8') },
+      { name: '_rels/.rels', data: Buffer.from(rels, 'utf8') },
+      { name: 'word/document.xml', data: Buffer.from(docXml, 'utf8') }
+    ]);
+  }
+
+  it('keeps the formatting a text dump threw away — headings, bold and tables', async () => {
+    const body =
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Parties</w:t></w:r></w:p>'
+      + '<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Erina Medical Centre</w:t></w:r></w:p>'
+      + '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Date of Agreement</w:t></w:r></w:p></w:tc>'
+      + '<w:tc><w:p><w:r><w:t>1 January 2027</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+    const res = await renderContractDocumentHtml(docxFixture(body), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'c.docx');
+    expect(res.ok).toBe(true);
+    expect(res.kind).toBe('html');
+    expect(res.html).toMatch(/<h1[^>]*>/);          // the heading survives
+    expect(res.html).toMatch(/<strong>/);           // the bold run survives
+    expect(res.html).toMatch(/<table>/);            // the table survives
+    expect(res.html).toContain('Date of Agreement');
+    // ...and the plain text still comes back for the fallback path.
+    expect(res.text).toContain('Erina Medical Centre');
+  });
+
+  it('falls back to plain text rather than failing when a .docx will not render', async () => {
+    const res = await renderContractDocumentHtml(Buffer.from('not a docx'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'c.docx');
+    // Unreadable is unreadable — but it is reported, not thrown.
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/PDF|Word|scanned/i);
+  });
+
+  it('a .txt contract still renders as text (no HTML path)', async () => {
+    const res = await renderContractDocumentHtml(Buffer.from('Billing split 65%.'), 'text/plain', 'c.txt');
+    expect(res.ok).toBe(true);
+    expect(res.kind).toBe('text');
+    expect(res.text).toContain('65%');
+  });
+
+  describe('sanitiser — the document is an untrusted upload', () => {
+    it('strips scripts, styles and inline event handlers outright', () => {
+      const out = sanitizeContractHtml('<p onclick="steal()">Fee</p><script>alert(1)</script><style>*{}</style>');
+      expect(out).not.toMatch(/<script/i);
+      expect(out).not.toMatch(/<style/i);
+      expect(out).not.toMatch(/onclick/i);
+      expect(out).toContain('Fee');
+      expect(out).not.toContain('alert(1)');
+    });
+
+    it('drops unknown tags but keeps their text (nothing silently vanishes)', () => {
+      const out = sanitizeContractHtml('<iframe src="//evil"></iframe><p>Clause <marquee>7</marquee></p>');
+      expect(out).not.toMatch(/iframe|marquee/i);
+      expect(out).toContain('Clause');
+      expect(out).toContain('7');
+    });
+
+    it('allows only safe hrefs and only data:image sources', () => {
+      expect(sanitizeContractHtml('<a href="https://x.test">a</a>')).toContain('href="https://x.test"');
+      expect(sanitizeContractHtml('<a href="mailto:a@b.test">a</a>')).toContain('mailto:');
+      expect(sanitizeContractHtml('<a href="javascript:alert(1)">a</a>')).not.toContain('javascript');
+      expect(sanitizeContractHtml('<img src="data:image/png;base64,AAA"/>')).toContain('data:image/png;base64,AAA');
+      expect(sanitizeContractHtml('<img src="https://tracker.test/p.gif"/>')).not.toContain('tracker.test');
+      // SVG can carry script even as a data URI.
+      expect(sanitizeContractHtml('<img src="data:image/svg+xml;base64,AAA"/>')).not.toContain('svg');
+    });
+
+    it('keeps the document structure it is meant to keep', () => {
+      const out = sanitizeContractHtml('<h2>Term</h2><table><tr><td colspan="2"><strong>x</strong></td></tr></table><ul><li>a</li></ul>');
+      expect(out).toContain('<h2>');
+      expect(out).toContain('<table>');
+      expect(out).toContain('colspan="2"');
+      expect(out).toContain('<strong>');
+      expect(out).toContain('<li>');
+    });
+  });
+});
+
+describe('inline reader renders the document and highlights inside it', () => {
+  const JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8');
+  const CSS = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
+
+  it('has a rich (rendered) branch, not only the plain-text one', () => {
+    expect(JS).toContain("doc.kind === 'html'");
+    expect(JS).toContain('ats-doc-rich');
+    expect(JS).toContain('applyDomHighlights');
+  });
+
+  it('highlights the rendered document via the DOM, never by string-replacing HTML', () => {
+    // String-replacing into HTML would corrupt tags; the marks must be built
+    // from real text nodes.
+    expect(JS).toContain('createTreeWalker');
+    expect(JS).toContain('createDocumentFragment');
+    expect(JS).toContain("createElement('mark')");
+  });
+
+  it('inserts a break at block boundaries so a clause spanning cells still matches', () => {
+    // Verified against the real Erina contract: without this exactly one of
+    // nine flagged clauses (one spanning two table cells) was never matched.
+    expect(JS).toContain('BLOCK_TAGS');
+    expect(JS).toMatch(/TR\|TD\|TH/);
+  });
+
+  it('paints and highlights together — innerHTML alone would leave it unmarked', () => {
+    expect(JS).toContain('function paintDoc');
+    const start = JS.indexOf('function paintDoc');
+    const body = JS.slice(start, start + 900);
+    expect(body).toContain('innerHTML');
+    expect(body).toContain('applyDomHighlights');
+  });
+
+  it('the rendered view drops pre-wrap and styles real document elements', () => {
+    expect(CSS).toContain('.ats-doc-rich { white-space:normal; }');
+    expect(CSS).toMatch(/\.ats-doc-rich table/);
+    expect(CSS).toMatch(/\.ats-doc-rich h1/);
+    expect(CSS).toMatch(/\.ats-doc-rich img/);
   });
 });
