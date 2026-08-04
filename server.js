@@ -42711,16 +42711,46 @@ async function handleApi(req, res, pathname) {
       // shape (in-app + push + email), deep-linking to the offer review page.
       const cdGpUserId = cdContract.user_id || (cdApp && cdApp.user_id) || null;
       if (cdGpUserId) {
-        const cdTitle = 'Your contract is ready to review 📄';
-        const cdBodyMsg = 'Your employment contract is ready. Please review the contract, then sign and upload it, or request changes if something needs to be adjusted.';
+        // Name the practice in the congratulations — by this point the doctor
+        // has interviewed with them and is holding their contract, so there is
+        // no masked identity left to protect. Falls back to "The practice"
+        // rather than emailing a blank if the lookup fails. Angle brackets are
+        // stripped: this string is interpolated into the plain-text `body`,
+        // and a `<tag>`-like substring flips buildCareerEmailHtml onto its raw,
+        // UNESCAPED branch (see the note on sendPostInterviewDecisionEmail).
+        let cdPracticeName = '';
+        if (cdContract.career_role_id != null) {
+          try {
+            const cdRoleRes = await supabaseDbRequest('career_roles', 'select=practice_name&id=eq.' + encodeURIComponent(cdContract.career_role_id) + '&limit=1');
+            const cdRoleRow = (cdRoleRes.ok && Array.isArray(cdRoleRes.data) && cdRoleRes.data[0]) ? cdRoleRes.data[0] : null;
+            cdPracticeName = String((cdRoleRow && cdRoleRow.practice_name) || '').replace(/[<>]/g, '').trim();
+          } catch (e) { cdPracticeName = ''; }
+        }
+        const cdWho = cdPracticeName || 'The practice';
+
+        // ⚠️ The in-app card and the push notification render PLAIN text — so
+        // this shared title/body must not carry `{{name}}` (only
+        // sendGpNotificationEmail substitutes it) or `**bold**`/blank lines
+        // (only the email formatter renders those). The email gets its own
+        // warmer, formatted copy below.
+        const cdTitle = 'Congratulations — the position is yours 🎉';
+        const cdBodyMsg = cdWho + ' has offered you the position. All that\'s left is to secure it — review your employment agreement and sign.';
         const cdNextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(cdContract.application_id || ''));
+
+        // Owner call 2026-08-05: lead with the congratulations, not the
+        // paperwork. The doctor beat real competition to get here, and the only
+        // thing between them and the job is signing — so the email says that,
+        // and the CTA is "Secure my position".
+        const cdEmailTitle = 'Congratulations {{name}} — the position is yours 🎉';
+        const cdEmailBody = '**' + cdWho + ' has offered you the position.**\n\n'
+          + 'This was a competitive role with strong interest from other doctors, so being the one the practice chose is a real achievement — congratulations.\n\n'
+          + 'All that\'s left is to secure it: review your employment agreement and sign it.\n\n'
+          + 'If something needs adjusting before you can sign, you can request a change on the same page.';
+
         await Promise.all([
           pushCareerNotificationToUser(cdGpUserId, { type: 'success', title: cdTitle, body: cdBodyMsg }).catch(() => {}),
           sendPushNotification(cdGpUserId, { title: cdTitle, body: cdBodyMsg, data: { type: 'career', action: 'contract_ready', url: cdNextPath } }).catch(() => {}),
-          // "Accept position" (owner call 2026-07-28) — the contract has passed
-          // AI review and CEO approval before reaching them, so the step in
-          // front of the doctor is accepting it, not reviewing it again.
-          sendGpNotificationEmail(cdGpUserId, cdTitle + ' — GP Link', cdTitle, cdBodyMsg, 'Accept position', APP_BASE_URL + cdNextPath,
+          sendGpNotificationEmail(cdGpUserId, cdEmailTitle + ' — GP Link', cdEmailTitle, cdEmailBody, 'Secure my position', APP_BASE_URL + cdNextPath,
             'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
         ]);
       }
@@ -42934,10 +42964,11 @@ async function handleApi(req, res, pathname) {
       await Promise.all([
         pushCareerNotificationToUser(chdGpUserId, { type: 'info', title: chdTitle, body: chdBodyMsg }).catch(() => {}),
         sendPushNotification(chdGpUserId, { title: chdTitle, body: chdBodyMsg, data: { type: 'career', action: 'contract_change_declined', url: chdNextPath } }).catch(() => {}),
-        // "Accept position" rather than "Review your contract" (owner call
-        // 2026-07-28): the change has been answered and the contract stands as
-        // sent, so accepting is the actual next step, not another review pass.
-        sendGpNotificationEmail(chdGpUserId, chdTitle + ' — GP Link', chdTitle, chdBodyMsg, 'Accept position', APP_BASE_URL + chdNextPath,
+        // Same CTA as the offer email ("Secure my position", owner call
+        // 2026-08-05) — it lands on the same page and is the same action. The
+        // MESSAGE stays its own: this is answering a change request, not
+        // announcing the offer, so it must not re-congratulate them.
+        sendGpNotificationEmail(chdGpUserId, chdTitle + ' — GP Link', chdTitle, chdBodyMsg, 'Secure my position', APP_BASE_URL + chdNextPath,
           'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
       ]);
     }

@@ -1557,12 +1557,20 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
 
   it('submit_to_gp fires the GP notification trio (in-app + push + email)', () => {
     const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
-    const branch = SERVER_SRC.slice(idx, idx + 4200);
+    const branch = SERVER_SRC.slice(idx, idx + 6600);
     expect(branch).toMatch(/pushCareerNotificationToUser\(cdGpUserId/);
     expect(branch).toMatch(/sendPushNotification\(cdGpUserId/);
     expect(branch).toMatch(/sendGpNotificationEmail\(cdGpUserId/);
-    expect(branch).toContain('Your contract is ready to review');
+    // Owner call 2026-08-05: leads with the congratulations, names the
+    // practice, and the CTA is "Secure my position".
+    expect(branch).toContain('Congratulations');
+    expect(branch).toContain('Secure my position');
     expect(branch).toContain('/pages/offer-review?applicationId=');
+    // The in-app card + push render PLAIN text, so the shared strings must not
+    // carry email-only markup or the {{name}} placeholder.
+    expect(branch).toMatch(/const cdTitle = 'Congratulations — the position is yours/);
+    expect(branch).not.toMatch(/const cdTitle = '[^']*\{\{name\}\}/);
+    expect(branch).not.toMatch(/const cdBodyMsg = '[^']*\*\*/);
   });
 
   it('submit_to_gp is refused with 409 application_terminal when the application is withdrawn/not_proceeding/already secured — checked BEFORE the contract PATCH', () => {
@@ -1967,7 +1975,7 @@ describe('CEO Contracts queue — live-boot (Task 12)', () => {
     expect(resendCalls.length).toBe(before + 1);
     const sent = resendCalls[resendCalls.length - 1];
     expect(sent.body.to).toEqual([GP_A.email]);
-    expect(sent.body.subject).toContain('Your contract is ready to review');
+    expect(sent.body.subject).toContain('the position is yours');
     expect(sent.body.html).toContain('/pages/offer-review?applicationId=' + APP_SUBMIT);
 
     // Idempotent-ish: the contract already moved past 'uploaded', so a replay
