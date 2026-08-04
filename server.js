@@ -31232,6 +31232,10 @@ async function atsListPracticesDerived() {
         stage: 'active', agreement_status: 'unsigned', website: '', dpa: null,
         suburb: '', nearest_city: '', intro_text: '', intro_video_url: '',
         agreement_signed_pdf_key: '', intake_token: '', metadata: {},
+        // No practices row exists for a name-only practice, so there is
+        // nowhere for secondary contacts to live yet. The stored-row merge
+        // below fills this in for practices that DO have a row.
+        secondary_contacts: [],
         // Phase 3: name-only practices have no row, so no org_type column and
         // no manually uploaded contract — always plain 'practice' defaults.
         // (Same for the Phase 6 parent-corporation link: link-less.)
@@ -31274,6 +31278,14 @@ async function atsListPracticesDerived() {
     e.agreement_signed_pdf_key = p.agreement_signed_pdf_key || '';
     e.intake_token = p.intake_token || '';
     e.metadata = (p.metadata && typeof p.metadata === 'object') ? p.metadata : {};
+    // This builder rebuilds every practice from an EXPLICIT whitelist, so a
+    // column missing here is silently dropped on read no matter what the row
+    // holds — which is exactly what made saved secondary contacts come back
+    // empty (they wrote fine, then the detail + edit modal showed none, and
+    // the next save would have cleared them). Any new practices column needs
+    // a line here, in the derived default above, AND in atsResolvePractice's
+    // fallback literal below.
+    e.secondary_contacts = Array.isArray(p.secondary_contacts) ? p.secondary_contacts : [];
     e.org_type = (p.org_type === 'corporation') ? 'corporation' : 'practice';
     e.parent_corporation_id = p.parent_corporation_id || null;
     e.agreement_manual_pdf_key = p.agreement_manual_pdf_key || '';
@@ -31305,6 +31317,7 @@ async function atsResolvePractice(id) {
     intro_text: row.intro_text || '', intro_video_url: row.intro_video_url || '',
     agreement_signed_pdf_key: row.agreement_signed_pdf_key || '', intake_token: row.intake_token || '',
     metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata : {},
+    secondary_contacts: Array.isArray(row.secondary_contacts) ? row.secondary_contacts : [],
     org_type: (row.org_type === 'corporation') ? 'corporation' : 'practice',
     parent_corporation_id: row.parent_corporation_id || null,
     agreement_manual_pdf_key: row.agreement_manual_pdf_key || '',

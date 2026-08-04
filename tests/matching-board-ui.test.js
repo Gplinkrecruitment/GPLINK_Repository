@@ -799,7 +799,9 @@ describe('cache buster + dead CSS pruned', () => {
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
   });
   it('ceo-dashboard.html loads the bumped board stylesheet (a stale pin serves pre-board CSS from cache)', () => {
-    // Bumped to 20260731c: upstream moved it to ...a to deliver the .cr-strip
+    // Bumped to 20260805a for the practice-detail inline-edit styles
+    // (.ats-inline-input / .ats-sec-row). Before that, 20260731c: upstream
+    // moved it to ...a to deliver the .cr-strip
     // action band, and the slot-picker conversion line (.ats-slot-conv) landed
     // on top — two edits in one day, so the key has to clear BOTH.
     // Any edit to css/ceo-ats.css must move this forward. NOTE this assertion
@@ -807,7 +809,8 @@ describe('cache buster + dead CSS pruned', () => {
     // new rules without a bump, which is exactly how that happened. The guard
     // for it lives in ats-endpoints.test.js ("never lets the CSS cache key
     // fall behind the JS one").
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260731c');
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260805a');
+    expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260731c');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260731a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260731b');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260729a');

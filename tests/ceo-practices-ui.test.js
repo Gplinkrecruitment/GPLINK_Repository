@@ -83,7 +83,7 @@ describe('CEO Practices tab UI (Phase 3 Task 3)', () => {
   });
 
   it('ceo-dashboard.html loads the bumped script', () => {
-    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260805a/);
+    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260805b/);
   });
 });
 
@@ -106,10 +106,13 @@ describe('CEO Practices tab — secondary contacts', () => {
     expect(src).toMatch(/data-sec-name/);
     expect(src).toMatch(/data-ats="add-secondary"/);
     expect(src).toMatch(/data-ats="remove-secondary"/);
-    expect(src).toMatch(/action === 'add-secondary'\) addSecondaryRow\(\)/);
+    expect(src).toMatch(/action === 'add-secondary'\) addSecondaryRowTo\('atsFSecondaryList'\)/);
     expect(src).toMatch(/action === 'remove-secondary'\) removeSecondaryRow\(btn\)/);
     // Rows are appended, never re-rendered — a rebuild would wipe typed values.
     expect(src).toMatch(/insertAdjacentHTML\('beforeend', secondaryRowHtml/);
+    // ONE row builder feeds both the modal and the detail panel, so the two
+    // editors cannot drift apart.
+    expect((src.match(/secondaryRowHtml/g) || []).length).toBeGreaterThanOrEqual(4);
   });
 
   it('readForm collects the rows and savePractice diffs them (including a clear)', () => {
@@ -126,6 +129,71 @@ describe('CEO Practices tab — secondary contacts', () => {
   it('primary contact labels say "primary" so the two fields cannot be confused', () => {
     expect(src).toMatch(/Primary contact name/);
     expect(src).toMatch(/Primary contact email/);
+  });
+
+  it('the detail list is editable in place, with its own add + save', () => {
+    expect(src).toMatch(/id="atsDetailSecondaryList"/);
+    expect(src).toMatch(/data-ats="add-secondary-detail"/);
+    expect(src).toMatch(/function saveSecondaryFromDetail/);
+    expect(src).toMatch(/action === 'add-secondary-detail'\) addSecondaryRowTo\('atsDetailSecondaryList'\)/);
+    // Removing a row on the panel saves immediately (the modal waits for Save).
+    expect(src).toMatch(/removeSecondaryRow\(t\);\s*\n\s*saveSecondaryFromDetail\(\)/);
+    // A change inside the detail list triggers the save.
+    expect(src).toMatch(/closest\('#atsDetailSecondaryList'\)\) saveSecondaryFromDetail\(\)/);
+  });
+
+  it('mirrors the server validation so a dropped row can never look saved', () => {
+    expect(src).toMatch(/function collectSecondaryRows/);
+    expect(src).toMatch(/function looksLikeEmail/);
+    expect(src).toMatch(/already the primary contact/);
+    expect(src).toMatch(/already in the list/);
+    // A bad row aborts the whole save rather than being silently skipped.
+    expect(src).toMatch(/if \(problem\) \{ showSecondaryError\(problem\); return null; \}/);
+    expect(src).toMatch(/if \(next === null\) return/);
+  });
+});
+
+// Owner request 2026-08-05: edit the contact details straight from the detail
+// panel instead of going through the Edit modal for every small correction.
+describe('CEO Practices tab — inline field editing', () => {
+  it('renders contact/email/phone as inline inputs bound to PATCH body keys', () => {
+    expect(src).toMatch(/function inlineFieldHtml/);
+    expect(detail).toMatch(/inlineFieldHtml\('Primary contact', 'contact'/);
+    expect(detail).toMatch(/inlineFieldHtml\('Email', 'email'/);
+    expect(detail).toMatch(/inlineFieldHtml\('Phone', 'phone'/);
+    expect(src).toMatch(/data-inline-field=/);
+    expect(src).toMatch(/class="ats-inline-input"/);
+  });
+
+  it('saves on change, skips no-op blurs, and restores the old value on failure', () => {
+    expect(src).toMatch(/function saveInlineField/);
+    expect(src).toMatch(/data-inline-field'\)\) \{ saveInlineField\(t\); return; \}/);
+    // A blur with no edit must not PATCH.
+    expect(src).toMatch(/if \(next === prev\) return/);
+    // A failed save puts the stored value back rather than leaving a lie on screen.
+    expect(src).toMatch(/if \(!ok\) \{ input\.value = prev; return; \}/);
+    expect(src).toMatch(/function patchPractice/);
+    expect(src).toMatch(/function mergeSavedPractice/);
+  });
+
+  it('Enter commits and Escape abandons the edit', () => {
+    expect(src).toMatch(/function onPanelKeydown/);
+    expect(src).toMatch(/panel\.addEventListener\('keydown', onPanelKeydown\)/);
+    expect(src).toMatch(/e\.key === 'Enter'\) \{ e\.preventDefault\(\); t\.blur\(\)/);
+    expect(src).toMatch(/e\.key !== 'Escape'\) return/);
+  });
+
+  it('changing the primary email re-renders the CC list it filters', () => {
+    expect(src).toMatch(/if \(key === 'email'\) renderSecondaryRows\(\)/);
+    expect(src).toMatch(/function renderSecondaryRows/);
+  });
+
+  it('ships the inline styles behind a bumped stylesheet key', () => {
+    const css = fs.readFileSync(path.join(root, 'css/ceo-ats.css'), 'utf8');
+    expect(css).toMatch(/\.ats-inline-input/);
+    expect(css).toMatch(/\.ats-sec-row/);
+    expect(css).toMatch(/\.ats-sec-remove/);
+    expect(ceo).toContain('/css/ceo-ats.css?v=20260805a');
   });
 });
 

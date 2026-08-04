@@ -315,12 +315,7 @@
     });
   }
 
-  function detailField(label, value) {
-    return '<div class="ats-detail-field"><div class="df-lbl">' + ATS.esc(label) +
-      '</div><div class="df-val">' + ATS.esc(value || '—') + '</div></div>';
-  }
-
-  // Same as detailField but the value is trusted HTML (a <select>, a link) —
+  // The value is trusted HTML (a <select>, a link) —
   // callers are responsible for escaping any dynamic text inside it.
   function detailFieldHtml(label, html) {
     return '<div class="ats-detail-field"><div class="df-lbl">' + ATS.esc(label) +
@@ -345,21 +340,200 @@
     }).filter(function (c) { return c.email; });
   }
 
+  // One editable secondary-contact row — used by BOTH the detail panel and the
+  // edit modal, so the two can't drift. Values are read back by position via
+  // data-sec-email/data-sec-name (NOT ids): rows are added and removed freely,
+  // so a fixed id per row would collide the moment one is deleted.
+  function secondaryRowHtml(c) {
+    var v = c || {};
+    return '<div class="ats-sec-row">' +
+      '<input type="text" data-sec-email placeholder="name@practice.com.au"' + ivAttr(v.email) + ' />' +
+      '<input type="text" data-sec-name placeholder="Name (optional)"' + ivAttr(v.name) + ' />' +
+      '<button type="button" class="ats-sec-remove" data-ats="remove-secondary" title="Remove this contact">✕</button>' +
+    '</div>';
+  }
+
+  // Secondary contacts, editable in place on the detail panel. Same row markup
+  // as the modal so the two can never drift.
   function secondaryContactsFieldHtml(p) {
     var list = normalizeSecondaryList(p && p.secondary_contacts);
-    var body = list.length
-      ? list.map(function (c) {
-        return '<div style="margin-bottom:4px">' + ATS.esc(c.email) +
-          (c.name ? ' <span style="color:var(--ats-dim)">· ' + ATS.esc(c.name) + '</span>' : '') +
-        '</div>';
-      }).join('')
-      : '<div style="color:var(--ats-dim)">—</div>';
     return '<div class="ats-detail-field">' +
       '<div class="df-lbl">Secondary contacts' + (list.length ? ' (' + list.length + ')' : '') + '</div>' +
-      '<div class="df-val">' + body +
-        '<div style="font-size:11.5px;color:var(--ats-dim);margin-top:6px;font-weight:400">' + ATS.esc(SECONDARY_CC_NOTE) + '</div>' +
+      '<div class="df-val" style="margin-top:7px">' +
+        '<div id="atsDetailSecondaryList">' + list.map(secondaryRowHtml).join('') + '</div>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="add-secondary-detail">＋ Add contact</button>' +
+        '<div class="ats-inline-note">' + ATS.esc(SECONDARY_CC_NOTE) + '</div>' +
+        '<div class="ats-inline-err" id="atsSecondaryErr" style="display:none"></div>' +
       '</div>' +
     '</div>';
+  }
+
+  // -------------------- inline field editing --------------------
+  // Every value on the detail panel is an input that saves itself on blur
+  // (or Enter), so routine corrections don't need the Edit modal at all. The
+  // modal stays for the structural fields — name, city/state, org type,
+  // parent corporation.
+  //
+  // `key` is the PATCH body key the server already accepts (contact / email /
+  // phone / …), NOT the column name.
+  function inlineFieldHtml(label, key, value, placeholder) {
+    return '<div class="ats-detail-field">' +
+      '<div class="df-lbl">' + ATS.esc(label) + '</div>' +
+      '<input class="ats-inline-input" type="text" data-inline-field="' + ATS.escAttr(key) + '"' +
+        ' value="' + ATS.escAttr(value == null ? '' : value) + '"' +
+        ' placeholder="' + ATS.escAttr(placeholder || 'Not set') + '" />' +
+    '</div>';
+  }
+
+  // Which practice field each inline key currently holds, so a save can be
+  // skipped when nothing actually changed (blur fires even on a plain click).
+  var INLINE_SOURCE = {
+    name: function (p) { return p.name; },
+    contact: function (p) { return p.contact_name; },
+    email: function (p) { return p.contact_email; },
+    phone: function (p) { return p.contact_phone; }
+  };
+
+  function setInlineBusy(el, busy) {
+    if (!el) return;
+    el.disabled = !!busy;
+  }
+
+  // Applies whatever the server actually stored back onto currentPractice, so
+  // the next diff compares against the truth rather than what we hoped we sent
+  // (the server lowercases addresses, drops duplicates, caps the list…).
+  function mergeSavedPractice(row) {
+    var p = currentPractice;
+    if (!p || !row) return;
+    if (row.name != null) p.name = row.name;
+    if (row.contact_name != null) p.contact_name = row.contact_name;
+    if (row.contact_email != null) p.contact_email = row.contact_email;
+    if (row.contact_phone != null) p.contact_phone = row.contact_phone;
+    if (row.secondary_contacts != null) p.secondary_contacts = normalizeSecondaryList(row.secondary_contacts);
+  }
+
+  // Shared PATCH for every inline edit. onDone(ok) runs after the response.
+  function patchPractice(body, onDone) {
+    var p = currentPractice;
+    if (!p) { if (onDone) onDone(false); return; }
+    ATS.api('/api/ats/practice?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: body }).then(function (d) {
+      if (!d || !d.ok) {
+        ATS.toast((d && d.message) || 'Could not save that change');
+        if (onDone) onDone(false);
+        return;
+      }
+      mergeSavedPractice(d.practice);
+      if (onDone) onDone(true);
+    });
+  }
+
+  function saveInlineField(input) {
+    var p = currentPractice;
+    if (!p || !input) return;
+    var key = input.getAttribute('data-inline-field');
+    var read = INLINE_SOURCE[key];
+    if (!read) return;
+    var next = String(input.value || '').trim();
+    var prev = String(read(p) == null ? '' : read(p)).trim();
+    if (next === prev) return; // blur without an edit — don't churn the DB
+    var body = {}; body[key] = next;
+    setInlineBusy(input, true);
+    patchPractice(body, function (ok) {
+      setInlineBusy(input, false);
+      if (!ok) { input.value = prev; return; } // put the old value back
+      input.value = String(read(currentPractice) || '');
+      ATS.toast('Saved');
+      // The primary contact is excluded from the CC list server-side, so
+      // changing it can change which secondary contacts survive.
+      if (key === 'email') renderSecondaryRows();
+      // The header shows the name — keep it honest without a full reload.
+      if (key === 'name') {
+        var h = panelEl() && panelEl().querySelector('.ats-section-head h2');
+        if (h) h.childNodes[0].nodeValue = currentPractice.name || '—';
+      }
+    });
+  }
+
+  // -------------------- inline secondary contacts --------------------
+  function secondaryErrEl() { return document.getElementById('atsSecondaryErr'); }
+
+  function showSecondaryError(msg) {
+    var el = secondaryErrEl();
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.display = msg ? '' : 'none';
+  }
+
+  function renderSecondaryRows() {
+    var host = document.getElementById('atsDetailSecondaryList');
+    if (!host) return;
+    host.innerHTML = normalizeSecondaryList(currentPractice && currentPractice.secondary_contacts)
+      .map(secondaryRowHtml).join('');
+    var label = host.parentNode ? host.parentNode.parentNode.querySelector('.df-lbl') : null;
+    var n = host.querySelectorAll('.ats-sec-row').length;
+    if (label) label.textContent = 'Secondary contacts' + (n ? ' (' + n + ')' : '');
+  }
+
+  // Mirrors the server's rules (lib/ats-practices.js normalizeSecondaryContacts)
+  // so what the panel accepts is exactly what gets stored — otherwise the
+  // server would silently drop a row and the user would think it saved.
+  function looksLikeEmail(v) {
+    return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(v == null ? '' : v).trim());
+  }
+
+  // Validates every row in `host`, flagging the bad ones. Returns the clean
+  // list, or null when something is wrong (and nothing should be saved).
+  function collectSecondaryRows(host) {
+    var rows = host.querySelectorAll('.ats-sec-row');
+    var primary = String((currentPractice && currentPractice.contact_email) || '').trim().toLowerCase();
+    var seen = {};
+    var out = [];
+    var problem = '';
+    for (var i = 0; i < rows.length; i++) {
+      var emailEl = rows[i].querySelector('[data-sec-email]');
+      var nameEl = rows[i].querySelector('[data-sec-name]');
+      var email = emailEl ? String(emailEl.value || '').trim() : '';
+      if (emailEl) emailEl.classList.remove('ats-inline-bad');
+      if (!email) continue; // a blank row the user hasn't filled in yet
+      var key = email.toLowerCase();
+      var bad = '';
+      if (!looksLikeEmail(email)) bad = 'That doesn’t look like an email address.';
+      else if (key === primary) bad = 'That’s already the primary contact — they get every email anyway.';
+      else if (seen[key]) bad = 'That address is already in the list.';
+      if (bad) {
+        if (emailEl) emailEl.classList.add('ats-inline-bad');
+        problem = problem || bad;
+        continue;
+      }
+      seen[key] = true;
+      out.push({ name: nameEl ? String(nameEl.value || '').trim() : '', email: email });
+    }
+    if (problem) { showSecondaryError(problem); return null; }
+    showSecondaryError('');
+    return out;
+  }
+
+  function saveSecondaryFromDetail() {
+    var host = document.getElementById('atsDetailSecondaryList');
+    if (!host || !currentPractice) return;
+    var next = collectSecondaryRows(host);
+    if (next === null) return; // flagged inline; leave the rows as typed
+    if (secondaryKey(next) === secondaryKey(currentPractice.secondary_contacts)) return;
+    patchPractice({ secondary_contacts: next }, function (ok) {
+      if (!ok) return;
+      renderSecondaryRows();
+      ATS.toast('Saved');
+    });
+  }
+
+  function addSecondaryRowTo(hostId) {
+    var host = document.getElementById(hostId);
+    if (!host) return;
+    host.insertAdjacentHTML('beforeend', secondaryRowHtml({}));
+    var rows = host.querySelectorAll('.ats-sec-row');
+    var last = rows[rows.length - 1];
+    var input = last ? last.querySelector('[data-sec-email]') : null;
+    if (input && input.focus) input.focus();
   }
 
   function resendIntake(id, btn) {
@@ -519,10 +693,13 @@
     // Slim by design: everything operational (billing, DPA, address, role
     // details, intro media) lives on the JOB listings under this org — the
     // org record itself holds only contact + stage + the agreement/contract.
+    // Contact details are edited straight from these fields (blur/Enter
+    // saves). The Edit modal is still there for the structural bits — name,
+    // city/state, type, org type, parent corporation.
     var fields =
-      detailField('Primary contact', p.contact_name) +
-      detailField('Email', p.contact_email) +
-      detailField('Phone', p.contact_phone) +
+      inlineFieldHtml('Primary contact', 'contact', p.contact_name, 'Add a contact name') +
+      inlineFieldHtml('Email', 'email', p.contact_email, 'Add a contact email') +
+      inlineFieldHtml('Phone', 'phone', p.contact_phone, 'Add a phone number') +
       secondaryContactsFieldHtml(p) +
       detailFieldHtml('Stage', stageHtml);
 
@@ -612,21 +789,6 @@
     return '<div id="atsFParentCorpWrap"' + (v.org_type === 'corporation' ? ' style="display:none"' : '') + '>' +
       '<label>Part of corporation (optional)</label>' +
       '<select id="atsFParentCorp">' + opts + '</select>' +
-    '</div>';
-  }
-
-  // One editable secondary-contact row. Values are read back by position via
-  // data-sec-email/data-sec-name (NOT ids) — rows are added and removed
-  // freely, so a fixed id per row would collide the moment one is deleted.
-  function secondaryRowHtml(c) {
-    var v = c || {};
-    return '<div class="ats-sec-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">' +
-      // min-width:0 matters: a text input's intrinsic min-content width is ~20
-      // characters, and two of them plus the remove button would otherwise
-      // overflow the 480px modal instead of shrinking.
-      '<input type="text" data-sec-email placeholder="name@practice.com.au"' + ivAttr(v.email) + ' style="flex:1.4;min-width:0;margin:0" />' +
-      '<input type="text" data-sec-name placeholder="Name (optional)"' + ivAttr(v.name) + ' style="flex:1;min-width:0;margin:0" />' +
-      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="remove-secondary" title="Remove this contact" style="flex:none">✕</button>' +
     '</div>';
   }
 
@@ -819,6 +981,13 @@
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'resend-intake') resendIntake(id, t);
     else if (action === 'upload-contract') triggerContractUpload();
+    else if (action === 'add-secondary-detail') addSecondaryRowTo('atsDetailSecondaryList');
+    else if (action === 'remove-secondary') {
+      // Same button markup in the modal and on the detail panel; only the
+      // panel saves immediately (the modal waits for "Save changes").
+      removeSecondaryRow(t);
+      saveSecondaryFromDetail();
+    }
     // 'call-tel' / 'call-noop': intercepted here purely so the click doesn't
     // bubble to the enclosing card's 'open-practice' — the tel: link (when
     // present) still navigates via its own default browser action.
@@ -836,10 +1005,41 @@
     if (e.target && e.target.id === 'atsPracSearch') onSearchInput(e.target.value);
   }
 
+  // `change` on a text input fires on blur (and on Enter) ONLY when the value
+  // actually changed since it gained focus — exactly the save-on-leave
+  // semantics the inline fields want, with no keystroke-level chatter.
   function onPanelChange(e) {
-    if (!e.target) return;
-    if (e.target.id === 'atsStageSelect') onStageChange(e.target.value);
-    else if (e.target.id === 'atsContractFile') uploadContract(e.target);
+    var t = e.target;
+    if (!t) return;
+    if (t.id === 'atsStageSelect') { onStageChange(t.value); return; }
+    if (t.id === 'atsContractFile') { uploadContract(t); return; }
+    if (t.getAttribute && t.getAttribute('data-inline-field')) { saveInlineField(t); return; }
+    if (t.closest && t.closest('#atsDetailSecondaryList')) saveSecondaryFromDetail();
+  }
+
+  // Enter commits (blur → change → save); Escape abandons the edit and puts
+  // the stored value back, so a mistyped field is never one stray click from
+  // being saved.
+  function onPanelKeydown(e) {
+    var t = e.target;
+    if (!t || !t.classList) return;
+    var isInline = t.classList.contains('ats-inline-input');
+    var inSecondary = t.closest && t.closest('#atsDetailSecondaryList');
+    if (!isInline && !inSecondary) return;
+    if (e.key === 'Enter') { e.preventDefault(); t.blur(); return; }
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    if (isInline) {
+      var read = INLINE_SOURCE[t.getAttribute('data-inline-field')];
+      // Restore BEFORE blurring: the browser compares against the value the
+      // field had on focus, so putting it back means no change event fires
+      // and nothing is saved.
+      if (read && currentPractice) t.value = String(read(currentPractice) || '');
+      t.blur();
+    } else {
+      renderSecondaryRows();
+      showSecondaryError('');
+    }
   }
 
   // Modal-level change events: hide the parent-corporation dropdown while the
@@ -861,21 +1061,8 @@
     if (action === 'close-modal') closeModal();
     else if (action === 'create-practice') createPractice();
     else if (action === 'save-practice') savePractice();
-    else if (action === 'add-secondary') addSecondaryRow();
+    else if (action === 'add-secondary') addSecondaryRowTo('atsFSecondaryList');
     else if (action === 'remove-secondary') removeSecondaryRow(btn);
-  }
-
-  // Appends a blank row and focuses its email input — the field the user is
-  // there to fill. Rebuilding the whole list would wipe what they've typed
-  // into the other rows, so this appends rather than re-renders.
-  function addSecondaryRow() {
-    var host = document.getElementById('atsFSecondaryList');
-    if (!host) return;
-    host.insertAdjacentHTML('beforeend', secondaryRowHtml({}));
-    var rows = host.querySelectorAll('.ats-sec-row');
-    var last = rows[rows.length - 1];
-    var input = last ? last.querySelector('[data-sec-email]') : null;
-    if (input && input.focus) input.focus();
   }
 
   function removeSecondaryRow(btn) {
@@ -891,6 +1078,7 @@
     panel.addEventListener('click', onPanelClick);
     panel.addEventListener('input', onPanelInput);
     panel.addEventListener('change', onPanelChange);
+    panel.addEventListener('keydown', onPanelKeydown);
     var overlay = document.getElementById('atsOverlayRoot');
     if (overlay) {
       overlay.addEventListener('click', onOverlayClick);

@@ -207,3 +207,85 @@ describe('manual contract upload', () => {
     expect([302, 401, 403, 404]).toContain(u.status);
   });
 });
+
+// THE 2026-08-05 regression. Secondary contacts wrote to the practices row
+// fine, but atsListPracticesDerived() rebuilds every practice from an explicit
+// field whitelist and had no line for the new column — so the detail endpoint
+// always answered with an empty list. On screen that read as "the save didn't
+// work", and worse: reopening the edit modal showed no rows, so the next save
+// would have cleared the contacts for real. These tests pin the ROUND TRIP,
+// not just the write.
+describe('secondary contacts survive the read path', () => {
+  it('round-trips through create → GET detail', async () => {
+    const c = await req('POST', '/api/ats/practices', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: {
+        name: 'Secondary Clinic ' + RUN_ID, city: 'Perth', state: 'WA',
+        contact: 'Ana Primary', email: 'primary@sec-test.local',
+        secondary_contacts: [
+          { name: 'Bob', email: 'Bob@sec-test.local' },
+          { name: 'Cara', email: 'cara@sec-test.local' }
+        ]
+      }
+    });
+    expect(c.status).toBe(200);
+    const id = parse(c.raw).practice.id;
+
+    const d = await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() });
+    const body = parse(d.raw);
+    expect(body.ok).toBe(true);
+    expect(body.practice.secondary_contacts).toEqual([
+      { name: 'Bob', email: 'bob@sec-test.local' },
+      { name: 'Cara', email: 'cara@sec-test.local' }
+    ]);
+  });
+
+  it('round-trips through PATCH → GET detail, and an explicit [] clears them', async () => {
+    const c = await req('POST', '/api/ats/practices', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: { name: 'Patch Clinic ' + RUN_ID, city: 'Darwin', state: 'NT', email: 'primary@patch-test.local' }
+    });
+    const id = parse(c.raw).practice.id;
+
+    const p = await req('PATCH', '/api/ats/practice?id=' + encodeURIComponent(id), {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: { secondary_contacts: [{ name: 'Dee', email: 'dee@patch-test.local' }] }
+    });
+    expect(p.status).toBe(200);
+
+    let body = parse((await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() })).raw);
+    expect(body.practice.secondary_contacts).toEqual([{ name: 'Dee', email: 'dee@patch-test.local' }]);
+
+    // Removing the last row must actually remove it.
+    await req('PATCH', '/api/ats/practice?id=' + encodeURIComponent(id), {
+      host: SUPER_HOST, cookie: superCookie(), body: { secondary_contacts: [] }
+    });
+    body = parse((await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() })).raw);
+    expect(body.practice.secondary_contacts).toEqual([]);
+  });
+
+  it('never hands back the primary contact as a CC, even after the primary changes', async () => {
+    const c = await req('POST', '/api/ats/practices', {
+      host: SUPER_HOST, cookie: superCookie(),
+      body: {
+        name: 'Swap Clinic ' + RUN_ID, email: 'first@swap-test.local',
+        secondary_contacts: [{ name: 'Eve', email: 'eve@swap-test.local' }]
+      }
+    });
+    const id = parse(c.raw).practice.id;
+
+    // Promote the secondary to primary — it must drop out of the CC list.
+    await req('PATCH', '/api/ats/practice?id=' + encodeURIComponent(id), {
+      host: SUPER_HOST, cookie: superCookie(), body: { email: 'eve@swap-test.local' }
+    });
+    const body = parse((await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() })).raw);
+    expect(body.practice.contact_email).toBe('eve@swap-test.local');
+    expect(body.practice.secondary_contacts).toEqual([]);
+  });
+
+  it('a derived name-only practice reports an empty list rather than undefined', async () => {
+    const id = 'name:' + encodeURIComponent('Contract Only Clinic');
+    const d = await req('GET', '/api/ats/practice?id=' + encodeURIComponent(id), { host: SUPER_HOST, cookie: superCookie() });
+    expect(parse(d.raw).practice.secondary_contacts).toEqual([]);
+  });
+});
