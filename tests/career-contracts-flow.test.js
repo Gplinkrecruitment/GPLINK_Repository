@@ -517,6 +517,116 @@ describe('sendPostInterviewDecisionEmail — behavior (live-boot, Zoom meeting.e
     // name can't visually spoof the subject line either.
     expect(sent.subject).not.toMatch(/[<>]/);
   });
+
+  // ── Regression: the Zoom webhook RACE that lost a real practice email ─────
+  // Live incident 2026-08-01 (Khaleed Crypto @ Erina Medical Centre). Zoom
+  // delivered meeting.summary_completed 0.7s BEFORE meeting.ended. The summary
+  // handler's fallback branch flipped the booking booked -> completed, and
+  // meeting.ended's lookup was filtered to status='booked', so it matched
+  // nothing, logged "No booked scheduled_call" and returned WITHOUT sending the
+  // practice its extend-offer / not-proceeding email. The practice was never
+  // asked for a decision, and no sweep could recover it (all of them keyed off
+  // state only the skipped helper writes). These three tests cover both orders
+  // of arrival plus the safety net.
+
+  it('RACE: meeting.summary_completed arriving FIRST still emails the practice (it completes the interview, so it owes the email)', async () => {
+    const before = resendCalls.length;
+    db.gp_applications.push({
+      id: 'app-pi-race', user_id: GP.userId, career_role_id: 'role-pi-1', practice_id: 'p-pi-1',
+      provider_role_id: 'ats_pi_1', status: 'interview', ats_stage: 'interview', applied_at: NOW
+    });
+    db.scheduled_calls.push({
+      id: 'call-pi-race', user_id: GP.userId, application_id: 'app-pi-race', meeting_kind: 'interview',
+      status: 'booked', zoom_meeting_id: 'zoom-meeting-pi-race', scheduled_at: NOW, summary_status: 'not_requested'
+    });
+
+    const r = await postZoomWebhook({
+      event: 'meeting.summary_completed',
+      payload: { object: { meeting_id: 'zoom-meeting-pi-race', uuid: 'zoom-uuid-pi-race' } }
+    });
+    expect(r.status).toBe(200);
+
+    // It completed the call...
+    expect(callRow('call-pi-race').status).toBe('completed');
+    // ...so it owed the practice the decision email, and sent it.
+    const app = appRow('app-pi-race');
+    expect(app.status).toBe('interview_completed');
+    expect(app.post_interview_email_sent_at).toBeTruthy();
+    expect(resendCalls.length).toBe(before + 1);
+    expect(resendCalls[resendCalls.length - 1].body.to).toEqual(['reception@riverside-test.local']);
+  });
+
+  it('RACE: meeting.ended arriving SECOND (call already completed) still emails — the exact 2026-08-01 Erina failure', async () => {
+    const before = resendCalls.length;
+    db.gp_applications.push({
+      id: 'app-pi-late', user_id: GP.userId, career_role_id: 'role-pi-1', practice_id: 'p-pi-1',
+      provider_role_id: 'ats_pi_1', status: 'interview', ats_stage: 'interview', applied_at: NOW
+    });
+    // The summary webhook already won the race: call is completed, summary saved.
+    db.scheduled_calls.push({
+      id: 'call-pi-late', user_id: GP.userId, application_id: 'app-pi-late', meeting_kind: 'interview',
+      status: 'completed', completed_at: '2026-08-01T07:08:19.477Z', zoom_meeting_id: 'zoom-meeting-pi-late',
+      scheduled_at: NOW, summary_status: 'saved'
+    });
+
+    const r = await postZoomWebhook({
+      event: 'meeting.ended',
+      payload: { object: { id: 'zoom-meeting-pi-late', uuid: 'zoom-uuid-pi-late' } }
+    });
+    expect(r.status).toBe(200);
+
+    // Before the fix this sent NOTHING — the 'booked'-only lookup missed.
+    const app = appRow('app-pi-late');
+    expect(app.status).toBe('interview_completed');
+    expect(app.post_interview_email_sent_at).toBeTruthy();
+    expect(resendCalls.length).toBe(before + 1);
+
+    // And it must not trample what the summary handler already wrote: the
+    // first completion time stands, and an already-saved summary is NOT
+    // re-armed to 'pending' (which would send the summary-retry cron chasing
+    // a summary it has already stored).
+    const call = callRow('call-pi-late');
+    expect(call.completed_at).toBe('2026-08-01T07:08:19.477Z');
+    expect(call.summary_status).toBe('saved');
+  });
+
+  // The safety net that breaks the circular dependency. Seeded state is the
+  // EXACT prod shape of the stranded Erina row: a completed interview call
+  // carrying an application_id, whose application was never stamped and whose
+  // status is still plain 'interview' — so neither the no-show loop
+  // (status='booked') nor the older retry sweep (status='interview_completed')
+  // can see it.
+  // NOTE: this emulator ignores `not.` and range operators, so the sweep's
+  // `application_id=not.is.null` and `completed_at=gte.` clauses are NOT
+  // exercised here — both were verified directly against live prod PostgREST
+  // (the real query returned exactly the stranded Erina row).
+  it('ORPHAN SWEEP: detect-no-shows rescues a completed interview whose application was never stamped', async () => {
+    db.gp_applications.push({
+      id: 'app-pi-orphan', user_id: GP.userId, career_role_id: 'role-pi-1', practice_id: 'p-pi-1',
+      provider_role_id: 'ats_pi_1', status: 'interview', ats_stage: 'interview', applied_at: NOW,
+      interview_completed_at: null, post_interview_email_sent_at: null
+    });
+    db.scheduled_calls.push({
+      id: 'call-pi-orphan', user_id: GP.userId, application_id: 'app-pi-orphan', meeting_kind: 'interview',
+      status: 'completed', completed_at: new Date().toISOString(), zoom_meeting_id: 'zoom-meeting-pi-orphan',
+      scheduled_at: NOW, summary_status: 'saved'
+    });
+
+    const r1 = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
+    expect(r1.status).toBe(200);
+    expect(r1.body.orphanSent).toBeGreaterThanOrEqual(1);
+
+    const rescued = appRow('app-pi-orphan');
+    expect(rescued.post_interview_email_sent_at).toBeTruthy();
+    expect(rescued.status).toBe('interview_completed');
+
+    // Idempotent: a second pass finds it stamped and sends nothing more.
+    const beforeSecond = resendCalls.length;
+    const r2 = await getCron('/api/cron/detect-no-shows', { Authorization: 'Bearer ' + CRON_SECRET });
+    expect(r2.status).toBe(200);
+    expect(r2.body.orphanSent).toBe(0);
+    expect(resendCalls.length).toBe(beforeSecond);
+  });
 });
 
 // Task 10 (2026-07-22): the practice extend-offer / decline page + its four

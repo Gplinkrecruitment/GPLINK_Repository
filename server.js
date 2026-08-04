@@ -21847,10 +21847,33 @@ async function handleZoomMeetingEnded(payload) {
     return;
   }
 
-  // Match scheduled_calls by zoom_meeting_id where status='booked'
-  const r = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&status=eq.booked&limit=1');
+  // Match scheduled_calls by zoom_meeting_id. Deliberately NOT filtered to
+  // status='booked' any more.
+  //
+  // 🧨 THE BUG THIS FIXES (live, 2026-08-01, Khaleed Crypto @ Erina Medical
+  // Centre): Zoom delivered meeting.summary_completed 0.7s BEFORE meeting.ended
+  // (summary saved 07:08:20.037, meeting.ended recorded 07:08:20.216).
+  // handleZoomSummaryCompleted's fallback branch had already flipped the row
+  // booked -> completed, so this 'booked'-only lookup matched NOTHING, logged
+  // "No booked scheduled_call" and returned — and the post-interview
+  // practice-decision email below was never even ATTEMPTED. The practice was
+  // never asked to extend an offer or pass.
+  //
+  // Worse, it could never self-heal: every retry path keys off state this call
+  // site is the one that sets — the no-show loop and the stale-interview sweep
+  // both filter status='booked' (this row was 'completed'), and the
+  // post-interview retry sweep filters gp_applications.status='interview_completed',
+  // a stamp only sendPostInterviewDecisionEmail writes. Circular, so a row
+  // stranded here stayed stranded forever.
+  //
+  // Match any non-cancelled, non-no-show row instead and let the helper decide:
+  // sendPostInterviewDecisionEmail is idempotent (write-then-send stamp), so a
+  // duplicate delivery or a race with the summary handler is a safe no-op.
+  // no_show stays excluded on purpose — meeting.ended fires even when only the
+  // host joined, so matching it would resurrect a correctly-classified no-show.
+  const r = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&status=in.(booked,invited,completed)&order=created_at.desc&limit=1');
   if (!r.ok || !Array.isArray(r.data) || r.data.length === 0) {
-    console.warn('[zoom meeting.ended] No booked scheduled_call for meeting_id:', meetingId);
+    console.warn('[zoom meeting.ended] No matching scheduled_call for meeting_id:', meetingId);
     return;
   }
   const callRecord = r.data[0];
@@ -21860,9 +21883,13 @@ async function handleZoomMeetingEnded(payload) {
     method: 'PATCH', headers: { Prefer: 'return=minimal' },
     body: {
       status: 'completed',
-      completed_at: now,
-      zoom_meeting_uuid: meetingUuid || null,
-      summary_status: 'pending',
+      // Preserve what the summary handler may already have written when it won
+      // the race: keep the FIRST completion time, and never re-arm a summary
+      // that is already saved back to 'pending' (that would send the
+      // call-summary-retry cron chasing a summary it has already stored).
+      completed_at: callRecord.completed_at || now,
+      zoom_meeting_uuid: meetingUuid || callRecord.zoom_meeting_uuid || null,
+      summary_status: callRecord.summary_status === 'saved' ? 'saved' : 'pending',
       updated_at: now
     }
   });
@@ -21922,11 +21949,26 @@ async function handleZoomSummaryCompleted(payload) {
       return;
     }
     const nowIso = new Date().toISOString();
+    const summaryCompletesCall = callRecord.status === 'booked';
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
-      body: { status: callRecord.status === 'booked' ? 'completed' : callRecord.status, completed_at: callRecord.completed_at || nowIso, summary_status: 'pending', updated_at: nowIso }
+      body: { status: summaryCompletesCall ? 'completed' : callRecord.status, completed_at: callRecord.completed_at || nowIso, summary_status: 'pending', updated_at: nowIso }
     });
     callRecord = Object.assign({}, callRecord, { summary_status: 'pending' });
+    // Task 9 parity: when THIS handler is the one that ends the interview —
+    // i.e. Zoom's summary beat meeting.ended to us — it owes the practice the
+    // same extend-offer/not-proceeding email that meeting.ended sends. Before
+    // this, completing the call here silently consumed the 'booked' state that
+    // meeting.ended needed to find, so the email was lost with no retry path
+    // (see the long note in handleZoomMeetingEnded). Idempotent either way, so
+    // whichever webhook lands first wins and the other is a no-op.
+    if (summaryCompletesCall && callRecord.meeting_kind === 'interview' && callRecord.application_id) {
+      try {
+        await sendPostInterviewDecisionEmail(callRecord.application_id);
+      } catch (e) {
+        console.error('[post-interview] handleZoomSummaryCompleted send failed:', e && e.message);
+      }
+    }
   }
   await fetchAndSaveZoomSummary(callRecord);
 }
@@ -38571,7 +38613,60 @@ async function handleApi(req, res, pathname) {
         console.error('[post-interview] retry sweep failed:', piSweepErr && piSweepErr.message);
       }
 
-      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent, staleRescued: staleRescued });
+      // ── Orphaned-interview sweep: the real safety net ────────────────────
+      // Every OTHER retry path above keys off state that only
+      // sendPostInterviewDecisionEmail itself writes: the sweep directly above
+      // needs gp_applications.status='interview_completed', and the no-show /
+      // stale-interview loops need scheduled_calls.status='booked'. So if the
+      // helper never runs at all, nothing ever notices — the row is stranded
+      // permanently. That is exactly what happened on 2026-08-01 (Khaleed
+      // Crypto @ Erina Medical Centre): Zoom's summary webhook completed the
+      // call 0.7s before meeting.ended arrived, meeting.ended's 'booked'-only
+      // lookup missed, and the practice was never asked for a decision.
+      //
+      // This sweep keys off the one fact that is true regardless of WHICH
+      // webhook won: a COMPLETED interview call that carries an application_id.
+      // If that application still has no post_interview_email_sent_at, the
+      // practice is owed the email. The helper's own guards (already_sent /
+      // terminal) make re-checking harmless, so this is safe to run every pass.
+      let orphanChecked = 0, orphanSent = 0;
+      try {
+        const orphanRes = await supabaseDbRequest('scheduled_calls',
+          'select=id,application_id,completed_at&status=eq.completed&meeting_kind=eq.interview'
+          + '&application_id=not.is.null'
+          + '&completed_at=gte.' + encodeURIComponent(sinceIso) // same 7d window as the rest of the handler
+          + '&order=completed_at.desc&limit=25');
+        const orphanRows = (orphanRes.ok && Array.isArray(orphanRes.data)) ? orphanRes.data : [];
+        // Dedupe: a rebooked/rescheduled interview can leave more than one
+        // completed call pointing at the same application.
+        const seenAppIds = new Set();
+        for (const orphanCall of orphanRows) {
+          const orphanAppId = String(orphanCall.application_id || '').trim();
+          if (!orphanAppId || seenAppIds.has(orphanAppId)) continue;
+          seenAppIds.add(orphanAppId);
+          // Only spend a send attempt on applications that genuinely have no
+          // stamp — one cheap read beats re-entering the helper for every row.
+          const orphanAppRes = await supabaseDbRequest('gp_applications',
+            'select=id,post_interview_email_sent_at&id=eq.' + encodeURIComponent(orphanAppId)
+            + '&post_interview_email_sent_at=is.null&limit=1');
+          const orphanApp = (orphanAppRes.ok && Array.isArray(orphanAppRes.data) && orphanAppRes.data[0]) ? orphanAppRes.data[0] : null;
+          if (!orphanApp) continue;
+          orphanChecked++;
+          try {
+            const orphanResult = await sendPostInterviewDecisionEmail(orphanAppId);
+            if (orphanResult && orphanResult.ok) {
+              orphanSent++;
+              console.warn('[post-interview] orphan sweep rescued application', orphanAppId, 'from call', orphanCall.id);
+            }
+          } catch (orphanErr) {
+            console.error('[post-interview] orphan sweep send failed for app', orphanAppId, ':', orphanErr && orphanErr.message);
+          }
+        }
+      } catch (orphanSweepErr) {
+        console.error('[post-interview] orphan sweep failed:', orphanSweepErr && orphanSweepErr.message);
+      }
+
+      sendJson(res, 200, { ok: true, checked: calls.length, noShows: noShows, attended: attended, presumedComplete: presumedComplete, skipped: skipped, postInterviewChecked: postInterviewChecked, postInterviewSent: postInterviewSent, staleRescued: staleRescued, orphanChecked: orphanChecked, orphanSent: orphanSent });
     } catch (e) {
       console.error('[detect-no-shows] error:', e && e.message);
       await respondServerError(res, e, { route: pathname, method: req.method });
