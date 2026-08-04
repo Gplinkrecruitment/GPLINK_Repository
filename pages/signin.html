@@ -1318,8 +1318,21 @@
 
       const state = payload.state && typeof payload.state === "object" ? payload.state : {};
       BOOTSTRAP_STATE_KEYS.forEach((key) => {
-        if (typeof state[key] === "string") {
-          safeSetStorage(localStorage, key, state[key]);
+        const value = state[key];
+        if (typeof value === "string") {
+          safeSetStorage(localStorage, key, value);
+        } else if (value != null) {
+          // Supabase stores this row as JSONB, so anything the server never
+          // double-encoded arrives as a real boolean/object — gp_onboarding_complete
+          // is literally `true`, not `"true"`. The string-only test above dropped
+          // every one of them into the else branch and DELETED the key at sign-in,
+          // which is the one moment it is most needed: pages/index.html's gateway
+          // reads gp_onboarding_complete === "true" and, not finding it, put a
+          // fully-onboarded doctor behind the onboarding spinner on every login
+          // while it re-asked the server (owner report 2026-08-03: "he logged in
+          // and hit the onboarding screens"). js/state-sync.js already normalises
+          // the same payload this way — sign-in was the odd one out.
+          safeSetStorage(localStorage, key, typeof value === "boolean" ? String(value) : JSON.stringify(value));
         } else {
           safeRemoveStorage(localStorage, key);
           safeRemoveStorage(localStorage, key + SAVE_BATCH_META_SUFFIX);

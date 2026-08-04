@@ -16127,6 +16127,33 @@ async function _completeRegTask(taskId, caseId, actor) {
 // .onboarding_completed_at is written ONCE at completion and never cleared, so it is the real
 // answer. Only consulted when the state does not already say complete, so the common path
 // costs nothing extra.
+// Like resolveOnboardingCompleteFlag, but tells "we could not find out" (null)
+// apart from "definitely not finished" (false).
+//
+// The sign-in redirect needs that difference and nothing else does. Marching a
+// doctor who HAS onboarded back through onboarding is a far worse failure than
+// sending a genuinely new account to the dashboard, because the dashboard is
+// not a dead end: pages/index.html runs its own onboarding gateway on arrival
+// and forwards anyone who really hasn't finished. So "unknown" must land on the
+// dashboard, where the question gets asked again properly.
+async function resolveOnboardingCompleteOrUnknown(email, stateObj) {
+  var st = stateObj && typeof stateObj === 'object' ? stateObj : null;
+  if (st && (st.gp_onboarding_complete === true || st.gp_onboarding_complete === 'true')) return true;
+  if (!email || !isSupabaseDbConfigured()) return null;
+  try {
+    var pRes = await supabaseDbRequest('user_profiles',
+      'select=onboarding_completed_at&email=eq.' + encodeURIComponent(email) + '&limit=1');
+    // The read itself failed — that is not evidence about this doctor.
+    if (!pRes.ok || !Array.isArray(pRes.data)) return null;
+    // No profile row at all: only a conclusion if we could also read their
+    // state row and it said nothing about onboarding either.
+    if (!pRes.data[0]) return st ? false : null;
+    return !!pRes.data[0].onboarding_completed_at;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function resolveOnboardingCompleteFlag(email, stateObj) {
   var st = stateObj || {};
   if (st.gp_onboarding_complete === true || st.gp_onboarding_complete === 'true') return true;
@@ -39303,11 +39330,26 @@ async function handleApi(req, res, pathname) {
         sessionUserId: supaUserId,
         sessionProfile
       });
-      // Check onboarding status — redirect new users straight to onboarding
+      // Where to land after sign-in: a genuinely new account goes to onboarding,
+      // everyone else goes home.
+      //
+      // This used to read ONLY user_state.gp_onboarding_complete, and treated
+      // every non-answer as "not onboarded" — `.catch(() => null)` collapsed to
+      // `{}`, so one slow or failed Supabase read at the moment of login sent a
+      // doctor who finished onboarding weeks ago straight back through it
+      // (owner report 2026-08-03). It also ignored the CANONICAL marker,
+      // user_profiles.onboarding_completed_at, which is written once at
+      // completion and is exactly what survives a user_state row being reset or
+      // lost — the same reasoning pages/index.html's gateway already documents.
+      //
+      // Now only a positive "no" redirects. Unknown lands on the dashboard,
+      // which runs that gateway itself and forwards anyone who really hasn't
+      // finished — so failing open cannot strand a new account either.
       let loginRedirect = '/pages/index.html';
       const stateCheck = await getSupabaseUserStateByEmail(email).catch(() => null);
-      const stateObj = stateCheck && stateCheck.state && typeof stateCheck.state === 'object' ? stateCheck.state : {};
-      if (!stateObj.gp_onboarding_complete) {
+      const stateObj = stateCheck && stateCheck.state && typeof stateCheck.state === 'object' ? stateCheck.state : null;
+      const onboardedAnswer = await resolveOnboardingCompleteOrUnknown(email, stateObj);
+      if (onboardedAnswer === false) {
         loginRedirect = '/pages/onboarding.html';
       }
       sendJson(res, 200, {

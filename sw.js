@@ -27,7 +27,7 @@
   // "Interview confirmed" plus a live Join forever. index and career are both
   // precached in PAGE_CACHE, so without a bump a doctor keeps the old markup for a
   // navigation — which for the gateway means being bounced to onboarding one more time.
-  var VERSION = "20260805a";
+  var VERSION = "20260805b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
