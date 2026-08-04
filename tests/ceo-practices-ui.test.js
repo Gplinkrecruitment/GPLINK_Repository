@@ -193,7 +193,8 @@ describe('CEO Practices tab — inline field editing', () => {
     expect(css).toMatch(/\.ats-inline-input/);
     expect(css).toMatch(/\.ats-sec-row/);
     expect(css).toMatch(/\.ats-sec-remove/);
-    expect(ceo).toContain('/css/ceo-ats.css?v=20260805a');
+    expect(ceo).toContain('/css/ceo-ats.css?v=20260805b');
+    expect(ceo).not.toContain('/css/ceo-ats.css?v=20260805a');
   });
 });
 

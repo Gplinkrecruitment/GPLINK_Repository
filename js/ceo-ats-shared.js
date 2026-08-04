@@ -183,6 +183,29 @@
     swr('/api/ceo/candidates', function (d) { var el = document.getElementById('masterCandCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.candidates ? d.candidates.length : ''); });
     swr('/api/ats/jobs', function (d) { var el = document.getElementById('masterJobsCount'); if (el && d && d.ok) el.textContent = d.open_count != null ? d.open_count : (d.jobs ? d.jobs.length : ''); });
     swr('/api/ats/practices', function (d) { var el = document.getElementById('masterPracCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.practices ? d.practices.length : ''); });
+    // Contracts is an ALERT, not a count: a contract landing means somebody is
+    // waiting on the CEO, so it gets a red "!" that stays until every one is
+    // actioned (submitted to the GP / returned to the practice). Setting the
+    // data-count attribute is what reveals it — see .ats-alert-dot in ceo-ats.css.
+    window.ATS.refreshContractsAlert = function () {
+      swr('/api/ceo/contracts', function (d) {
+        var el = document.getElementById('masterContractsAlert');
+        if (!el || !d || !d.ok) return;
+        var n = d.needsReview != null
+          ? d.needsReview
+          : (d.contracts || []).filter(function (c) { return c.status === 'uploaded' || c.status === 'changes_requested'; }).length;
+        if (n > 0) {
+          el.setAttribute('data-count', String(n));
+          el.textContent = '!';
+          el.title = n + (n === 1 ? ' contract needs' : ' contracts need') + ' your review';
+        } else {
+          el.removeAttribute('data-count');
+          el.textContent = '';
+          el.removeAttribute('title');
+        }
+      });
+    };
+    window.ATS.refreshContractsAlert();
     // Honour an initial deep-link hash (used by tab links + screenshots).
     applyHash();
   }

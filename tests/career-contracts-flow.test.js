@@ -1626,7 +1626,11 @@ describe('CEO Contracts tab UI (Task 12)', () => {
   });
 
   it('loads the contracts tab script with a cache-busted src', () => {
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260724b');
+    // Bumped 2026-08-05 for the inline contract reader + red highlighting.
+    // JS is served with max-age=3600, so a stale pin here means the owner keeps
+    // getting the previous file for an hour after a deploy.
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805a');
+    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260724b');
   });
 
   it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {
@@ -3695,5 +3699,328 @@ describe('detect-no-shows — Zoom-unconfigured fallback (Task 15)', () => {
     // excludes it outright on the second pass.
     expect(callRow(CALL_PAST).completed_at).toBe(completedAtBefore);
     expect(resendCalls.length).toBe(before);
+  });
+});
+
+// ============================================================================
+// 2026-08-05 incident: a practice uploaded a perfectly ordinary .docx contract
+// and the CEO's Contracts tab showed "AI review failed: Anthropic API error
+// 400" with an "Unreadable" verdict. Cause: the review base64'd the file and
+// passed its OWN mime through as a `document` block media_type, but the
+// Messages API only accepts application/pdf there. Nothing was wrong with the
+// contract — we handed the API a media type it never supported.
+// ============================================================================
+describe('contract file reading — what we actually send the AI', () => {
+  let readContractFileForReview;
+  beforeAll(async () => {
+    process.env.AGENT_SKIP_DOTENV = 'true';
+    const mod = await import('../server.js');
+    readContractFileForReview = mod.__testUtils.readContractFileForReview;
+  });
+
+  it('sends a PDF as a real base64 document block with the ONLY media_type the API accepts', async () => {
+    const res = await readContractFileForReview(Buffer.from('%PDF-1.4 fake'), 'application/pdf', 'contract.pdf');
+    expect(res.ok).toBe(true);
+    expect(res.kind).toBe('pdf');
+    expect(res.blocks).toHaveLength(1);
+    expect(res.blocks[0].type).toBe('document');
+    expect(res.blocks[0].source.media_type).toBe('application/pdf');
+  });
+
+  it('detects a PDF by extension even when the stored mime is missing or wrong', async () => {
+    const res = await readContractFileForReview(Buffer.from('%PDF-1.4 fake'), '', 'Contract.PDF');
+    expect(res.ok).toBe(true);
+    expect(res.blocks[0].source.media_type).toBe('application/pdf');
+  });
+
+  it('NEVER puts a .docx media_type in a document block — that is the exact 400 (it becomes text)', async () => {
+    const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    // A non-zip buffer makes mammoth fail, which is the unreadable path. The
+    // point of this assertion is what we DON'T do: emit a document block
+    // carrying the docx media_type.
+    const res = await readContractFileForReview(Buffer.from('not really a docx'), DOCX_MIME, 'contract.docx');
+    const serialised = JSON.stringify(res.blocks || []);
+    expect(serialised).not.toContain(DOCX_MIME);
+    expect(res.ok).toBe(false);
+    // ...and it explains itself in words the CEO can act on.
+    expect(res.reason).toMatch(/scanned image|PDF|Word/i);
+    expect(res.reason).not.toMatch(/\b400\b/);
+  });
+
+  it('reads a real .docx into text and sends it as a text block (the Erina case)', async () => {
+    const mammoth = (await import('mammoth')).default || (await import('mammoth'));
+    // Build a genuine minimal .docx (a zip with word/document.xml) so this
+    // exercises the real mammoth path, not a stub.
+    const docXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+      + '<w:p><w:r><w:t>Minimum income guarantee of $150 per hour.</w:t></w:r></w:p>'
+      + '</w:body></w:document>';
+    const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+      + '</Types>';
+    const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+      + '</Relationships>';
+    const buf = buildStoredZip([
+      { name: '[Content_Types].xml', data: Buffer.from(contentTypes, 'utf8') },
+      { name: '_rels/.rels', data: Buffer.from(rels, 'utf8') },
+      { name: 'word/document.xml', data: Buffer.from(docXml, 'utf8') }
+    ]);
+    // Sanity-check the fixture really is a docx mammoth can open, so a failure
+    // below points at our code and not at a broken hand-rolled zip.
+    const probe = await mammoth.extractRawText({ buffer: buf });
+    expect(probe.value).toContain('$150 per hour');
+
+    const res = await readContractFileForReview(buf, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'contract.docx');
+    expect(res.ok).toBe(true);
+    expect(res.kind).toBe('text');
+    expect(res.text).toContain('$150 per hour');
+    expect(res.blocks[0].type).toBe('text');
+    expect(JSON.stringify(res.blocks)).not.toContain('document');
+  });
+
+  it('refuses a legacy .doc and an unknown type with an actionable message, not a status code', async () => {
+    const legacy = await readContractFileForReview(Buffer.from('\xD0\xCF\x11\xE0'), 'application/msword', 'contract.doc');
+    expect(legacy.ok).toBe(false);
+    expect(legacy.reason).toMatch(/re-save|PDF|\.docx/i);
+
+    const unknown = await readContractFileForReview(Buffer.from('binary'), 'image/png', 'contract.png');
+    expect(unknown.ok).toBe(false);
+    expect(unknown.reason).toMatch(/PDF|Word/i);
+  });
+
+  it('reads plain text, and rejects binary masquerading as text', async () => {
+    const good = await readContractFileForReview(Buffer.from('Billing split is 65%.'), 'text/plain', 'c.txt');
+    expect(good.ok).toBe(true);
+    expect(good.text).toContain('65%');
+
+    const bad = await readContractFileForReview(Buffer.from([0xff, 0xfe, 0xff, 0xfe, 0xff, 0xfe]), 'text/plain', 'c.txt');
+    expect(bad.ok).toBe(false);
+  });
+
+  it('an empty file is reported as empty, never sent to the API', async () => {
+    const res = await readContractFileForReview(Buffer.alloc(0), 'application/pdf', 'c.pdf');
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/empty/i);
+  });
+
+  it('the review asks for a VERBATIM quote — the inline highlighter depends on it', () => {
+    const src = fs.readFileSync(SERVER_PATH, 'utf8');
+    const start = src.indexOf('async function aiReviewCareerContract');
+    const body = src.slice(start, start + 12000);
+    expect(body).toMatch(/contract_says/);
+    expect(body).toMatch(/VERBATIM/);
+    // The old unconditional passthrough must be gone for good.
+    expect(body).not.toContain("media_type: normalizedMime");
+  });
+
+  it('an API failure reports the service\'s own explanation, not a bare status', () => {
+    const src = fs.readFileSync(SERVER_PATH, 'utf8');
+    expect(src).not.toContain("throw new Error('Anthropic API error ' + (resp && resp.status))");
+    expect(src).toContain('the AI service rejected the request');
+  });
+});
+
+// Minimal STORED (uncompressed) zip writer — enough for a .docx fixture
+// without adding a dev dependency. Local header + central directory + EOCD.
+function buildStoredZip(entries) {
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const nameBuf = Buffer.from(e.name, 'utf8');
+    const crc = crc32(e.data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);      // stored
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(e.data.length, 18);
+    local.writeUInt32LE(e.data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    local.writeUInt16LE(0, 28);
+    chunks.push(local, nameBuf, e.data);
+
+    const cd = Buffer.alloc(46);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(20, 4);
+    cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(0, 8);
+    cd.writeUInt16LE(0, 10);
+    cd.writeUInt16LE(0, 12);
+    cd.writeUInt16LE(0, 14);
+    cd.writeUInt32LE(crc, 16);
+    cd.writeUInt32LE(e.data.length, 20);
+    cd.writeUInt32LE(e.data.length, 24);
+    cd.writeUInt16LE(nameBuf.length, 28);
+    cd.writeUInt16LE(0, 30);
+    cd.writeUInt16LE(0, 32);
+    cd.writeUInt16LE(0, 34);
+    cd.writeUInt16LE(0, 36);
+    cd.writeUInt32LE(0, 38);
+    cd.writeUInt32LE(offset, 42);
+    central.push(cd, nameBuf);
+    offset += local.length + nameBuf.length + e.data.length;
+  }
+  const centralBuf = Buffer.concat(central);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralBuf.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  eocd.writeUInt16LE(0, 20);
+  return Buffer.concat([Buffer.concat(chunks), centralBuf, eocd]);
+}
+
+let CRC_TABLE = null;
+function crc32(buf) {
+  if (!CRC_TABLE) {
+    CRC_TABLE = [];
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      CRC_TABLE[n] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) crc = CRC_TABLE[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+// ============================================================================
+// The inline contract reader (owner request 2026-08-05): "I should also be able
+// to see the contract without having to download, with all AI findings of
+// discrepancies highlighted red." The highlighter is the load-bearing piece —
+// if it silently matches nothing the CEO reads a contract with no marks on it
+// and reasonably concludes it is clean.
+// ============================================================================
+describe('inline contract reader — red highlighting', () => {
+  let highlight;
+  beforeAll(async () => {
+    const vm = await import('node:vm');
+    const sandbox = {
+      window: {},
+      document: { readyState: 'complete', getElementById: () => null, addEventListener: () => {}, querySelectorAll: () => [], querySelector: () => null },
+      console, setTimeout, clearTimeout,
+      location: { hash: '' }, history: { replaceState: () => {} }
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/ceo-ats-shared.js'), 'utf8'), sandbox, { filename: 'ceo-ats-shared.js' });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8'), sandbox, { filename: 'ceo-ats-contracts.js' });
+    highlight = sandbox.window.__ceoContractHighlight;
+  });
+
+  it('wraps the AI-quoted clause in <mark> and leaves the rest of the contract alone', () => {
+    const text = 'The Practitioner shall receive a billing split of 60%. Leave is four weeks.';
+    const out = highlight(text, ['a billing split of 60%']);
+    expect(out.html).toContain('<mark>a billing split of 60%</mark>');
+    expect(out.html).toContain('Leave is four weeks.');
+    expect(out.unmatched).toHaveLength(0);
+  });
+
+  it('still matches when the contract wraps the clause across lines (the DOCX case)', () => {
+    // Extracted DOCX text breaks lines wherever Word did; the model quotes it
+    // back on one line. An exact === match would find nothing here.
+    const text = 'The Practitioner shall receive\n   a billing split\tof 60% of billings.';
+    const out = highlight(text, ['a billing split of 60%']);
+    expect(out.html).toContain('<mark>');
+    expect(out.unmatched).toHaveLength(0);
+    // The original spacing is preserved inside the highlight — we mark up the
+    // real text, we don't reformat it.
+    expect(out.html).toMatch(/<mark>a billing split\s+of 60%<\/mark>/);
+  });
+
+  it('is case-insensitive but never rewrites the contract\'s own casing', () => {
+    const out = highlight('RESTRAINT OF TRADE: five kilometres.', ['restraint of trade: five kilometres']);
+    expect(out.html).toContain('<mark>RESTRAINT OF TRADE: five kilometres</mark>');
+  });
+
+  it('escapes HTML in the contract so a crafted clause cannot inject markup', () => {
+    const out = highlight('Clause <script>alert(1)</script> and more', ['<script>alert(1)</script>']);
+    expect(out.html).not.toContain('<script>');
+    expect(out.html).toContain('&lt;script&gt;');
+  });
+
+  it('reports a quote it could not find instead of silently dropping it', () => {
+    const out = highlight('Nothing about pay in here at all.', ['a billing split of 60%']);
+    expect(out.unmatched).toHaveLength(1);
+    expect(out.html).not.toContain('<mark>');
+  });
+
+  it('ignores fragments too short to be meaningful (they would paint everything red)', () => {
+    const out = highlight('a b c a b c a b c', ['a b']);
+    expect(out.html).not.toContain('<mark>');
+  });
+
+  it('merges overlapping quotes into one highlight rather than nesting <mark>s', () => {
+    const text = 'The billing split of 60% applies from the start date.';
+    const out = highlight(text, ['billing split of 60% applies', 'split of 60%']);
+    expect((out.html.match(/<mark>/g) || []).length).toBe(1);
+  });
+
+  it('returns the plain escaped contract when there are no discrepancies at all', () => {
+    const out = highlight('All good & fine.', []);
+    expect(out.html).toBe('All good &amp; fine.');
+    expect(out.unmatched).toHaveLength(0);
+  });
+});
+
+describe('Contracts tab wiring — inline reader, nav alert, re-run', () => {
+  const SRV = fs.readFileSync(SERVER_PATH, 'utf8');
+  const CONTRACTS_JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8');
+  const SHARED_JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-shared.js'), 'utf8');
+  const CEO_HTML = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
+  const CSS = fs.readFileSync(path.join(ROOT, 'css/ceo-ats.css'), 'utf8');
+
+  it('serves a CEO-only preview endpoint that returns extracted text or a PDF url', () => {
+    expect(SRV).toContain("pathname === '/api/ceo/contract/preview'");
+    const start = SRV.indexOf("pathname === '/api/ceo/contract/preview'");
+    const body = SRV.slice(start, start + 2600);
+    expect(body).toContain('requireCeoSession');           // never public
+    expect(body).toContain("kind: 'pdf'");
+    expect(body).toContain("kind: 'text'");
+    expect(body).toContain('readContractFileForReview');   // one shared reader
+  });
+
+  it('the contracts list reports how many need review, for the nav alert', () => {
+    expect(SRV).toContain('needsReview: ccNeedsReview');
+  });
+
+  it('the card renders the contract inline (not only a download link)', () => {
+    expect(CONTRACTS_JS).toContain('data-doc-slot');
+    expect(CONTRACTS_JS).toContain('/api/ceo/contract/preview');
+    expect(CONTRACTS_JS).toContain('ats-doc-view');
+    expect(CONTRACTS_JS).toContain('ats-doc-frame');       // PDFs render in-page
+    // The old download-only affordance is demoted, not the primary action.
+    expect(CONTRACTS_JS).not.toContain('>View contract<');
+  });
+
+  it('a failed AI review offers a re-run instead of dead-ending', () => {
+    expect(CONTRACTS_JS).toContain("data-action=\"rerun_ai\"");
+    expect(CONTRACTS_JS).toContain('/api/ceo/contract/ai-check');
+  });
+
+  it('the Contracts nav tab carries a red "!" that only shows when work is waiting', () => {
+    expect(CEO_HTML).toContain('id="masterContractsAlert"');
+    expect(SHARED_JS).toContain('refreshContractsAlert');
+    expect(SHARED_JS).toContain("el.setAttribute('data-count'");
+    expect(SHARED_JS).toContain("el.removeAttribute('data-count')");   // clears when done
+    // Hidden by default; revealed only once data-count is set.
+    expect(CSS).toContain('.ats-alert-dot { display:none; }');
+    expect(CSS).toContain('.ats-alert-dot[data-count]');
+  });
+
+  it('highlighted clauses are actually red in the stylesheet', () => {
+    expect(CSS).toContain('.ats-doc-view mark');
+    expect(CSS).toMatch(/\.ats-doc-view mark \{[^}]*#ef4444/);
   });
 });

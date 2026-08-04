@@ -2715,6 +2715,73 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
 // bad JSON) still PATCHes ai_review_status:'error' with a usable stub
 // ai_review so the row is never left half-written and callers never have to
 // special-case a thrown error.
+// 🧨 Turn an uploaded contract file into something the Anthropic API will
+// actually accept — and into plain text the CEO's inline viewer can render.
+//
+// THE BUG THIS FIXES (live, 2026-08-05, Erina Medical Centre @ Khaleed Crypto):
+// the old code base64'd the file and passed its OWN mime straight through as a
+// `document` block's media_type. The Messages API only accepts `application/pdf`
+// (and plain text) there, so the practice uploading a perfectly ordinary .docx
+// produced a flat `400` and the CEO saw "AI review failed: Anthropic API error
+// 400" with a useless "Unreadable" verdict. Nothing about the contract was
+// wrong — we were handing the API a media type it never supported.
+//
+// Returns { ok, kind, blocks, text, reason }:
+//   kind 'pdf'   → a real base64 document block (the API reads PDFs natively)
+//   kind 'text'  → DOCX/plain text extracted to text and sent as a text block
+//   ok:false     → we genuinely cannot read it; the caller reports WHY in
+//                  plain words instead of leaking an HTTP status code.
+// `text` is also what powers the inline viewer, so extraction happens once
+// here and both callers share the same result shape.
+async function readContractFileForReview(buffer, mimeType, filename) {
+  var buf = Buffer.isBuffer(buffer) ? buffer : null;
+  if (!buf || !buf.length) return { ok: false, kind: 'empty', reason: 'The uploaded contract file is empty.' };
+
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var name = String(filename || '').trim().toLowerCase();
+  var ext = (name.match(/\.([a-z0-9]+)$/) || [, ''])[1];
+
+  // PDF — the one binary format the Messages API reads natively.
+  if (mime === 'application/pdf' || ext === 'pdf') {
+    return {
+      ok: true,
+      kind: 'pdf',
+      text: '',
+      blocks: [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } }]
+    };
+  }
+
+  // DOCX — a zip of XML, invisible to the API. Extract the words with mammoth
+  // (already a dependency) and send them as ordinary text.
+  var isDocx = ext === 'docx'
+    || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (isDocx) {
+    var docxText = await extractDocxTextWithMammoth(buf);
+    if (!String(docxText || '').trim()) {
+      return { ok: false, kind: 'docx', reason: 'This Word document has no readable text in it (it may be a scanned image). Ask the practice to send a PDF or a text-based Word file.' };
+    }
+    return { ok: true, kind: 'text', text: docxText, blocks: [{ type: 'text', text: docxText }] };
+  }
+
+  // Plain text-ish formats — read them as UTF-8.
+  var isPlain = mime.indexOf('text/') === 0 || ext === 'txt' || ext === 'md' || ext === 'rtf';
+  if (isPlain) {
+    var plain = buf.toString('utf8');
+    // A binary file mislabelled as text shows up as replacement characters —
+    // treat that as unreadable rather than feeding the model mojibake.
+    if (!plain.trim() || (plain.match(/�/g) || []).length > plain.length * 0.05) {
+      return { ok: false, kind: 'text', reason: 'The uploaded file could not be read as text. Ask the practice to send a PDF or Word document.' };
+    }
+    return { ok: true, kind: 'text', text: plain, blocks: [{ type: 'text', text: plain }] };
+  }
+
+  // Legacy .doc and everything else: say so in words the CEO can act on.
+  if (ext === 'doc' || mime === 'application/msword') {
+    return { ok: false, kind: 'doc', reason: 'This is an old-style Word (.doc) file, which we cannot read. Ask the practice to re-save it as PDF or .docx and upload again.' };
+  }
+  return { ok: false, kind: ext || 'unknown', reason: 'We cannot read "' + (filename || 'this file') + '". Ask the practice to upload the contract as a PDF or Word (.docx) document.' };
+}
+
 function _contractAiBlankExtractedTerms() {
   return {
     billing_split: null,
@@ -2833,28 +2900,68 @@ async function aiReviewCareerContract(contractRow) {
     return { ai_review_status: 'error', ai_review: noFileReview };
   }
 
-  function docBlock(buf, mime) {
-    var data = buf.toString('base64');
-    var normalizedMime = String(mime || contract.contract_mime || 'application/pdf').trim() || 'application/pdf';
-    return { type: 'document', source: { type: 'base64', media_type: normalizedMime, data: data } };
+  // Read the file into something the API accepts (PDF natively, DOCX/text
+  // extracted). An unreadable file is reported in plain words — never as a
+  // bare HTTP status — and never sent to the API just to earn a 400.
+  var contractRead = await readContractFileForReview(
+    fileObj.buffer,
+    contract.contract_mime || fileObj.mimeType,
+    contract.contract_filename
+  );
+  if (!contractRead.ok) {
+    var unreadableReview = {
+      overall: 'unreadable',
+      summary: contractRead.reason,
+      extracted_terms: _contractAiBlankExtractedTerms(),
+      discrepancies: [],
+      interview_terms_available: interviewTermsAvailable
+    };
+    await persist(unreadableReview, 'error', termsContext);
+    return { ai_review_status: 'error', ai_review: unreadableReview };
   }
 
+  // `contract_says` MUST be a verbatim quote: the CEO's inline viewer finds
+  // that exact string in the contract text and highlights it red. A paraphrase
+  // silently breaks the highlight, so the shape is spelled out rather than
+  // left for the model to infer (it previously was).
   var promptText = 'You are checking an employment contract a practice uploaded for a GP placement.\n' +
     'Compare the contract against (1) the terms discussed in the interview (the Zoom\n' +
     'meeting summary below) and (2) the advertised job terms. Where interview terms\n' +
     'and the advertised terms differ, THE INTERVIEW TERMS SUPERSEDE the listing.\n' +
     'If no interview summary is provided, compare against the advertised/offer terms\n' +
-    'only and set interview_terms_available=false.\n' +
-    'Respond with ONLY JSON matching: {overall, summary, extracted_terms:{...}, discrepancies:[...], interview_terms_available}';
+    'only and set interview_terms_available=false.\n\n' +
+    'Respond with ONLY JSON in exactly this shape:\n' +
+    '{\n' +
+    '  "overall": "aligned" | "minor_gaps" | "major_discrepancies" | "unreadable",\n' +
+    '  "summary": "2-4 plain-English sentences a non-lawyer can act on",\n' +
+    '  "extracted_terms": {"start_date":…, "sessions_per_week":…, "billing_split":…, "base_or_guarantee":…, "leave":…, "restraint":…, "other":[…]},\n' +
+    '  "discrepancies": [\n' +
+    '    {\n' +
+    '      "field": "short label, e.g. Billing split",\n' +
+    '      "severity": "minor" | "major",\n' +
+    '      "contract_says": "VERBATIM quote copied EXACTLY from the contract text — character for character, no paraphrase, no ellipsis, no added quotation marks. This exact string is highlighted in the contract, so it must appear in it word for word. Keep it under ~200 characters: quote the specific clause, not the whole paragraph.",\n' +
+    '      "expected": "what the interview/offer/listing actually promised",\n' +
+    '      "source": "interview" | "offer" | "listing"\n' +
+    '    }\n' +
+    '  ],\n' +
+    '  "interview_terms_available": true | false\n' +
+    '}\n' +
+    'Report a discrepancy for anything materially worse for the doctor than what was\n' +
+    'promised, anything promised that is missing from the contract, and any unusual\n' +
+    'restraint, clawback or termination clause even if nothing contradicts it.';
 
-  var contentBlocks = [
-    { type: 'text', text: 'EMPLOYMENT CONTRACT (uploaded by the practice):' },
-    docBlock(fileObj.buffer, contract.contract_mime || fileObj.mimeType),
-    { type: 'text', text: 'INTERVIEW SUMMARY (Zoom meeting — supersedes the advertised terms where they differ):\n' + (interviewSummary || '(No interview summary is available for this application.)') },
-    { type: 'text', text: 'OFFER RECORD (the offer GP Link sent to the candidate):\n' + JSON.stringify(offerTerms || {}) },
-    { type: 'text', text: 'ADVERTISED JOB LISTING TERMS:\n' + JSON.stringify(listingTerms || {}) },
-    { type: 'text', text: promptText }
-  ];
+  var contractIntro = contractRead.kind === 'pdf'
+    ? 'EMPLOYMENT CONTRACT (uploaded by the practice, attached as a PDF):'
+    : 'EMPLOYMENT CONTRACT (uploaded by the practice, text extracted from ' + (contract.contract_filename || 'the uploaded file') + '):';
+
+  var contentBlocks = [{ type: 'text', text: contractIntro }]
+    .concat(contractRead.blocks)
+    .concat([
+      { type: 'text', text: 'INTERVIEW SUMMARY (Zoom meeting — supersedes the advertised terms where they differ):\n' + (interviewSummary || '(No interview summary is available for this application.)') },
+      { type: 'text', text: 'OFFER RECORD (the offer GP Link sent to the candidate):\n' + JSON.stringify(offerTerms || {}) },
+      { type: 'text', text: 'ADVERTISED JOB LISTING TERMS:\n' + JSON.stringify(listingTerms || {}) },
+      { type: 'text', text: promptText }
+    ]);
 
   var reviewResult;
   var status;
@@ -2889,7 +2996,21 @@ async function aiReviewCareerContract(contractRow) {
     }
 
     if (!resp || !resp.ok) {
-      throw new Error('Anthropic API error ' + (resp && resp.status));
+      // Read the API's own explanation instead of throwing a bare status. A
+      // lone "Anthropic API error 400" told the CEO nothing and sent a real
+      // 2026-08-05 incident (a .docx media_type the API never accepted) down
+      // a dead end — the body says exactly what was wrong.
+      var errDetail = '';
+      try {
+        var errBody = await resp.text();
+        try {
+          var errJson = JSON.parse(errBody);
+          errDetail = (errJson && errJson.error && errJson.error.message) || errBody;
+        } catch (_) { errDetail = errBody; }
+      } catch (_) { /* body already consumed or unreadable — status only */ }
+      errDetail = String(errDetail || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      console.error('[contract-ai] Anthropic', resp && resp.status, errDetail);
+      throw new Error('the AI service rejected the request (' + (resp && resp.status) + ')' + (errDetail ? ': ' + errDetail : ''));
     }
     var respJson = await resp.json();
     var text = (respJson.content && respJson.content[0] && respJson.content[0].text) || '';
@@ -42216,12 +42337,65 @@ async function handleApi(req, res, pathname) {
         ai_review_status: row.ai_review_status,
         change_request: row.change_request || null,
         uploaded_at: row.uploaded_at || null,
+        contractFilename: row.contract_filename || '',
+        contractMime: row.contract_mime || '',
         contractUrl: contractUrl,
         signedUrl: signedUrl
       };
     }));
 
-    sendJson(res, 200, { ok: true, contracts: ccContracts });
+    // `needsReview` drives the red "!" on the Contracts nav tab — the count of
+    // rows the CEO must act on right now. Same statuses the list sorts first by.
+    const ccNeedsReview = ccContracts.filter((c) => CC_PRIORITY_STATUSES.has(String(c.status))).length;
+
+    sendJson(res, 200, { ok: true, contracts: ccContracts, needsReview: ccNeedsReview });
+    return;
+  }
+
+  // GET /api/ceo/contract/preview?contractId=… — Task: read the contract IN THE
+  // APP instead of downloading it. Returns either the extracted text (DOCX /
+  // plain text) so the UI can highlight the AI's flagged clauses in red, or a
+  // signed URL for a PDF, which the browser renders inline in an <iframe>.
+  //
+  // Deliberately NOT stored on the row: extraction is cheap, contracts are
+  // small, and keeping the text out of the database avoids a second copy of a
+  // confidential document drifting out of sync with the file itself.
+  if (pathname === '/api/ceo/contract/preview' && req.method === 'GET') {
+    const cpvCtx = requireCeoSession(req, res);
+    if (!cpvCtx) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    const cpvId = String(url.searchParams.get('contractId') || '').trim();
+    if (!cpvId) { sendJson(res, 400, { ok: false, message: 'contractId is required.' }); return; }
+
+    const cpvRow = await getCareerContractById(cpvId);
+    if (!cpvRow) { sendJson(res, 404, { ok: false, message: 'Contract not found.' }); return; }
+    if (!cpvRow.contract_bucket || !cpvRow.contract_path) {
+      sendJson(res, 200, { ok: true, kind: 'none', message: 'No contract file has been uploaded on this row yet.' });
+      return;
+    }
+
+    // A PDF renders natively in the browser — hand back the signed URL and let
+    // the <iframe> do the work rather than shipping megabytes of base64.
+    const cpvMime = String(cpvRow.contract_mime || '').toLowerCase();
+    const cpvName = String(cpvRow.contract_filename || '').toLowerCase();
+    if (cpvMime === 'application/pdf' || /\.pdf$/.test(cpvName)) {
+      const cpvUrl = await supabaseStorageCreateSignedUrl(cpvRow.contract_bucket, cpvRow.contract_path, cpvRow.contract_filename || 'contract.pdf');
+      sendJson(res, 200, { ok: true, kind: 'pdf', url: cpvUrl || '', filename: cpvRow.contract_filename || '' });
+      return;
+    }
+
+    let cpvFile = null;
+    try { cpvFile = await supabaseStorageDownloadObject(cpvRow.contract_bucket, cpvRow.contract_path); }
+    catch (e) { cpvFile = null; }
+    if (!cpvFile || !cpvFile.buffer || !cpvFile.buffer.length) {
+      sendJson(res, 200, { ok: true, kind: 'error', message: 'Could not open the uploaded contract file.' });
+      return;
+    }
+
+    const cpvRead = await readContractFileForReview(cpvFile.buffer, cpvRow.contract_mime || cpvFile.mimeType, cpvRow.contract_filename);
+    if (!cpvRead.ok) { sendJson(res, 200, { ok: true, kind: 'error', message: cpvRead.reason }); return; }
+    sendJson(res, 200, { ok: true, kind: 'text', text: cpvRead.text || '', filename: cpvRow.contract_filename || '' });
     return;
   }
 
@@ -71788,6 +71962,7 @@ module.exports.__testUtils = {
   CONTRACT_UPLOAD_TOKEN_PURPOSE,
   CONTRACT_CONSENT_TOKEN_PURPOSE,
   aiReviewCareerContract,
+  readContractFileForReview,
   recordServerError,
   recordCronRun,
   classifyClientErrorNoise,

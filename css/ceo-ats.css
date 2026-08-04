@@ -43,6 +43,28 @@
 .ats-count-chip { font-family:var(--ats-mono); font-size:11px; padding:1px 7px; border-radius:100px; background:rgba(255,255,255,0.06); color:var(--ats-muted); }
 .ats-master-tab.active .ats-count-chip { background:var(--ats-blue-dim); color:var(--ats-blue); }
 
+/* Red "!" on a master tab that has work waiting (Contracts: a contract has
+   landed and nobody has actioned it yet). Hidden until JS sets [data-count],
+   so it never flashes on an empty queue during boot. Pulses twice on first
+   paint to catch the eye, then sits still — an indefinitely animating badge
+   in a dashboard people keep open all day is just noise. */
+.ats-alert-dot { display:none; }
+.ats-alert-dot[data-count] { display:inline-flex; align-items:center; justify-content:center; min-width:17px; height:17px; padding:0 5px; border-radius:100px; background:var(--ats-red,#ef4444); color:#fff; font-size:11px; font-weight:800; line-height:1; box-shadow:0 0 0 3px rgba(239,68,68,.18); animation:atsAlertPulse .9s ease-out 2; }
+@keyframes atsAlertPulse { 0%,100% { box-shadow:0 0 0 3px rgba(239,68,68,.18); } 50% { box-shadow:0 0 0 7px rgba(239,68,68,.05); } }
+@media (prefers-reduced-motion: reduce) { .ats-alert-dot[data-count] { animation:none; } }
+
+/* Inline contract reader — the CEO reads the contract in the app instead of
+   downloading it, with every clause the AI flagged marked in red. */
+.ats-doc-view { max-height:460px; overflow:auto; padding:16px 18px; border:1px solid var(--ats-border); border-radius:10px; background:rgba(0,0,0,.22); white-space:pre-wrap; word-wrap:break-word; font-size:13px; line-height:1.65; color:var(--ats-text); }
+.ats-doc-view mark { background:rgba(239,68,68,.22); color:#fecaca; border-bottom:2px solid #ef4444; border-radius:2px; padding:1px 2px; font-weight:600; }
+.ats-doc-frame { width:100%; height:520px; border:1px solid var(--ats-border); border-radius:10px; background:#fff; }
+.ats-doc-missing { font-size:12.5px; color:var(--ats-dim); padding:14px 16px; border:1px dashed var(--ats-border); border-radius:10px; }
+/* A flagged clause we could NOT locate verbatim in the text — the finding is
+   still real, so say so rather than silently dropping the highlight. */
+.ats-doc-unmatched { margin-top:8px; font-size:11.5px; color:var(--ats-dim); }
+.ats-disc-row { border-left:3px solid #ef4444; padding-left:10px; margin-top:10px; }
+.ats-disc-row.minor { border-left-color:#f59e0b; }
+
 /* Keep the existing sub-nav from overlapping the new master bar */
 #panel-registration .ceo-topnav { top: 106px; }
 
