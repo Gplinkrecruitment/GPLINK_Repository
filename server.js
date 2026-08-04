@@ -31565,6 +31565,109 @@ async function atsListPracticesDerived() {
   });
   return Object.keys(byKey).map(function (k) { return byKey[k]; });
 }
+
+// ── CEO practice map (GET /api/ats/practice-map) ────────────────────────────
+// The SAME directory the Practices tab lists, plus a suburb lat/lng per
+// practice so each one can be pinned on an Australia map.
+//
+// This is the internal twin of /api/public/practice-map, and the ONE difference
+// is the whole point of it: the public map is masked (never a practice name),
+// this one is behind requireAtsSession and therefore keeps the REAL name — a
+// CEO clicking a pin is asking "which practice is that?".
+//
+// Coordinates reuse the keyless, cached geocoder both public maps already use
+// (career_suburb_geo_cache → Nominatim). No Google Maps key is involved; see
+// the KEYLESS_MAP_CSP_* note for why that key is a dead end here.
+let _atsPracticeMapCache = null; // { data, at }
+const ATS_PRACTICE_MAP_CACHE_TTL_MS = 3 * 60 * 1000;
+function __resetAtsPracticeMapCacheForTest() { _atsPracticeMapCache = null; }
+
+async function buildAtsPracticeMapData(options = {}) {
+  const geoFetcher = options.geoFetcher || readAllSuccessfulSuburbGeo;
+  const now = Date.now();
+  if (_atsPracticeMapCache && (now - _atsPracticeMapCache.at) < ATS_PRACTICE_MAP_CACHE_TTL_MS) {
+    return _atsPracticeMapCache.data;
+  }
+  const derived = await atsListPracticesDerived();
+  const mapApps = await atsListApplicationRows({});
+  const appsByJobM = {};
+  mapApps.forEach(function (a) {
+    const k = String(a.career_role_id || a.job_id || '');
+    (appsByJobM[k] = appsByJobM[k] || []).push(a);
+  });
+
+  // Where to look each practice up: its own suburb when the intake captured
+  // one, else the city carried on its jobs. A practice with neither can never
+  // be pinned — it is still counted in `total` so the caption stays honest.
+  const targets = derived.map((p) => {
+    const suburb = String(p.suburb || p.location_city || '').trim();
+    const state = normalizeAuStateCode(p.location_state);
+    return { p, suburb, state, key: suburbGeoKey(suburb, state) };
+  }).filter((t) => t.suburb);
+
+  const geoMap = await geoFetcher();
+  // Bounded inline geocode for suburbs never geocoded before (cache-first, so
+  // warmed suburbs never reach here). Deduped, small concurrency — new
+  // suburbs are rare and the whole result is cached above.
+  //
+  // Skipped entirely without Supabase: resolveCareerSuburbCoordinates persists
+  // into career_suburb_geo_cache, so with no DB there is nowhere to remember
+  // the answer and EVERY request would re-hit Nominatim for the same suburbs.
+  const uniqMiss = [];
+  const seenMiss = new Set();
+  if (isSupabaseDbConfigured()) {
+    for (const t of targets) {
+      if (geoMap[t.key] || seenMiss.has(t.key)) continue;
+      seenMiss.add(t.key);
+      uniqMiss.push(t);
+    }
+  }
+  const ATS_MAP_CONCURRENCY = 4;
+  for (let i = 0; i < uniqMiss.length; i += ATS_MAP_CONCURRENCY) {
+    const batch = uniqMiss.slice(i, i + ATS_MAP_CONCURRENCY);
+    // eslint-disable-next-line no-await-in-loop
+    const settled = await Promise.all(batch.map(async (t) => {
+      try {
+        const c = await resolveCareerSuburbCoordinates({ suburb: t.suburb, state: t.state, country: 'Australia' });
+        const lat = c ? parseCareerCoordinate(c.latitude) : null;
+        const lng = c ? parseCareerCoordinate(c.longitude) : null;
+        return (Number.isFinite(lat) && Number.isFinite(lng)) ? { key: t.key, coords: { lat, lng } } : null;
+      } catch (geoErr) { return null; }
+    }));
+    settled.forEach((s) => { if (s) geoMap[s.key] = s.coords; });
+  }
+
+  // Same card fields the directory shows, so a pin and its card can't disagree.
+  const practices = [];
+  for (const t of targets) {
+    const coords = geoMap[t.key];
+    if (!coords) continue;
+    const p = t.p;
+    let cand = 0;
+    (p.jobs || []).forEach(function (j) {
+      (appsByJobM[String(j.id)] || []).forEach(function (a) { if (!atsIsRejectedApp(a)) cand++; });
+    });
+    practices.push({
+      id: p.id,
+      name: p.name || '',
+      city: p.location_city || t.suburb,
+      state: p.location_state || t.state,
+      lat: coords.lat,
+      lng: coords.lng,
+      type: p.practice_type || '',
+      stage: p.stage || 'active',
+      agreement_status: p.agreement_status || 'unsigned',
+      org_type: p.org_type === 'corporation' ? 'corporation' : 'practice',
+      job_count: (p.jobs || []).length,
+      candidate_count: cand
+    });
+  }
+  practices.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const data = { practices, total: derived.length };
+  _atsPracticeMapCache = { data, at: now };
+  return data;
+}
+
 // Resolve one practice (by name-id or row-id) with its jobs attached.
 async function atsResolvePractice(id) {
   var all = await atsListPracticesDerived();
@@ -69602,6 +69705,22 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // Pins for the map that leads the Practices tab. Deliberately a SEPARATE
+  // request from the directory above: the geocode step can reach out to
+  // Nominatim for a never-seen suburb, and the practice cards must never wait
+  // on that. The tab paints its list, then the map fills in.
+  if (pathname === '/api/ats/practice-map' && req.method === 'GET') {
+    var ctxPMap = requireAtsSession(req, res); if (!ctxPMap) return;
+    var pmapData = await buildAtsPracticeMapData();
+    sendJson(res, 200, {
+      ok: true,
+      practices: pmapData.practices,
+      pinned: pmapData.practices.length,
+      total: pmapData.total
+    });
+    return;
+  }
+
   if (pathname === '/api/ats/practices' && req.method === 'POST') {
     var ctxPC = requireAtsSession(req, res); if (!ctxPC) return;
     var bodyP; try { bodyP = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
@@ -72461,6 +72580,8 @@ module.exports.__testUtils = {
   filterPracticeMapPractices,
   practiceMapHasFilters,
   shapeMapPractice,
+  buildAtsPracticeMapData,
+  __resetAtsPracticeMapCacheForTest,
   mapCareerRoleRowToClient,
   mapCareerRoleDetailToClient,
   isInternalAtsRoleOpenForGp,

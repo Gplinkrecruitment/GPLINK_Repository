@@ -75,6 +75,10 @@
     if (!panel) return;
     ensureDelegation();
     currentQuery = '';
+    // Re-opening the tab re-asks for the pins, so a practice added (or its
+    // stage changed) since the last visit shows up. The endpoint is itself
+    // briefly cached server-side, so this is close to free.
+    pmapDataPromise = null;
     panel.innerHTML = ATS.loadingHtml('Loading practices…');
     // SWR: paint the cached directory instantly, then repaint from the network.
     ATS.swr('/api/ats/practices', function (d) {
@@ -172,6 +176,229 @@
     return html;
   }
 
+  // ==================== PRACTICE MAP ====================
+  // Australia map that leads the directory: one pin per practice, and clicking
+  // a pin names it. Same keyless stack as the public /jobs map and the in-app
+  // career map (Leaflet + markercluster from jsdelivr, CARTO raster tiles —
+  // both already in the CSP), but fed by the INTERNAL /api/ats/practice-map,
+  // which is not masked. The public maps can never show a practice name; this
+  // one exists precisely to.
+  var PMAP_LEAFLET = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/';
+  var PMAP_MARKERCLUSTER = 'https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/';
+  var PMAP_PIN_SVG = '<svg viewBox="0 0 28 38"><path d="M14 0C6.3 0 0 6.2 0 14c0 9.5 14 24 14 24s14-14.5 14-24C28 6.2 21.7 0 14 0z" fill="#60a5fa"/><circle cx="14" cy="14" r="5.6" fill="#0f1117"/></svg>';
+
+  var pmapDataPromise = null;  // one fetch shared by both SWR paints
+  var pmapL = null, pmapMap = null, pmapCluster = null;
+  var pmapAll = [], pmapActivePin = null, pmapOpenId = '';
+
+  function pmapLoadCss(href) {
+    if (document.querySelector('link[data-pmap="' + href + '"]')) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var l = document.createElement('link');
+      l.rel = 'stylesheet'; l.href = href; l.setAttribute('data-pmap', href);
+      // Resolve either way — a missing stylesheet degrades the map's looks, it
+      // shouldn't stop it loading. (Leaflet DOES need its own CSS to position
+      // tiles, so that one is awaited before L.map() below.)
+      l.onload = function () { resolve(); };
+      l.onerror = function () { resolve(); };
+      document.head.appendChild(l);
+    });
+  }
+  function pmapLoadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var existing = document.querySelector('script[data-pmap="' + src + '"]');
+      if (existing) {
+        if (existing.getAttribute('data-loaded')) resolve();
+        else {
+          existing.addEventListener('load', function () { resolve(); });
+          existing.addEventListener('error', function () { reject(); });
+        }
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = src; s.setAttribute('data-pmap', src);
+      s.onload = function () { s.setAttribute('data-loaded', '1'); resolve(); };
+      s.onerror = function () { reject(); };
+      document.head.appendChild(s);
+    });
+  }
+  function pmapLoadLibs() {
+    return Promise.all([
+      pmapLoadCss(PMAP_LEAFLET + 'leaflet.css'),
+      pmapLoadCss(PMAP_MARKERCLUSTER + 'MarkerCluster.css')
+    ])
+      .then(function () { return pmapLoadScript(PMAP_LEAFLET + 'leaflet.js'); })
+      .then(function () { return pmapLoadScript(PMAP_MARKERCLUSTER + 'leaflet.markercluster.js'); })
+      .then(function () { return window.L; });
+  }
+
+  function practiceMapSectionHtml() {
+    return '<section class="ats-pmap-wrap" id="atsPracticeMapWrap" aria-label="Practices on a map">' +
+      '<div class="ats-pmap-head">' +
+        '<span class="ats-pmap-dot"></span>' +
+        '<b><span id="atsPmapCount">—</span> practices on the map</b>' +
+        '<span class="sub">Click a pin to see the practice</span>' +
+      '</div>' +
+      '<div class="ats-pmap-stage">' +
+        '<div class="ats-pmap-shell" id="atsPmapShell">' +
+          '<div class="ats-pmap-frame">' +
+            '<div class="ats-pmap" id="atsPmap"></div>' +
+            '<div class="ats-pmap-loading" id="atsPmapLoading">Loading the map…</div>' +
+          '</div>' +
+        '</div>' +
+        '<aside class="ats-pmap-detail" id="atsPmapDetail" aria-hidden="true"></aside>' +
+      '</div>' +
+    '</section>';
+  }
+
+  // The card a pin opens. Leads with the practice NAME — the reason the CEO
+  // map isn't just the public one re-pointed. "Open practice" reuses the same
+  // data-ats="open-practice" the directory cards use, so it routes through the
+  // existing delegation with no second code path.
+  function pmapDetailHtml(p) {
+    var name = p.name || '—';
+    var loc = [p.city, p.state].filter(Boolean).join(', ');
+    var chips = corpBadge(p);
+    if (p.stage && p.stage !== 'active') {
+      chips += '<span class="ats-pill ' + (p.stage === 'prospective' ? 'amber' : 'muted') + '">' +
+        ATS.esc(practiceStageLabel(p.stage)) + '</span>';
+    }
+    chips += '<span class="ats-pill ' + agreementPillClass(p.agreement_status) + '">' + agreementLabel(p.agreement_status) + '</span>';
+    return '<button type="button" class="ats-pmap-x" data-ats="pmap-close" aria-label="Close">&times;</button>' +
+      '<div class="ats-pmap-idc">' +
+        '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
+        '<div>' +
+          '<h3 class="ats-pmap-name">' + ATS.esc(name) + '</h3>' +
+          '<div class="ats-pmap-loc">📍 ' + ATS.esc(loc || '—') + '</div>' +
+        '</div>' +
+      '</div>' +
+      (p.type ? '<div class="ats-pmap-type">' + ATS.esc(p.type) + '</div>' : '') +
+      '<div class="ats-pmap-chips">' + chips + '</div>' +
+      '<div class="ats-pc-stats">' +
+        '<div class="ats-pc-stat"><div class="s-val">' + (p.job_count != null ? p.job_count : 0) + '</div><div class="s-lbl">Jobs</div></div>' +
+        '<div class="ats-pc-stat"><div class="s-val">' + (p.candidate_count != null ? p.candidate_count : 0) + '</div><div class="s-lbl">In pipeline</div></div>' +
+      '</div>' +
+      '<button type="button" class="ats-btn ats-btn-primary ats-pmap-cta" data-ats="open-practice" data-id="' + ATS.escAttr(p.id) + '">Open practice →</button>';
+  }
+
+  function pmapFail() {
+    var wrap = document.getElementById('atsPracticeMapWrap');
+    if (wrap) wrap.style.display = 'none'; // never leave an empty grey box
+  }
+  function pmapSetActivePin(el) {
+    if (pmapActivePin) pmapActivePin.classList.remove('on');
+    pmapActivePin = el || null;
+    if (pmapActivePin) pmapActivePin.classList.add('on');
+  }
+  function pmapCloseDetail() {
+    var d = document.getElementById('atsPmapDetail');
+    if (d) { d.classList.remove('open'); d.setAttribute('aria-hidden', 'true'); }
+    pmapOpenId = '';
+    pmapSetActivePin(null);
+  }
+  function pmapOpenDetail(p, marker) {
+    var d = document.getElementById('atsPmapDetail');
+    if (!d) return;
+    pmapOpenId = String(p.id);
+    d.innerHTML = pmapDetailHtml(p);
+    d.classList.add('open');
+    d.setAttribute('aria-hidden', 'false');
+    pmapSetActivePin(marker && marker._icon ? marker._icon.querySelector('.ats-pmap-pin') : null);
+  }
+
+  // Rebuild the cluster from pmapAll, honouring the directory search box so the
+  // pins and the cards below it always answer the same question. Matches the
+  // server's own ?q= filter (name OR city) — if those two ever drift, the map
+  // and the list start disagreeing.
+  function pmapMatchesQuery(p, q) {
+    if (!q) return true;
+    return String(p.name || '').toLowerCase().indexOf(q) !== -1 ||
+           String(p.city || '').toLowerCase().indexOf(q) !== -1;
+  }
+  function pmapRenderPins() {
+    if (!pmapCluster || !pmapL) return;
+    pmapCluster.clearLayers();
+    var q = String(currentQuery || '').toLowerCase();
+    var shown = 0, present = {};
+    pmapAll.forEach(function (p) {
+      if (!pmapMatchesQuery(p, q)) return;
+      var cls = 'ats-pmap-pin' + (p.stage === 'prospective' ? ' prospective' : '');
+      var icon = pmapL.divIcon({
+        className: 'ats-pmap-pin-wrap',
+        html: '<div class="' + cls + '"><span class="pd">' + PMAP_PIN_SVG + '</span></div>',
+        iconSize: [28, 38], iconAnchor: [14, 38]
+      });
+      var marker = pmapL.marker([p.lat, p.lng], { icon: icon, riseOnHover: true, title: p.name || '' });
+      marker.on('click', function (e) {
+        if (pmapL.DomEvent) pmapL.DomEvent.stopPropagation(e);
+        pmapOpenDetail(p, marker);
+      });
+      pmapCluster.addLayer(marker);
+      shown++; present[String(p.id)] = 1;
+    });
+    var countEl = document.getElementById('atsPmapCount');
+    if (countEl) countEl.textContent = shown;
+    // If the open card's practice was filtered out, close it — the card must
+    // never name a practice that is no longer on the map.
+    if (pmapOpenId && !present[pmapOpenId]) pmapCloseDetail();
+  }
+
+  function pmapBoot() {
+    var el = document.getElementById('atsPmap');
+    var shell = document.getElementById('atsPmapShell');
+    if (!el || !shell) return;
+    // renderDirectory replaces the whole panel, so a previous instance is bound
+    // to a node that is no longer in the document — drop it before rebuilding.
+    if (pmapMap) { try { pmapMap.remove(); } catch (e) { /* already gone */ } }
+    pmapMap = null; pmapCluster = null; pmapActivePin = null; pmapOpenId = '';
+
+    if (!pmapDataPromise) {
+      pmapDataPromise = ATS.api('/api/ats/practice-map').then(function (d) {
+        return (d && d.ok && Array.isArray(d.practices)) ? d.practices : [];
+      });
+    }
+    Promise.all([pmapDataPromise, pmapLoadLibs()]).then(function (results) {
+      var practices = results[0], L = results[1];
+      // The panel can re-render while the libraries load (SWR paints twice) —
+      // if this boot's container is no longer the live one, the newer boot owns
+      // the map and this one must not build a second, orphaned instance.
+      if (document.getElementById('atsPmap') !== el) return;
+      if (!practices.length || !L || !L.markerClusterGroup) { pmapFail(); return; }
+      pmapL = L;
+      pmapAll = practices.filter(function (p) { return isFinite(p.lat) && isFinite(p.lng); });
+      if (!pmapAll.length) { pmapFail(); return; }
+      pmapMap = L.map(el, {
+        center: [-27.8, 134.0], zoom: 4, minZoom: 3, maxZoom: 16,
+        scrollWheelZoom: false, zoomControl: true, attributionControl: true, worldCopyJump: true
+      });
+      pmapMap.attributionControl.setPrefix(false);
+      // Dark CARTO basemap — the Command Centre is a dark UI; the light Voyager
+      // tiles the public site uses would glare against it.
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd', maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'
+      }).addTo(pmapMap);
+      pmapMap.on('click', pmapCloseDetail);
+      pmapCluster = L.markerClusterGroup({
+        showCoverageOnHover: false, maxClusterRadius: 46, spiderfyOnMaxZoom: true,
+        iconCreateFunction: function (c) {
+          var n = c.getChildCount();
+          return L.divIcon({ html: '<div>' + n + '</div>', className: 'ats-pmap-cluster' + (n >= 25 ? ' lg' : ''), iconSize: [36, 36] });
+        }
+      });
+      pmapMap.addLayer(pmapCluster);
+      pmapRenderPins();
+      var loading = document.getElementById('atsPmapLoading');
+      if (loading) loading.classList.add('hide');
+      // The Practices panel is display:none until its tab is opened, so the map
+      // is often built at zero size — re-measure once it is actually visible.
+      var fix = function () { try { pmapMap.invalidateSize(); } catch (e) { /* removed */ } };
+      setTimeout(fix, 250);
+      if (typeof ResizeObserver === 'function') { try { new ResizeObserver(fix).observe(shell); } catch (e) { /* unsupported */ } }
+      window.addEventListener('resize', fix);
+    }).catch(pmapFail);
+  }
+
   function renderDirectory(panel, d) {
     var practices = (d && d.practices) || [];
     panel.innerHTML =
@@ -185,9 +412,11 @@
           '<input type="text" id="atsPracSearch" placeholder="Search practices…" value="' + ATS.escAttr(currentQuery) + '" />' +
         '</div>' +
       '</div>' +
+      practiceMapSectionHtml() +
       '<div id="atsPracticeList">' + practiceSectionsHtml(practices) + '</div>' +
       '<div id="atsTeamSection" style="margin-top:26px"></div>';
     updateCount(d);
+    pmapBoot();
     loadTeamSection();
   }
 
@@ -293,6 +522,7 @@
         var list = document.getElementById('atsPracticeList');
         if (list) list.innerHTML = practiceSectionsHtml((d && d.practices) || []);
         updateCount(d || {});
+        pmapRenderPins(); // pins narrow with the list, not independently of it
       });
     }, 220);
   }
@@ -981,6 +1211,7 @@
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'resend-intake') resendIntake(id, t);
     else if (action === 'upload-contract') triggerContractUpload();
+    else if (action === 'pmap-close') pmapCloseDetail();
     else if (action === 'add-secondary-detail') addSecondaryRowTo('atsDetailSecondaryList');
     else if (action === 'remove-secondary') {
       // Same button markup in the modal and on the detail panel; only the
