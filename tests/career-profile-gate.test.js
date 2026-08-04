@@ -376,7 +376,7 @@ describe('career_cv approved status is not excluded from the gate', () => {
 // satisfies. It does so by construction (identical document_key via
 // saveCareerProfileDocument), and the gate assertion below is what pins that.
 describe('staff-filed careers CV (POST /api/ats/candidate/career-cv)', () => {
-  const ats = (body) => httpReq('POST', '/api/ats/candidate/career-cv', { cookie: adminCookie(), host: ATS_HOST, body });
+  const ats = (body) => httpReq('POST', '/api/ats/candidate/document', { cookie: adminCookie(), host: ATS_HOST, body: Object.assign({ slot: 'cv' }, body) });
 
   beforeAll(() => {
     db.user_profiles.push(
@@ -458,7 +458,85 @@ describe('staff-filed careers CV (POST /api/ats/candidate/career-cv)', () => {
   it('needs a case_id or user_id, and an ATS session', async () => {
     const noTarget = await ats({ fileName: 'cv.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: PDF_B64 });
     expect(noTarget.status).toBe(400);
-    const anon = await httpReq('POST', '/api/ats/candidate/career-cv', { host: ATS_HOST, body: { user_id: 'u-staff-cv', fileName: 'cv.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: PDF_B64 } });
+    const anon = await httpReq('POST', '/api/ats/candidate/document', { host: ATS_HOST, body: { slot: 'cv', user_id: 'u-staff-cv', fileName: 'cv.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: PDF_B64 } });
     expect([302, 401, 403, 404]).toContain(anon.status);
+  });
+});
+
+// Owner follow-up 2026-08-05: "let me manually upload for all" — every slot on
+// the drawer's Documents card, not just the CV. Each writes the SAME row the
+// doctor's own upload writes, which is what makes the existing readers (the
+// drawer flags, the doctor's own documents list) pick them up unchanged.
+describe('staff-filed candidate documents — every slot', () => {
+  const post = (body) => httpReq('POST', '/api/ats/candidate/document', { cookie: adminCookie(), host: ATS_HOST, body });
+  const UID = 'u-slots-1';
+
+  beforeAll(() => {
+    db.user_profiles.push({ user_id: UID, email: 'slots@example.com', first_name: 'Gate', last_name: 'Tester', registration_country: '"United Kingdom"' });
+    db.user_state.push({ user_id: UID, state: { gp_onboarding_complete: true } });
+  });
+
+  it('files a cover letter as career_cover_letter, with no AI check', async () => {
+    // The doctor's own cover-letter path runs no scan either — it is prose,
+    // not a credential, and there is nothing to verify.
+    aiMode = 'not_cv';
+    const res = await post({ slot: 'coverLetter', user_id: UID, fileName: 'letter.pdf', mimeType: 'application/pdf', fileSize: 500, fileBase64: PDF_B64 });
+    expect(res.status).toBe(200);
+    const row = db.user_documents.find((d) => d.user_id === UID && d.document_key === 'career_cover_letter');
+    expect(row).toBeTruthy();
+    expect(row.status).toBe('approved');
+    aiMode = 'genuine_cv';
+  });
+
+  it('files the primary medical degree under the doctor\'s RESOLVED country', async () => {
+    const res = await post({ slot: 'primaryDegree', user_id: UID, fileName: 'degree.pdf', mimeType: 'application/pdf', fileSize: 500, fileBase64: PDF_B64 });
+    expect(res.status).toBe(200);
+    const row = db.user_documents.find((d) => d.user_id === UID && d.document_key === 'primary_medical_degree');
+    expect(row).toBeTruthy();
+    expect(row.status).toBe('approved');
+    // country_code is part of this table's key. Prod stores registration_country
+    // DOUBLE-STRINGIFIED ('"United Kingdom"'), and a divergent resolution files
+    // the row under a country the doctor's own Documents tab never reads — it
+    // would silently vanish. The shared resolver must unwrap and normalize.
+    expect(row.country_code).toBe('uk');
+    // Storage tuple recorded, not just a name — readers are split between
+    // file_url and storage_path.
+    expect(row.storage_path).toBeTruthy();
+    expect(row.storage_bucket).toBeTruthy();
+  });
+
+  it('files the identity document as `identity`', async () => {
+    const res = await post({ slot: 'idDoc', user_id: UID, fileName: 'passport.jpg', mimeType: 'image/jpeg', fileSize: 500, fileBase64: PDF_B64 });
+    expect(res.status).toBe(200);
+    const row = db.user_documents.find((d) => d.user_id === UID && d.document_key === 'identity');
+    expect(row).toBeTruthy();
+    expect(row.storage_path).toBeTruthy();
+  });
+
+  it('rejects an unknown slot rather than guessing', async () => {
+    const res = await post({ slot: 'passport_photo', user_id: UID, fileName: 'x.pdf', mimeType: 'application/pdf', fileSize: 10, fileBase64: PDF_B64 });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Unknown document slot/i);
+  });
+
+  it('only the CV slot is identity-guarded (a cover letter is not a credential)', async () => {
+    // 'wrong_name' would block a CV. The cover-letter slot never scans, so the
+    // guard cannot fire — proving the scan is slot-scoped, not global.
+    aiMode = 'wrong_name';
+    const cl = await post({ slot: 'coverLetter', user_id: UID, fileName: 'letter2.pdf', mimeType: 'application/pdf', fileSize: 500, fileBase64: PDF_B64 });
+    expect(cl.status).toBe(200);
+    const cv = await post({ slot: 'cv', user_id: UID, fileName: 'wrong.pdf', mimeType: 'application/pdf', fileSize: 500, fileBase64: PDF_B64 });
+    expect(cv.status).toBe(422);
+    expect(cv.body.code).toBe('identity_mismatch');
+    aiMode = 'genuine_cv';
+  });
+
+  it('the legacy /career-cv path still works (a cached browser script keeps going)', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/career-cv', {
+      cookie: adminCookie(), host: ATS_HOST,
+      body: { user_id: UID, fileName: 'legacy-path.pdf', mimeType: 'application/pdf', fileSize: 500, fileBase64: PDF_B64 }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.slot).toBe('cv');
   });
 });

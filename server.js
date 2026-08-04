@@ -68818,25 +68818,45 @@ Return ONLY valid JSON with no markdown formatting:
   // Consultants are explicitly allowed (that's the point — they can't open the
   // RSO file). NEVER exposes ID/passport or any other document type: it looks
   // up exactly one document_key (cv_signed_dated) and nothing else.
-  // ---- Staff-filed careers CV ----------------------------------------------
+  // ---- Staff-filed candidate documents -------------------------------------
   // Owner request 2026-08-05: "i sometimes get sent CVs via email so let me
-  // upload them directly onto their profile from the ceo dashboard which then
-  // unlocks the career page".
+  // upload them directly onto their profile from the ceo dashboard", extended
+  // the same day to every slot on the drawer's "Documents on file" card.
   //
-  // Writes the SAME document the doctor's own upload writes — `career_cv` via
-  // saveCareerProfileDocument — so it satisfies every downstream gate by
-  // construction: the career-page apply gate, the matching board's hasCv, and
-  // the CV attached to a submit-to-practice introduction. Nothing needed a
-  // special "staff uploaded it" branch.
+  // Each slot writes the SAME row the doctor's own upload writes, so every
+  // downstream reader is satisfied by construction rather than by special
+  // case — most importantly the CV, whose `career_cv` row is what unlocks the
+  // career page, passes the matching board's hasCv, and gets attached to a
+  // submit-to-practice introduction.
   //
-  // Deliberately base64 (not the signed direct-to-Storage flow the
-  // certificate uploads use): the AI check and the identity guard both need
-  // the bytes server-side anyway, and the careers CV is capped at 3 MB, well
-  // inside the serverless body limit.
-  if (pathname === '/api/ats/candidate/career-cv' && req.method === 'POST') {
+  // Deliberately base64 rather than the signed direct-to-Storage flow the
+  // Documents tab uses: the CV's AI + identity checks need the bytes
+  // server-side anyway, and one transport keeps the four slots on one code
+  // path. The cost is a 3 MB ceiling (the serverless request body is ~4.5 MB
+  // and base64 inflates by a third) — the same ceiling doctors upload under.
+  // A larger scan still goes through Registration → Documents.
+  //
+  // `/api/ats/candidate/career-cv` is kept as an alias so a browser holding
+  // the previously-shipped script keeps working.
+  if ((pathname === '/api/ats/candidate/document' || pathname === '/api/ats/candidate/career-cv') && req.method === 'POST') {
     var ctxCCV = requireAtsSession(req, res); if (!ctxCCV) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var bodyCCV; try { bodyCCV = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+
+    // Slot → what actually gets written. Keys match the drawer card's docDef
+    // so the client passes its own slot name straight through.
+    var ATS_DOC_SLOTS = {
+      cv: { label: 'CV', scan: true },
+      coverLetter: { label: 'cover letter', scan: false },
+      primaryDegree: { label: 'primary medical degree', scan: false },
+      idDoc: { label: 'identity document', scan: false }
+    };
+    var ccvSlot = String((bodyCCV && bodyCCV.slot) || '').trim() || 'cv';
+    if (!Object.prototype.hasOwnProperty.call(ATS_DOC_SLOTS, ccvSlot)) {
+      sendJson(res, 400, { ok: false, message: 'Unknown document slot.' });
+      return;
+    }
+    var ccvSlotMeta = ATS_DOC_SLOTS[ccvSlot];
 
     var ccvUserId = String((bodyCCV && (bodyCCV.user_id || bodyCCV.userId)) || '').trim();
     var ccvCaseId = String((bodyCCV && (bodyCCV.case_id || bodyCCV.caseId)) || '').trim();
@@ -68856,7 +68876,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!ccvBuffer.length) { sendJson(res, 400, { ok: false, message: 'Invalid file data.' }); return; }
     // Authoritative size check on the decoded bytes, not the browser's claim.
     if (ccvBuffer.length > CAREER_PROFILE_DOCUMENT_MAX_BYTES) {
-      sendJson(res, 413, { ok: false, message: 'That file is too large — please keep the CV under 3 MB.' });
+      sendJson(res, 413, { ok: false, message: 'That file is too large — please keep the ' + ccvSlotMeta.label + ' under 3 MB. For a bigger scan, use Registration → Documents.' });
       return;
     }
     var ccvKnownMime = ccvMime && ccvMime !== 'application/octet-stream';
@@ -68864,26 +68884,32 @@ Return ONLY valid JSON with no markdown formatting:
       ? CAREER_PROFILE_ALLOWED_MIME_TYPES.has(ccvMime)
       : /\.(pdf|docx|png|jpe?g|webp)$/i.test(ccvFileName);
     if (!ccvTypeAllowed) {
-      sendJson(res, 422, { ok: false, message: 'That file type isn\'t supported — save the CV as a PDF or Word (.docx) file and try again.' });
+      sendJson(res, 422, { ok: false, message: 'That file type isn\'t supported — please use a PDF, Word (.docx) or image file.' });
       return;
     }
 
-    // Scanned on a SEPARATE rate-limit key from the doctor's own. Spending one
-    // of their 5 daily scans on a staff upload could lock the doctor out of
+    // Rate-limited on a SEPARATE key from the doctor's own. Spending one of
+    // their 5 daily CV scans on a staff upload could lock the doctor out of
     // their own (non-dismissible) apply gate for 24h.
-    var ccvRateKey = 'ats-cv-upload:' + (ctxCCV.email || 'staff');
-    var ccvAllowed = await checkRateLimitWindow(ccvRateKey, 40, CAREER_PROFILE_SCAN_WINDOW_MS);
-    if (!ccvAllowed) { sendJson(res, 429, { ok: false, message: 'Too many CV uploads today — please try again tomorrow.' }); return; }
+    var ccvRateKey = 'ats-doc-upload:' + (ctxCCV.email || 'staff');
+    var ccvAllowed = await checkRateLimitWindow(ccvRateKey, 80, CAREER_PROFILE_SCAN_WINDOW_MS);
+    if (!ccvAllowed) { sendJson(res, 429, { ok: false, message: 'Too many document uploads today — please try again tomorrow.' }); return; }
 
-    var ccvScan = await verifyCareerCvWithAI(ccvBuffer, ccvMime, ccvFileName);
-    if (ccvScan.ok && ccvScan.isCv === false) {
-      sendJson(res, 422, { ok: false, message: 'That doesn\'t look like a CV' + (ccvScan.reason ? (' — ' + ccvScan.reason) : '.') });
-      return;
-    }
-    if (!ccvScan.ok) {
-      // Never block a staff upload on our own AI outage — same rule the
-      // doctor's path follows.
-      console.warn('[ats career-cv] scan unavailable, accepting unscanned:', ccvScan.reason);
+    // Only the CV is AI-checked. The other slots are filed exactly as the
+    // Documents-tab admin upload files a certificate: staff have looked at
+    // the document, and that IS the review.
+    var ccvScan = { ok: false };
+    if (ccvSlotMeta.scan) {
+      ccvScan = await verifyCareerCvWithAI(ccvBuffer, ccvMime, ccvFileName);
+      if (ccvScan.ok && ccvScan.isCv === false) {
+        sendJson(res, 422, { ok: false, message: 'That doesn\'t look like a CV' + (ccvScan.reason ? (' — ' + ccvScan.reason) : '.') });
+        return;
+      }
+      if (!ccvScan.ok) {
+        // Never block a staff upload on our own AI outage — same rule the
+        // doctor's path follows.
+        console.warn('[ats candidate-doc] scan unavailable, accepting unscanned:', ccvScan.reason);
+      }
     }
 
     // IDENTITY GUARD — the reason this endpoint scans at all. A CV that
@@ -68906,7 +68932,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (hasUsableFullName(ccvAccountName)) {
         var ccvNameCheck = crossCheckDocumentName(ccvScan.nameFound, ccvAccountName, ccvKnownNames);
         if (ccvNameCheck.match === 'mismatch') {
-          console.warn('[ats career-cv] IDENTITY MISMATCH — rejected: CV name "' + ccvScan.nameFound + '" vs account "' + ccvAccountName + '" (user ' + ccvUserId + ', by ' + (ctxCCV.email || '') + ')');
+          console.warn('[ats candidate-doc] IDENTITY MISMATCH — rejected: CV name "' + ccvScan.nameFound + '" vs account "' + ccvAccountName + '" (user ' + ccvUserId + ', by ' + (ctxCCV.email || '') + ')');
           sendJson(res, 422, {
             ok: false,
             code: 'identity_mismatch',
@@ -68917,22 +68943,72 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    var ccvSaved = await saveCareerProfileDocument(ccvUserId, 'career_cv', {
-      fileName: ccvFileName,
-      fileBase64: ccvBase64,
-      mimeType: ccvMime || 'application/octet-stream',
-      fileSize: ccvBuffer.length,
-      // Staff filing it IS the review — see the status note in
-      // saveCareerProfileDocument.
-      status: 'approved'
-    });
-    if (!ccvSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the CV — please try again.' }); return; }
+    // Each slot goes through the SAME writer the doctor's own upload uses, so
+    // the row is indistinguishable from one they filed themselves and every
+    // existing reader picks it up unchanged. All four land 'approved' —
+    // staff filing the document is the review, and no review task exists that
+    // would ever move a pending one on.
+    var ccvSaved = null;
+    var ccvEffectiveMime = ccvMime || 'application/octet-stream';
+    if (ccvSlot === 'cv' || ccvSlot === 'coverLetter') {
+      ccvSaved = await saveCareerProfileDocument(ccvUserId, ccvSlot === 'cv' ? 'career_cv' : 'career_cover_letter', {
+        fileName: ccvFileName,
+        fileBase64: ccvBase64,
+        mimeType: ccvEffectiveMime,
+        fileSize: ccvBuffer.length,
+        status: 'approved'
+      });
+    } else if (ccvSlot === 'primaryDegree') {
+      // country_code is part of this table's key, so it MUST be resolved the
+      // same way every reader resolves it — a divergent value files the
+      // document under a country the doctor's own Documents tab never reads,
+      // and it silently vanishes. resolveGpDocumentCountryForUser is the one
+      // shared resolver.
+      var ccvCountry = await resolveGpDocumentCountryForUser(ccvUserId);
+      var ccvNowIso = new Date().toISOString();
+      ccvSaved = await savePreparedDocumentForUser(ccvUserId, null, {
+        key: 'primary_medical_degree',
+        country: ccvCountry,
+        status: 'approved',
+        fileName: ccvFileName,
+        fileDataUrl: 'data:' + ccvEffectiveMime + ';base64,' + ccvBase64,
+        mimeType: ccvEffectiveMime,
+        fileSize: ccvBuffer.length,
+        updatedAt: ccvNowIso,
+        reviewedAt: ccvNowIso
+      });
+      // Attribution + clearing a previous verdict is a FOLLOW-UP patch, not
+      // part of the upsert: upsertPreparedDocumentRow builds its row from a
+      // fixed field list and would silently drop a review_notes payload key,
+      // and `reviewed_by` is a uuid column an email would 22P02 the whole
+      // write on. Same two-step the Documents-tab finalize uses. Best-effort —
+      // the document is already filed either way.
+      if (ccvSaved) {
+        await supabaseDbRequest('user_documents',
+          'user_id=eq.' + encodeURIComponent(ccvUserId)
+          + '&document_key=eq.primary_medical_degree'
+          + '&country_code=eq.' + encodeURIComponent(ccvCountry),
+          { method: 'PATCH', body: {
+            review_notes: 'Uploaded by ' + (ctxCCV.email || 'GP Link staff') + ' on the candidate’s behalf.',
+            rejection_reason: '',
+            flag_reason: null
+          } }).catch(function () {});
+      }
+    } else if (ccvSlot === 'idDoc') {
+      ccvSaved = await saveIdentityDocumentForUser(ccvUserId, {
+        fileName: ccvFileName,
+        fileDataUrl: 'data:' + ccvEffectiveMime + ';base64,' + ccvBase64,
+        mimeType: ccvEffectiveMime,
+        fileSize: ccvBuffer.length
+      });
+    }
+    if (!ccvSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the ' + ccvSlotMeta.label + ' — please try again.' }); return; }
 
-    await logAdminAction(req, ctxCCV, 'ats_cv_uploaded', {
+    await logAdminAction(req, ctxCCV, ccvSlot === 'cv' ? 'ats_cv_uploaded' : 'ats_candidate_doc_uploaded', {
       targetType: 'gp', targetId: ccvUserId,
-      detail: { file_name: ccvFileName, scanned: !!ccvScan.ok }
+      detail: { slot: ccvSlot, file_name: ccvFileName, scanned: !!ccvScan.ok }
     });
-    sendJson(res, 200, { ok: true, fileName: ccvFileName });
+    sendJson(res, 200, { ok: true, slot: ccvSlot, fileName: ccvFileName });
     return;
   }
 

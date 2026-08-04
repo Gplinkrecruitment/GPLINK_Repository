@@ -485,23 +485,33 @@ describe('UI static pins', () => {
     expect(candJs).toContain('ats-mark-placement');
   });
 
-  // Owner request 2026-08-05: staff receive CVs by email, so the CV slot is
-  // fileable straight from the drawer. It posts the doctor's CAREERS CV, which
-  // is what unlocks their career page.
-  it('the CV slot can be filed from the drawer, on an empty AND a filled slot', () => {
-    expect(candJs).toContain('ats-cv-upload');
-    expect(candJs).toContain('/api/ats/candidate/career-cv');
-    expect(candJs).toContain('↑ Upload CV');
-    expect(candJs).toContain('↑ Replace');
-    expect(candJs).toContain('function pickCandidateCv');
-    expect(candJs).toContain('function uploadCandidateCv');
-    // The control is NOT gated on `has` — a doctor with a CV can have it
-    // replaced, one without can have the first filed.
-    expect(candJs).toMatch(/if \(d\.k === 'cv'\) \{/);
+  // Owner request 2026-08-05 (extended the same day to "let me manually upload
+  // for all"): staff receive documents by email, so EVERY slot on the card is
+  // fileable. Each writes the same row the doctor's own upload writes — the CV
+  // as their careers CV, which is what unlocks the career page.
+  it('every document slot can be filed from the drawer', () => {
+    expect(candJs).toContain('ats-doc-upload');
+    expect(candJs).toContain('/api/ats/candidate/document');
+    expect(candJs).toContain('function pickCandidateDoc');
+    expect(candJs).toContain('function uploadCandidateDoc');
+    // The control is built for the whole docDef list, not branched per slot,
+    // so a new slot cannot silently ship without one.
+    expect(candJs).toMatch(/var uploadBtn = '<button[^']*ats-doc-upload/);
+    expect(candJs).toContain("data-slot=");
+    // All four slots carry their own picker filter + label.
+    ['cv', 'coverLetter', 'primaryDegree', 'idDoc'].forEach((slot) => {
+      expect(candJs).toContain(slot);
+    });
+    expect(candJs).toContain('DOC_SLOT_ACCEPT');
+    expect(candJs).toContain('DOC_SLOT_LABELS');
+    // Word only for the written documents; a certificate/ID is a scan.
+    expect(candJs).toMatch(/primaryDegree:\s*'[^']*image/);
     // Reads as a data URL then strips the prefix — the endpoint takes base64.
     expect(candJs).toContain('readAsDataURL');
-    // Client-side size guard mirrors the server's 3 MB cap.
-    expect(candJs).toContain('CV_MAX_BYTES');
+    // Client-side size guard mirrors the server's 3 MB cap, and says where to
+    // go for a bigger scan rather than dead-ending.
+    expect(candJs).toContain('DOC_MAX_BYTES');
+    expect(candJs).toMatch(/Registration . Documents/);
     // A failed upload surfaces the server's message (the identity-mismatch
     // text names both names) rather than a generic toast.
     expect(candJs).toMatch(/res\.message \|\| res\.error/);
@@ -528,6 +538,6 @@ describe('UI static pins', () => {
   });
 
   it('cache-buster on the candidates script is bumped', () => {
-    expect(dashHtml).toContain('ceo-ats-candidates.js?v=20260805a');
+    expect(dashHtml).toContain('ceo-ats-candidates.js?v=20260805b');
   });
 });
