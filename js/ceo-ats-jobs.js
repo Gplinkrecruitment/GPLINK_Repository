@@ -633,11 +633,15 @@
       '<div class="ats-board-head"><button class="ats-back-btn" id="atsJobsBack">‹ All jobs</button></div>' +
       '<div class="ats-section-head" style="margin-bottom:6px">' +
         '<div><h2>' + A.esc(job.title || 'Job') + '</h2></div>' +
-        '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="atsJobSettingsBtn">⚙ Job settings</button>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<button class="ats-btn ats-btn-primary ats-btn-sm" id="atsAddCandBtn">＋ Add candidate</button>' +
+          '<button class="ats-btn ats-btn-ghost ats-btn-sm" id="atsJobSettingsBtn">⚙ Job settings</button>' +
+        '</div>' +
       '</div>' +
       '<div class="ats-board-meta" id="atsBoardMeta"></div>' +
       '<div class="ats-board" id="atsBoard"></div>';
     on('atsJobsBack', 'click', loadJobsTab);
+    on('atsAddCandBtn', 'click', openAddCandidateModal);
     on('atsJobSettingsBtn', 'click', openJobSettings);
     renderBoardMeta();
     renderBoard();
@@ -1085,6 +1089,139 @@
   /* ============================================================
    * ADD JOB MODAL
    * ========================================================== */
+  /* ============================================================
+   * ADD A CANDIDATE TO THIS JOB'S BOARD
+   * ------------------------------------------------------------
+   * Search every doctor by name or email and drop one onto the Shortlist
+   * column. Lands on POST /api/ats/job/candidate, which is deliberately the
+   * QUIET path: it only creates the board card. It does NOT record an offer,
+   * reveal the practice or email the doctor — POST /api/ats/application (the
+   * drawer's "practice accepted" action) is the one that does all of that.
+   * ========================================================== */
+  var addCandSearchTimer = null;
+  var addCandQuery = '';
+  var addCandBusy = false;
+
+  // Doctors already on this board — shown greyed out rather than hidden, so a
+  // consultant searching a name they know is on the board gets an answer
+  // ("already here") instead of an empty result they'll read as "not found".
+  function boardUserIds() {
+    var ids = {};
+    ((boardData && boardData.columns) || []).forEach(function (col) {
+      (col.cards || []).forEach(function (c) { if (c && c.user_id) ids[String(c.user_id)] = true; });
+    });
+    return ids;
+  }
+
+  function addCandidateModalHtml() {
+    return '<div class="ats-modal-wrap" id="atsAddCandModal">' +
+      '<div class="ats-modal">' +
+        '<div class="ats-modal-head"><h3>Add a candidate</h3>' +
+          '<button class="ats-drawer-close" id="atsAddCandClose">×</button></div>' +
+        '<div class="ats-modal-body">' +
+          '<div class="ats-addcand-note">Adds the doctor to <b>Shortlist</b> on this job. ' +
+            'Nothing is sent to them — drag the card across when you\'re ready.</div>' +
+          '<label for="atsAddCandSearch">Search doctors</label>' +
+          '<input type="text" id="atsAddCandSearch" placeholder="Name or email…" autocomplete="off" />' +
+          '<div class="ats-addcand-results" id="atsAddCandResults">' + A.loadingHtml('Loading doctors…') + '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function addCandidateRowHtml(c, onBoard) {
+    var name = c.name || c.email || 'Candidate';
+    var bits = [];
+    if (c.email) bits.push(A.esc(c.email));
+    if (c.reg_stage_label) bits.push(A.esc(c.reg_stage_label));
+    var action = onBoard
+      ? '<span class="ats-pill muted">On this board</span>'
+      : '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-ats-add-cand="' + A.escAttr(c.user_id) + '">Add</button>';
+    return '<div class="ats-addcand-row' + (onBoard ? ' is-on-board' : '') + '">' +
+      '<div class="ats-avatar" style="background:' + A.avatarColor(name) + '">' + A.esc(A.initials(name)) + '</div>' +
+      '<div class="ats-addcand-txt">' +
+        '<div class="ats-addcand-name">' + (c.country ? A.flag(c.country) + ' ' : '') + A.esc(name) + '</div>' +
+        '<div class="ats-addcand-sub">' + (bits.join(' · ') || '—') + '</div>' +
+      '</div>' + action +
+    '</div>';
+  }
+
+  function renderAddCandidateResults(list) {
+    var host = el('atsAddCandResults');
+    if (!host) return;
+    if (!list.length) {
+      host.innerHTML = A.emptyHtml(addCandQuery
+        ? 'No doctors match “' + addCandQuery + '”.'
+        : 'No doctors yet.');
+      return;
+    }
+    var onBoard = boardUserIds();
+    host.innerHTML = list.map(function (c) { return addCandidateRowHtml(c, !!onBoard[String(c.user_id)]); }).join('');
+  }
+
+  function fetchAddCandidates() {
+    var q = addCandQuery;
+    var path = '/api/ceo/candidates' + (q ? '?q=' + encodeURIComponent(q) : '');
+    A.api(path).then(function (d) {
+      if (q !== addCandQuery) return;      // a newer keystroke superseded this
+      if (!el('atsAddCandResults')) return; // modal closed mid-flight
+      if (!d || !d.ok) {
+        el('atsAddCandResults').innerHTML = A.emptyHtml('Could not load doctors.');
+        return;
+      }
+      renderAddCandidateResults((d.candidates || d.items || []).slice(0, 40));
+    });
+  }
+
+  function openAddCandidateModal() {
+    if (!currentBoardJobId) return;
+    addCandQuery = '';
+    addCandBusy = false;
+    A.setOverlay(addCandidateModalHtml());
+    var modal = el('atsAddCandModal');
+    if (modal) modal.classList.add('open');
+    on('atsAddCandClose', 'click', closeAddCandidateModal);
+    on('atsAddCandSearch', 'input', function (e) {
+      addCandQuery = String(e.target.value || '').trim();
+      if (addCandSearchTimer) clearTimeout(addCandSearchTimer);
+      addCandSearchTimer = setTimeout(fetchAddCandidates, 220);
+    });
+    var results = el('atsAddCandResults');
+    if (results) {
+      results.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-ats-add-cand]') : null;
+        if (btn) addCandidateToBoard(btn.getAttribute('data-ats-add-cand'), btn);
+      });
+    }
+    var input = el('atsAddCandSearch');
+    if (input) input.focus();
+    fetchAddCandidates();
+  }
+  function closeAddCandidateModal() {
+    if (addCandSearchTimer) { clearTimeout(addCandSearchTimer); addCandSearchTimer = null; }
+    A.setOverlay('');
+  }
+
+  function addCandidateToBoard(userId, btn) {
+    if (!userId || !currentBoardJobId || addCandBusy) return;
+    addCandBusy = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    A.api('/api/ats/job/candidate', {
+      method: 'POST',
+      body: { user_id: String(userId), career_role_id: String(currentBoardJobId), stage: 'shortlisted' }
+    }).then(function (d) {
+      addCandBusy = false;
+      if (!d || !d.ok) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Add'; }
+        A.toast((d && d.message) || 'Could not add that candidate.');
+        return;
+      }
+      A.toast(d.already ? 'Already on this board' : 'Added to Shortlist');
+      closeAddCandidateModal();
+      atsOpenJobBoard(currentBoardJobId); // repaint the board with the new card
+    });
+  }
+
   function openAddJobModal() {
     A.api('/api/ats/practices').then(function (d) {
       var practices = (d && d.practices) || [];

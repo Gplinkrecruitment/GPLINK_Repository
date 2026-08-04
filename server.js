@@ -68709,6 +68709,74 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- Put a GP on a job's board ("＋ Add candidate" on the pipeline) -------
+  // Deliberately NOT the same thing as POST /api/ats/application below. That
+  // one means "the admin has placed this GP with the practice": it records an
+  // offer, reveals the practice identity and emails the doctor a
+  // congratulations. This one only puts a card on the Shortlist column so a
+  // consultant can line candidates up and work them across by hand.
+  //
+  // Nothing here reaches the doctor. The row carries NO match_* fields, and
+  // both doctor-facing paths gate on them: getPendingMatchForRole returns null
+  // without `matched_at` (so no match card appears), and the match-lifecycle
+  // cron selects `matched_at=not.is.null` (so no reminder or expiry email
+  // fires). Setting matched_at here would silently start a countdown against a
+  // doctor who was never told — never add it without also sending the match.
+  if (pathname === '/api/ats/job/candidate' && req.method === 'POST') {
+    var ctxJAC = requireAtsSession(req, res); if (!ctxJAC) return;
+    var bodyJAC; try { bodyJAC = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var jacUserId = String((bodyJAC && bodyJAC.user_id) || '').trim();
+    var jacJobIdRaw = (bodyJAC && bodyJAC.career_role_id != null) ? bodyJAC.career_role_id : (bodyJAC ? bodyJAC.job_id : '');
+    var jacJobId = String(jacJobIdRaw == null ? '' : jacJobIdRaw).trim();
+    var jacStage = String((bodyJAC && bodyJAC.stage) || 'shortlisted').trim().toLowerCase();
+    if (!jacUserId || !jacJobId) { sendJson(res, 400, { ok: false, message: 'user_id and career_role_id are required.' }); return; }
+    // Only the two entry columns. Everything further along the board owns side
+    // effects (offers, practice emails, interview invites) that belong to their
+    // own endpoints — reaching them by "adding a candidate" would skip all of it.
+    if (jacStage !== 'shortlisted' && jacStage !== 'applied') {
+      sendJson(res, 400, { ok: false, message: 'A candidate can only be added at Shortlist or Applied.' });
+      return;
+    }
+    var jacJob = await atsGetJobRow(jacJobId);
+    if (!jacJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
+    // Idempotent: adding someone already on this board is a no-op, not a
+    // duplicate card (the board is keyed by application, not by click).
+    var jacExistingList = await atsListApplicationRows({ jobId: jacJob.id });
+    var jacExisting = jacExistingList.find(function (a) { return String(a.user_id) === jacUserId; });
+    if (jacExisting) {
+      sendJson(res, 200, {
+        ok: true, already: true,
+        application: atsApplicationToCard(jacExisting, null),
+        message: 'That doctor is already on this job\'s board.'
+      });
+      return;
+    }
+    var jacCreated = await atsInsertApplicationRow({
+      user_id: jacUserId,
+      career_role_id: jacJob.id,
+      provider_role_id: jacJob.provider_role_id || ('ats_' + atsLocalId('')),
+      // `status` defaults to 'applied' in the schema, and every GP-facing
+      // screen reads `status` — leaving it would tell the doctor they had
+      // applied for something they have never seen (the same bug the AI
+      // shortlist hit on 2026-07-27). Set it to match the stage explicitly.
+      status: jacStage,
+      ats_stage: jacStage,
+      job_title: jacJob.title,
+      practice_name: jacJob.practice_name || '',
+      origin: 'admin_applied'
+      // NOTE: no `revealed` — nobody has placed this doctor, so the practice's
+      // identity stays masked until a real acceptance reveals it.
+    });
+    if (!jacCreated) { sendJson(res, 502, { ok: false, message: 'Could not add that candidate.' }); return; }
+    await atsRecordStageEvent(jacCreated.id, '', jacStage, ctxJAC.email || '');
+    sendJson(res, 200, {
+      ok: true, already: false,
+      application: atsApplicationToCard(jacCreated, null),
+      job_title: jacJob.title
+    });
+    return;
+  }
+
   if (pathname === '/api/ats/application' && req.method === 'POST') {
     var ctxAA = requireAtsSession(req, res); if (!ctxAA) return;
     var bodyAA; try { bodyAA = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }

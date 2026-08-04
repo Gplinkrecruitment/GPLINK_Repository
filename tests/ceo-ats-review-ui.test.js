@@ -122,7 +122,7 @@ describe('CEO Jobs review screen (Task 4 — combined review)', () => {
   });
 
   it('bumps the ceo-ats-jobs.js cache-buster', () => {
-    expect(ceoHtmlSrc).toMatch(/ceo-ats-jobs\.js\?v=20260805a/);
+    expect(ceoHtmlSrc).toMatch(/ceo-ats-jobs\.js\?v=20260805b/);
   });
 });
 

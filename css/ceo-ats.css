@@ -359,6 +359,22 @@
 .ats-mini-job .mj-title { font-size:13.5px; font-weight:500; }
 .ats-mini-job .mj-sub { font-size:11.5px; color:var(--ats-dim); }
 
+/* ---------- Add a candidate to a job board (search modal) ---------- */
+.ats-addcand-note { font-size:12.5px; color:var(--ats-muted); background:rgba(96,165,250,0.06);
+  border:1px solid rgba(96,165,250,0.15); border-left:3px solid var(--ats-blue);
+  border-radius:8px; padding:10px 12px; line-height:1.5; }
+.ats-addcand-note b { color:var(--ats-text); }
+.ats-addcand-results { margin-top:12px; max-height:46vh; overflow-y:auto; display:flex; flex-direction:column; gap:7px; }
+.ats-addcand-row { display:flex; align-items:center; gap:11px; padding:9px 11px;
+  background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:10px; }
+.ats-addcand-row:hover { border-color:var(--ats-border-hover); }
+.ats-addcand-row.is-on-board { opacity:.55; }
+.ats-addcand-txt { min-width:0; flex:1; }
+.ats-addcand-name { font-size:13.5px; font-weight:500; color:var(--ats-text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ats-addcand-sub { font-size:11.5px; color:var(--ats-dim);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
 /* ---------- Jobs map (leads the Jobs list) ---------- */
 /* Keyless Leaflet + CARTO dark tiles, same stack as the public /jobs map and
    the in-app career map — no Google Maps key (it is referrer-restricted and
