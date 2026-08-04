@@ -123,7 +123,12 @@ describe('AI Matching Task 7 — source wiring', () => {
     // browser's localStorage) so the state survives a reload on any device —
     // the getActiveMatch veto is what this test actually guards, and it must
     // still sit outside the widened check.
-    expect(jobHtml).toContain('(role.applied || isApplied(role.id)) && !getActiveMatch(role) ? buildReceivedHtml() : ""');
+    // Widened again on 2026-08-05 (server `role.applicationStatus` joins the
+    // sources, so a stage past "applied" stops being invisible to this page) —
+    // the getActiveMatch veto still sits outside every one of them, on BOTH
+    // the banner slot and each sticky-bar branch, which is what this guards.
+    expect(jobHtml).toContain('(role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role) ? buildApplicationProgressHtml(role) : ""');
+    expect(jobHtml).toContain('(barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))');
     expect(jobHtml).toContain('(((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle")');
   });
 

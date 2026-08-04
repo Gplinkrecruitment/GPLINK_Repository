@@ -43168,6 +43168,34 @@ async function handleApi(req, res, pathname) {
       roleClientPayload.applied = true;
     }
 
+    // WHERE this doctor's application actually is, in the same words every
+    // other surface uses.
+    //
+    // Owner report 2026-08-05: Khaleed Crypto had SAT his interview, and this
+    // page still told him "Application received … there's nothing you need to
+    // do right now" with a "✓ Submitted — your Registration Support Officer is
+    // reviewing it" bar. The flag above is the only thing the page had, and it
+    // is deliberately narrow — true only at the applied/submitted stages — so
+    // the server had already stopped setting it. What kept the first-stage copy
+    // on screen was the CLIENT's fallback to this browser's localStorage, which
+    // records "you applied to this role" once and never expires. Presence of an
+    // application is not a stage.
+    //
+    // buildInternalCareerStatusPresentation is the same mapper behind
+    // /api/career/applications and the application-detail page — reused rather
+    // than re-derived, so these surfaces cannot drift apart again. Both rows it
+    // needs are already in hand from resolveCareerRoleRevealContext, so this
+    // costs no extra query. Zoho-era rows keep their own labels (same
+    // isInternalCareerApplication gate the detail endpoint applies).
+    if (roleRevealCtx.application && isInternalCareerApplication(roleRevealCtx.application, finalRoleRow)) {
+      const roleStatusView = buildInternalCareerStatusPresentation(roleRevealCtx.application, roleRevealCtx.offer || null);
+      roleClientPayload.applicationStatus = {
+        status: roleStatusView.status,
+        statusLabel: roleStatusView.statusLabel,
+        statusTone: roleStatusView.statusTone
+      };
+    }
+
     if (isAdminPreviewRole) roleClientPayload.preview = true;
     // A payload carrying match state must never be cached — see
     // PRIVATE_VOLATILE_HEADERS. Both directions matter: caching the PRE-accept

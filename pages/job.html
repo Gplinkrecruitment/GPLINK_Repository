@@ -2526,6 +2526,83 @@
     '</div>';
   }
 
+  /* ── Where this application actually is ──────────────────────────────────
+     Owner report 2026-08-05: Khaleed Crypto had already SAT his interview and
+     this page still read "Application received … there's nothing you need to
+     do right now", above a "✓ Submitted — your Registration Support Officer is
+     reviewing it" bar. The page only ever knew a yes/no "have you applied":
+     the server's role.applied is deliberately narrow (true only while the
+     application is still with us, before the practice sees it), so it had
+     already gone false — but isApplied() falls back to THIS browser's
+     localStorage, which records "you applied to this role" once and never
+     expires. Having an application is not a stage.
+
+     role.applicationStatus is the server's answer, built by the same mapper
+     behind /api/career/applications and the application-detail page, so the
+     job page can no longer disagree with the card on My Practice. The label is
+     the server's words verbatim; the note below is this page's "so what does
+     that mean for me", which is what a doctor opens this page to find out.
+
+     Anything not listed falls back to the applied copy — a new stage shows a
+     true (if generic) headline rather than a blank panel. ── */
+  const JOB_STAGE_NOTES = {
+    applied: "Your Registration Support Officer checks every application before the practice sees it, then puts you forward. Once the practice confirms their availability, we'll email you interview times to choose from — you book the one that suits you. There's nothing you need to do right now.",
+    fast_tracked: "Your Registration Support Officer is putting you forward now. They'll come back to you to arrange an interview time — usually within a couple of business days.",
+    submitted: "Your Registration Support Officer has put you forward and the practice has your profile. We'll let you know the moment they respond — there's nothing you need to do right now.",
+    reviewing: "The practice is going through your profile now. We'll let you know the moment they respond — there's nothing you need to do right now.",
+    interview: "You're meeting this practice. Your interview time and joining link are on My Practice — your Registration Support Officer joins you, so you're never in the room alone.",
+    interview_completed: "You've met the practice and they're making their decision. We'll let you know the moment they come back to us — there's nothing you need to do right now.",
+    offer: "The practice would like to offer you this role. Open My Practice to read the offer and decide.",
+    offer_declined: "You let us know this one wasn't right for you. Nothing further is happening on this role — your Registration Support Officer will line up the next fit.",
+    finalising_placement: "You've accepted this role. We're finalising the paperwork and your start details now, and your Registration Support Officer will walk you through each step.",
+    not_proceeding: "The practice isn't going ahead with this one. It is not a reflection of your profile — your Registration Support Officer will line up the next fit.",
+    withdrawn: "You withdrew this application. Message your Registration Support Officer if that wasn't what you meant to do.",
+    placement_secured: "This is your practice. Your placement details and next steps are on My Practice."
+  };
+
+  // A secured placement reaches us under whichever of these the row happens to
+  // store (server: SECURED_CAREER_APPLICATION_STATUS_KEYS) — they are one state
+  // to a doctor, so they get one set of words.
+  const JOB_SECURED_STAGES = ["hired", "secured", "placed", "placement_secured", "contract_signed"];
+  function jobStageKey(statusKey) {
+    const key = String(statusKey || "");
+    return JOB_SECURED_STAGES.indexOf(key) !== -1 ? "placement_secured" : key;
+  }
+
+  function jobStageNote(statusKey) {
+    return JOB_STAGE_NOTES[jobStageKey(statusKey)] || JOB_STAGE_NOTES.applied;
+  }
+
+  function buildApplicationProgressHtml(role) {
+    const view = role && role.applicationStatus;
+    // No server answer (a Zoho-era row, or an older payload) — the page behaves
+    // exactly as it did before this block existed.
+    if (!view || !view.statusLabel) return buildReceivedHtml();
+    const key = String(view.status || "");
+    return '<div class="at-received at-rv" id="appliedBanner" data-app-stage="' + escapeHtml(key) + '">' +
+      '<span class="at-received-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
+      '<div><b>' + escapeHtml(String(view.statusLabel)) + '</b>' +
+      '<p>' + escapeHtml(jobStageNote(key)) + '</p>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Stages the sticky bar reports itself. Withdrawn / not-proceeding / an
+  // unanswered match are left OUT on purpose: the bar already has its own
+  // handling for those (previously_withdrawn, the match accept bar), and
+  // hijacking it here would replace a working control with a dead label.
+  const JOB_BAR_STAGES = {
+    applied: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",
+    fast_tracked: "✓ You're being fast-tracked<small>We're putting you forward to the practice</small>",
+    submitted: "✓ With the practice<small>They have your profile — we'll come back to you</small>",
+    reviewing: "✓ With the practice<small>They're reviewing your profile now</small>",
+    interview: "✓ Interview stage<small>Your time and joining link are on My Practice</small>",
+    interview_completed: "✓ Interview done<small>The practice is making their decision</small>",
+    offer: "🎉 Offer waiting for you<small>Open My Practice to read it and decide</small>",
+    finalising_placement: "✓ Offer accepted<small>We're finalising your placement</small>",
+    placement_secured: "✓ This is your practice<small>Your placement details are on My Practice</small>"
+  };
+
   function buildSupportHtml() {
     return '<div class="at-sech">In your corner</div>' +
       '<div class="at-support at-rv at-rv4"><span class="at-ava">GP</span>' +
@@ -3179,9 +3256,13 @@
       // `role.applied` is the server's answer and outranks isApplied(), which
       // only knows what THIS browser did: without it the doctor who applied on
       // their laptop was shown the Apply button again on their phone.
+      // role.applicationStatus joins the condition because the server stops
+      // setting role.applied the moment the application moves past "with us" —
+      // so for every later stage this panel was reachable ONLY through
+      // isApplied()'s localStorage, and it then described the wrong stage.
       (role.matchAccepted
         ? buildFastTrackedHtml(role)
-        : ((role.applied || isApplied(role.id)) && !getActiveMatch(role) ? buildReceivedHtml() : "")) +
+        : ((role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role) ? buildApplicationProgressHtml(role) : "")) +
       buildPracticeIdentityHtml(role) +
       buildUrgencyHtml(role) +
       buildPackageCellsHtml(role) +
@@ -3233,9 +3314,18 @@
       // role.applied is the same server-derived signal for a doctor who applied
       // directly, so their "✓ Submitted" bar survives a reload and any device
       // too — isApplied() alone is this browser's localStorage.
+      // A real stage from the server outranks both — otherwise the bar sat on
+      // "✓ Submitted — your Registration Support Officer is reviewing it" for a
+      // doctor who had already been interviewed, because isApplied() is a
+      // permanent localStorage flag rather than a stage (owner 2026-08-05).
+      const barStage = role.applicationStatus
+        ? jobStageKey(role.applicationStatus.status)
+        : "";
       applyState = role.matchAccepted
         ? "matched_accepted"
-        : (((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle");
+        : ((barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))
+          ? "app_progress"
+          : (((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle"));
     }
     paintApply();
     updateSaveButton();
@@ -3286,6 +3376,15 @@
       applied: {
         cls: "at-bapply at-bapply--done",
         html: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",
+        disabled: true
+      },
+      // The same bar, telling the truth about how far this application has got
+      // (owner 2026-08-05). Falls back to the applied wording if a stage ever
+      // reaches here without an entry, so the bar is never blank.
+      app_progress: {
+        cls: "at-bapply at-bapply--done",
+        html: (JOB_BAR_STAGES[jobStageKey(currentRole && currentRole.applicationStatus && currentRole.applicationStatus.status)]
+          || "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>"),
         disabled: true
       },
       // Accepting a match is not the same as applying cold, so it must not
