@@ -794,7 +794,8 @@ describe('cache buster + dead CSS pruned', () => {
     // deployed fine without this, but browsers keep serving the copy they
     // cached under the OLD query string, so the fix was invisible in the UI
     // until the URL changed — the version token IS the delivery mechanism.
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260727a');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260805a');
+    expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260727a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
   });
@@ -832,5 +833,86 @@ describe('cache buster + dead CSS pruned', () => {
     expect(cssSrc).toContain('.ats-match-status {');
     expect(cssSrc).toContain('.ats-match-status.ats-match-amber');
     expect(cssSrc).toContain('.ats-match-status.ats-match-expired');
+  });
+});
+
+// Owner report 2026-08-05: "why are not all gps showing here for matching eg
+// deepika ganesh". The endpoint used to DELETE any GP who had neither a live
+// match nor a passing eligibility verdict, so an active, onboarded doctor with
+// no CV yet simply wasn't on a board headed "every open position and every GP"
+// — and nothing anywhere said why. They are now listed, in their own group,
+// carrying the reason.
+describe('GPs who cannot be matched yet are shown WITH the reason', () => {
+  const blockedRow = (reasons) => ({
+    gp: { user_id: 'gp-nocv', name: 'Deepika Ganesh', email: 'd@test.local', days_on_books: 5 },
+    live: [], suggestions: [], ranking: null,
+    blocked: { reasons: reasons || ['no_cv'] }
+  });
+  const readyRow = () => ({
+    gp: { user_id: 'gp-ok', name: 'Ready Doctor', email: 'r@test.local', days_on_books: 9 },
+    live: [], suggestions: [], ranking: null, blocked: null
+  });
+
+  it('turns block codes into words the team would actually use', () => {
+    const B = MB;
+    expect(B.mbBlockLabels({ reasons: ['no_cv'] })).toEqual(['Needs a CV on file']);
+    expect(B.mbBlockLabels({ reasons: ['onboarding_incomplete'] })).toEqual(['Onboarding not finished']);
+    expect(B.mbBlockLabels({ reasons: ['career_locked'] })).toEqual(['Career paused (3 strikes)']);
+    // An unmapped code still reads as English rather than leaking a raw enum.
+    expect(B.mbBlockLabels({ reasons: ['some_new_rule'] })).toEqual(['some new rule']);
+    expect(B.mbBlockLabels(null)).toEqual([]);
+  });
+
+  it('groups only the blocked-AND-idle — a blocked GP mid-interview stays in the main list', () => {
+    const B = MB;
+    expect(B.mbIsBlockedRow(blockedRow())).toBe(true);
+    expect(B.mbIsBlockedRow(readyRow())).toBe(false);
+    // Live work outranks the block: they are already out with a practice.
+    expect(B.mbIsBlockedRow({ ...blockedRow(), live: [{ ats_stage: 'interview' }] })).toBe(false);
+    // A cached ranking is also something to look at.
+    expect(B.mbIsBlockedRow({ ...blockedRow(), ranking: { age_hours: 3 } })).toBe(false);
+  });
+
+  it('the row states the reason instead of a days-on-books alarm', () => {
+    const B = MB;
+    const html = B.mbGpRowHtml(blockedRow(), {});
+    expect(html).toContain('Deepika Ganesh');
+    expect(html).toContain('Needs a CV on file');
+    // Not dressed up as an overdue-to-chase row.
+    expect(html).toContain('muted');
+    expect(html).not.toContain('no matches sent');
+  });
+
+  it('offers no "Run AI ranking" for a GP the shortlist endpoint would refuse', () => {
+    const B = MB;
+    const blocked = B.mbGpTrackHtml(blockedRow(), Date.now());
+    expect(blocked).not.toContain('data-mb-run');
+    expect(blocked).toContain('Needs a CV on file');
+    // An eligible GP with nothing yet still gets the button.
+    expect(B.mbGpTrackHtml(readyRow(), Date.now())).toContain('data-mb-run');
+  });
+
+  it('the expanded panel names the reason rather than a bare "No matches yet"', () => {
+    const B = MB;
+    const html = B.mbExpandHtml(blockedRow(), {}, Date.now());
+    expect(html).toContain('Not ready to match');
+    expect(html).toContain('Needs a CV on file');
+    expect(B.mbExpandHtml(readyRow(), {}, Date.now())).toContain('No matches yet');
+  });
+
+  it('keeps "No matches sent" an actionable queue — blocked GPs are not counted or filtered into it', () => {
+    const B = MB;
+    const rows = [readyRow(), blockedRow()];
+    // Chip count: only the GP you could actually send to.
+    expect(B.mbFilterChipsHtml('gps', rows, {})).toContain('No matches sent');
+    expect(B.mbFilterGpRows(rows, { status: 'nomatches' }).map((r) => r.gp.user_id)).toEqual(['gp-ok']);
+    // With no status filter, both are still returned — nobody is hidden.
+    expect(B.mbFilterGpRows(rows, {}).length).toBe(2);
+  });
+
+  it('css carries the muted row + reason chip styles', () => {
+    expect(cssSrc).toMatch(/\.ats-mb-row\.muted/);
+    expect(cssSrc).toMatch(/\.ats-mb-blockchip/);
+    expect(cssSrc).toMatch(/\.ats-mb-grouphead/);
   });
 });

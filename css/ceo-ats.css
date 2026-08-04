@@ -532,6 +532,19 @@
 .ats-mb-row.amber { border-left-color:var(--ats-amber); }
 .ats-mb-row.green { border-left-color:var(--ats-green); }
 .ats-mb-row.filled { border-left-color:var(--ats-green); background:rgba(52,211,153,0.04); cursor:default; }
+/* A GP who is on the board but can't be shortlisted yet (no CV, onboarding
+   unfinished, placed…). Present and readable, but visibly not in play — they
+   used to be deleted from the response entirely, with nothing to say why. */
+.ats-mb-row.muted { border-left-color:var(--ats-dim); background:rgba(255,255,255,0.015); }
+.ats-mb-urg.muted { background:rgba(255,255,255,0.06); color:var(--ats-dim); } .ats-mb-urg.muted::before { background:var(--ats-dim); }
+.ats-mb-blockzone { display:flex; flex-wrap:wrap; gap:7px; align-items:center; padding:14px 16px; }
+.ats-mb-blockchip { font-size:11px; font-weight:600; color:var(--ats-dim); background:rgba(255,255,255,0.05);
+  border:1px dashed var(--ats-border-hover); border-radius:999px; padding:5px 11px; white-space:nowrap; }
+/* Header above the blocked group. */
+.ats-mb-grouphead { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--ats-dim); margin:22px 0 10px; display:flex; align-items:center; gap:9px; }
+.ats-mb-grouphead::after { content:''; flex:1; height:1px; background:var(--ats-border); }
+.ats-mb-groupnote { font-size:11.5px; font-weight:400; color:var(--ats-dim); text-transform:none; letter-spacing:0; }
 
 /* Owner call 2026-07-12: no photo/gradient backdrop — the practice side is a
  * plain glassy panel in the same colour as the GP/track side of the row. */

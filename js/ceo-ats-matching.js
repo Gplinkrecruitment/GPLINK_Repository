@@ -276,11 +276,53 @@
   }
 
   // GPs-direction mirror of mbTrackHtml (live[] instead of pipeline[]).
+  // Why a GP can't be shortlisted yet, in the words the team would use. Keys
+  // are the block codes from checkMatchEligibility (lib/ai-candidate-job-match.js).
+  // Each says what is MISSING, so the row doubles as a to-do.
+  var MB_BLOCK_LABELS = {
+    no_cv: 'Needs a CV on file',
+    onboarding_incomplete: 'Onboarding not finished',
+    placed: 'Already placed',
+    career_locked: 'Career paused (3 strikes)',
+    at_interview_stage: 'Already at interview stage',
+    account_gated: 'Account under review',
+    account_not_active: 'Account not active',
+    dpa_ineligible: 'Not DPA eligible',
+    existing_application: 'Already applied'
+  };
+
+  function mbBlockLabels(blocked) {
+    var reasons = (blocked && blocked.reasons) || [];
+    return reasons.map(function (r) { return MB_BLOCK_LABELS[r] || String(r).replace(/_/g, ' '); });
+  }
+
+  // A row belongs in the "not ready" group only when it is blocked AND has
+  // nothing in flight. A GP mid-interview who would fail the gate for a NEW
+  // shortlist is still live work and stays in the main list.
+  function mbIsBlockedRow(row) {
+    if (!row || !row.blocked) return false;
+    return !((row.live || []).length) && !row.ranking;
+  }
+
+  // Shown on the row instead of a match track. A blocked GP gets no "Run AI
+  // ranking" button: ranking them would be wasted spend on someone the
+  // shortlist endpoint will refuse anyway.
+  function mbGpBlockedTrackHtml(row) {
+    var labels = mbBlockLabels(row && row.blocked);
+    if (!labels.length) return '';
+    return '<div class="ats-mb-blockzone">' +
+      labels.map(function (l) { return '<span class="ats-mb-blockchip">' + A.esc(l) + '</span>'; }).join('') +
+    '</div>';
+  }
+
   function mbGpTrackHtml(row, nowMs) {
     var gp = (row && row.gp) || {};
     var live = mbSortPipeline((row && row.live) || []);
     var suggestions = (row && row.suggestions) || [];
     var ranking = (row && row.ranking) || null;
+    // Blocked and nothing in flight — say what's needed rather than offering
+    // an action that cannot succeed.
+    if (!live.length && !ranking && row && row.blocked) return mbGpBlockedTrackHtml(row);
     if (!live.length && !ranking) {
       return '<button type="button" class="ats-mb-runbtn" data-mb-run="' + A.escAttr(gp.user_id) + '">⚡ Run AI ranking</button>';
     }
@@ -415,8 +457,13 @@
     var live = (row && row.live) || [];
     var noSent = live.length === 0;
     var days = gp.days_on_books || 0;
-    var bucket = noSent ? (days >= 21 ? 'red' : days >= 7 ? 'amber' : 'green') : 'green';
-    var urgLabel = noSent ? (days + ' days on the books · no matches sent') : (days + ' days on the books');
+    var blockLabels = mbBlockLabels(row && row.blocked);
+    // A blocked GP is not "urgent", they're waiting on something — the amber/
+    // red days-on-books alarm would just be noise next to the real reason.
+    var bucket = blockLabels.length ? 'muted' : (noSent ? (days >= 21 ? 'red' : days >= 7 ? 'amber' : 'green') : 'green');
+    var urgLabel = blockLabels.length
+      ? (days + ' days on the books · ' + blockLabels.join(' · '))
+      : (noSent ? (days + ' days on the books · no matches sent') : (days + ' days on the books'));
     var expanded = ctx.expandedId != null && String(ctx.expandedId) === String(gp.user_id);
     var running = !!(ctx.runningIds && ctx.runningIds[gp.user_id]);
     var initials = A.initials(gp.name);
@@ -558,7 +605,10 @@
       chips.push(mbChip('No matches sent', cNo, 'status:nomatches', filters.status === 'nomatches'));
       chips.push(mbChip('Awaiting reply', cAwait, 'status:awaiting', filters.status === 'awaiting'));
     } else {
-      var gNo = rows.filter(function (r) { return (r.live || []).length === 0; }).length;
+      // "No matches sent" is a work queue, so it counts GPs you could
+      // actually send to — a blocked GP is listed under "Not ready to match"
+      // instead of padding a to-do you can't action.
+      var gNo = rows.filter(function (r) { return (r.live || []).length === 0 && !mbIsBlockedRow(r); }).length;
       var gAwait = rows.filter(function (r) { return (r.live || []).some(function (l) { return l.ats_stage === 'shortlisted'; }); }).length;
       chips.push(mbChip('No matches sent', gNo, 'status:nomatches', filters.status === 'nomatches'));
       chips.push(mbChip('Awaiting reply', gAwait, 'status:awaiting', filters.status === 'awaiting'));
@@ -689,9 +739,15 @@
     var rowId = isGp ? (row.gp && row.gp.user_id) : (row.job && row.job.id);
 
     if (!pipelineList.length && !suggestions.length) {
+      // Say WHY when we know why. "No matches yet" on a GP who simply has no
+      // CV on file sends the reader hunting for a problem that is already
+      // named in the payload.
+      var blockedMsg = isGp ? mbBlockLabels(row.blocked) : [];
       return (
         '<div class="ats-mb-expand" data-mb-expand-for="' + A.escAttr(rowId) + '">' +
-          A.emptyHtml('No matches yet.') +
+          A.emptyHtml(blockedMsg.length
+            ? ('Not ready to match — ' + blockedMsg.join(' · ') + '.')
+            : 'No matches yet.') +
         '</div>'
       );
     }
@@ -756,7 +812,7 @@
     return (rows || []).filter(function (row) {
       var gp = row.gp || {};
       var live = row.live || [];
-      if (filters.status === 'nomatches' && live.length !== 0) return false;
+      if (filters.status === 'nomatches' && (live.length !== 0 || mbIsBlockedRow(row))) return false;
       if (filters.status === 'awaiting' && !live.some(function (l) { return l.ats_stage === 'shortlisted'; })) return false;
       if (!mbTextMatches(filters.q, [gp.name, gp.email])) return false;
       return true;
@@ -834,9 +890,30 @@
     var showMore = filteredRows.length > visibleRows.length;
     var ctx = { expandedId: state.expandedId, runningIds: state.runningIds, nowMs: state.nowMs };
 
-    var rowsHtml = isGp
-      ? visibleRows.map(function (r) { return mbGpRowHtml(r, ctx) + (state.expandedId != null && String(state.expandedId) === String(r.gp.user_id) ? mbExpandHtml(r, state.selection, state.nowMs) : ''); }).join('')
-      : visibleRows.map(function (r) { return mbRowHtml(r, ctx) + (state.expandedId != null && String(state.expandedId) === String(r.job.id) ? mbExpandHtml(r, state.selection, state.nowMs) : ''); }).join('');
+    var rowsHtml;
+    if (isGp) {
+      // Blocked GPs are listed under their own heading rather than mixed in,
+      // so the top of the board stays the set you can actually act on while
+      // nobody is invisible. mbIsBlockedRow keeps a GP with something live
+      // (an interview, say) in the main list even if they'd fail the gate for
+      // a NEW shortlist — their reason still shows on the row.
+      var readyRows = visibleRows.filter(function (r) { return !mbIsBlockedRow(r); });
+      var blockedRows = visibleRows.filter(mbIsBlockedRow);
+      var gpRow = function (r) {
+        return mbGpRowHtml(r, ctx) +
+          (state.expandedId != null && String(state.expandedId) === String(r.gp.user_id) ? mbExpandHtml(r, state.selection, state.nowMs) : '');
+      };
+      rowsHtml = readyRows.map(gpRow).join('');
+      if (blockedRows.length) {
+        rowsHtml +=
+          '<div class="ats-mb-grouphead">Not ready to match (' + blockedRows.length + ')' +
+            '<span class="ats-mb-groupnote">On the books, but something is missing before they can be shortlisted</span>' +
+          '</div>' +
+          blockedRows.map(gpRow).join('');
+      }
+    } else {
+      rowsHtml = visibleRows.map(function (r) { return mbRowHtml(r, ctx) + (state.expandedId != null && String(state.expandedId) === String(r.job.id) ? mbExpandHtml(r, state.selection, state.nowMs) : ''); }).join('');
+    }
 
     var filledSection = '';
     if (!isGp && state.filters.filled) {
@@ -1106,6 +1183,8 @@
     mbExpandHtml: mbExpandHtml,
     mbFilterPositionsRows: mbFilterPositionsRows,
     mbFilterGpRows: mbFilterGpRows,
+    mbIsBlockedRow: mbIsBlockedRow,
+    mbBlockLabels: mbBlockLabels,
     mbSortPipeline: mbSortPipeline,
     mbSortRows: mbSortRows,
     mbSortSelectHtml: mbSortSelectHtml

@@ -67701,31 +67701,53 @@ Return ONLY valid JSON with no markdown formatting:
           };
         }
 
+        // The SAME eligibility verdict the ranking endpoints apply, evaluated
+        // job-agnostically (only the GP-side gates).
+        var mbVerdict = aiCandidateJobMatch.checkMatchEligibility(gp, MATCHING_BOARD_JOB_AGNOSTIC);
         return {
           gp: { user_id: uid, name: gp.name || '', email: gp.email || '', days_on_books: matchingBoardDaysOpen(mbCreatedAtByUser[uid], mbNowMs) },
           live: live, suggestions: suggestions, ranking: ranking,
-          // Internal keys, stripped below: _hasSignal is the sort/keep key
-          // (any live match or cached ranking); _eligible is the SAME
-          // eligibility verdict the ranking endpoints apply, evaluated
-          // job-agnostically (only the GP-side gates).
+          // Why this GP can't be shortlisted yet (null when they can). The UI
+          // shows this on the row — it is the answer to "why isn't X here?".
+          blocked: mbVerdict.eligible ? null : { reasons: mbVerdict.blocks },
+          // Internal sort/keep keys, stripped below. _hasSignal = any live
+          // match or cached ranking.
           _hasSignal: !!(cacheEntry || live.length),
-          _eligible: aiCandidateJobMatch.checkMatchEligibility(gp, MATCHING_BOARD_JOB_AGNOSTIC).eligible
+          _eligible: mbVerdict.eligible,
+          _placed: mbVerdict.blocks.indexOf('placed') !== -1
         };
       });
 
-      // Keep-rule (spec): signal rows (live match / cached ranking) stay
-      // unconditionally; no-signal rows earn a place only by passing the
-      // eligibility gate — a placed/paused/locked/no-CV GP with nothing in
-      // flight must never occupy one of the 150 slots.
-      mbGpRows = mbGpRows.filter(function (r) { return r._hasSignal || r._eligible; });
+      // Keep-rule. This used to drop EVERY row with neither a live match nor a
+      // passing eligibility verdict. The gate itself is right — a GP with no
+      // CV must not be shortlisted out to a practice — but silently deleting
+      // the row meant a doctor who was active, onboarded and had simply not
+      // uploaded a CV yet vanished from a board whose own header promises
+      // "every open position and every GP", with nothing anywhere to say why
+      // (owner report 2026-08-05: "why are not all gps showing here").
+      //
+      // Now the only GP dropped is one who is PLACED with nothing in flight:
+      // they are finished, not "not ready", and they are still on Candidates
+      // and on their practice. Everyone else stays, carrying `blocked.reasons`
+      // so the UI can group them under "Not ready to match" WITH the reason.
+      //
+      // Being listed is not being shortlistable: /api/ats/matching/shortlist
+      // re-runs checkMatchEligibility fail-closed on every item, so nothing
+      // here can send an ineligible GP to a practice.
+      mbGpRows = mbGpRows.filter(function (r) { return r._hasSignal || r._eligible || !r._placed; });
 
+      // Ready rows sort first so the 150-row cap can never be eaten by blocked
+      // ones, then signal rows, then oldest-first as before.
       mbGpRows.sort(function (a, b) {
+        var aReady = a._hasSignal || a._eligible;
+        var bReady = b._hasSignal || b._eligible;
+        if (aReady !== bReady) return aReady ? -1 : 1;
         if (a._hasSignal !== b._hasSignal) return a._hasSignal ? -1 : 1;
         var ca = mbCreatedAtByUser[a.gp.user_id] ? new Date(mbCreatedAtByUser[a.gp.user_id]).getTime() : 0;
         var cb = mbCreatedAtByUser[b.gp.user_id] ? new Date(mbCreatedAtByUser[b.gp.user_id]).getTime() : 0;
         return ca - cb;
       });
-      mbGpRows = mbGpRows.slice(0, 150).map(function (r) { delete r._hasSignal; delete r._eligible; return r; });
+      mbGpRows = mbGpRows.slice(0, 150).map(function (r) { delete r._hasSignal; delete r._eligible; delete r._placed; return r; });
 
       sendJson(res, 200, { ok: true, rows: mbGpRows });
       return;
