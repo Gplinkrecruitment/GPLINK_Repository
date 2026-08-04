@@ -1101,14 +1101,20 @@
   var addCandSearchTimer = null;
   var addCandQuery = '';
   var addCandBusy = false;
+  // Mirrors SHORTLIST_MATCH_WINDOW_DAYS on the server.
+  var ADD_CAND_INVITE_DAYS = 5;
 
   // Doctors already on this board — shown greyed out rather than hidden, so a
   // consultant searching a name they know is on the board gets an answer
   // ("already here") instead of an empty result they'll read as "not found".
+  // user_id -> { onBoard, notified }. `notified` is matched_at: the stamp that
+  // means the doctor was actually told, not merely that a card exists.
   function boardUserIds() {
     var ids = {};
     ((boardData && boardData.columns) || []).forEach(function (col) {
-      (col.cards || []).forEach(function (c) { if (c && c.user_id) ids[String(c.user_id)] = true; });
+      (col.cards || []).forEach(function (c) {
+        if (c && c.user_id) ids[String(c.user_id)] = { onBoard: true, notified: !!c.matched_at };
+      });
     });
     return ids;
   }
@@ -1119,8 +1125,9 @@
         '<div class="ats-modal-head"><h3>Add a candidate</h3>' +
           '<button class="ats-drawer-close" id="atsAddCandClose">×</button></div>' +
         '<div class="ats-modal-body">' +
-          '<div class="ats-addcand-note">Adds the doctor to <b>Shortlist</b> on this job. ' +
-            'Nothing is sent to them — drag the card across when you\'re ready.</div>' +
+          '<div class="ats-addcand-note">Shortlists the doctor for this job and <b>invites them</b> — ' +
+            'email, in-app update and push. They have ' + ADD_CAND_INVITE_DAYS + ' days to respond.</div>' +
+          '<div class="ats-addcand-warn" id="atsAddCandWarn" style="display:none"></div>' +
           '<label for="atsAddCandSearch">Search doctors</label>' +
           '<input type="text" id="atsAddCandSearch" placeholder="Name or email…" autocomplete="off" />' +
           '<div class="ats-addcand-results" id="atsAddCandResults">' + A.loadingHtml('Loading doctors…') + '</div>' +
@@ -1129,15 +1136,41 @@
     '</div>';
   }
 
-  function addCandidateRowHtml(c, onBoard) {
+  // Plain-words reason a doctor could not be invited, so the consultant sees
+  // WHY nothing was sent instead of a card appearing in silence.
+  var ADD_CAND_BLOCK_COPY = {
+    no_cv: 'no CV on file',
+    onboarding_incomplete: 'onboarding not finished',
+    placed: 'already placed',
+    at_interview_stage: 'already at interview on another role',
+    career_locked: 'career access locked',
+    account_gated: 'account is on hold',
+    account_not_active: 'account is not active',
+    dpa_ineligible: 'not DPA-eligible for this job',
+    candidate_not_found: 'no candidate record found'
+  };
+  function addCandBlockText(blocks) {
+    var list = (blocks || []).map(function (b) { return ADD_CAND_BLOCK_COPY[b] || String(b).replace(/_/g, ' '); });
+    if (!list.length) return '';
+    return list.length === 1 ? list[0] : (list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1]);
+  }
+
+  function addCandidateRowHtml(c, state) {
     var name = c.name || c.email || 'Candidate';
     var bits = [];
     if (c.email) bits.push(A.esc(c.email));
     if (c.reg_stage_label) bits.push(A.esc(c.reg_stage_label));
-    var action = onBoard
-      ? '<span class="ats-pill muted">On this board</span>'
-      : '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-ats-add-cand="' + A.escAttr(c.user_id) + '">Add</button>';
-    return '<div class="ats-addcand-row' + (onBoard ? ' is-on-board' : '') + '">' +
+    var action;
+    if (state.notified) {
+      action = '<span class="ats-pill green">Invited</span>';
+    } else if (state.onBoard) {
+      // On the board but never told — the door for a card added before the
+      // invitation pathway existed, or one whose doctor was blocked at the time.
+      action = '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-ats-add-cand="' + A.escAttr(c.user_id) + '">Notify</button>';
+    } else {
+      action = '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm" data-ats-add-cand="' + A.escAttr(c.user_id) + '">Add</button>';
+    }
+    return '<div class="ats-addcand-row' + (state.notified ? ' is-on-board' : '') + '">' +
       '<div class="ats-avatar" style="background:' + A.avatarColor(name) + '">' + A.esc(A.initials(name)) + '</div>' +
       '<div class="ats-addcand-txt">' +
         '<div class="ats-addcand-name">' + (c.country ? A.flag(c.country) + ' ' : '') + A.esc(name) + '</div>' +
@@ -1156,7 +1189,9 @@
       return;
     }
     var onBoard = boardUserIds();
-    host.innerHTML = list.map(function (c) { return addCandidateRowHtml(c, !!onBoard[String(c.user_id)]); }).join('');
+    host.innerHTML = list.map(function (c) {
+      return addCandidateRowHtml(c, onBoard[String(c.user_id)] || { onBoard: false, notified: false });
+    }).join('');
   }
 
   function fetchAddCandidates() {
@@ -1216,9 +1251,29 @@
         A.toast((d && d.message) || 'Could not add that candidate.');
         return;
       }
-      A.toast(d.already ? 'Already on this board' : 'Added to Shortlist');
-      closeAddCandidateModal();
-      atsOpenJobBoard(currentBoardJobId); // repaint the board with the new card
+      if (d.notified) {
+        A.toast(d.already ? 'Invitation sent' : 'Shortlisted — the doctor has been invited');
+        closeAddCandidateModal();
+        atsOpenJobBoard(currentBoardJobId); // repaint with the new card
+        return;
+      }
+      // Added, but the doctor was NOT told. Say why, in the modal, and leave it
+      // open — going quiet here is the exact bug this pathway exists to fix.
+      var why = addCandBlockText(d.blocks);
+      var warn = el('atsAddCandWarn');
+      if (warn) {
+        warn.innerHTML = '<b>On the board, but not invited.</b> ' +
+          (why ? 'We haven\'t told this doctor because of ' + A.esc(why) + '. ' : '') +
+          'Fix that and press <b>Notify</b> to send the invitation.';
+        warn.style.display = '';
+      }
+      A.toast('Added to Shortlist — not invited' + (why ? ' (' + why + ')' : ''));
+      // Refresh the board behind the modal so the new card + its Notify state
+      // are correct without closing what the consultant is reading.
+      A.api('/api/ats/job/pipeline?id=' + encodeURIComponent(currentBoardJobId)).then(function (p) {
+        if (p && p.ok) { boardData = p; renderBoardMeta(); renderBoard(); }
+        fetchAddCandidates();
+      });
     });
   }
 

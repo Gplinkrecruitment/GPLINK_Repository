@@ -32493,6 +32493,112 @@ async function sendMatchEmail(applicationRow, opts) {
   }
 }
 
+// How long a doctor has to answer a shortlist invitation.
+var SHORTLIST_MATCH_WINDOW_DAYS = 5;
+
+// The doctor-facing half of a shortlist: the "You've been personally matched"
+// email PLUS the in-app update and the push, so it reaches them wherever they
+// are rather than only in an inbox.
+//
+// Shared on purpose. Owner report 2026-08-05: shortlisting a doctor by hand
+// from a job board told them NOTHING, because only the Matching board knew to
+// announce. Both doors now call this one function, so one can never go quiet
+// while the other speaks. Every leg is best-effort and individually caught —
+// a push failure must not lose the email.
+async function announceShortlistToGp(appRow) {
+  var row = appRow || {};
+  if (!row.id || !row.user_id) return { ok: false, error: 'missing_application' };
+  var practiceLabel = '';
+  var roleLabel = '';
+  try {
+    var annJob = row.career_role_id ? await atsGetJobRow(row.career_role_id) : null;
+    if (annJob) {
+      var annPractice = annJob.practice_id ? await atsGetPracticeRow(annJob.practice_id) : null;
+      var annNames = atsJobDisplayNames(annJob, annPractice);
+      practiceLabel = annNames.practice || '';
+      roleLabel = String(annJob.title || '').trim();
+    }
+  } catch (e) { /* labels are optional — the email resolves its own */ }
+
+  var title = 'You\'ve been personally matched';
+  var body = (practiceLabel ? practiceLabel : 'A practice') +
+    (roleLabel ? ' would like to consider you for ' + roleLabel : ' would like to consider you for a role') +
+    '. Open GP Link to see the details and let us know if you\'re interested — the invitation is held for ' +
+    SHORTLIST_MATCH_WINDOW_DAYS + ' days.';
+
+  var results = await Promise.all([
+    (typeof sendMatchEmail === 'function' ? sendMatchEmail(row) : Promise.resolve({ ok: false, error: 'no_sender' }))
+      .catch(function (e) { return { ok: false, error: e && e.message }; }),
+    pushCareerNotificationToUser(row.user_id, { type: 'success', title: title, body: body })
+      .then(function () { return { ok: true }; })
+      .catch(function (e) { console.error('[shortlist-announce] in-app update failed for', row.user_id, ':', e && e.message); return { ok: false, error: e && e.message }; }),
+    sendPushNotification(row.user_id, {
+      title: title,
+      body: body,
+      data: { type: 'career', action: 'shortlisted', url: '/pages/career.html#applications' }
+    }).then(function () { return { ok: true }; })
+      .catch(function (e) { console.error('[shortlist-announce] push failed for', row.user_id, ':', e && e.message); return { ok: false, error: e && e.message }; })
+  ]);
+  return { ok: true, email: results[0], inApp: results[1], push: results[2] };
+}
+
+// Turn an existing pipeline row into a live shortlist invitation: the match
+// stamps the doctor-facing surfaces read, plus `revealed` so they can see which
+// practice it is (a match they cannot identify is useless to them).
+//
+// ⚠️ Writing `matched_at` is what STARTS the clock — the career page shows the
+// match card and the lifecycle cron begins its reminder/expiry passes. Never
+// set it without calling announceShortlistToGp, or a doctor who was never told
+// silently runs out of time.
+async function atsMarkApplicationShortlisted(appId, actorEmail) {
+  var nowIso = atsNowIso();
+  var expiresAt = new Date(Date.now() + SHORTLIST_MATCH_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  var patch = {
+    ats_stage: 'shortlisted', ats_stage_updated_at: nowIso,
+    // Every GP-facing screen reads `status`, which defaults to 'applied' —
+    // see the note on the Matching board's own insert.
+    status: 'shortlisted',
+    matched_by: actorEmail || '', matched_at: nowIso, match_expires_at: expiresAt,
+    match_outcome: null, match_seen_at: null, match_reminder_sent_at: null,
+    match_final_reminder_sent_at: null, match_more_time_requested_at: null,
+    revealed: true, updated_at: nowIso
+  };
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appId),
+      { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  var local = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(appId); });
+  if (!local) return null;
+  Object.assign(local, patch);
+  saveDbState();
+  return local;
+}
+
+// Eligibility inputs for ONE doctor. atsBuildGpMatchInputs is Supabase-only, so
+// off-Supabase (local JSON dev/test) this derives just enough from the seeded
+// candidate for the same gate to run — otherwise the whole shortlist path is
+// unexercisable outside production.
+async function atsResolveGpMatchInput(userId) {
+  var uid = String(userId || '');
+  if (!uid) return null;
+  var built = await atsBuildGpMatchInputs([uid]);
+  if (built[uid]) return built[uid];
+  if (isSupabaseDbConfigured()) return null;
+  var cand = (dbState.atsCandidates || []).find(function (c) { return String(c.user_id) === uid; });
+  if (!cand) return null;
+  return {
+    onboardingComplete: cand.onboarding_completed !== false,
+    hasCv: !!(cand.docs && cand.docs.cv) || cand.has_cv === true,
+    placed: cand.placed === true,
+    liveApplicationRoleIds: (cand.apps || []).map(function (a) { return String((a && (a.job_id || a.career_role_id)) || ''); }).filter(Boolean),
+    atInterviewStage: false,
+    careerLocked: cand.career_locked === true,
+    accountStatus: cand.account_status || 'active',
+    dpaEligible: cand.dpa_eligible === true
+  };
+}
+
 // ============================================================================
 // AI Matching (Task 6 of the 2026-07-06 implementation plan) — hired/closed
 // job "redirect" fan-out. When a practice hires one GP (or the team closes a
@@ -68508,7 +68614,7 @@ Return ONLY valid JSON with no markdown formatting:
         var msReopenedRow = (msUpd.ok && Array.isArray(msUpd.data) && msUpd.data[0]) ? msUpd.data[0] : null;
         if (!msReopenedRow) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'reopen_failed' }); continue; }
         await atsRecordStageEvent(msReopenedRow.id, msStage, 'shortlisted', ctxMS.email || '');
-        if (typeof sendMatchEmail === 'function') { await sendMatchEmail(msReopenedRow); }
+        await announceShortlistToGp(msReopenedRow);
         msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true, reopened: true });
         continue;
       }
@@ -68541,7 +68647,7 @@ Return ONLY valid JSON with no markdown formatting:
       var msCreated = await atsInsertApplicationRow(msInsertRow);
       if (!msCreated) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'insert_failed' }); continue; }
       await atsRecordStageEvent(msCreated.id, '', 'shortlisted', ctxMS.email || '');
-      if (typeof sendMatchEmail === 'function') { await sendMatchEmail(msCreated); }
+      await announceShortlistToGp(msCreated);
       msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true });
     }
 
@@ -68710,18 +68816,22 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ---- Put a GP on a job's board ("＋ Add candidate" on the pipeline) -------
-  // Deliberately NOT the same thing as POST /api/ats/application below. That
-  // one means "the admin has placed this GP with the practice": it records an
-  // offer, reveals the practice identity and emails the doctor a
-  // congratulations. This one only puts a card on the Shortlist column so a
-  // consultant can line candidates up and work them across by hand.
+  // A manual shortlist is a real shortlist: it runs the SAME doctor-facing
+  // pathway the Matching board runs — match stamps, practice revealed, and
+  // announceShortlistToGp (email + in-app update + push). Owner report
+  // 2026-08-05: adding a doctor by hand told them nothing, because only the
+  // Matching board knew to announce.
   //
-  // Nothing here reaches the doctor. The row carries NO match_* fields, and
-  // both doctor-facing paths gate on them: getPendingMatchForRole returns null
-  // without `matched_at` (so no match card appears), and the match-lifecycle
-  // cron selects `matched_at=not.is.null` (so no reminder or expiry email
-  // fires). Setting matched_at here would silently start a countdown against a
-  // doctor who was never told — never add it without also sending the match.
+  // Still NOT the same thing as POST /api/ats/application below. That one means
+  // "the admin has PLACED this GP with the practice" — it records an offer and
+  // sends the congratulations-and-book-your-interview email. This one invites
+  // the doctor to consider a role; they accept or decline it.
+  //
+  // The invitation is gated by the SAME fail-closed eligibility check the
+  // Matching board uses, because announcing reveals the practice and starts a
+  // clock. When it fails, the card is still added (the board is the
+  // consultant's workspace) but the doctor is NOT told, and the response says
+  // exactly why so the UI can show it instead of going quiet.
   if (pathname === '/api/ats/job/candidate' && req.method === 'POST') {
     var ctxJAC = requireAtsSession(req, res); if (!ctxJAC) return;
     var bodyJAC; try { bodyJAC = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
@@ -68739,18 +68849,52 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var jacJob = await atsGetJobRow(jacJobId);
     if (!jacJob) { sendJson(res, 404, { ok: false, message: 'Job not found.' }); return; }
-    // Idempotent: adding someone already on this board is a no-op, not a
-    // duplicate card (the board is keyed by application, not by click).
+
+    // Fresh, fail-closed verdict BEFORE any announcement (never trust the list
+    // the consultant clicked — see the Matching board's own re-check).
+    var jacGp = await atsResolveGpMatchInput(jacUserId);
+    var jacVerdict = jacGp
+      ? aiCandidateJobMatch.checkMatchEligibility(jacGp, { id: jacJob.id, dpa: jacJob.dpa === true })
+      : { eligible: false, blocks: ['candidate_not_found'] };
+    // `existing_application` is what this endpoint is ABOUT when the doctor is
+    // already on this very board and was never told — it must not block the
+    // invitation we are here to send.
+    var jacBlocks = (jacVerdict.blocks || []).filter(function (b) { return b !== 'existing_application'; });
+    var jacCanAnnounce = jacStage === 'shortlisted' && jacBlocks.length === 0;
+
     var jacExistingList = await atsListApplicationRows({ jobId: jacJob.id });
     var jacExisting = jacExistingList.find(function (a) { return String(a.user_id) === jacUserId; });
+
     if (jacExisting) {
+      // Already on the board. If they are sitting at Shortlist and were never
+      // announced to (no matched_at), this is the "notify them now" door —
+      // which is exactly how a card added before this pathway existed gets
+      // rescued. Anything else is a genuine no-op.
+      var jacNeverTold = String(jacExisting.ats_stage || '') === 'shortlisted' && !jacExisting.matched_at;
+      if (jacNeverTold && jacCanAnnounce) {
+        var jacMarked = await atsMarkApplicationShortlisted(jacExisting.id, ctxJAC.email || '');
+        if (!jacMarked) { sendJson(res, 502, { ok: false, message: 'Could not send that invitation.' }); return; }
+        await announceShortlistToGp(jacMarked);
+        sendJson(res, 200, {
+          ok: true, already: true, notified: true,
+          application: atsApplicationToCard(jacMarked, null),
+          message: 'Invitation sent.'
+        });
+        return;
+      }
       sendJson(res, 200, {
         ok: true, already: true,
+        notified: !!jacExisting.matched_at,
+        can_notify: jacNeverTold,
+        blocks: jacNeverTold ? jacBlocks : [],
         application: atsApplicationToCard(jacExisting, null),
-        message: 'That doctor is already on this job\'s board.'
+        message: jacExisting.matched_at
+          ? 'That doctor has already been invited to this role.'
+          : 'That doctor is already on this job\'s board.'
       });
       return;
     }
+
     var jacCreated = await atsInsertApplicationRow({
       user_id: jacUserId,
       career_role_id: jacJob.id,
@@ -68764,13 +68908,27 @@ Return ONLY valid JSON with no markdown formatting:
       job_title: jacJob.title,
       practice_name: jacJob.practice_name || '',
       origin: 'admin_applied'
-      // NOTE: no `revealed` — nobody has placed this doctor, so the practice's
-      // identity stays masked until a real acceptance reveals it.
     });
     if (!jacCreated) { sendJson(res, 502, { ok: false, message: 'Could not add that candidate.' }); return; }
     await atsRecordStageEvent(jacCreated.id, '', jacStage, ctxJAC.email || '');
+
+    if (jacCanAnnounce) {
+      var jacLive = await atsMarkApplicationShortlisted(jacCreated.id, ctxJAC.email || '');
+      if (jacLive) {
+        await announceShortlistToGp(jacLive);
+        sendJson(res, 200, {
+          ok: true, already: false, notified: true,
+          application: atsApplicationToCard(jacLive, null),
+          job_title: jacJob.title
+        });
+        return;
+      }
+    }
+    // Card added, doctor deliberately NOT told. `blocks` is the honest reason —
+    // the UI shows it rather than leaving the consultant to wonder.
     sendJson(res, 200, {
-      ok: true, already: false,
+      ok: true, already: false, notified: false,
+      blocks: jacStage === 'shortlisted' ? jacBlocks : [],
       application: atsApplicationToCard(jacCreated, null),
       job_title: jacJob.title
     });
@@ -72706,6 +72864,10 @@ module.exports.__testUtils = {
   practiceMapHasFilters,
   shapeMapPractice,
   buildAtsJobMapData,
+  announceShortlistToGp,
+  atsMarkApplicationShortlisted,
+  atsResolveGpMatchInput,
+  SHORTLIST_MATCH_WINDOW_DAYS,
   atsListJobRowsWithPending,
   __resetAtsJobMapCacheForTest,
   mapCareerRoleRowToClient,

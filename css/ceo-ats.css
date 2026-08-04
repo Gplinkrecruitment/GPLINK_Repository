@@ -364,6 +364,12 @@
   border:1px solid rgba(96,165,250,0.15); border-left:3px solid var(--ats-blue);
   border-radius:8px; padding:10px 12px; line-height:1.5; }
 .ats-addcand-note b { color:var(--ats-text); }
+/* Why a doctor was added to the board but NOT invited. Never let this fail
+   silently — an unexplained quiet add is the bug this pathway exists to fix. */
+.ats-addcand-warn { margin-top:10px; font-size:12.5px; color:var(--ats-amber);
+  background:var(--ats-amber-dim); border:1px solid rgba(251,191,36,0.3);
+  border-radius:8px; padding:10px 12px; line-height:1.5; }
+.ats-addcand-warn b { color:var(--ats-text); }
 .ats-addcand-results { margin-top:12px; max-height:46vh; overflow-y:auto; display:flex; flex-direction:column; gap:7px; }
 .ats-addcand-row { display:flex; align-items:center; gap:11px; padding:9px 11px;
   background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:10px; }
