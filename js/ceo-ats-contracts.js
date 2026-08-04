@@ -567,6 +567,17 @@
    *  EVENTS — single delegated listener on the panel (CLAUDE.md convention).
    * ===================================================================== */
   function wireEvents(el) {
+    // 🧨 Attach ONCE. loadContractsTab() runs every time the master-tab
+    // switcher opens the Contracts tab, but #panel-contracts is a PERSISTENT
+    // element — so each visit stacked another delegated click listener on it.
+    // With two listeners a single click ran the toggle twice: expand, then
+    // immediately collapse, so the card looked completely dead. An even number
+    // of visits broke it, an odd number appeared to fix it, which is why it
+    // came and went. Owner report 2026-08-05: "nothing happens when i click
+    // the card". Present since the tab's first commit (64125b2).
+    if (el.__gpContractsWired) return;
+    el.__gpContractsWired = true;
+
     el.addEventListener('click', function (e) {
       // Checked BEFORE the card toggle: a discrepancy row sits inside the open
       // card, so falling through would collapse the very card you're reading.

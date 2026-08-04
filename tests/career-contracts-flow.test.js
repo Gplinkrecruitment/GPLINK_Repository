@@ -1631,8 +1631,8 @@ describe('CEO Contracts tab UI (Task 12)', () => {
     // Bumped 2026-08-05 for the inline contract reader + red highlighting.
     // JS is served with max-age=3600, so a stale pin here means the owner keeps
     // getting the previous file for an hour after a deploy.
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805c');
-    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805b');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260805d');
+    expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805c');
   });
 
   it('the contracts panel is hidden from consultants (super-admin only, like Leads)', () => {
@@ -4275,7 +4275,7 @@ describe('click a discrepancy → jump to that clause', () => {
     expect(jumpAt).toBeGreaterThan(-1);
     expect(toggleAt).toBeGreaterThan(-1);
     const handlerStart = JS.indexOf('function wireEvents');
-    const handler = JS.slice(handlerStart, handlerStart + 1200);
+    const handler = JS.slice(handlerStart, handlerStart + 2600);
     expect(handler.indexOf('data-jump-disc')).toBeLessThan(handler.indexOf("closest('[data-toggle]')"));
     expect(handler).toContain('stopPropagation');
   });
@@ -4319,5 +4319,44 @@ describe('click a discrepancy → jump to that clause', () => {
 
   it('the list tells the CEO the rows are clickable', () => {
     expect(JS).toContain('click one to jump to it in the contract');
+  });
+});
+
+// ============================================================================
+// Owner report 2026-08-05: "nothing happens when i click the card". The card
+// would not expand at all.
+//
+// Cause (PRE-EXISTING, present since the tab's first commit 64125b2, not
+// introduced by the reader/jump work — it only became noticeable once the tab
+// was being opened repeatedly): loadContractsTab() calls wireEvents() every
+// time the master-tab switcher opens Contracts, but #panel-contracts is a
+// PERSISTENT element, so each visit stacked another delegated click listener.
+// Two listeners meant one click ran the toggle twice — expand, then instantly
+// collapse — so the card looked dead. Reproduced in headless Chrome: 2 opens →
+// click does nothing; 3 opens → works again. After the guard: 1/2/3/6 opens all
+// expand correctly.
+// ============================================================================
+describe('the contracts panel is wired exactly once', () => {
+  const JS = fs.readFileSync(path.join(ROOT, 'js/ceo-ats-contracts.js'), 'utf8');
+
+  it('guards wireEvents so repeat tab opens cannot stack listeners', () => {
+    const start = JS.indexOf('function wireEvents');
+    expect(start).toBeGreaterThan(-1);
+    const body = JS.slice(start, start + 1400);
+    // The guard must come BEFORE any addEventListener in the function.
+    const guardAt = body.indexOf('__gpContractsWired');
+    const listenAt = body.indexOf('addEventListener');
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(listenAt).toBeGreaterThan(-1);
+    expect(guardAt).toBeLessThan(listenAt);
+    expect(body).toMatch(/if \(el\.__gpContractsWired\) return;/);
+    expect(body).toMatch(/el\.__gpContractsWired = true;/);
+  });
+
+  it('still re-fetches and re-renders on every tab open (only the wiring is once)', () => {
+    const start = JS.indexOf('window.loadContractsTab = function');
+    const body = JS.slice(start, start + 400);
+    expect(body).toContain('wireEvents(el)');
+    expect(body).toContain('fetchAndRender()');   // data must still refresh
   });
 });
