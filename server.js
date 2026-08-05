@@ -12958,11 +12958,12 @@ async function handleFacebookLeadWebhook(req, res) {
     });
     // Speed-to-lead: owner alert (uses SITE_ENQUIRY_NOTIFY_EMAIL; no-op if unset)
     await maybeNotifySiteEnquiry(gpRow);
-    // Magic link so they can book with zero re-typing (qualified leads only)
-    if (gpRow.metadata.consult.qualified) {
-      try { await sendConsultMagicLinkEmail(gpRow); }
-      catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
-    }
+    // The magic link is deliberately NOT sent here any more. The instant
+    // form's thank-you screen now carries a qualified GP straight to /start
+    // with their answers pre-filled, so an instant "here is your link to
+    // book" would land while they are still ON the booking page. It has moved
+    // to the not_booked cron touch, which fires only if they leave without
+    // booking — see CONSULT_NUDGE_SCHEDULE_MS.not_booked[0].
     sendJson(res, 200, { ok: true, kind: 'gp_lead', lead_id: gpRow.id });
     return;
   }
@@ -23892,6 +23893,112 @@ function _consultRowHasToken(row, token) {
     row.metadata.consult.token && row.metadata.consult.token === token);
 }
 
+// ── Consult identity cookie ────────────────────────────────────────────────
+// A first-party HttpOnly cookie that remembers WHICH site_enquiries row this
+// browser belongs to. Email alone is not a durable identity: a GP who edits
+// the address Calendly pre-filled (work → personal) would otherwise come back
+// as a stranger and start a second, competing lead. The cookie carries the row
+// id + an HMAC over AUTH_SECRET, same construction as makeMarketingUnsubToken.
+const CONSULT_COOKIE_NAME = 'gpl_consult';
+const CONSULT_COOKIE_MAX_AGE_S = 60 * 60 * 24 * 90; // 90 days
+
+function makeConsultCookieToken(rowId) {
+  const id = String(rowId || '');
+  if (!id) return '';
+  return id + '.' + crypto.createHmac('sha256', SECRET).update('consult-id:' + id).digest('hex');
+}
+
+// Returns the row id the cookie was minted for, or null when malformed /
+// signature-invalid. Timing-safe, mirroring verifyMarketingUnsubToken.
+function verifyConsultCookieToken(raw) {
+  const val = String(raw || '').trim();
+  const dot = val.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const id = val.slice(0, dot);
+  const sig = val.slice(dot + 1);
+  const expected = crypto.createHmac('sha256', SECRET).update('consult-id:' + id).digest('hex');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  return id;
+}
+
+// Appends rather than assigns — a Set-Cookie already on the response (e.g. a
+// session cookie) must survive, so never res.setHeader() over the top of it.
+function setConsultCookie(res, rowId) {
+  const tok = makeConsultCookieToken(rowId);
+  if (!tok) return;
+  const parts = [
+    CONSULT_COOKIE_NAME + '=' + encodeURIComponent(tok),
+    'Path=/', 'Max-Age=' + CONSULT_COOKIE_MAX_AGE_S, 'SameSite=Lax', 'HttpOnly'
+  ];
+  if (NODE_ENV === 'production') parts.push('Secure');
+  const prev = res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie', prev ? [].concat(prev, parts.join('; ')) : parts.join('; '));
+}
+
+async function findConsultLeadById(rowId) {
+  const id = String(rowId || '').trim();
+  if (!id || id.length < 8 || id.length > 64) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&id=eq.' + encodeURIComponent(id) + '&limit=1', { method: 'GET' });
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return rows.find((row) => row.kind === 'gp' && row.id === id) || null;
+}
+
+// Meta's leadgen_id, stored on every webhook-born row as metadata.fb_lead_id.
+// This is what lets the instant form's thank-you screen hand us an identity in
+// the URL, so a qualified GP lands on a page that already knows them.
+async function findConsultLeadByFbLeadId(leadId) {
+  const fid = String(leadId || '').trim();
+  if (!/^[A-Za-z0-9_-]{4,120}$/.test(fid)) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&metadata->>fb_lead_id=eq.' + encodeURIComponent(fid) +
+      '&order=created_at.desc&limit=1', { method: 'GET' });
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return rows.find((row) => row.kind === 'gp' && row.metadata &&
+    row.metadata.fb_lead_id === fid) || null;
+}
+
+async function findConsultLeadByCookie(req) {
+  const id = verifyConsultCookieToken(getCookies(req)[CONSULT_COOKIE_NAME]);
+  return id ? findConsultLeadById(id) : null;
+}
+
+// The ONE shape every recognition route answers with, so the booking page has
+// a single branch to write. `qualified` drives whether /start opens on the
+// calendar or on the turndown — an unqualified lead is still recognised, it
+// just gets shown the kinder screen instead of a booking form.
+function consultRecognitionPayload(row) {
+  const consult = (row && row.metadata && row.metadata.consult) || {};
+  return {
+    ok: true,
+    found: true,
+    qualified: consult.qualified === true,
+    displayName: consultLead.consultDisplayName(row.name),
+    email: row.email || '',
+    token: consult.token || null,
+    booked: consult.call_booked === true
+  };
+}
+
+// Stamped the first time a lead actually reaches /start. Purely observational —
+// it tells us whether the thank-you-screen redirect is working in the wild,
+// which is the one thing we cannot verify from Meta's side.
+async function markConsultLeadLanded(row) {
+  const consult = (row.metadata && row.metadata.consult) || {};
+  if (consult.landed_at) return;
+  const metadata = Object.assign({}, row.metadata);
+  metadata.consult = Object.assign({}, consult, { landed_at: new Date().toISOString() });
+  try { await updateSiteEnquiryRow(row.id, { metadata }); } catch { /* observational only */ }
+}
+
 async function findConsultLeadByToken(token) {
   const tok = String(token || '').trim();
   if (!tok || tok.length < 20) return null;
@@ -23925,7 +24032,7 @@ async function findSiteEnquiryByEmail(email) {
 }
 
 const CONSULT_MATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-async function findRecentConsultLeadByEmail(email) {
+async function findRecentConsultLeadByEmail(email, opts) {
   const addr = String(email || '').trim().toLowerCase();
   if (!addr) return null;
   const cutoffIso = new Date(Date.now() - CONSULT_MATCH_WINDOW_MS).toISOString();
@@ -23945,12 +24052,19 @@ async function findRecentConsultLeadByEmail(email) {
         new Date(row.created_at).getTime() >= Date.now() - CONSULT_MATCH_WINDOW_MS)
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }
+  // allowScreenedOut widens the match to leads the screener turned away. The
+  // booking page needs them: an unqualified Facebook lead who types their
+  // email should get the turndown that explains why, not a booking form they
+  // would only fail a second time. Source stays pinned to meta_lead_ad either
+  // way, so this can never surface an unrelated site enquiry.
+  const allowScreenedOut = !!(opts && opts.allowScreenedOut);
   return rows.find((row) =>
     String(row.email || '').toLowerCase() === addr &&
     row.metadata && row.metadata.source === 'meta_lead_ad' &&
-    row.metadata.consult && row.metadata.consult.token &&
-    row.metadata.consult.qualified === true &&
-    !row.metadata.consult.screened_out) || null;
+    row.metadata.consult && (allowScreenedOut || (
+      row.metadata.consult.token &&
+      row.metadata.consult.qualified === true &&
+      !row.metadata.consult.screened_out))) || null;
 }
 
 function _capUtm(utm) {
@@ -23998,27 +24112,33 @@ function buildConsultLeadRow(input) {
   };
 }
 
-// Magic-link email sent to a qualified FB-webhook GP lead (Task 3): re-uses
-// the token buildConsultLeadRow already generated so booking a call takes no
-// re-typing. Best-effort — caller (handleFacebookLeadWebhook) wraps this in
-// its own try/catch so a send failure never fails the webhook response.
+// Magic-link email for a qualified GP lead: re-uses the token
+// buildConsultLeadRow already generated so booking a call takes no re-typing.
+// No longer sent by the FB webhook on arrival — the thank-you screen now takes
+// them straight to the booking page — so this is the DEFERRED send, fired by
+// the not_booked[0] cron touch for anyone who left without picking a time.
+// It carries the marketing unsubscribe footer because it is now a scheduled
+// send rather than an immediate reply to something the GP just did.
 async function sendConsultMagicLinkEmail(row) {
   const consult = row.metadata && row.metadata.consult;
   if (!consult || !consult.token) return { ok: false, error: 'no token' };
   const displayName = consultLead.consultDisplayName(row.name);
   const bookUrl = CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book';
+  const unsubUrl = buildMarketingUnsubUrl(row.email);
   const body = 'Hi ' + displayName + ',\n\n' +
     'Thanks for reaching out about working as a GP in Australia. The next step is a free 30-minute call — we’ll answer your questions about registration, visas, timing and pay, with no obligation.\n\n' +
     'Your details are already saved, so booking takes about 20 seconds. Just pick a time that suits you.';
   return sendEmail({
     to: row.email,
     subject: 'Ready when you are, book your free GP Link call',
+    category: 'marketing',
     html: buildCareerEmailHtml({
       title: 'Your free call is ready to book',
       body,
       ctaText: 'Pick a time',
       ctaUrl: bookUrl,
-      footer: 'Questions in the meantime? Just reply to this email.'
+      footer: 'Questions in the meantime? Just reply to this email.<br><br>' +
+        '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
     }),
     text: body + '\n\nBook here: ' + bookUrl,
     from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
@@ -24037,6 +24157,14 @@ async function sendConsultNudgeEmail(row, due) {
   const signupUrl = CONSULT_START_BASE + '/pages/signin?signup=1&email=' + encodeURIComponent(row.email);
   const unsubUrl = buildMarketingUnsubUrl(row.email);
   const unsubFooter = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>';
+
+  // not_booked step 0 IS the magic link. The FB webhook used to send this the
+  // instant the lead arrived; now the thank-you screen carries them to the
+  // booking page instead, and this fires ~45min later only if they left
+  // without picking a time. Same email, later, and only when it is needed.
+  if (due.seq === 'not_booked' && due.step === 0 && consult.token) {
+    return sendConsultMagicLinkEmail(row);
+  }
 
   // booked_no_signup = the post-consultation signup drip (they booked a call but
   // never made an account). Rich, tactic-driven copy from lib/booker-nudge-email.js,
@@ -43421,6 +43549,41 @@ async function handleApi(req, res, pathname) {
     if (!validated.ok) { sendJson(res, 400, { ok: false, error: validated.error }); return; }
     const ip = getClientIp(req);
     if (!checkSiteEnquiryRateLimit(ip)) { sendJson(res, 429, { ok: false, error: 'Too many requests from this address. Please try again later.' }); return; }
+
+    // A browser we already recognise that submits the form again is the SAME
+    // person with new answers — most often a changed email — not a new lead.
+    // Patch the row we hold rather than inserting a duplicate that would split
+    // their nudge history and strand the original token. Guarded on
+    // !call_booked so a shared device can never rewrite a booked lead.
+    const known = await findConsultLeadByCookie(req);
+    if (known && known.metadata && known.metadata.consult &&
+        known.metadata.consult.call_booked !== true) {
+      const reScreened = consultLead.screenConsultLead(validated.value);
+      const consult = Object.assign({}, known.metadata.consult, {
+        qualified: reScreened,
+        is_gp: validated.value.isGp === true,
+        country: validated.value.country || 'other'
+      });
+      // Newly qualified (they corrected their country) needs a token to book
+      // with; newly unqualified keeps its token but is flagged, so the page
+      // routes them to the turndown on the next visit.
+      if (reScreened) { delete consult.screened_out; if (!consult.token) consult.token = consultLead.generateConsultToken(); }
+      else consult.screened_out = true;
+      const metadata = Object.assign({}, known.metadata, { consult });
+      const patch = {
+        name: validated.value.name, email: validated.value.email,
+        phone: validated.value.phone || null, state: validated.value.country || null, metadata
+      };
+      if (validated.value.question) patch.message = validated.value.question;
+      await updateSiteEnquiryRow(known.id, patch);
+      recordSiteEnquiryRateLimitHit(ip);
+      setConsultCookie(res, known.id);
+      const outKnown = { ok: true, qualified: reScreened, recognised: true };
+      if (consult.token && reScreened) outKnown.token = consult.token;
+      sendJson(res, 200, outKnown);
+      return;
+    }
+
     const row = buildConsultLeadRow(Object.assign({}, validated.value, {
       source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
     }));
@@ -43428,9 +43591,39 @@ async function handleApi(req, res, pathname) {
     if (!stored) { sendJson(res, 500, { ok: false, error: 'Failed to store enquiry.' }); return; }
     recordSiteEnquiryRateLimitHit(ip);
     await maybeNotifySiteEnquiry(row);
+    setConsultCookie(res, row.id);
     const out = { ok: true, qualified: row.metadata.consult.qualified };
     if (row.metadata.consult.token) out.token = row.metadata.consult.token;
     sendJson(res, 200, out);
+    return;
+  }
+
+  // Recognition by Meta lead id — the instant form's thank-you screen appends
+  // it so a qualified GP arrives already known. Meta only substitutes the
+  // macro if it supports one; when it does NOT, the literal "{{lead_id}}"
+  // arrives and the charset test below rejects it, so the page silently falls
+  // back to asking for an email. Safe either way.
+  if (pathname === '/api/public/consult-lead/by-fb' && req.method === 'GET') {
+    const fbl = String(url.searchParams.get('fbl') || '').trim();
+    const ip = getClientIp(req);
+    if (!(await checkRateLimitWindow('consult_fbl:' + ip, 20, 60 * 60 * 1000))) {
+      sendJson(res, 429, { ok: false, found: false }); return;
+    }
+    const row = await findConsultLeadByFbLeadId(fbl);
+    if (!row) { sendJson(res, 404, { ok: false, found: false }); return; }
+    setConsultCookie(res, row.id);
+    await markConsultLeadLanded(row);
+    sendJson(res, 200, consultRecognitionPayload(row));
+    return;
+  }
+
+  // Recognition by cookie alone — no URL parameter, no typing. This is what
+  // keeps a GP known after they change the email on their booking.
+  if (pathname === '/api/public/consult-lead/me' && req.method === 'GET') {
+    const row = await findConsultLeadByCookie(req);
+    if (!row) { sendJson(res, 200, { ok: true, found: false }); return; }
+    await markConsultLeadLanded(row);
+    sendJson(res, 200, consultRecognitionPayload(row));
     return;
   }
 
@@ -43438,6 +43631,10 @@ async function handleApi(req, res, pathname) {
     const tok = String(url.searchParams.get('token') || '').trim();
     const row = tok ? await findConsultLeadByToken(tok) : null;
     if (!row || row.metadata.consult.qualified !== true) { sendJson(res, 404, { ok: false }); return; }
+    // Arriving on a magic link also establishes the cookie, so the NEXT visit
+    // needs no link at all.
+    setConsultCookie(res, row.id);
+    await markConsultLeadLanded(row);
     sendJson(res, 200, { ok: true, displayName: consultLead.consultDisplayName(row.name), email: row.email, qualified: true });
     return;
   }
@@ -43448,10 +43645,15 @@ async function handleApi(req, res, pathname) {
     const ip = getClientIp(req);
     const allowed = await checkRateLimitWindow('consult_match:' + ip, 10, 60 * 60 * 1000);
     if (!allowed) { sendJson(res, 429, { ok: false, error: 'Too many attempts. Please try again later.' }); return; }
-    const row = await findRecentConsultLeadByEmail(body && body.email);
+    const row = await findRecentConsultLeadByEmail(body && body.email, { allowScreenedOut: true });
     if (!row) { sendJson(res, 200, { ok: true, found: false }); return; }
-    // Privacy: display name + token only — never phone or answers.
-    sendJson(res, 200, { ok: true, found: true, displayName: consultLead.consultDisplayName(row.name), token: row.metadata.consult.token });
+    // Privacy: display name, qualification and token only — never phone or
+    // answers. The email echoed back is the one the caller just supplied.
+    // `qualified:false` is now reported rather than swallowed, so an
+    // unqualified Facebook lead gets the turndown instead of a booking form.
+    setConsultCookie(res, row.id);
+    await markConsultLeadLanded(row);
+    sendJson(res, 200, consultRecognitionPayload(row));
     return;
   }
 

@@ -181,14 +181,6 @@
     <div class="book-panel reveal dl1">
       <p class="book-loading" id="bookLoading" hidden>Loading your details…</p>
 
-      <div id="bookRecognised" class="book-state" hidden>
-        <h3 id="recogHeading">Welcome back</h3>
-        <p>Your details are already saved. Anything you'd like us to cover on the call?</p>
-        <label for="recogQuestion">Your question (optional)</label>
-        <textarea id="recogQuestion" maxlength="2000" placeholder="Optional: e.g. visa timing, pay, bringing family"></textarea>
-        <button class="btn primary" type="button" id="recogContinue">Choose a time →</button>
-      </div>
-
       <div id="bookEmailMatch" class="book-state" hidden>
         <h3>Quick one: what's your email?</h3>
         <p>So we can match the details you gave us on Facebook.</p>
@@ -262,7 +254,7 @@
 (function () {
   var CAL_BASE = 'https://calendly.com/hello-mygplink/30min';
   var params = new URLSearchParams(window.location.search);
-  var lead = { token: null, name: '', email: '', question: '' };
+  var lead = { token: null, name: '', email: '', question: '', recognised: false };
 
   var utm = {};
   params.forEach(function (v, k) { if (/^utm_/.test(k)) utm[k] = v; });
@@ -271,7 +263,7 @@
 
   function show(id) {
     document.getElementById('bookLoading').hidden = true;
-    ['bookRecognised', 'bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
+    ['bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
       .forEach(function (s) { document.getElementById(s).hidden = (s !== id); });
   }
 
@@ -313,39 +305,73 @@
     show('bookConfirmed');
   });
 
-  function enterRecognised(displayName) {
-    document.getElementById('recogHeading').textContent = 'Welcome back, ' + displayName + '.';
-    show('bookRecognised');
-    document.getElementById('recogContinue').onclick = function () {
-      // Captured now so it rides along on the /booked POST once Calendly fires
-      // the booked signal (the lead row already exists; this just adds the
-      // typed question to it, see the calendly.event_scheduled handler above).
-      lead.question = document.getElementById('recogQuestion').value.trim();
-      loadCalendly(displayName);
-    };
-    // Door 1 also gets the email prefill for recognised leads
+  // A recognised lead needs no form at all. Qualified goes STRAIGHT to the
+  // calendar with name and email pre-filled — the "Welcome back, tell us your
+  // question" interstitial is gone, because every extra tap between a warm
+  // click and a booked slot costs bookings. Their question is still captured:
+  // Calendly's own form asks it, and it reaches us on invitee.created.
+  // Unqualified gets the turndown rather than a booking form they can't use.
+  function enterRecognisedLead(j) {
+    lead.name = j.displayName || '';
+    lead.email = j.email || '';
+    lead.token = j.token || null;
+    lead.recognised = true;
+    // Recognised leads get their email carried into every signup link, so the
+    // account step is pre-filled too.
     if (lead.email) {
       document.querySelectorAll('a[href="/pages/signin?signup=1"]').forEach(function (a) {
         a.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
       });
     }
+    if (j.qualified && lead.token) { loadCalendly(j.displayName); return; }
+    if (lead.email) document.getElementById('tdEmail').value = lead.email;
+    show('bookTurndown');
   }
 
-  // Entry routing
+  // Entry routing. Three ways to be known before typing anything:
+  //   ?lead=<token>  magic link from email
+  //   ?fbl=<lead id> Meta instant-form thank-you screen
+  //   cookie         any previous recognition on this browser — this is what
+  //                  survives a GP changing the email on their booking
   var tokenParam = params.get('lead');
+  var fblParam = params.get('fbl');
+  var loading = document.getElementById('bookLoading');
+
+  function fallbackEntry() {
+    if (params.get('src') === 'fb') { show('bookEmailMatch'); } else { show('bookForm'); }
+  }
+
+  // Cookie recognition is the last resort before showing a form, so it runs
+  // for EVERY entry that didn't already identify the visitor.
+  function tryCookie() {
+    fetch('/api/public/consult-lead/me', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j && j.found) { enterRecognisedLead(j); } else { fallbackEntry(); } })
+      .catch(fallbackEntry);
+  }
+
   if (tokenParam) {
-    document.getElementById('bookLoading').hidden = false;
-    fetch('/api/public/consult-lead?token=' + encodeURIComponent(tokenParam))
+    loading.hidden = false;
+    fetch('/api/public/consult-lead?token=' + encodeURIComponent(tokenParam), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
-        if (j && j.ok) { lead.token = tokenParam; lead.name = j.displayName; lead.email = j.email; enterRecognised(j.displayName); }
-        else { show('bookForm'); }
+        if (j && j.ok) { lead.token = tokenParam; lead.name = j.displayName; lead.email = j.email; loadCalendly(j.displayName); }
+        else { tryCookie(); }
       })
-      .catch(function () { show('bookForm'); });
-  } else if (params.get('src') === 'fb') {
-    show('bookEmailMatch');
+      .catch(function () { tryCookie(); });
+  } else if (fblParam) {
+    // Meta substitutes its lead-id macro only if it supports one. When it does
+    // not, the literal "{{lead_id}}" arrives — the server rejects that shape
+    // and we fall through to the cookie, then to asking for an email. The ad
+    // works either way; this is purely an upgrade when the macro resolves.
+    loading.hidden = false;
+    fetch('/api/public/consult-lead/by-fb?fbl=' + encodeURIComponent(fblParam), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j && j.found) { enterRecognisedLead(j); } else { tryCookie(); } })
+      .catch(function () { tryCookie(); });
   } else {
-    show('bookForm');
+    loading.hidden = false;
+    tryCookie();
   }
 
   document.getElementById('matchBtn').onclick = function () {
@@ -358,8 +384,13 @@
     post('/api/public/consult-lead/match', { email: em }).then(function (r) {
       btn.disabled = false;
       if (r.json && r.json.found) {
-        lead.token = r.json.token; lead.name = r.json.displayName; lead.email = em;
-        enterRecognised(r.json.displayName);
+        // Same treatment as any other recognition: qualified straight to the
+        // calendar, unqualified to the turndown — never a form they'd only
+        // fail again.
+        enterRecognisedLead({
+          displayName: r.json.displayName, email: r.json.email || em,
+          token: r.json.token, qualified: r.json.qualified
+        });
       } else {
         document.getElementById('cfEmail').value = em;
         show('bookForm');
@@ -412,7 +443,11 @@
 
   document.getElementById('tdSave').onclick = function () {
     var em = document.getElementById('tdEmail').value.trim();
-    if (em) {
+    // A lead we already recognise is ALREADY on file with their real name and
+    // country — posting the placeholder row here would now patch their row
+    // (the cookie identifies them) and overwrite that name with
+    // "Future-country lead". They asked to be kept posted; they already are.
+    if (em && !lead.recognised) {
       // Fire-and-forget by design; the thanks line shows regardless.
       post('/api/public/consult-lead', {
         name: 'Future-country lead', email: em, isGp: false, country: 'other',
