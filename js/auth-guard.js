@@ -148,6 +148,19 @@
     "/pages/terms": true
   };
 
+  // The post-sign-in destination carried through the auth bounce. Same rules as
+  // signin.html: internal /pages/ path only, so this can never become an
+  // open redirect.
+  function safeSignInNextPath() {
+    try {
+      var dec = new URLSearchParams(window.location.search).get("next");
+      if (!dec) return "";
+      if (!/^\/pages\//.test(dec)) return "";
+      if (/^\/\//.test(dec) || /:\/\//.test(dec)) return "";
+      return dec;
+    } catch (e) { return ""; }
+  }
+
   function isReviewRouteAllowed(input) {
     var target = normalizeReviewPath(input);
     if (!target) return true;
@@ -168,7 +181,17 @@
       }
 
       if (isSignInPage) {
-        window.location.replace("/pages/index");
+        // 🧨 Honour ?next. This used to hard-code /pages/index, which threw the
+        // deep link away: a doctor clicking "Secure my position" in their offer
+        // email was bounced here with ?next=/pages/offer-review?applicationId=…,
+        // signed in, and landed on the home dashboard instead of the agreement
+        // (owner report 2026-08-06). signin.html honours next on its own login
+        // paths, but this guard fires on the SAME page the moment a session
+        // resolves — including when the doctor is already signed in and never
+        // sees a login form at all — so it raced signin.html and won.
+        // Validation mirrors signin.html's GP_SIGNIN_NEXT exactly: an internal
+        // /pages/ path only, no scheme, no protocol-relative prefix.
+        window.location.replace(safeSignInNextPath() || "/pages/index");
         return;
       }
 
