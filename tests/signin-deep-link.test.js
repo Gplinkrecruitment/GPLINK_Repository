@@ -166,7 +166,7 @@ describe('auth-guard honours the deep link through sign-in', () => {
     expect(withGuard.length).toBeGreaterThan(0);
     withGuard.forEach((f) => {
       const html = fs.readFileSync(path.join(ROOT, 'pages', f), 'utf8');
-      expect(html).toContain('auth-guard.js?v=20260806a');
+      expect(html).toMatch(/auth-guard\.js\?v=20260806[ab]/);
       expect(html).not.toContain('auth-guard.js?v=20260706a');
     });
   });

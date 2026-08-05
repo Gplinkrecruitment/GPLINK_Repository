@@ -4478,3 +4478,46 @@ describe('GP signs the agreement in the app', () => {
     expect(career).not.toContain('ctaLabel: "Review contract"');
   });
 });
+
+// ============================================================================
+// Owner report 2026-08-06: Khaleed signed, and his career page STILL showed
+// "Your agreement is ready to review and sign" with a Review button.
+// The server was correct — contract 'signed', application 'placement_secured',
+// ats_stage 'hired', placement row written — but career.html's card ladder
+// checked the contractStage branches BEFORE it checked whether the placement
+// was secured, so any stale-but-plausible contractStage re-offered a signature
+// the doctor had already given.
+// ============================================================================
+describe('a secured placement wins over the agreement card', () => {
+  const CAREER = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+
+  it('checks secured BEFORE any contractStage branch', () => {
+    const secured = CAREER.indexOf('isPlacementSecuredApplication(app)');
+    const sentToGp = CAREER.indexOf('app.contractStage === "sent_to_gp"');
+    expect(secured).toBeGreaterThan(-1);
+    expect(sentToGp).toBeGreaterThan(-1);
+    expect(secured).toBeLessThan(sentToGp);
+  });
+
+  it('never asks a placed doctor to sign again', () => {
+    const start = CAREER.indexOf('isPlacementSecuredApplication(app)');
+    const branch = CAREER.slice(start, CAREER.indexOf('app.contractStage === "sent_to_gp"'));
+    expect(branch).toMatch(/placement is confirmed/i);
+    expect(branch).not.toMatch(/ready to review and sign/i);
+  });
+
+  it('a signed-but-not-yet-placed agreement gets its own honest card', () => {
+    // finalize-signed commits the signature even if the placement fan-out
+    // fails, so 'signed' must not fall through to "ready to sign" either.
+    expect(CAREER).toContain('app.contractStage === "signed"');
+    expect(CAREER).toMatch(/Signed — our team is finalising your placement/);
+  });
+
+  it('trusts the server for "placed", never a CTA the client re-derives', () => {
+    const start = CAREER.indexOf('function isPlacementSecuredApplication(');
+    const body = CAREER.slice(start, start + 520);
+    expect(body).toContain('a.isPlacementSecured === true');
+    expect(body).toMatch(/placement_secured/);
+    expect(body).toMatch(/hired/);
+  });
+});
