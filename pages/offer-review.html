@@ -695,6 +695,39 @@
       font-size: 48px;
     }
   }
+/* ── Agreement reader + signing pad (owner request 2026-08-06) ── */
+.agr-doc-wrap { margin-top: 4px; }
+.agr-doc { max-height: 340px; overflow: auto; padding: 20px 22px; border: 1px solid rgba(148,163,184,.4);
+           border-radius: 14px; background: #fbfaf7; color: #1f2124;
+           font-family: Georgia, 'Times New Roman', serif; font-size: 13.5px; line-height: 1.7;
+           white-space: pre-wrap; word-wrap: break-word; -webkit-overflow-scrolling: touch; }
+.agr-doc-rich { white-space: normal; }
+.agr-doc-rich > :first-child { margin-top: 0; }
+.agr-doc-rich p { margin: 0 0 10px; }
+.agr-doc-rich h1, .agr-doc-rich h2, .agr-doc-rich h3, .agr-doc-rich h4, .agr-doc-rich h5, .agr-doc-rich h6 { color:#111; margin:16px 0 8px; line-height:1.3; }
+.agr-doc-rich h1 { font-size:18px; } .agr-doc-rich h2 { font-size:16px; } .agr-doc-rich h3 { font-size:14.5px; }
+.agr-doc-rich ul, .agr-doc-rich ol { margin:0 0 10px; padding-left:24px; }
+.agr-doc-rich table { border-collapse:collapse; width:100%; margin:12px 0; font-size:12.5px; }
+.agr-doc-rich td, .agr-doc-rich th { border:1px solid #c9c6c0; padding:6px 8px; vertical-align:top; text-align:left; }
+.agr-doc-rich th { background:#efece6; font-weight:700; }
+.agr-doc-rich img { max-width:100%; height:auto; }
+.agr-frame { width:100%; height:340px; border:1px solid rgba(148,163,184,.4); border-radius:14px; background:#fff; }
+.agr-doc-msg { padding:14px 16px; border:1px dashed rgba(148,163,184,.5); border-radius:14px; font-size:13px; color:#64748b; }
+.agr-small { display:inline-block; margin-top:10px; background:none; border:none; padding:0; font:inherit;
+             font-size:12.5px; color:#475569; text-decoration:underline; cursor:pointer; text-align:left; }
+.agr-small:hover { color:#1e293b; }
+.agr-small-btn { width:100%; margin-top:14px; }
+
+.sig-block { border:1px solid rgba(148,163,184,.35); border-radius:14px; padding:16px; background:#fff; }
+.sig-label { font-size:12px; font-weight:700; letter-spacing:.02em; color:#475569; text-transform:uppercase; }
+.sig-input { width:100%; box-sizing:border-box; margin-top:6px; padding:11px 13px; border-radius:11px;
+             border:1px solid rgba(148,163,184,.45); font:inherit; }
+.sig-wrap { margin-top:6px; border:1.5px dashed rgba(148,163,184,.6); border-radius:12px; overflow:hidden; background:#fff; }
+.sig-wrap.filled { border-style:solid; border-color:#16a34a; }
+canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; touch-action:none; background:#fff; }
+.sig-row { display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+.sig-status { font-size:12px; color:#64748b; }
+.sig-clear { background:none; border:none; padding:0; font:inherit; font-size:12.5px; color:#475569; text-decoration:underline; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -896,10 +929,10 @@
     <div class="glass-section gp-reveal gp-reveal-1" style="margin-top: 8px;">
       <div class="section-badge">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        Your Contract
+        Your Agreement
       </div>
-      <div class="section-title" id="contractHeading">Your contract is ready</div>
-      <div class="officer-copy" id="contractIntro" style="margin-top: 6px;">Please review your employment contract, then sign and upload it — or request changes if something needs adjusting.</div>
+      <div class="section-title" id="contractHeading">Your agreement is ready</div>
+      <div class="officer-copy" id="contractIntro" style="margin-top: 6px;">Read your agreement below, then sign it to secure your position.</div>
 
       <!-- The requested-changes text (changes_requested / practice_review) -->
       <div id="contractRequestBlock" style="margin-top: 16px;" hidden>
@@ -909,16 +942,32 @@
 
       <!-- Actions (sent_to_gp only) -->
       <div id="contractActions" style="margin-top: 18px;" hidden>
-        <div class="cta-stack">
-          <a class="cta-secondary" id="viewContractBtn" href="#" target="_blank" rel="noopener" hidden>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            View contract
-          </a>
-          <input type="file" id="signedFileInput" accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
-          <button type="button" class="cta-accept" id="uploadSignedBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Upload signed contract
+        <!-- The agreement itself, read IN the app (owner request 2026-08-06):
+             no download required to find out what you are signing. -->
+        <div id="agreementDoc" class="agr-doc-wrap"></div>
+        <a class="agr-small" id="downloadAgreementLink" href="#" target="_blank" rel="noopener" hidden>Download agreement</a>
+
+        <div class="cta-stack" style="margin-top:18px">
+          <!-- Sign here, the same way a practice signs our recruitment
+               agreement: draw, and the server produces the executed PDF. -->
+          <div class="sig-block">
+            <label class="sig-label" for="gpSignedName">Your full legal name</label>
+            <input type="text" id="gpSignedName" autocomplete="name" maxlength="160" placeholder="e.g. Dr Jane Smith" class="sig-input">
+            <div class="sig-label" style="margin-top:12px">Draw your signature</div>
+            <div class="sig-wrap" id="gpSigWrap"><canvas id="gpSigPad"></canvas></div>
+            <div class="sig-row">
+              <span class="sig-status" id="gpSigStatus">Not signed yet</span>
+              <button type="button" class="sig-clear" id="gpSigClear">Clear</button>
+            </div>
+          </div>
+          <button type="button" class="cta-accept" id="signAgreementBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
+            Sign &amp; secure my position
           </button>
+          <div class="accept-error" id="signInAppStatus" role="status" hidden></div>
+
+          <input type="file" id="signedFileInput" accept="application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none">
+          <button type="button" class="agr-small agr-small-btn" id="uploadSignedBtn">Prefer to sign by hand? Upload a signed copy manually</button>
           <div class="accept-error" id="signUploadStatus" role="status" hidden></div>
           <button type="button" class="decline-link" id="showChangesBtn">I need to request changes first</button>
           <div id="changesForm" style="margin-top: 6px;" hidden>
@@ -1428,18 +1477,25 @@
     if (reqBlock) reqBlock.hidden = true;
     if (secured) secured.hidden = true;
 
-    // "View contract" link — only ever an https link the server minted.
-    var viewBtn = document.getElementById('viewContractBtn');
-    if (viewBtn) {
+    // "Download agreement" — only ever an https link the server minted. The
+    // agreement is read inline now, so this is a small secondary affordance
+    // rather than the way in.
+    var dlLink = document.getElementById('downloadAgreementLink');
+    if (dlLink) {
       var url = String(contract.contractUrl || '');
-      if (url.indexOf('http') === 0) { viewBtn.href = url; viewBtn.hidden = false; }
-      else { viewBtn.hidden = true; }
+      if (url.indexOf('http') === 0) { dlLink.href = url; dlLink.hidden = false; }
+      else { dlLink.hidden = true; }
     }
 
     if (status === 'sent_to_gp') {
-      setText('contractHeading', 'Your contract is ready');
-      setText('contractIntro', 'Please review your employment contract, then sign and upload it — or request changes if something needs adjusting.');
+      setText('contractHeading', 'Your agreement is ready');
+      setText('contractIntro', 'Read your agreement below, then sign it to secure your position.');
       if (actions) actions.hidden = false;
+      // The pad can only be sized once it has a width, so wire it after the
+      // actions block is visible.
+      loadAgreementPreview();
+      wireSigPad();
+      setTimeout(setupSigPad, 0);
     } else if (status === 'changes_requested') {
       setText('contractHeading', 'Your requested changes are with us');
       setText('contractIntro', "We've sent your requested changes to your GP Link team. We'll let you know as soon as we hear back from the practice.");
@@ -1458,12 +1514,155 @@
         showContractSecured('Placement secured 🎉', 'Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
         launchConfetti();
       } else {
-        showContractSecured('Contract signed', 'Signed — our team is finalising your placement.');
+        showContractSecured('Agreement signed', 'Signed — our team is finalising your placement.');
       }
     }
   }
 
-  // Upload signed contract: sign-upload → PUT raw file to Storage → finalize.
+  /* ── The agreement, read in the app ─────────────────────────────────────
+     Same reader the CEO's Contracts tab uses, scoped by the server to this
+     doctor's own application. A PDF renders in an <iframe>; a Word file is
+     rendered to HTML so its headings and tables survive. */
+  var agreementLoaded = false;
+  function loadAgreementPreview() {
+    if (agreementLoaded || !contractAppId) return;
+    agreementLoaded = true;
+    var host = document.getElementById('agreementDoc');
+    if (!host) return;
+    host.innerHTML = '<div class="agr-doc-msg">Opening your agreement…</div>';
+    fetch('/api/career/contract/preview?applicationId=' + encodeURIComponent(contractAppId), { credentials: 'same-origin' })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) { host.innerHTML = '<div class="agr-doc-msg">We could not open your agreement here — use the download link below.</div>'; return; }
+        if (d.kind === 'pdf' && d.url) {
+          host.innerHTML = '<iframe class="agr-frame" src="' + escAttr(d.url) + '#view=FitH" title="Your agreement"></iframe>';
+        } else if (d.kind === 'html' && d.html) {
+          // Server-sanitised to a tag allow-list before it is sent.
+          host.innerHTML = '<div class="agr-doc agr-doc-rich">' + d.html + '</div>';
+        } else if (d.kind === 'text' && d.text) {
+          var pre = document.createElement('div');
+          pre.className = 'agr-doc';
+          pre.textContent = d.text;
+          host.innerHTML = ''; host.appendChild(pre);
+        } else {
+          host.innerHTML = '<div class="agr-doc-msg">' + escHtml(d.message || 'No agreement file to show yet.') + '</div>';
+        }
+      })
+      .catch(function () { host.innerHTML = '<div class="agr-doc-msg">We could not open your agreement here — use the download link below.</div>'; });
+  }
+  function escHtml(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function escAttr(t) { return escHtml(t).replace(/"/g, '&quot;'); }
+
+  /* ── Signature pad ──────────────────────────────────────────────────────
+     Lifted from the practice signing flow (pages/practice-intake.html): sizing
+     a canvas clears it, so it is only sized once, on first paint. */
+  var sigCanvas = null, sigCtx = null, sigReady = false, sigDrawing = false, sigHasInk = false;
+  function setupSigPad() {
+    if (sigReady) return;
+    sigCanvas = document.getElementById('gpSigPad');
+    if (!sigCanvas || !sigCanvas.getBoundingClientRect().width) return;
+    sigCtx = sigCanvas.getContext('2d');
+    var rect = sigCanvas.getBoundingClientRect();
+    var ratio = window.devicePixelRatio || 1;
+    sigCanvas.width = rect.width * ratio; sigCanvas.height = 150 * ratio;
+    sigCanvas.style.width = rect.width + 'px'; sigCanvas.style.height = '150px';
+    sigCtx.scale(ratio, ratio);
+    sigCtx.lineWidth = 2.4; sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round'; sigCtx.strokeStyle = '#111';
+    sigReady = true;
+  }
+  function sigPoint(ev) { var r = sigCanvas.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
+  function sigUpdateStatus() {
+    var st = document.getElementById('gpSigStatus');
+    if (st) st.textContent = sigHasInk ? 'Signature captured' : 'Not signed yet';
+    var wrap = document.getElementById('gpSigWrap');
+    if (wrap) wrap.classList.toggle('filled', sigHasInk);
+  }
+  function sigClear() {
+    if (!sigReady || !sigCtx) return;
+    var r = sigCanvas.getBoundingClientRect();
+    sigCtx.clearRect(0, 0, r.width || sigCanvas.width, 150);
+    sigHasInk = false; sigUpdateStatus();
+  }
+  function wireSigPad() {
+    var c = document.getElementById('gpSigPad');
+    if (!c || c.__wired) return;
+    c.__wired = true;
+    c.addEventListener('pointerdown', function (ev) {
+      setupSigPad(); if (!sigReady) return;
+      sigDrawing = true; var p = sigPoint(ev); sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y);
+      if (c.setPointerCapture) c.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    });
+    c.addEventListener('pointermove', function (ev) {
+      if (!sigDrawing || !sigReady) return;
+      var p = sigPoint(ev); sigCtx.lineTo(p.x, p.y); sigCtx.stroke();
+      if (!sigHasInk) { sigHasInk = true; sigUpdateStatus(); }
+      ev.preventDefault();
+    });
+    function end() { sigDrawing = false; }
+    c.addEventListener('pointerup', end);
+    c.addEventListener('pointercancel', end);
+    c.addEventListener('pointerleave', end);
+  }
+
+  /* ── Sign in the app ────────────────────────────────────────────────────
+     sign-inapp builds + stores the executed PDF, then we hand off to the SAME
+     finalize-signed the manual-upload route uses — one money path, not two. */
+  function signAgreementInApp() {
+    var statusEl = document.getElementById('signInAppStatus');
+    var btn = document.getElementById('signAgreementBtn');
+    function setStatus(msg, isError) {
+      if (!statusEl) return;
+      statusEl.textContent = msg || ''; statusEl.hidden = !msg;
+      statusEl.style.color = isError ? '' : '#15803d';
+    }
+    var nameEl = document.getElementById('gpSignedName');
+    var name = nameEl ? String(nameEl.value || '').trim() : '';
+    if (name.length < 2) { setStatus('Please type your full legal name.', true); if (nameEl) nameEl.focus(); return; }
+    if (!sigHasInk || !sigReady) { setStatus('Please draw your signature above.', true); return; }
+
+    if (btn) btn.disabled = true;
+    setStatus('Signing…', false);
+    fetch('/api/career/contract/sign-inapp', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicationId: contractAppId, signedName: name, signatureDataUrl: sigCanvas.toDataURL('image/png') })
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
+      .then(function (res) {
+        if (res.status !== 200 || !res.data || !res.data.ok) {
+          if (btn) btn.disabled = false;
+          setStatus((res.data && res.data.message) || "That didn't go through — please try again.", true);
+          return;
+        }
+        return fetch('/api/career/contract/finalize-signed', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ applicationId: contractAppId, filename: res.data.filename, mimeType: res.data.mimeType })
+        })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
+          .then(function (fin) {
+            if (btn) btn.disabled = false;
+            if (fin.status === 200 && fin.data && fin.data.ok) {
+              if (fin.data.placementSecured) {
+                showContractSecured('Position secured 🎉', 'Congratulations — your signed agreement is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
+                launchConfetti();
+              } else {
+                showContractSecured('Agreement signed', (fin.data.message || 'Signed — our team is finalising your placement.'));
+              }
+              return;
+            }
+            setStatus((fin.data && fin.data.message) || "That didn't go through — please try again.", true);
+          });
+      })
+      .catch(function () {
+        if (btn) btn.disabled = false;
+        setStatus("That didn't go through — please check your connection and try again.", true);
+      });
+  }
+
+  // Manual fallback — upload a signed agreement: sign-upload → PUT raw file to
+  // Storage → finalize. Same finalize path as signing in the app.
   function runSignedUpload(file) {
     var statusEl = document.getElementById('signUploadStatus');
     var uploadBtn = document.getElementById('uploadSignedBtn');
@@ -1520,10 +1719,10 @@
               if (uploadBtn) uploadBtn.disabled = false;
               if (fin.status === 200 && fin.data && fin.data.ok) {
                 if (fin.data.placementSecured) {
-                  showContractSecured('Placement secured 🎉', 'Congratulations — your signed contract is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
+                  showContractSecured('Placement secured 🎉', 'Congratulations — your signed agreement is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
                   launchConfetti();
                 } else {
-                  showContractSecured('Contract signed', (fin.data.message || 'Signed — our team is finalising your placement.'));
+                  showContractSecured('Agreement signed', (fin.data.message || 'Signed — our team is finalising your placement.'));
                 }
                 return null;
               }
@@ -1539,6 +1738,8 @@
   }
 
   document.addEventListener('click', function (e) {
+    if (e.target.closest('#signAgreementBtn')) { signAgreementInApp(); return; }
+    if (e.target.closest('#gpSigClear')) { sigClear(); return; }
     if (e.target.closest('#uploadSignedBtn')) {
       var input = document.getElementById('signedFileInput');
       if (input) input.click();

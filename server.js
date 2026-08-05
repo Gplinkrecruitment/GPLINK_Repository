@@ -117,6 +117,9 @@ const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-co
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
+// Turns the doctor's drawn signature into an executed PDF (GP side of the
+// same signing experience the practice gets on our recruitment agreement).
+const gpAgreementSign = require('./lib/gp-agreement-sign.js');
 const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise.js');
 const documentRequirements = require('./lib/document-requirements.js');
 const { selectStaleSummaryCases, DEFAULT_FLOOR_MS: SUMMARY_REFRESH_DEFAULT_FLOOR_MS } = require('./lib/summary-refresh.js');
@@ -46781,6 +46784,188 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, { ok: true, uploadUrl: suUrl, path: suPath });
     return;
   }
+
+  // GET /api/career/contract/preview?applicationId= — read the agreement IN THE
+  // APP. Owner request 2026-08-06: the doctor should not have to download a file
+  // to find out what they are being asked to sign. Same reader the CEO's
+  // Contracts tab uses (renderContractDocumentHtml), scoped to the session
+  // user's own application, and only while the agreement is actually with them.
+  if (pathname === '/api/career/contract/preview' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const cvEmail = getSessionEmail(session);
+    if (!cvEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const cvUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(cvEmail);
+    if (!cvUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    const cvAppId = String(new URL(req.url, 'http://x').searchParams.get('applicationId') || '').trim();
+    if (!cvAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+    // Ownership is the whole security model here — the same check every other
+    // GP contract endpoint makes.
+    const cvApp = await getOwnedCareerApplicationRow(cvAppId, cvUserId);
+    if (!cvApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+
+    const cvContract = await getLatestLiveCareerContractForApplication(cvAppId);
+    const CV_VISIBLE = new Set(['sent_to_gp', 'changes_requested', 'practice_review', 'signed']);
+    if (!cvContract || !CV_VISIBLE.has(String(cvContract.status))) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'There is no agreement to view yet.' });
+      return;
+    }
+    if (!cvContract.contract_bucket || !cvContract.contract_path) {
+      sendJson(res, 200, { ok: true, kind: 'none', message: 'No agreement file has been uploaded yet.' });
+      return;
+    }
+
+    const cvMime = String(cvContract.contract_mime || '').toLowerCase();
+    const cvName = String(cvContract.contract_filename || '').toLowerCase();
+    if (cvMime === 'application/pdf' || /\.pdf$/.test(cvName)) {
+      const cvUrl = await supabaseStorageCreateSignedUrl(cvContract.contract_bucket, cvContract.contract_path, cvContract.contract_filename || 'agreement.pdf');
+      sendJson(res, 200, { ok: true, kind: 'pdf', url: cvUrl || '', filename: cvContract.contract_filename || '' });
+      return;
+    }
+
+    let cvFile = null;
+    try { cvFile = await supabaseStorageDownloadObject(cvContract.contract_bucket, cvContract.contract_path); }
+    catch (e) { cvFile = null; }
+    if (!cvFile || !cvFile.buffer || !cvFile.buffer.length) {
+      sendJson(res, 200, { ok: true, kind: 'error', message: 'Could not open the agreement file.' });
+      return;
+    }
+    const cvRead = await renderContractDocumentHtml(cvFile.buffer, cvContract.contract_mime || cvFile.mimeType, cvContract.contract_filename);
+    if (!cvRead.ok) { sendJson(res, 200, { ok: true, kind: 'error', message: cvRead.reason }); return; }
+    sendJson(res, 200, {
+      ok: true,
+      kind: cvRead.kind,
+      html: cvRead.html || '',
+      text: cvRead.text || '',
+      filename: cvContract.contract_filename || ''
+    });
+    return;
+  }
+
+  // POST /api/career/contract/sign-inapp — the doctor signs on the pad instead
+  // of printing, signing and scanning. Same idea as the practice signing OUR
+  // recruitment agreement (lib/practice-agreement-pdf.js): draw, and the server
+  // produces the executed PDF.
+  //
+  // It deliberately STOPS at "the signed file is in storage" and returns the
+  // filename, so the client then calls the EXISTING finalize-signed — the one
+  // path that marks the contract signed and secures the placement. Duplicating
+  // that money path for a second entry point is how the two drift apart.
+  if (pathname === '/api/career/contract/sign-inapp' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const siEmail = getSessionEmail(session);
+    if (!siEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const siUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(siEmail);
+    if (!siUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+
+    let siBody;
+    try { siBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const siAppId = String((siBody && siBody.applicationId) || '').trim();
+    if (!siAppId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    const siSignerName = sanitizeUserString(String((siBody && siBody.signedName) || ''), 160).trim();
+    if (siSignerName.length < 2) { sendJson(res, 400, { ok: false, message: 'Please type your full name.' }); return; }
+    const siSignature = String((siBody && siBody.signatureDataUrl) || '');
+    if (!gpAgreementSign.decodeSignatureDataUrl(siSignature)) {
+      sendJson(res, 400, { ok: false, message: 'Please draw your signature before signing.' });
+      return;
+    }
+
+    const siApp = await getOwnedCareerApplicationRow(siAppId, siUserId);
+    if (!siApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    const siAppStatusKey = normalizeCareerApplicationStatusKey(siApp.status);
+    if (siAppStatusKey === 'withdrawn' || siAppStatusKey === 'not_proceeding' || isCareerPlacementSecuredStatus(siAppStatusKey)) {
+      sendJson(res, 409, { ok: false, code: 'application_terminal', message: 'This application is no longer active.' });
+      return;
+    }
+
+    const siContract = await getLatestLiveCareerContractForApplication(siAppId);
+    if (!siContract || String(siContract.status) !== 'sent_to_gp') {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This agreement is not ready to sign.' });
+      return;
+    }
+    if (!siContract.contract_bucket || !siContract.contract_path) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'There is no agreement file to sign.' });
+      return;
+    }
+
+    let siFile = null;
+    try { siFile = await supabaseStorageDownloadObject(siContract.contract_bucket, siContract.contract_path); }
+    catch (e) { siFile = null; }
+    if (!siFile || !siFile.buffer || !siFile.buffer.length) {
+      sendJson(res, 502, { ok: false, message: 'Could not open the agreement to sign. Please try again.' });
+      return;
+    }
+
+    // A PDF gets the execution page appended to the practice's own file, so
+    // their document is untouched. Anything else (a .docx) is typeset from the
+    // text we already extract for the reader — the practice's original stays on
+    // the contract row regardless.
+    const siMime = String(siContract.contract_mime || '').toLowerCase();
+    const siName = String(siContract.contract_filename || '').toLowerCase();
+    const siIsPdf = siMime === 'application/pdf' || /\.pdf$/.test(siName);
+    let siAgreementText = '';
+    if (!siIsPdf) {
+      const siRead = await readContractFileForReview(siFile.buffer, siContract.contract_mime || siFile.mimeType, siContract.contract_filename);
+      if (!siRead.ok || !String(siRead.text || '').trim()) {
+        sendJson(res, 409, { ok: false, code: 'unreadable', message: (siRead && siRead.reason) || 'We could not read this agreement well enough to sign it in the app. Please upload a signed copy instead.' });
+        return;
+      }
+      siAgreementText = siRead.text;
+    }
+
+    let siPracticeName = '';
+    if (siContract.career_role_id != null) {
+      try {
+        const siRoleRes = await supabaseDbRequest('career_roles', 'select=practice_name,title&id=eq.' + encodeURIComponent(siContract.career_role_id) + '&limit=1');
+        const siRoleRow = (siRoleRes.ok && Array.isArray(siRoleRes.data) && siRoleRes.data[0]) ? siRoleRes.data[0] : null;
+        siPracticeName = String((siRoleRow && siRoleRow.practice_name) || '').trim();
+      } catch (e) { siPracticeName = ''; }
+    }
+
+    const siSignedAt = new Date().toISOString();
+    let siPdf = null;
+    try {
+      siPdf = await gpAgreementSign.buildSignedAgreementPdf({
+        sourceKind: siIsPdf ? 'pdf' : 'text',
+        sourceBuffer: siFile.buffer,
+        agreementText: siAgreementText,
+        agreementTitle: siContract.contract_filename || 'Employment agreement',
+        signerName: siSignerName,
+        signatureDataUrl: siSignature,
+        signedAtIso: siSignedAt,
+        practiceName: siPracticeName,
+        sourceFilename: siContract.contract_filename || ''
+      });
+    } catch (e) {
+      console.error('[gp-sign] building the signed PDF failed:', e && e.message);
+      sendJson(res, 502, { ok: false, message: 'We could not produce your signed agreement. Please try again, or upload a signed copy.' });
+      return;
+    }
+
+    // Land it on exactly the path finalize-signed derives and verifies, so the
+    // in-app and manual-upload routes converge on one object.
+    const siFilename = 'signed-agreement.pdf';
+    const siPath = ['contracts', sanitizeStoragePathSegment(String(siContract.application_id), 80), 'v' + (Number(siContract.version) || 1), 'signed', siFilename].join('/');
+    const siUploaded = await supabaseStorageUploadObject(
+      SUPABASE_DOCUMENT_BUCKET, siPath,
+      'data:application/pdf;base64,' + siPdf.toString('base64'),
+      'application/pdf'
+    );
+    if (!siUploaded || siUploaded.ok === false) {
+      console.error('[gp-sign] storing the signed PDF failed for contract', siContract.id);
+      sendJson(res, 502, { ok: false, message: 'We could not save your signed agreement. Please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, filename: siFilename, mimeType: 'application/pdf' });
+    return;
+  }
+
 
   // POST /api/career/contract/finalize-signed — the money path. Verifies the
   // signed object exists, marks the contract signed, THEN secures the

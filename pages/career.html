@@ -13196,14 +13196,14 @@
       if (app.contractStage === "sent_to_gp") {
         return S({
           label: "Contract", ribbon: "CONTRACT", tone: "green", rowTone: "offer",
-          blurb: "Your contract is ready to review and sign.",
-          ctaLabel: "Review contract", ctaHref: offerHref
+          blurb: "Your agreement is ready to review and sign.",
+          ctaLabel: "Review agreement", ctaHref: offerHref
         });
       }
       if (app.contractStage === "changes_requested") {
         return S({
           label: "Contract", ribbon: "CONTRACT", tone: "green", rowTone: "offer",
-          blurb: "We're checking your requested contract changes.",
+          blurb: "We're checking your requested agreement changes.",
           ctaLabel: "View status", ctaHref: offerHref
         });
       }

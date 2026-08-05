@@ -206,10 +206,11 @@
       color: var(--gp-blue-ink);
       border: 1px solid var(--gp-info-border);
     }
+    /* Green like the offer card above it — an offer is good news. */
     .status-pill.offer {
-      background: var(--gp-amber-soft);
-      color: var(--gp-amber-ink);
-      border: 1px solid var(--gp-amber-border);
+      background: var(--gp-green-soft, #eafaf0);
+      color: var(--gp-green-ink, #14683c);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
     }
     .status-pill.secured {
       background: var(--gp-green-soft);
@@ -437,12 +438,14 @@
     }
 
     /* ── Offer card ── */
+    /* Green, not amber (owner call 2026-08-06): an offer is good news, and
+       amber reads as a warning. */
     .offer-card {
       margin-top: 16px;
       padding: 20px;
       border-radius: var(--gp-r-lg);
-      background: var(--gp-amber-soft);
-      border: 1px solid var(--gp-amber-border);
+      background: var(--gp-green-soft, #eafaf0);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
       margin-left: 16px;
       margin-right: 16px;
     }
@@ -455,9 +458,9 @@
       font-weight: 700;
       letter-spacing: var(--gp-tracking-label);
       text-transform: uppercase;
-      background: rgba(217, 119, 6, 0.12);
-      color: var(--gp-amber-ink);
-      border: 1px solid var(--gp-amber-border);
+      background: rgba(16, 122, 68, 0.10);
+      color: var(--gp-green-ink, #14683c);
+      border: 1px solid var(--gp-green-border, #c5ecd4);
       margin-bottom: 8px;
     }
     .offer-card-title {
@@ -473,7 +476,7 @@
       width: 100%;
       padding: 12px 16px;
       border-radius: var(--gp-r-sm);
-      background: var(--gp-amber);
+      background: var(--gp-green, #16a34a);
       color: #fff;
       font-family: inherit;
       font-size: var(--gp-fs-sm);
@@ -481,7 +484,7 @@
       text-decoration: none;
       transition: background var(--gp-dur-fast) var(--gp-ease);
     }
-    .offer-review-btn:hover { background: #b45309; }
+    .offer-review-btn:hover { background: #15803d; }
 
     /* ── Detail rows ── */
     .detail-section {
@@ -768,12 +771,12 @@
     }
 
     html.dark-mode .offer-card {
-      background: rgba(251, 191, 36, 0.08);
-      border-color: rgba(251, 191, 36, 0.12);
+      background: rgba(34, 197, 94, 0.08);
+      border-color: rgba(34, 197, 94, 0.14);
     }
     html.dark-mode .offer-card-badge {
-      background: rgba(251, 191, 36, 0.12);
-      color: #fbbf24;
+      background: rgba(34, 197, 94, 0.14);
+      color: #4ade80;
     }
   </style>
 </head>
@@ -1591,7 +1594,7 @@
             }
             var offerLinkText = document.getElementById('offerReviewLinkText');
             if (offerLinkText) {
-              offerLinkText.textContent = isContractSent ? 'Review contract' : 'Review Offer';
+              offerLinkText.textContent = isContractSent ? 'Review agreement' : 'Review Offer';
             }
           }
         }

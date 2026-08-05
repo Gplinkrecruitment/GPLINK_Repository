@@ -2173,13 +2173,13 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
     expect(block).toMatch(/contractStage: detailContractStage/);
   });
 
-  it('career.html renders a CONTRACT ribbon + "Review contract" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
+  it('career.html renders a CONTRACT ribbon + "Review agreement" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
     expect(html).toMatch(/app\.contractStage === "sent_to_gp"/);
     // The ribbon word + its CTA now come from careerApplicationState, the one
     // state map every application card reads (2026-07-31).
     expect(html).toMatch(/ribbon: "CONTRACT", tone: "green"/);
-    expect(html).toContain('ctaLabel: "Review contract"');
+    expect(html).toContain('ctaLabel: "Review agreement"');
     expect(html).toContain('offerHref = "offer-review?applicationId="');
     // The field must survive BOTH client-side hops or it never reaches the
     // ribbon: the list normalizer (mergeRemoteApplications -> app.contractStage)
@@ -2188,18 +2188,27 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
     expect(html).toContain('contractStage: source.contractStage || null');
   });
 
-  it('application-detail.html shows the offer card with a "Review contract" label when contractStage is sent_to_gp', () => {
+  it('application-detail.html shows the offer card with a "Review agreement" label when contractStage is sent_to_gp', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
     expect(html).toMatch(/isContractSent = app\.contractStage === 'sent_to_gp'/);
     // showOfferCard must exclude terminal states (withdrawn, not_proceeding, offer_declined, secured) to avoid showing card on withdrawn app with lingering sent_to_gp contract
     expect(html).toMatch(/showOfferCard = \(app\.offerPending === true \|\| isContractSent\) && !isSecured && !isWithdrawn && !isClosed && !isOfferDeclined/);
-    expect(html).toContain("isContractSent ? 'Review contract' : 'Review Offer'");
+    // Owner call 2026-08-06: "agreement" reads as lower friction than "contract".
+    expect(html).toContain("isContractSent ? 'Review agreement' : 'Review Offer'");
+    // ...and the OFFER box is green, not amber — amber reads as a warning.
+    // (Scoped to .offer-card: other elements on the page are legitimately amber.)
+    const offerCardCss = html.slice(html.indexOf('.offer-card {'), html.indexOf('.offer-card-badge {'));
+    expect(offerCardCss).toContain('--gp-green-soft');
+    expect(offerCardCss).not.toContain('--gp-amber-soft');
+    const offerBtnCss = html.slice(html.indexOf('.offer-review-btn {'), html.indexOf('.offer-review-btn:hover'));
+    expect(offerBtnCss).toContain('--gp-green');
+    expect(offerBtnCss).not.toContain('var(--gp-amber)');
   });
 
   it('offer-review.html only shows "Placement secured" + confetti when contract.placementSecured is true', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/offer-review.html'), 'utf8');
     expect(html).toMatch(/contract\.placementSecured === true/);
-    expect(html).toContain("showContractSecured('Contract signed', 'Signed — our team is finalising your placement.')");
+    expect(html).toContain("showContractSecured('Agreement signed', 'Signed — our team is finalising your placement.')");
   });
 });
 
@@ -4366,5 +4375,106 @@ describe('the contracts panel is wired exactly once', () => {
     const body = JS.slice(start, start + 400);
     expect(body).toContain('wireEvents(el)');
     expect(body).toContain('fetchAndRender()');   // data must still refresh
+  });
+});
+
+// ============================================================================
+// Owner request 2026-08-06, GP side of the agreement:
+//   • read the agreement IN the app (small download link underneath)
+//   • sign it on a pad, the same way a practice signs OUR recruitment agreement
+//   • manual upload demoted to a fallback
+//   • "contract" → "agreement" (lower friction)
+// ============================================================================
+describe('GP signs the agreement in the app', () => {
+  const SRV = fs.readFileSync(SERVER_PATH, 'utf8');
+  const PAGE = fs.readFileSync(path.join(ROOT, 'pages/offer-review.html'), 'utf8');
+
+  // Slice exactly ONE endpoint: from its route guard to the next one. A fixed
+  // character count is either too short (silently misses the assertion) or too
+  // long (spills into the neighbouring endpoint and asserts against ITS code).
+  function endpointBody(route) {
+    const start = SRV.indexOf("pathname === '" + route + "'");
+    if (start < 0) return '';
+    const next = SRV.indexOf("if (pathname === '", start + 40);
+    return next > start ? SRV.slice(start, next) : SRV.slice(start, start + 9000);
+  }
+  // Negative assertions must look at CODE, not prose: the slice runs up to the
+  // next route guard, which sweeps in the following endpoint's leading comment
+  // (finalize-signed's comment names finalizeInAppPlacement).
+  function codeOnly(src) { return String(src).replace(/^\s*\/\/.*$/gm, ''); }
+
+  it('the GP preview endpoint is session-scoped to their OWN application', () => {
+    const body = endpointBody('/api/career/contract/preview');
+    expect(body).toBeTruthy();
+    expect(body).toContain('requireSession');
+    expect(body).toContain('getOwnedCareerApplicationRow');       // ownership, not just a login
+    expect(body).toContain('renderContractDocumentHtml');          // same reader as the CEO tab
+    expect(body).toContain("kind: 'pdf'");
+    // Never exposes an agreement that isn't with the doctor yet.
+    expect(body).toContain("'sent_to_gp', 'changes_requested', 'practice_review', 'signed'");
+  });
+
+  it('sign-inapp validates the signature and the typed name before doing anything', () => {
+    const body = endpointBody('/api/career/contract/sign-inapp');
+    expect(body).toBeTruthy();
+    expect(body).toContain('decodeSignatureDataUrl');
+    expect(body).toMatch(/type your full name/i);
+    expect(body).toContain('getOwnedCareerApplicationRow');
+    expect(body).toContain('application_terminal');
+    expect(body).toMatch(/String\(siContract\.status\) !== 'sent_to_gp'/);
+  });
+
+  it('sign-inapp stops at storage and hands off to the EXISTING finalize path', () => {
+    const body = endpointBody('/api/career/contract/sign-inapp');
+    // It must NOT mark the contract signed or secure the placement itself —
+    // duplicating the money path is how two entry points drift apart.
+    const code = codeOnly(body);
+    expect(code).not.toContain('finalizeInAppPlacement');
+    expect(code).not.toMatch(/status:\s*'signed'/);
+    expect(body).toContain('supabaseStorageUploadObject');
+    // ...and it lands on exactly the path finalize-signed rebuilds.
+    expect(body).toContain("'signed', siFilename");
+    expect(PAGE).toContain('/api/career/contract/sign-inapp');
+    expect(PAGE).toContain('/api/career/contract/finalize-signed');
+  });
+
+  it('a PDF agreement is signed by APPENDING to the practice\'s own file, never rewritten', () => {
+    const lib = fs.readFileSync(path.join(ROOT, 'lib/gp-agreement-sign.js'), 'utf8');
+    expect(lib).toContain('addPage');                 // pdf-lib: original pages untouched
+    expect(lib).toMatch(/PDFDocument\.load/);
+    // A .docx cannot be stamped, so it is typeset — and the original stays on
+    // the contract row either way.
+    expect(lib).toContain('buildFromText');
+    expect(lib).toContain('sourceSha256');            // ties the signature to the exact file
+  });
+
+  it('the page reads the agreement inline and demotes download + manual upload', () => {
+    expect(PAGE).toContain('id="agreementDoc"');
+    expect(PAGE).toContain('/api/career/contract/preview');
+    expect(PAGE).toContain('id="downloadAgreementLink"');
+    expect(PAGE).toContain('Download agreement');
+    // Manual upload survives as a small secondary link, not the primary button.
+    expect(PAGE).toMatch(/agr-small-btn" id="uploadSignedBtn"/);
+    expect(PAGE).toMatch(/Upload a signed copy manually/);
+    expect(PAGE).not.toContain('Upload signed contract');
+  });
+
+  it('the signing pad mirrors the practice one (draw, clear, ink state)', () => {
+    expect(PAGE).toContain('id="gpSigPad"');
+    expect(PAGE).toContain('toDataURL(\'image/png\')');
+    expect(PAGE).toContain('pointerdown');
+    expect(PAGE).toContain('sigHasInk');
+    expect(PAGE).toContain('id="gpSigClear"');
+    expect(PAGE).toContain('devicePixelRatio');       // sizing a canvas clears it
+  });
+
+  it('doctor-facing copy says "agreement", not "contract"', () => {
+    expect(PAGE).toContain('Your agreement is ready');
+    expect(PAGE).toContain('Sign &amp; secure my position');
+    expect(PAGE).not.toContain('Your contract is ready');
+    expect(PAGE).not.toContain('Please review your employment contract');
+    const career = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
+    expect(career).toContain('ctaLabel: "Review agreement"');
+    expect(career).not.toContain('ctaLabel: "Review contract"');
   });
 });
