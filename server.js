@@ -27615,8 +27615,13 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
   // when the offer records a relocation package we surface it in that third slot.
   const relocationDisplay = normalizeContractCurrencyDisplay(String(o.relocation_package || '').trim())
     || String(o.relocation_package || '').trim();
-  const sessionsStat = { label: 'Sessions', value: sessionsDisplay ? (/week/i.test(sessionsDisplay) ? sessionsDisplay : sessionsDisplay + ' / week') : 'Pending' };
-  const thirdQuickStat = relocationDisplay ? { label: 'Relocation', value: relocationDisplay } : sessionsStat;
+  // Owner call 2026-08-06: the third tile is ALWAYS the relocation package.
+  // It used to fall back to a "Sessions" tile whenever no relocation figure was
+  // recorded — which is most of the time — so a placed doctor saw "Pending
+  // Sessions", a number that means little to them, in the slot where the perk
+  // they actually care about belongs. Pending under the right label beats a
+  // filled-in value under the wrong one.
+  const thirdQuickStat = { label: 'Relocation package', value: relocationDisplay || 'Pending' };
   const startDateIso = normalizePlacementStartDate(o.start_date) || '';
   const roleClient = roleRow ? mapCareerRoleRowToClient(roleRow) : null;
 

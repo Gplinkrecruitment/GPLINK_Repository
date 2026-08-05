@@ -4521,3 +4521,27 @@ describe('a secured placement wins over the agreement card', () => {
     expect(body).toMatch(/hired/);
   });
 });
+
+// ============================================================================
+// Owner call 2026-08-06: the placement page's third tile must ALWAYS be the
+// relocation package. It used to fall back to "Sessions" whenever no relocation
+// figure was recorded (i.e. most of the time), so a placed doctor saw "Pending
+// Sessions" in the slot where the perk they care about belongs.
+// ============================================================================
+describe('placement tiles — the third one is the relocation package', () => {
+  const SRV = fs.readFileSync(SERVER_PATH, 'utf8');
+
+  it('never falls back to a Sessions tile', () => {
+    expect(SRV).not.toContain("const thirdQuickStat = relocationDisplay ? { label: 'Relocation'");
+    expect(SRV).not.toMatch(/const sessionsStat = \{ label: 'Sessions'/);
+  });
+
+  it('always labels it "Relocation package", Pending when unknown', () => {
+    expect(SRV).toContain("const thirdQuickStat = { label: 'Relocation package', value: relocationDisplay || 'Pending' };");
+  });
+
+  it('the separate "Sessions per week" detail row is untouched', () => {
+    // That row is a factual detail elsewhere in the payload — only the TILE moved.
+    expect(SRV).toContain("{ label: 'Sessions per week', value: sessionsDisplay || 'Pending' }");
+  });
+});
