@@ -22639,6 +22639,17 @@ function careerRoleTitleLeaksPracticeName(row) {
   const titleNorm = normalizeCareerLeakString(row && row.title);
   const practiceNorm = normalizeCareerLeakString(row && row.practice_name);
   if (!titleNorm) return false;               // nothing to leak
+  // Corporate-group hole (found 2026-08-06, 4 LIVE Spectrum roles): every check
+  // below asks "does the title look like row.practice_name?" — but for a group
+  // role practice_name is the OWNER ("Spectrum Group") while the title holds the
+  // clinic ("Connolly Drive Medical Centre"). Those two share no tokens, so the
+  // title was judged safe and internalTitleFirst shipped the real clinic name to
+  // pre-reveal doctors as the card's "Role type". Ask instead whether the title
+  // reads as a clinic name AT ALL — the same splitter the match card and email
+  // use — because that is the property that actually matters, whoever the
+  // practice_name says owns it. A generic role title ("General Practitioner",
+  // "DPA - Erina - Mixed Billing") has no clinic half and stays safe.
+  if (atsSplitJobTitle(String((row && row.title) || '').trim()).clinic) return true;
   if (!practiceNorm) return true;             // can't prove safe → mask
   if (titleNorm === practiceNorm || titleNorm.includes(practiceNorm) || practiceNorm.includes(titleNorm)) {
     return true;
@@ -27585,7 +27596,12 @@ function buildInAppPlacementPayload(roleRow, offer, practiceRow, casePracticeCon
   const role = roleRow && typeof roleRow === 'object' ? roleRow : {};
   const practice = practiceRow && typeof practiceRow === 'object' ? practiceRow : {};
 
-  const practiceName = String(o.practice_name || role.practice_name || practice.name || 'Medical Centre').trim() || 'Medical Centre';
+  // Same clinic-over-corporation rule as the revealed job page and the match
+  // card: for a corporate group, role.practice_name / practice.name are the
+  // GROUP, so a placed doctor's own practice page used to name the owner
+  // rather than the clinic they actually work at. The offer's stored
+  // practice_name still wins — it is the name on the agreed terms.
+  const practiceName = String(o.practice_name || resolveCareerRolePracticeName(roleRow, practiceRow) || 'Medical Centre').trim() || 'Medical Centre';
   const roleTitle = String(o.job_title || role.title || 'General Practitioner').trim() || 'General Practitioner';
   const location = [role.location_city, role.location_state].filter(Boolean).join(', ');
   const billingLabel = normalizeCareerBillingLabel(role.billing_model) || 'Billing pending';
@@ -27715,7 +27731,7 @@ async function resolveInAppPlacementForApplication(appRow, offer, profile, optio
     (profile && (profile.registration_country || profile.country)) || (opts.gpCountry || '')
   ) || 'uk';
 
-  const practiceName = (offer && offer.practice_name) || (roleRow && roleRow.practice_name) || (practiceRow && practiceRow.name) || '';
+  const practiceName = (offer && offer.practice_name) || resolveCareerRolePracticeName(roleRow, practiceRow) || '';
   const location = roleRow ? [roleRow.location_city, roleRow.location_state].filter(Boolean).join(', ') : '';
   let lifestyle = null;
   try {
@@ -32241,6 +32257,30 @@ function atsJobDisplayNames(jobRow, practiceRow) {
     role: parts.role,
     group: isGroup ? owner : ''
   };
+}
+
+// The name of the CLINIC a doctor was actually matched to, for the surfaces
+// that have already revealed the practice identity (job page, placement page,
+// interview reminders, contract cards).
+//
+// Owner report 2026-08-06 (Dr Deepika's practice page): the page was headed
+// "ForHealth Group" while the website under it read riverlinkmedicalcentre.com.au
+// — the corporation, not the practice. Cause is the same corporate-group trap
+// [[forhealth-practice-websites]] documented for the website: a corporate owner
+// is ONE practices row shared by every clinic under it, so `practice_name` (and
+// `practices.name`) can only ever hold the GROUP. 48 of 59 live roles sit under
+// ForHealth/GP West/Spectrum, so this was every one of them.
+//
+// The masked card, the match email and the board already solved this with
+// atsJobDisplayNames — the clinic name lives in `career_roles.title`. The
+// revealed surfaces simply never called it and read the raw column instead.
+// This is that one rule, so a reveal can never disagree with the match card
+// the same doctor saw an hour earlier. Falls back to the owner name, i.e. the
+// historical behaviour, when a title carries no clinic.
+function resolveCareerRolePracticeName(roleRow, practiceRow) {
+  var resolved = String(atsJobDisplayNames(roleRow, practiceRow).practice || '').trim();
+  if (resolved) return resolved;
+  return String((roleRow && roleRow.practice_name) || (practiceRow && practiceRow.name) || '').trim();
 }
 
 // Builds the match notification email (mockup docs/mockups/matching/
@@ -37217,7 +37257,8 @@ async function handleApi(req, res, pathname) {
           var irRole = irApp.career_role_id ? await getCareerRoleRowById(irApp.career_role_id).catch(function () { return null; }) : null;
 
           await sendInterviewReminderEmail(irApp.user_id, {
-            practiceName: (irRole && irRole.practice_name) || '',
+            // The clinic they are actually interviewing with, not its owner.
+            practiceName: resolveCareerRolePracticeName(irRole, null),
             scheduledAt: irInterview.scheduled_at,
             format: irInterview.format || '',
             zoomJoinUrl: irInterview.zoom_join_url || ''
@@ -37291,7 +37332,7 @@ async function handleApi(req, res, pathname) {
               irScUserId = irScUserId || irScApp.user_id || '';
               if (!irScPractice && irScApp.career_role_id) {
                 var irScRole = await getCareerRoleRowById(irScApp.career_role_id).catch(function () { return null; });
-                irScPractice = (irScRole && irScRole.practice_name) || '';
+                irScPractice = resolveCareerRolePracticeName(irScRole, null);
               }
             }
           }
@@ -43743,7 +43784,10 @@ async function handleApi(req, res, pathname) {
         } catch (e) { practiceAddress = ''; }
       }
       roleClientPayload.revealed = true;
-      roleClientPayload.realPracticeName = finalRoleRow.practice_name ? String(finalRoleRow.practice_name) : '';
+      // The CLINIC, never the corporation that owns it — practice_name holds
+      // the group for the 48 roles under ForHealth/GP West/Spectrum, so this
+      // page used to head itself "ForHealth Group" over a Riverlink website.
+      roleClientPayload.realPracticeName = resolveCareerRolePracticeName(finalRoleRow, practiceRow);
       roleClientPayload.practiceAddress = practiceAddress;
       roleClientPayload.revealedMapQuery = [practiceAddress, finalRoleRow.suburb, finalRoleRow.location_state].filter(Boolean).join(', ');
 
@@ -44257,8 +44301,11 @@ async function handleApi(req, res, pathname) {
     // masked title + suburb/state, never the real practice name/address.
     const moRevealed = await canRevealPracticeIdentity(moUserId, moRole && moRole.id);
 
+    // Revealed branch names the CLINIC, not the corporate owner — for a group
+    // role, moRole.practice_name is "ForHealth Group" and the doctor's offer
+    // would disagree with the match card that got them here.
     const moPracticeName = moRevealed
-      ? (moOffer.practice_name || (moRole && moRole.practice_name) || '')
+      ? (moOffer.practice_name || resolveCareerRolePracticeName(moRole, moPractice) || '')
       : ((moRole && moRole.masked_title) || 'Confidential practice');
 
     const moLocation = moRevealed
@@ -72694,6 +72741,8 @@ module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   _createRegTask,
   atsJobDisplayNames,
+  resolveCareerRolePracticeName,
+  careerRoleTitleLeaksPracticeName,
   supportDisplayName,
   isWithinGroupingWindow,
   extractEmailAddress,
