@@ -81,7 +81,29 @@ function nativeFbBody(overrides = {}) {
   };
 }
 
+// Captures what would have been emailed, so the magic-link-on-qualification
+// behaviour can be asserted rather than assumed. Same stub pattern as
+// tests/consult-nudge-cron.test.js.
+let resendServer;
+let resendPort;
+const resendCaptured = [];
+function startResendCaptureServer() {
+  return new Promise((resolve) => {
+    resendServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        try { resendCaptured.push(JSON.parse(body || 'null')); } catch { resendCaptured.push(null); }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id: 'stub' }));
+      });
+    });
+    resendServer.listen(0, '127.0.0.1', () => { resendPort = resendServer.address().port; resolve(); });
+  });
+}
+
 beforeAll(async () => {
+  await startResendCaptureServer();
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
   process.env.AUTH_DISABLED = 'false';
@@ -95,6 +117,9 @@ beforeAll(async () => {
   delete process.env.SITE_ENQUIRY_NOTIFY_EMAIL;
   process.env.FB_LEAD_WEBHOOK_SECRET = 'test-fb-secret';
   process.env.FB_GP_LEAD_FORM_IDS = 'F-77, F-88';
+  // Must be set before importing server.js — the Resend client reads these at load.
+  process.env.RESEND_API_KEY = 'test-key';
+  process.env.RESEND_API_URL = 'http://127.0.0.1:' + resendPort + '/emails';
 
   const mod = await import('../server.js');
   testUtils = mod.__testUtils;
@@ -104,6 +129,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
+  if (resendServer) await new Promise((resolve) => resendServer.close(resolve));
   try { fs.unlinkSync(DB_FILE); } catch { /* ignore */ }
 });
 
@@ -158,6 +184,46 @@ describe('facebook-lead webhook — GP form branch', () => {
   });
 });
 
+// Meta gives us NO way to identify a GP who taps the instant form's thank-you
+// button — there is no supported macro for that URL (verified against Meta's
+// docs 2026-08-07; a {{lead_id}} placeholder is stored percent-encoded as
+// literal text). So this email, sent the moment they qualify, is the only route
+// from Facebook to a booked call that requires zero typing. It has been moved
+// out of the webhook once already on a mistaken assumption; these pin it.
+describe('magic link on qualification', () => {
+  beforeEach(() => { resendCaptured.length = 0; });
+
+  // The owner also gets a speed-to-lead alert, so match on recipient rather
+  // than counting every send.
+  const toLead = (addr) => resendCaptured.filter((e) => [].concat((e && e.to) || []).includes(addr));
+
+  it('emails a qualified lead their booking link immediately', async () => {
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', nativeFbBody());
+    expect(res.json.kind).toBe('gp_lead');
+    const sent = toLead('aisha@example.co.uk');
+    expect(sent.length).toBe(1);
+    expect(sent[0].subject).toMatch(/book your free GP Link call/i);
+    // The link must carry the token, or it cannot recognise them on arrival.
+    const row = readDb().siteEnquiries.find((r) => r.email === 'aisha@example.co.uk');
+    expect(sent[0].html).toContain('/start?lead=' + encodeURIComponent(row.metadata.consult.token));
+  });
+
+  it('sends nothing to a screened-out lead', async () => {
+    const body = nativeFbBody();
+    body.entry[0].changes[0].value.field_data = [
+      { name: 'full_name', values: ['Bruce Wayne'] },
+      { name: 'email', values: ['bruce@example.com.au'] },
+      { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+      { name: '_where_did_you_complete_your_gp_training?', values: ['Australia'] },
+    ];
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', body);
+    expect(res.json.kind).toBe('gp_lead');
+    const row = readDb().siteEnquiries.find((r) => r.email === 'bruce@example.com.au');
+    expect(row.metadata.consult.qualified).toBe(false);
+    expect(toLead('bruce@example.com.au').length).toBe(0);
+  });
+});
+
 // 🧨 A REAL Meta leadgen webhook carries only identifiers — leadgen_id,
 // form_id, page_id, ad_id, created_time — never the answers. Those must be
 // fetched from the Graph API with a Page token holding leads_retrieval. The
@@ -187,7 +253,9 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
   it('fetches field_data for an id-only payload and stores the lead', async () => {
     process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-xyz';
     let requested = null;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, opts) => {
+      // Only intercept Graph — the magic-link email also goes out over fetch.
+      if (!String(url).includes('graph.facebook.com')) return realFetch(url, opts);
       requested = String(url);
       return {
         ok: true,
@@ -216,7 +284,11 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
   it('does NOT call the Graph API when the answers are already inline', async () => {
     process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-xyz';
     let called = false;
-    globalThis.fetch = async () => { called = true; throw new Error('should not be called'); };
+    globalThis.fetch = async (url, opts) => {
+      if (!String(url).includes('graph.facebook.com')) return realFetch(url, opts);
+      called = true;
+      throw new Error('should not be called');
+    };
     const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', nativeFbBody());
     expect(res.status).toBe(200);
     expect(called).toBe(false);
@@ -230,10 +302,13 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
 
   it('survives a Graph API error without throwing', async () => {
     process.env.FB_PAGE_ACCESS_TOKEN = 'expired-token';
-    globalThis.fetch = async () => ({
-      ok: false, status: 190,
-      json: async () => ({ error: { type: 'OAuthException', message: 'Error validating access token' } })
-    });
+    globalThis.fetch = async (url, opts) => {
+      if (!String(url).includes('graph.facebook.com')) return realFetch(url, opts);
+      return {
+        ok: false, status: 190,
+        json: async () => ({ error: { type: 'OAuthException', message: 'Error validating access token' } })
+      };
+    };
     const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', realFbBody());
     expect(res.json).toBeTruthy();
   });

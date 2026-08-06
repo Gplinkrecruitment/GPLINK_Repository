@@ -13024,12 +13024,17 @@ async function handleFacebookLeadWebhook(req, res) {
     });
     // Speed-to-lead: owner alert (uses SITE_ENQUIRY_NOTIFY_EMAIL; no-op if unset)
     await maybeNotifySiteEnquiry(gpRow);
-    // The magic link is deliberately NOT sent here any more. The instant
-    // form's thank-you screen now carries a qualified GP straight to /start
-    // with their answers pre-filled, so an instant "here is your link to
-    // book" would land while they are still ON the booking page. It has moved
-    // to the not_booked cron touch, which fires only if they leave without
-    // booking — see CONSULT_NUDGE_SCHEDULE_MS.not_booked[0].
+    // Magic link, sent the moment they qualify. This is the ONLY zero-typing
+    // route from Facebook to a booked call: Meta gives us no way to identify a
+    // GP who taps the thank-you screen's button (verified 2026-08-07 — there is
+    // no supported macro for that URL, and a {{lead_id}} placeholder is stored
+    // percent-encoded as literal text), so those visitors must type their email
+    // once. The link in this email carries their token, so opening it recognises
+    // them completely and drops them straight on the calendar.
+    if (gpRow.metadata.consult.qualified) {
+      try { await sendConsultMagicLinkEmail(gpRow); }
+      catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
+    }
     sendJson(res, 200, { ok: true, kind: 'gp_lead', lead_id: gpRow.id });
     return;
   }
@@ -24247,13 +24252,6 @@ async function sendConsultNudgeEmail(row, due) {
   const unsubUrl = buildMarketingUnsubUrl(row.email);
   const unsubFooter = '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>';
 
-  // not_booked step 0 IS the magic link. The FB webhook used to send this the
-  // instant the lead arrived; now the thank-you screen carries them to the
-  // booking page instead, and this fires ~45min later only if they left
-  // without picking a time. Same email, later, and only when it is needed.
-  if (due.seq === 'not_booked' && due.step === 0 && consult.token) {
-    return sendConsultMagicLinkEmail(row);
-  }
 
   // booked_no_signup = the post-consultation signup drip (they booked a call but
   // never made an account). Rich, tactic-driven copy from lib/booker-nudge-email.js,

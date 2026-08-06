@@ -197,14 +197,13 @@ describe('validateConsultLeadPayload', () => {
 
 describe('nextConsultNudge', () => {
   const t0 = Date.parse('2026-07-14T00:00:00Z');
-  // Step 0 moved 2h → 45min when the FB thank-you screen took over the job of
-  // getting a qualified GP onto the booking page: the webhook no longer emails
-  // on arrival, so this touch IS the magic link and needs to land while the
-  // visit is still fresh. The hourly cron rounds it up to ~1h in practice.
-  it('not-booked: fires step 0 at 45min, step 1 at 48h, one per pass, never repeats', () => {
+  // Both touches are CHASES: the magic link now goes out on qualification from
+  // the FB webhook, because Meta gives us no way to identify a GP who taps the
+  // thank-you button, so the email is the only zero-typing route to a booking.
+  it('not-booked: fires step 0 at 2h, step 1 at 48h, one per pass, never repeats', () => {
     const base = { consult: { call_booked: false, nudges: [] }, createdAtMs: t0 };
-    expect(nextConsultNudge({ ...base, nowMs: t0 + 30 * MIN })).toBe(null);
-    expect(nextConsultNudge({ ...base, nowMs: t0 + 45 * MIN })).toEqual({ seq: 'not_booked', step: 0 });
+    expect(nextConsultNudge({ ...base, nowMs: t0 + 45 * MIN })).toBe(null);
+    expect(nextConsultNudge({ ...base, nowMs: t0 + 1 * H })).toBe(null);
     expect(nextConsultNudge({ ...base, nowMs: t0 + 3 * H })).toEqual({ seq: 'not_booked', step: 0 });
     // after step 0 recorded, step 1 not due until 48h even if 3h elapsed
     const afterStep0 = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] }, createdAtMs: t0 };
