@@ -302,6 +302,11 @@ describe('audit breadth — sensitive actions write admin_audit_log rows', () =>
     expect(auditRows('ats_stage_changed').length).toBe(before);
   });
 
+  // Explicit 60s budget: the placement path fans out across offers, stage
+  // events and the audit write, and its wall time swings hard with machine
+  // load (observed 9s idle, 36s under a full parallel suite). At the 30s
+  // default it failed intermittently on a green tree, which is worse than
+  // useless — it trains you to ignore red.
   it('manual placement → ats_placement_recorded', async () => {
     // app-1 already has an offer from the first spec (status was withdrawn) —
     // re-send so the placement gate (offer sent/accepted) passes.
@@ -312,7 +317,7 @@ describe('audit breadth — sensitive actions write admin_audit_log rows', () =>
     expect(rows.length).toBe(1);
     expect(rows[0].target_id).toBe('app-1');
     expect(rows[0].detail.commencement_date).toBe('2026-09-01');
-  });
+  }, 60000);
 
   it('admin account-status change → admin_account_status_changed', async () => {
     const r = await atsPost('/api/account/set-status', { email: GP.email, status: 'active' });
