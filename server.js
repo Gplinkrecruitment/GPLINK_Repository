@@ -12880,6 +12880,54 @@ async function handleDoubleTickWebhook(req, res) {
  * pattern as the DoubleTick webhook above:
  *   ${APP_BASE_URL}/api/webhooks/facebook-lead?secret=YOUR_SECRET
  */
+// Meta's leadgen webhook is a NOTIFICATION, not a delivery: it tells you a lead
+// exists and you fetch the answers yourself. This pulls field_data for a
+// leadgen_id using a Page access token that holds `leads_retrieval`.
+// Best-effort by design — a token that is missing, expired or unscoped must
+// leave the payload untouched rather than throw, so the webhook still returns
+// a 200 to Meta (a non-200 makes Meta retry, then eventually unsubscribe us).
+const FB_GRAPH_VERSION = process.env.FB_GRAPH_VERSION || 'v21.0';
+
+async function fetchFacebookLeadFieldData(leadgenId) {
+  const token = process.env.FB_PAGE_ACCESS_TOKEN;
+  const id = String(leadgenId || '').trim();
+  if (!token || !/^[0-9]{4,}$/.test(id)) return null;
+  const url = 'https://graph.facebook.com/' + FB_GRAPH_VERSION + '/' + id
+    + '?fields=id,created_time,field_data&access_token=' + encodeURIComponent(token);
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      const err = data && data.error;
+      console.error('[fb-lead-webhook] Graph lookup failed for', id,
+        '→', resp.status, err ? (err.type + ': ' + err.message) : '');
+      return null;
+    }
+    return data && Array.isArray(data.field_data) ? data.field_data : null;
+  } catch (e) {
+    console.error('[fb-lead-webhook] Graph lookup threw for', id, ':', e && e.message);
+    return null;
+  }
+}
+
+// Fills in field_data on a native Meta payload, in place. No-ops when the
+// answers are already present (relay shape) or when there is no leadgen_id.
+async function hydrateFacebookLeadPayload(body) {
+  const value = body && body.entry && body.entry[0] && body.entry[0].changes &&
+    body.entry[0].changes[0] && body.entry[0].changes[0].value;
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value.field_data) && value.field_data.length) return;
+  if (!value.leadgen_id) return;
+  const fieldData = await fetchFacebookLeadFieldData(value.leadgen_id);
+  if (fieldData) {
+    value.field_data = fieldData;
+  } else if (!process.env.FB_PAGE_ACCESS_TOKEN) {
+    console.error('[fb-lead-webhook] FB_PAGE_ACCESS_TOKEN not set — a real Meta '
+      + 'webhook carries no answers, so this lead cannot be read. Set a Page token '
+      + 'with leads_retrieval.');
+  }
+}
+
 async function handleFacebookLeadWebhook(req, res) {
   const reqUrl = new URL(req.url, 'http://localhost');
 
@@ -12933,6 +12981,14 @@ async function handleFacebookLeadWebhook(req, res) {
     sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
     return;
   }
+
+  // 🧨 Meta's real leadgen webhook carries ONLY identifiers — leadgen_id,
+  // form_id, page_id, ad_id, created_time. It NEVER carries the answers. The
+  // parsers below both need field_data, so without this hydration step every
+  // genuine lead would fall through to "unrecognized_payload" while the ad
+  // looked perfectly healthy. (A Zapier-style relay posts the answers inline
+  // and skips this entirely — that shape still works untouched.)
+  await hydrateFacebookLeadPayload(body);
 
   // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
   // site_enquiries as consult leads instead of the practice pipeline.

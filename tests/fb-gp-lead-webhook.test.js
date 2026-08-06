@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -155,5 +155,86 @@ describe('facebook-lead webhook — GP form branch', () => {
   it('rejects a wrong secret with 401', async () => {
     const res = await post('/api/webhooks/facebook-lead?secret=wrong', nativeFbBody());
     expect(res.status).toBe(401);
+  });
+});
+
+// 🧨 A REAL Meta leadgen webhook carries only identifiers — leadgen_id,
+// form_id, page_id, ad_id, created_time — never the answers. Those must be
+// fetched from the Graph API with a Page token holding leads_retrieval. The
+// field_data-bearing payloads above are the Zapier-relay shape; these cover
+// what Meta itself actually posts.
+describe('Graph API hydration (the shape Meta really sends)', () => {
+  const realFbBody = () => ({
+    entry: [{
+      id: '102030405060708',
+      time: 1786000000,
+      changes: [{
+        field: 'leadgen',
+        value: {
+          ad_id: '6001',
+          form_id: 'F-77',
+          leadgen_id: '1234567890123456',
+          page_id: '102030405060708',
+          created_time: 1786000000
+        }
+      }]
+    }]
+  });
+
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; delete process.env.FB_PAGE_ACCESS_TOKEN; });
+
+  it('fetches field_data for an id-only payload and stores the lead', async () => {
+    process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-xyz';
+    let requested = null;
+    globalThis.fetch = async (url) => {
+      requested = String(url);
+      return {
+        ok: true,
+        json: async () => ({
+          id: '1234567890123456',
+          field_data: [
+            { name: 'full_name', values: ['Sarah Whitfield'] },
+            { name: 'email', values: ['sarah@nhs.example'] },
+            { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+            { name: 'where_did_you_complete_your_gp_training?', values: ['United Kingdom'] }
+          ]
+        })
+      };
+    };
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', realFbBody());
+    expect(res.status).toBe(200);
+    expect(res.json.kind).toBe('gp_lead');
+    // hit the Graph API for that exact lead, with the token
+    expect(requested).toContain('/1234567890123456');
+    expect(requested).toContain('field_data');
+    expect(requested).toContain('page-token-xyz');
+    const row = readDb().siteEnquiries.find((r) => r.email === 'sarah@nhs.example');
+    expect(row.metadata.consult).toMatchObject({ qualified: true, is_gp: true, country: 'uk' });
+  });
+
+  it('does NOT call the Graph API when the answers are already inline', async () => {
+    process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-xyz';
+    let called = false;
+    globalThis.fetch = async () => { called = true; throw new Error('should not be called'); };
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', nativeFbBody());
+    expect(res.status).toBe(200);
+    expect(called).toBe(false);
+  });
+
+  it('survives a missing token without throwing (webhook still answers)', async () => {
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', realFbBody());
+    expect([200, 400]).toContain(res.status);
+    expect(res.json).toBeTruthy();
+  });
+
+  it('survives a Graph API error without throwing', async () => {
+    process.env.FB_PAGE_ACCESS_TOKEN = 'expired-token';
+    globalThis.fetch = async () => ({
+      ok: false, status: 190,
+      json: async () => ({ error: { type: 'OAuthException', message: 'Error validating access token' } })
+    });
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', realFbBody());
+    expect(res.json).toBeTruthy();
   });
 });
