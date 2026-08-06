@@ -8760,7 +8760,13 @@ async function respondServerError(res, err, context) {
 // vercel.json's crons so GET /api/admin/cron-health can flag silently-dead
 // (overdue / never-run) jobs. Keep in sync with vercel.json.
 const CRON_SCHEDULES = {
-  'process-gmail': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  // Every 15 min. This is the safety net behind the realtime Gmail watch, so its job is
+  // to close the gap when a Pub/Sub push is missed. It used to be hourly here with a
+  // GitHub Actions workflow polling the same endpoint every 15 min — but GitHub throttles
+  // scheduled workflows hard (measured: 7-17 runs/day against a declared 96) and its
+  // runner-allocation failures emailed the owner, so the Action was deleted and the real
+  // 15-min cadence moved onto Vercel, where it actually fires. Keep in sync with vercel.json.
+  'process-gmail': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   // Hourly, not every 30 min. Summaries feed match RANKING — nothing user-facing blocks
   // on them, so twice-hourly bought no freshness anyone could perceive and doubled the
   // ceiling on a job that was already running flat out. Keep in sync with vercel.json.

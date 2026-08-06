@@ -105,7 +105,8 @@ describe('/api/cron/refresh-summaries — registered + scheduled', () => {
     // on them and twice-hourly just doubled the ceiling on an already-saturated job.
     expect(entry.schedule).toBe('0 * * * *');
     // vercel.json is the real schedule; CRON_SCHEDULES only mirrors it for cron-health.
-    // They drifted before (gmail-poll polls 4x its declared cadence) — assert they match.
+    // They drifted before (gmail-poll polled 4x its declared cadence, via a GitHub Action
+    // that has since been deleted in favour of a real */15 Vercel cron) — assert they match.
     expect(serverSrc).toContain("'refresh-summaries': { schedule: '0 * * * *', cadenceMinutes: 60 }");
   });
 

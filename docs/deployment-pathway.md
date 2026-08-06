@@ -117,23 +117,25 @@ Confirm the deployment is live:
 
 ## Known Constraints
 
-### Vercel Hobby Plan — Cron Jobs
-Only **daily** cron schedules are allowed (once per 24 hours). Any schedule more frequent than daily (e.g. `*/15 * * * *`, `0 */6 * * *`) will cause the deploy to fail with:
+### Cron Jobs — sub-daily schedules are fine (Pro plan)
+This section previously documented a Hobby-plan limit of one run per day. That no
+longer applies: the project is on a paid plan and `vercel.json` runs sub-daily
+schedules in production (`*/5` for `call-reminders`, `*/10` for `detect-no-shows`,
+`*/15` for `process-gmail`). On Hobby those would fail the build outright with
+"Hobby accounts are limited to daily cron jobs" — they deploy, so the limit is gone.
 
-> Hobby accounts are limited to daily cron jobs.
+`vercel.json` is the single source of truth for schedules. **Do not add a cron
+without also adding it to `CRON_SCHEDULES` in `server.js`** — that map drives the
+overdue detection behind `GET /api/admin/cron-health` and the daily error digest.
+`tests/error-fix-endpoints.test.js` asserts the two agree on every job, so drift
+fails CI rather than silently disabling a job's health alarm.
 
-Current valid cron schedules in `vercel.json`:
-
-| Path | Schedule | Purpose |
-|---|---|---|
-| `/api/cron/process-gmail` | `0 0 * * *` | Daily Gmail processing (GitHub Action handles frequent polling) |
-| `/api/cron/renew-gmail-watch` | `0 6 * * *` | Daily Gmail watch renewal |
-| `/api/cron/refresh-zoho-sign-token` | `0 0 * * *` | Daily Zoho Sign token refresh |
-| `/api/integrations/zoho-recruit/cron-sync` | `0 6 * * *` | Daily Zoho Recruit sync |
-| `/api/cron/reconcile-followups` | `0 20 * * *` | Daily followup reconciliation |
-| `/api/cron/interview-reminders` | `0 21 * * *` | Daily interview reminders |
-
-If you need more frequent execution, use GitHub Actions (see `.github/workflows/gmail-poll.yml`).
+Do NOT reach for GitHub Actions to get a faster cadence. It was tried for the Gmail
+poll (`.github/workflows/gmail-poll.yml`, deleted 2026-08-07) and it does not work:
+GitHub throttles scheduled workflows on public repos hard — a declared `*/15`
+(96 runs/day) actually delivered **7–17 runs/day** — and its runner-allocation
+failures ("The job was not acquired by Runner of type hosted") emailed the owner a
+"Run failed" notice each time. Vercel crons fire on schedule; use them.
 
 ### Build Warnings
 The Vercel build shows TypeScript errors from `supabase/functions/normalize-scan-image/index.ts`. These are Deno-specific imports (`npm:` specifiers, `Deno.serve`) that the Vercel TypeScript checker doesn't understand. They are **non-blocking** — the deployment succeeds despite these warnings.
