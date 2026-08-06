@@ -184,6 +184,54 @@ describe('facebook-lead webhook — GP form branch', () => {
   });
 });
 
+// Meta batches concurrent submissions into ONE delivery — its docs say multiple
+// leads "appear as separate objects in the changes array". Both parsers read
+// entry[0].changes[0], so every lead after the first used to vanish: no row, no
+// email, no trace. Invisible at low volume, real money once ads are running.
+describe('batched delivery (several leads in one webhook)', () => {
+  const twoLeads = () => ({
+    entry: [{
+      id: '102030405060708',
+      changes: [
+        { field: 'leadgen', value: { form_id: 'F-77', leadgen_id: 'BATCH-A', field_data: [
+          { name: 'full_name', values: ['Ada Batch'] },
+          { name: 'email', values: ['ada@example.co.uk'] },
+          { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+          { name: '_where_did_you_complete_your_gp_training?', values: ['United Kingdom'] }
+        ] } },
+        { field: 'leadgen', value: { form_id: 'F-77', leadgen_id: 'BATCH-B', field_data: [
+          { name: 'full_name', values: ['Bo Batch'] },
+          { name: 'email', values: ['bo@example.ie'] },
+          { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+          { name: '_where_did_you_complete_your_gp_training?', values: ['Ireland'] }
+        ] } }
+      ]
+    }]
+  });
+
+  it('stores EVERY lead in the batch, not just the first', async () => {
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', twoLeads());
+    expect(res.status).toBe(200);
+    expect(res.json.batch).toBe(2);
+    const rows = readDb().siteEnquiries;
+    const ada = rows.find((r) => r.email === 'ada@example.co.uk');
+    const bo = rows.find((r) => r.email === 'bo@example.ie');
+    expect(ada).toBeTruthy();
+    expect(bo).toBeTruthy();
+    expect(ada.metadata.consult.country).toBe('uk');
+    expect(bo.metadata.consult.country).toBe('ie');
+    // each keeps its own Meta lead id, so the booking page can recognise both
+    expect(ada.metadata.fb_lead_id).toBe('BATCH-A');
+    expect(bo.metadata.fb_lead_id).toBe('BATCH-B');
+  });
+
+  it('a single lead still answers with the original, unbatched shape', async () => {
+    const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', nativeFbBody());
+    expect(res.json.kind).toBe('gp_lead');
+    expect(res.json.batch).toBeUndefined();
+  });
+});
+
 // Meta gives us NO way to identify a GP who taps the instant form's thank-you
 // button — there is no supported macro for that URL (verified against Meta's
 // docs 2026-08-07; a {{lead_id}} placeholder is stored percent-encoded as

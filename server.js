@@ -12920,6 +12920,28 @@ async function fetchFacebookLeadFieldData(leadgenId) {
   }
 }
 
+// Meta batches concurrent submissions into a single delivery — its docs state
+// multiple leads "appear as separate objects in the changes array". Both
+// parsers read entry[0].changes[0], so this splits one batched body into N
+// single-change bodies, each shaped exactly like an ordinary delivery.
+// The change objects are shared by reference on purpose: hydrating one fills
+// in field_data for that lead only, and never re-fetches another's.
+// Returns the original body untouched when there is nothing to split, so a
+// relay payload with no entry/changes still flows through unchanged.
+function splitFacebookLeadDeliveries(body) {
+  const entries = (body && Array.isArray(body.entry)) ? body.entry : [];
+  const out = [];
+  for (const entry of entries) {
+    const changes = Array.isArray(entry && entry.changes) ? entry.changes : [];
+    for (const change of changes) {
+      out.push(Object.assign({}, body, {
+        entry: [Object.assign({}, entry, { changes: [change] })]
+      }));
+    }
+  }
+  return out.length ? out : [body];
+}
+
 // Fills in field_data on a native Meta payload, in place. No-ops when the
 // answers are already present (relay shape) or when there is no leadgen_id.
 async function hydrateFacebookLeadPayload(body) {
@@ -12992,21 +13014,46 @@ async function handleFacebookLeadWebhook(req, res) {
     return;
   }
 
-  // 🧨 Meta's real leadgen webhook carries ONLY identifiers — leadgen_id,
-  // form_id, page_id, ad_id, created_time. It NEVER carries the answers. The
-  // parsers below both need field_data, so without this hydration step every
-  // genuine lead would fall through to "unrecognized_payload" while the ad
-  // looked perfectly healthy. (A Zapier-style relay posts the answers inline
-  // and skips this entirely — that shape still works untouched.)
-  await hydrateFacebookLeadPayload(body);
+  // 🧨 Meta can batch SEVERAL leads into ONE delivery — its docs state that
+  // multiple submissions "appear as separate objects in the changes array".
+  // Both parsers below read entry[0].changes[0], so every lead after the first
+  // was silently dropped: no row, no email, no trace. Split the payload into
+  // one single-change body per lead and run each through the same path.
+  const deliveries = splitFacebookLeadDeliveries(body);
+  const results = [];
+  for (const delivery of deliveries) {
+    // 🧨 Meta's real leadgen webhook carries ONLY identifiers — leadgen_id,
+    // form_id, page_id, ad_id, created_time. It NEVER carries the answers, so
+    // without this hydration step every genuine lead would fall through to
+    // "unrecognized_payload" while the ad looked perfectly healthy. (A
+    // Zapier-style relay posts the answers inline and skips this entirely.)
+    await hydrateFacebookLeadPayload(delivery);
+    try {
+      results.push(await processFacebookLeadDelivery(delivery, req, ip));
+    } catch (err) {
+      console.error('[fb-lead-webhook] Unexpected error:', err && err.message);
+      results.push({ status: 500, body: { ok: false, message: 'Internal error' } });
+    }
+  }
 
+  // One lead answers exactly as it always has — the batch shape appears only
+  // when Meta genuinely sent more than one, so nothing downstream changes for
+  // the overwhelmingly common case.
+  if (results.length === 1) { sendJson(res, results[0].status, results[0].body); return; }
+  console.log('[fb-lead-webhook] batched delivery —', results.length, 'leads processed');
+  sendJson(res, 200, { ok: true, batch: results.length, results: results.map((r) => r.body) });
+}
+
+// One lead, start to finish. Returns { status, body } instead of writing to the
+// response so the caller can process a batch and answer once.
+async function processFacebookLeadDelivery(body, req, ip) {
   // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
   // site_enquiries as consult leads instead of the practice pipeline.
   const gpFormIds = consultLead.parseGpFormIds(process.env.FB_GP_LEAD_FORM_IDS);
   const gpLead = gpFormIds.length ? consultLead.normalizeFacebookGpLead(body, gpFormIds) : null;
   if (gpLead) {
     if (await hasRecordedWebhookEvent('facebook_lead', gpLead.leadId)) {
-      sendJson(res, 200, { ok: true, action: 'duplicate_ignored' }); return;
+      return { status: 200, body: { ok: true, action: 'duplicate_ignored' } };
     }
     const gpRow = buildConsultLeadRow({
       name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
@@ -13015,7 +13062,7 @@ async function handleFacebookLeadWebhook(req, res) {
       userAgent: req.headers['user-agent']
     });
     const gpStored = await insertSiteEnquiryRow(gpRow);
-    if (!gpStored) { sendJson(res, 500, { ok: false, error: 'store_failed' }); return; }
+    if (!gpStored) return { status: 500, body: { ok: false, error: 'store_failed' } };
     // Record the dedupe marker only after the store succeeds — recording
     // after the store (not before) means a failed store is retryable; a
     // race here duplicates a lead at worst, never loses one.
@@ -13035,14 +13082,12 @@ async function handleFacebookLeadWebhook(req, res) {
       try { await sendConsultMagicLinkEmail(gpRow); }
       catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
     }
-    sendJson(res, 200, { ok: true, kind: 'gp_lead', lead_id: gpRow.id });
-    return;
+    return { status: 200, body: { ok: true, kind: 'gp_lead', lead_id: gpRow.id } };
   }
 
   const lead = practicePipeline.normalizeFacebookLeadPayload(body);
   if (!lead) {
-    sendJson(res, 400, { ok: false, error: 'unrecognized_payload' });
-    return;
+    return { status: 400, body: { ok: false, error: 'unrecognized_payload' } };
   }
 
   const isDuplicate = await checkAndRecordWebhookEvent('facebook_lead', lead.leadId, 'lead', {
@@ -13050,8 +13095,7 @@ async function handleFacebookLeadWebhook(req, res) {
     created_at: new Date().toISOString()
   });
   if (isDuplicate) {
-    sendJson(res, 200, { ok: true, action: 'duplicate_ignored' });
-    return;
+    return { status: 200, body: { ok: true, action: 'duplicate_ignored' } };
   }
 
   try {
@@ -13094,8 +13138,7 @@ async function handleFacebookLeadWebhook(req, res) {
     }
 
     if (!created) {
-      sendJson(res, 500, { ok: false, message: 'Failed to save practice lead' });
-      return;
+      return { status: 500, body: { ok: false, message: 'Failed to save practice lead' } };
     }
 
     if (degraded) {
@@ -13117,10 +13160,10 @@ async function handleFacebookLeadWebhook(req, res) {
 
     var response = { ok: true, practice_id: created.id };
     if (degraded) response.degraded = true;
-    sendJson(res, 200, response);
+    return { status: 200, body: response };
   } catch (err) {
     console.error('[fb-lead-webhook] Unexpected error:', err && err.message);
-    sendJson(res, 500, { ok: false, message: 'Internal error' });
+    return { status: 500, body: { ok: false, message: 'Internal error' } };
   }
 }
 
