@@ -83,6 +83,21 @@
   .turndown-row .btn{width:auto;flex:0 0 auto;}
   #bookTurndown #tdThanks{margin:12px 0 0;font-size:14px;color:var(--teal);font-weight:660;}
   #bookConfirmed .btn{width:100%;justify-content:center;}
+  /* post-booking account push */
+  .confirm-tick{width:46px;height:46px;border-radius:50%;background:var(--teal-soft);color:var(--teal);
+    display:flex;align-items:center;justify-content:center;font-size:23px;font-weight:800;margin:0 0 14px;}
+  .confirm-next{background:var(--bg);border:1px solid var(--line);border-radius:14px;
+    padding:clamp(20px,3vw,26px) clamp(18px,2.6vw,24px);margin:24px 0 0;}
+  .confirm-eyebrow{font-size:11.5px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--teal);margin:0 0 9px;}
+  .confirm-next h4{margin:0 0 7px;font-size:19px;font-weight:730;color:var(--ink-2);letter-spacing:-.015em;line-height:1.25;}
+  .confirm-next > p{margin:0 0 16px;font-size:14.5px;color:var(--mut);line-height:1.62;}
+  .confirm-benefits{list-style:none;margin:0 0 20px;padding:0;}
+  .confirm-benefits li{position:relative;padding-left:27px;margin:0 0 11px;font-size:14px;
+    color:var(--mut);line-height:1.55;}
+  .confirm-benefits li b{color:var(--ink-2);font-weight:700;}
+  .confirm-benefits li::before{content:"✓";position:absolute;left:2px;top:0;color:var(--teal);font-weight:800;font-size:14px;}
+  .confirm-micro{margin:13px 0 0;font-size:12.5px;color:var(--mut-2);text-align:center;}
 
   @media(max-width:640px){
     .start-hero .cta-row .btn{width:100%;justify-content:center;}
@@ -229,10 +244,27 @@
         <div id="calendlyEmbed" style="min-width:320px;height:760px"></div>
       </div>
 
+      <!-- The moment a GP is most willing to take the next step is the ten
+           seconds after they commit to the call. This screen exists to use
+           that, so the account ask gets real estate and a reason, not a
+           one-line afterthought. -->
       <div id="bookConfirmed" class="book-state" hidden>
-        <h3>You're booked, talk soon</h3>
-        <p>A calendar invite is on its way to your inbox. In the meantime, why not set up your free account so we can hit the ground running?</p>
-        <a class="btn primary" id="confirmedSignup" href="/pages/signin?signup=1">Create my free account →</a>
+        <div class="confirm-tick" aria-hidden="true">✓</div>
+        <h3>You're booked. Talk soon.</h3>
+        <p>Your calendar invite is on its way to your inbox. Bring your questions — there's nothing to prepare.</p>
+
+        <div class="confirm-next">
+          <div class="confirm-eyebrow">Do this before your call</div>
+          <h4>Create your free GP Link account</h4>
+          <p>Two minutes now, and your consultant walks into the call already knowing your situation — so you spend the 30 minutes on your move, not on background.</p>
+          <ul class="confirm-benefits">
+            <li><b>Your personalised pathway</b> — the exact AHPRA, AMC and visa steps for your situation, in the order you need to do them.</li>
+            <li><b>GP placement opportunities</b> — real roles across Australia matched to you, including ones we never advertise publicly.</li>
+            <li><b>Everything in one place</b> — documents, progress and your call notes, so nothing ever gets asked of you twice.</li>
+          </ul>
+          <a class="btn primary" id="confirmedSignup" href="/pages/signin?signup=1">Create my free account →</a>
+          <p class="confirm-micro">Free, always. Practices pay our fee — never you.</p>
+        </div>
       </div>
     </div>
   </div>
