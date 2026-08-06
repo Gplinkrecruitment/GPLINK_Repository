@@ -115,8 +115,12 @@ function leadRow() {
 // of the snake_cased question name. --bad-keys renames them to show what a
 // mis-worded form does to you.
 function metaPayload() {
-  const gpKey = BAD_KEYS ? 'do_you_currently_practise' : 'are_you_a_registered_gp';
-  const countryKey = BAD_KEYS ? 'which_nation' : 'where_are_you_registered';
+  // Defaults mirror the live form's wording: "Are you a currently registered
+  // GP?" and "Where did you complete your GP training?" — the second of which
+  // shares no substring with the older registration phrasing, so having it as
+  // the default keeps this honest about what production actually receives.
+  const gpKey = BAD_KEYS ? 'do_you_currently_practise' : 'are_you_a_currently_registered_gp';
+  const countryKey = BAD_KEYS ? 'which_nation' : 'where_did_you_complete_your_gp_training';
   const countryAnswer = { uk: 'United Kingdom', ie: 'Ireland', nz: 'New Zealand', other: 'Australia' }[COUNTRY] || COUNTRY;
   return {
     entry: [{

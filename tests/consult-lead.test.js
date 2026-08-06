@@ -104,6 +104,37 @@ describe('normalizeFacebookGpLead', () => {
     expect(normalizeFacebookGpLead(nativeFbBody(), ['OTHER'])).toBe(null);
     expect(normalizeFacebookGpLead(nativeFbBody(), [])).toBe(null);
   });
+
+  // The live form asks about TRAINING, not current registration — a doctor who
+  // trained in the UK and is registered elsewhere still holds the qualification
+  // that decides eligibility. That key shares no substring with the older
+  // registration wording, so both must resolve or a form re-word silently
+  // screens out every lead.
+  it('reads the country from a GP-training question as well as a registration one', () => {
+    const trained = normalizeFacebookGpLead(nativeFbBody({
+      field_data: [
+        { name: 'full_name', values: ['Aisha Khan'] },
+        { name: 'email', values: ['aisha@example.co.uk'] },
+        { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+        { name: 'where_did_you_complete_your_gp_training?', values: ['Ireland'] },
+      ],
+    }), ['F-77']);
+    expect(trained).toMatchObject({ isGp: true, country: 'ie' });
+  });
+
+  it('still reads a plainly-named training question', () => {
+    for (const key of ['gp_training_country', 'where_were_you_trained', 'training_location']) {
+      const lead = normalizeFacebookGpLead(nativeFbBody({
+        field_data: [
+          { name: 'full_name', values: ['Aisha Khan'] },
+          { name: 'email', values: ['aisha@example.co.uk'] },
+          { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+          { name: key, values: ['New Zealand'] },
+        ],
+      }), ['F-77']);
+      expect(lead.country, `key ${key} should resolve`).toBe('nz');
+    }
+  });
   it('parses the flat (Zapier-relay) shape', () => {
     const lead = normalizeFacebookGpLead({
       form_id: 'F-77', lead_id: 'L-2002', full_name: 'Sean Byrne',
