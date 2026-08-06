@@ -21720,6 +21720,29 @@ async function backfillLeadCallAtFromCalls(leadRow) {
 // (user_id IS NULL) non-cancelled CEO consultations, so registration-flow calls / interviews
 // (which already carry a user_id) are never touched. Idempotent: once linked the row no longer
 // matches `user_id IS NULL`, so re-running is a cheap no-op. Best-effort.
+// Does this email already have a consultation on file — linked to an account or
+// not? Used at signup to decide which congratulations email they get: a GP who
+// came through the Facebook funnel has usually ALREADY booked, and asking them
+// to book a second call reads as if we weren't paying attention. Deliberately
+// broader than backfillPriorConsultationsForUser: no user_id IS NULL filter,
+// because a call already attached to them still counts as booked.
+// Fails closed (returns true) on error, so a lookup blip can never produce a
+// "book a call" email for someone who has one in the diary.
+async function hasPriorConsultationForEmail(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em || !isSupabaseDbConfigured()) return false;
+  try {
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=id&invitee_email=eq.' + encodeURIComponent(em) +
+      '&meeting_kind=eq.consultation&status=neq.cancelled&limit=1');
+    if (!r.ok) return true;
+    return Array.isArray(r.data) && r.data.length > 0;
+  } catch (e) {
+    console.error('[first-step] consultation lookup failed:', e && e.message);
+    return true;
+  }
+}
+
 async function backfillPriorConsultationsForUser(userId, email) {
   const em = String(email || '').trim().toLowerCase();
   if (!userId || !em || !isSupabaseDbConfigured()) return 0;
@@ -30749,7 +30772,31 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
 }
 
 // 1. Welcome Email — sent on first successful login
+// A GP who signs up WITHOUT a consultation on file gets the congratulations
+// email whose CTA is the call — the mirror of the booked-but-no-account touch
+// in lib/booker-nudge-email.js. Most doctors need that conversation early, and
+// the moment they have just created an account is when they are most willing
+// to have it. Anyone who already booked (e.g. straight off the Facebook
+// funnel) gets the original welcome instead, so we never ask twice.
 async function sendWelcomeEmail(userId) {
+  const gp = await getGpEmailContext(userId).catch(() => null);
+  if (gp && gp.email && !(await hasPriorConsultationForEmail(gp.email))) {
+    const bookUrl = CONSULT_START_BASE + '/start?ref=welcome#book';
+    const mail = bookerNudgeEmail.buildFirstStepBookCallEmail({
+      firstName: gp.firstName || '', displayName: gp.firstName || '', bookUrl
+    });
+    await sendEmail({
+      to: gp.email,
+      subject: mail.subject,
+      html: buildCareerEmailHtml({
+        bodyHtml: mail.bodyHtml,
+        footer: 'Questions in the meantime? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+      }),
+      text: 'Your GP Link account is live. Book your free 30-minute call: ' + bookUrl,
+      from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+    });
+    return;
+  }
   await sendGpNotificationEmail(userId,
     'Welcome to GP Link',
     'Welcome to GP Link, {{name}}!',

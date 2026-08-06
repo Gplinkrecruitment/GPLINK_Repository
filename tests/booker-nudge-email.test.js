@@ -61,3 +61,49 @@ describe('buildBookerNudgeEmail', () => {
     expect(withRef('', 3)).toBe('');
   });
 });
+
+// The mirror of step 0: they made an ACCOUNT first, so the CTA is the call.
+// Sent on first login only when no consultation is already on file.
+describe('buildFirstStepBookCallEmail', () => {
+  const { buildFirstStepBookCallEmail } = require('../lib/booker-nudge-email.js');
+  const opts = { firstName: 'Faraz', displayName: 'Dr Sonde', bookUrl: 'https://www.mygplink.com.au/start?ref=welcome#book' };
+
+  it('congratulates the account, and its single CTA is the call', () => {
+    const out = buildFirstStepBookCallEmail(opts);
+    expect(out.subject).toContain('Faraz');
+    expect(out.subject).toMatch(/account is live/i);
+    expect(out.bodyHtml).toContain('/start?ref=welcome#book');
+    // never the signup CTA — that is the OTHER direction's email
+    expect(out.bodyHtml).not.toContain('signup=1');
+    expect(out.bodyHtml).toMatch(/first step/i);
+    expect(out.bodyHtml).toMatch(/30-minute call/i);
+  });
+
+  it('shows the account step already ticked and the call as the current one', () => {
+    const html = buildFirstStepBookCallEmail(opts).bodyHtml;
+    expect(html).toContain('Free account created');
+    expect(html).toContain('Book your free 30-minute call');
+    // the booked-first wording must NOT leak into the account-first variant
+    expect(html).not.toContain('Consultation booked');
+    expect(html).not.toContain('Create your free account');
+  });
+
+  it('falls back to a neutral greeting when no name is known', () => {
+    const out = buildFirstStepBookCallEmail({ bookUrl: 'https://x.test/start#book' });
+    expect(out.subject).toContain('there');
+    expect(out.bodyHtml).toContain('there');
+  });
+
+  it('escapes a hostile name rather than emitting raw HTML', () => {
+    const out = buildFirstStepBookCallEmail({ ...opts, firstName: '<script>x</script>' });
+    expect(out.bodyHtml).not.toContain('<script>');
+    expect(out.subject).not.toContain('<script>');
+  });
+
+  it('leaves the booked-first step 0 tracker untouched', () => {
+    const html = buildBookerNudgeEmail(0, base).bodyHtml;
+    expect(html).toContain('Consultation booked');
+    expect(html).toContain('Create your free account');
+    expect(html).not.toContain('Free account created');
+  });
+});
