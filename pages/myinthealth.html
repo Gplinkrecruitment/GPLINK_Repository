@@ -8,7 +8,7 @@
   <script src="/js/bypass-config.js?v=20260724c"></script>
   <script src="/js/api-dedupe.js?v=20260729a"></script>
   <script src="/js/auth-guard.js?v=20260806a" defer></script>
-  <script src="/js/state-sync.js?v=20260711a" defer></script>
+  <script src="/js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/updates-sync.js?v=20260730a" defer></script>
   <script src="/js/qualification-camera.js?v=20260801d" defer></script>
   <script src="/js/document-prep.js?v=20260614a" defer></script>
@@ -1537,6 +1537,35 @@
       localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
     }
 
+    // Finishing MyIntealth is the one step that saves progress AND immediately
+    // sends the GP to another page, so it used to depend entirely on that move
+    // happening. Saving to localStorage alone is not enough either: the shell
+    // keeps several same-origin frames alive, each of which rehydrates from
+    // /api/state and rewrites the tracked keys from its own snapshot, so a save
+    // made during another frame's hydrate window can be reverted before it is
+    // ever pushed.
+    //
+    // So push the completion to the server FIRST and only then navigate. Once the
+    // server says verification_issued, every frame that rehydrates reads the
+    // finished state and there is nothing left to race against. The timeout keeps
+    // a slow or failed network from trapping the GP on this step — localStorage
+    // still holds the completion, so a later sync will carry it up.
+    function finishMyIntealthAndAdvance() {
+      var go = function () { shellNavigate("/pages/amc"); };
+      var push = null;
+      try {
+        if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
+          push = window.gpLinkStateSync.push();
+        }
+      } catch (e) { push = null; }
+      if (!push || typeof push.then !== "function") { go(); return; }
+
+      var advanced = false;
+      var advanceOnce = function () { if (advanced) return; advanced = true; go(); };
+      window.setTimeout(advanceOnce, 2500);
+      push.then(advanceOnce, advanceOnce);
+    }
+
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (stageStatus(progress, key) !== "current") return;
@@ -1550,7 +1579,13 @@
         progress.stage = "verification_issued";
         saveProgress(progress, true);
         currentTabKey = activeTabStage(progress);
-        shellNavigate("/pages/amc");
+        // Repaint as completed BEFORE we go anywhere. This is the only step whose
+        // success is reported purely by moving to another page, so if that move is
+        // ever slow or blocked the GP just sees an unchanged screen and concludes
+        // the button is dead. Now the step visibly completes either way.
+        renderPage(progress);
+        showToast("Progress saved");
+        finishMyIntealthAndAdvance();
         return;
       }
 

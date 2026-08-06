@@ -338,6 +338,17 @@
         var localState = snapshotTrackedLocalState();
         var fetched = await fetchState();
         var serverState = fetched.state;
+        // fetchState() above is a network round-trip, and the merge below ends in
+        // clearTrackedLocalState() + a rewrite of whatever we merged. Anything
+        // written to a tracked key WHILE that fetch was in flight is absent from
+        // the snapshot taken before it, so the rewrite silently reverts it. The
+        // app shell keeps several same-origin frames alive at once, so a save in
+        // one frame can easily land inside another frame's hydrate window — e.g.
+        // finishing a registration step, which saves and then navigates.
+        // Re-read the live values so those saves survive; chooseTrackedStateValue
+        // still lets the server win wherever its updatedAt is genuinely newer.
+        flushTrackedBatches();
+        localState = snapshotTrackedLocalState();
         // Server may return values as objects (e.g. Zoho sync writes JSON objects
         // directly to Supabase JSONB instead of double-encoded strings). Normalize
         // to strings so they survive the merge logic and localStorage storage.
