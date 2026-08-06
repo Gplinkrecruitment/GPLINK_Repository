@@ -12886,7 +12886,11 @@ async function handleDoubleTickWebhook(req, res) {
 // Best-effort by design — a token that is missing, expired or unscoped must
 // leave the payload untouched rather than throw, so the webhook still returns
 // a 200 to Meta (a non-200 makes Meta retry, then eventually unsubscribe us).
-const FB_GRAPH_VERSION = process.env.FB_GRAPH_VERSION || 'v21.0';
+// Match the version the Page's leadgen webhook subscription is pinned to
+// (v26.0 as configured 2026-08-07). Meta's own guidance on that screen is to
+// keep every subscribed field on one API version; keeping the lead lookup on
+// the same one avoids a payload shape drifting out from under us mid-campaign.
+const FB_GRAPH_VERSION = process.env.FB_GRAPH_VERSION || 'v26.0';
 
 async function fetchFacebookLeadFieldData(leadgenId) {
   const token = process.env.FB_PAGE_ACCESS_TOKEN;
