@@ -206,6 +206,38 @@ describe('GET /api/public/consult-lead/by-fb', () => {
   });
 });
 
+// Calendly marks its phone question REQUIRED, so a recognised GP who typed
+// nothing here would still have to type there. Phone rides along on the routes
+// whose identity proof is unguessable — and NOT on /match, which proves only
+// that the caller knows an email address.
+describe('phone for the Calendly prefill', () => {
+  it('/by-fb returns fullName and phone', async () => {
+    const row = seedWebhookLead({ fbLeadId: '7777777777777777', qualified: true });
+    const res = await get('/api/public/consult-lead/by-fb?fbl=7777777777777777');
+    expect(res.json.phone).toBe(row.phone);
+    expect(res.json.fullName).toBe('Sarah Whitfield');
+    expect(res.json.displayName).toBe('Dr Whitfield');
+  });
+
+  it('/me returns them too', async () => {
+    seedWebhookLead({ fbLeadId: '8888888888888888', qualified: true });
+    const first = await get('/api/public/consult-lead/by-fb?fbl=8888888888888888');
+    const me = await get('/api/public/consult-lead/me', consultCookie(first));
+    expect(me.json.phone).toBe('+447700900312');
+    expect(me.json.fullName).toBe('Sarah Whitfield');
+  });
+
+  it('/match withholds the phone — knowing an email must not reveal a mobile', async () => {
+    seedWebhookLead({ fbLeadId: '9999999999999999', qualified: true, email: 'priv@example.com' });
+    const res = await post('/api/public/consult-lead/match', { email: 'priv@example.com' });
+    expect(res.json.found).toBe(true);
+    expect(res.json.phone).toBeUndefined();
+    // still returns what the booking page needs
+    expect(res.json.displayName).toBe('Dr Whitfield');
+    expect(typeof res.json.token).toBe('string');
+  });
+});
+
 describe('POST /api/public/consult-lead/match', () => {
   it('reports qualified:false for a screened-out lead instead of swallowing it', async () => {
     seedWebhookLead({ fbLeadId: '5555555555555555', qualified: false, email: 'nope@example.com' });

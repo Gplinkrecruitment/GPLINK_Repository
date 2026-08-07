@@ -286,7 +286,7 @@
 (function () {
   var CAL_BASE = 'https://calendly.com/hello-mygplink/30min';
   var params = new URLSearchParams(window.location.search);
-  var lead = { token: null, name: '', email: '', question: '', recognised: false };
+  var lead = { token: null, name: '', fullName: '', email: '', phone: '', question: '', recognised: false };
 
   var utm = {};
   params.forEach(function (v, k) { if (/^utm_/.test(k)) utm[k] = v; });
@@ -314,10 +314,23 @@
       : 'Pick a time that suits you.';
     show('bookCalendly');
     var mount = function () {
+      // Calendly's booking form asks for name, email AND a phone number, with
+      // the phone marked required — so a recognised GP who typed nothing on
+      // this page would still have to type there. customAnswers.a1 is the
+      // FIRST custom question on the event ("Please share your phone number
+      // for contact via WhatsApp"); smsReminderNumber is Calendly's own
+      // built-in "Send text messages to" field.
+      // ⚠️ a1 is positional — reordering the questions in Calendly silently
+      // fills the wrong box, so keep the phone question first on that event.
+      var prefill = { name: lead.fullName || lead.name || '', email: lead.email || '' };
+      if (lead.phone) {
+        prefill.customAnswers = { a1: lead.phone };
+        prefill.smsReminderNumber = lead.phone;
+      }
       window.Calendly.initInlineWidget({
         url: CAL_BASE + '?hide_gdpr_banner=1',
         parentElement: document.getElementById('calendlyEmbed'),
-        prefill: { name: lead.name || '', email: lead.email || '' }
+        prefill: prefill
       });
     };
     if (window.Calendly) { mount(); return; }
@@ -345,7 +358,9 @@
   // Unqualified gets the turndown rather than a booking form they can't use.
   function enterRecognisedLead(j) {
     lead.name = j.displayName || '';
+    lead.fullName = j.fullName || '';
     lead.email = j.email || '';
+    lead.phone = j.phone || '';
     lead.token = j.token || null;
     lead.recognised = true;
     // Recognised leads get their email carried into every signup link, so the
@@ -387,7 +402,11 @@
     fetch('/api/public/consult-lead?token=' + encodeURIComponent(tokenParam), { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
-        if (j && j.ok) { lead.token = tokenParam; lead.name = j.displayName; lead.email = j.email; loadCalendly(j.displayName); }
+        if (j && j.ok) {
+          lead.token = tokenParam; lead.name = j.displayName; lead.fullName = j.fullName || '';
+          lead.email = j.email; lead.phone = j.phone || '';
+          loadCalendly(j.displayName);
+        }
         else { tryCookie(); }
       })
       .catch(function () { tryCookie(); });
@@ -461,7 +480,10 @@
         err.textContent = (r.json && r.json.error) || 'Something went wrong. Please try again.'; err.hidden = false; return;
       }
       if (r.json.qualified) {
-        lead.token = r.json.token; lead.name = payload.name; lead.email = payload.email;
+        // They just typed all of this, so carry it into Calendly rather than
+        // asking for the same phone number twice on consecutive screens.
+        lead.token = r.json.token; lead.name = payload.name; lead.fullName = payload.name;
+        lead.email = payload.email; lead.phone = payload.phone || '';
         loadCalendly('Dr ' + payload.name.split(/\s+/).pop());
       } else {
         show('bookTurndown');

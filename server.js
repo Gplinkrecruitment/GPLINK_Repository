@@ -24112,6 +24112,14 @@ async function findConsultLeadByCookie(req) {
 // a single branch to write. `qualified` drives whether /start opens on the
 // calendar or on the turndown — an unqualified lead is still recognised, it
 // just gets shown the kinder screen instead of a booking form.
+// `fullName` and `phone` exist for the Calendly prefill: the booking form asks
+// for a phone number and marks it REQUIRED, so without it a GP who typed
+// nothing on our page still has to type there — which defeats the point of
+// recognising them. `displayName` stays the greeting form ("Dr Whitfield")
+// while `fullName` is what belongs in Calendly's Name field.
+// ⚠️ Phone is deliberately NOT returned by /match: that route proves identity
+// only by knowing an email address, so it must not hand back a phone number.
+// The token, Meta lead id and signed cookie are all unguessable, so those may.
 function consultRecognitionPayload(row) {
   const consult = (row && row.metadata && row.metadata.consult) || {};
   return {
@@ -24119,7 +24127,9 @@ function consultRecognitionPayload(row) {
     found: true,
     qualified: consult.qualified === true,
     displayName: consultLead.consultDisplayName(row.name),
+    fullName: row.name || '',
     email: row.email || '',
+    phone: row.phone || '',
     token: consult.token || null,
     booked: consult.call_booked === true
   };
@@ -43789,7 +43799,13 @@ async function handleApi(req, res, pathname) {
     // needs no link at all.
     setConsultCookie(res, row.id);
     await markConsultLeadLanded(row);
-    sendJson(res, 200, { ok: true, displayName: consultLead.consultDisplayName(row.name), email: row.email, qualified: true });
+    // Arriving on the magic link is the strongest identity we have, so this
+    // carries everything Calendly needs to ask nothing at all.
+    sendJson(res, 200, {
+      ok: true, qualified: true,
+      displayName: consultLead.consultDisplayName(row.name),
+      fullName: row.name || '', email: row.email, phone: row.phone || ''
+    });
     return;
   }
 
@@ -43801,13 +43817,17 @@ async function handleApi(req, res, pathname) {
     if (!allowed) { sendJson(res, 429, { ok: false, error: 'Too many attempts. Please try again later.' }); return; }
     const row = await findRecentConsultLeadByEmail(body && body.email, { allowScreenedOut: true });
     if (!row) { sendJson(res, 200, { ok: true, found: false }); return; }
-    // Privacy: display name, qualification and token only — never phone or
-    // answers. The email echoed back is the one the caller just supplied.
-    // `qualified:false` is now reported rather than swallowed, so an
-    // unqualified Facebook lead gets the turndown instead of a booking form.
+    // Privacy: this route proves identity only by knowing an email address, so
+    // the phone number is stripped — someone guessing a colleague's email must
+    // not learn their mobile. Everything else (display name, qualification,
+    // token) is what the booking page needs. `qualified:false` is reported
+    // rather than swallowed, so an unqualified Facebook lead gets the turndown
+    // instead of a booking form.
     setConsultCookie(res, row.id);
     await markConsultLeadLanded(row);
-    sendJson(res, 200, consultRecognitionPayload(row));
+    const matched = consultRecognitionPayload(row);
+    delete matched.phone;
+    sendJson(res, 200, matched);
     return;
   }
 
