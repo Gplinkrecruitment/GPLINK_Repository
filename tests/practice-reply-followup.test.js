@@ -6,6 +6,7 @@ process.env.NODE_ENV = 'test';
 
 const require = createRequire(import.meta.url);
 const lib = require('../lib/practice-reply-followup.js');
+const server = require('../server.js');
 
 const serverSrc = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const adminSrc = readFileSync(new URL('../pages/admin.html', import.meta.url), 'utf8');
@@ -112,6 +113,48 @@ describe('buildPracticeReplyMessages', () => {
     const { userText } = lib.buildPracticeReplyMessages({ docTitle: 'X', gpName: 'Y', replyText: 'z'.repeat(20000) });
     expect(userText.length).toBeLessThan(12000);
   });
+
+  // Owner report 2026-08-10 (Dr Mercy Obanimoh / Position Description): the practice CC'd
+  // their practice manager on the reply and the draft still asked "would you be able to
+  // share Naomi's email address with us?". The model was right given what it was told —
+  // the FACTS block never listed anyone but the sender.
+  it('tells the model who else is already on the thread', () => {
+    const { userText } = lib.buildPracticeReplyMessages({
+      docTitle: 'Position Description',
+      gpName: 'Mercy Obanimoh',
+      replyText: 'Naomi fyi could you do this Monday?',
+      replySender: 'chamiraranatunga@yahoo.com',
+      knownContacts: [{ email: 'pm@thefamilydoctors.com.au', name: 'Practice Manager' }],
+    });
+    expect(userText).toContain('others_on_the_email_thread');
+    expect(userText).toContain('Practice Manager <pm@thefamilydoctors.com.au>');
+  });
+
+  it('accepts the CC picker\'s {email_address,display_name} shape too', () => {
+    const { userText } = lib.buildPracticeReplyMessages({
+      docTitle: 'Position Description',
+      gpName: 'Mercy Obanimoh',
+      replyText: 'x',
+      knownContacts: [{ email_address: 'pm@thefamilydoctors.com.au', display_name: 'Naomi' }],
+    });
+    expect(userText).toContain('Naomi <pm@thefamilydoctors.com.au>');
+  });
+
+  it('leaves others_on_the_email_thread null when we genuinely have nobody else', () => {
+    const { userText } = lib.buildPracticeReplyMessages({
+      docTitle: 'Position Description', gpName: 'Mercy Obanimoh', replyText: 'x', knownContacts: [],
+    });
+    expect(userText).toContain('"others_on_the_email_thread": null');
+  });
+
+  it('instructs the model NOT to ask for an address that is already on the thread', () => {
+    const { system } = lib.buildPracticeReplyMessages({ docTitle: 'X', gpName: 'Y', replyText: 'z' });
+    const systemText = system[0].text;
+    expect(systemText).toContain('others_on_the_email_thread');
+    expect(systemText).toContain('do NOT ask for it');
+    // The escape hatch must survive: when we really do lack the address, still ask.
+    expect(systemText).toContain('Only ask for the address when the person is genuinely not in that list');
+  });
 });
 
 describe('outcomeGuidance', () => {
@@ -155,6 +198,58 @@ describe('server wiring', () => {
   it('falls back to the deterministic draft when the AI is unconfigured or over budget', () => {
     expect(serverSrc).toContain('if (!apiKey) return fallback;');
     expect(serverSrc).toContain('Anthropic daily budget exhausted');
+  });
+
+  it('feeds the thread participants into the draft, minus the sender and the doctor', () => {
+    const fn = serverSrc.slice(serverSrc.indexOf('async function _buildPracticeReplyDraft'));
+    expect(fn).toContain('collectCaseThreadContacts(caseId)');
+    expect(fn).toContain('knownContacts: knownContacts');
+    // The person who wrote to us is the "To", and the doctor is never a practice CC.
+    expect(fn).toContain('addr === replyFromAddr');
+    expect(fn).toContain('addr === gpEmail');
+  });
+
+  it('unions thread participants into the CC picker, not just the harvested table', () => {
+    const ep = serverSrc.slice(serverSrc.indexOf("pathname.endsWith('/email-contacts')"));
+    expect(ep).toContain('collectCaseThreadContacts(contactsCaseId)');
+    // The harvested table stays a source — the thread is added on top of it, never instead.
+    expect(ep).toContain('practice_detected_contacts');
+  });
+});
+
+// The CC picker read only practice_detected_contacts, which records an address ONLY when it
+// is on the practice's own domain AND registration_cases.practice_contact is set. In prod that
+// table held 2 rows in total, so a plainly-CC'd practice manager showed as "No additional
+// contacts detected". These addresses were always in task_messages.recipient.
+describe('thread contact extraction', () => {
+  const { parseEmailListWithNames, isOurOwnAddress } = server.__testUtils;
+
+  it('pulls a display name and address out of a real stored recipient header', () => {
+    const out = parseEmailListWithNames('registration@mygplink.com.au, Practice Manager <pm@thefamilydoctors.com.au>');
+    expect(out).toEqual([
+      { email: 'registration@mygplink.com.au', name: '' },
+      { email: 'pm@thefamilydoctors.com.au', name: 'Practice Manager' },
+    ]);
+  });
+
+  it('handles bare addresses, semicolons and quoted names', () => {
+    const out = parseEmailListWithNames('"Ranatunga, Chamira" <c@yahoo.com>; b@x.com');
+    expect(out.map((c) => c.email)).toEqual(['c@yahoo.com', 'b@x.com']);
+    expect(out[0].name).toContain('Chamira');
+  });
+
+  it('returns nothing for blank or address-free input', () => {
+    expect(parseEmailListWithNames('')).toEqual([]);
+    expect(parseEmailListWithNames(null)).toEqual([]);
+    expect(parseEmailListWithNames('no address here')).toEqual([]);
+  });
+
+  it('never offers one of our own addresses as a CC', () => {
+    expect(isOurOwnAddress('registration@mygplink.com.au')).toBe(true);
+    expect(isOurOwnAddress('hello@mygplink.com.au')).toBe(true);
+    expect(isOurOwnAddress('Hazel@MyGPLink.com.au')).toBe(true);
+    expect(isOurOwnAddress('')).toBe(true);
+    expect(isOurOwnAddress('pm@thefamilydoctors.com.au')).toBe(false);
   });
 });
 

@@ -6993,6 +6993,80 @@ async function detectAndStoreContacts(caseId, addresses, practiceDomain) {
   }
 }
 
+// Our own addresses must never be offered as a CC or described to the AI as "someone we
+// could copy in" — they are us.
+const OUR_EMAIL_DOMAIN = 'mygplink.com.au';
+function isOurOwnAddress(addr) {
+  var a = String(addr || '').trim().toLowerCase();
+  if (!a) return true;
+  if (a.endsWith('@' + OUR_EMAIL_DOMAIN)) return true;
+  if (MASTER_ARCHIVE_EMAIL && a === MASTER_ARCHIVE_EMAIL) return true;
+  if (REGISTRATION_HUB_EMAIL && a === REGISTRATION_HUB_EMAIL) return true;
+  var vaAddr = String(process.env.VA_GMAIL_ADDRESS || process.env.GOOGLE_SERVICE_ACCOUNT_DELEGATED_EMAIL || '').trim().toLowerCase();
+  if (vaAddr && a === vaAddr) return true;
+  return false;
+}
+
+// Split a stored header value ("Practice Manager <pm@x.com.au>, b@y.com") into
+// {email, name} pairs. task_messages.sender/recipient hold the flattened Gmail
+// From / To+Cc headers, so this is where a CC'd person actually lives.
+function parseEmailListWithNames(value) {
+  var out = [];
+  var raw = String(value == null ? '' : value);
+  if (!raw.trim()) return out;
+  // Split on commas/semicolons that are NOT inside a quoted display name.
+  var parts = raw.split(/,|;/);
+  for (var i = 0; i < parts.length; i++) {
+    var piece = parts[i].trim();
+    if (!piece) continue;
+    var m = piece.match(/[\w.+-]+@[\w.-]+\.\w+/);
+    if (!m) continue;
+    var email = m[0].toLowerCase();
+    var name = piece.replace(/<[^>]*>/g, '').replace(/[\w.+-]+@[\w.-]+\.\w+/g, '').trim();
+    name = name.replace(/^["'\s]+|["'\s]+$/g, '');
+    out.push({ email: email, name: name });
+  }
+  return out;
+}
+
+/**
+ * Everyone (other than us) who has appeared on this case's email thread, most-seen first.
+ *
+ * The addresses were always there — task_messages.sender/recipient store the flattened
+ * Gmail headers, so a CC'd practice manager is sitting in `recipient` — but nothing read
+ * them. The CC picker's only source was practice_detected_contacts, which records an
+ * address ONLY when it is on the practice's own domain AND registration_cases
+ * .practice_contact is populated. A practice writing from a free domain (or any case with
+ * a NULL practice_contact) therefore produced "No additional contacts detected" while the
+ * person we needed was visibly CC'd on the reply.
+ *
+ * @param {string} caseId
+ * @returns {Promise<Array<{email_address:string, display_name:string, seen_count:number, source:string}>>}
+ */
+async function collectCaseThreadContacts(caseId) {
+  if (!caseId || !isSupabaseDbConfigured()) return [];
+  var msgRes = await supabaseDbRequest('task_messages',
+    'select=sender,recipient,direction,created_at&case_id=eq.' + encodeURIComponent(caseId) +
+    '&channel=eq.email&order=created_at.desc&limit=200');
+  if (!msgRes.ok || !Array.isArray(msgRes.data)) return [];
+  var byEmail = Object.create(null);
+  for (var i = 0; i < msgRes.data.length; i++) {
+    var row = msgRes.data[i] || {};
+    var found = parseEmailListWithNames(row.sender).concat(parseEmailListWithNames(row.recipient));
+    for (var j = 0; j < found.length; j++) {
+      var email = found[j].email;
+      if (isOurOwnAddress(email)) continue;
+      if (!byEmail[email]) byEmail[email] = { email_address: email, display_name: '', seen_count: 0, source: 'thread' };
+      byEmail[email].seen_count += 1;
+      // Keep the first real display name we see (rows are newest-first, so that is the
+      // most recent spelling of their name).
+      if (!byEmail[email].display_name && found[j].name) byEmail[email].display_name = found[j].name;
+    }
+  }
+  return Object.keys(byEmail).map(function (k) { return byEmail[k]; })
+    .sort(function (a, b) { return b.seen_count - a.seen_count; });
+}
+
 async function searchGmailForGP(gpEmail, gpName, practiceEmail, daysBack) {
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) return [];
   daysBack = daysBack || 7;
@@ -18802,15 +18876,17 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
   var signRequirement = PRACTICE_DOC_SIGN_REQUIREMENT[task.related_document_key] || '';
 
   var gpName = '';
+  var gpEmail = '';
   var contactName = '';
   try {
     var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,practice_contact_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     var regCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : {};
     contactName = regCase.practice_contact_name || '';
     if (regCase.user_id) {
-      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
       var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
       gpName = ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+      gpEmail = String(prof.email || '').trim().toLowerCase();
     }
   } catch (e) { /* names are cosmetic — never block the draft on them */ }
 
@@ -18841,6 +18917,24 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     return fallback;
   }
 
+  // Who else is already on this thread (e.g. a practice manager CC'd on the reply). Passed
+  // in so the draft offers to copy them in instead of asking the practice for an address
+  // that is sitting in the CC line of the email we are answering.
+  var knownContacts = [];
+  try { knownContacts = await collectCaseThreadContacts(caseId); } catch (e) { knownContacts = []; }
+  // The person who wrote to us is the "To", not a contact we still need — and the doctor is
+  // never someone we offer to copy into a chase aimed at their own practice. Drop both so the
+  // model cannot read either back as "someone else we could copy in".
+  // reply.sender may be a bare address or a full "Name <addr>" header — normalise it.
+  var replyFromParsed = parseEmailListWithNames(reply.sender || '');
+  var replyFromAddr = replyFromParsed.length ? replyFromParsed[0].email : String(reply.sender || '').trim().toLowerCase();
+  knownContacts = knownContacts.filter(function (c) {
+    var addr = String(c.email_address || '').trim().toLowerCase();
+    if (replyFromAddr && addr === replyFromAddr) return false;
+    if (gpEmail && addr === gpEmail) return false;
+    return true;
+  });
+
   var msgs = practiceReplyFollowup.buildPracticeReplyMessages({
     docTitle: docTitle,
     signRequirement: signRequirement,
@@ -18850,6 +18944,7 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     replyText: reply.text || '',
     replySender: reply.sender || '',
     requestText: requestText,
+    knownContacts: knownContacts,
   });
 
   var controller = new AbortController();
@@ -63081,6 +63176,27 @@ Return ONLY valid JSON with no markdown formatting:
     var contactsRes = await supabaseDbRequest('practice_detected_contacts',
       'select=*&case_id=eq.' + encodeURIComponent(contactsCaseId) + '&order=seen_count.desc');
     var contacts = contactsRes.ok && Array.isArray(contactsRes.data) ? contactsRes.data : [];
+    // Union in everyone actually on the email thread. practice_detected_contacts only ever
+    // captured same-domain addresses on cases with a populated practice_contact, so on its
+    // own it reports "No additional contacts detected" for a practice manager who is plainly
+    // CC'd on the reply. The thread is the ground truth; the harvested table is a bonus.
+    try {
+      var threadContacts = await collectCaseThreadContacts(contactsCaseId);
+      var seenCc = Object.create(null);
+      contacts.forEach(function (c) { seenCc[String(c.email_address || '').trim().toLowerCase()] = c; });
+      threadContacts.forEach(function (t) {
+        var existing = seenCc[t.email_address];
+        if (existing) {
+          // Keep the harvested row (it carries the real first/last-seen history) but let the
+          // thread supply a display name when the harvest never recorded one.
+          if (!existing.display_name && t.display_name) existing.display_name = t.display_name;
+          return;
+        }
+        seenCc[t.email_address] = t;
+        contacts.push(t);
+      });
+      contacts.sort(function (a, b) { return (b.seen_count || 0) - (a.seen_count || 0); });
+    } catch (e) { /* non-fatal: fall back to the harvested contacts alone */ }
     var practiceContact = null;
     // Never suggest the candidate's own email as a practice CC. This happens when the
     // practice uses a free domain (e.g. gmail.com): the GP's personal address matches the
@@ -73542,6 +73658,9 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   _createRegTask,
+  parseEmailListWithNames,
+  isOurOwnAddress,
+  collectCaseThreadContacts,
   atsJobDisplayNames,
   resolveCareerRolePracticeName,
   careerRoleTitleLeaksPracticeName,
