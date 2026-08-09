@@ -285,7 +285,7 @@ describe('the RSO console control', () => {
 
   it('bumped its cache-buster, or the console keeps the old bundle', () => {
     const ceo = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
-    expect(ceo).toContain('/js/ceo-ats-practices.js?v=20260809b');
+    expect(ceo).toContain('/js/ceo-ats-practices.js?v=20260810a');
     expect(ceo).not.toContain('/js/ceo-ats-practices.js?v=20260805d');
   });
 });

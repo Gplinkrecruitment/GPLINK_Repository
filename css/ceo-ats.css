@@ -118,7 +118,40 @@
 .ats-btn-primary { background:linear-gradient(135deg,var(--ats-blue),#4f8ef0); border-color:transparent; color:#fff; box-shadow:0 2px 12px rgba(96,165,250,0.25); }
 .ats-btn-primary:hover { filter:brightness(1.08); }
 .ats-btn-ghost { background:transparent; border-color:var(--ats-border); color:var(--ats-muted); }
+/* Irreversible actions only (today: delete a practice). Deliberately quiet
+   until hover so it never competes with the primary action next to it. */
+.ats-btn-danger { background:transparent; border-color:rgba(239,68,68,0.35); color:var(--ats-red); }
+.ats-btn-danger:hover { background:var(--ats-red-dim); border-color:var(--ats-red); }
+.ats-btn-danger:disabled, .ats-btn:disabled { opacity:.5; cursor:not-allowed; }
 .ats-btn-sm { padding:6px 11px; font-size:12px; }
+
+/* ---------- Danger modal (delete a practice) ---------- */
+.ats-danger-note { background:var(--ats-red-dim); border:1px solid rgba(239,68,68,0.35); border-radius:10px; padding:11px 13px; font-size:12.5px; line-height:1.55; color:var(--ats-text); margin:0 0 14px; }
+.ats-danger-note b { color:var(--ats-red); }
+.ats-impact-list { list-style:none; margin:0 0 14px; padding:0; font-size:13px; color:var(--ats-muted); }
+.ats-impact-list li { display:flex; gap:9px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--ats-border); }
+.ats-impact-list li:last-child { border-bottom:none; }
+.ats-impact-list b { color:var(--ats-text); font-weight:600; }
+.ats-email-preview { background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:10px; padding:13px 14px; margin:0 0 6px; max-height:210px; overflow-y:auto; }
+.ats-email-preview pre { margin:0; font:inherit; font-size:12.5px; line-height:1.6; color:var(--ats-muted); white-space:pre-wrap; word-break:break-word; }
+.ats-email-to { font-size:12px; color:var(--ats-dim); margin:0 0 10px; }
+/* Both of these have to out-specify `.ats-modal-body label`, which forces
+   display:block + uppercase on every label inside a modal. */
+.ats-modal-body label.ats-check-row { display:flex; align-items:flex-start; gap:9px; font-size:13px; line-height:1.45; color:var(--ats-text); text-transform:none; letter-spacing:0; margin:2px 0 12px; cursor:pointer; }
+/* `.ats-modal input` sets width:100% + panel background/border/padding for text
+   fields. Left alone that stretches this checkbox to the full modal width and
+   pushes its label clean off the right-hand edge — so it is reset here. */
+.ats-modal-body label.ats-check-row input[type="checkbox"] {
+  width:15px; height:15px; flex:none; margin:1px 0 0; padding:0;
+  background:none; border:none; border-radius:0; accent-color:var(--ats-blue); cursor:pointer;
+}
+/* Sentence-case label — used where the text contains a value the staff member
+   has to read literally (the practice name they must type back). */
+.ats-modal-body label.ats-label-plain { text-transform:none; letter-spacing:0; font-size:12.5px; color:var(--ats-dim); margin:16px 0 6px; }
+.ats-modal-body label.ats-label-plain b { color:var(--ats-text); font-weight:700; }
+.ats-modal-input { width:100%; box-sizing:border-box; background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:8px; color:var(--ats-text); font:inherit; font-size:13px; padding:9px 11px; }
+.ats-modal-input:focus { outline:none; border-color:var(--ats-blue); }
+textarea.ats-modal-input { resize:vertical; }
 
 /* ---------- Section head / toolbar / search ---------- */
 .ats-section-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px; }

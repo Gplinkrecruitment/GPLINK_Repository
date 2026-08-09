@@ -794,7 +794,12 @@
           '<div class="ats-practice-logo" style="background:' + ATS.avatarColor(name) + '">' + ATS.esc(ATS.initials(name)) + '</div>' +
           '<div><h2>' + ATS.esc(name) + corpBadge(p, 'margin-left:10px;vertical-align:middle') + partOfChip + '</h2><p>' + loc + '</p></div>' +
         '</div>' +
-        '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="edit-practice">✎ Edit</button>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="edit-practice">✎ Edit</button>' +
+          // Permanent removal is CEO-only — consultants keep the reversible
+          // Stage → Archived control and nothing more.
+          (ATS.isConsultant && ATS.isConsultant() ? '' : '<button class="ats-btn ats-btn-danger ats-btn-sm" data-ats="delete-practice">🗑 Delete</button>') +
+        '</div>' +
       '</div>' +
       '<div class="ats-detail-grid">' +
         '<div><div class="ats-card">' + fields + '</div>' + contractCardHtml(p) + '</div>' +
@@ -1031,6 +1036,158 @@
     });
   }
 
+  // ==================== DELETE A PRACTICE ====================
+  // Permanent, CEO-only, and the only irreversible gesture on this tab — so it
+  // is fronted by a modal that spells out exactly what will happen, previews
+  // the thank-you letter that goes out, and refuses to arm the button until the
+  // practice name is typed back.
+  //
+  // The impact numbers and the letter both come from
+  // GET /api/ats/practice/delete-preview, so what is shown here is what the
+  // server will actually do and send.
+
+  // Held between opening the modal and confirming, so the confirm handler can
+  // check the typed name without a second fetch.
+  var pendingDelete = null;
+
+  function impactRowHtml(icon, text) {
+    return '<li><span>' + icon + '</span><span>' + text + '</span></li>';
+  }
+
+  function deleteModalHtml(d) {
+    var p = d.practice || {};
+    var im = d.impact || {};
+    var em = d.email || {};
+    var name = p.name || 'this practice';
+
+    var rows = '';
+    if (im.job_count) {
+      // Retiring the jobs is not a nicety: a live job re-creates the practice
+      // in the directory (it is grouped by practice_name) and keeps the role
+      // on the public board.
+      rows += impactRowHtml('💼', '<b>' + im.job_count + ' job listing' + (im.job_count === 1 ? '' : 's') + '</b> will be closed' +
+        (im.public_job_count ? ' — ' + im.public_job_count + ' of them ' + (im.public_job_count === 1 ? 'is' : 'are') + ' live on the public jobs board right now' : ''));
+    }
+    if (im.application_count) {
+      rows += impactRowHtml('👥', '<b>' + im.application_count + ' candidate application' + (im.application_count === 1 ? '' : 's') + '</b> will be unlinked from this practice' +
+        (im.active_application_count ? ' (' + im.active_application_count + ' still active)' : '') +
+        '. The doctors, their interviews and their contracts are all kept.');
+    }
+    if (im.member_count) {
+      rows += impactRowHtml('🏢', '<b>' + im.member_count + ' member practice' + (im.member_count === 1 ? '' : 's') + '</b> will no longer be part of this group (they are not deleted).');
+    }
+    rows += impactRowHtml('🗄', 'Past meetings, offers and enquiries keep the practice name as history.');
+    if (!im.job_count && !im.application_count) {
+      rows = impactRowHtml('✅', 'Nothing else is attached to this practice.') + rows;
+    }
+
+    var emailBlock;
+    if (em.available) {
+      emailBlock =
+        '<label class="ats-check-row" for="atsDelSendEmail">' +
+          '<input type="checkbox" id="atsDelSendEmail" checked />' +
+          '<span>Send ' + ATS.esc(name) + ' a thank-you email</span>' +
+        '</label>' +
+        '<p class="ats-email-to">To ' + ATS.esc(em.to || '') +
+          ((em.cc && em.cc.length) ? ' · cc ' + ATS.esc(em.cc.join(', ')) : '') +
+          '<br>Subject: ' + ATS.esc(em.subject || '') + '</p>' +
+        '<div class="ats-email-preview"><pre>' + ATS.esc(em.preview_text || '') + '</pre></div>' +
+        '<label class="ats-label-plain" for="atsDelNote">Add a personal line (optional)</label>' +
+        '<textarea id="atsDelNote" class="ats-modal-input" rows="2" placeholder="e.g. It was a pleasure working with Dr Chen and the reception team."></textarea>' +
+        '<p style="font-size:11.5px;color:var(--ats-dim);margin:6px 0 0">Added as its own paragraph in the middle of the letter.</p>';
+    } else {
+      // Be explicit about WHY there is no letter — a missing contact email and
+      // an unconfigured mailer are different problems with different fixes.
+      emailBlock = '<p class="ats-email-to" style="margin:0">' +
+        (em.configured === false
+          ? 'No thank-you email will be sent — email sending is not configured on this environment.'
+          : 'No thank-you email will be sent — there is no contact email on file for this practice.') +
+        '</p>';
+    }
+
+    return '<div class="ats-modal-wrap open" data-ats="modal-backdrop">' +
+      '<div class="ats-modal">' +
+        '<div class="ats-modal-head"><h3>Delete ' + ATS.esc(name) + '?</h3><button class="ats-drawer-close" data-ats="close-modal">×</button></div>' +
+        '<div class="ats-modal-body">' +
+          '<p class="ats-danger-note"><b>This cannot be undone.</b> The practice record is removed permanently. If you only want it off the active list, close this and set <b>Stage → Archived</b> instead.</p>' +
+          '<ul class="ats-impact-list">' + rows + '</ul>' +
+          emailBlock +
+          '<label class="ats-label-plain" for="atsDelConfirm">Type <b>' + ATS.esc(name) + '</b> to confirm</label>' +
+          '<input type="text" id="atsDelConfirm" class="ats-modal-input" autocomplete="off" placeholder="' + ATS.escAttr(name) + '" />' +
+          '<div id="atsDelErr" style="display:none;background:rgba(220,60,60,0.12);border:1px solid var(--ats-red);color:var(--ats-red);border-radius:8px;padding:9px 11px;font-size:12.5px;margin-top:10px"></div>' +
+        '</div>' +
+        '<div class="ats-modal-foot">' +
+          '<button class="ats-btn ats-btn-ghost" data-ats="close-modal">Cancel</button>' +
+          '<button class="ats-btn ats-btn-danger" data-ats="confirm-delete-practice" id="atsDelBtn" disabled>Delete practice</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function openDeleteModal() {
+    var p = currentPractice;
+    if (!p) return;
+    pendingDelete = null;
+    ATS.api('/api/ats/practice/delete-preview?id=' + encodeURIComponent(p.id)).then(function (d) {
+      if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not check what deleting this practice would affect'); return; }
+      pendingDelete = d;
+      ATS.setOverlay(deleteModalHtml(d));
+      var input = document.getElementById('atsDelConfirm');
+      if (input) input.focus();
+    });
+  }
+
+  // Arms the delete button only on an exact (case-insensitive) name match.
+  function syncDeleteConfirmState() {
+    var btn = document.getElementById('atsDelBtn');
+    var input = document.getElementById('atsDelConfirm');
+    if (!btn || !input || !pendingDelete) return;
+    var want = String((pendingDelete.practice && pendingDelete.practice.name) || '').trim().toLowerCase();
+    btn.disabled = String(input.value || '').trim().toLowerCase() !== want;
+  }
+
+  function showDeleteError(msg) {
+    var el = document.getElementById('atsDelErr');
+    if (!el) { if (msg) ATS.toast(msg); return; }
+    el.textContent = msg || '';
+    el.style.display = msg ? 'block' : 'none';
+  }
+
+  function confirmDeletePractice(btn) {
+    if (!pendingDelete || !pendingDelete.practice) return;
+    var input = document.getElementById('atsDelConfirm');
+    var noteEl = document.getElementById('atsDelNote');
+    var sendEl = document.getElementById('atsDelSendEmail');
+    var name = pendingDelete.practice.name || '';
+    showDeleteError('');
+    if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+    ATS.api('/api/ats/practice/delete', {
+      method: 'POST',
+      body: {
+        id: pendingDelete.practice.id,
+        confirm_name: input ? input.value : '',
+        send_email: sendEl ? !!sendEl.checked : false,
+        personal_note: noteEl ? noteEl.value : ''
+      }
+    }).then(function (d) {
+      if (!d || !d.ok) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Delete practice'; }
+        showDeleteError((d && d.message) || 'Could not delete the practice — please try again.');
+        return;
+      }
+      closeModal();
+      pendingDelete = null;
+      // Report the email honestly: the practice IS deleted either way, so a
+      // failed send must not read as a failed delete.
+      var em = d.email || {};
+      var msg = (name || 'Practice') + ' deleted';
+      if (em.requested && em.sent) msg += ' · thank-you email sent';
+      else if (em.requested && !em.sent) msg += ' · thank-you email could NOT be sent';
+      ATS.toast(msg);
+      loadPracticesTab();
+    });
+  }
+
   // ==================== event delegation ====================
   function onPanelClick(e) {
     var t = e.target.closest ? e.target.closest('[data-ats]') : null;
@@ -1041,6 +1198,7 @@
     else if (action === 'add-practice') openAddModal();
     else if (action === 'back-list') loadPracticesTab();
     else if (action === 'edit-practice') openEditModal();
+    else if (action === 'delete-practice') openDeleteModal();
     else if (action === 'invite-consultant') inviteConsultant(t);
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'resend-intake') resendIntake(id, t);
@@ -1126,8 +1284,24 @@
     if (action === 'close-modal') closeModal();
     else if (action === 'create-practice') createPractice();
     else if (action === 'save-practice') savePractice();
+    else if (action === 'confirm-delete-practice') confirmDeletePractice(btn);
     else if (action === 'add-secondary') addSecondaryRowTo('atsFSecondaryList');
     else if (action === 'remove-secondary') removeSecondaryRow(btn);
+  }
+
+  // Modal-level input events: the delete button stays disabled until the typed
+  // name matches, so this has to run on every keystroke (not on change/blur).
+  function onOverlayInput(e) {
+    if (e.target && e.target.id === 'atsDelConfirm') syncDeleteConfirmState();
+  }
+
+  // Enter in the confirm field submits, but only once the name matches — same
+  // as clicking the (then-enabled) button.
+  function onOverlayKeydown(e) {
+    if (!e.target || e.target.id !== 'atsDelConfirm' || e.key !== 'Enter') return;
+    e.preventDefault();
+    var btn = document.getElementById('atsDelBtn');
+    if (btn && !btn.disabled) confirmDeletePractice(btn);
   }
 
   function removeSecondaryRow(btn) {
@@ -1148,6 +1322,8 @@
     if (overlay) {
       overlay.addEventListener('click', onOverlayClick);
       overlay.addEventListener('change', onOverlayChange);
+      overlay.addEventListener('input', onOverlayInput);
+      overlay.addEventListener('keydown', onOverlayKeydown);
     }
   }
 

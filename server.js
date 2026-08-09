@@ -13314,6 +13314,54 @@ async function sendPracticeIntakeEmail(practice) {
 }
 
 /**
+ * Thank-you / door-open letter sent when a practice is deleted from the ATS
+ * (POST /api/ats/practice/delete).
+ *
+ * Deliberately best-effort and NEVER throwing: the practice row is already gone
+ * by the time this runs, so a bounced or unconfigured send must not turn a
+ * completed deletion into an error the staff member sees as "it failed". The
+ * outcome is reported back in the response instead.
+ *
+ * Secondary contacts are CC'd — they are the people who were copied on the
+ * introduction emails, so they are exactly the people who would otherwise be
+ * left wondering why GP Link went quiet.
+ *
+ * `practice` here is the row as it stood BEFORE the delete (the caller snapshots
+ * it), not a live read.
+ */
+async function sendPracticeFarewellEmail(practice, personalNote) {
+  if (!practice) return { ok: false, error: 'no_practice' };
+  var toEmail = String(practice.contact_email || '').trim();
+  if (!toEmail) return { ok: false, error: 'no_contact_email' };
+  if (!isEmailConfigured()) return { ok: false, error: 'email_not_configured' };
+
+  var copy = practicePipeline.buildFarewellEmailCopy({
+    practiceName: practice.name,
+    contactName: practice.contact_name,
+    personalNote: personalNote,
+    logoUrl: APP_BASE_URL + '/media/images/gp-link-logo.png'
+  });
+
+  var ccList = atsPracticeUtil.normalizeSecondaryContacts(practice.secondary_contacts, toEmail)
+    .map(function (c) { return c.email; });
+
+  try {
+    return await sendEmail({
+      to: toEmail,
+      cc: ccList.length ? ccList : undefined,
+      subject: copy.subject,
+      html: buildCareerEmailHtml(copy),
+      text: copy.text,
+      from: { email: GP_OWNER_EMAIL, name: 'GP Link' },
+      replyTo: GP_OWNER_EMAIL
+    });
+  } catch (e) {
+    console.error('[practice-delete] farewell email failed:', e && e.message);
+    return { ok: false, error: (e && e.message) || 'send_failed' };
+  }
+}
+
+/**
  * Returns the practice's intake token, generating and persisting one (via the
  * metadata stash — same dual-location convention sendPracticeIntakeEmail and
  * findPracticeByIntakeToken already use) when the row doesn't have one yet.
@@ -31691,6 +31739,32 @@ async function atsUpdatePracticeRow(id, patch) {
   var p = (dbState.atsPractices || []).find(function (x) { return String(x.id) === String(id); });
   if (!p) return null;
   Object.assign(p, patch); saveDbState(); return p;
+}
+
+// Hard-delete one practices row (POST /api/ats/practice/delete only).
+//
+// Returns { ok, status, error } rather than a row/null, because the CALLER has
+// to tell a blocked delete apart from a missing row: `gp_applications.practice_id`
+// is ON DELETE NO ACTION, so a lingering application 409s the delete and the
+// staff member needs to be told that, not a generic failure.
+//
+// Not exposed anywhere else on purpose — every other "remove a practice"
+// gesture in the app is the reversible stage=archived one.
+async function atsDeletePracticeRow(id) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('practices', 'id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!r.ok) {
+      console.error('[practices] delete failed (' + r.status + '):',
+        typeof r.data === 'string' ? r.data.slice(0, 300) : JSON.stringify(r.data || {}).slice(0, 300));
+      return { ok: false, status: r.status, error: (r.data && r.data.message) || '' };
+    }
+    return { ok: true, status: r.status };
+  }
+  var before = (dbState.atsPractices || []).length;
+  dbState.atsPractices = (dbState.atsPractices || []).filter(function (p) { return String(p.id) !== String(id); });
+  if (dbState.atsPractices.length === before) return { ok: false, status: 404, error: 'Practice not found.' };
+  saveDbState();
+  return { ok: true, status: 204 };
 }
 
 // Normalizes a practice name for duplicate matching: case, surrounding
@@ -71176,6 +71250,252 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { console.error('[ats/practice PATCH] rename cascade failed:', e && e.message); }
     }
     sendJson(res, 200, { ok: true, practice: updatedP });
+    return;
+  }
+
+  // ── Delete a practice ────────────────────────────────────────────────────
+  //
+  // Until now the ONLY way to take a practice off the Practices tab was
+  // stage=archived, which collapses it into "Archived & declined" but leaves
+  // the row, its job listings and its public board entries exactly where they
+  // were. These two endpoints add a real, permanent removal.
+  //
+  // The delete is deliberately NOT a bare `DELETE FROM practices`, because the
+  // foreign keys around that table make a naive delete either fail or do
+  // silent damage (all verified against information_schema on 2026-07-28):
+  //
+  //   career_roles.practice_id     ON DELETE SET NULL — the JOB SURVIVES with
+  //     its practice_name intact and is_active untouched, so it keeps sitting
+  //     on the public board as an orphan nobody can trace back to a client.
+  //     Worse for this feature: atsListPracticesDerived() rebuilds the
+  //     directory by GROUPING JOBS ON practice_name, so a live job would
+  //     immediately re-create the practice you just deleted as a name-only
+  //     card. The jobs have to be retired for a delete to mean anything.
+  //   gp_applications.practice_id  NO ACTION — an application against the
+  //     practice BLOCKS the delete outright (409).
+  //   career_contracts.application_id / career_interviews.application_id
+  //     ON DELETE CASCADE — which is why we NEVER delete the application to
+  //     clear that block. Unlinking keeps the doctor's interviews, contracts
+  //     and history intact; deleting the row would silently destroy them.
+  //   practices.parent_corporation_id  SET NULL — deleting a corporation just
+  //     unlinks its members (they survive as standalone practices).
+  //
+  // So the sequence is: unlink applications -> delete the row -> retire the
+  // jobs -> send the thank-you letter. If the row delete fails, the unlinked
+  // applications are put back before returning the error.
+
+  // Shared by the preview and the delete itself, so the numbers the staff
+  // member confirms are the numbers that are actually acted on.
+  async function atsBuildPracticeDeletionImpact(practice) {
+    var parsed = atsParsePracticeId(practice.id);
+    var jobs = practice.jobs || [];
+    var jobIds = {};
+    jobs.forEach(function (j) { jobIds[String(j.id)] = true; });
+    var allApps = await atsListApplicationRows({});
+    // Two ways an application ties to this practice: through one of its jobs,
+    // or through its own practice_id column (the one that blocks the delete).
+    var linked = allApps.filter(function (a) {
+      if (jobIds[String(a.career_role_id || a.job_id || '')]) return true;
+      return !!(parsed.rowId && a.practice_id && String(a.practice_id) === String(parsed.rowId));
+    });
+    var blocking = allApps.filter(function (a) {
+      return !!(parsed.rowId && a.practice_id && String(a.practice_id) === String(parsed.rowId));
+    });
+    var members = [];
+    if (practice.org_type === 'corporation' && parsed.rowId) {
+      var allOrgs = await atsListPracticesDerived();
+      members = allOrgs.filter(function (m) {
+        return m.parent_corporation_id && String(m.parent_corporation_id) === String(parsed.rowId);
+      }).map(function (m) { return { id: m.id, name: m.name || '' }; });
+    }
+    return {
+      rowId: parsed.rowId || null,
+      isDerived: !!parsed.name,
+      jobs: jobs.map(function (j) {
+        return {
+          id: j.id, title: j.title || '',
+          // "Public" = exactly the public board's filter (is_active + open);
+          // these are the listings a member of the public can see right now.
+          public: !!(j.is_active && String(j.job_status || 'open') === 'open'),
+          approval_status: j.approval_status || 'approved'
+        };
+      }),
+      applications: linked.map(function (a) { return { id: a.id, active: !atsIsRejectedApp(a) }; }),
+      blockingApplicationIds: blocking.map(function (a) { return a.id; }),
+      members: members
+    };
+  }
+
+  if (pathname === '/api/ats/practice/delete-preview' && req.method === 'GET') {
+    var ctxDP = requireCeoSession(req, res); if (!ctxDP) return;
+    var dpId = url.searchParams.get('id'); if (!dpId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var dpPractice = await atsResolvePractice(dpId);
+    if (!dpPractice) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    var dpImpact = await atsBuildPracticeDeletionImpact(dpPractice);
+    var dpEmail = String(dpPractice.contact_email || '').trim();
+    var dpCc = atsPracticeUtil.normalizeSecondaryContacts(dpPractice.secondary_contacts, dpEmail)
+      .map(function (c) { return c.email; });
+    var dpCopy = practicePipeline.buildFarewellEmailCopy({
+      practiceName: dpPractice.name,
+      contactName: dpPractice.contact_name,
+      personalNote: '',
+      logoUrl: APP_BASE_URL + '/media/images/gp-link-logo.png'
+    });
+    sendJson(res, 200, {
+      ok: true,
+      practice: {
+        id: dpPractice.id, name: dpPractice.name || '',
+        contact_name: dpPractice.contact_name || '', contact_email: dpEmail,
+        org_type: dpPractice.org_type === 'corporation' ? 'corporation' : 'practice',
+        is_derived: dpImpact.isDerived
+      },
+      impact: {
+        job_count: dpImpact.jobs.length,
+        public_job_count: dpImpact.jobs.filter(function (j) { return j.public; }).length,
+        application_count: dpImpact.applications.length,
+        active_application_count: dpImpact.applications.filter(function (a) { return a.active; }).length,
+        member_count: dpImpact.members.length,
+        members: dpImpact.members
+      },
+      email: {
+        // The letter can only go somewhere if we hold an address for them.
+        available: !!dpEmail && isEmailConfigured(),
+        configured: isEmailConfigured(),
+        to: dpEmail, cc: dpCc,
+        subject: dpCopy.subject,
+        preview_text: dpCopy.text
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/ats/practice/delete' && req.method === 'POST') {
+    var ctxPD = requireCeoSession(req, res); if (!ctxPD) return;
+    var bodyPD; try { bodyPD = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyPD = bodyPD || {};
+    var pdId = String(bodyPD.id || url.searchParams.get('id') || '').trim();
+    if (!pdId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var pdPractice = await atsResolvePractice(pdId);
+    if (!pdPractice) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+
+    // Type-the-name confirmation. This is the one irreversible gesture in the
+    // Practices tab, so a mis-click on the wrong card can never delete anything.
+    var pdTyped = String(bodyPD.confirm_name == null ? '' : bodyPD.confirm_name).trim().toLowerCase();
+    var pdRealName = String(pdPractice.name || '').trim().toLowerCase();
+    if (!pdTyped || pdTyped !== pdRealName) {
+      sendJson(res, 400, { ok: false, code: 'confirm_name_mismatch',
+        message: 'Type the practice name exactly as it appears to confirm the deletion.' });
+      return;
+    }
+
+    var pdImpact = await atsBuildPracticeDeletionImpact(pdPractice);
+    // Snapshot the contact details BEFORE the row goes — the letter is built
+    // from this, and after the delete there is nothing left to read.
+    var pdSnapshot = {
+      name: pdPractice.name || '',
+      contact_name: pdPractice.contact_name || '',
+      contact_email: String(pdPractice.contact_email || '').trim(),
+      secondary_contacts: pdPractice.secondary_contacts || []
+    };
+
+    // 1. Unlink the applications that would otherwise block the delete. Their
+    //    original practice_id is kept so a failed delete can put it back — an
+    //    application must never be left orphaned by a delete that didn't happen.
+    var pdUnlinked = [];
+    var pdUnlinkFailed = null;
+    for (var pdUi = 0; pdUi < pdImpact.blockingApplicationIds.length; pdUi++) {
+      var pdAppId = pdImpact.blockingApplicationIds[pdUi];
+      var pdOk = false;
+      if (isSupabaseDbConfigured()) {
+        var pdUr = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdAppId),
+          { method: 'PATCH', body: { practice_id: null } });
+        pdOk = !!pdUr.ok;
+      } else {
+        var pdLocalApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(pdAppId); });
+        if (pdLocalApp) { pdLocalApp.practice_id = null; saveDbState(); pdOk = true; }
+      }
+      if (pdOk) pdUnlinked.push(pdAppId);
+      else { pdUnlinkFailed = pdAppId; break; }
+    }
+
+    // Restores every application we just unlinked. Used on any failure below,
+    // so a half-done delete never leaves candidates detached from a live practice.
+    async function pdRestoreApplications() {
+      for (var ri = 0; ri < pdUnlinked.length; ri++) {
+        if (isSupabaseDbConfigured()) {
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdUnlinked[ri]),
+            { method: 'PATCH', body: { practice_id: pdImpact.rowId } }).catch(function () {});
+        } else {
+          var la = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(pdUnlinked[ri]); });
+          if (la) { la.practice_id = pdImpact.rowId; saveDbState(); }
+        }
+      }
+    }
+
+    if (pdUnlinkFailed) {
+      await pdRestoreApplications();
+      sendJson(res, 502, { ok: false, message: 'Could not unlink a candidate application from this practice, so nothing was deleted. Please try again.' });
+      return;
+    }
+
+    // 2. Delete the practices row itself (a name-only practice has none — for
+    //    those, retiring the jobs below IS the deletion).
+    if (pdImpact.rowId) {
+      var pdDel = await atsDeletePracticeRow(pdImpact.rowId);
+      if (!pdDel.ok) {
+        await pdRestoreApplications();
+        // 409 = a foreign key still points here. Say which one, rather than
+        // leaving the staff member with an unexplained failure.
+        if (pdDel.status === 409) {
+          sendJson(res, 409, { ok: false, code: 'still_referenced',
+            message: 'This practice is still linked to other records, so it could not be deleted. Archive it instead, or tell an engineer: ' + (pdDel.error || 'foreign key conflict') });
+          return;
+        }
+        sendJson(res, 502, { ok: false, message: pdDel.error ? ('Could not delete the practice: ' + pdDel.error) : 'Could not delete the practice.' });
+        return;
+      }
+    }
+
+    // 3. Retire the job listings. Without this the jobs stay on the public
+    //    board AND rebuild the practice as a name-only card (see the note
+    //    above). `pending` also has to move, because the directory merges
+    //    pending jobs in alongside active ones.
+    var pdJobsRetired = 0;
+    for (var pdJi = 0; pdJi < pdImpact.jobs.length; pdJi++) {
+      var pdJob = pdImpact.jobs[pdJi];
+      var pdJobPatch = { is_active: false, job_status: 'closed' };
+      if (pdJob.approval_status === 'pending') pdJobPatch.approval_status = 'rejected';
+      var pdUpdated = await atsUpdateJobRow(pdJob.id, pdJobPatch).catch(function () { return null; });
+      if (pdUpdated) pdJobsRetired++;
+      else console.error('[practice-delete] could not retire job', pdJob.id, 'for', pdSnapshot.name);
+    }
+
+    // 4. The thank-you letter. Sent LAST and never allowed to fail the delete —
+    //    the practice is already gone, so an email problem is reported, not thrown.
+    var pdSendEmail = bodyPD.send_email !== false; // default ON
+    var pdEmailResult = { requested: pdSendEmail, sent: false, to: pdSnapshot.contact_email, error: '' };
+    if (pdSendEmail) {
+      var pdSent = await sendPracticeFarewellEmail(pdSnapshot, bodyPD.personal_note);
+      pdEmailResult.sent = !!(pdSent && pdSent.ok);
+      if (!pdEmailResult.sent) pdEmailResult.error = (pdSent && (pdSent.error || pdSent.message)) || 'send_failed';
+    }
+
+    console.log('[practice-delete]', ctxPD.email || 'unknown', 'deleted practice',
+      JSON.stringify(pdSnapshot.name), '— jobs retired:', pdJobsRetired,
+      'applications unlinked:', pdUnlinked.length, 'email sent:', pdEmailResult.sent);
+
+    sendJson(res, 200, {
+      ok: true,
+      deleted: {
+        name: pdSnapshot.name,
+        row_deleted: !!pdImpact.rowId,
+        jobs_retired: pdJobsRetired,
+        jobs_total: pdImpact.jobs.length,
+        applications_unlinked: pdUnlinked.length,
+        members_unlinked: pdImpact.members.length
+      },
+      email: pdEmailResult
+    });
     return;
   }
 
