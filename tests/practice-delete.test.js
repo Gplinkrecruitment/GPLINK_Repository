@@ -315,9 +315,12 @@ describe('CEO Practices tab — delete control', () => {
 
   it('ships the danger button style and a bumped cache buster', () => {
     expect(atsCss).toContain('.ats-btn-danger');
-    expect(ceoHtml).toContain('/js/ceo-ats-practices.js?v=20260810a');
+    expect(ceoHtml).toContain('/js/ceo-ats-practices.js?v=20260810b');
     expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260810a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-practices.js?v=20260809b');
+    // …a again after the placed-doctor warning was added to the same file: a
+    // browser holding ?v=20260810a would otherwise keep the version without it.
+    expect(ceoHtml).not.toContain('/js/ceo-ats-practices.js?v=20260810a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805h');
   });
 });
