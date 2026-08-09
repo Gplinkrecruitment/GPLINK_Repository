@@ -5638,6 +5638,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // Nudge email composer (collapsed by default)
       var nudgeTo=practiceEmail;
       h2+='<div id="opsNudgeWrap_'+esc(task.id)+'" style="display:none;margin-top:8px">';
+      // Anything the drafter flagged for the RSO renders ABOVE the composer, never inside
+      // the body it is about to send (see lib/internal-note-guard.js).
+      h2+='<div id="opsNudgeNotes_'+esc(task.id)+'" style="display:none;margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>';
       h2+='<div class="ops-email-composer">';
       h2+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(nudgeTo)+'" /></div>';
       // The nudge is the one composer that had no CC row, so the person the practice
@@ -5650,10 +5653,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         +'Could you please provide this at your earliest convenience? We need this document to proceed with their registration.'+(signReq?' '+signReq:'')+'<br><br>'
         +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         +'</div>';
-      h2+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'">Send</button></div>';
+      h2+='<div class="ops-email-actions">';
+      h2+='<button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'">Send</button>';
+      h2+='<button class="ops-btn-secondary" data-ops-nudge-draft="'+esc(task.id)+'">Re-draft with AI</button>';
+      h2+='</div>';
       h2+='</div></div>';
       h2+='<div class="ops-action-row">';
-      h2+='<button class="ops-btn-secondary" onclick="var w=document.getElementById(\'opsNudgeWrap_'+escAttr(task.id)+'\');w.style.display=w.style.display===\'none\'?\'block\':\'none\'">Nudge Practice</button>';
+      // Opening the composer drafts from the thread (see opsEnsureNudgeDraft) — the
+      // hardcoded body above is only the starting point / AI-unavailable fallback.
+      h2+='<button class="ops-btn-secondary" data-ops-nudge-toggle="'+esc(task.id)+'">Nudge Practice</button>';
       h2+='</div>';
       h2+='</div>';
       return h2;
@@ -6229,6 +6237,58 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(target)target.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Preview failed: '+esc(err.message)+'</div><a href="'+blobUrl+'" download="'+esc(filename)+'" class="ops-btn-green" style="text-decoration:none;display:inline-block;margin-top:12px">Download Instead</a></div>';
       });
     }
+  }
+
+  /* ── "Nudge Practice" AI draft ──────────────────────────────────────────────
+     The composer used to open with a hardcoded "Just following up on our earlier
+     email…" regardless of what the thread actually said. The draft is fetched when
+     the composer opens and cached per task, so reopening it does not re-bill an AI
+     call; "Re-draft with AI" forces a fresh one. The server always answers with a
+     usable draft (it falls back to the old wording), so a failure here can only ever
+     leave the pre-filled body in place. */
+  var _opsNudgeDrafts = {};
+
+  function opsApplyNudgeDraft(taskId, nudge) {
+    if (!nudge) return;
+    var bodyEl = document.querySelector('[data-email-body="' + taskId + '"]');
+    var subEl = document.querySelector('[data-email-subject="' + taskId + '"]');
+    if (bodyEl && nudge.suggested_reply) bodyEl.innerHTML = opsPlainTextToHtml(nudge.suggested_reply);
+    if (subEl && nudge.suggested_subject) subEl.value = nudge.suggested_subject;
+    var notesEl = document.getElementById('opsNudgeNotes_' + taskId);
+    if (notesEl) {
+      if (nudge.rso_notes) {
+        notesEl.innerHTML = '<b>Check before sending — not part of the email</b><br>' + esc(nudge.rso_notes);
+        notesEl.style.display = 'block';
+      } else {
+        notesEl.innerHTML = '';
+        notesEl.style.display = 'none';
+      }
+    }
+  }
+
+  async function opsEnsureNudgeDraft(taskId, force) {
+    if (!taskId) return;
+    if (!force && _opsNudgeDrafts[taskId]) { opsApplyNudgeDraft(taskId, _opsNudgeDrafts[taskId]); return; }
+    var btn = document.querySelector('[data-ops-nudge-draft="' + taskId + '"]');
+    var origLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Drafting…'; }
+    try {
+      var r = await fetch('/api/admin/practice-nudge/draft', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId: taskId })
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok && d.nudge) {
+        _opsNudgeDrafts[taskId] = d.nudge;
+        opsApplyNudgeDraft(taskId, d.nudge);
+      } else if (d && d.message) {
+        showOpsToast(d.message, 'red');
+      }
+    } catch (err) {
+      showOpsToast((err && err.message) || 'Could not draft the nudge', 'red');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = origLabel || 'Re-draft with AI'; }
   }
 
   /* ── Load GP Profile task detail (reuses Ops Queue renderer) ── */
@@ -6829,6 +6889,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
 
       /* ── Ops-style action handlers inside GP Profile detail panels ── */
+      // The nudge toggle used to be an inline onclick, which fired in every render
+      // context for free. It is delegated now (so opening it can draft from the thread),
+      // so this view needs the same two handlers the Ops Queue listener has — without
+      // them "Nudge Practice" would be dead here.
+      var gpNudgeToggleBtn=e.target.closest("[data-ops-nudge-toggle]");
+      if(gpNudgeToggleBtn){
+        var tidGpNt=gpNudgeToggleBtn.getAttribute("data-ops-nudge-toggle");
+        var wrapGpNt=document.getElementById('opsNudgeWrap_'+tidGpNt);
+        if(wrapGpNt){
+          var openingGpNt=wrapGpNt.style.display==='none';
+          wrapGpNt.style.display=openingGpNt?'block':'none';
+          if(openingGpNt)opsEnsureNudgeDraft(tidGpNt);
+        }
+        return;
+      }
+      var gpNudgeDraftBtn=e.target.closest("[data-ops-nudge-draft]");
+      if(gpNudgeDraftBtn){
+        opsEnsureNudgeDraft(gpNudgeDraftBtn.getAttribute("data-ops-nudge-draft"),true);
+        return;
+      }
+
       var gpSendEmailBtn=e.target.closest("[data-ops-send-email]");
       if(gpSendEmailBtn){
         var tid=gpSendEmailBtn.getAttribute("data-ops-send-email");
@@ -7579,6 +7660,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(dPd.ok){showOpsToast('Follow-up drafted — review it before sending');loadOpsQueue();}
           else{showOpsToast(dPd.message||'Could not draft a follow-up','red');practiceDraftBtn.disabled=false;practiceDraftBtn.textContent=origLabelPd;}
         }catch(err){showOpsToast(err.message||'Network error','red');practiceDraftBtn.disabled=false;practiceDraftBtn.textContent=origLabelPd;}
+        return;
+      }
+
+      /* ── Nudge Practice: open the composer, drafting from the thread ── */
+      var nudgeToggleBtn=e.target.closest("[data-ops-nudge-toggle]");
+      if(nudgeToggleBtn){
+        var tidNt=nudgeToggleBtn.getAttribute("data-ops-nudge-toggle");
+        var wrapNt=document.getElementById('opsNudgeWrap_'+tidNt);
+        if(wrapNt){
+          var openingNt=wrapNt.style.display==='none';
+          wrapNt.style.display=openingNt?'block':'none';
+          // Draft on open only — collapsing and reopening reuses the cached draft.
+          if(openingNt)opsEnsureNudgeDraft(tidNt);
+        }
+        return;
+      }
+      var nudgeDraftBtn=e.target.closest("[data-ops-nudge-draft]");
+      if(nudgeDraftBtn){
+        opsEnsureNudgeDraft(nudgeDraftBtn.getAttribute("data-ops-nudge-draft"),true);
         return;
       }
 

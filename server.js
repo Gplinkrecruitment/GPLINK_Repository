@@ -174,6 +174,7 @@ const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
+const practiceNudgeDraft = require('./lib/practice-nudge-draft.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
 const agreementVariants = require('./lib/agreement-variants.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
@@ -59079,6 +59080,159 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, { ok: true, practice_reply: prResult });
     } catch (prErr) {
       console.error('[practice-reply-draft] Error:', prErr.message);
+      sendJson(res, 500, { ok: false, message: 'Internal error.' });
+    }
+    return;
+  }
+
+  // Draft the "Nudge Practice" chase-up from the whole thread.
+  //
+  // Owner report 2026-08-10: the nudge composer opened with a hardcoded "Just following up
+  // on our earlier email…" on a thread where the practice had already replied twice and
+  // named who would send the document — it read as though we had not opened their emails.
+  //
+  // Deliberately NOT persisted to task metadata (unlike the practice-reply draft, which is
+  // written when the reply lands): a nudge is composed on demand and the thread may have
+  // moved since, so the freshest draft is always the right one. The client caches the
+  // result per task so reopening the composer does not re-bill an AI call.
+  if (pathname === '/api/admin/practice-nudge/draft' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var pnCtx = requireAdminSession(req, res);
+    if (!pnCtx) return;
+    var pnBody;
+    try { pnBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    var pnTaskId = String(pnBody.taskId || '').trim();
+    if (!pnTaskId) { sendJson(res, 400, { ok: false, message: 'taskId required.' }); return; }
+    try {
+      var pnTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(pnTaskId) + '&limit=1');
+      var pnTask = (pnTaskRes.ok && Array.isArray(pnTaskRes.data) && pnTaskRes.data[0]) ? pnTaskRes.data[0] : null;
+      if (!pnTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+      // Same RSO scoping as every other task-level action (CEO exempt).
+      var pnScope = await resolveAdminGpScope(pnCtx, url);
+      var pnCaseRow = null;
+      if (pnTask.case_id) {
+        var pnCaseRes = await supabaseDbRequest('registration_cases',
+          'select=id,user_id,assigned_va,assigned_rso,practice_contact_name&id=eq.' + encodeURIComponent(pnTask.case_id) + '&limit=1');
+        pnCaseRow = (pnCaseRes.ok && Array.isArray(pnCaseRes.data) && pnCaseRes.data[0]) ? pnCaseRes.data[0] : null;
+      }
+      if (!pnScope.superAdmin && !taskVisibleToRso(pnScope, pnTask, pnCaseRow)) {
+        sendJson(res, 403, { ok: false, message: 'Not your GP.' }); return;
+      }
+
+      var pnDocTitle = pnTask.title || 'the requested document';
+      var pnSignReq = PRACTICE_DOC_SIGN_REQUIREMENT[pnTask.related_document_key] || '';
+
+      var pnGpName = '';
+      var pnGpEmail = '';
+      var pnContactName = (pnCaseRow && pnCaseRow.practice_contact_name) || '';
+      if (pnCaseRow && pnCaseRow.user_id) {
+        var pnProfRes = await supabaseDbRequest('user_profiles',
+          'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(pnCaseRow.user_id) + '&limit=1');
+        var pnProf = (pnProfRes.ok && Array.isArray(pnProfRes.data) && pnProfRes.data[0]) ? pnProfRes.data[0] : {};
+        pnGpName = ((pnProf.first_name || '') + ' ' + (pnProf.last_name || '')).trim();
+        pnGpEmail = String(pnProf.email || '').trim().toLowerCase();
+      }
+
+      var pnRsoName = '';
+      try { pnRsoName = await resolveCaseSenderName(pnTask.case_id); } catch (e) { pnRsoName = ''; }
+
+      var pnFallback = practiceNudgeDraft.buildFallbackNudge({
+        docTitle: pnDocTitle, gpName: pnGpName, contactName: pnContactName,
+        rsoName: pnRsoName, signRequirement: pnSignReq,
+      });
+
+      // The whole thread, both directions — this is the entire point of the endpoint.
+      var pnMsgRes = await supabaseDbRequest('task_messages',
+        'select=direction,sender,subject,created_at,body_text,body_html&task_id=' +
+        'eq.' + encodeURIComponent(pnTaskId) + '&channel=eq.email&order=created_at.desc&limit=' +
+        practiceNudgeDraft.MAX_THREAD_MESSAGES);
+      var pnMsgs = (pnMsgRes.ok && Array.isArray(pnMsgRes.data)) ? pnMsgRes.data : [];
+      if (!pnMsgs.length) { sendJson(res, 200, { ok: true, nudge: pnFallback }); return; }
+
+      // Keep the chase in the conversation the practice is already reading — a new subject
+      // line starts a separate thread in their inbox. Applied deterministically after the
+      // AI answers, so a model-invented subject can never split the thread.
+      var pnThreadSubject = '';
+      for (var pnSi = 0; pnSi < pnMsgs.length && !pnThreadSubject; pnSi++) {
+        pnThreadSubject = practiceNudgeDraft.threadReplySubject(pnMsgs[pnSi].subject);
+      }
+      if (pnThreadSubject) pnFallback.suggested_subject = pnThreadSubject;
+
+      var pnOutbound = pnMsgs.filter(function (m) { return m.direction === 'outbound'; });
+      var pnLastOut = pnOutbound.length ? pnOutbound[0] : null; // desc order → newest first
+      var pnDays = pnLastOut && pnLastOut.created_at
+        ? Math.floor((Date.now() - new Date(pnLastOut.created_at).getTime()) / 86400000)
+        : null;
+      var pnEverReplied = pnMsgs.some(function (m) { return m.direction === 'inbound'; });
+
+      var pnKnown = [];
+      try { pnKnown = await collectCaseThreadContacts(pnTask.case_id); } catch (e) { pnKnown = []; }
+      pnKnown = pnKnown.filter(function (c) {
+        var addr = String(c.email_address || '').trim().toLowerCase();
+        return !(pnGpEmail && addr === pnGpEmail);
+      });
+
+      var apiKeyPn = process.env.ANTHROPIC_API_KEY;
+      if (!apiKeyPn) { sendJson(res, 200, { ok: true, nudge: pnFallback }); return; }
+      var pnWithinBudget = true;
+      try { pnWithinBudget = await checkAnthropicBudget(); } catch (e) { pnWithinBudget = true; }
+      if (!pnWithinBudget) {
+        console.warn('[practice-nudge] Anthropic daily budget exhausted — deterministic nudge for task', pnTaskId);
+        sendJson(res, 200, { ok: true, nudge: pnFallback });
+        return;
+      }
+
+      var pnPrompt = practiceNudgeDraft.buildPracticeNudgeMessages({
+        docTitle: pnDocTitle,
+        signRequirement: pnSignReq,
+        gpName: pnGpName,
+        contactName: pnContactName,
+        rsoName: pnRsoName,
+        threadText: practiceNudgeDraft.formatThreadForPrompt(pnMsgs),
+        daysSinceLastContact: pnDays,
+        practiceEverReplied: pnEverReplied,
+        knownContacts: pnKnown,
+      });
+
+      var pnController = new AbortController();
+      var pnTimer = setTimeout(function () { pnController.abort(); }, 30000);
+      var pnDraft = null;
+      try {
+        var pnResp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: pnController.signal,
+          headers: { 'x-api-key': apiKeyPn, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: SUGGEST_REPLY_MODEL,
+            max_tokens: 1200,
+            system: pnPrompt.system,
+            messages: [{ role: 'user', content: pnPrompt.userText }],
+          }),
+        });
+        clearTimeout(pnTimer);
+        if (pnResp.ok) {
+          var pnData = await pnResp.json();
+          if (pnData.usage) {
+            recordAnthropicSpend(pnData.usage.input_tokens || 0, pnData.usage.output_tokens || 0,
+              pnData.usage.cache_read_input_tokens || 0, pnData.usage.cache_creation_input_tokens || 0);
+          }
+          pnDraft = practiceNudgeDraft.parsePracticeNudgeResult(
+            (pnData.content && pnData.content[0] && pnData.content[0].text) || '');
+        } else {
+          console.warn('[practice-nudge] AI request failed', pnResp.status, '— deterministic nudge for task', pnTaskId);
+        }
+      } catch (pnAiErr) {
+        clearTimeout(pnTimer);
+        console.warn('[practice-nudge] AI draft error:', pnAiErr.message, '— deterministic nudge for task', pnTaskId);
+      }
+
+      if (!pnDraft) { sendJson(res, 200, { ok: true, nudge: pnFallback }); return; }
+      // Thread subject wins over anything the model wrote (see threadReplySubject).
+      pnDraft.suggested_subject = pnThreadSubject || pnDraft.suggested_subject || pnFallback.suggested_subject;
+      pnDraft.source = 'ai';
+      sendJson(res, 200, { ok: true, nudge: pnDraft });
+    } catch (pnErr) {
+      console.error('[practice-nudge-draft] Error:', pnErr.message);
       sendJson(res, 500, { ok: false, message: 'Internal error.' });
     }
     return;
