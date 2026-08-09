@@ -1073,6 +1073,12 @@
         (im.active_application_count ? ' (' + im.active_application_count + ' still active)' : '') +
         '. The doctors, their interviews and their contracts are all kept.');
     }
+    // A placed doctor is worth its own line — "1 still active" reads like a
+    // pipeline candidate, and detaching a live placement is a much bigger deal.
+    if (im.placed_application_count) {
+      rows += impactRowHtml('⚠️', '<b style="color:var(--ats-red)">' + im.placed_application_count + ' doctor' +
+        (im.placed_application_count === 1 ? ' is' : 's are') + ' placed here.</b> Their placement will no longer point at this practice. Only delete if that placement is genuinely over.');
+    }
     if (im.member_count) {
       rows += impactRowHtml('🏢', '<b>' + im.member_count + ' member practice' + (im.member_count === 1 ? '' : 's') + '</b> will no longer be part of this group (they are not deleted).');
     }

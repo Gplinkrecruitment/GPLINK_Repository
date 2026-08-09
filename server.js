@@ -71320,7 +71320,18 @@ Return ONLY valid JSON with no markdown formatting:
           approval_status: j.approval_status || 'approved'
         };
       }),
-      applications: linked.map(function (a) { return { id: a.id, active: !atsIsRejectedApp(a) }; }),
+      // `placed` is called out separately from `active` on purpose: "1 still
+      // active" reads as a pipeline candidate, but a doctor who is actually
+      // PLACED at this practice is a very different thing to detach, and
+      // gp_applications is the authoritative store for that placement.
+      applications: linked.map(function (a) {
+        return {
+          id: a.id,
+          active: !atsIsRejectedApp(a),
+          placed: String(a.ats_stage || '') === 'hired'
+            || isCareerPlacementSecuredStatus(normalizeCareerApplicationStatusKey(a.status))
+        };
+      }),
       blockingApplicationIds: blocking.map(function (a) { return a.id; }),
       members: members
     };
@@ -71354,6 +71365,7 @@ Return ONLY valid JSON with no markdown formatting:
         public_job_count: dpImpact.jobs.filter(function (j) { return j.public; }).length,
         application_count: dpImpact.applications.length,
         active_application_count: dpImpact.applications.filter(function (a) { return a.active; }).length,
+        placed_application_count: dpImpact.applications.filter(function (a) { return a.placed; }).length,
         member_count: dpImpact.members.length,
         members: dpImpact.members
       },

@@ -272,6 +272,16 @@ describe('CEO Practices tab — delete control', () => {
     expect(practicesJs).toContain('The doctors, their interviews and their contracts are all kept.');
   });
 
+  it('calls out a PLACED doctor separately from an active applicant', () => {
+    // "1 still active" reads like a pipeline candidate; detaching a live
+    // placement is a materially bigger deal and gets its own red line.
+    expect(practicesJs).toContain('im.placed_application_count');
+    expect(practicesJs).toContain('placed here.');
+    expect(practicesJs).toContain('Only delete if that placement is genuinely over.');
+    expect(serverJs).toContain('placed_application_count:');
+    expect(serverJs).toContain("placed: String(a.ats_stage || '') === 'hired'");
+  });
+
   it('points at Archive as the reversible alternative', () => {
     expect(practicesJs).toContain('This cannot be undone.');
     expect(practicesJs).toContain('Stage → Archived');

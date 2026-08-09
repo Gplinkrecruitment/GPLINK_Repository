@@ -161,6 +161,9 @@ describe('practice delete — runtime', () => {
     expect(r.body.impact.public_job_count).toBe(1);
     expect(r.body.impact.application_count).toBe(1);
     expect(r.body.impact.active_application_count).toBe(1);
+    // The seeded application is ats_stage 'hired', so it must be flagged as a
+    // live placement, not merely "active".
+    expect(r.body.impact.placed_application_count).toBe(1);
     // The letter is composed and previewable even though it cannot be sent here.
     expect(r.body.email.to).toBe('practice-delete-test@example.invalid');
     expect(r.body.email.cc).toEqual(['reception-delete-test@example.invalid']);
