@@ -2999,6 +2999,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='<button class="btn sm primary" data-generate-reply="'+esc(t.id)+'">'+(epReply?'\u2713 Reply Generated':'Generate Suggested Reply')+'</button>';
             html+=' <select data-tpl-insert data-tpl-task="'+esc(t.id)+'" data-tpl-target="et-reply-'+esc(t.id)+'" data-tpl-wrap="et-reply-wrap-'+esc(t.id)+'" data-tpl-first-name="'+esc(tplFirstName(u.gp_name||''))+'" data-tpl-gp-name="'+esc(u.gp_name||'')+'" data-tpl-practice-name="'+esc(u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||'')+'" style="font-size:12px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--bg1,#fff);color:var(--text);max-width:190px;vertical-align:middle"><option value="">Insert template\u2026</option></select>';
             html+='<div id="et-reply-wrap-'+esc(t.id)+'" style="display:'+(epReply?'block':'none')+';margin-top:8px">';
+            // Notes the draft flagged for the RSO live outside the textarea — see renderRsoNotes.
+            html+='<div id="et-rso-notes-'+esc(t.id)+'" style="display:none;margin-bottom:6px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>';
             html+='<textarea class="et-reply-area" id="et-reply-'+esc(t.id)+'">'+esc(epReply)+'</textarea>';
             html+='<div class="et-btn-row"><button class="btn sm" data-copy-reply="'+esc(t.id)+'">Copy to Clipboard</button>';
             if(gmailUrl)html+='<a class="btn sm" href="'+esc(gmailUrl)+'" target="_blank" rel="noopener">Open Gmail to Reply</a>';
@@ -4198,6 +4200,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function isTechnicalReviewReason(text){
     var t=String(text||'').trim();
     return !!t && TECHNICAL_SCAN_REASON_RE.test(t);
+  }
+  // An AI draft can flag things the RSO should check before sending. Those notes used to be
+  // written INTO the email body ("[RSO: please check the cc field of Dr Ranatunga's email…]")
+  // and a doctor received one. The server now separates them out; they render here, beside
+  // the composer, where they are visible but physically cannot be sent.
+  function renderRsoNotes(box,notes){
+    if(!box)return;
+    var list=(Array.isArray(notes)?notes:(notes?[notes]:[])).map(function(n){return String(n||'').trim();}).filter(Boolean);
+    if(!list.length){box.style.display='none';box.innerHTML='';return;}
+    box.innerHTML='<div style="font-weight:700;margin-bottom:4px">Check before sending — not part of the email</div>'
+      +'<ul style="margin:0;padding-left:16px">'+list.map(function(n){return '<li>'+esc(n)+'</li>';}).join('')+'</ul>';
+    box.style.display='block';
   }
   async function openReviewDocModal(taskId){
     var _pools=[].concat(S.tasks||[],S.opsTasksAll||[],S.opsTasks||[]);
@@ -5580,6 +5594,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h4+='</div>';
       }
       h4+='<div class="ops-expand-label">'+(prReady?'Suggested follow-up — review, edit, then send':'Follow-up reply')+'</div>';
+      // Anything the AI flagged for the RSO renders above the composer, never inside the body
+      // it is about to send (see lib/internal-note-guard.js).
+      if(pr&&pr.rso_notes)h4+='<div style="margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"><b>Check before sending — not part of the email</b><br>'+esc(pr.rso_notes)+'</div>';
       h4+='<div class="ops-email-composer">';
       h4+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc((lastInbound&&lastInbound.sender)||practiceEmail)+'" /></div>';
       h4+='<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="'+esc(task.id)+'" multiple style="min-height:28px"><option value="">Loading contacts...</option></select></div>';
@@ -6548,6 +6565,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             var replyArea=document.getElementById("et-reply-"+replyTaskId);
             if(replyWrap)replyWrap.style.display="block";
             if(replyArea)replyArea.value=rd.suggestedReply;
+            renderRsoNotes(document.getElementById("et-rso-notes-"+replyTaskId),rd.rsoNotes);
             replyBtn.textContent="\u2713 Reply Generated";
             // Persist in state so re-renders don't lose it
             if(!S.openEmailPanels[replyTaskId])S.openEmailPanels[replyTaskId]={};
@@ -8434,8 +8452,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         '<div class="hub-suggest-row"><button class="hub-suggest"'+(((sel&&sel.latestTaskId)||header.latestTaskId)?'':' disabled')+'>✦ Suggest a reply</button>'+
         '<select data-tpl-insert data-tpl-first-name="'+esc(tplFirstName(header.name))+'" data-tpl-gp-name="'+esc(header.name||'')+'" data-tpl-practice-name="'+esc(header.counterparty||'')+'" data-tpl-rso-name="'+esc(header.assignedRsoName||'')+'"'+(canSend?'':' disabled')+' style="font-size:12px;border:1px solid #d7dee8;border-radius:8px;padding:5px 8px;background:#fff;color:#374151;max-width:190px"><option value="">Insert template…</option></select>'+
         '<span class="hub-suggest-note">AI draft — review before sending</span></div>'+
+        // Anything the draft flagged for the RSO shows HERE, outside the textarea, so it
+        // cannot be sent by accident (a doctor once received "[RSO: please check the cc
+        // field…]" because the AI wrote it into the body).
+        '<div id="hubRsoNotes" style="display:none;margin:0 12px 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>'+
         fmtToolbarHtml("","margin:2px 12px 6px")+
         '<textarea id="hubReply" placeholder="'+(sel?"Type your reply…":"Type your new email…")+'"'+(canSend?"":" disabled")+'></textarea>'+
+        '<div id="hubSendErr" style="display:none;margin:0 12px 8px;padding:8px 10px;border:1px solid #fecaca;background:#fef2f2;border-radius:8px;font-size:12px;color:#b91c1c;font-weight:600"></div>'+
         '<div class="hub-composer-foot">'+
           (canSend?"":'<span class="hub-nosend">No reply address found for this conversation — open the case to reply.</span>')+
           '<button id="hubSend" class="hub-send"'+(canSend?"":" disabled")+'>'+(sel?"Send reply":"Send new email")+'</button></div></div>';
@@ -8482,6 +8505,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }).then(function(r){return r.json();}).then(function(j){
             var ta=panel.querySelector("#hubReply");
             if(ta&&j&&j.suggestedReply)ta.value=j.suggestedReply;
+            renderRsoNotes(panel.querySelector("#hubRsoNotes"),j&&j.rsoNotes);
             sgBtn.disabled=false;sgBtn.textContent="✦ Suggest a reply";
           }).catch(function(){sgBtn.disabled=false;sgBtn.textContent="✦ Suggest a reply";});
         });
@@ -8621,6 +8645,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         payload.newThread=true;
       }
       const sendBtn=panel.querySelector("#hubSend");if(sendBtn){sendBtn.disabled=true;sendBtn.textContent="Sending…";}
+      var errBox=panel.querySelector("#hubSendErr");
+      if(errBox){errBox.style.display="none";errBox.textContent="";}
       var resp=null;
       try{
         const r=await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
@@ -8628,6 +8654,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         resp=await r.json().catch(function(){return null;});
         if(!r.ok||!(resp&&resp.ok!==false))throw new Error((resp&&resp.message)||"send failed");
       }catch(e){
+        // This used to fail silently — the button just reset, so a refused send looked like a
+        // misclick. It matters most for the internal-note block (422): the RSO has to be told
+        // WHICH text to delete, or they will just press Send again.
+        if(errBox){errBox.textContent=e.message||"Could not send.";errBox.style.display="block";}
         if(sendBtn){sendBtn.disabled=false;sendBtn.textContent=sel?"Send reply":"Send new email";}
         return;
       }

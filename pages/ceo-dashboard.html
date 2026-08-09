@@ -5616,6 +5616,8 @@
       h += '<div class="et-section"><div class="et-section-title">Suggested Reply</div>';
       h += '<button class="btn sm primary" data-generate-reply="' + esc(t.id) + '">' + (epReply ? '✓ Reply Generated' : 'Generate Suggested Reply') + '</button>';
       h += '<div id="et-reply-wrap-' + esc(t.id) + '" style="display:' + (epReply ? 'block' : 'none') + ';margin-top:8px">';
+      // Notes the draft flagged for the RSO sit outside the textarea so they cannot be sent.
+      h += '<div id="et-rso-notes-' + esc(t.id) + '" style="display:none;margin-bottom:6px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"></div>';
       h += '<textarea class="et-reply-area" id="et-reply-' + esc(t.id) + '">' + esc(epReply) + '</textarea>';
       h += '<div class="et-btn-row"><button class="btn sm" data-copy-reply="' + esc(t.id) + '">Copy to Clipboard</button>';
       if (gmailUrl) h += '<a class="btn sm" href="' + ceoSafeUrl(gmailUrl) + '" target="_blank" rel="noopener">Open Gmail to Reply</a>';
@@ -5836,6 +5838,9 @@
           h += '</div>';
         }
         h += '<div class="ops-expand-label">' + (prReady ? 'Suggested follow-up — review, edit, then send' : 'Follow-up reply') + '</div>';
+        // Anything the AI flagged for the RSO renders above the composer, never inside the
+        // body it is about to send (see lib/internal-note-guard.js).
+        if (pr && pr.rso_notes) h += '<div style="margin:0 0 8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"><b>Check before sending — not part of the email</b><br>' + esc(pr.rso_notes) + '</div>';
         h += '<div class="ops-email-composer">';
         h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc((lastInbound && lastInbound.sender) || task.practice_contact_email || '') + '" /></div>';
         h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
@@ -6850,6 +6855,18 @@
     // handler, 5995–6026) via POST /api/admin/email-triage/suggest-reply. On success reveals the
     // reply textarea, fills it, and persists open+reply state in gpEmailPanels so a Tasks re-render
     // keeps the panel open with the generated text. NO email is sent — this only drafts a reply.
+    // Mirrors admin.html's renderRsoNotes: what the AI flagged for the RSO renders beside the
+    // composer, never inside it — a doctor once received "[RSO: please check the cc field…]"
+    // because the draft wrote it into the email body.
+    function ceoRenderRsoNotes(box, notes) {
+      if (!box) return;
+      var list = (Array.isArray(notes) ? notes : (notes ? [notes] : [])).map(function(n) { return String(n || '').trim(); }).filter(Boolean);
+      if (!list.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      box.innerHTML = '<div style="font-weight:700;margin-bottom:4px">Check before sending — not part of the email</div>'
+        + '<ul style="margin:0;padding-left:16px">' + list.map(function(n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
+      box.style.display = 'block';
+    }
+
     function ceoGenerateEmailReply(ev, taskId) {
       if (ev) { ev.stopPropagation(); }
       var btn = (ev && ev.target && ev.target.closest) ? ev.target.closest('[data-generate-reply]') : null;
@@ -6863,6 +6880,7 @@
           var replyArea = document.getElementById('et-reply-' + taskId);
           if (replyWrap) replyWrap.style.display = 'block';
           if (replyArea) replyArea.value = d.suggestedReply;
+          ceoRenderRsoNotes(document.getElementById('et-rso-notes-' + taskId), d.rsoNotes);
           if (btn) btn.textContent = '✓ Reply Generated';
           if (!gpEmailPanels[taskId]) gpEmailPanels[taskId] = {};
           gpEmailPanels[taskId].open = true;

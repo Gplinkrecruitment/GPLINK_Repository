@@ -174,6 +174,7 @@ const registrationHubInbox = require('./lib/registration-hub-inbox.js');
 const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
+const internalNoteGuard = require('./lib/internal-note-guard.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
@@ -48674,6 +48675,19 @@ async function handleApi(req, res, pathname) {
     if (!emailSubject) { sendJson(res, 400, { ok: false, message: 'subject is required.' }); return; }
     if (!emailBodyHtml && !emailBodyText) { sendJson(res, 400, { ok: false, message: 'bodyHtml or bodyText is required.' }); return; }
 
+    // Last line of defence before an internal note reaches a doctor or a practice. The
+    // drafting prompts no longer write them into the body and the suggest-reply endpoint
+    // strips any that slip through — but a note can also be pasted or typed by hand, and
+    // this endpoint is the single door every staff-composed email goes out of. Refusing is
+    // deliberate: a confirm dialog is exactly what gets clicked through in a hurry.
+    var emailNotes = internalNoteGuard.findInternalNotes(emailBodyText || '')
+      .concat(internalNoteGuard.findInternalNotes(emailBodyHtml || ''));
+    if (emailNotes.length) {
+      console.warn('[email/send] blocked — internal note in the body:', emailNotes[0]);
+      sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(emailNotes) });
+      return;
+    }
+
     // Resolve In-Reply-To/References from the latest inbound message's STORED RFC822 Message-ID
     // so the candidate's own email client threads our reply — independent of the per-mailbox
     // Gmail threadId (which can't be reused when we reply from a different mailbox than the one
@@ -58992,7 +59006,15 @@ Return ONLY valid JSON with no markdown formatting:
         clearTimeout(aiTimeout);
         if (!aiResp.ok) { sendJson(res, 502, { ok: false, message: 'AI request failed.' }); return; }
         var aiData = await aiResp.json();
-        var suggestedReply = (aiData.content && aiData.content[0] && aiData.content[0].text) || '';
+        var sgRaw = (aiData.content && aiData.content[0] && aiData.content[0].text) || '';
+        // Anything the model wrote FOR the RSO is separated here, before the draft ever
+        // reaches the composer — the composer sends its contents verbatim, and a doctor
+        // once received "[RSO: please check the cc field…]" because it did not.
+        var sgSplit = internalNoteGuard.splitDraftAndNotes(sgRaw);
+        var suggestedReply = sgSplit.body;
+        if (sgSplit.notes.length) {
+          console.log('[suggest-reply] held back ' + sgSplit.notes.length + ' internal note(s) from the draft');
+        }
 
         if (aiData.usage) {
           recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0, aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
@@ -59001,6 +59023,7 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 200, {
           ok: true,
           suggestedReply: suggestedReply,
+          rsoNotes: sgSplit.notes,
           context: {
             gp_name: gpName,
             stage: regCase.stage,
@@ -62198,6 +62221,13 @@ Return ONLY valid JSON with no markdown formatting:
     if (!rfTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
     if (rfDecision !== 'approve' && rfDecision !== 'reject') { sendJson(res, 400, { ok: false, message: 'decision must be approve or reject.' }); return; }
     if (rfDecision === 'reject' && !rfNote) { sendJson(res, 400, { ok: false, message: 'A reason is required when rejecting — the GP will see it.' }); return; }
+    // The note IS the rejection email body, sent to the doctor verbatim — so it gets the
+    // same refusal as the composer if an internal note is still sitting in it.
+    var rfNotes = internalNoteGuard.findInternalNotes(rfNote);
+    if (rfNotes.length) {
+      sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(rfNotes) });
+      return;
+    }
 
     const rfTaskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rfTaskId) + '&limit=1');
     const rfTask = rfTaskRes.ok && Array.isArray(rfTaskRes.data) && rfTaskRes.data[0] ? rfTaskRes.data[0] : null;
