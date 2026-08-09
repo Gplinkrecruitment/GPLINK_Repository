@@ -186,9 +186,97 @@
         '</div>' +
       '</div>' +
       '<div id="atsPracticeList">' + practiceSectionsHtml(practices) + '</div>' +
+      '<div id="atsDeletedSection" style="margin-top:26px"></div>' +
       '<div id="atsTeamSection" style="margin-top:26px"></div>';
     updateCount(d);
+    loadDeletedSection();
     loadTeamSection();
+  }
+
+  // ==================== RECENTLY DELETED (12-month archive) ====================
+  // Deleting a practice archives it — with its job openings — for 12 months
+  // rather than destroying it. This section is where it waits, and where it is
+  // brought back. Same server-is-the-gate arrangement as the team section:
+  // /api/ats/practices/deleted is requireCeoSession, so a consultant's fetch
+  // comes back !ok and the section simply never renders.
+  function loadDeletedSection() {
+    var host = document.getElementById('atsDeletedSection');
+    if (!host) return;
+    if (ATS.isConsultant && ATS.isConsultant()) return;
+    ATS.api('/api/ats/practices/deleted').then(function (d) {
+      var section = document.getElementById('atsDeletedSection');
+      if (!section) return;
+      if (!d || !d.ok || !d.practices || !d.practices.length) { section.innerHTML = ''; return; }
+      section.innerHTML = deletedSectionHtml(d);
+    });
+  }
+
+  // "3 days left" once it is close, months while it is far off — a countdown in
+  // days is noise at 300+ days and the only number that matters near the end.
+  function restoreWindowLabel(row) {
+    var days = row.days_left;
+    if (days == null) return 'Restore window unknown';
+    if (row.purge_due) return 'Due to be permanently deleted';
+    if (days <= 31) return days + (days === 1 ? ' day' : ' days') + ' left to restore';
+    return Math.round(days / 30) + ' months left to restore';
+  }
+
+  function deletedRowHtml(r) {
+    var name = r.name || '—';
+    var urgent = r.days_left != null && r.days_left <= 31;
+    return '<div class="ats-mini-job" style="cursor:default">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div class="ats-avatar" style="background:' + ATS.avatarColor(name) + ';opacity:.55">' + ATS.esc(ATS.initials(name)) + '</div>' +
+        '<div>' +
+          '<div class="mj-title">' + ATS.esc(name) + '</div>' +
+          '<div class="mj-sub">' + ATS.esc(r.city || '—') + ', ' + ATS.esc(r.state || '') +
+            ' · ' + (r.job_count ? r.job_count + ' job' + (r.job_count === 1 ? '' : 's') + ' archived with it' : 'no jobs attached') +
+            ' · deleted ' + ATS.esc(shortDate(r.deleted_at)) +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<span class="ats-pill ' + (urgent ? 'amber' : 'muted') + '">' + ATS.esc(restoreWindowLabel(r)) + '</span>' +
+        '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="restore-practice" data-id="' + ATS.escAttr(r.id) + '">↩ Restore</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function shortDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function deletedSectionHtml(d) {
+    var rows = d.practices || [];
+    var months = d.retention_months || 12;
+    return '<details>' +
+      '<summary style="cursor:pointer;color:var(--ats-dim);font-size:13px;font-weight:500">' +
+        '🗑 Recently deleted (' + rows.length + ')</summary>' +
+      '<p style="font-size:12px;color:var(--ats-dim);margin:10px 0 12px">' +
+        'Deleted practices are kept for ' + months + ' months and can be restored with their job openings. ' +
+        'After that they are permanently deleted.</p>' +
+      '<div class="ats-card">' + rows.map(deletedRowHtml).join('') + '</div>' +
+    '</details>';
+  }
+
+  function restorePractice(id, btn) {
+    if (!id) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Restoring…'; }
+    ATS.api('/api/ats/practice/restore', { method: 'POST', body: { id: id } }).then(function (d) {
+      if (!d || !d.ok) {
+        if (btn) { btn.disabled = false; btn.textContent = '↩ Restore'; }
+        ATS.toast((d && d.message) || 'Could not restore the practice');
+        return;
+      }
+      var r = d.restored || {};
+      var msg = (r.name || 'Practice') + ' restored';
+      if (r.jobs_total) msg += ' · ' + r.jobs_restored + ' of ' + r.jobs_total + ' job' + (r.jobs_total === 1 ? '' : 's') + ' back';
+      ATS.toast(msg);
+      loadPracticesTab();
+    });
   }
 
   // ==================== TEAM ACCESS (super-admin only) ====================
@@ -1060,18 +1148,20 @@
     var em = d.email || {};
     var name = p.name || 'this practice';
 
+    var months = (d.retention && d.retention.months) || 12;
     var rows = '';
     if (im.job_count) {
       // Retiring the jobs is not a nicety: a live job re-creates the practice
       // in the directory (it is grouped by practice_name) and keeps the role
       // on the public board.
-      rows += impactRowHtml('💼', '<b>' + im.job_count + ' job listing' + (im.job_count === 1 ? '' : 's') + '</b> will be closed' +
-        (im.public_job_count ? ' — ' + im.public_job_count + ' of them ' + (im.public_job_count === 1 ? 'is' : 'are') + ' live on the public jobs board right now' : ''));
+      rows += impactRowHtml('💼', '<b>' + im.job_count + ' job opening' + (im.job_count === 1 ? '' : 's') + '</b> will be deleted with it' +
+        (im.public_job_count ? ' — ' + im.public_job_count + ' of them ' + (im.public_job_count === 1 ? 'is' : 'are') + ' live on the public jobs board right now' : '') +
+        '. They come back together if you restore.');
     }
     if (im.application_count) {
-      rows += impactRowHtml('👥', '<b>' + im.application_count + ' candidate application' + (im.application_count === 1 ? '' : 's') + '</b> will be unlinked from this practice' +
+      rows += impactRowHtml('👥', '<b>' + im.application_count + ' candidate application' + (im.application_count === 1 ? '' : 's') + '</b> stay' + (im.application_count === 1 ? 's' : '') + ' on file' +
         (im.active_application_count ? ' (' + im.active_application_count + ' still active)' : '') +
-        '. The doctors, their interviews and their contracts are all kept.');
+        '. Nothing about the doctors, their interviews or their contracts is touched.');
     }
     // A placed doctor is worth its own line — "1 still active" reads like a
     // pipeline candidate, and detaching a live placement is a much bigger deal.
@@ -1115,7 +1205,11 @@
       '<div class="ats-modal">' +
         '<div class="ats-modal-head"><h3>Delete ' + ATS.esc(name) + '?</h3><button class="ats-drawer-close" data-ats="close-modal">×</button></div>' +
         '<div class="ats-modal-body">' +
-          '<p class="ats-danger-note"><b>This cannot be undone.</b> The practice record is removed permanently. If you only want it off the active list, close this and set <b>Stage → Archived</b> instead.</p>' +
+          '<p class="ats-danger-note"><b>Kept for ' + months + ' months, then permanently deleted.</b> ' +
+            'The practice and its job openings disappear from the app straight away. You can bring them all back from ' +
+            '<b>Recently deleted</b> at the bottom of the Practices list' +
+            (d.retention && d.retention.purge_after ? ' until <b>' + ATS.esc(shortDate(d.retention.purge_after)) + '</b>' : '') +
+            '.</p>' +
           '<ul class="ats-impact-list">' + rows + '</ul>' +
           emailBlock +
           '<label class="ats-label-plain" for="atsDelConfirm">Type <b>' + ATS.esc(name) + '</b> to confirm</label>' +
@@ -1186,9 +1280,12 @@
       // Report the email honestly: the practice IS deleted either way, so a
       // failed send must not read as a failed delete.
       var em = d.email || {};
+      var del = d.deleted || {};
       var msg = (name || 'Practice') + ' deleted';
+      if (del.jobs_retired) msg += ' · ' + del.jobs_retired + ' job' + (del.jobs_retired === 1 ? '' : 's') + ' closed';
       if (em.requested && em.sent) msg += ' · thank-you email sent';
       else if (em.requested && !em.sent) msg += ' · thank-you email could NOT be sent';
+      msg += ' · restorable for ' + (del.retention_months || 12) + ' months';
       ATS.toast(msg);
       loadPracticesTab();
     });
@@ -1205,6 +1302,7 @@
     else if (action === 'back-list') loadPracticesTab();
     else if (action === 'edit-practice') openEditModal();
     else if (action === 'delete-practice') openDeleteModal();
+    else if (action === 'restore-practice') restorePractice(id, t);
     else if (action === 'invite-consultant') inviteConsultant(t);
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'resend-intake') resendIntake(id, t);

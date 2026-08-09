@@ -83,7 +83,7 @@ describe('CEO Practices tab UI (Phase 3 Task 3)', () => {
   });
 
   it('ceo-dashboard.html loads the bumped script', () => {
-    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260810b/);
+    expect(ceo).toMatch(/\/js\/ceo-ats-practices\.js\?v=20260810c/);
   });
 });
 

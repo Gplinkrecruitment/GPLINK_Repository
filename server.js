@@ -8875,6 +8875,7 @@ const CRON_SCHEDULES = {
   'detect-no-shows': { schedule: '*/10 * * * *', cadenceMinutes: 10 },
   'purge-accounts': { schedule: '0 4 * * *', cadenceMinutes: 1440 },
   'purge-identity-docs': { schedule: '0 4 * * *', cadenceMinutes: 1440 },
+  'purge-practices': { schedule: '15 4 * * *', cadenceMinutes: 1440 },
   'check-model-updates': { schedule: '0 5 * * 1', cadenceMinutes: 10080 },
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
@@ -31742,15 +31743,15 @@ async function atsUpdatePracticeRow(id, patch) {
   Object.assign(p, patch); saveDbState(); return p;
 }
 
-// Hard-delete one practices row (POST /api/ats/practice/delete only).
+// Hard-delete one practices row. ONLY reachable from
+// /api/cron/purge-practices, once the 12-month archive has expired — the
+// "Delete" button in the UI archives (see metadata.deleted) and destroys
+// nothing.
 //
 // Returns { ok, status, error } rather than a row/null, because the CALLER has
 // to tell a blocked delete apart from a missing row: `gp_applications.practice_id`
 // is ON DELETE NO ACTION, so a lingering application 409s the delete and the
-// staff member needs to be told that, not a generic failure.
-//
-// Not exposed anywhere else on purpose — every other "remove a practice"
-// gesture in the app is the reversible stage=archived one.
+// purge needs to leave that practice archived and retry next run.
 async function atsDeletePracticeRow(id) {
   if (isSupabaseDbConfigured()) {
     var r = await supabaseDbRequest('practices', 'id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
@@ -32094,6 +32095,12 @@ async function atsListPracticesDerived() {
   stored.forEach(function (p) {
     var name = String(p.name || '').trim(); if (!name) return;
     var k = name.toLowerCase();
+    // Soft-deleted (12-month archive): the practice is gone from every surface
+    // built on this builder — the directory, the detail page, the job/practice
+    // maps — until it is restored or purged. Deleting the key as well as
+    // skipping the merge matters: a job that somehow survived retirement would
+    // otherwise leave a name-only ghost card standing in its place.
+    if (atsPracticeUtil.isPracticeDeleted(p)) { delete byKey[k]; return; }
     if (!byKey[k]) byKey[k] = { id: p.id, name: name, location_country: 'Australia', jobs: [] };
     var e = byKey[k];
     e.id = p.id; // a real practices-table row id wins over the synthetic name-id
@@ -32285,6 +32292,11 @@ async function atsResolvePractice(id) {
   if (byId) return byId;
   var row = await atsGetPracticeRow(parsed.rowId);
   if (!row) return null;
+  // This direct-row fallback bypasses the derived list, so it has to re-apply
+  // the soft-delete filter itself — otherwise an archived practice would still
+  // resolve (and render) on its detail page. The restore/purge paths read the
+  // row through atsGetPracticeRow directly and are unaffected.
+  if (atsPracticeUtil.isPracticeDeleted(row)) return null;
   var rk = String(row.name || '').toLowerCase();
   return all.find(function (p) { return String(p.name || '').toLowerCase() === rk; }) || {
     id: row.id, name: row.name, location_city: row.location_city, location_state: row.location_state,
@@ -32362,6 +32374,29 @@ async function atsUpdateJobRow(id, patch) {
   var j = (dbState.atsJobs || []).find(function (x) { return String(x.id) === String(id); });
   if (!j) return null;
   Object.assign(j, patch); saveDbState(); return j;
+}
+
+// Hard-delete one career_roles row. ONLY used by /api/cron/purge-practices,
+// once a practice's 12-month archive has expired — nothing else in the app
+// destroys a job (the normal "close a job" gesture is is_active/job_status).
+//
+// Returns {ok,status,error} rather than a boolean because a 409 here is
+// meaningful and must not fail the whole purge: `pending_hires.career_role_id`
+// is ON DELETE NO ACTION, so a job tied to a pending hire refuses to go. The
+// caller logs it, leaves that practice archived, and retries on the next run.
+async function atsDeleteJobRow(id) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!r.ok) {
+      return { ok: false, status: r.status, error: (r.data && r.data.message) || '' };
+    }
+    return { ok: true, status: r.status };
+  }
+  var before = (dbState.atsJobs || []).length;
+  dbState.atsJobs = (dbState.atsJobs || []).filter(function (j) { return String(j.id) !== String(id); });
+  if (dbState.atsJobs.length === before) return { ok: false, status: 404, error: 'Job not found.' };
+  saveDbState();
+  return { ok: true, status: 204 };
 }
 
 // AI job write-up (2026-07-18 design doc): server-side fetch of the
@@ -40863,6 +40898,75 @@ async function handleApi(req, res, pathname) {
     }
     console.log('[purge-accounts] due=' + rows.length + ' purged=' + purged + ' retained=' + retained + ' dryRun=' + (!enabled) + ' candidates=' + JSON.stringify(candidates));
     sendJson(res, 200, { ok: true, due: rows.length, purged, retained, dryRun: !enabled });
+    return;
+  }
+
+  // ── Cron: permanently purge practices whose 12-month archive has expired ────
+  //    This is the ONLY place a practice or a job opening is really destroyed.
+  //    Mirrors purge-accounts: auto-erase ON by default, PRACTICE_PURGE_DISABLED=true
+  //    turns it into a dry-run that only logs what it WOULD remove.
+  //
+  //    Order matters, and is the mirror image of the FK map documented at the
+  //    delete endpoint:
+  //      1. career_roles rows — deleted outright ("after 12 months they are
+  //         completely deleted"). A job blocked by pending_hires (NO ACTION) is
+  //         skipped and logged rather than failing the whole purge.
+  //      2. gp_applications.practice_id -> null. UNLINKED, never deleted:
+  //         career_contracts / career_interviews CASCADE off the application,
+  //         so deleting it would silently destroy the doctor's history.
+  //      3. the practices row.
+  //    A practice whose row will not delete keeps its archive record, so the
+  //    next run simply tries again instead of leaving orphaned jobs behind.
+  if (req.method === 'GET' && pathname === '/api/cron/purge-practices') {
+    const ppToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(ppToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    const ppEnabled = String(process.env.PRACTICE_PURGE_DISABLED || '').trim() !== 'true';
+    const ppNowIso = new Date().toISOString();
+    const ppAll = await atsListPracticeRows();
+    const ppDue = ppAll.filter(function (p) { return atsPracticeUtil.practicePurgeDue(p, ppNowIso); });
+    let ppPurged = 0, ppFailed = 0, ppJobsDeleted = 0, ppJobsBlocked = 0, ppAppsUnlinked = 0;
+    const ppNames = [];
+    for (const prow of ppDue) {
+      ppNames.push(prow.name || prow.id);
+      if (!ppEnabled) continue;
+      const prec = atsPracticeUtil.readPracticeDeletion(prow);
+      // 1. The job openings.
+      let ppRowBlocked = false;
+      for (const saved of (prec ? prec.jobs : [])) {
+        const delOk = await atsDeleteJobRow(saved.id);
+        if (delOk.ok) ppJobsDeleted++;
+        else { ppJobsBlocked++; ppRowBlocked = true; console.error('[purge-practices] job', saved.id, 'could not be deleted:', delOk.error || delOk.status); }
+      }
+      // 2. Unlink any application still pointing at the practice.
+      const ppApps = await atsListApplicationRows({});
+      for (const a of ppApps) {
+        if (!a.practice_id || String(a.practice_id) !== String(prow.id)) continue;
+        if (isSupabaseDbConfigured()) {
+          const ur = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(a.id), { method: 'PATCH', body: { practice_id: null } });
+          if (ur.ok) ppAppsUnlinked++; else ppRowBlocked = true;
+        } else {
+          const la = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(a.id); });
+          if (la) { la.practice_id = null; saveDbState(); ppAppsUnlinked++; }
+        }
+      }
+      // 3. The practice row — only once nothing is left pointing at it.
+      if (ppRowBlocked) {
+        ppFailed++;
+        console.error('[purge-practices] leaving', JSON.stringify(prow.name || prow.id), 'archived — something could not be removed; will retry next run');
+        continue;
+      }
+      const ppDel = await atsDeletePracticeRow(prow.id);
+      if (ppDel.ok) ppPurged++;
+      else { ppFailed++; console.error('[purge-practices] practice', prow.id, 'delete failed:', ppDel.error || ppDel.status); }
+    }
+    console.log('[purge-practices] due=' + ppDue.length + ' purged=' + ppPurged + ' failed=' + ppFailed +
+      ' jobsDeleted=' + ppJobsDeleted + ' jobsBlocked=' + ppJobsBlocked + ' appsUnlinked=' + ppAppsUnlinked +
+      ' dryRun=' + (!ppEnabled) + ' candidates=' + JSON.stringify(ppNames));
+    sendJson(res, 200, {
+      ok: true, due: ppDue.length, purged: ppPurged, failed: ppFailed,
+      jobs_deleted: ppJobsDeleted, jobs_blocked: ppJobsBlocked,
+      applications_unlinked: ppAppsUnlinked, dryRun: !ppEnabled
+    });
     return;
   }
 
@@ -71183,6 +71287,17 @@ Return ONLY valid JSON with no markdown formatting:
       var pcDup = pcErr && (pcErr.status === 409 || pcBody.code === '23505' ||
         String(pcBody.message || '').indexOf('idx_practices_name_lower') !== -1);
       if (pcDup) {
+        // The clashing row may be one sitting in the 12-month deleted archive,
+        // in which case "already exists" is baffling — it is nowhere in the
+        // list. Name the real situation and point at the fix.
+        var pcExisting = (await atsListPracticeRows()).find(function (p) {
+          return String(p.name || '').trim().toLowerCase() === pracRow.name.trim().toLowerCase();
+        });
+        if (pcExisting && atsPracticeUtil.isPracticeDeleted(pcExisting)) {
+          sendJson(res, 409, { ok: false, code: 'duplicate_name_deleted',
+            message: '“' + pracRow.name + '” is in Recently deleted (at the bottom of the Practices list). Restore it instead of creating a new one, or pick a different name.' });
+          return;
+        }
         sendJson(res, 409, { ok: false, code: 'duplicate_name',
           message: 'A practice called “' + pracRow.name + '” already exists. Pick a different name — names are matched ignoring capitals.' });
         return;
@@ -71434,9 +71549,31 @@ Return ONLY valid JSON with no markdown formatting:
   //   practices.parent_corporation_id  SET NULL — deleting a corporation just
   //     unlinks its members (they survive as standalone practices).
   //
-  // So the sequence is: unlink applications -> delete the row -> retire the
-  // jobs -> send the thank-you letter. If the row delete fails, the unlinked
-  // applications are put back before returning the error.
+  // ── 12-MONTH ARCHIVE (owner-directed 2026-08-10) ──
+  // "Delete" is a SOFT delete. The practice and every job opening attached to
+  // it are archived together, stay restorable together for 12 months, and only
+  // then are they purged for real by /api/cron/purge-practices. So:
+  //
+  //   delete  = write metadata.deleted (with a full restore snapshot) + retire
+  //             the jobs + send the thank-you letter. Nothing is destroyed, so
+  //             the gp_applications FK never even comes into play and the
+  //             candidate keeps their link to the practice.
+  //   restore = put the jobs back exactly as they were, drop the record.
+  //   purge   = the genuinely destructive path, 12 months later. THAT is where
+  //             the FK map above bites, and where applications get unlinked
+  //             (never deleted) before the rows go.
+
+  // How long a deleted practice stays restorable. 12 months by default (owner's
+  // spec); PRACTICE_DELETE_RETENTION_MONTHS overrides it, which is how the
+  // lifecycle test drives a purge without waiting a year. A junk or negative
+  // value falls back to the default rather than silently shortening retention.
+  function atsPracticeRetentionMonths() {
+    var raw = String(process.env.PRACTICE_DELETE_RETENTION_MONTHS || '').trim();
+    if (!raw) return atsPracticeUtil.PRACTICE_DELETE_RETENTION_MONTHS;
+    var n = Number(raw);
+    if (!isFinite(n) || n < 0) return atsPracticeUtil.PRACTICE_DELETE_RETENTION_MONTHS;
+    return n;
+  }
 
   // Shared by the preview and the delete itself, so the numbers the staff
   // member confirms are the numbers that are actually acted on.
@@ -71465,6 +71602,9 @@ Return ONLY valid JSON with no markdown formatting:
     return {
       rowId: parsed.rowId || null,
       isDerived: !!parsed.name,
+      // The raw rows — the archive needs each job's CURRENT is_active /
+      // job_status / approval_status so a restore can put it back exactly.
+      jobRows: jobs,
       jobs: jobs.map(function (j) {
         return {
           id: j.id, title: j.title || '',
@@ -71523,6 +71663,12 @@ Return ONLY valid JSON with no markdown formatting:
         member_count: dpImpact.members.length,
         members: dpImpact.members
       },
+      // The archive window, so the modal can promise a restore window it will
+      // actually get rather than hard-coding "12 months" in two places.
+      retention: {
+        months: atsPracticeRetentionMonths(),
+        purge_after: atsPracticeUtil.addMonthsIso(new Date().toISOString(), atsPracticeRetentionMonths())
+      },
       email: {
         // The letter can only go somewhere if we hold an address for them.
         available: !!dpEmail && isEmailConfigured(),
@@ -71555,8 +71701,6 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     var pdImpact = await atsBuildPracticeDeletionImpact(pdPractice);
-    // Snapshot the contact details BEFORE the row goes — the letter is built
-    // from this, and after the delete there is nothing left to read.
     var pdSnapshot = {
       name: pdPractice.name || '',
       contact_name: pdPractice.contact_name || '',
@@ -71564,80 +71708,69 @@ Return ONLY valid JSON with no markdown formatting:
       secondary_contacts: pdPractice.secondary_contacts || []
     };
 
-    // 1. Unlink the applications that would otherwise block the delete. Their
-    //    original practice_id is kept so a failed delete can put it back — an
-    //    application must never be left orphaned by a delete that didn't happen.
-    var pdUnlinked = [];
-    var pdUnlinkFailed = null;
-    for (var pdUi = 0; pdUi < pdImpact.blockingApplicationIds.length; pdUi++) {
-      var pdAppId = pdImpact.blockingApplicationIds[pdUi];
-      var pdOk = false;
-      if (isSupabaseDbConfigured()) {
-        var pdUr = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdAppId),
-          { method: 'PATCH', body: { practice_id: null } });
-        pdOk = !!pdUr.ok;
-      } else {
-        var pdLocalApp = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(pdAppId); });
-        if (pdLocalApp) { pdLocalApp.practice_id = null; saveDbState(); pdOk = true; }
+    // 1. A name-only practice (one that exists purely as a practice_name on
+    //    jobs) has no row to archive, and retiring its jobs would make it
+    //    vanish with nothing left to restore FROM. Give it a real row first, so
+    //    it lands in "Recently deleted" and can be brought back like any other.
+    var pdRowId = pdImpact.rowId;
+    if (!pdRowId) {
+      var pdCreated = await atsInsertPracticeRow({
+        name: pdSnapshot.name,
+        location_city: pdPractice.location_city || '', location_state: pdPractice.location_state || '',
+        location_country: 'Australia', practice_type: pdPractice.practice_type || '',
+        contact_name: pdSnapshot.contact_name, contact_email: pdSnapshot.contact_email,
+        contact_phone: pdPractice.contact_phone || '',
+        source: pdPractice.source || 'internal_ats', stage: 'archived', is_active: false,
+        created_by: ctxPD.email || ''
+      });
+      if (!pdCreated) {
+        sendJson(res, 502, { ok: false, message: 'Could not archive this practice (it has no stored record and one could not be created). Nothing was changed.' });
+        return;
       }
-      if (pdOk) pdUnlinked.push(pdAppId);
-      else { pdUnlinkFailed = pdAppId; break; }
+      pdRowId = pdCreated.id;
     }
 
-    // Restores every application we just unlinked. Used on any failure below,
-    // so a half-done delete never leaves candidates detached from a live practice.
-    async function pdRestoreApplications() {
-      for (var ri = 0; ri < pdUnlinked.length; ri++) {
-        if (isSupabaseDbConfigured()) {
-          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(pdUnlinked[ri]),
-            { method: 'PATCH', body: { practice_id: pdImpact.rowId } }).catch(function () {});
-        } else {
-          var la = (dbState.atsApplications || []).find(function (a) { return String(a.id) === String(pdUnlinked[ri]); });
-          if (la) { la.practice_id = pdImpact.rowId; saveDbState(); }
-        }
-      }
-    }
-
-    if (pdUnlinkFailed) {
-      await pdRestoreApplications();
-      sendJson(res, 502, { ok: false, message: 'Could not unlink a candidate application from this practice, so nothing was deleted. Please try again.' });
+    // 2. Archive the practice: the record carries everything needed to put it
+    //    AND its jobs back, plus the purge date 12 months out. Written BEFORE
+    //    the jobs are retired, so a failure here leaves the jobs untouched and
+    //    the practice exactly as it was.
+    //    `metadata` is shared with intake/agreement state — merge, never replace.
+    var pdCurrentRow = await atsGetPracticeRow(pdRowId);
+    var pdDeletionRecord = atsPracticeUtil.buildPracticeDeletionRecord({
+      practice: pdCurrentRow || pdPractice,
+      jobs: pdImpact.jobRows,
+      actorEmail: ctxPD.email || '',
+      nowIso: new Date().toISOString(),
+      retentionMonths: atsPracticeRetentionMonths()
+    });
+    var pdMergedMeta = Object.assign({},
+      (pdCurrentRow && pdCurrentRow.metadata && typeof pdCurrentRow.metadata === 'object') ? pdCurrentRow.metadata : {},
+      { deleted: pdDeletionRecord });
+    var pdArchived = await atsUpdatePracticeRow(pdRowId, {
+      metadata: pdMergedMeta,
+      // Belt and braces: any code path that has never heard of metadata.deleted
+      // still sees an archived, inactive practice rather than a live client.
+      stage: 'archived',
+      is_active: false
+    });
+    if (!pdArchived) {
+      sendJson(res, 502, { ok: false, message: 'Could not archive the practice. Nothing was changed.' });
       return;
     }
 
-    // 2. Delete the practices row itself (a name-only practice has none — for
-    //    those, retiring the jobs below IS the deletion).
-    if (pdImpact.rowId) {
-      var pdDel = await atsDeletePracticeRow(pdImpact.rowId);
-      if (!pdDel.ok) {
-        await pdRestoreApplications();
-        // 409 = a foreign key still points here. Say which one, rather than
-        // leaving the staff member with an unexplained failure.
-        if (pdDel.status === 409) {
-          sendJson(res, 409, { ok: false, code: 'still_referenced',
-            message: 'This practice is still linked to other records, so it could not be deleted. Archive it instead, or tell an engineer: ' + (pdDel.error || 'foreign key conflict') });
-          return;
-        }
-        sendJson(res, 502, { ok: false, message: pdDel.error ? ('Could not delete the practice: ' + pdDel.error) : 'Could not delete the practice.' });
-        return;
-      }
-    }
-
-    // 3. Retire the job listings. Without this the jobs stay on the public
-    //    board AND rebuild the practice as a name-only card (see the note
-    //    above). `pending` also has to move, because the directory merges
-    //    pending jobs in alongside active ones.
+    // 3. Retire the job openings alongside it. This is what takes them off the
+    //    public board and out of the Jobs tab; the snapshot above remembers the
+    //    state each one was in so a restore can put it back exactly.
     var pdJobsRetired = 0;
-    for (var pdJi = 0; pdJi < pdImpact.jobs.length; pdJi++) {
-      var pdJob = pdImpact.jobs[pdJi];
-      var pdJobPatch = { is_active: false, job_status: 'closed' };
-      if (pdJob.approval_status === 'pending') pdJobPatch.approval_status = 'rejected';
-      var pdUpdated = await atsUpdateJobRow(pdJob.id, pdJobPatch).catch(function () { return null; });
+    for (var pdJi = 0; pdJi < pdImpact.jobRows.length; pdJi++) {
+      var pdJob = pdImpact.jobRows[pdJi];
+      var pdUpdated = await atsUpdateJobRow(pdJob.id, atsPracticeUtil.retiredJobPatch(pdJob)).catch(function () { return null; });
       if (pdUpdated) pdJobsRetired++;
       else console.error('[practice-delete] could not retire job', pdJob.id, 'for', pdSnapshot.name);
     }
 
-    // 4. The thank-you letter. Sent LAST and never allowed to fail the delete —
-    //    the practice is already gone, so an email problem is reported, not thrown.
+    // 4. The thank-you letter. Sent LAST and never allowed to fail the
+    //    archive — an email problem is reported, not thrown.
     var pdSendEmail = bodyPD.send_email !== false; // default ON
     var pdEmailResult = { requested: pdSendEmail, sent: false, to: pdSnapshot.contact_email, error: '' };
     if (pdSendEmail) {
@@ -71646,21 +71779,95 @@ Return ONLY valid JSON with no markdown formatting:
       if (!pdEmailResult.sent) pdEmailResult.error = (pdSent && (pdSent.error || pdSent.message)) || 'send_failed';
     }
 
-    console.log('[practice-delete]', ctxPD.email || 'unknown', 'deleted practice',
+    console.log('[practice-delete]', ctxPD.email || 'unknown', 'archived practice',
       JSON.stringify(pdSnapshot.name), '— jobs retired:', pdJobsRetired,
-      'applications unlinked:', pdUnlinked.length, 'email sent:', pdEmailResult.sent);
+      'restorable until:', pdDeletionRecord.purge_after, 'email sent:', pdEmailResult.sent);
 
     sendJson(res, 200, {
       ok: true,
       deleted: {
+        id: pdRowId,
         name: pdSnapshot.name,
-        row_deleted: !!pdImpact.rowId,
         jobs_retired: pdJobsRetired,
-        jobs_total: pdImpact.jobs.length,
-        applications_unlinked: pdUnlinked.length,
-        members_unlinked: pdImpact.members.length
+        jobs_total: pdImpact.jobRows.length,
+        members_unlinked: pdImpact.members.length,
+        purge_after: pdDeletionRecord.purge_after,
+        retention_months: pdDeletionRecord.retention_months
       },
       email: pdEmailResult
+    });
+    return;
+  }
+
+  // Everything currently in the 12-month archive, newest first, each with how
+  // long is left to restore it. Powers the "Recently deleted" section.
+  if (pathname === '/api/ats/practices/deleted' && req.method === 'GET') {
+    var ctxDL = requireCeoSession(req, res); if (!ctxDL) return;
+    var dlRows = await atsListPracticeRows();
+    var dlNow = new Date().toISOString();
+    var dlOut = [];
+    dlRows.forEach(function (p) {
+      var rec = atsPracticeUtil.readPracticeDeletion(p);
+      if (!rec) return;
+      dlOut.push({
+        id: p.id, name: p.name || '',
+        city: p.location_city || '', state: p.location_state || '',
+        deleted_at: rec.at, deleted_by: rec.by, purge_after: rec.purgeAfter,
+        days_left: atsPracticeUtil.practiceRestoreDaysLeft(p, dlNow),
+        job_count: rec.jobs.length,
+        purge_due: atsPracticeUtil.practicePurgeDue(p, dlNow)
+      });
+    });
+    dlOut.sort(function (a, b) { return String(b.deleted_at).localeCompare(String(a.deleted_at)); });
+    sendJson(res, 200, { ok: true, practices: dlOut, total: dlOut.length,
+      retention_months: atsPracticeRetentionMonths() });
+    return;
+  }
+
+  // Bring an archived practice back, together with the job openings that were
+  // retired with it. Every job is returned to the exact state recorded at
+  // delete time — a job that was already closed or pending stays that way.
+  if (pathname === '/api/ats/practice/restore' && req.method === 'POST') {
+    var ctxPR = requireCeoSession(req, res); if (!ctxPR) return;
+    var bodyPR; try { bodyPR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    bodyPR = bodyPR || {};
+    var prId = String(bodyPR.id || url.searchParams.get('id') || '').trim();
+    if (!prId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    // Read the row directly — atsResolvePractice deliberately hides archived
+    // practices, which is exactly the set this endpoint operates on.
+    var prRow = await atsGetPracticeRow(prId);
+    if (!prRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    var prRec = atsPracticeUtil.readPracticeDeletion(prRow);
+    if (!prRec) { sendJson(res, 400, { ok: false, code: 'not_deleted', message: 'That practice is not in the deleted list.' }); return; }
+
+    // Jobs first: if one of these fails the practice stays archived, which is
+    // the recoverable direction (retry restores the rest).
+    var prJobsRestored = 0;
+    for (var prJi = 0; prJi < prRec.jobs.length; prJi++) {
+      var prSaved = prRec.jobs[prJi];
+      var prUpdated = await atsUpdateJobRow(prSaved.id, atsPracticeUtil.restoredJobPatch(prSaved)).catch(function () { return null; });
+      if (prUpdated) prJobsRestored++;
+      else console.error('[practice-restore] could not restore job', prSaved.id, 'for', prRow.name);
+    }
+
+    var prMeta = Object.assign({}, (prRow.metadata && typeof prRow.metadata === 'object') ? prRow.metadata : {});
+    delete prMeta.deleted;
+    var prRestored = await atsUpdatePracticeRow(prId, {
+      metadata: prMeta,
+      stage: prRec.restoreStage,
+      is_active: true
+    });
+    if (!prRestored) { sendJson(res, 502, { ok: false, message: 'Could not restore the practice — please try again.' }); return; }
+
+    console.log('[practice-restore]', ctxPR.email || 'unknown', 'restored practice',
+      JSON.stringify(prRow.name || ''), '— jobs restored:', prJobsRestored, 'of', prRec.jobs.length);
+
+    sendJson(res, 200, {
+      ok: true,
+      restored: {
+        id: prId, name: prRow.name || '', stage: prRec.restoreStage,
+        jobs_restored: prJobsRestored, jobs_total: prRec.jobs.length
+      }
     });
     return;
   }

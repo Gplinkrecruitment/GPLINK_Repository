@@ -44,7 +44,9 @@ describe('atsInsertPracticeRow', () => {
 
 describe('POST /api/ats/practices', () => {
   const at = serverJs.indexOf('var createdP = await atsInsertPracticeRow(pracRow);');
-  const block = serverJs.slice(at, at + 1500);
+  // Widened from 1500 when the duplicate branch grew a second case (a name
+  // clashing with a practice sitting in the 12-month deleted archive).
+  const block = serverJs.slice(at, at + 2600);
 
   it('names the clash instead of a bare "could not create"', () => {
     expect(block).toContain("code: 'duplicate_name'");
