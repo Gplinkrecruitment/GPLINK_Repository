@@ -315,6 +315,13 @@ const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-
 // outcomes have never run against a real document and are unproven. The AI's
 // verdict shows on the reviewer's card either way. Set to "true" to enable.
 const DOC_PIPELINE_PHOTO_AUTO_DECIDE = String(process.env.DOC_PIPELINE_PHOTO_AUTO_DECIDE || '').trim().toLowerCase() === 'true';
+// The same hold, for PDFs, and for the same reason: isVisuallyClassifiable() is true
+// for a PDF, so every PDF went down the image branch of classifyDocumentWithAI and
+// died in normalizeImageForAi ("Unsupported image type") — a PDF has never produced a
+// confidence score, so auto-approve and auto-reject are just as unproven here as they
+// are for photos. Deliberately a SEPARATE switch from the photo one so the owner can
+// turn the two on independently once they have watched real verdicts.
+const DOC_PIPELINE_PDF_AUTO_DECIDE = String(process.env.DOC_PIPELINE_PDF_AUTO_DECIDE || '').trim().toLowerCase() === 'true';
 // Suggest-a-reply uses a current, non-deprecated model (owner chose Opus 4.6).
 const SUGGEST_REPLY_MODEL = String(process.env.SUGGEST_REPLY_MODEL || 'claude-opus-4-6').trim() || 'claude-opus-4-6';
 // AI Matching (candidate <-> job ranking, lib/ai-candidate-job-match.js) — env-pinned,
@@ -28705,12 +28712,35 @@ async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
 }
 
 async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLabel) {
-  if (!ANTHROPIC_API_KEY) return { confidence: null, identifiedAs: '', reason: 'AI not configured' };
+  if (!ANTHROPIC_API_KEY) return { confidence: null, identifiedAs: '', reason: 'AI not configured', technicalError: true };
 
   var mime = String(mimeType || '').trim().toLowerCase();
   var contentBlocks = [];
+  // A PDF is not an image, but isVisuallyClassifiable() is true for BOTH — so every
+  // PDF used to fall into the image branch below, where normalizeImageForAi rejects
+  // "application/pdf" outright ("Unsupported image type") without even calling the
+  // normalizer. Classification of a PDF therefore never ran once: it returned
+  // confidence null with the raw technical string "Image normalization failed",
+  // which became the reviewer's flag reason AND the pre-filled note to the doctor.
+  // PDFs now go to Anthropic as a document block, exactly as the GP-facing scans
+  // have always sent them (buildQualContentBlock).
+  var isPdfInput = mime === 'application/pdf' || mime.indexOf('pdf') !== -1;
+  // Photo-only, deliberately: the framing check below judges a PHOTOGRAPH of a
+  // document ("fills the frame", "not cut off") and is meaningless for a PDF — the
+  // shared applyPhotoFramingPolicy() guards on opts.isImage for the same reason.
+  var isPhotoInput = !isPdfInput && mime.startsWith('image/');
+  var classifyPrompt = 'The user is trying to upload a document for: ' + String(expectedLabel || expectedKey || 'Unknown') + '\n\nClassify this document. Return ONLY valid JSON: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}';
 
-  if (isVisuallyClassifiable(mime)) {
+  if (isPdfInput) {
+    var pdfBase64 = Buffer.isBuffer(buffer) ? buffer.toString('base64') : stripBase64DataUrlPrefix(buffer);
+    if (!pdfBase64) {
+      return { confidence: null, identifiedAs: '', reason: 'The PDF file was empty or could not be read', technicalError: true };
+    }
+    contentBlocks = [
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
+      { type: 'text', text: classifyPrompt }
+    ];
+  } else if (isPhotoInput) {
     // normalizeImageForAi takes base64, not bytes. Handing it the raw Buffer made
     // String(buffer) decode the JPEG as UTF-8, so what reached Anthropic was
     // mojibake rather than an image and every call came back 400 ("AI API returned
@@ -28720,23 +28750,23 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
     var imageBase64 = Buffer.isBuffer(buffer) ? buffer.toString('base64') : buffer;
     var normalizedImage = await normalizeImageForAi(imageBase64, mime);
     if (!normalizedImage || !normalizedImage.base64) {
-      return { confidence: null, identifiedAs: '', reason: 'Image normalization failed' };
+      return { confidence: null, identifiedAs: '', reason: 'Image normalization failed', technicalError: true };
     }
     contentBlocks = [
       { type: 'image', source: { type: 'base64', media_type: normalizedImage.mediaType, data: normalizedImage.base64 } },
-      { type: 'text', text: 'The user is trying to upload a document for: ' + String(expectedLabel || expectedKey || 'Unknown') + '\n\nClassify this document. Return ONLY valid JSON: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}' }
+      { type: 'text', text: classifyPrompt }
     ];
   } else if (isDocxMime(mime)) {
     var text = await extractDocxTextWithMammoth(buffer);
     if (!text.trim()) {
-      return { confidence: 50, identifiedAs: 'empty or unreadable document', reason: 'Could not extract text from DOCX' };
+      return { confidence: 50, identifiedAs: 'empty or unreadable document', reason: 'Could not extract text from DOCX', technicalError: true };
     }
     var userPrompt = buildClassificationPrompt(expectedLabel || expectedKey, text);
     contentBlocks = [{ type: 'text', text: userPrompt }];
   } else if (isDocMime(mime)) {
-    return { confidence: 50, identifiedAs: 'Word document (legacy format)', reason: 'Cannot extract content from .doc files; sent for manual review' };
+    return { confidence: 50, identifiedAs: 'Word document (legacy format)', reason: 'Cannot extract content from .doc files; sent for manual review', technicalError: true };
   } else {
-    return { confidence: null, identifiedAs: '', reason: 'Unsupported type for classification' };
+    return { confidence: null, identifiedAs: '', reason: 'Unsupported type for classification', technicalError: true };
   }
 
   var systemPrompt = 'You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.\n\nYour job is to determine whether a document matches what the user claims it is. Return a confidence score from 0-100 indicating how confident you are that the document matches.\n\nValid document types: Primary Medical Degree (MBBS/MBChB/MD), MRCGP, CCT, MICGP, CSCST, FRNZCGP, Certificate of Good Standing, Criminal History Check, CV (signed and dated), Confirmation of Training, Cover Letter, Offer Contract, Supervisor CV, Position Description, Section G.\n\nIMPORTANT:\n- Do NOT mention security concerns or privacy risks.\n- Focus ONLY on whether the document matches what the user claims.\n- Return ONLY valid JSON with no markdown: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}';
@@ -28749,8 +28779,8 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
 
   // Photos get the same framing check as the GP-facing scans, so a picture that is
   // half desk — or has a keyboard lying on the certificate — can never slip
-  // through this pipeline on a confidence score.
-  var isPhotoInput = isVisuallyClassifiable(mime);
+  // through this pipeline on a confidence score. (isPhotoInput is resolved above,
+  // image-only: a PDF has no "frame" to judge.)
   if (isPhotoInput) {
     systemPrompt += '\n\n' + PHOTO_FRAMING_PROMPT_RULE + '\n\nAdd "framing" to the JSON you return.';
   }
@@ -28776,13 +28806,13 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
 
     clearTimeout(timeout);
     if (!aiRes.ok) {
-      return { confidence: null, identifiedAs: '', reason: 'AI API returned ' + aiRes.status };
+      return { confidence: null, identifiedAs: '', reason: 'AI API returned ' + aiRes.status, technicalError: true };
     }
 
     var aiBody = await aiRes.json();
     var aiText = aiBody.content && aiBody.content[0] && aiBody.content[0].text ? aiBody.content[0].text : '';
     var jsonMatch = aiText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return { confidence: null, identifiedAs: '', reason: 'AI returned non-JSON response' };
+    if (!jsonMatch) return { confidence: null, identifiedAs: '', reason: 'AI returned non-JSON response', technicalError: true };
 
     var parsed = JSON.parse(jsonMatch[0]);
 
@@ -28810,12 +28840,13 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
       identifiedAs: String(parsed.identifiedAs || '').trim(),
       reason: String(parsed.reason || '').trim(),
       matches: !!parsed.matches,
-      fromPhoto: isPhotoInput
+      fromPhoto: isPhotoInput,
+      fromPdf: isPdfInput
     };
   } catch (err) {
     clearTimeout(timeout);
     console.error('[DocumentPipeline] AI classification error:', err.message);
-    return { confidence: null, identifiedAs: '', reason: 'AI classification failed: ' + err.message };
+    return { confidence: null, identifiedAs: '', reason: 'AI classification failed: ' + err.message, technicalError: true };
   }
 }
 
@@ -28843,6 +28874,20 @@ async function uploadDocumentToDrive(userId, docRow, fileBuffer, mimeType) {
   }
 }
 
+// What the reviewer's card shows, and what their "Note to GP" box starts from, is the
+// AI's `reason` for this task. A TECHNICAL failure is not a reason a doctor can act
+// on — "Image normalization failed" was sitting in that box, one click away from
+// being emailed to Dr Obanimoh verbatim. Technical failures are replaced with a plain
+// statement of what happened; the raw detail still goes to the task timeline and the
+// server log, where it belongs. Genuine findings are passed through untouched.
+const AI_CHECK_UNAVAILABLE_REASON = 'The automatic document check could not run on this file — please review it manually.';
+function reviewerSafeAiReason(aiResult) {
+  if (!aiResult || typeof aiResult !== 'object') return '';
+  const reason = String(aiResult.reason || '').trim();
+  if (!reason) return '';
+  return aiResult.technicalError ? AI_CHECK_UNAVAILABLE_REASON : reason;
+}
+
 async function createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult, reviewStage) {
   var caseRes = await supabaseDbRequest('registration_cases', 'select=id,assigned_rso,assigned_va&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
@@ -28861,13 +28906,13 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
       body: {
         status: 'open',
         ai_match_confidence: confidence,
-        ai_match_reasoning: aiResult.reason || '',
+        ai_match_reasoning: reviewerSafeAiReason(aiResult),
         updated_at: new Date().toISOString()
       }
     });
     await supabaseDbRequest('task_timeline', '', {
       method: 'POST',
-      body: [{ task_id: existing.id, case_id: gpCase.id, event_type: 'system', title: 'Document re-uploaded, task reopened', detail: 'AI confidence: ' + (confidence != null ? confidence + '%' : 'N/A') + '. Identified as: ' + (aiResult.identifiedAs || 'unknown'), actor: 'system' }]
+      body: [{ task_id: existing.id, case_id: gpCase.id, event_type: 'system', title: 'Document re-uploaded, task reopened', detail: 'AI confidence: ' + (confidence != null ? confidence + '%' : 'N/A') + '. Identified as: ' + (aiResult.identifiedAs || 'unknown') + (aiResult.technicalError ? '. Automatic check failed: ' + String(aiResult.reason || '').trim() : ''), actor: 'system' }]
     });
     return existing;
   }
@@ -28885,7 +28930,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     related_stage: reviewStage || inferStageFromDocKey(documentKey),
     related_document_key: canonKey,
     ai_match_confidence: confidence,
-    ai_match_reasoning: aiResult.reason || '',
+    ai_match_reasoning: reviewerSafeAiReason(aiResult),
     _actor: 'system'
   };
   // Un-placed candidate (unassigned case) → route this check to the least-loaded RSO
@@ -29170,6 +29215,18 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
     // any framing problem on the card, instead of "AI API returned 400".
     if (aiResult.fromPhoto && !DOC_PIPELINE_PHOTO_AUTO_DECIDE && action !== 'va_review') {
       console.log('[DocumentPipeline] photo classified ' + action + ' (confidence ' + confidence + ') — routing to review; set DOC_PIPELINE_PHOTO_AUTO_DECIDE=true to let it decide');
+      action = 'va_review';
+    }
+
+    // Identical hold for PDFs, which have only just started reaching the model at
+    // all (they used to die in normalizeImageForAi as "Unsupported image type" and
+    // every one of them landed in va_review by default). Approving one into Drive
+    // unseen, or bouncing it back to the doctor, is a decision this pipeline has
+    // never actually made on a PDF — so a person keeps making it until the owner
+    // turns DOC_PIPELINE_PDF_AUTO_DECIDE on deliberately. The reviewer now sees the
+    // AI's real verdict on the card either way, which is the point of the fix.
+    if (aiResult.fromPdf && !DOC_PIPELINE_PDF_AUTO_DECIDE && action !== 'va_review') {
+      console.log('[DocumentPipeline] pdf classified ' + action + ' (confidence ' + confidence + ') — routing to review; set DOC_PIPELINE_PDF_AUTO_DECIDE=true to let it decide');
       action = 'va_review';
     }
 

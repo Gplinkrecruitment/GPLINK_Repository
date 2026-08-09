@@ -158,7 +158,9 @@ describe('background document classifier', () => {
 
   it('never auto-approves a badly framed photo', () => {
     const fn = extractFunction(serverJs, 'classifyDocumentWithAI');
-    expect(fn).toContain('var isPhotoInput = isVisuallyClassifiable(mime);');
+    // Image-only, deliberately: isVisuallyClassifiable() is ALSO true for a PDF, and a PDF
+    // has no frame to judge (see the pdf-classification suite below).
+    expect(fn).toContain("var isPhotoInput = !isPdfInput && mime.startsWith('image/');");
     expect(fn).toContain('systemPrompt += \'\\n\\n\' + PHOTO_FRAMING_PROMPT_RULE');
     // Null confidence routes to va_review in classifyConfidenceAction: a person
     // decides, but the photo cannot pass on a score.

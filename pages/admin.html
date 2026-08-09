@@ -1455,22 +1455,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>
       <button onclick="closeReviewDocModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#6b7280;line-height:1;padding:0;">&times;</button>
     </div>
-    <!-- Scroll region: preview + AI scan scroll together so the header (above) and the note +
-         action buttons (below) stay pinned and always reachable even when the scan is long. -->
+    <!-- Scroll region: the document preview only. The AI scan used to live in here too, which
+         meant that the moment the document finished loading, its 60vh viewer pushed the scan
+         clean off the bottom of the modal — it looked like the scan had opened and then closed
+         itself, and a mouse over the PDF scrolls the PDF, not the modal. The scan is now pinned
+         between the preview and the note (it is what the reviewer decides on) and scrolls inside
+         its own box when it runs long. -->
     <div style="flex:1;overflow-y:auto;min-height:0;">
-    <div style="overflow:auto;background:#f3f4f6;min-height:280px;display:flex;align-items:center;justify-content:center;">
+    <div style="overflow:auto;background:#f3f4f6;min-height:220px;display:flex;align-items:center;justify-content:center;">
       <div id="reviewDocLoading" style="color:#6b7280;font-size:13px;padding:40px;">Loading document…</div>
-      <img id="reviewDocImg" alt="Document" style="display:none;max-width:100%;max-height:60vh;object-fit:contain;" />
-      <iframe id="reviewDocFrame" title="Document" style="display:none;width:100%;height:60vh;border:none;background:#fff;"></iframe>
+      <img id="reviewDocImg" alt="Document" style="display:none;max-width:100%;max-height:44vh;object-fit:contain;" />
+      <iframe id="reviewDocFrame" title="Document" style="display:none;width:100%;height:44vh;border:none;background:#fff;"></iframe>
       <div id="reviewDocMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
     </div>
-    <div id="reviewDocAiInsight" style="display:none;padding:12px 18px;border-top:1px solid #e5e7eb;background:#f9fafb;font-size:12.5px;color:#374151;">
+    </div>
+    <div id="reviewDocAiInsight" style="display:none;flex-shrink:0;max-height:30vh;overflow-y:auto;padding:12px 18px;border-top:1px solid #e5e7eb;background:#f9fafb;font-size:12.5px;color:#374151;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
         <span style="font-weight:700;color:#111827;">🔍 AI document scan</span>
         <button id="reviewDocRescanBtn" onclick="runReviewDocAiScan(true)" style="background:none;border:1px solid #d1d5db;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;color:#374151;">Re-scan</button>
       </div>
       <div id="reviewDocAiBody"></div>
-    </div>
     </div>
     <div style="padding:14px 18px;border-top:1px solid #e5e7eb;flex-shrink:0;">
       <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject — the email sends exactly what you type here)</span></label>
@@ -4184,6 +4188,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   var _reviewDocSuggested = '';   // AI-scan-derived suggested "note to GP" (for the reject-confirm check)
   var _reviewDocInitialNote = ''; // note box value at open, to detect whether the RSO edited it
   var _reviewDocGpName = '';      // GP name parsed from the task title, for the suggested greeting
+  // A task's stored reason is the AI's own words, and the box below emails them to a doctor
+  // VERBATIM. When the automatic check broke rather than found something, those words are a
+  // stack-trace in disguise — "Image normalization failed" (every PDF hit this until the
+  // classifier learned to send PDFs as documents), "AI API returned 500", "AI not configured".
+  // Never show them as a finding and never seed the note with them. Kept on the client as well
+  // as the server because tasks flagged before the server fix still carry the old text.
+  var TECHNICAL_SCAN_REASON_RE = /image normalization|normalize image|unsupported image type|unsupported type for classification|ai api returned|ai returned non-json|ai classification failed|ai not configured|could not extract text from docx|cannot extract content from \.doc|could not be read|automatic document check could not run/i;
+  function isTechnicalReviewReason(text){
+    var t=String(text||'').trim();
+    return !!t && TECHNICAL_SCAN_REASON_RE.test(t);
+  }
   async function openReviewDocModal(taskId){
     var _pools=[].concat(S.tasks||[],S.opsTasksAll||[],S.opsTasks||[]);
     var task=_pools.find(function(t){return t&&t.id===taskId;})||{};
@@ -4191,13 +4206,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById('reviewDocTitle').textContent=task.title||'Review flagged document';
     // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
     var _reviewReasonText=task.description||task.ai_match_reasoning||'';
-    document.getElementById('reviewDocReason').textContent=_reviewReasonText;
+    // A broken automatic check is not a finding about the document. Say so plainly, in grey —
+    // the orange "something is wrong with this document" line is reserved for real findings.
+    var _reasonIsTechnical=isTechnicalReviewReason(_reviewReasonText);
+    var _reasonEl=document.getElementById('reviewDocReason');
+    _reasonEl.textContent=_reasonIsTechnical?'The automatic check could not run on this file — please review it yourself below.':_reviewReasonText;
+    _reasonEl.style.color=_reasonIsTechnical?'#6b7280':'#b45309';
     // Pre-fill the note with the reason for now; once the AI scan (kicked off below) returns,
     // runReviewDocAiScan replaces this with a GP-ready suggested message built from what the
     // scan actually found — UNLESS the RSO has started typing their own (tracked via
-    // _reviewDocInitialNote). The GP name is parsed from the task title for the greeting.
-    document.getElementById('reviewDocNote').value=_reviewReasonText;
-    _reviewDocInitialNote=_reviewReasonText;
+    // _reviewDocInitialNote). A technical reason is never pre-filled: the box is emailed to the
+    // doctor exactly as it stands, so it starts empty and the RSO writes the real reason.
+    var _prefillNote=_reasonIsTechnical?'':_reviewReasonText;
+    document.getElementById('reviewDocNote').value=_prefillNote;
+    _reviewDocInitialNote=_prefillNote;
     _reviewDocSuggested='';
     var _gpm=(task.title||'').match(/\bfor\s+(.+?)\s*$/i);
     _reviewDocGpName=_gpm?_gpm[1].trim():'';
@@ -4264,7 +4286,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // is handled automatically and is never a reason to email the GP).
   function buildReviewSuggestedMessage(s,gpName){
     if(!s||typeof s!=='object')return '';
-    var issues=(Array.isArray(s.issues)?s.issues:[]).filter(function(i){return String(i||'').trim()&&!/previous name|name change|different from your account|does not match your account name|name matching your profile|differs from the account name/i.test(String(i||''));});
+    // Name-change wording is excluded (handled automatically), and so is anything that reads as
+    // a technical failure rather than a finding — this text is emailed to the doctor as typed.
+    var issues=(Array.isArray(s.issues)?s.issues:[]).filter(function(i){return String(i||'').trim()&&!/previous name|name change|different from your account|does not match your account name|name matching your profile|differs from the account name/i.test(String(i||''))&&!isTechnicalReviewReason(i);});
     if(s.requiresCertification&&s.certified!==true&&!issues.some(function(i){return /certified/i.test(i);})){
       issues.push('This document must be a certified true copy — please upload a copy certified by an authorised person (e.g. a JP, solicitor or notary) showing their certification statement, name, profession, signature or stamp, and the date.');
     }
@@ -4626,7 +4650,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-doccheck-intro">These doctors haven\u2019t secured a placement yet, so they aren\u2019t assigned to anyone. Just verify the flagged document \u2014 you won\u2019t be guiding them through registration, and they won\u2019t appear in your GP list.</div>';
     tasks.forEach(function(t){
       var docLabel=t.title||t.related_document_key||'Flagged document';
-      var reason=t.ai_match_reasoning||t.description||'';
+      // Same guard as the review modal: a card that reads "Image normalization failed"
+      // tells the reviewer nothing about the document, only that a check broke.
+      var rawReason=t.ai_match_reasoning||t.description||'';
+      var reason=isTechnicalReviewReason(rawReason)?'The automatic check could not run — please review this one yourself.':rawReason;
       h+='<div class="ops-doccheck-row" data-ops-doccheck-id="'+esc(t.id)+'">';
       h+='<div class="todo-avatar">'+esc(ini(t.gp_name||''))+'</div>';
       h+='<div class="ops-doccheck-main">';
