@@ -1442,7 +1442,9 @@
     .gp-parity .ops-email-field input:focus{outline:none;border-color:var(--blue)}
     .gp-parity .ops-cc-row{margin:4px 0;display:flex;align-items:center;gap:6px}
     .gp-parity .ops-cc-row .ops-email-label{min-width:60px}
-    .gp-parity .ops-cc-row select{flex:1;padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px;max-width:320px;background:var(--bg);color:var(--text)}
+    /* No max-width — a native <option> cannot wrap or ellipsize, so a cap just CLIPS the
+       address mid-word. Match the "To" input beside it (see admin.html .ops-cc-row select). */
+    .gp-parity .ops-cc-row select{flex:1;min-width:0;padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px;background:var(--bg);color:var(--text)}
     .gp-parity .ops-email-body{border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:12px;line-height:1.6;min-height:80px;max-height:220px;overflow:auto;background:var(--bg);color:var(--text);font-family:inherit}
     .gp-parity .ops-email-body:focus{outline:none;border-color:var(--blue)}
     .gp-parity .ops-email-actions{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
@@ -6333,7 +6335,9 @@
             listc.forEach(function(c) {
               var opt = document.createElement('option');
               opt.value = c.email_address;
-              opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address) + ' (seen ' + c.seen_count + 'x)';
+              // Name + address only — see admin.html: "(seen Nx)" clipped the real address.
+              opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address);
+              opt.title = c.email_address + ' — seen ' + c.seen_count + 'x on this case';
               sel.appendChild(opt);
             });
           } else {
