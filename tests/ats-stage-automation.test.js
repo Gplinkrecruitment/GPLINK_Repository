@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import * as atsLib from '../lib/ats-practices.js';
+import { urlHasOrigin } from './url-match.helpers.js';
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-ats-stage-${RUN_ID}.json`);
@@ -234,7 +235,7 @@ beforeAll(async () => {
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
     const u = String(url && url.url ? url.url : url);
-    if (u.startsWith(ZOHO_API_BASE)) {
+    if (urlHasOrigin(u, ZOHO_API_BASE)) {
       const m = u.match(/\/recruit\/v2\/[Aa]pplications\/([^/?]+)/);
       const rec = m ? zohoLiveRecords[decodeURIComponent(m[1])] : null;
       return Promise.resolve(new Response(

@@ -162,12 +162,18 @@ describe('auth-guard honours the deep link through sign-in', () => {
 
   it('every page ships the bumped guard (a stale pin serves the old redirect)', () => {
     const pages = fs.readdirSync(path.join(ROOT, 'pages')).filter((f) => f.endsWith('.html'));
-    const withGuard = pages.filter((f) => fs.readFileSync(path.join(ROOT, 'pages', f), 'utf8').includes('auth-guard.js'));
+    // Match the actual <script src=…auth-guard.js…> tag, not any mention of the
+    // filename: signin.html and error.html inline a copy of the guard's
+    // same-origin path validator and reference it by name in a comment, which a
+    // bare .includes() counted as "ships the guard" and then demanded a
+    // cache-buster those pages have no script tag to carry.
+    const shipsGuard = (html) => /<script\b[^>]*\bsrc\s*=\s*["'][^"']*auth-guard\.js/i.test(html);
+    const withGuard = pages.filter((f) => shipsGuard(fs.readFileSync(path.join(ROOT, 'pages', f), 'utf8')));
     expect(withGuard.length).toBeGreaterThan(0);
     withGuard.forEach((f) => {
       const html = fs.readFileSync(path.join(ROOT, 'pages', f), 'utf8');
-      expect(html).toMatch(/auth-guard\.js\?v=20260806[ab]/);
-      expect(html).not.toContain('auth-guard.js?v=20260706a');
+      expect(html).toMatch(/auth-guard\.js\?v=20260810a/);
+      expect(html).not.toContain('auth-guard.js?v=20260806a');
     });
   });
 });

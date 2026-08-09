@@ -7,7 +7,7 @@
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="/js/api-dedupe.js?v=20260729a"></script>
   <script src="/js/gp-cache.js?v=20260707a" defer></script>
-  <script src="../js/auth-guard.js?v=20260806a" defer></script>
+  <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="../js/gp-coach.js?v=20260724a" defer></script>
   <script src="../js/gp-walkthrough-state.js?v=20260722c" defer></script>
@@ -1362,6 +1362,17 @@
   </div>
 
   <script>
+  // Error banners render the message as TEXT. An exception message can carry a
+  // file name or a server string with HTML in it, and innerHTML would run it.
+  // Declared above the try so the catch at the bottom of this script can use it.
+  function renderDocPanelError(target, styleText, message) {
+    if (!target) return;
+    var box = document.createElement("div");
+    box.setAttribute("style", styleText);
+    box.textContent = message;
+    target.innerHTML = "";
+    target.appendChild(box);
+  }
   try {
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
@@ -3506,7 +3517,7 @@
       if (activeNavItem) moveNavGlass(activeNavItem, false);
     });
 
-    try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule error:", e); docTabPanels.direct_to_ahpra.innerHTML = '<div style="padding:12px;color:var(--gp-red-ink);font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
+    try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule error:", e); renderDocPanelError(docTabPanels.direct_to_ahpra, "padding:12px;color:var(--gp-red-ink);font-size:13px;", "Error loading documents: " + ((e && e.message) || String(e))); }
     renderRegistrationRows();
     // Pull the authoritative per-country document lists from the server and
     // re-render once they arrive (fallback lists already rendered above).
@@ -3575,7 +3586,7 @@
 
     // Re-render after state-sync hydrates the current user's data
     window.addEventListener("gp-state-hydrated", function () {
-      try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule hydration error:", e); docTabPanels.direct_to_ahpra.innerHTML = '<div style="padding:12px;color:var(--gp-red-ink);font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
+      try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule hydration error:", e); renderDocPanelError(docTabPanels.direct_to_ahpra, "padding:12px;color:var(--gp-red-ink);font-size:13px;", "Error loading documents: " + ((e && e.message) || String(e))); }
       renderRegistrationRows();
       // Hydration can change the GP's country — refresh the server doc lists for it.
       try { loadServerDocRequirements(); } catch (e) {}
@@ -3583,7 +3594,7 @@
   } catch(globalErr) {
     console.error("Documents page script error:", globalErr);
     var errEl = document.getElementById("panel-direct_to_ahpra");
-    if (errEl) errEl.innerHTML = '<div style="padding:14px;color:var(--gp-red-ink);font-size:13px;font-weight:600;">Something went wrong loading the document checklist. Error: ' + globalErr.message + '</div>';
+    renderDocPanelError(errEl, "padding:14px;color:var(--gp-red-ink);font-size:13px;font-weight:600;", "Something went wrong loading the document checklist. Error: " + ((globalErr && globalErr.message) || String(globalErr)));
   }
   </script>
   <div class="legal-footer" style="text-align:center;font-size:12px;color:var(--gp-muted);margin:14px 0 8px;line-height:1.45;">

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
+import { urlHasHost } from './url-match.helpers.js';
 
 // Coverage for Task 3 of the Meta-ads GP funnel: the GP-form branch inside
 // handleFacebookLeadWebhook (POST /api/webhooks/facebook-lead). Allow-listed
@@ -303,7 +304,7 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
     let requested = null;
     globalThis.fetch = async (url, opts) => {
       // Only intercept Graph — the magic-link email also goes out over fetch.
-      if (!String(url).includes('graph.facebook.com')) return realFetch(url, opts);
+      if (!urlHasHost(String(url), 'graph.facebook.com')) return realFetch(url, opts);
       requested = String(url);
       return {
         ok: true,
@@ -333,7 +334,7 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
     process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-xyz';
     let called = false;
     globalThis.fetch = async (url, opts) => {
-      if (!String(url).includes('graph.facebook.com')) return realFetch(url, opts);
+      if (!urlHasHost(String(url), 'graph.facebook.com')) return realFetch(url, opts);
       called = true;
       throw new Error('should not be called');
     };
@@ -351,7 +352,7 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
   it('survives a Graph API error without throwing', async () => {
     process.env.FB_PAGE_ACCESS_TOKEN = 'expired-token';
     globalThis.fetch = async (url, opts) => {
-      if (!String(url).includes('graph.facebook.com')) return realFetch(url, opts);
+      if (!urlHasHost(String(url), 'graph.facebook.com')) return realFetch(url, opts);
       return {
         ok: false, status: 190,
         json: async () => ({ error: { type: 'OAuthException', message: 'Error validating access token' } })

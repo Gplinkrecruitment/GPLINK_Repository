@@ -154,12 +154,40 @@
   function safeSignInNextPath() {
     try {
       var dec = new URLSearchParams(window.location.search).get("next");
-      if (!dec) return "";
-      if (!/^\/pages\//.test(dec)) return "";
-      if (/^\/\//.test(dec) || /:\/\//.test(dec)) return "";
-      return dec;
+      var safe = gpSafeInternalPath(dec);
+      // Internal /pages/ path only (see gpSafeInternalPath).
+      if (!/^\/pages\//.test(safe)) return "";
+      if (!safe.startsWith("/pages/")) return "";
+      return safe;
     } catch (e) { return ""; }
   }
+
+  // The one same-origin path validator (notes below).
+  function gpSafeInternalPath(raw) {
+    var s = String(raw == null ? "" : raw);
+    if (/:\/\//.test(s)) return "";
+    if (/^\/\//.test(s)) return "";
+    if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(s)) return "";
+    if (!s || s.length > 2048) return "";
+    if (!/^\/(?:[^/\\\s\x00-\x1f\x7f][^\\\x00-\x1f\x7f]*)?$/.test(s)) return "";
+    return s;
+  }
+  // Why each line matters:
+  //  * ":\/\/" and the scheme test kill "https://evil.test" and "javascript:...".
+  //  * "^\/\/" kills the protocol-relative "//evil.test/x".
+  //  * the last, fully anchored test is the real gate: exactly ONE leading "/",
+  //    then no backslash and no control character anywhere. Both matter, because
+  //    the URL parser reads "\" as "/" (so "/\evil.test" resolves to
+  //    https://evil.test) and strips TAB/LF/CR BEFORE parsing (so "/<TAB>/evil.test"
+  //    becomes "//evil.test"). Query and hash pass through byte for byte, so every
+  //    real deep link (?reupload=, ?applicationId=, ?match=, ?role=, ?doc=, ?id=)
+  //    keeps working.
+  //  * the two /pages/ checks in safeSignInNextPath above say the same thing twice
+  //    on purpose: the regex documents the rule, and String#startsWith is the form
+  //    static analysis recognises as "the literal prefix fixes the host".
+  // This function is duplicated verbatim in pages/signin.html and pages/error.html:
+  // those are self-contained inline scripts that run before any shared file has
+  // loaded, so they cannot call this copy. Keep all three identical.
 
   function isReviewRouteAllowed(input) {
     var target = normalizeReviewPath(input);

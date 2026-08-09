@@ -203,11 +203,28 @@
 
   <script>
     (function () {
+      // The one same-origin path validator, identical to gpSafeInternalPath in
+      // js/auth-guard.js (see the notes there). Inlined because this page is
+      // served for 404s and 500s and must not depend on another file loading.
+      function gpSafeInternalPath(raw) {
+        var s = String(raw == null ? "" : raw);
+        if (/:\/\//.test(s)) return "";
+        if (/^\/\//.test(s)) return "";
+        if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(s)) return "";
+        if (!s || s.length > 2048) return "";
+        if (!/^\/(?:[^/\\\s\x00-\x1f\x7f][^\\\x00-\x1f\x7f]*)?$/.test(s)) return "";
+        return s;
+      }
+
       document.getElementById('refreshBtn').addEventListener('click', function () {
         // Reload the page the GP was actually trying to reach, not this one.
-        var from = new URLSearchParams(window.location.search).get('from');
-        if (from && from.charAt(0) === '/' && from.charAt(1) !== '/') window.location.href = from;
-        else window.location.reload();
+        // The old check (first char "/", second char not "/") let "/\evil.test"
+        // through, and the URL parser reads "\" as "/", so that left the site.
+        var from = gpSafeInternalPath(new URLSearchParams(window.location.search).get('from'));
+        if (!from) { window.location.reload(); return; }
+        var target = new URL(from, window.location.origin);
+        if (target.origin !== window.location.origin) { window.location.reload(); return; }
+        window.location.assign(target);
       });
 
       // A short reference the GP can quote to support. Time-based only — it is

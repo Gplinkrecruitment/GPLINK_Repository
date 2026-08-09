@@ -1703,7 +1703,10 @@
   // Schedule 1 summary
   // ---------------------------------------------------------------------
   function renderSchedule() {
-    var ent = $('legalEntityName').value.trim() || '<i style="color:var(--ink-3)">your legal entity</i>';
+    // The typed entity name is interpolated into innerHTML below, so it must be
+    // escaped. Only the "not filled in yet" placeholder is meant to be markup.
+    var entTyped = $('legalEntityName').value.trim();
+    var ent = entTyped ? escapeHtml(entTyped) : '<i style="color:var(--ink-3)">your legal entity</i>';
     var kind = idKind(idDigits($('abnAcn').value)) || 'ABN';
     var abnVal = $('abnAcn').value.trim() || 'Not set';
     // Sign-only: there is no intake list, so Schedule 1 names the practice from its
@@ -1914,21 +1917,36 @@
   var STORE = LEGACY_STORE + ':' + token;
   var saveTimer = null;
   function persistSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 250); }
+  // The one place that decides what may sit in this browser's localStorage.
+  // "Encode" means serialise, NOT encrypt: this payload is plain text on the
+  // practice's own computer, so it carries only what a resume needs, listed
+  // explicitly rather than "stringify whatever the form is holding" (a field
+  // added to the wizard later cannot silently start being stored).
+  //
+  // The drawn signature is the deliberate omission. An image of someone's
+  // handwriting is reusable on other documents, and a draft is only deleted on
+  // a successful submit, so an abandoned form used to leave a signature sitting
+  // on a shared reception PC indefinitely. After a reload the practice re-draws
+  // it - one stroke - and go(5) re-runs gateSign(), which keeps "Sign & submit"
+  // disabled until they do. Everything else (their answers, the address the
+  // lookup filled in, the typed signing details) still resumes exactly as before.
+  function encodeDraftForStorage() {
+    var signFields = {};
+    ['signedName', 'signerJobTitle', 'legalEntityName', 'abnAcn', 'signedEmail'].forEach(function (id) { signFields[id] = $(id).value; });
+    return JSON.stringify({
+      token: token,
+      saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
+      autoPromoted: autoPromoted,
+      manual: !$('manual').classList.contains('hidden'),
+      manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value, mState: $('state').value },
+      addr: addr.value,
+      signFields: signFields,
+      authorised: $('authorisedCheckbox').checked
+    });
+  }
   function persist() {
     try {
-      var signFields = {};
-      ['signedName', 'signerJobTitle', 'legalEntityName', 'abnAcn', 'signedEmail'].forEach(function (id) { signFields[id] = $(id).value; });
-      localStorage.setItem(STORE, JSON.stringify({
-        token: token,
-        saved: saved, mode: mode, cur: cur, editIdx: editIdx, step: step,
-        autoPromoted: autoPromoted,
-        manual: !$('manual').classList.contains('hidden'),
-        manualFields: { mStreet: $('mStreet').value, mSuburb: $('mSuburb').value, mPostcode: $('mPostcode').value, mState: $('state').value },
-        addr: addr.value,
-        signFields: signFields,
-        authorised: $('authorisedCheckbox').checked,
-        sig: hasInk ? canvas.toDataURL('image/png') : null
-      }));
+      localStorage.setItem(STORE, encodeDraftForStorage());
     } catch (e) { /* storage unavailable, never block the form for this */ }
   }
   function clearDraft() { try { localStorage.removeItem(STORE); } catch (e) {} }
@@ -1984,11 +2002,11 @@
 
     if (step === 5) {
       mountCanvas();
-      if (d.sig) {
-        var img = new Image();
-        img.onload = function () { ctx.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1)); hasInk = true; updateSigStatus(); };
-        img.src = d.sig;
-      }
+      // A signature is never restored from the draft (see encodeDraftForStorage).
+      // go(5) has already re-run gateSign(), so the gate lists "Signature" as
+      // outstanding and the submit button stays disabled until it is re-drawn.
+      // A draft written before this deploy still holds one; ignoring it here and
+      // letting the next persist() overwrite the draft clears it from this device.
     }
     return true;
   }

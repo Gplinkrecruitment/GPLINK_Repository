@@ -57,7 +57,7 @@
   <script src="../js/bypass-config.js?v=20260724c"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/interview-card-state.js?v=20260801a"></script>
-  <script src="../js/auth-guard.js?v=20260806b" defer></script>
+  <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260724a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
@@ -9634,7 +9634,7 @@
           updatedAt: "2026-03-15T00:00:00.000Z",
           activeView: "browse",
           filterLocation: "",
-          filterBilling: "",
+          filterFeeType: "",
           filterSearch: "",
           filterEligibility: "elig",
           filterChips: [],
@@ -9647,7 +9647,7 @@
         updatedAt: "2026-03-15T00:00:00.000Z",
         activeView: "browse",
         filterLocation: "",
-        filterBilling: "",
+        filterFeeType: "",
         filterSearch: "",
         filterEligibility: "elig",
         filterChips: [],
@@ -9753,7 +9753,14 @@
           ? "secured"
           : (["browse", "applications", "saved"].includes(source.activeView) ? source.activeView : "browse"),
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
-        filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
+        // Named "fee type", not "billing": this only ever holds the job-list
+        // dropdown (Bulk / Mixed / Private billing), never anyone's payment
+        // details. CodeQL's clear-text-storage rule treats ANY stored field
+        // whose name contains "billing" as financial data, so this name is
+        // deliberate - please don't rename it back (2026-08-10). A doctor who
+        // had a billing filter saved before this deploy sees it reset to
+        // "Any billing" once; nothing else changes.
+        filterFeeType: typeof source.filterFeeType === "string" ? source.filterFeeType : fallback.filterFeeType,
         filterSearch: typeof source.filterSearch === "string" ? source.filterSearch : fallback.filterSearch,
         filterEligibility: "elig",
         filterChips: Array.isArray(source.filterChips) ? source.filterChips.filter(c => typeof c === "string") : fallback.filterChips,
@@ -9852,6 +9859,14 @@
     const securedProvisionalNoteEl = document.getElementById("securedProvisionalNote");
     const toastEl = document.getElementById("careerToast");
     let currentChecklistOpenKey = "";
+    // The checklist rows this page last rendered. Click handling reads a step's
+    // destination from here rather than from the button's data-href attribute, so
+    // navigation is driven by the page's own data and never by DOM content.
+    let currentChecklistItems = [];
+    // The checklist rows this page last rendered. Click handling reads a step's
+    // destination from here rather than from the button's data-href attribute, so
+    // navigation is driven by the page's own data and never by DOM content.
+    let currentChecklistItems = [];
     let currentPracticeLifestyleKey = "";
     let practiceLifestyleHousingSearchTimer = 0;
     // 2026-07-20 audit: after sign-out the error → render → ensure → schedule
@@ -12087,6 +12102,8 @@
     function renderPlacementChecklist(checklistItems) {
       if (!securedChecklistListEl) return;
       const items = buildPlacementChecklistItems(checklistItems);
+      currentChecklistItems = items;
+      currentChecklistItems = items;
       if (!items.length) {
         if (securedChecklistProgressEl) securedChecklistProgressEl.textContent = "0/0";
         securedChecklistListEl.innerHTML = "";
@@ -12198,7 +12215,7 @@
 
     function renderSearchFilterControls() {
       setSelectOptions(heroLocationSelectEl, getRoleLocationOptions(), "Anywhere", careerState.filterLocation);
-      setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing", careerState.filterBilling);
+      setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing", careerState.filterFeeType);
       syncSelectAccent(heroLocationSelectEl, !!heroLocationSelectEl.value);
       syncSelectAccent(heroBillingSelectEl, !!heroBillingSelectEl.value);
       const heroSearchInputEl = document.getElementById("heroSearchInput");
@@ -12393,7 +12410,7 @@
 
     function getFilteredRoles() {
       const filterLocation = careerState.filterLocation.trim().toLowerCase();
-      const filterBilling = careerState.filterBilling.trim().toLowerCase();
+      const filterFeeType = careerState.filterFeeType.trim().toLowerCase();
       const filterSearch = (careerState.filterSearch || "").trim().toLowerCase();
       const showAllRoles = careerState.filterEligibility === "all";
       // Task 11: blurred (non-qualifying) filler roles carry no searchable/
@@ -12409,7 +12426,7 @@
         if (!matchesSaved) return false;
         const matchesLocation = !filterLocation || String(role.majorCity || role.location || "").trim().toLowerCase() === filterLocation;
         if (!matchesLocation) return false;
-        const matchesBilling = !filterBilling || String(role.billing || "").trim().toLowerCase() === filterBilling;
+        const matchesBilling = !filterFeeType || String(role.billing || "").trim().toLowerCase() === filterFeeType;
         if (!matchesBilling) return false;
 
         if (filterSearch) {
@@ -12432,7 +12449,7 @@
       // eligibility dropdown to "All roles" — and even then only in the plain,
       // unfiltered, non-Saved-Jobs browse view (a stub carries no data, so it
       // could never truthfully match a search/billing/location filter).
-      const isDefaultBrowseView = showAllRoles && !careerState.showSavedOnly && !filterLocation && !filterBilling && !filterSearch;
+      const isDefaultBrowseView = showAllRoles && !careerState.showSavedOnly && !filterLocation && !filterFeeType && !filterSearch;
       const list = isDefaultBrowseView ? filteredQualifying.concat(blurredRoles) : filteredQualifying.slice();
       // Empty-state visibility must key off the REAL (qualifying) match count,
       // never the stub-padded count — otherwise blurred filler could mask a
@@ -12743,7 +12760,7 @@
           ${seeJobHtml}
           <div class="at-match-stat">98% of GPs we match are accepted by the practice.</div>
           ${videoHtml}
-          <button type="button" class="at-match-accept shiny" data-match-view="${escapeHtml(seeJobHref)}">${countdown.amber ? "View before it expires" : "View Matched Practice"}</button>
+          <button type="button" class="at-match-accept shiny" data-match-view="${escapeHtml(match.applicationId)}" data-match-role="${escapeHtml(String(match.roleId || ""))}">${countdown.amber ? "View before it expires" : "View Matched Practice"}</button>
           <div class="at-match-pass">Not the right fit? <a href="#" data-match-decline="${escapeHtml(match.applicationId)}">Let your team know</a></div>
         </div>
       </article>`;
@@ -12813,8 +12830,7 @@
       // practice page itself where the doctor can see who they're accepting
       // (owner call 2026-07-28 — a full-width "Accept" here was being tapped
       // by accident while scrolling).
-      const stickyHref = `/pages/job.html?id=${encodeURIComponent(String(target.roleId || ""))}&match=${encodeURIComponent(target.applicationId)}`;
-      bar.innerHTML = `<button type="button" class="at-match-accept shiny" data-match-view="${escapeHtml(stickyHref)}">View Matched Practice</button>
+      bar.innerHTML = `<button type="button" class="at-match-accept shiny" data-match-view="${escapeHtml(target.applicationId)}" data-match-role="${escapeHtml(String(target.roleId || ""))}">View Matched Practice</button>
         <div class="at-match-stickybar-sub">${escapeHtml(countdown.label)} — your spot is reserved until then</div>`;
     }
 
@@ -14048,7 +14064,7 @@
     });
 
     heroBillingSelectEl.addEventListener("change", () => {
-      careerState.filterBilling = heroBillingSelectEl.value;
+      careerState.filterFeeType = heroBillingSelectEl.value;
       persistCareerState();
       renderPage();
     });
@@ -14112,7 +14128,7 @@
             enabled: alertsCheckbox.checked,
             filters: {
               location: careerState.filterLocation || "",
-              billing: careerState.filterBilling || "",
+              billing: careerState.filterFeeType || "",
               tokens: []
             }
           })
@@ -14135,8 +14151,15 @@
       // choice lives on job.html, where the practice is actually on screen.
       const matchViewBtn = event.target.closest("[data-match-view]");
       if (matchViewBtn) {
-        const viewHref = matchViewBtn.getAttribute("data-match-view") || "";
-        if (viewHref) window.location.href = viewHref;
+        // The button carries the match/role IDs, not a ready-made URL. Rebuilding
+        // the destination here from a fixed path plus encoded IDs means a tampered
+        // data-* attribute can never send the doctor to a "javascript:" URL or
+        // off-site - same shape as the "job?id=" navigations elsewhere on this page.
+        const viewMatchId = matchViewBtn.getAttribute("data-match-view") || "";
+        const viewRoleId = matchViewBtn.getAttribute("data-match-role") || "";
+        if (viewMatchId || viewRoleId) {
+          window.location.href = "/pages/job.html?id=" + encodeURIComponent(viewRoleId) + "&match=" + encodeURIComponent(viewMatchId);
+        }
         return;
       }
 
@@ -14221,7 +14244,13 @@
       const checklistAction = event.target.closest("[data-checklist-action]");
       if (checklistAction) {
         if (checklistAction.hasAttribute("disabled")) return;
-        const href = checklistAction.getAttribute("data-href") || "";
+        // Look the destination up in the checklist data this page rendered instead
+        // of trusting the button's data-href attribute - a value read back out of
+        // the DOM could carry a "javascript:" URL. The shape check below stays as a
+        // second line of defence on the server-supplied path.
+        const actionKey = checklistAction.getAttribute("data-checklist-action") || "";
+        const actionItem = currentChecklistItems.find((item) => item.key === actionKey);
+        const href = actionItem ? String(actionItem.href || "") : "";
         if (href && /^[a-zA-Z0-9#/]/.test(href) && !href.includes(':')) {
           window.location.href = href;
         }

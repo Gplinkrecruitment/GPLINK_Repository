@@ -16,6 +16,7 @@ import path from 'path';
 // Imported directly: explainFailure is a pure function on the executor lib and
 // is not re-exported through server.js's __testUtils handle.
 import executor from '../lib/error-fix-executor.js';
+import { urlHasHost } from './url-match.helpers.js';
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-fix-exec-${RUN_ID}.json`);
@@ -63,7 +64,7 @@ function installFetchStub() {
     calls.push({ url: u, method, body });
 
     // ── Anthropic ──
-    if (u.indexOf('api.anthropic.com') !== -1) {
+    if (urlHasHost(u, 'api.anthropic.com')) {
       if (githubOverrides.anthropicStatus && githubOverrides.anthropicStatus !== 200) {
         return jsonResponse(githubOverrides.anthropicStatus, { error: 'nope' });
       }

@@ -3286,7 +3286,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var dtaPrev='/api/admin/gp-document-preview?case_id='+encodeURIComponent(caseId)+'&key='+encodeURIComponent(doc.key);
         h+='<button type="button" class="btn sm" data-doc-view-url="'+escAttr(dtaPrev)+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="margin-right:8px">View</button>';
       }
-      h+='<span class="doc-placeholder-status s-'+(doc.status||'pending')+'">'+docStatusLabel(doc.status)+'</span>';
+      h+='<span class="doc-placeholder-status s-'+esc(doc.status||'pending')+'">'+esc(docStatusLabel(doc.status))+'</span>';
       h+='</div>';
     });
     h+='</div></div>';
@@ -3365,7 +3365,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ?(' data-doc-view-url="'+escAttr(previewUrl)+'" data-doc-view-label="'+escAttr(doc.label||'Document')+'" style="cursor:pointer"')
       :'';
     var cls='doc-placeholder-card'+(hasFile?' has-file':'')+(viewable?' is-clickable':'');
-    var statusCls='s-'+(status||'pending');
+    /* Status comes from the server, so it is escaped before it goes anywhere near
+       a class attribute -- an unescaped double quote here would break out of
+       class="..." and let a crafted status add an event handler in the staff
+       console. esc() is a no-op for every real status value. */
+    var statusCls='s-'+esc(status||'pending');
     // Real document thumbnail (image scans render directly; PDFs/others fall back to the
     // icon via onerror) \u2014 matches the "Prepared by GP LINK" cards.
     var thumbHtml=viewable
@@ -3385,7 +3389,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }else if(doc.flag_reason==='failed_verification'){
       flagBadgeHtml='<span class="doc-placeholder-status s-under_review">Needs review</span>';
     }
-    var badgeHtml=flagBadgeHtml||('<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>');
+    var badgeHtml=flagBadgeHtml||('<span class="doc-placeholder-status '+statusCls+'">'+esc(docStatusLabel(status))+'</span>');
     /* File a document the doctor sent by email/WhatsApp straight into its slot,
        instead of asking them to re-upload. Same control as the GP LINK cards;
        the .doc-upload-btn class is what stops the click opening the viewer. */
@@ -3412,7 +3416,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var hasFile=!!df;
     var cls='doc-placeholder-card'+(hasFile?' has-file':'');
     var status=doc.ops_status||'not_requested';
-    var statusCls='s-'+status;
+    var statusCls='s-'+esc(status);
     var thumbHtml;
     if(df&&df.thumbnailLink){
       thumbHtml='<img src="'+esc(df.thumbnailLink)+'" class="doc-placeholder-thumb" alt="" style="object-fit:cover">';
@@ -3432,7 +3436,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +thumbHtml
       +'<div class="doc-placeholder-info">'
       +'<div class="doc-placeholder-label" title="'+esc(doc.label)+'">'+esc(doc.label)+'</div>'
-      +'<span class="doc-placeholder-status '+statusCls+'">'+docStatusLabel(status)+'</span>'
+      +'<span class="doc-placeholder-status '+statusCls+'">'+esc(docStatusLabel(status))+'</span>'
       +metaHtml
       +uploadHtml
       +'</div></div>';
@@ -3826,7 +3830,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <span class="pb-pill" style="background:var(--bg2);color:var(--muted)">${u.quals_approved||0}/${u.quals_required||0} docs</span>
             ${hasDt?'<a class="btn sm dt" href="'+safeUrl(dtUrl)+'" target="_blank" rel="noopener" style="font-size:10px;padding:3px 8px">WhatsApp</a>':''}
             <button class="btn sm nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((gpName).split(" ")[0]||"").trim())}" style="font-size:10px;padding:3px 8px">Nudge</button>
-            <button class="btn sm" onclick="openZoomScheduleModal({case_id:'${esc(c.id)}',user_id:'${esc(c.user_id||u.userId||"")}',stage:'${esc(c.stage||"")}',first_name:'${esc((gpName.split(" ")[0]||"").replace(/'/g,"\\\\'"))}',last_name:'${esc((gpName.split(" ").slice(1).join(" ")||"").replace(/'/g,"\\\\'"))}',email:'${esc(gpEmail||"")}',phone:'${esc(gpPhone||"")}'})" style="font-size:10px;padding:3px 8px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Zoom</button>
+            <button class="btn sm" onclick="openZoomScheduleModal({case_id:'${escAttr(c.id)}',user_id:'${escAttr(c.user_id||u.userId||"")}',stage:'${escAttr(c.stage||"")}',first_name:'${escAttr(gpName.split(" ")[0]||"")}',last_name:'${escAttr(gpName.split(" ").slice(1).join(" ")||"")}',email:'${escAttr(gpEmail||"")}',phone:'${escAttr(gpPhone||"")}'})" style="font-size:10px;padding:3px 8px;background:#2D8CFF;color:#fff;border-color:#2D8CFF">Zoom</button>
             <button class="btn sm" data-impersonate-gp="${esc(c.user_id||u.userId||"")}" style="font-size:10px;padding:3px 8px;background:#d97706;color:#fff">View as GP</button>
           </div>
           <button class="pb-expand-toggle" data-pb-toggle title="Case management">\u25BE</button>
@@ -5444,7 +5448,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-email-composer">';
     h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(meta.practice_email||'')+'" /></div>';
     h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'SPPA-00 for Dr — Alternate Supervisor CV needed')+'" /></div>';
-    h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+(meta.suggested_body?meta.suggested_body:fallbackBody)+'</div>';
+    h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+opsComposerBodyHtml(meta.suggested_body?meta.suggested_body:fallbackBody)+'</div>';
     h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send request to practice</button></div>';
     h+='</div>';
     h+='</div>';
@@ -5473,7 +5477,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<div class="ops-email-composer">';
     h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(meta.practice_email||'')+'" /></div>';
     h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(meta.suggested_subject||'AHPRA Conflict of Interest — Action Required')+'" /></div>';
-    h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+(meta.suggested_body||'')+'</div>';
+    h+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'+opsComposerBodyHtml(meta.suggested_body||'')+'</div>';
     h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Send to practice</button></div>';
     h+='</div>';
     h+='<div style="font-size:11px;color:#64748b;margin-top:6px">Practice will email: '+esc(meta.ahpra_officer_name||'AHPRA officer')+' ('+esc(meta.ahpra_officer_email||'')+'), CC '+esc(meta.cc_mailbox||'')+'</div>';
@@ -5485,6 +5489,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // Plain-text draft -> composer HTML. Escapes FIRST (the draft quotes practice-supplied text,
   // so it must never be able to inject markup), then blank line -> paragraph break.
   // Mirrors plainTextToHtml in lib/practice-reply-followup.js.
+  /* The Ops composer body is HTML the SERVER built (lib/ahpra-conflict-letter.js,
+     lib/sppa-alt-supervisor-request.js): those builders HTML-escape every value
+     they interpolate and the only markup they emit is <br>, <b> and </b>. Keep
+     exactly those tags and neutralise every other tag, so a hand-edited or
+     tampered registration_tasks.metadata row can never inject markup or script
+     into the admin console. Only RAW angle brackets are rewritten -- existing
+     entities are left untouched, so an escaped practice name such as
+     "A &amp; B &lt;Clinic&gt;" still renders as "A & B <Clinic>", as it does today. */
+  /* The Ops composer body is HTML the SERVER built (lib/ahpra-conflict-letter.js,
+     lib/sppa-alt-supervisor-request.js): those builders HTML-escape every value
+     they interpolate and the only markup they emit is <br>, <b> and </b>. Keep
+     exactly those tags and neutralise every other tag, so a hand-edited or
+     tampered registration_tasks.metadata row can never inject markup or script
+     into the admin console. Only RAW angle brackets are rewritten -- existing
+     entities are left untouched, so an escaped practice name such as
+     "A &amp; B &lt;Clinic&gt;" still renders as "A & B <Clinic>", as it does today. */
+  function opsComposerBodyHtml(html){
+    return String(html==null?'':html)
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/&lt;(\/?)(br|b)\s*\/?&gt;/gi,'<$1$2>');
+  }
   function opsPlainTextToHtml(text){
     var raw=String(text==null?'':text).replace(/\r\n/g,'\n').trim();
     if(!raw)return '';
@@ -5733,7 +5759,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-ahpra-to="' + esc(task.id) + '" value="' + esc(ahpraOfficerEmail) + '" /></div>';
     h += '<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-ahpra-cc="' + esc(task.id) + '" value="' + esc(gpEmail) + '" /></div>';
     h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-ahpra-subject="' + esc(task.id) + '" value="' + esc(origSubject) + '" /></div>';
-    h += '<div class="ops-email-body" contenteditable="true" data-ahpra-body="' + esc(task.id) + '">' + defaultBody + '</div>';
+    // Same tag-allowlist as the other two Ops composers: draftBody comes from
+    // registration_tasks.metadata (server-built, <br>/<b> only), so keep those and
+    // neutralise anything else rather than trusting the row.
+    h += '<div class="ops-email-body" contenteditable="true" data-ahpra-body="' + esc(task.id) + '">' + opsComposerBodyHtml(defaultBody) + '</div>';
     h += '<input type="hidden" data-ahpra-thread="' + esc(task.id) + '" value="' + esc(gmailThreadId) + '" />';
     h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-ahpra-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send to AHPRA</button></div>';
     h += '</div>';
@@ -5875,7 +5904,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // Response type badge
     var rtBadgeColor = { direct_reply: '#059669', request_from_gp: '#2563eb', request_from_practice: '#7c3aed', amend_document: '#dc2626', status_update: '#6b7280', escalation: '#dc2626' };
     var rtBadgeLabel = { direct_reply: 'Direct Reply', request_from_gp: 'Request from GP', request_from_practice: 'Request from Practice', amend_document: 'Amendment Needed', status_update: 'Status Update', escalation: 'Escalation Required' };
-    h3 += '<div style="margin-bottom:8px"><span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;color:#fff;background:' + (rtBadgeColor[responseType] || '#6b7280') + '">' + (rtBadgeLabel[responseType] || responseType) + '</span></div>';
+    h3 += '<div style="margin-bottom:8px"><span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;color:#fff;background:' + (rtBadgeColor[responseType] || '#6b7280') + '">' + esc(rtBadgeLabel[responseType] || responseType) + '</span></div>';
 
     // Always show the AHPRA officer email
     h3 += _ahpraOfficerEmailHtml(firstInbound, ahpraOfficerEmail, task, gmailLink);
@@ -7934,7 +7963,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       '</div>'+
       '<div class="iv-card-time">'+fmtIvDate(iv.scheduled_at)+'</div>'+
       '<div class="iv-card-meta">'+
-        '<span>Duration: '+(iv.duration||30)+' min</span>'+
+        '<span>Duration: '+esc(iv.duration||30)+' min</span>'+
         (iv.interviewer_name?'<span>Interviewer: '+esc(iv.interviewer_name)+'</span>':'')+
         (iv.timezone?'<span>'+esc(iv.timezone)+'</span>':'')+
       '</div>'+
@@ -8646,12 +8675,38 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // no DOMParser) so an attacker's <img onerror=…> in body_html can never load a resource or
     // run script in the admin session; the result is esc()'d again before render.
     function hubHtmlToText(h){
-      var s=String(h||"");
-      s=s.replace(/<style[\s\S]*?<\/style>/gi,"").replace(/<script[\s\S]*?<\/script>/gi,"");
+      var s=String(h||""),prev;
+      var ENT={nbsp:" ",amp:"&",lt:"<",gt:">",quot:'"',apos:"'"};
+      // Strip <style>/<script> blocks, then every remaining tag. Each strip loops to a fixed
+      // point because one pass can leave a freshly-formed tag behind, and the end tags are
+      // matched whitespace/attribute-tolerantly ("</style >", "</script\t\n foo>") because
+      // that is how a browser tokenises them - otherwise the raw CSS/JS text leaked into the
+      // preview instead of being dropped.
+      // One pattern per loop: each reaches its own fixed point, so removing a
+      // <script> block cannot leave a half-formed <style> behind (or vice versa)
+      // for the other pattern to miss on its single pass.
+      do{prev=s;s=s.replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi,"");}while(s!==prev);
+      do{prev=s;s=s.replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi,"");}while(s!==prev);
+      // An UNCLOSED "<style"/"<script" has no end tag for the loop above to find and
+      // no ">" for the generic tag strip below, so the literal text used to survive
+      // into the preview. A browser treats an unterminated open tag as swallowing the
+      // rest of the document, so do the same: drop it and everything after it.
+      s=s.replace(/<(style|script)\b[\s\S]*$/i,"");
       s=s.replace(/<br\s*\/?>/gi,"\n").replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi,"\n");
-      s=s.replace(/<[^>]+>/g,"");
-      s=s.replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&quot;/gi,'"').replace(/&#0?39;|&apos;/gi,"'")
-         .replace(/&#(\d+);/g,function(_,n){try{return String.fromCodePoint(parseInt(n,10));}catch(e){return "";}});
+      do{prev=s;s=s.replace(/<[^>]+>/g,"");}while(s!==prev);
+      // ONE entity-decoding pass over a fixed table. The old chain of per-entity replaces
+      // double-unescaped ("&amp;lt;" -> "&lt;" -> "<"); a single pass leaves the "&" it
+      // produces alone, so "&amp;lt;" decodes to the text "&lt;", exactly as a browser shows it.
+      s=s.replace(/&(#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/gi,function(m,ent){
+        if(ent.charAt(0)==="#"){
+          var hex=(ent.charAt(1)==="x"||ent.charAt(1)==="X");
+          var cp=hex?parseInt(ent.slice(2),16):parseInt(ent.slice(1),10);
+          if(!isFinite(cp)||cp<0||cp>0x10FFFF)return "";
+          try{return String.fromCodePoint(cp);}catch(e){return "";}
+        }
+        var k=ent.toLowerCase();
+        return Object.prototype.hasOwnProperty.call(ENT,k)?ENT[k]:m;
+      });
       return s.replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
     }
     // Choose what to show in a message tile: stripped plain body -> stripped html -> placeholder
@@ -9942,7 +9997,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var stageSelect = document.getElementById('zoomStageSelect');
     var notesField = document.getElementById('zoomAdminNotes');
     var initials = ((caseData.first_name || '')[0] || '') + ((caseData.last_name || '')[0] || '');
-    gpBlock.innerHTML = '<div class="case-avatar" style="width:36px;height:36px;font-size:12px">' + initials.toUpperCase() + '</div>'
+    gpBlock.innerHTML = '<div class="case-avatar" style="width:36px;height:36px;font-size:12px">' + esc(initials.toUpperCase()) + '</div>'
       + '<div><div style="font-size:13px;font-weight:700">' + esc(caseData.first_name || '') + ' ' + esc(caseData.last_name || '') + '</div>'
       + '<div style="font-size:11px;color:var(--muted)">' + esc(caseData.email || '') + (caseData.phone ? ' \u00b7 ' + esc(caseData.phone) : '') + '</div></div>';
     stageSelect.value = caseData.stage || 'myintealth';
@@ -10435,18 +10490,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // ── Call History Sub-Tab (Task 15) ────────────────────────────
   function renderGpCallHistoryPane(c) {
     var caseId = c.id;
-    var firstName = String(c.first_name || '').replace(/'/g, "\\'");
-    var lastName = String(c.last_name || '').replace(/'/g, "\\'");
+    var firstName = String(c.first_name || '');
+    var lastName = String(c.last_name || '');
+    // Every value below lands inside a single-quoted JS string literal in an onclick
+    // attribute. The browser HTML-decodes the attribute BEFORE parsing the JS, so esc()
+    // alone is not enough - its &#39; turns back into a real quote and closes the string
+    // (and a name ending in a backslash escaped the closing quote of the next field).
+    // escAttr() backslash-escapes \ ' " first and then HTML-escapes, so both layers hold.
     var html = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px">'
       + '<button class="btn sm" style="font-size:11px;background:#2D8CFF;color:#fff;border-color:#2D8CFF" '
       + 'onclick="openZoomScheduleModal({'
-      + 'case_id:\'' + esc(caseId) + '\','
-      + 'user_id:\'' + esc(c.user_id || '') + '\','
-      + 'stage:\'' + esc(c.stage || '') + '\','
-      + 'first_name:\'' + esc(firstName) + '\','
-      + 'last_name:\'' + esc(lastName) + '\','
-      + 'email:\'' + esc(c.email || '') + '\','
-      + 'phone:\'' + esc(c.phone || '') + '\'})">+ Send meeting invite</button>'
+      + 'case_id:\'' + escAttr(caseId) + '\','
+      + 'user_id:\'' + escAttr(c.user_id || '') + '\','
+      + 'stage:\'' + escAttr(c.stage || '') + '\','
+      + 'first_name:\'' + escAttr(firstName) + '\','
+      + 'last_name:\'' + escAttr(lastName) + '\','
+      + 'email:\'' + escAttr(c.email || '') + '\','
+      + 'phone:\'' + escAttr(c.phone || '') + '\'})">+ Send meeting invite</button>'
       + '</div>';
     html += '<div id="call-history-pane-' + esc(caseId) + '"><div style="color:var(--muted);font-size:13px;padding:8px 0">Loading call history...</div></div>';
     setTimeout(function() { loadCallHistoryPane(caseId); }, 0);

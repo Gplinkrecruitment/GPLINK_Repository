@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { urlHasHost } from './url-match.helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RUN_ID = crypto.randomBytes(4).toString('hex');
@@ -251,7 +252,7 @@ beforeAll(async () => {
   globalThis.fetch = (url, opts) => {
     const u = String(url && url.url ? url.url : url);
     if (u.startsWith('http://127.0.0.1')) return realFetch(url, opts);
-    if (u.includes('api.resend.com')) {
+    if (urlHasHost(u, 'api.resend.com')) {
       let parsed = null;
       try { parsed = JSON.parse((opts && opts.body) || 'null'); } catch {}
       resendCalls.push(parsed);

@@ -66,6 +66,50 @@ if (String(process.env.VERCEL_ENV || '').toLowerCase() !== 'production') {
     .filter(Boolean)
     .forEach((host) => PREVIEW_SUPER_ADMIN_HOSTS.add(host));
 }
+// Hosts this deployment is allowed to call back into for a server-to-server
+// self-request. `Host:` is supplied by the caller, so it must NEVER be pasted
+// into an outbound URL: a forged header would redirect the call — and the
+// `Authorization: Bearer <CRON_SECRET>` it carries — to an attacker's server.
+// resolveSelfCallbackOrigin() therefore returns a string built from THIS list
+// (or APP_BASE_URL), never from the request, so no caller-controlled text can
+// reach fetch(). Falling back to APP_BASE_URL is always functional because
+// every host serves the same server.js, so a host we don't recognise degrades
+// to a working call rather than a skipped one.
+const SELF_CALLBACK_HOSTS = new Set(
+  [
+    (() => { try { return new URL(APP_BASE_URL).host; } catch (e) { return ''; } })(),
+    process.env.VERCEL_URL,
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    ...ADMIN_ALLOWED_HOSTS,
+    ...SUPER_ADMIN_ALLOWED_HOSTS,
+    ...PREVIEW_SUPER_ADMIN_HOSTS,
+    'app.mygplink.com.au',
+    'admin.mygplink.com.au',
+    'ceo.admin.mygplink.com.au',
+    'preview.mygplink.com.au',
+    'www.mygplink.com.au',
+    'mygplink.com.au'
+  ]
+    .map((value) => String(value || '').trim().toLowerCase().split('/')[0])
+    // Belt and braces: a mis-set env var must not be able to put a loopback /
+    // private / link-local / cloud-metadata target on the self-callback
+    // allowlist. isBlockedSsrfHostname is a hoisted function declaration, so it
+    // is callable from this module-init expression.
+    .filter((host) => host && !isBlockedSsrfHostname(host.split(':')[0]))
+);
+function resolveSelfCallbackOrigin(req) {
+  const requested = String((req && req.headers && req.headers.host) || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  // Return the ALLOWLISTED copy of the host, not the requested one, so the
+  // outbound URL never contains caller-supplied characters.
+  for (const allowed of SELF_CALLBACK_HOSTS) {
+    if (allowed === requested) return 'https://' + allowed;
+  }
+  return String(APP_BASE_URL || '').replace(/\/+$/, '');
+}
 const DEFAULT_DB_FILE_PATH = process.env.VERCEL
   ? path.join('/tmp', 'app-db.json')
   : path.join(process.cwd(), 'data', 'app-db.json');
@@ -1083,7 +1127,7 @@ async function ensureDocTypeSubfolder(candidateFolderId, folderName, cache) {
   if (!drive) return null;
   try {
     var q = "'" + candidateFolderId + "' in parents" +
-      " and name = '" + folderName.replace(/'/g, "\\'") + "'" +
+      " and name = '" + folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'" +
       " and mimeType = 'application/vnd.google-apps.folder'" +
       " and trashed = false";
     var listRes = await drive.files.list({ q: q, fields: 'files(id)', pageSize: 1, supportsAllDrives: true, includeItemsFromAllDrives: true });
@@ -2783,14 +2827,81 @@ const CONTRACT_HTML_ALLOWED_TAGS = {
   a: ['href'], img: ['src', 'alt']
 };
 
+// ── Shared HTML → plain-text primitives ──────────────────────────────
+// Every hand-rolled "strip the tags" regex in this file used to be a SINGLE
+// .replace() pass. Two things go wrong with that:
+//   1. Deleting one match can splice the leftovers into a brand-new tag:
+//      "<scr" + "<script></script>" + "ipt>" becomes "<script>" after one
+//      pass. So each strip below repeats until the string stops changing.
+//   2. A literal "</script>" misses end tags a real browser accepts —
+//      "</script >" and "</script\t\n bar>" — so end tags are matched as
+//      "</name" + word boundary + anything-but-">" + ">".
+// None of this changes the result for ordinary HTML; it only closes the gaps.
+// Same do/while shape as the long-standing loops in sendGmailEmail and
+// stripHtml further down this file.
+
+// Apply `re` (must carry the /g flag) until the string stops changing.
+// EVERY pattern passed in here must match something LONGER than its
+// replacement — all of the ones below do — which is what guarantees the loop
+// terminates. Do not pass a pattern that can grow the string.
+function replaceHtmlUntilStable(input, re, replacement) {
+  var s = String(input == null ? '' : input);
+  var prev;
+  do { prev = s; s = s.replace(re, replacement); } while (s !== prev);
+  return s;
+}
+
+// Remove <script>/<style> elements, contents included, then any orphan
+// script/style tag the first pass could not pair up. `replacement` defaults to
+// '' — pass ' ' when the caller is building prose and needs a word break.
+function stripScriptAndStyleElements(input, replacement) {
+  var rep = replacement === undefined ? '' : replacement;
+  var s = replaceHtmlUntilStable(input, /<(script|style)\b[^>]*>[\s\S]*?<\/\1\b[^>]*>/gi, rep);
+  return replaceHtmlUntilStable(s, /<\/?(script|style)\b[^>]*>/gi, rep);
+}
+
+// Remove HTML comments, then every remaining tag. Comments go first because
+// "<!-- a > b -->" contains a ">" and a bare tag strip would leave " b -->"
+// behind. Only TERMINATED comments are removed here: an unterminated "<!--"
+// stays as plain text rather than swallowing the rest of somebody's message.
+function stripRemainingHtmlTags(input, replacement) {
+  var rep = replacement === undefined ? '' : replacement;
+  var s = replaceHtmlUntilStable(input, /<!--[\s\S]*?-->/g, rep);
+  return replaceHtmlUntilStable(s, /<[^>]*>/g, rep);
+}
+
+// Decode the HTML entities we care about when producing plain text, in ONE
+// pass. A CHAIN of .replace() calls double-decodes: doing "&amp;" → "&" first
+// turns "&amp;lt;" into "&lt;", and the next link in the chain turns that into
+// a real "<" — so text the reader saw as "&lt;" comes back as markup. A single
+// pass cannot do that, because it never re-examines what it just wrote.
+function decodeHtmlTextEntities(input) {
+  return String(input == null ? '' : input).replace(/&(nbsp|lt|gt|quot|apos|amp|#\d+);/gi, function (full, body) {
+    if (body.charAt(0) === '#') {
+      try { return String.fromCodePoint(parseInt(body.slice(1), 10)); } catch (e) { return ''; }
+    }
+    switch (body.toLowerCase()) {
+      case 'nbsp': return ' ';
+      case 'lt': return '<';
+      case 'gt': return '>';
+      case 'quot': return '"';
+      case 'apos': return "'";
+      case 'amp': return '&';
+    }
+    return full;
+  });
+}
+
 function sanitizeContractHtml(html) {
   var s = String(html || '');
   // Drop comments and any script/style block outright, contents included.
-  s = s.replace(/<!--[\s\S]*?-->/g, '');
-  s = s.replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, '');
-  s = s.replace(/<\/?(script|style)\b[^>]*>/gi, '');
+  // Here (unlike the plain-text path) an UNTERMINATED "<!--" is swallowed to
+  // the end of the string too — that is exactly what a browser does with it,
+  // so nothing visible changes, and it guarantees no "<!--" reaches innerHTML.
+  s = replaceHtmlUntilStable(s, /<!--[\s\S]*?(?:-->|$)/g, '');
+  s = stripScriptAndStyleElements(s, '');
 
-  return s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, function (full, rawTag, rawAttrs) {
+  var cleaned = s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, function (full, rawTag, rawAttrs) {
     var tag = String(rawTag).toLowerCase();
     if (!Object.prototype.hasOwnProperty.call(CONTRACT_HTML_ALLOWED_TAGS, tag)) return '';
     if (full.charAt(1) === '/') return '</' + tag + '>';
@@ -2821,6 +2932,15 @@ function sanitizeContractHtml(html) {
     var selfClosing = (tag === 'br' || tag === 'hr' || tag === 'img');
     return '<' + tag + out + (selfClosing ? '/>' : '') + '>';
   });
+
+  // Anything after the LAST ">" cannot be part of a tag we emitted, so a "<"
+  // still sitting there is an UNTERMINATED tag — and the viewer completes it
+  // for us: it builds '<div class="agr-doc agr-doc-rich">' + html + '</div>',
+  // which turns a trailing '<img src=x onerror=alert(1)//' into a live
+  // element. Show those characters as text instead. For ordinary output the
+  // tail is plain prose with no "<", so this is a no-op.
+  var tail = cleaned.lastIndexOf('>') + 1;
+  return cleaned.slice(0, tail) + cleaned.slice(tail).replace(/</g, '&lt;');
 }
 
 // Returns { ok, kind:'html'|'text', html?, text?, reason? } for the CEO viewer.
@@ -2838,7 +2958,7 @@ async function renderContractDocumentHtml(buffer, mimeType, filename) {
       var mammoth = require('mammoth');
       var result = await mammoth.convertToHtml({ buffer: buf });
       var html = sanitizeContractHtml((result && result.value) || '');
-      if (html.replace(/<[^>]*>/g, '').trim()) {
+      if (stripRemainingHtmlTags(html, '').trim()) {
         // The plain text goes back too: the client highlights against the
         // rendered DOM, but the text is the fallback if rendering is empty.
         var plain = await extractDocxTextWithMammoth(buf);
@@ -3668,13 +3788,10 @@ function parseGmailPubSubMessage(body) {
 // Convert an HTML email body to readable plain text (used when a message has no
 // text/plain part). Detached-string transform; the result is escaped before render.
 function htmlBodyToText(html) {
-  var s = String(html || '');
-  s = s.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '');
+  var s = stripScriptAndStyleElements(String(html || ''), '');
   s = s.replace(/<br\s*\/?>(?!\n)/gi, '\n').replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, '\n');
-  s = s.replace(/<[^>]+>/g, '');
-  s = s.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-       .replace(/&quot;/gi, '"').replace(/&#0?39;|&apos;/gi, "'")
-       .replace(/&#(\d+);/g, function (_, n) { try { return String.fromCodePoint(parseInt(n, 10)); } catch (e) { return ''; } });
+  s = stripRemainingHtmlTags(s, '');
+  s = decodeHtmlTextEntities(s);
   return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -6739,7 +6856,7 @@ async function setupGmailWatch(userEmail) {
     console.log('[Gmail] Watch registered for', userEmail, '- expires:', expiry, '- historyId:', historyId, watchRowExists ? '(renewal, history_id preserved)' : '(first watch, history_id seeded)');
     return { ok: true, historyId: historyId, expiry: expiry };
   } catch (err) {
-    var errorDetail = err.message || String(err);
+    var errorDetail = safeErrorText(err, 'Gmail watch setup failed');
     if (err.response && err.response.data && err.response.data.error) {
       errorDetail = err.response.data.error.message || JSON.stringify(err.response.data.error);
     }
@@ -7023,7 +7140,7 @@ function parseEmailListWithNames(value) {
     var m = piece.match(/[\w.+-]+@[\w.-]+\.\w+/);
     if (!m) continue;
     var email = m[0].toLowerCase();
-    var name = piece.replace(/<[^>]*>/g, '').replace(/[\w.+-]+@[\w.-]+\.\w+/g, '').trim();
+    var name = replaceHtmlUntilStable(piece, /<[^>]*>/g, '').replace(/[\w.+-]+@[\w.-]+\.\w+/g, '').trim();
     name = name.replace(/^["'\s]+|["'\s]+$/g, '');
     out.push({ email: email, name: name });
   }
@@ -8567,6 +8684,23 @@ function classifyClientErrorNoise(message, pageUrl, stack) {
 function redactEmailsInText(value) {
   if (value == null) return value;
   return String(value).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email removed]');
+}
+
+// Safe, human-readable text for a caught exception — used both for server logs
+// and for the "error"/"detail" fields the owner relies on to diagnose a failure
+// instead of a bare "it failed" toast.
+//
+// It reads ONLY err.message. It never does String(err) / `${err}` / err.stack:
+// converting an exception OBJECT to a string is what drags a stack trace and
+// other internal state into a JSON response (CodeQL js/stack-trace-exposure).
+// Every real library error (googleapis, fetch/undici, Resend) sets .message, so
+// the detail shown on screen is unchanged. A throw with no usable message now
+// shows the caller's plain-English fallback instead of "Error"/"[object Object]".
+function safeErrorText(err, fallback) {
+  var msg = '';
+  if (err && typeof err.message === 'string') msg = err.message.trim();
+  if (!msg) msg = (typeof fallback === 'string' && fallback) ? fallback : 'Unexpected error';
+  return msg.length > 500 ? msg.slice(0, 500) : msg;
 }
 
 // ── Plain-English error summaries ───────────────────────────────────────────
@@ -11442,6 +11576,26 @@ function onbUnsubPage(title, msg, bodyHtml) {
 // candidate_leads — may have no user account). Token is self-contained:
 //   base64url(lowercased email) + '.' + HMAC-SHA256(SECRET, 'mkt-unsub:<email>')
 // so /api/unsubscribe can recover the address without a lookup.
+// NOT password hashing. HMAC-SHA256 is used here as a message authentication
+// code over an EMAIL ADDRESS, keyed with the server-only AUTH_SECRET; forging a
+// token requires the key, so hash *cost* is irrelevant. Real user passwords use
+// scrypt with a per-record salt — see hashPassword/verifyPassword.
+// CodeQL js/insufficient-password-hash flags this line only because the address
+// was read upstream from the `password_setup_tokens` table (server.js:53744) and
+// the table NAME matches its password heuristic. It is a false positive: dismiss
+// it in the CodeQL UI. Do NOT swap this for scrypt/PBKDF2 — that would invalidate
+// every List-Unsubscribe link already sitting in recipients' inboxes (they must
+// keep working per RFC 8058) and add ~100 ms per recipient to every send.
+// NOT password hashing. HMAC-SHA256 is used here as a message authentication
+// code over an EMAIL ADDRESS, keyed with the server-only AUTH_SECRET; forging a
+// token requires the key, so hash *cost* is irrelevant. Real user passwords use
+// scrypt with a per-record salt — see hashPassword/verifyPassword.
+// CodeQL js/insufficient-password-hash flags this line only because the address
+// was read upstream from the `password_setup_tokens` table (server.js:53744) and
+// the table NAME matches its password heuristic. It is a false positive: dismiss
+// it in the CodeQL UI. Do NOT swap this for scrypt/PBKDF2 — that would invalidate
+// every List-Unsubscribe link already sitting in recipients' inboxes (they must
+// keep working per RFC 8058) and add ~100 ms per recipient to every send.
 function makeMarketingUnsubToken(email) {
   var mkuLower = String(email || '').trim().toLowerCase();
   var mkuPayload = Buffer.from(mkuLower, 'utf8').toString('base64')
@@ -12132,9 +12286,23 @@ function base64UrlDecode(input) {
   return Buffer.from(padded, 'base64').toString('utf8');
 }
 
-// Token signature (NOT password hashing — passwords use scrypt, see hashPassword)
-var _macFn = crypto['createHmac'].bind(crypto);
-function hmacSign(data) { return _macFn('sha512', SECRET).update(data).digest('hex'); }
+// Token SIGNATURE — not password hashing. HMAC-SHA512 keyed with the server-only
+// AUTH_SECRET over a base64url token payload (session cookie, OAuth access token,
+// purpose tokens, admin-MFA tokens). Forging a token requires the key, so hash
+// *cost* is irrelevant here. Real user passwords use scrypt with a per-record
+// salt — see hashPassword/verifyPassword. validateRuntimeConfig() (this file)
+// refuses to boot in production unless AUTH_SECRET is set to a strong value.
+//
+// CodeQL js/insufficient-password-hash flags the .update() below because upstream
+// identifiers contain "oauth"/"token"; the values that actually flow in are a TTL
+// number and an email address. It is a false positive — dismiss it in the CodeQL
+// UI. Do NOT change the algorithm: every live gp_session / gp_admin_session
+// cookie is HMAC-SHA512, so a change signs every user out, and ~89 test files
+// mint cookies with crypto.createHmac('sha512', AUTH_SECRET) (see
+// tests/ceo-auth.test.js:60). The previous `crypto['createHmac'].bind(crypto)`
+// indirection here was an attempt to hide this line from the scanner; it did not
+// work, so the call is written plainly again.
+function hmacSign(data) { return crypto.createHmac('sha512', SECRET).update(data).digest('hex'); }
 
 function createSignedSessionToken(userProfile, expiresAt, sessionEpoch) {
   // Phase 6 F4 (security L2): tokens optionally carry the user's session epoch.
@@ -12272,7 +12440,20 @@ async function bumpSessionEpoch(email) {
     cacheSessionEpoch(key, nextLocal);
     return nextLocal;
   } catch (err) {
-    console.error('[session-epoch] bump failed for', key, err && err.message);
+    // A failed epoch bump is a security event worth logging, but this codebase's
+    // own policy is that an email address never lands in free-text log output
+    // (see redactEmailsInText above). maskEmail() is not enough for that: it
+    // keeps the whole domain (`al***@example.com`), so the address is still
+    // partly there. Log a short one-way fingerprint instead — it is stable, so
+    // repeated failures for the same account still group together in the logs
+    // and can be matched back by hashing a suspected address, but nothing
+    // about the person is written down.
+    // No account identifier at all — not the address, and not a hash of it
+    // either (hashing a credential-shaped value just trades this warning for
+    // another, and a hash tells a human nothing anyway). The Vercel log line
+    // sits inside the request's own invocation, so the account is still
+    // identifiable from the surrounding request context when this is chased up.
+    console.error('[session-epoch] bump failed:', err && err.message);
     return null;
   }
 }
@@ -30778,7 +30959,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachmen
       } catch (err) {
         // Abort (10s timeout) or network fault — transient, worth another go
         // while the budget allows.
-        lastFailure = String((err && err.message) || err);
+        lastFailure = safeErrorText(err, 'Network error contacting Resend');
         const waitMs = resendRetryDelayMs(null, attempt);
         if (attempt + 1 >= RESEND_MAX_SEND_ATTEMPTS || Date.now() + waitMs > retryDeadlineMs) break;
         console.warn('[sendEmail] Resend network error — retrying in ' + waitMs + 'ms:', lastFailure);
@@ -32421,10 +32602,7 @@ async function fetchWebsiteText(url) {
     }
     if (!res || !res.ok) return '';
     var html = await res.text();
-    var text = String(html || '')
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
+    var text = stripRemainingHtmlTags(stripScriptAndStyleElements(String(html || ''), ' '), ' ')
       .replace(/\s+/g, ' ')
       .trim();
     return text.slice(0, 4000);
@@ -34572,7 +34750,10 @@ async function atsSetMatchCache(subjectType, subjectId, payload) {
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: [{ subject_type: subjectType, subject_id: String(subjectId), payload: payload, generated_at: atsNowIso() }]
     });
-    if (!r.ok) console.error('[ai-matching] match_cache upsert failed (' + subjectType + '/' + subjectId + '):', r.status);
+    // %s placeholders keep subjectType/subjectId as ARGUMENTS. Concatenating them
+    // into the format string let a subject id containing '%s'/'%d' swallow
+    // r.status and forge log lines (CodeQL js/tainted-format-string).
+    if (!r.ok) console.error('[ai-matching] match_cache upsert failed (%s/%s):', String(subjectType), String(subjectId), r.status);
     return r.ok;
   } catch (e) {
     console.error('[ai-matching] match_cache upsert threw:', e && e.message);
@@ -40768,10 +40949,19 @@ async function handleApi(req, res, pathname) {
     }
     const wantsHtml = /text\/html/.test(String(req.headers.accept || ''))
       || /application\/x-www-form-urlencoded/.test(String(req.headers['content-type'] || ''));
+    // practiceRespondPage() takes HTML, but every message this handler hands it
+    // is plain prose — and two of them echo the token's newEmail back to the
+    // browser. isValidEmail() accepts any address without whitespace, so
+    // 'x@y.co<img/src=x/onerror=1>' passed validation and then rendered as live
+    // markup on the confirmation page (CodeQL js/reflected-xss). Escape on the
+    // HTML branch only; the JSON branch returns exactly the text it always did.
+    const ceEscHtml = (v) => String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     const ceRespond = (status, title, msg) => {
       if (wantsHtml) {
         res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(practiceRespondPage(title, msg));
+        res.end(practiceRespondPage(ceEscHtml(title), ceEscHtml(msg)));
       } else {
         sendJson(res, status, { ok: status < 400, message: msg });
       }
@@ -57140,12 +57330,16 @@ Return ONLY valid JSON with no markdown formatting:
       : SUMMARY_REFRESH_DEFAULT_FLOOR_MS;
     const rsStale = selectStaleSummaryCases(rsCases, Date.now(), { cap: Number(process.env.SUMMARY_REFRESH_CAP || 25), floorMs: rsFloorMs });
     const rsHost = String(req.headers.host || '').trim();
+    // Validated self-origin — see resolveSelfCallbackOrigin(). Using rsHost here
+    // would hand this request's `Authorization: Bearer <CRON_SECRET>` to whatever
+    // host a forged `Host:` header named.
+    const rsOrigin = resolveSelfCallbackOrigin(req);
     let rsRefreshed = 0, rsFailed = 0, rsSkipped = 0;
     for (let rsi = 0; rsi < rsStale.length; rsi++) {
       // Stay comfortably inside the 60s function budget; each summary takes several seconds.
       if (!rsHost || Date.now() - rsStart > 50000) { rsSkipped = rsStale.length - rsi; break; }
       try {
-        const rr = await fetch('https://' + rsHost + '/api/admin/candidate-summary?case_id=' + encodeURIComponent(rsStale[rsi].id) + '&force=1',
+        const rr = await fetch(rsOrigin + '/api/admin/candidate-summary?case_id=' + encodeURIComponent(rsStale[rsi].id) + '&force=1',
           { headers: { authorization: 'Bearer ' + _CRON_SECRET_PRIMARY } });
         if (rr && rr.ok) rsRefreshed++; else rsFailed++;
       } catch (e) { rsFailed++; }
@@ -58426,7 +58620,7 @@ Return ONLY valid JSON with no markdown formatting:
     orMeta.upload = orUp;
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(orTaskId), { method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email, metadata: orMeta, updated_at: new Date().toISOString() } });
     try {
-      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: orTaskId, case_id: orTask.case_id, direction: 'outbound', channel: 'email', sender: orSender.from, recipient: orTo, cc: orCc || null, subject: orSentSubject, body_text: orBodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), gmail_thread_id: sendResult.threadId || orThreadId || null, rfc822_message_id: sendResult.rfc822MessageId || null, created_at: new Date().toISOString() }] });
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: orTaskId, case_id: orTask.case_id, direction: 'outbound', channel: 'email', sender: orSender.from, recipient: orTo, cc: orCc || null, subject: orSentSubject, body_text: stripRemainingHtmlTags(orBodyHtml.replace(/<br\s*\/?>/gi, '\n'), ''), gmail_thread_id: sendResult.threadId || orThreadId || null, rfc822_message_id: sendResult.rfc822MessageId || null, created_at: new Date().toISOString() }] });
     } catch (e) { /* non-critical */ }
     await _logCaseEvent(orTask.case_id, orTaskId, 'completed', 'AHPRA item sent to officer', (orUp.file_name || 'document') + ' emailed to ' + orTo, adminCtx.email);
     sendJson(res, 200, { ok: true, sent: true });
@@ -63473,12 +63667,12 @@ Return ONLY valid JSON with no markdown formatting:
               var probeDedup = await supabaseDbRequest('processed_gmail_messages', 'select=id&gmail_message_id=eq.' + encodeURIComponent(probeMsgs[ppi].id) + '&limit=1');
               var probeAlready = probeDedup.ok && Array.isArray(probeDedup.data) && probeDedup.data.length > 0;
               probeItems.push({ from: ph['from'] || '', subject: ph['subject'] || '', date: ph['date'] || '', senderEmail: probeSender, wouldPass: TEST_WATCH_FROM_SENDERS.has(probeSender), alreadyProcessed: probeAlready });
-            } catch (pgErr2) { probeItems.push({ error: String((pgErr2 && pgErr2.message) || pgErr2) }); }
+            } catch (pgErr2) { probeItems.push({ error: safeErrorText(pgErr2, 'Gmail message fetch failed') }); }
           }
           gwInboxProbe = { count: probeMsgs.length, resultSizeEstimate: probeList.data ? probeList.data.resultSizeEstimate : null, items: probeItems };
         }
       } catch (probeErr) {
-        gwInboxProbe = { error: String((probeErr && probeErr.message) || probeErr) };
+        gwInboxProbe = { error: safeErrorText(probeErr, 'Gmail inbox probe failed') };
       }
     }
     sendJson(res, 200, {
@@ -73167,6 +73361,15 @@ async function handleRequestInner(req, res) {
       return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     };
+    // JSON written INSIDE an inline <script>. JSON.stringify alone is not safe
+    // there: it leaves '</script>', '<!--' and the U+2028/U+2029 line separators
+    // intact, so any token text reaching it could close the script element and
+    // inject markup (CodeQL js/reflected-xss). The escaped forms parse back to
+    // the identical string, so the value the page posts is unchanged.
+    var afScriptJson = function (v) {
+      return JSON.stringify(v).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+        .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    };
     var afHeadline = 'Approve this fix?';
     var afDetail = '';
     var afValid = false;
@@ -73205,7 +73408,7 @@ async function handleRequestInner(req, res) {
         + '<script>document.getElementById("f").addEventListener("submit",function(e){e.preventDefault();'
         + 'var btn=document.querySelector(".b");btn.disabled=true;btn.textContent="Approving…";'
         + 'fetch("/api/error-fix/approve",{method:"POST",headers:{"Content-Type":"application/json"},'
-        + 'body:JSON.stringify(' + JSON.stringify(afAll ? { all: afAll } : { token: afToken }) + ')})'
+        + 'body:JSON.stringify(' + afScriptJson(afAll ? { all: afAll } : { token: afToken }) + ')})'
         + '.then(function(r){return r.json();}).then(function(j){'
         + 'document.getElementById("m").innerHTML=j.ok?"<h1>Approved</h1><p class=\\"d\\">Thank you — this is now queued to be fixed. You can close this page.</p>"'
         + ':"<h1>Could not approve</h1><p class=\\"d\\">"+(j.message||"Please open the dashboard and approve it there.")+"</p>";})'

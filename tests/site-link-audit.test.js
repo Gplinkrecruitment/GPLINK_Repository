@@ -71,7 +71,26 @@ function cachedGet(path) {
 // `href="..."` (e.g. innerHTML template strings in site-jobs.html's
 // empty-state message) are never mistaken for real markup attributes.
 function stripScriptsAndStyles(html) {
-  return html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+  // The end-tag patterns allow whitespace and junk before the ">" because the
+  // HTML tokenizer treats "</script >", "</script foo=\"bar\">" and
+  // "</script\t\n bar>" as real end tags (CodeQL js/bad-tag-filter).
+  // Each removal repeats until the string stops changing, because deleting a
+  // block can splice two partial tags together into a fresh one —
+  // "<sc<script>x</script>ript>y</script>" would otherwise leave a live
+  // "<script>y</script>" behind (js/incomplete-multi-character-sanitization).
+  // One loop per replace: a chained a.replace(x).replace(y) does not feed the
+  // inner call's result back into its own receiver.
+  let out = html;
+  let prev;
+  do {
+    prev = out;
+    out = out.replace(/<script[\s\S]*?<\/script(?:\s[^>]*)?>/gi, '');
+  } while (out !== prev);
+  do {
+    prev = out;
+    out = out.replace(/<style[\s\S]*?<\/style(?:\s[^>]*)?>/gi, '');
+  } while (out !== prev);
+  return out;
 }
 
 function extractLinks(html) {
@@ -171,7 +190,20 @@ describe('marketing site link audit (Task 14)', () => {
             continue;
           }
 
-          if (effectiveValue.startsWith('tel:') || effectiveValue.startsWith('javascript:')) {
+          // Everything reaching this point should be a path or a fragment:
+          // mailto: was handled above, and so was http(s):// (self-referencing
+          // canonical URLs were rewritten to a path). data: and vbscript: are
+          // script-capable schemes and must be rejected alongside javascript:
+          // (CodeQL js/incomplete-url-scheme-check). The comparison runs on a
+          // normalised copy — whitespace stripped, lower-cased — because
+          // browsers honour "  JavaScript:" and "java&#9;script:" in an href.
+          const schemeProbe = effectiveValue.replace(/\s+/g, '').toLowerCase();
+          if (
+            schemeProbe.startsWith('tel:') ||
+            schemeProbe.startsWith('javascript:') ||
+            schemeProbe.startsWith('data:') ||
+            schemeProbe.startsWith('vbscript:')
+          ) {
             failures.push(`unexpected scheme: ${value}`);
             continue;
           }

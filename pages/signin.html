@@ -1213,15 +1213,29 @@
     // deep links (e.g. a document re-upload) survive sign-in. Validated to a safe
     // internal /pages/ path to avoid open-redirects.
     var GP_SIGNIN_NEXT = (function () {
+      // The one same-origin path validator, identical to gpSafeInternalPath in
+      // js/auth-guard.js (see the notes there). Inlined because this runs while
+      // the page is parsing, before any shared script file has executed.
+      function gpSafeInternalPath(raw) {
+        var s = String(raw == null ? "" : raw);
+        if (/:\/\//.test(s)) return "";
+        if (/^\/\//.test(s)) return "";
+        if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(s)) return "";
+        if (!s || s.length > 2048) return "";
+        if (!/^\/(?:[^/\\\s\x00-\x1f\x7f][^\\\x00-\x1f\x7f]*)?$/.test(s)) return "";
+        return s;
+      }
       try {
         // URLSearchParams.get already percent-decodes — do not decode again.
         var dec = new URLSearchParams(window.location.search).get("next");
-        if (!dec) return "";
-        // Internal absolute path only: must be under /pages/, with no scheme or
-        // protocol-relative prefix.
-        if (!/^\/pages\//.test(dec)) return "";
-        if (/^\/\//.test(dec) || /:\/\//.test(dec)) return "";
-        return dec;
+        // Internal absolute path only: must be under /pages/, with no scheme, no
+        // protocol-relative prefix, no backslash and no control characters. Query
+        // and hash pass through byte for byte, so deep links (?reupload=,
+        // ?applicationId=, ?match=, ?role=, ?doc=, ?id=) keep working.
+        var safe = gpSafeInternalPath(dec);
+        if (!/^\/pages\//.test(safe)) return "";
+        if (!safe.startsWith("/pages/")) return "";
+        return safe;
       } catch (e) { return ""; }
     })();
 

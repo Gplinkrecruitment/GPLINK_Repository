@@ -16,6 +16,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
+import { urlHasOrigin } from './url-match.helpers.js';
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = `/tmp/gplink-owner-digest-${RUN_ID}.json`;
@@ -120,7 +121,7 @@ beforeAll(async () => {
       resendCalls.push({ url: target, body: parsed });
       return Promise.resolve(new Response(JSON.stringify({ id: 'email-' + resendCalls.length }), { status: 200 }));
     }
-    if (target.startsWith(FAKE_SUPABASE)) {
+    if (urlHasOrigin(target, FAKE_SUPABASE)) {
       const parsedUrl = new URL(target);
       const table = parsedUrl.pathname.replace(/^\/rest\/v1\//, '').split('/')[0];
       const method = (opts && opts.method) || 'GET';
