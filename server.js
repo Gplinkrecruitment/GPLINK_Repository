@@ -175,6 +175,7 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
+const agreementVariants = require('./lib/agreement-variants.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
@@ -190,9 +191,19 @@ const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
 const GP_TEAM_DOMAIN = 'mygplink.com.au';
 let _lifecycleFolderCache = null;
-// Cached bytes of the base (unsigned) practice agreement PDF template, lazily
-// read once per process — see POST /api/practice-intake/sign.
-let _agreementPdfBytes = null;
+// Cached bytes of each base (unsigned) practice-agreement PDF template, keyed by
+// variant and lazily read once per process — see POST /api/practice-intake/sign.
+// Keyed rather than a single slot because a practice on a negotiated rate signs a
+// different PDF; one shared slot would serve whichever variant was read first.
+const _agreementPdfBytesByVariant = new Map();
+function loadAgreementPdfBytes(variant) {
+  const key = variant && variant.key ? variant.key : agreementVariants.DEFAULT_VARIANT;
+  if (!_agreementPdfBytesByVariant.has(key)) {
+    const rel = (variant && variant.file) || agreementVariants.getAgreementVariant(key).file;
+    _agreementPdfBytesByVariant.set(key, fs.readFileSync(path.join(process.cwd(), rel)));
+  }
+  return _agreementPdfBytesByVariant.get(key);
+}
 
 const _authBootstrapWarmCache = new Map(); // email -> { expiresAt, value }
 const _authBootstrapInFlight = new Map(); // email -> Promise
@@ -41246,6 +41257,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const intake = (practice.metadata && practice.metadata.intake) || null;
+    const getVariant = agreementVariants.resolveAgreementVariant(practice);
     sendJson(res, 200, {
       ok: true,
       practice: {
@@ -41254,9 +41266,50 @@ async function handleApi(req, res, pathname) {
         agreement_status: practice.agreement_status || 'unsigned',
         stage: practice.stage || 'prospective',
         intake: intake,
-        submitted: !!intake
+        submitted: !!intake,
+        // Sign-only links land straight on the agreement; the page hides the
+        // five-step form entirely. The PDF is fetched through the token-gated
+        // endpoint below, never a public /assets path — a negotiated rate card
+        // should not sit at a guessable URL for other practices to find.
+        sign_only: agreementVariants.isSignOnlyPractice(practice),
+        agreement_variant: getVariant.key,
+        agreement_url: '/api/practice-intake/agreement?token=' + encodeURIComponent(token)
       }
     });
+    return;
+  }
+
+  // The unsigned agreement PDF this practice is being asked to sign. Token-gated
+  // rather than a static /assets link so a discounted variant is only reachable by
+  // the practice it was prepared for.
+  if (pathname === '/api/practice-intake/agreement' && req.method === 'GET') {
+    const ip = getClientIp(req);
+    const allowed = await checkRateLimitWindow('practice_intake:' + ip, 30, 60 * 60 * 1000);
+    if (!allowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+
+    const agToken = String(url.searchParams.get('token') || '').trim();
+    if (agToken.length < 16) { sendJson(res, 404, { ok: false }); return; }
+    const agPractice = await findPracticeByIntakeToken(agToken);
+    if (!agPractice) { sendJson(res, 404, { ok: false }); return; }
+
+    const agVariant = agreementVariants.resolveAgreementVariant(agPractice);
+    let agBytes;
+    try {
+      agBytes = loadAgreementPdfBytes(agVariant);
+    } catch (err) {
+      console.error('[practice-intake/agreement] template unavailable (' + agVariant.key + '):', err && err.message);
+      sendJson(res, 500, { ok: false, message: 'Agreement unavailable.' });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Length': agBytes.length,
+      'Content-Disposition': 'inline; filename="gp-link-recruitment-agreement.pdf"',
+      // Per-practice document behind a token — never let a shared cache hold it.
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(agBytes);
     return;
   }
 
@@ -41517,8 +41570,13 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // A sign-only link (metadata.sign_only, set by /api/ats/practice/sign-link) skips
+    // the five-step intake entirely: the practice was signed up over the phone or by
+    // email and only needs to execute the agreement. Everyone else still has to finish
+    // the intake first — that data is what the pending job is built from.
+    const signOnly = agreementVariants.isSignOnlyPractice(practice);
     const intake = (practice.metadata && practice.metadata.intake) || null;
-    if (!intake) {
+    if (!intake && !signOnly) {
       sendJson(res, 409, { ok: false, error: 'intake_incomplete' });
       return;
     }
@@ -41553,14 +41611,17 @@ async function handleApi(req, res, pathname) {
     const signerEmail = String((body && body.email) || '').trim().toLowerCase();
     const signerEmailValid = signerEmail && isValidEmail(signerEmail);
 
-    if (!_agreementPdfBytes) {
-      try {
-        _agreementPdfBytes = fs.readFileSync(path.join(process.cwd(), 'assets/legal/gp-link-practice-agreement-2026.pdf'));
-      } catch (err) {
-        console.error('[practice-intake/sign] failed to load agreement PDF template:', err && err.message);
-        sendJson(res, 500, { ok: false, message: 'Agreement template unavailable.' });
-        return;
-      }
+    // The practice signs the variant recorded on its own row — a negotiated rate must
+    // be the PDF that gets stamped and stored, not the standard schedule. An unknown
+    // variant resolves to standard, so the failure direction is "charge full price".
+    const signVariant = agreementVariants.resolveAgreementVariant(practice);
+    let signAgreementBytes;
+    try {
+      signAgreementBytes = loadAgreementPdfBytes(signVariant);
+    } catch (err) {
+      console.error('[practice-intake/sign] failed to load agreement PDF template (' + signVariant.key + '):', err && err.message);
+      sendJson(res, 500, { ok: false, message: 'Agreement template unavailable.' });
+      return;
     }
 
     const dateLabel = new Date().toLocaleDateString('en-AU', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' });
@@ -41569,7 +41630,7 @@ async function handleApi(req, res, pathname) {
     let stamped;
     try {
       stamped = await stampAgreementExecutionPage({
-        agreementBytes: _agreementPdfBytes,
+        agreementBytes: signAgreementBytes,
         signaturePngDataUrl: signaturePngDataUrl,
         signedName: signedName,
         practiceName: practice.name || '',
@@ -41650,7 +41711,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const createdJob = await createPendingJobFromIntake(practice, intake);
+    // No intake means no job details to build a listing from — createPendingJobFromIntake
+    // dereferences intake.nearest_city on its first line, so calling it here would throw
+    // AFTER the signed PDF had already been stored and the practice promoted. A sign-only
+    // practice gets its job when it later completes an intake.
+    const createdJob = intake ? await createPendingJobFromIntake(practice, intake) : null;
 
     // A corporate group signs ONCE for every clinic on its Schedule 1. Promote
     // each sibling clinic in the same group to active/signed against this same
@@ -71064,6 +71129,59 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // Mint a SIGN-ONLY agreement link for one practice: no intake form, straight to
+  // the agreement. Used when a practice has been signed up over the phone or on a
+  // negotiated rate, so the five-step intake would be pointless friction.
+  // Returns the URL for the RSO to send; it does NOT email anything itself.
+  if (pathname === '/api/ats/practice/sign-link' && req.method === 'POST') {
+    var ctxSL = requireAtsSession(req, res); if (!ctxSL) return;
+    var slBody; try { slBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    var slId = String((slBody && slBody.id) || url.searchParams.get('id') || '').trim();
+    if (!slId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    var slVariantKey = String((slBody && slBody.variant) || agreementVariants.DEFAULT_VARIANT).trim();
+    if (!agreementVariants.isAgreementVariant(slVariantKey)) {
+      sendJson(res, 400, { ok: false, message: 'Unknown agreement variant.' });
+      return;
+    }
+    var parsedSL = atsParsePracticeId(slId);
+    if (parsedSL.name) { sendJson(res, 400, { ok: false, message: 'This practice has no stored record yet.' }); return; }
+    var slRow = await atsGetPracticeRow(parsedSL.rowId);
+    if (!slRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+    if (slRow.agreement_status === 'signed') {
+      sendJson(res, 409, { ok: false, message: 'This practice has already signed — a new link would be refused.' });
+      return;
+    }
+
+    // Reuse the practice's existing intake token when it has one, so any link
+    // already sent keeps working; mint one only when there is none.
+    var slToken = slRow.intake_token || (slRow.metadata && slRow.metadata.intake_token);
+    var slMeta = Object.assign({}, slRow.metadata || {}, {
+      sign_only: true,
+      agreement_variant: slVariantKey
+    });
+    if (!slToken) {
+      slToken = practicePipeline.generateIntakeToken();
+      slMeta.intake_token = slToken;
+    }
+    // Fail CLOSED: an unpersisted token can never match findPracticeByIntakeToken,
+    // so returning the URL anyway would hand out a link that always reads "expired"
+    // (the same trap sendPracticeIntakeEmail guards against).
+    var slSaved = await atsUpdatePracticeRow(slRow.id, { metadata: slMeta }).catch(function () { return null; });
+    if (!slSaved) {
+      console.error('[sign-link] could not persist sign-only flags for practice', slRow.id);
+      sendJson(res, 502, { ok: false, message: 'Could not save the signing link. Please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      url: APP_BASE_URL + '/pages/practice-intake?token=' + encodeURIComponent(slToken),
+      variant: slVariantKey,
+      variant_label: agreementVariants.getAgreementVariant(slVariantKey).label
+    });
     return;
   }
 

@@ -271,14 +271,17 @@
 
   <!-- The 5-step form -->
   <div id="formShell" class="hidden">
-    <div class="steps">
+    <div class="steps" id="stepsRail">
       <div id="st1" class="on">1 · Where</div>
       <div id="st2">2 · The job</div>
       <div id="st3">3 · The pitch</div>
       <div id="st4">4 · Practices</div>
       <div id="st5">5 · Sign</div>
     </div>
-    <p class="form-assure">Takes about five minutes. Everything saves as you go, so you can close this and come back to the same link whenever you like.</p>
+    <p class="form-assure" id="formAssure">Takes about five minutes. Everything saves as you go, so you can close this and come back to the same link whenever you like.</p>
+    <!-- Sign-only links (metadata.sign_only) replace both of the above: no five-step
+         form, just the agreement. See enterSignOnlyMode(). -->
+    <p class="form-assure hidden" id="signOnlyAssure">Your details are already with us — all that's left is to read and sign the agreement below.</p>
 
     <!-- ============ STEP 1: WHERE ============ -->
     <div class="card" id="p1">
@@ -589,9 +592,12 @@
       <div class="f">
         <label>The agreement you're signing</label>
         <div class="hint">The full contract, embedded below, so you can always read it before or after signing.</div>
+        <!-- src/href are replaced on load with the token-gated per-practice URL
+             (currentPractice.agreement_url). The static path stays as the fallback
+             for the standard agreement if that response ever lacks the field. -->
         <iframe class="pdf-frame" id="pdfFrame" src="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" title="GP Link Recruitment Services Agreement"></iframe>
         <div class="pdf-fallback">
-          Can't see the document? <a href="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" target="_blank" rel="noopener">Download the agreement (PDF)</a>
+          Can't see the document? <a id="pdfDownloadLink" href="/assets/legal/gp-link-practice-agreement-2026.pdf?v=20260717a" target="_blank" rel="noopener">Download the agreement (PDF)</a>
         </div>
       </div>
 
@@ -667,7 +673,10 @@
   <div id="successPanel" class="card state-panel hidden">
     <div class="icon dot ok" aria-hidden="true"></div>
     <h1>Agreement signed</h1>
-    <p style="margin-bottom:0">Agreement signed. Your job listing is with our team for approval. Watch your inbox.</p>
+    <!-- Two versions: a practice that came through the intake has a job listing
+         waiting for approval; one that signed via a sign-only link has none, so
+         promising a listing (and linking to an empty status page) would be wrong. -->
+    <p style="margin-bottom:0" id="successCopy">Agreement signed. Your job listing is with our team for approval. Watch your inbox.</p>
     <!-- href is filled in by showSuccess() from the page's intake token -->
     <p style="margin:18px 0 0"><a id="trackListingLink" class="btn hidden" style="text-decoration:none" href="#">Track your listing →</a></p>
   </div>
@@ -698,10 +707,18 @@
     // dead-end (the status-page URL existed only in the confirmation
     // email). Token goes into the query string URL-encoded; assigning
     // via the href property (never innerHTML) keeps it injection-safe.
-    var trackLink = $('trackListingLink');
-    if (trackLink && token) {
-      trackLink.href = '/pages/practice-status?token=' + encodeURIComponent(token);
-      trackLink.classList.remove('hidden');
+    // A sign-only practice has no job listing — no intake was collected and the
+    // server deliberately creates none — so neither the copy nor the tracking link
+    // should imply one is on its way.
+    if (signOnly) {
+      var copyEl = $('successCopy');
+      if (copyEl) copyEl.textContent = 'Agreement signed. A copy is on its way to your inbox. We’ll be in touch with the next steps.';
+    } else {
+      var trackLink = $('trackListingLink');
+      if (trackLink && token) {
+        trackLink.href = '/pages/practice-status?token=' + encodeURIComponent(token);
+        trackLink.classList.remove('hidden');
+      }
     }
     showOnly(successPanel);
   }
@@ -710,6 +727,19 @@
   // Load
   // ---------------------------------------------------------------------
   var currentPractice = null;
+  // Sign-only link: the practice was signed up over the phone or on a negotiated
+  // rate, so there is no intake to complete — the five-step form is hidden and the
+  // page opens on the agreement. The server waives its intake requirement for the
+  // same practices (metadata.sign_only) and creates no pending job.
+  var signOnly = false;
+
+  function enterSignOnlyMode() {
+    signOnly = true;   // already set by loadPractice; kept so the function stands alone
+    var rail = $('stepsRail'); if (rail) rail.classList.add('hidden');
+    var assure = $('formAssure'); if (assure) assure.classList.add('hidden');
+    var so = $('signOnlyAssure'); if (so) so.classList.remove('hidden');
+    go(5);
+  }
 
   function loadPractice() {
     if (!token || token.length < 16) {
@@ -723,8 +753,19 @@
         if (res.status === 404) { showOnly(expiredPanel); return; }
         if (res.status !== 200 || !res.data || !res.data.ok) { showOnly(somethingWrongPanel); return; }
         currentPractice = res.data.practice;
+        // Set before the already-signed check below: reopening a signed sign-only
+        // link must get the sign-only success copy, not a promise of a job listing.
+        signOnly = currentPractice.sign_only === true;
         if (currentPractice.agreement_status === 'signed') { showSuccess(); return; }
         showOnly(formShell);
+        // The agreement PDF always comes from the token-gated endpoint, so a practice
+        // on a negotiated rate reads the variant prepared for it rather than the
+        // standard schedule that used to be hard-coded here.
+        if (currentPractice.agreement_url) {
+          var frame = $('pdfFrame'); if (frame) frame.src = currentPractice.agreement_url;
+          var dl = $('pdfDownloadLink'); if (dl) dl.href = currentPractice.agreement_url;
+        }
+        if (currentPractice.sign_only === true) { enterSignOnlyMode(); return; }
         if (currentPractice.submitted && currentPractice.intake) {
           resumeFromServer(currentPractice.intake);
         } else if (!restoreDraft()) {
@@ -1665,15 +1706,23 @@
     var ent = $('legalEntityName').value.trim() || '<i style="color:var(--ink-3)">your legal entity</i>';
     var kind = idKind(idDigits($('abnAcn').value)) || 'ABN';
     var abnVal = $('abnAcn').value.trim() || 'Not set';
-    var rows = saved.map(function (p, i) {
+    // Sign-only: there is no intake list, so Schedule 1 names the practice from its
+    // own record and the entity they are typing in below.
+    var list = signOnly
+      ? [{ suburb: (currentPractice && currentPractice.name) || 'Your practice', state: '', signOnlyRow: true }]
+      : saved;
+    var rows = list.map(function (p, i) {
       var own = p.hasOwn && (p.ownEntity || '').trim();
-      return '<tr><td>' + (i + 1) + '</td><td><b>' + escapeHtml(p.suburb || 'Not set') + '</b>, ' + escapeHtml(p.state || 'Not set') + '</td>' +
+      var where = p.signOnlyRow
+        ? '<b>' + escapeHtml(p.suburb) + '</b>'
+        : '<b>' + escapeHtml(p.suburb || 'Not set') + '</b>, ' + escapeHtml(p.state || 'Not set');
+      return '<tr><td>' + (i + 1) + '</td><td>' + where + '</td>' +
         '<td>' + (own ? escapeHtml(p.ownEntity) : ent) + '<div class="abn">' + (own ? 'ABN/ACN ' + escapeHtml(p.ownAbn || 'Not set') : kind + ' ' + escapeHtml(abnVal)) + '</div></td></tr>';
     }).join('');
     $('schedule').innerHTML =
       '<table><thead><tr><th style="width:22px">#</th><th>Practice</th><th>Contracting entity</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>' +
-      '<div style="margin-top:9px;font-size:12px;color:var(--ink-3)">One signature · ' + saved.length + ' practice' + (saved.length > 1 ? 's' : '') + '</div>';
+      '<div style="margin-top:9px;font-size:12px;color:var(--ink-3)">One signature · ' + list.length + ' practice' + (list.length > 1 ? 's' : '') + '</div>';
   }
 
   // ---------------------------------------------------------------------
@@ -1760,7 +1809,9 @@
   var GATE_LABELS = ['At least one practice added', 'Your full legal name', 'Your position', 'Legal entity name', 'ABN or ACN', 'Your email', 'Signature', 'Authorisation confirmed'];
   function gateSign() {
     var done = [
-      saved.length > 0,
+      // A sign-only link has no intake, so there is no list of practices to
+      // gate on — without this the Sign button could never enable.
+      signOnly || saved.length > 0,
       !!$('signedName').value.trim(),
       !!$('signerJobTitle').value.trim(),
       !!$('legalEntityName').value.trim(),

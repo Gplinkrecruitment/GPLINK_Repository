@@ -597,7 +597,62 @@
         '<button class="ats-btn ats-btn-ghost ats-btn-sm" data-ats="upload-contract">' + UPLOAD_CONTRACT_LABEL + '</button>' +
         '<span style="font-size:12px;color:var(--ats-dim)">PDF only · 10 MB max</span>' +
       '</div>' +
+      signLinkHtml(p) +
     '</div>';
+  }
+
+  // -------------------- sign-only e-sign link --------------------
+  // Skips the five-step intake: the practice lands straight on the agreement and
+  // signs. Also picks WHICH agreement — a practice on a negotiated rate must be
+  // shown that PDF, not the standard schedule. Nothing is emailed; the RSO copies
+  // the link and sends it themselves.
+  function signLinkHtml(p) {
+    if (p.agreement_status === 'signed') return '';
+    return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--ats-border)">' +
+      '<div style="font-size:12px;color:var(--ats-dim);margin-bottom:7px">' +
+        'Sign-only link — no intake form, straight to the agreement.</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<select id="atsSignVariant" class="ats-input ats-input-sm" style="max-width:210px">' +
+          '<option value="standard">Standard 2026 rates</option>' +
+          '<option value="discounted-2026">Discounted 2026 rates</option>' +
+        '</select>' +
+        '<button class="ats-btn ats-btn-primary ats-btn-sm" data-ats="sign-link" data-id="' + ATS.escAttr(p.id) + '">Create signing link</button>' +
+      '</div>' +
+      '<div id="atsSignLinkOut" style="margin-top:9px;font-size:12px;word-break:break-all"></div>' +
+    '</div>';
+  }
+
+  function createSignLink(id, btn) {
+    if (!id) return;
+    var sel = document.getElementById('atsSignVariant');
+    var variant = sel ? sel.value : 'standard';
+    var out = document.getElementById('atsSignLinkOut');
+    var orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+    ATS.api('/api/ats/practice/sign-link', { method: 'POST', body: { id: id, variant: variant } }).then(function (d) {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+      if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not create the signing link'); return; }
+      if (out) {
+        out.textContent = '';
+        var label = document.createElement('div');
+        label.style.cssText = 'color:var(--ats-dim);margin-bottom:4px';
+        label.textContent = d.variant_label + ' — send this link to the practice:';
+        // textContent, never innerHTML: the URL carries a token.
+        var a = document.createElement('a');
+        a.href = d.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = d.url; a.style.color = 'var(--ats-accent, #4a9eff)';
+        var copy = document.createElement('button');
+        copy.className = 'ats-btn ats-btn-ghost ats-btn-sm';
+        copy.style.marginLeft = '8px';
+        copy.textContent = 'Copy';
+        copy.onclick = function () {
+          navigator.clipboard.writeText(d.url).then(function () { ATS.toast('Link copied'); },
+            function () { ATS.toast('Could not copy — select the link and copy it manually'); });
+        };
+        out.appendChild(label); out.appendChild(a); out.appendChild(copy);
+      }
+      ATS.toast('Signing link ready');
+    });
   }
 
   function triggerContractUpload() {
@@ -980,6 +1035,7 @@
     else if (action === 'invite-consultant') inviteConsultant(t);
     else if (action === 'remove-consultant') removeConsultant(t.getAttribute('data-email'), t);
     else if (action === 'resend-intake') resendIntake(id, t);
+    else if (action === 'sign-link') createSignLink(id, t);
     else if (action === 'upload-contract') triggerContractUpload();
     else if (action === 'add-secondary-detail') addSecondaryRowTo('atsDetailSecondaryList');
     else if (action === 'remove-secondary') {
