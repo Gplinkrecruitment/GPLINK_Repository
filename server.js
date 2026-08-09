@@ -31562,10 +31562,25 @@ function buildCareerMatchMapQuery(practiceAddress, practiceName, city, state) {
   const parts = address ? [address, city, state] : [practiceName, city, state];
   return parts.filter(Boolean).join(', ');
 }
+// The last failure from atsInsertPracticeRow. The function returns null on any error
+// and nine call sites rely on that contract, so rather than changing all of them the
+// reason is parked here for the caller that cares. Without it a failed insert was
+// completely undiagnosable: "Could not create practice." with nothing in the log and
+// no hint on screen — which is exactly how the duplicate-name 409 presented.
+let _lastPracticeInsertError = null;
+function lastPracticeInsertError() { return _lastPracticeInsertError; }
+
 async function atsInsertPracticeRow(row) {
+  _lastPracticeInsertError = null;
   if (isSupabaseDbConfigured()) {
     var r = await supabaseDbRequest('practices', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
-    return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    if (!r.ok || !Array.isArray(r.data) || !r.data[0]) {
+      _lastPracticeInsertError = { status: r.status, body: r.data };
+      console.error('[practices] insert failed (' + r.status + '):',
+        typeof r.data === 'string' ? r.data.slice(0, 300) : JSON.stringify(r.data || {}).slice(0, 300));
+      return null;
+    }
+    return r.data[0];
   }
   var local = Object.assign({ id: atsLocalId('prac_'), created_at: atsNowIso() }, row, { updated_at: atsNowIso() });
   dbState.atsPractices = dbState.atsPractices || [];
@@ -70814,7 +70829,23 @@ Return ONLY valid JSON with no markdown formatting:
     }
     if (pcParent) pracRow.parent_corporation_id = pcParent;
     var createdP = await atsInsertPracticeRow(pracRow);
-    if (!createdP) { sendJson(res, 502, { ok: false, message: 'Could not create practice.' }); return; }
+    if (!createdP) {
+      // `practices` carries a unique index on lower(name) (idx_practices_name_lower),
+      // so a name that already exists in ANY casing 409s. That used to surface as a
+      // bare "Could not create practice." — true, but useless: the staff member has no
+      // way to know the name is taken, and "Test Practice" already exists.
+      var pcErr = lastPracticeInsertError();
+      var pcBody = (pcErr && pcErr.body) || {};
+      var pcDup = pcErr && (pcErr.status === 409 || pcBody.code === '23505' ||
+        String(pcBody.message || '').indexOf('idx_practices_name_lower') !== -1);
+      if (pcDup) {
+        sendJson(res, 409, { ok: false, code: 'duplicate_name',
+          message: 'A practice called “' + pracRow.name + '” already exists. Pick a different name — names are matched ignoring capitals.' });
+        return;
+      }
+      sendJson(res, 502, { ok: false, message: (pcBody && pcBody.message) ? ('Could not create practice: ' + pcBody.message) : 'Could not create practice.' });
+      return;
+    }
     sendJson(res, 200, { ok: true, practice: createdP });
     return;
   }
