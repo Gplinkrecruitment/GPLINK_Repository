@@ -344,8 +344,8 @@ describe('cache busting', () => {
   it('bumps every asset that changed, or browsers keep the old ones for an hour', () => {
     expect(CEO_HTML).toContain('/js/ceo-ats-jobs.js?v=20260805c');   // map added here
     expect(CEO_HTML).not.toContain('/js/ceo-ats-jobs.js?v=20260729a');
-    expect(CEO_HTML).toContain('/js/ceo-ats-practices.js?v=20260809a'); // map removed here
-    expect(CEO_HTML).not.toContain('/js/ceo-ats-practices.js?v=20260805d');
+    expect(CEO_HTML).toContain('/js/ceo-ats-practices.js?v=20260809b'); // map removed here
+    expect(CEO_HTML).not.toContain('/js/ceo-ats-practices.js?v=20260809a');
     expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20260805h');
     expect(CEO_HTML).not.toContain('/css/ceo-ats.css?v=20260805e');
   });

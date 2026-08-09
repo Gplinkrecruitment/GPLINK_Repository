@@ -607,7 +607,16 @@
   // shown that PDF, not the standard schedule. Nothing is emailed; the RSO copies
   // the link and sends it themselves.
   function signLinkHtml(p) {
-    if (p.agreement_status === 'signed') return '';
+    // Say WHY there is no button rather than rendering nothing — an absent control on a
+    // signed practice just reads as "the feature is broken". Re-signing is blocked on
+    // purpose: the signed PDF is stored at a fixed key per practice, so a second
+    // signature would overwrite the executed original.
+    if (p.agreement_status === 'signed') {
+      return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--ats-border);font-size:12px;color:var(--ats-dim)">' +
+        'This practice has already signed, so a new signing link would be refused. ' +
+        'To move them onto different rates, the existing agreement has to be superseded — ask the team to set that up.' +
+      '</div>';
+    }
     return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--ats-border)">' +
       '<div style="font-size:12px;color:var(--ats-dim);margin-bottom:7px">' +
         'Sign-only link — no intake form, straight to the agreement.</div>' +

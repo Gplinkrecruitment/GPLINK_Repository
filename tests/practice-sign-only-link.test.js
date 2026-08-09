@@ -269,8 +269,13 @@ describe('the RSO console control', () => {
     expect(practicesJs).toContain('<option value="discounted-2026">Discounted 2026 rates</option>');
   });
 
-  it('hides itself once the practice has signed', () => {
-    expect(practicesJs).toContain("if (p.agreement_status === 'signed') return '';");
+  it('explains itself on a signed practice instead of rendering nothing', () => {
+    // An absent control with no explanation reads as a broken feature — that is
+    // exactly how it was first reported.
+    expect(practicesJs).not.toContain("if (p.agreement_status === 'signed') return '';");
+    expect(practicesJs).toContain('This practice has already signed, so a new signing link would be refused.');
+    const fn = practicesJs.slice(practicesJs.indexOf('function signLinkHtml(p)'));
+    expect(fn.slice(0, 900)).toContain("if (p.agreement_status === 'signed') {");
   });
 
   it('renders the token-bearing URL as text, never as markup', () => {
@@ -280,7 +285,7 @@ describe('the RSO console control', () => {
 
   it('bumped its cache-buster, or the console keeps the old bundle', () => {
     const ceo = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
-    expect(ceo).toContain('/js/ceo-ats-practices.js?v=20260809a');
+    expect(ceo).toContain('/js/ceo-ats-practices.js?v=20260809b');
     expect(ceo).not.toContain('/js/ceo-ats-practices.js?v=20260805d');
   });
 });
