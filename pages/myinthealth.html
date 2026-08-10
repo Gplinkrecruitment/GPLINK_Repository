@@ -1447,8 +1447,15 @@
       link.click();
       link.remove();
 
+      // Still visible half a second later means nothing opened. This has to be the TOP
+      // window: the page runs inside the app shell's iframe, and navigating that frame
+      // to an off-site URL is exactly what our CSP frame-src refuses — so the old
+      // window.location.assign here could never have rescued a blocked popup.
       window.setTimeout(() => {
-        if (document.visibilityState === "visible") {
+        if (document.visibilityState !== "visible") return;
+        try {
+          (window.top || window).location.assign(MYINTEALTH_URL);
+        } catch (e) {
           window.location.assign(MYINTEALTH_URL);
         }
       }, 500);

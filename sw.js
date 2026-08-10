@@ -32,7 +32,12 @@
   // X-Frame-Options and by our own CSP frame-src, silently, so the button did nothing.
   // /pages/amc is precached in PAGE_CACHE, so without a bump a doctor sitting on the
   // AMC step keeps the dead button for a navigation.
-  var VERSION = "20260811a";
+  // 20260811b: the rest of the same class, found by sweeping all 18 shell-embedded
+  // pages — "Open AHPRA" (both AHPRA steps) had the identical window.location bug, the
+  // two GMC sign-in links in the Certificate-of-Good-Standing help had no target so
+  // they navigated the frame, and the MyIntealth / WhatsApp popup-blocked fallbacks
+  // pointed at the frame too. ahpra, myinthealth and messages are all precached.
+  var VERSION = "20260811b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

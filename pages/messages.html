@@ -1480,7 +1480,17 @@
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
             const url = d && d.waUrl;
-            if (url) { fabWhatsAppEl.setAttribute("href", url); window.location.href = url; }
+            // This rescue has to navigate the TOP window. The page runs inside the app
+            // shell's iframe, so the old window.location.href sent wa.me into that
+            // frame, which our CSP frame-src refuses silently — the tap did nothing.
+            // Deliberately NOT window.open: opening a tab from here is what caused the
+            // blank-page-on-mobile regression this handler was rewritten to avoid, and
+            // a top-level navigation is what hands off to the installed WhatsApp app.
+            if (url) {
+              fabWhatsAppEl.setAttribute("href", url);
+              try { (window.top || window).location.assign(url); }
+              catch (e) { window.location.assign(url); }
+            }
             else alert("Could not open WhatsApp just now. Please try again, or create a ticket.");
           })
           .catch(() => alert("Could not open WhatsApp just now. Please try again, or create a ticket."));
