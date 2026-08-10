@@ -106,6 +106,27 @@ describe('practice-pack tasks get the same cursor-independent safety net as SPPA
   });
 });
 
+// One email carried BOTH the position description and the supervisor CV. Both were stored
+// is_current=true on the one matched task, and submit-drive picks a current doc with an
+// unordered LIMIT 1 — so which PDF got filed to Drive as the position description was down
+// to Postgres row order.
+describe('one current document per task', () => {
+  it('only the FIRST attachment of a multi-attachment email becomes current', () => {
+    expect(serverSrc).toContain('is_current: (_earlyStoredDocIds.length === 0 || _earlyIsSppa)');
+  });
+
+  it('exempts SPPA-00, which returns the form plus alt supervisor CVs together', () => {
+    expect(serverSrc).toContain("var _earlyIsSppa = earlyTask.related_document_key === 'sppa_00';");
+    // Those alt CVs are looked up by category AND is_current, so demoting them would hide them.
+    expect(serverSrc).toContain("category=eq.alt_supervisor_cv&is_current=eq.true");
+  });
+
+  it('submit-drive picks the current document deterministically', () => {
+    const ep = serverSrc.slice(serverSrc.indexOf("pathname === '/api/admin/task/submit-drive'"));
+    expect(ep).toContain('&is_current=eq.true&order=created_at.desc&limit=1');
+  });
+});
+
 // The suppression gate is what turned a matching miss into SILENT data loss, so pin the
 // exemption the fix relies on: once the thread resolves a case, nothing is suppressed.
 describe('rollout allow-list never suppresses a message we could place', () => {

@@ -5746,11 +5746,26 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                     await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(earlyTask.id) + '&is_current=eq.true', { method: 'PATCH', body: { is_current: false } });
                     _earlyWipedCurrent = true;
                   }
+                  // Exactly ONE current document per task. Owner report 2026-08-10: the
+                  // practice manager sent the position description AND the supervisor CV in
+                  // a single email, so both were inserted is_current=true on the Position
+                  // Description task — and /api/admin/task/submit-drive reads
+                  // `is_current=eq.true&limit=1` with no ORDER BY, so which file got filed to
+                  // Drive as the position description was down to whatever Postgres returned
+                  // first. The extra attachment is still stored and still rendered (as a
+                  // dimmed entry), just not treated as THE document.
+                  //
+                  // SPPA-00 is exempt: it legitimately returns the form plus alternate
+                  // supervisor CVs in one email and looks those up with
+                  // category=alt_supervisor_cv AND is_current=true (see ~line 2424), so
+                  // demoting them there would hide them.
+                  var _earlyIsSppa = earlyTask.related_document_key === 'sppa_00';
                   var _earlyDocRes = await supabaseDbRequest('task_documents', '', {
                     method: 'POST', headers: { Prefer: 'return=representation' },
                     body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
                       filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
-                      version: 1, is_current: true, uploaded_by: 'email_response',
+                      version: 1, is_current: (_earlyStoredDocIds.length === 0 || _earlyIsSppa),
+                      uploaded_by: 'email_response',
                       attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
                   var _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
                   if (_earlyDocId) _earlyStoredDocIds.push({ id: _earlyDocId, b64: attData.data.data || '', filename: ap.filename });
@@ -59099,8 +59114,10 @@ Return ONLY valid JSON with no markdown formatting:
       const task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data.length > 0 ? taskRes.data[0] : null;
       if (!task) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
 
-      // 2. Load current document
-      const docRes = await supabaseDbRequest('task_documents', 'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&limit=1');
+      // 2. Load current document. ORDER BY is not cosmetic here: an unordered LIMIT 1 over
+      // two current rows lets Postgres decide which file is filed to Drive as this task's
+      // document (see the 2026-08-10 multi-attachment report). Newest wins, deterministically.
+      const docRes = await supabaseDbRequest('task_documents', 'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&order=created_at.desc&limit=1');
       const doc = docRes.ok && Array.isArray(docRes.data) && docRes.data.length > 0 ? docRes.data[0] : null;
       if (!doc) { sendJson(res, 404, { ok: false, message: 'No current document found for this task.' }); return; }
 
