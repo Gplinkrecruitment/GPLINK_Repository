@@ -219,6 +219,7 @@ const registrationPlaybook = require('./lib/registration-playbook.js');
 const suggestReplyPrompt = require('./lib/suggest-reply-prompt.js');
 const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
 const practiceNudgeDraft = require('./lib/practice-nudge-draft.js');
+const practiceDocClassify = require('./lib/practice-doc-classify.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
 const agreementVariants = require('./lib/agreement-variants.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
@@ -5768,9 +5769,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                       uploaded_by: 'email_response',
                       attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
                   var _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
-                  if (_earlyDocId) _earlyStoredDocIds.push({ id: _earlyDocId, b64: attData.data.data || '', filename: ap.filename });
+                  if (_earlyDocId) _earlyStoredDocIds.push({ id: _earlyDocId, b64: attData.data.data || '', filename: ap.filename, mimeType: ap.mimeType || '' });
                 }
               } catch (attErr) { console.error('[Gmail] Early match attachment extraction failed:', attErr.message); }
+              // Read what actually arrived: record an AI verdict for the RSO and move any
+              // document that belongs to a sibling practice task. AWAITED (not fire-and-
+              // forget) because a serverless instance can freeze the moment the webhook is
+              // acked, which would drop the scan silently — the same reasoning as the
+              // practice-reply draft below.
+              try {
+                await _scanAndRoutePracticeDocs(earlyTask, earlyGpCase, _earlyStoredDocIds);
+              } catch (scanErr) { console.error('[Gmail] Practice doc scan failed:', scanErr && scanErr.message); }
             }
             // SPPA-00 lifecycle: transition to gp_returned when GP replies with document
             if (earlyTask.related_document_key === 'sppa_00' && earlyIsDoc) {
@@ -19112,6 +19121,18 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
   if (!meta || typeof meta !== 'object') meta = {};
 
   var hasDocument = !!reply.hasDocument;
+  // Owner 2026-08-10: "we don't need a reply email if the document is approved by [the] RSO
+  // when received." hasDocument used to describe THIS message only, so a practice that sent
+  // the document and then sent a bare "did you get it?" got a drafted chase-up for a document
+  // already sitting on the task. What matters is whether the TASK holds the document, not
+  // whether this particular email carried it.
+  if (!hasDocument) {
+    try {
+      var _hdRes = await supabaseDbRequest('task_documents',
+        'select=id&task_id=eq.' + encodeURIComponent(task.id) + '&is_current=eq.true&limit=1');
+      if (_hdRes.ok && Array.isArray(_hdRes.data) && _hdRes.data.length > 0) hasDocument = true;
+    } catch (e) { /* fall back to the per-message answer */ }
+  }
   meta.practice_reply = {
     received_at: new Date().toISOString(),
     message_id: reply.messageId || null,
@@ -29104,6 +29125,202 @@ async function verifyCareerCvWithAI(buffer, mimeType, fileName) {
     console.error('[career-cv-scan] AI scan failed:', err && err.message);
     return { ok: false, reason: 'ai_error' };
   }
+}
+
+/**
+ * Read ONE document the practice emailed in: which outstanding document is it, and does it
+ * meet what we asked for. Same Anthropic content-block handling as classifyDocumentWithAI
+ * (a PDF goes as a `document` block, an image as an `image` block) — practice documents are
+ * almost always scans with no text layer, so the model has to LOOK at them.
+ *
+ * @returns {Object|null} parsePracticeDocResult() shape, or null when unavailable/unparseable.
+ */
+async function classifyPracticeDocumentWithAI(buffer, mimeType, candidates, opts) {
+  if (!ANTHROPIC_API_KEY) return null;
+  if (!Array.isArray(candidates) || !candidates.length) return null;
+
+  var prompt = practiceDocClassify.buildPracticeDocPrompt(candidates, opts || {});
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var isPdfInput = mime === 'application/pdf' || mime.indexOf('pdf') !== -1;
+  var blocks = null;
+
+  if (isPdfInput) {
+    var pdfB64 = Buffer.isBuffer(buffer) ? buffer.toString('base64') : stripBase64DataUrlPrefix(buffer);
+    if (!pdfB64) return null;
+    blocks = [
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfB64 } },
+      { type: 'text', text: prompt.text },
+    ];
+  } else if (mime.startsWith('image/')) {
+    var imgB64 = Buffer.isBuffer(buffer) ? buffer.toString('base64') : buffer;
+    var norm = await normalizeImageForAi(imgB64, mime);
+    if (!norm || !norm.base64) return null;
+    blocks = [
+      { type: 'image', source: { type: 'base64', media_type: norm.mediaType, data: norm.base64 } },
+      { type: 'text', text: prompt.text },
+    ];
+  } else {
+    // .docx/.doc practice documents are rare; no text extraction path here yet, so the RSO
+    // simply gets no verdict rather than a guessed one.
+    return null;
+  }
+
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 45000);
+  try {
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: SUGGEST_REPLY_MODEL,
+        max_tokens: 800,
+        // Deterministic: this is a classification plus a compliance judgement, and two runs
+        // over the SAME position description disagreed about whether a Practice Manager's
+        // signature satisfies "signed by the practice owner or employer". An RSO should not
+        // get a different verdict on a re-scan of an unchanged document.
+        // (Verified 2026-08-10 that claude-opus-4-6 accepts temperature on this endpoint.)
+        temperature: 0,
+        system: prompt.system,
+        messages: [{ role: 'user', content: blocks }],
+      }),
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      console.warn('[practice-doc-scan] AI request failed', resp.status);
+      return null;
+    }
+    var data = await resp.json();
+    if (data.usage) {
+      recordAnthropicSpend(data.usage.input_tokens || 0, data.usage.output_tokens || 0,
+        data.usage.cache_read_input_tokens || 0, data.usage.cache_creation_input_tokens || 0);
+    }
+    return practiceDocClassify.parsePracticeDocResult(
+      (data.content && data.content[0] && data.content[0].text) || '', prompt.keys);
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn('[practice-doc-scan] AI error:', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * Scan every document that just arrived on a practice-pack task, record the verdict where the
+ * dashboards can render it, and move a document that plainly belongs to a sibling task.
+ *
+ * Owner report 2026-08-10: one email carried the supervisor CV AND the position description,
+ * both landed on the Position Description task, and a human had to sort it out. The routing
+ * decision itself is pure (practice-doc-classify.decideDocumentRouting) and fail-safe: it only
+ * moves a document onto a task that is genuinely waiting for exactly that document type, on a
+ * confident read. Anything else stays put with a suggestion on the card.
+ *
+ * Best-effort throughout: a scan failure must never cost us the document.
+ */
+async function _scanAndRoutePracticeDocs(task, gpCase, storedDocs) {
+  if (!isSupabaseDbConfigured() || !task || !gpCase) return;
+  if (task.task_type !== 'practice_pack_child') return;
+  if (task.related_document_key === 'sppa_00' || task.related_document_key === 'section_g') return;
+  if (!Array.isArray(storedDocs) || !storedDocs.length) return;
+  if (!ANTHROPIC_API_KEY) return;
+  try {
+    var okBudget = await checkAnthropicBudget();
+    if (!okBudget) { console.warn('[practice-doc-scan] budget exhausted — skipping scan for task', task.id); return; }
+  } catch (e) { /* budget check best-effort */ }
+
+  // The documents this practice still owes us: this task's, plus its still-open siblings.
+  var sibRes = await supabaseDbRequest('registration_tasks',
+    'select=id,related_document_key,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
+    '&task_type=eq.practice_pack_child&status=in.(open,in_progress,waiting_on_practice,waiting_on_external)&limit=50');
+  var sibs = (sibRes.ok && Array.isArray(sibRes.data)) ? sibRes.data : [];
+  var siblings = sibs
+    .filter(function (s) { return s.id !== task.id && s.related_document_key && practiceDocClassify.PRACTICE_DOC_CATALOG[s.related_document_key]; })
+    .map(function (s) { return { key: s.related_document_key, taskId: s.id }; });
+
+  var candidateKeys = [task.related_document_key].concat(siblings.map(function (s) { return s.key; }))
+    .filter(function (k, i, arr) { return k && practiceDocClassify.PRACTICE_DOC_CATALOG[k] && arr.indexOf(k) === i; });
+  if (!candidateKeys.length) return;
+  var candidates = candidateKeys.map(function (k) { return { key: k }; });
+
+  var gpName = '';
+  try {
+    var pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(gpCase.user_id) + '&limit=1');
+    var p = (pr.ok && Array.isArray(pr.data) && pr.data[0]) ? pr.data[0] : {};
+    gpName = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+  } catch (e) { gpName = ''; }
+
+  // Naming the supervisor is what turns "probably the supervisor's CV" into a confident
+  // read. Measured against the real 2026-08-10 documents: without it the model returned 62%
+  // for the supervisor CV — under the routing threshold, so it would only have suggested.
+  // The placed application carries the practice contact, who is the supervising GP.
+  var supervisorName = '';
+  try {
+    var pc = await resolvePlacedPracticeContact(gpCase.user_id);
+    supervisorName = (pc && pc.contactName) ? String(pc.contactName).trim() : '';
+  } catch (e) { supervisorName = ''; }
+
+  var scans = {};
+  var movedAny = false;
+  for (var i = 0; i < storedDocs.length; i++) {
+    var sd = storedDocs[i];
+    try {
+      var buf = Buffer.from(String(sd.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+      if (!buf.length) continue;
+      var verdict = await classifyPracticeDocumentWithAI(buf, sd.mimeType || 'application/pdf', candidates,
+        { gpName: gpName, supervisorName: supervisorName });
+      if (!verdict) continue;
+      var routing = practiceDocClassify.decideDocumentRouting({
+        result: verdict, matchedKey: task.related_document_key, siblings: siblings,
+      });
+      scans[sd.id] = {
+        filename: sd.filename || '',
+        document_key: verdict.document_key,
+        confidence: verdict.confidence,
+        identified_as: verdict.identified_as,
+        meets_requirement: verdict.meets_requirement,
+        issues: verdict.issues,
+        summary: verdict.summary,
+        routing: routing.action,
+        routing_reason: routing.reason,
+        scanned_at: new Date().toISOString(),
+      };
+      if (routing.action === 'move' && routing.targetTaskId) {
+        // Move it, and make it the current document on the task that was waiting for it.
+        await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(sd.id), {
+          method: 'PATCH', body: { task_id: routing.targetTaskId, is_current: true },
+        });
+        // That task is no longer waiting on the practice — the ball is with us.
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(routing.targetTaskId), {
+          method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() },
+        });
+        await _ensurePracticeDocOps(gpCase.id).then(function () {
+          return supabaseDbRequest('practice_doc_ops',
+            'case_id=eq.' + encodeURIComponent(gpCase.id) + '&document_key=eq.' + encodeURIComponent(routing.targetKey),
+            { method: 'PATCH', body: { ops_status: 'completed' } });
+        }).catch(function () {});
+        await _logCaseEvent(gpCase.id, routing.targetTaskId, 'note',
+          'Document routed here by AI', (sd.filename || 'A document') + ' — ' + routing.reason, 'system').catch(function () {});
+        movedAny = true;
+        console.log('[practice-doc-scan] moved', sd.filename, '->', routing.targetKey, 'task', routing.targetTaskId);
+      }
+    } catch (docErr) {
+      console.warn('[practice-doc-scan] failed for doc', sd.id, '-', docErr && docErr.message);
+    }
+  }
+
+  if (!Object.keys(scans).length) return;
+  // Store per-document verdicts on the task metadata (task_documents has no AI columns, and
+  // one task can hold several documents, so a keyed map is the honest shape).
+  try {
+    var metaRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+    var meta = (metaRes.ok && Array.isArray(metaRes.data) && metaRes.data[0]) ? metaRes.data[0].metadata : null;
+    if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+    if (!meta || typeof meta !== 'object') meta = {};
+    meta.practice_doc_scans = Object.assign({}, meta.practice_doc_scans || {}, scans);
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
+      { method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() } });
+  } catch (metaErr) {
+    console.warn('[practice-doc-scan] could not store verdicts:', metaErr && metaErr.message);
+  }
+  if (movedAny) invalidateAdminDashboardCache();
 }
 
 async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLabel) {

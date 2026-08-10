@@ -4965,6 +4965,39 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='</div>';
     return h;
   }
+  /* The AI's read of a document the PRACTICE emailed in. A GP's own upload has always been
+     classified and shown a verdict; a practice document arrived unread. Verdicts live in
+     registration_tasks.metadata.practice_doc_scans, keyed by task_documents.id, and are
+     written on ingestion by _scanAndRoutePracticeDocs. */
+  function opsRenderPracticeDocScans(task,docs){
+    if(!task||!docs||!docs.length)return'';
+    var md=task.metadata; if(typeof md==='string'){try{md=JSON.parse(md);}catch(e){md=null;}}
+    var scans=(md&&md.practice_doc_scans)||null;
+    if(!scans)return'';
+    var out='';
+    docs.forEach(function(d){
+      var s=scans[d.id]; if(!s)return;
+      // Green when it identified the document AND it meets what we asked for; amber otherwise.
+      var ok=s.meets_requirement===true&&s.routing!=='flag';
+      var bg=ok?'#ecfdf5':'#fffbeb', bd=ok?'#10b981':'#f59e0b', fg=ok?'#065f46':'#78350f';
+      var conf=(typeof s.confidence==='number')?(' · '+s.confidence+'% confident'):'';
+      out+='<div style="background:'+bg+';border:1px solid '+bd+';border-radius:8px;padding:8px 12px;margin:6px 0;font-size:12px;color:'+fg+'">';
+      out+='<div><strong>'+(ok?'✓ AI check':'⚠️ AI check')+':</strong> '+esc(s.identified_as||s.document_key||'document')+esc(conf)+'</div>';
+      if(s.summary)out+='<div style="margin-top:3px">'+esc(s.summary)+'</div>';
+      if(s.issues&&s.issues.length){
+        out+='<div style="margin-top:4px"><strong>Needs checking:</strong><ul style="margin:2px 0 0 16px;padding:0">';
+        s.issues.forEach(function(i){out+='<li>'+esc(i)+'</li>';});
+        out+='</ul></div>';
+      }
+      // Only surfaced when the AI did NOT act on its own — a completed move is reported on
+      // the task it moved TO, not here.
+      if(s.routing==='flag'&&s.routing_reason)out+='<div style="margin-top:4px;font-style:italic">'+esc(s.routing_reason)+'</div>';
+      out+='<div style="margin-top:4px;font-size:10.5px;opacity:.75">'+esc(d.filename||'')+' — AI suggestion only; you decide.</div>';
+      out+='</div>';
+    });
+    return out;
+  }
+
   function opsRenderDocs(docs){
     if(!docs||!docs.length)return'';
     var h='<div class="ops-doc-preview">';
@@ -5561,6 +5594,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var currentDocs2=docs.filter(function(d){return d.is_current!==false;});
       var prevDocs=docs.filter(function(d){return d.is_current===false;});
       h+=opsRenderDocs(currentDocs2);
+      // What the AI made of what the practice actually sent — the same courtesy a GP upload
+      // already gets on its review card. Verdicts are written by _scanAndRoutePracticeDocs
+      // into metadata.practice_doc_scans, keyed by task_documents.id.
+      h+=opsRenderPracticeDocScans(task,currentDocs2);
       // Offer/contract: show "View previous version" if there's a previous doc
       if(task.related_document_key==='offer_contract'&&prevDocs.length>0){
         h+='<div style="margin:6px 0">';
