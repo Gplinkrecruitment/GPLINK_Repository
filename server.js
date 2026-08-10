@@ -5660,6 +5660,44 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             }
           }
         }
+        // Fallback: resolve the case from the THREAD when the sender is nobody we know.
+        //
+        // Owner report 2026-08-10: the practice manager (pm@thefamilydoctors.com.au) replied
+        // to our OWN Position Description thread with the supervisor CV and the position
+        // description attached. She is neither the GP nor the practice_contact_email on the
+        // placed application, so both sender lookups above missed — and because the case was
+        // unresolved, matchResponseToTask never ran, so the thread signal that would have
+        // matched her instantly was never consulted. The message then reached the scoped-
+        // rollout gate, counted as "genuinely unmatched", and was dropped: no task, no
+        // documents, no ops-queue row, no trace in the UI. Two documents we had been chasing
+        // for a week were silently lost (three times, for this one sender).
+        //
+        // The thread IS the evidence. We sent the request into it ourselves, so a reply
+        // carrying that gmail_thread_id belongs to that task's case by construction — a
+        // stronger signal than the From address, which anyone can put anything in.
+        //
+        // This also un-breaks the rollout gate for these replies: shouldSuppressUnmatched()
+        // never suppresses a message that resolved to a known case or matched a task.
+        if (!earlyGpCase && emailMeta.threadId) {
+          var _tcRes = await supabaseDbRequest('task_messages',
+            'select=case_id&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) +
+            '&case_id=not.is.null&limit=1');
+          var _tcCaseId = (_tcRes.ok && Array.isArray(_tcRes.data) && _tcRes.data[0]) ? _tcRes.data[0].case_id : null;
+          if (_tcCaseId) {
+            var _tcCaseRow = await supabaseDbRequest('registration_cases',
+              'select=id,stage,user_id&id=eq.' + encodeURIComponent(_tcCaseId) + '&limit=1');
+            if (_tcCaseRow.ok && Array.isArray(_tcCaseRow.data) && _tcCaseRow.data[0]) {
+              earlyGpCase = _tcCaseRow.data[0];
+              // 'unknown', NOT 'practice': we have identified the THREAD, not the person.
+              // The SPPA-00 transitions below require a positively identified party, so an
+              // unrecognised third party on an SPPA thread gets their document attached and
+              // their message recorded without ever moving the state machine.
+              earlySenderRole = 'unknown';
+              console.log('[Gmail] Case resolved via thread', emailMeta.threadId, '-> case', earlyGpCase.id,
+                '(sender', senderEmail || '(unparsed)', 'is not a known party)');
+            }
+          }
+        }
         if (earlyGpCase) {
           var earlyMatch = await matchResponseToTask(earlyGpCase.id, emailMeta);
           if (earlyMatch && earlyMatch.confidence > 0.5) {
@@ -5724,7 +5762,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               var sppaTaskFull = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(earlyTask.id) + '&limit=1');
               var sppaMeta = (sppaTaskFull.ok && sppaTaskFull.data && sppaTaskFull.data[0]) ? sppaTaskFull.data[0].metadata : {};
               if (typeof sppaMeta === 'string') try { sppaMeta = JSON.parse(sppaMeta); } catch (e) { sppaMeta = {}; }
-              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole !== 'practice') {
+              // Positive role checks, not "!== the other party". Identical behaviour for the
+              // two identified roles, but fail-CLOSED for the new 'unknown' role a thread-
+              // resolved sender carries: an unidentified third party replying on an SPPA
+              // thread must never be recorded as the candidate returning their form.
+              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole === 'candidate') {
                 sppaMeta.sppa_state = 'gp_returned';
                 sppaMeta.gp_returned_at = new Date().toISOString();
                 sppaMeta.gp_returned_via = 'email_auto';
@@ -5743,7 +5785,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc.id, _sppaBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
-              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole !== 'candidate') {
+              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole === 'practice') {
                 sppaMeta.sppa_state = 'practice_returned';
                 sppaMeta.practice_returned_at = new Date().toISOString();
                 sppaMeta.practice_returned_via = 'email_auto';
