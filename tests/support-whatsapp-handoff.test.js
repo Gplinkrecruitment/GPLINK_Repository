@@ -15,7 +15,8 @@ import { fileURLToPath } from 'url';
 //
 //  3. Routing: a GP who is NOT placed at a practice belongs to the GP Link
 //     Admin pool; once placed, their case's assigned RSO owns them. "Placed"
-//     means a row in `placements`, not merely a practice_name on the case.
+//     means a recorded placement — in gp_applications (authoritative) or the
+//     `placements` mirror — not merely a practice_name on the case.
 //
 // Source-level assertions, the same idiom the other messages.html/server.js
 // structural tests use — there is no jsdom in this repo.
@@ -123,7 +124,7 @@ describe('support routing: unplaced → admin pool, placed → assigned RSO', ()
     expect(server).toContain('const DEFAULT_RSO_USER_ID = GP_ADMIN_RSO_USER_ID;');
   });
 
-  it('"placed" means a placements row, not a practice_name on the case', () => {
+  it('"placed" means a recorded placement, not a practice_name on the case', () => {
     const fn = (server.match(/async function resolveSupportRsoForUser[\s\S]*?\n\}/) || [''])[0];
     expect(fn).toBeTruthy();
     expect(fn).toContain("supabaseDbRequest('placements'");
@@ -131,6 +132,38 @@ describe('support routing: unplaced → admin pool, placed → assigned RSO', ()
     // must NOT be what hands a GP over to an individual RSO.
     expect(fn).not.toContain('practice_name');
     expect(fn).toContain('out.rsoUserId = out.caseRow.assigned_va || out.caseRow.assigned_rso || GP_ADMIN_RSO_USER_ID;');
+  });
+
+  // Regression (2026-08-11), Dr Mercy Obanimoh: placed at The Doctors Werribee
+  // and assigned to Hazel, but every WhatsApp she sent re-assigned her chat to
+  // the admin pool's number. `placements` is the newer mirror and only the ATS
+  // offer-accept flow writes it — it held ONE row in all of production — while
+  // the staff placement paths write gp_applications. Reading the mirror alone
+  // made a placed GP look unplaced and displaced the RSO looking after her.
+  it('reads the AUTHORITATIVE gp_applications store, not just the placements mirror', () => {
+    const fn = (server.match(/async function resolveSupportRsoForUser[\s\S]*?\n\}/) || [''])[0];
+    expect(fn).toContain('hasPlacedApplicationRow(userId)');
+    // Either store counts — a mirror row must not be required.
+    expect(fn).toMatch(/out\.placed = placedApp \|\| rows\.some\(/);
+  });
+
+  it('decides which statuses count in ONE place, shared with every other placement lookup', () => {
+    const helper = (server.match(/async function hasPlacedApplicationRow[\s\S]*?\n\}/) || [''])[0];
+    expect(helper).toBeTruthy();
+    expect(helper).toContain("supabaseDbRequest('gp_applications'");
+    // The shared constant, not a hand-rolled status list: a placement written
+    // straight to the database carries status='placement_secured' with
+    // ats_stage='hired', so status='hired' alone misses it.
+    expect(helper).toContain('practiceContactLib.PLACED_APPLICATION_FILTER');
+    expect(helper).not.toContain('status.eq.hired');
+    // Fail-soft, like the placements probe beside it: no row / failed read = not placed.
+    expect(helper).toContain('return !!(r.ok && Array.isArray(r.data) && r.data.length > 0);');
+  });
+
+  it('the two placement lookups run together, not one after the other', () => {
+    // This is on the inbound-message path — it must not add a serial round-trip.
+    const fn = (server.match(/async function resolveSupportRsoForUser[\s\S]*?\n\}/) || [''])[0];
+    expect(fn).toMatch(/const \[p, placedApp\] = await Promise\.all\(\[/);
   });
 
   it('defaults to the admin pool, including when the lookup fails', () => {

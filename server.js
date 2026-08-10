@@ -746,10 +746,25 @@ async function resolveCaseRsoAssignee(caseId, knownAssignedVa) {
 // Not placed at a practice  → the GP Link Admin pool (hello@mygplink.com.au).
 // Placed at a practice      → the RSO assigned to their case.
 //
-// "Placed" means a row in `placements` — the formal record written when a
-// placement is recorded — NOT merely a practice_name on the case. That was the
-// owner's explicit choice: a practice name gets set while a placement is still
-// being negotiated, so it would hand a GP over too early.
+// "Placed" means a formally recorded placement — NOT merely a practice_name on
+// the case. That was the owner's explicit choice: a practice name gets set while
+// a placement is still being negotiated, so it would hand a GP over too early.
+//
+// A placement is recorded in TWO stores and this has to read BOTH (2026-08-11):
+//   * gp_applications — AUTHORITATIVE, and the only one the staff placement
+//     paths actually write (see placement-two-sources drift note on
+//     resolvePlacedPracticeProfile). Matched with the shared
+//     practiceContactLib.PLACED_APPLICATION_FILTER so "which statuses count"
+//     is decided in exactly one place app-wide.
+//   * placements — the newer mirror, written only by the ATS offer-accept flow
+//     (lib/ats-offers.js, which says outright that gp_career_state stays the
+//     placement of record). It held ONE row in all of production.
+//
+// Reading `placements` alone made nearly every placed GP look unplaced, which
+// handed their WhatsApp conversation to the admin pool on every inbound message
+// — the exact displacement the paragraph below promises never happens. Dr Mercy
+// Obanimoh (placed at The Doctors Werribee, assigned to Hazel) was pulled onto
+// the admin pool's number mid-conversation because of it.
 //
 // This deliberately does NOT rewrite registration_cases.assigned_va. It decides
 // who the support conversation and its task belong to; case assignment stays a
@@ -757,6 +772,16 @@ async function resolveCaseRsoAssignee(caseId, knownAssignedVa) {
 // assigned" true — an RSO already looking after a placed GP is never displaced,
 // and the rule only ever takes effect for placements recorded from now on.
 const PLACEMENT_DEAD_STATUSES = new Set(['cancelled', 'canceled', 'withdrawn', 'ended', 'terminated', 'failed']);
+
+// Does this GP have a placement on the authoritative gp_applications store?
+// Fail-soft: a failed/absent read reads as "no", matching the placements probe.
+async function hasPlacedApplicationRow(userId) {
+  if (!userId) return false;
+  const r = await supabaseDbRequest('gp_applications',
+    'select=id&' + practiceContactLib.PLACED_APPLICATION_FILTER
+    + '&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  return !!(r.ok && Array.isArray(r.data) && r.data.length > 0);
+}
 
 async function resolveSupportRsoForUser(userId, knownCase) {
   const out = { placed: false, rsoUserId: GP_ADMIN_RSO_USER_ID, caseRow: knownCase || null };
@@ -770,13 +795,16 @@ async function resolveSupportRsoForUser(userId, knownCase) {
     }
     // `placements` is additive DDL — a non-ok response means the table is not
     // there yet, which reads as "not placed" rather than throwing.
-    const p = await supabaseDbRequest('placements',
-      'select=id,status&user_id=eq.' + encodeURIComponent(userId) + '&limit=20');
+    const [p, placedApp] = await Promise.all([
+      supabaseDbRequest('placements',
+        'select=id,status&user_id=eq.' + encodeURIComponent(userId) + '&limit=20'),
+      hasPlacedApplicationRow(userId)
+    ]);
     const rows = (p.ok && Array.isArray(p.data)) ? p.data : [];
     // Status filtered in JS, not in the query: the table is empty today so the
     // vocabulary is unverified, and an unknown/null status must still count as
     // placed rather than being silently dropped by a server-side NOT IN.
-    out.placed = rows.some(function (r) {
+    out.placed = placedApp || rows.some(function (r) {
       return !PLACEMENT_DEAD_STATUSES.has(String((r && r.status) || '').trim().toLowerCase());
     });
     if (out.placed && out.caseRow) {
