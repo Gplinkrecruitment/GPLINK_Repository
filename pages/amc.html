@@ -1479,6 +1479,44 @@
       showToast._t = setTimeout(() => toastEl.classList.remove("show"), 1400);
     }
 
+    // "Open AMC" used to call window.location.assign(). This page runs inside the app
+    // shell's iframe, so that asked the browser to load AMC *into that frame* — refused
+    // twice over: account.amc.org.au sends X-Frame-Options: SAMEORIGIN, and our own CSP
+    // frame-src doesn't list amc.org.au. Both refusals are silent, so the button looked
+    // dead. AMC has to open in a new tab, which is what the button's ↗ icon promises.
+    // Mirrors openMyIntealthExternal() on the MyIntealth step.
+    function openAmcExternal(url) {
+      if (!url) return;
+
+      const popup = window.open(url, "_blank", "noopener,noreferrer");
+      if (popup) {
+        try { popup.opener = null; } catch (e) {}
+        return;
+      }
+
+      // Popup blocked: a real anchor click is honoured where window.open isn't.
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer external";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      // Still visible half a second later means nothing opened. Send the whole app to
+      // AMC rather than leave the button dead — and it must be the TOP window, since
+      // navigating this iframe is the thing that was blocked to begin with.
+      window.setTimeout(() => {
+        if (document.visibilityState !== "visible") return;
+        try {
+          (window.top || window).location.assign(url);
+        } catch (e) {
+          window.location.assign(url);
+        }
+      }, 500);
+    }
+
     let lastFocusedElement = null;
     const modalTriggerByEl = new WeakMap();
     function openModal(el, triggerEl) {
@@ -1827,8 +1865,8 @@
       const openBtn = document.getElementById("actionOpenBtn");
       if (openBtn) {
         openBtn.addEventListener("click", () => {
-          if (meta.ctaType === "open") window.location.assign(AMC_URL);
-          else if (meta.ctaType === "open_signup") window.location.assign(AMC_SIGNUP_URL);
+          if (meta.ctaType === "open") openAmcExternal(AMC_URL);
+          else if (meta.ctaType === "open_signup") openAmcExternal(AMC_SIGNUP_URL);
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
           else if (meta.ctaType === "ahpra") shellNavigate("/pages/ahpra");
         });

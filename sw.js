@@ -27,7 +27,12 @@
   // "Interview confirmed" plus a live Join forever. index and career are both
   // precached in PAGE_CACHE, so without a bump a doctor keeps the old markup for a
   // navigation — which for the gateway means being bounced to onboarding one more time.
-  var VERSION = "20260810a";
+  // 20260811a: amc.html's "Open AMC" button opened AMC with window.location, which
+  // inside the app shell's iframe meant framing account.amc.org.au — refused by its
+  // X-Frame-Options and by our own CSP frame-src, silently, so the button did nothing.
+  // /pages/amc is precached in PAGE_CACHE, so without a bump a doctor sitting on the
+  // AMC step keeps the dead button for a navigation.
+  var VERSION = "20260811a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
