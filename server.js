@@ -29165,25 +29165,39 @@ async function classifyPracticeDocumentWithAI(buffer, mimeType, candidates, opts
     return null;
   }
 
+  // Deterministic: this is a classification plus a compliance judgement, and two runs over
+  // the SAME position description disagreed about whether a Practice Manager's signature
+  // satisfies "signed by the practice owner or employer". An RSO must not get a different
+  // verdict from re-scanning an unchanged document.
+  //
+  // ⚠️ Model-specific: claude-opus-4-6 (today's SUGGEST_REPLY_MODEL default) accepts
+  // temperature here — verified 2026-08-10 — but Opus 4.7/4.8 reject it outright with a 400
+  // (see the career-contract-pipeline notes). SUGGEST_REPLY_MODEL is an env var, so pointing
+  // it at 4.8 would otherwise turn every scan into a silent no-verdict. Retry once without
+  // temperature rather than lose the feature to a config change.
+  async function _callScan(withTemperature) {
+    var body = {
+      model: SUGGEST_REPLY_MODEL,
+      max_tokens: 800,
+      system: prompt.system,
+      messages: [{ role: 'user', content: blocks }],
+    };
+    if (withTemperature) body.temperature = 0;
+    return fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   var controller = new AbortController();
   var timer = setTimeout(function () { controller.abort(); }, 45000);
   try {
-    var resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal: controller.signal,
-      headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: SUGGEST_REPLY_MODEL,
-        max_tokens: 800,
-        // Deterministic: this is a classification plus a compliance judgement, and two runs
-        // over the SAME position description disagreed about whether a Practice Manager's
-        // signature satisfies "signed by the practice owner or employer". An RSO should not
-        // get a different verdict on a re-scan of an unchanged document.
-        // (Verified 2026-08-10 that claude-opus-4-6 accepts temperature on this endpoint.)
-        temperature: 0,
-        system: prompt.system,
-        messages: [{ role: 'user', content: blocks }],
-      }),
-    });
+    var resp = await _callScan(true);
+    if (resp.status === 400) {
+      console.warn('[practice-doc-scan] model rejected temperature — retrying without it');
+      resp = await _callScan(false);
+    }
     clearTimeout(timer);
     if (!resp.ok) {
       console.warn('[practice-doc-scan] AI request failed', resp.status);

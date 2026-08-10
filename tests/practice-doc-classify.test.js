@@ -152,7 +152,16 @@ describe('server wiring', () => {
 
   it('scans deterministically — a re-scan of an unchanged document must not flip its verdict', () => {
     const fn = serverSrc.slice(serverSrc.indexOf('async function classifyPracticeDocumentWithAI'));
-    expect(fn.slice(0, fn.indexOf('async function classifyDocumentWithAI'))).toContain('temperature: 0');
+    expect(fn.slice(0, fn.indexOf('async function classifyDocumentWithAI'))).toContain('body.temperature = 0');
+  });
+
+  // SUGGEST_REPLY_MODEL is an env var. Opus 4.6 accepts temperature; 4.7/4.8 reject it with a
+  // 400, which would otherwise turn every scan into a silent no-verdict after a config change.
+  it('survives a model that rejects temperature instead of losing the verdict', () => {
+    const fn = serverSrc.slice(serverSrc.indexOf('async function classifyPracticeDocumentWithAI'));
+    const body = fn.slice(0, fn.indexOf('async function classifyDocumentWithAI'));
+    expect(body).toContain('if (resp.status === 400)');
+    expect(body).toContain('_callScan(false)');
   });
 
   it('names the supervisor, which is what makes the CV a confident match', () => {
