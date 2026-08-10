@@ -37572,6 +37572,40 @@ async function handleApi(req, res, pathname) {
         pgResults.push({ sppaReconcile: true, ok: false, error: reconErr.message });
       }
     }
+    // Practice-pack awaiting-reply reconciliation — the SAME cursor-independent net as SPPA,
+    // for ORDINARY practice documents (Position Description, Supervisor CV, …), which had
+    // none at all.
+    //
+    // Owner report 2026-08-10: the practice manager replied to the Position Description
+    // thread with both documents attached and nothing arrived. The sweep above would have
+    // caught it on the next run — but it is filtered to related_document_key=sppa_00, so a
+    // plain practice document had no backstop: if the push missed it, or the forward-only
+    // history cursor advanced past it, or it was archived out of INBOX, it was simply gone.
+    // Re-pulling the task's own Gmail thread is label- and cursor-independent, and idempotent
+    // (per-task gmail_message_id + processed_gmail_messages dedup), so it is safe every run.
+    if (isSupabaseDbConfigured()) {
+      try {
+        var ppRes = await supabaseDbRequest('registration_tasks',
+          'select=id,case_id,gmail_thread_id&task_type=eq.practice_pack_child&status=eq.waiting_on_practice' +
+          '&gmail_thread_id=not.is.null&related_document_key=not.in.(sppa_00,section_g)&limit=200');
+        var ppTasks = ppRes.ok && Array.isArray(ppRes.data) ? ppRes.data : [];
+        var ppSwept = 0;
+        for (var ppi = 0; ppi < ppTasks.length; ppi++) {
+          var ppTask = ppTasks[ppi];
+          if (!ppTask.gmail_thread_id) continue;
+          try {
+            var ppSi = await resolveCaseSenderInfo(ppTask.case_id);
+            var ppInbox = (ppSi && ppSi.from) ? String(ppSi.from).toLowerCase() : '';
+            if (!ppInbox) continue;
+            await processGmailNotification(ppInbox, null, { recoverThreadId: ppTask.gmail_thread_id });
+            ppSwept++;
+          } catch (ppErr) { /* best-effort per task */ }
+        }
+        pgResults.push({ practicePackReconcile: true, tasksSwept: ppSwept });
+      } catch (ppOuterErr) {
+        pgResults.push({ practicePackReconcile: true, ok: false, error: ppOuterErr.message });
+      }
+    }
     // Alt-supervisor-CV awaiting-reply reconciliation — the SAME cursor-independent net as SPPA,
     // but for alt_supervisor_cv_request tasks (which carry no sppa_state, so the SPPA sweep above
     // skips them). This is the watch-independent backstop that closes the root gap: a practice's

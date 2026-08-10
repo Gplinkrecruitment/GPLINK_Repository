@@ -82,6 +82,30 @@ describe('SPPA transitions are fail-closed for an unidentified sender', () => {
   });
 });
 
+// The SPPA sweep re-pulls a task's Gmail thread directly, which is immune to a missed push,
+// an advanced history cursor and INBOX archiving. Ordinary practice documents had no such
+// net — which is why these two were lost rather than merely delayed.
+describe('practice-pack tasks get the same cursor-independent safety net as SPPA', () => {
+  it('sweeps practice_pack_child tasks that are waiting on the practice', () => {
+    expect(serverSrc).toContain('practicePackReconcile');
+    const sweep = serverSrc.slice(serverSrc.indexOf('practicePackReconcile') - 1800);
+    expect(sweep).toContain('task_type=eq.practice_pack_child&status=eq.waiting_on_practice');
+    expect(sweep).toContain('gmail_thread_id=not.is.null');
+  });
+
+  it('re-pulls the thread directly rather than trusting the history cursor', () => {
+    const at = serverSrc.indexOf('practicePackReconcile');
+    const sweep = serverSrc.slice(at - 1800, at);
+    expect(sweep).toContain('processGmailNotification(ppInbox, null, { recoverThreadId: ppTask.gmail_thread_id })');
+  });
+
+  it('leaves the two state machines that own their own recovery alone', () => {
+    const at = serverSrc.indexOf('practicePackReconcile');
+    const sweep = serverSrc.slice(at - 1800, at);
+    expect(sweep).toContain('related_document_key=not.in.(sppa_00,section_g)');
+  });
+});
+
 // The suppression gate is what turned a matching miss into SILENT data loss, so pin the
 // exemption the fix relies on: once the thread resolves a case, nothing is suppressed.
 describe('rollout allow-list never suppresses a message we could place', () => {
