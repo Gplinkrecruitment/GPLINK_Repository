@@ -5170,7 +5170,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The SPPA-00 PDF (with Q7 pre-filled) will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(candidateEmail) + '" /></div>';
-      h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts...</option></select></div>';
+      // NO CC row here, deliberately (2026-08-11). This is the one SPPA composer whose "To"
+      // is the DOCTOR, and loadCcContacts fills every [data-email-cc] on the page from the
+      // case's harvested contacts — which are all practice-side. That put the practice
+      // manager on the CC line of Dr Mercy Obanimoh's own SPPA-00: her personal declaration,
+      // on a placement where the AI had just found the supervisor IS the practice owner.
+      // The email-contacts endpoint already strips the practice's PRIMARY contact for this
+      // reason, but anyone else picked up off a reply thread (a practice manager, reception)
+      // sails straight past that filter, so the fix has to be here. The resend composer
+      // below has never had a CC row either. The practice-facing SPPA composer keeps its
+      // CC — that one is addressed TO the practice, where CCing their manager is the point.
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan \u2014 Please Complete Section A and Sign" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(gpName) + ',<br><br>'
