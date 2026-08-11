@@ -9093,6 +9093,15 @@ const CRON_SCHEDULES = {
   // on them, so twice-hourly bought no freshness anyone could perceive and doubled the
   // ceiling on a job that was already running flat out. Keep in sync with vercel.json.
   'refresh-summaries': { schedule: '0 * * * *', cadenceMinutes: 60 },
+  // Every 15 min. The SPPA-00 conflict scan is kicked off fire-and-forget from the
+  // paths that complete its prerequisites (supervisor_cv / offer_contract) — and on
+  // this serverless runtime the function is frozen the moment the response is sent,
+  // so a scan that has to read two PDFs through the model rarely survives to write
+  // anything. When it dies the SPPA-00 task simply stays `deferred` with nothing on
+  // screen to say why. This sweep is the safety net that finishes the job; it awaits
+  // the scan inside the request, and skips cases already scanned or not yet eligible.
+  // Keep in sync with vercel.json.
+  'sppa-backfill-scan': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
