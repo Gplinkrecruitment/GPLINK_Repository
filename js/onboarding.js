@@ -835,60 +835,119 @@
     });
   }
 
-  function getNameMatchLevel(name1, name2) {
-    var noiseParts = {
-      dr: true,
-      mr: true,
-      mrs: true,
-      ms: true,
-      miss: true,
-      mx: true,
-      sir: true,
-      prof: true,
-      professor: true,
-      md: true,
-      mbbs: true,
-      mbchb: true,
-      phd: true
-    };
-    var normalize = function (n) {
-      return String(n || "")
-        .toLowerCase()
-        .trim()
-        .replace(/['’]/g, "")
-        .replace(/-/g, " ")
-        .replace(/[^a-z\s]/g, " ")
-        .split(/\s+/)
-        .filter(Boolean)
-        .filter(function (part) { return !noiseParts[part]; });
-    };
-    var parts1 = normalize(name1);
-    var parts2 = normalize(name2);
-    if (parts1.length < 2 || parts2.length < 2) return "unknown";
-    if (parts1.join(" ") === parts2.join(" ")) return "exact";
-    if (parts1[0] !== parts2[0] || parts1[parts1.length - 1] !== parts2[parts2.length - 1]) return "mismatch";
+  var NAME_NOISE_PARTS = {
+    dr: true,
+    mr: true,
+    mrs: true,
+    ms: true,
+    miss: true,
+    mx: true,
+    sir: true,
+    prof: true,
+    professor: true,
+    md: true,
+    mbbs: true,
+    mbchb: true,
+    phd: true
+  };
 
-    var middle1 = parts1.slice(1, -1);
-    var middle2 = parts2.slice(1, -1);
-    if (!middle1.length || !middle2.length) return "fuzzy";
+  /* "Fashola, Ademola Keji Ibrahim" -> "Ademola Keji Ibrahim Fashola". A GMC
+   * certificate routinely prints the surname first with a comma, and the comma
+   * used to be dropped with all other punctuation — so the surname was read as
+   * the first name. Only a SINGLE comma with words on both sides is reordered. */
+  function reorderCommaName(raw) {
+    var text = String(raw || "").trim();
+    var parts = text.split(",");
+    if (parts.length !== 2) return text;
+    var surname = parts[0].trim();
+    var given = parts[1].trim();
+    if (!surname || !given) return text;
+    // A trailing qualification list ("Smith, MBBS") is not a surname-first name.
+    var givenWords = given.split(/\s+/).filter(Boolean);
+    var allNoise = givenWords.every(function (w) {
+      return !!NAME_NOISE_PARTS[w.toLowerCase().replace(/[^a-z]/g, "")];
+    });
+    if (allNoise) return text;
+    return given + " " + surname;
+  }
 
-    var shorter = middle1.length <= middle2.length ? middle1 : middle2;
-    var longer = middle1.length <= middle2.length ? middle2 : middle1;
-    var longIdx = 0;
-    for (var i = 0; i < shorter.length; i++) {
-      var token = shorter[i];
-      var matched = false;
-      while (longIdx < longer.length) {
-        var candidate = longer[longIdx++];
-        if (!candidate) continue;
-        if (token === candidate || token.charAt(0) === candidate.charAt(0)) {
-          matched = true;
-          break;
+  function normalizeNameParts(n) {
+    return reorderCommaName(n)
+      .toLowerCase()
+      .trim()
+      .replace(/['’]/g, "")
+      .replace(/-/g, " ")
+      .replace(/[^a-z\s]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter(function (part) { return !NAME_NOISE_PARTS[part]; });
+  }
+
+  /* ── Name matching — MUST behave identically to server.js matchNames ────────
+   * A test lifts this function out of this file and checks it against the
+   * server's, case for case, because drift here means the wizard and the scan
+   * disagree about whether a doctor's own certificate is theirs.
+   *
+   * The old rule (first word AND last word must match exactly) is what flagged
+   * Dr Ibrahim Fashola's own CCT and degree: one prints his name surname-first,
+   * the other has "Ibrahim" as a middle name. Now the SURNAME must be present in
+   * full — that is the wrong-owner protection and it stays strict — and at least
+   * two words must correspond, wherever they sit.
+   */
+  function nameWordsWithinOneEdit(a, b) {
+    if (a === b) return true;
+    if (a.length < 5 || b.length < 5) return false;
+    if (Math.abs(a.length - b.length) > 1) return false;
+    var i = 0, j = 0, edits = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (a.length === b.length) { i++; j++; }
+      else if (a.length > b.length) i++;
+      else j++;
+    }
+    if (i < a.length || j < b.length) edits++;
+    return edits <= 1;
+  }
+
+  function nameWordsMatch(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length === 1 || b.length === 1) return a.charAt(0) === b.charAt(0);
+    return nameWordsWithinOneEdit(a, b);
+  }
+
+  function countMatchedNameWords(partsA, partsB) {
+    var shorter = partsA.length <= partsB.length ? partsA : partsB;
+    var longer = partsA.length <= partsB.length ? partsB : partsA;
+    var used = [];
+    var matched = 0;
+    for (var s = 0; s < shorter.length; s++) {
+      var word = shorter[s];
+      var idx = -1;
+      for (var e = 0; e < longer.length; e++) {
+        if (!used[e] && longer[e] === word) { idx = e; break; }
+      }
+      if (idx === -1) {
+        for (var f = 0; f < longer.length; f++) {
+          if (!used[f] && nameWordsMatch(word, longer[f])) { idx = f; break; }
         }
       }
-      if (!matched) return "mismatch";
+      if (idx !== -1) { used[idx] = true; matched++; }
     }
-    return "fuzzy";
+    return matched;
+  }
+
+  function getNameMatchLevel(name1, name2) {
+    var parts1 = normalizeNameParts(name1);
+    var parts2 = normalizeNameParts(name2);
+    if (parts1.length < 2 || parts2.length < 2) return "unknown";
+    if (parts1.join(" ") === parts2.join(" ")) return "exact";
+    var last1 = parts1[parts1.length - 1];
+    var last2 = parts2[parts2.length - 1];
+    var surnamePresent = parts2.indexOf(last1) !== -1 || parts1.indexOf(last2) !== -1;
+    if (!surnamePresent) return "mismatch";
+    return countMatchedNameWords(parts1, parts2) >= 2 ? "fuzzy" : "mismatch";
   }
 
   // Fuzzy name comparison (client-side mirror of server logic)
@@ -904,7 +963,9 @@
   }
 
   function autoUpdateAccountName(docName) {
-    var parts = String(docName || "").trim().split(/\s+/);
+    // Reordered first: a surname-first document name ("Fashola, Ademola Keji")
+    // would otherwise be written to the account as the first name "Fashola,".
+    var parts = reorderCommaName(docName).split(/\s+/).filter(Boolean);
     if (parts.length < 2) return Promise.resolve(false);
     var firstName = parts[0];
     var lastName = parts.slice(1).join(" ");

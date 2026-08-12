@@ -1317,6 +1317,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
 <script src="/js/guide-panel.js?v=20260708b"></script>
+<!-- The crop sheet, shared with the doctor-facing upload paths: staff use it to
+     trim the desk out of a document that is already on file. -->
+<script src="/js/doc-crop.js?v=20260813a"></script>
   <div class="top-bar">
     <div class="top-bar-left">
       <h1 id="topTitle">RSO Command Centre</h1>
@@ -1470,6 +1473,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <img id="reviewDocImg" alt="Document" style="display:none;max-width:100%;max-height:44vh;object-fit:contain;" />
       <iframe id="reviewDocFrame" title="Document" style="display:none;width:100%;height:44vh;border:none;background:#fff;"></iframe>
       <div id="reviewDocMissing" style="display:none;color:#dc2626;font-size:13px;padding:40px;text-align:center;"></div>
+    </div>
+    <!-- Crop an image that is ALREADY on file. The auto-crop runs at upload time, so
+         everything uploaded before it shipped still carries the desk or carpet it was
+         photographed on — including documents about to be sent to AHPRA. Rejecting a
+         perfectly good certificate just to get a tidier photo of it is the wrong tool.
+         Only shown for images (there is nothing to crop on a PDF). -->
+    <div id="reviewDocCropBar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 18px;border-top:1px solid #e5e7eb;background:#fff;">
+      <button type="button" id="reviewDocCropBtn" onclick="cropReviewDocImage()" style="background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;color:#374151;">✂️ Crop out the background</button>
+      <span id="reviewDocCropNote" style="font-size:11.5px;color:#6b7280;">Trims this photo down to the document and replaces the stored copy — the doctor is not asked to re-upload.</span>
     </div>
     </div>
     <div id="reviewDocAiInsight" style="display:none;flex-shrink:0;max-height:30vh;overflow-y:auto;padding:12px 18px;border-top:1px solid #e5e7eb;background:#f9fafb;font-size:12.5px;color:#374151;">
@@ -4248,6 +4260,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var img=document.getElementById('reviewDocImg'), frame=document.getElementById('reviewDocFrame');
     var loading=document.getElementById('reviewDocLoading'), missing=document.getElementById('reviewDocMissing');
     img.style.display='none'; frame.style.display='none'; missing.style.display='none'; loading.style.display='block';
+    _reviewDocBlob=null;
+    var _cropBar=document.getElementById('reviewDocCropBar');
+    if(_cropBar)_cropBar.style.display='none';
+    var _cropNote=document.getElementById('reviewDocCropNote');
+    if(_cropNote)_cropNote.textContent='Trims this photo down to the document and replaces the stored copy — the doctor is not asked to re-upload.';
     document.getElementById('reviewDocApproveBtn').disabled=false;
     document.getElementById('reviewDocRejectBtn').disabled=false;
     document.getElementById('reviewDocModal').style.display='flex';
@@ -4266,12 +4283,66 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var blob=await resp.blob();
       _reviewDocObjUrl=URL.createObjectURL(blob);
       loading.style.display='none';
-      if((blob.type||'').indexOf('image/')===0){ img.src=_reviewDocObjUrl; img.style.display='block'; }
+      if((blob.type||'').indexOf('image/')===0){
+        img.src=_reviewDocObjUrl; img.style.display='block';
+        // Held so the crop sheet can work on the bytes we already fetched.
+        _reviewDocBlob=blob;
+        if(_cropBar)_cropBar.style.display='flex';
+      }
       else { frame.src=_reviewDocObjUrl; frame.style.display='block'; }
     }catch(e){
       loading.style.display='none'; missing.style.display='block';
       missing.textContent='Could not load the document: '+e.message;
     }
+  }
+  /* ── Crop a document already on file ──────────────────────────────────────
+   * Opens the SAME crop sheet a doctor gets (js/doc-crop.js), in `force` mode so
+   * it always opens — staff are looking at the picture and can see background the
+   * detector may think is fine. The browser does the pixel work; the server
+   * overwrites the stored object, keeps one copy of the original, updates the
+   * Drive mirror and drops the cached AI verdict so the re-scan reads the clean
+   * image. Nothing about the review decision changes.
+   */
+  var _reviewDocBlob=null;
+  async function cropReviewDocImage(){
+    if(!_reviewDocTaskId||!_reviewDocBlob)return;
+    var btn=document.getElementById('reviewDocCropBtn');
+    var note=document.getElementById('reviewDocCropNote');
+    if(!window.DocCrop){ if(note)note.textContent='The crop tool did not load — please refresh this page and try again.'; return; }
+    var type=_reviewDocBlob.type||'image/jpeg';
+    var file;
+    try{ file=new File([_reviewDocBlob],'document'+(/png/i.test(type)?'.png':'.jpg'),{type:type}); }catch(e){ file=_reviewDocBlob; }
+    var out=null;
+    try{ out=await window.DocCrop.prepare(file,{label:'document',origin:'file',force:true}); }catch(e){ out=null; }
+    // null = cancelled; the same object back = they chose "Use whole photo".
+    if(!out||out===file)return;
+    if(btn)btn.disabled=true;
+    if(note)note.textContent='Saving the cropped image…';
+    try{
+      var dataUrl=await new Promise(function(resolve,reject){
+        var fr=new FileReader();
+        fr.onload=function(){resolve(String(fr.result||''));};
+        fr.onerror=function(){reject(new Error('could not read the cropped image'));};
+        fr.readAsDataURL(out);
+      });
+      var r=await fetch('/api/admin/va/task/crop-document',{
+        method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({task_id:_reviewDocTaskId,fileDataUrl:dataUrl})
+      });
+      var j=await r.json().catch(function(){return{};});
+      if(!r.ok||!j.ok)throw new Error(j.message||'Could not save the crop.');
+      if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);}
+      _reviewDocBlob=out;
+      _reviewDocObjUrl=URL.createObjectURL(out);
+      var imgEl=document.getElementById('reviewDocImg');
+      if(imgEl){imgEl.src=_reviewDocObjUrl;imgEl.style.display='block';}
+      if(note)note.textContent='Cropped and saved.'+(j.driveUpdated?' The Drive copy was updated too.':'')+' Re-scanning the clean image…';
+      runReviewDocAiScan(true);
+    }catch(e){
+      if(note)note.textContent='Could not save the crop: '+(e&&e.message?e.message:'unknown error');
+    }
+    if(btn)btn.disabled=false;
   }
   async function runReviewDocAiScan(force){
     if(!_reviewDocTaskId)return;

@@ -38,6 +38,10 @@
  *       opts.origin  "camera" crops silently (the camera already made the doctor
  *                    check the framing); anything else opens the sheet
  *       opts.ai      false to skip the AI fallback
+ *       opts.force   always open the sheet, even when nothing needs trimming.
+ *                    Used by staff on a document already on file: "I can see
+ *                    background in this, let me crop it" has to be possible
+ *                    whatever the detector thinks.
  *   detect(img)                -> the local detector's verdict (exported for tests)
  *   openEditor(...)            -> the manual sheet on its own
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -752,6 +756,7 @@
     if (typeof document === "undefined" || !document.createElement) return Promise.resolve(fileOrBlob);
 
     var silent = o.origin === "camera";
+    var force = o.force === true;
     var loaded = null;
 
     return loadImage(fileOrBlob).then(function (l) {
@@ -761,15 +766,16 @@
 
       // Already nothing but document — a flat scan, a screenshot, or a photo
       // taken properly. Leave it completely alone: an extra step here would be
-      // friction for the doctors who got it right.
-      if (verdict.flatScan || (padded && !worthCropping(padded))) {
+      // friction for the doctors who got it right. `force` overrides this for
+      // staff, who are looking at the picture and can see what we cannot.
+      if (!force && (verdict.flatScan || (padded && !worthCropping(padded)))) {
         return fileOrBlob;
       }
 
       // Confident and worth doing: crop it. For a camera capture that is the end
       // of it (the camera already made them confirm the framing); for a file
       // upload we still show it, pre-cropped, so they can see and adjust.
-      if (verdict.found && verdict.confidence === "high" && worthCropping(padded)) {
+      if (!force && verdict.found && verdict.confidence === "high" && worthCropping(padded)) {
         if (silent) return cropToBlob(l.img, padded, fileOrBlob.type).then(function (blob) {
           return toFile(blob, fileOrBlob.name, outputMime(fileOrBlob.type));
         });
@@ -778,9 +784,12 @@
 
       // Not sure. A camera capture is left alone (it was framed in the A4
       // viewfinder); an uploaded photo goes to the sheet, and the AI is asked
-      // for a box while the doctor is already looking at it.
-      if (silent) return fileOrBlob;
-      return runEditor(l, fileOrBlob, padded, o, o.ai !== false);
+      // for a box while the doctor is already looking at it. A forced (staff)
+      // crop always lands here, and only pays for the AI when the local pass
+      // has nothing useful to suggest.
+      if (silent && !force) return fileOrBlob;
+      var localBoxIsGood = verdict.found && verdict.confidence === "high" && worthCropping(padded);
+      return runEditor(l, fileOrBlob, padded, o, o.ai !== false && !localBoxIsGood);
     }).then(function (result) {
       if (loaded) loaded.release();
       return result;

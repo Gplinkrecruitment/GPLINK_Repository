@@ -1471,6 +1471,9 @@
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
+<!-- The crop sheet, shared with the doctor-facing upload paths: staff use it to
+     trim the desk out of a document that is already on file. -->
+<script src="/js/doc-crop.js?v=20260813a"></script>
   <div class="page-wrap">
     <!-- HEADER -->
     <header class="header">
@@ -7545,7 +7548,55 @@
       return null;
     }
     var _ceoReviewDocObjUrl = null;
+    var _ceoReviewDocBlob = null; // the loaded image, for the crop sheet
     var _ceoReviewSuggested = ''; // the AI-derived note pre-filled into the box (for the reject-confirm check)
+
+    /* Crop a document already on file. Mirrors cropReviewDocImage() in admin.html:
+     * same shared crop sheet (force mode — staff can see background the detector may
+     * think is fine), same endpoint, which overwrites the stored object, keeps one
+     * copy of the original and updates the Drive mirror. The review decision is
+     * untouched; this only changes the picture. */
+    function ceoCropReviewDoc(taskId) {
+      if (!taskId || !_ceoReviewDocBlob) return;
+      var btn = document.getElementById('ceoReviewDocCropBtn');
+      var note = document.getElementById('ceoReviewDocCropNote');
+      if (!window.DocCrop) { if (note) note.textContent = 'The crop tool did not load — please refresh this page and try again.'; return; }
+      var type = _ceoReviewDocBlob.type || 'image/jpeg';
+      var file;
+      try { file = new File([_ceoReviewDocBlob], 'document' + (/png/i.test(type) ? '.png' : '.jpg'), { type: type }); }
+      catch (e) { file = _ceoReviewDocBlob; }
+      window.DocCrop.prepare(file, { label: 'document', origin: 'file', force: true }).then(function (out) {
+        // null = cancelled; the same object back = "Use whole photo".
+        if (!out || out === file) return null;
+        if (btn) btn.disabled = true;
+        if (note) note.textContent = 'Saving the cropped image…';
+        return new Promise(function (resolve, reject) {
+          var fr = new FileReader();
+          fr.onload = function () { resolve({ dataUrl: String(fr.result || ''), blob: out }); };
+          fr.onerror = function () { reject(new Error('could not read the cropped image')); };
+          fr.readAsDataURL(out);
+        });
+      }).then(function (payload) {
+        if (!payload) return null;
+        return apiFetch('/api/admin/va/task/crop-document', {
+          method: 'POST',
+          body: { task_id: taskId, fileDataUrl: payload.dataUrl }
+        }).then(function (d) {
+          if (!d || !d.ok) throw new Error((d && d.message) || 'Could not save the crop.');
+          if (_ceoReviewDocObjUrl) URL.revokeObjectURL(_ceoReviewDocObjUrl);
+          _ceoReviewDocBlob = payload.blob;
+          _ceoReviewDocObjUrl = URL.createObjectURL(payload.blob);
+          var imgEl = document.getElementById('ceoReviewDocImg');
+          if (imgEl) imgEl.src = _ceoReviewDocObjUrl;
+          if (note) note.textContent = 'Cropped and saved.' + (d.driveUpdated ? ' The Drive copy was updated too.' : '');
+          if (btn) btn.disabled = false;
+          return d;
+        });
+      }).catch(function (e) {
+        if (note) note.textContent = 'Could not save the crop: ' + (e && e.message ? e.message : 'unknown error');
+        if (btn) btn.disabled = false;
+      });
+    }
     // Mirrors admin.html: a task reason that describes a BROKEN automatic check ("Image
     // normalization failed" — every PDF produced that until the classifier learned to send
     // PDFs as documents) is not a finding a doctor can act on, and this box is emailed to them
@@ -7566,6 +7617,11 @@
       if (ceoReasonIsTechnical) html += '<div class="modal-note" style="color:var(--text-muted);font-size:12px;margin:-4px 0 10px">The automatic check could not run on this file — please review it yourself below.</div>';
       else if (ceoReason) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(ceoReason) + '</div>';
       html += '<div id="ceoReviewDocPreview" style="min-height:120px;max-height:52vh;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;padding:8px"><div class="spinner" style="width:20px;height:20px;border-width:2px"></div></div>';
+      // Crop an image already on file — same sheet the doctor gets, same endpoint as
+      // admin.html. Only shown once an IMAGE has loaded (nothing to crop on a PDF).
+      html += '<div id="ceoReviewDocCropBar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px">'
+        + '<button type="button" class="btn" id="ceoReviewDocCropBtn" onclick="ceoCropReviewDoc(\'' + esc(taskId) + '\')" style="font-size:12px;padding:6px 12px">✂️ Crop out the background</button>'
+        + '<span id="ceoReviewDocCropNote" style="font-size:11px;color:var(--text-muted)">Trims this photo down to the document and replaces the stored copy — the doctor is not asked to re-upload.</span></div>';
       html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP — the email sends exactly what you type</label>';
       // Formatting toolbar: same [data-fmt] delegation pattern as admin.html — the email
       // keeps line breaks, renders **text** bold and "- " lines as dot points.
@@ -7588,7 +7644,12 @@
         if (!resp.ok) { return resp.json().catch(function() { return {}; }).then(function(dj) { box.innerHTML = '<div style="color:var(--red);font-size:13px;padding:24px">' + esc(dj.message || 'No document is stored for this task.') + '</div>'; }); }
         return resp.blob().then(function(blob) {
           _ceoReviewDocObjUrl = URL.createObjectURL(blob);
-          if ((blob.type || '').indexOf('image/') === 0) box.innerHTML = '<img alt="Document" src="' + _ceoReviewDocObjUrl + '" style="max-width:100%;max-height:50vh;object-fit:contain" />';
+          if ((blob.type || '').indexOf('image/') === 0) {
+            box.innerHTML = '<img id="ceoReviewDocImg" alt="Document" src="' + _ceoReviewDocObjUrl + '" style="max-width:100%;max-height:50vh;object-fit:contain" />';
+            _ceoReviewDocBlob = blob; // held so the crop sheet works on bytes we already have
+            var cropBar = document.getElementById('ceoReviewDocCropBar');
+            if (cropBar) cropBar.style.display = 'flex';
+          }
           else box.innerHTML = '<iframe title="Document" src="' + _ceoReviewDocObjUrl + '" style="width:100%;height:50vh;border:none;background:#fff"></iframe>';
         });
       }).catch(function(e) {

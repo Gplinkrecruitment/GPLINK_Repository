@@ -349,11 +349,11 @@ describe('js/doc-crop.js never blocks an upload', () => {
   it('crops silently for a camera capture and shows the sheet for an upload', () => {
     expect(cropJs).toContain('var silent = o.origin === "camera";');
     expect(cropJs).toMatch(/if \(silent\) return cropToBlob/);
-    expect(cropJs).toContain('if (silent) return fileOrBlob;');
+    expect(cropJs).toContain('if (silent && !force) return fileOrBlob;');
   });
 
   it('only crops unattended when the detector is confident AND it is worth it', () => {
-    expect(cropJs).toContain('if (verdict.found && verdict.confidence === "high" && worthCropping(padded))');
+    expect(cropJs).toContain('if (!force && verdict.found && verdict.confidence === "high" && worthCropping(padded))');
   });
 
   it('keeps a PNG a PNG, so text in a screenshot is not smeared by JPEG', () => {
@@ -421,6 +421,99 @@ describe('wired into the document upload paths', () => {
     // change event at all unless the input was cleared first.
     expect(onboardingJs).toContain('e.target.value = "";');
     expect(scanJs).toContain('e.target.value = "";');
+  });
+});
+
+/* ── cropping a document that is ALREADY on file (staff) ─────────────────── */
+
+describe('staff can crop a stored document', () => {
+  const adminHtml = fs.readFileSync(path.join(ROOT, 'pages/admin.html'), 'utf8');
+  const ceoHtml = fs.readFileSync(path.join(ROOT, 'pages/ceo-dashboard.html'), 'utf8');
+  const cropEndpoint = (() => {
+    const start = serverJs.indexOf("pathname === '/api/admin/va/task/crop-document'");
+    const end = serverJs.indexOf("pathname === '/api/admin/va/doc-review/ai-scan'");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return serverJs.slice(start, end);
+  })();
+
+  it('is offered in BOTH staff consoles, not just one', () => {
+    expect(adminHtml).toContain('id="reviewDocCropBar"');
+    expect(adminHtml).toContain('cropReviewDocImage()');
+    expect(ceoHtml).toContain('ceoReviewDocCropBar');
+    expect(ceoHtml).toContain('function ceoCropReviewDoc(taskId)');
+    // Both load the shared module.
+    expect(adminHtml).toContain('doc-crop.js?v=' + CROP_BUSTER);
+    expect(ceoHtml).toContain('doc-crop.js?v=' + CROP_BUSTER);
+  });
+
+  it('opens the sheet in force mode — staff see background the detector may not', () => {
+    expect(adminHtml).toContain("force:true");
+    expect(ceoHtml).toContain('force: true');
+    expect(cropJs).toContain('var force = o.force === true;');
+    expect(cropJs).toContain('if (!force && (verdict.flatScan || (padded && !worthCropping(padded))))');
+  });
+
+  it('only appears for images — a PDF has nothing to crop', () => {
+    expect(adminHtml).toMatch(/indexOf\('image\/'\)===0\)\{[\s\S]{0,400}_cropBar\)_cropBar\.style\.display='flex'/);
+    expect(ceoHtml).toMatch(/indexOf\('image\/'\) === 0\) \{[\s\S]{0,400}cropBar\.style\.display = 'flex'/);
+  });
+
+  it('is behind an admin session AND the per-task access check', () => {
+    expect(cropEndpoint).toContain('requireAdminSession(req, res)');
+    expect(cropEndpoint).toContain('ensureAdminTaskAccess(cropAdminCtx, cropTaskId, res)');
+  });
+
+  it('proves the bytes are really the image type they claim', () => {
+    expect(cropEndpoint).toContain("cropMime !== 'image/jpeg' && cropMime !== 'image/png'");
+    expect(cropEndpoint).toContain('0xFF && cropBuf[1] === 0xD8');
+    expect(cropEndpoint).toContain('0x89 && cropBuf[1] === 0x50');
+  });
+
+  it('keeps a copy of the original before overwriting it', () => {
+    expect(cropEndpoint).toContain(".precrop-'");
+    // The backup is written BEFORE the new bytes land on the real path.
+    expect(cropEndpoint.indexOf('backupPath')).toBeLessThan(
+      cropEndpoint.indexOf('const stored = await supabaseStorageUploadObject(cropTarget.bucket, cropTarget.path'));
+  });
+
+  it('updates the Google Drive mirror, which is only ever uploaded once', () => {
+    expect(cropEndpoint).toContain('replaceGoogleDriveFileContent(cropTarget.row.google_drive_file_id');
+    expect(serverJs).toContain('async function replaceGoogleDriveFileContent(fileId, buffer, mimeType)');
+    // reconcileGpDrive skips any row that already has an id, which is exactly why
+    // the content has to be replaced in place rather than re-uploaded.
+    expect(serverJs).toContain('if (d.google_drive_file_id) {');
+  });
+
+  it('drops the cached AI verdict, because the picture it judged is gone', () => {
+    expect(cropEndpoint).toContain('const clearCachedScan');
+    expect(cropEndpoint).toContain("delete mergedMeta.ai_scan");
+    // Metadata is MERGED, never replaced — a blind write drops everything else on it.
+    expect(cropEndpoint).toContain('Object.assign({}, existingMeta)');
+    // ...and the reviewer's panel re-scans the clean image straight away.
+    expect(adminHtml).toContain('runReviewDocAiScan(true)');
+  });
+
+  it('leaves the review decision, status and file name alone', () => {
+    expect(cropEndpoint).toContain('body: { mime_type: cropMime, file_size: cropBuf.length, updated_at:');
+    expect(cropEndpoint).not.toContain('status:');
+    expect(cropEndpoint).not.toContain('reviewed_by');
+  });
+
+  it('handles a document stored on the task itself, not only in GP storage', () => {
+    expect(cropEndpoint).toContain("cropTarget.kind === 'task_attachment'");
+    expect(cropEndpoint).toContain('body: { attachment_url: cropDataUrl }');
+  });
+
+  it('resolves the file the same way the preview and the scan do', () => {
+    // One resolver, and ONE table of onboarding key aliases — three hand-written
+    // copies is how a key goes missing and a stored document reads as absent.
+    expect(serverJs).toContain('async function resolveTaskDocumentStorage(task)');
+    expect(serverJs).toContain('const ONBOARDING_DOC_KEY_ALIASES = {');
+    const aliasUses = serverJs.match(/ONBOARDING_DOC_KEY_ALIASES\[/g) || [];
+    expect(aliasUses.length).toBeGreaterThanOrEqual(3); // preview, ai-scan, resolver
+    expect(serverJs).not.toContain('ONBOARDING_KEY_FOR_QUAL');
+    expect(serverJs).not.toContain('ONBOARDING_KEY_FOR_SCAN');
   });
 });
 

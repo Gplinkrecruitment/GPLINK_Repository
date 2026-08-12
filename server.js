@@ -712,6 +712,101 @@ async function ensureAdminTaskAccess(adminCtx, taskId, res) {
   return false;
 }
 
+/* ── One table for "which onboarding object is this document key?" ──────────
+ * The qualification a doctor uploaded during onboarding lives under its own key
+ * namespace, and this map used to be written out by hand in each endpoint that
+ * needed it. A third copy was about to be added for the staff crop, so it is one
+ * shared constant now — a key missing from one copy reads as "no document is
+ * stored for this task", which is indistinguishable from the doctor never
+ * uploading it.
+ */
+const ONBOARDING_DOC_KEY_ALIASES = {
+  primary_medical_degree: 'onboarding_primary_med_degree',
+  specialist_qualification: 'onboarding_specialist_qualification',
+  cct_certificate: 'onboarding_cct_certificate',
+  onboarding_primary_med_degree: 'onboarding_primary_med_degree',
+  onboarding_specialist_qualification: 'onboarding_specialist_qualification',
+  onboarding_cct_certificate: 'onboarding_cct_certificate'
+};
+
+/**
+ * Where do this task's document bytes actually live? Mirrors the resolution that
+ * preview-document and the reviewer's AI scan already do, so a staff crop writes
+ * back to exactly the object those two read from.
+ *
+ * Returns null when nothing is stored, otherwise:
+ *   { kind: 'task_attachment' }                       — a data: URL on the task row
+ *   { kind: 'storage', userId, bucket, path, row }     — a Supabase Storage object
+ *                                                        (row is the user_documents
+ *                                                        row when there is one)
+ */
+async function resolveTaskDocumentStorage(task) {
+  if (!task) return null;
+  if (typeof task.attachment_url === 'string' && task.attachment_url.startsWith('data:')) {
+    return { kind: 'task_attachment' };
+  }
+  if (!task.related_document_key || !task.case_id) return null;
+
+  const caseRes = await supabaseDbRequest('registration_cases',
+    'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+  const userId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+  if (!userId) return null;
+
+  // Several rows can share one document_key (country_code casing makes duplicate
+  // rows on upsert), so take the newest one that actually has a file — a rejected
+  // row with a blank file_url must not shadow the real upload.
+  const rowsRes = await supabaseDbRequest('user_documents',
+    'select=*&user_id=eq.' + encodeURIComponent(userId) +
+    '&document_key=eq.' + encodeURIComponent(task.related_document_key) + '&order=updated_at.desc');
+  const rows = (rowsRes.ok && Array.isArray(rowsRes.data)) ? rowsRes.data : [];
+  const row = rows.find((r) => r && (r.storage_path || r.file_url)) || null;
+  if (row) {
+    return {
+      kind: 'storage',
+      userId: userId,
+      bucket: row.storage_bucket || SUPABASE_DOCUMENT_BUCKET,
+      path: row.storage_path || row.file_url,
+      row: row
+    };
+  }
+
+  const onboardKey = ONBOARDING_DOC_KEY_ALIASES[task.related_document_key];
+  if (onboardKey) {
+    for (const country of ['uk', 'ie', 'nz']) {
+      const objectPath = buildOnboardingDocumentStoragePath(userId, country, onboardKey);
+      const probe = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, objectPath);
+      if (probe && probe.buffer) {
+        return { kind: 'storage', userId: userId, bucket: SUPABASE_DOCUMENT_BUCKET, path: objectPath, row: null };
+      }
+    }
+  }
+  return null;
+}
+
+// Replace a Drive file's CONTENT, keeping its id, link and sharing. Used after a
+// staff crop: the mirror in the GP's Drive folder is only ever uploaded once
+// (reconcileGpDrive skips any row that already has a google_drive_file_id), so
+// overwriting the Storage object alone would leave Drive — and anything sent on
+// from it — showing the uncropped picture.
+async function replaceGoogleDriveFileContent(fileId, buffer, mimeType) {
+  if (!fileId || !buffer) return false;
+  const drive = await getGoogleDriveClient();
+  if (!drive) return false;
+  try {
+    await drive.files.update({
+      fileId: fileId,
+      media: {
+        mimeType: mimeType || 'application/octet-stream',
+        body: require('stream').Readable.from(buffer)
+      }
+    });
+    return true;
+  } catch (err) {
+    console.error('[GoogleDrive] content replace error:', err.message);
+    return false;
+  }
+}
+
 // The set of GP user_ids whose case is assigned to this RSO — used to scope the
 // dashboard candidate list (built from user records, not case rows).
 async function fetchAssignedCaseUserIds(rsoUserId) {
@@ -10917,8 +11012,31 @@ function parseVaSearchScope(raw) {
 
 const NAME_NOISE_PARTS = new Set(['dr', 'mr', 'mrs', 'ms', 'miss', 'mx', 'sir', 'prof', 'professor', 'md', 'mbbs', 'mbchb', 'phd']);
 
+/**
+ * "Fashola, Ademola Keji Ibrahim" -> "Ademola Keji Ibrahim Fashola".
+ *
+ * A UK GMC certificate routinely prints the name surname-first with a comma, and
+ * the comma used to be thrown away with every other punctuation mark — so the
+ * matcher read "Fashola" as the first name and "Ibrahim" as the surname, and
+ * flagged Dr Ibrahim Fashola's own CCT as somebody else's name (2026-08-13).
+ * Only ever applied to a SINGLE comma with words on both sides; anything else is
+ * left exactly as it came in.
+ */
+function reorderCommaName(raw) {
+  const text = String(raw || '').trim();
+  const parts = text.split(',');
+  if (parts.length !== 2) return text;
+  const surname = parts[0].trim();
+  const given = parts[1].trim();
+  if (!surname || !given) return text;
+  // A trailing qualification list ("Smith, MBBS") is not a surname-first name.
+  const givenWords = given.split(/\s+/).filter(Boolean);
+  if (givenWords.every((w) => NAME_NOISE_PARTS.has(w.toLowerCase().replace(/[^a-z]/g, '')))) return text;
+  return given + ' ' + surname;
+}
+
 function normalizeNameParts(name) {
-  return String(name || '')
+  return reorderCommaName(name)
     .toLowerCase()
     .trim()
     .replace(/['’]/g, '')
@@ -10942,24 +11060,76 @@ function hasUsableFullName(name) {
   return normalizeNameParts(name).length >= 2;
 }
 
-function middleNamesCompatible(partsA, partsB) {
-  if (!partsA.length || !partsB.length) return true;
+/* ═══════════════════════════════════════════════════════════════════════════
+ * NAME MATCHING — is this document this doctor's?
+ *
+ * The old rule was: the FIRST word and the LAST word must both match exactly.
+ * That is wrong about how real names are printed, and it cost Dr Ibrahim Fashola
+ * two false flags on his own certificates (2026-08-13):
+ *   • the CCT prints "Fashola, Ademola Keji Ibrahim" — surname first;
+ *   • the degree prints "Ademola-Keji Ibrahim A. Fashola" — the name he actually
+ *     goes by, Ibrahim, is a MIDDLE name, so the first word could never match;
+ *   • the AI read "Kelil Ilrahim" for "Keji Ibrahim" — a letter out, which an
+ *     exact comparison can never forgive.
+ * All three produced "the name on this document looks like a previous name",
+ * which is emailed to the doctor and lands as manual work for an RSO.
+ *
+ * The rule now: the SURNAME must be there, and at least two words of the name
+ * must correspond — wherever they sit in the string.
+ *
+ * ⚠️ SECURITY: this is also the wrong-owner guard for CVs and attachments (a CV
+ * filed under the wrong doctor becomes a PII breach the moment it is emailed to
+ * a practice — see the Sana Ahsan / Helen Wazalski incident). That is why the
+ * surname is still required EXACTLY, in full: every relaxation below is about
+ * word ORDER, initials and single-letter OCR slips, never about letting a
+ * different surname through. "Sana Ahsan" vs "Helen Wazalski" still mismatches,
+ * and so does a father and son who share a surname but not a given name.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+// True when two words differ by at most one letter (one substitution, insertion
+// or deletion). Only ever asked about words of 5+ letters: at four letters and
+// under, one letter apart is usually a different name ("Khan"/"Khun",
+// "Jane"/"Jade"), not a misread.
+function nameWordsWithinOneEdit(a, b) {
+  if (a === b) return true;
+  if (a.length < 5 || b.length < 5) return false;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length === b.length) { i++; j++; }
+    else if (a.length > b.length) i++;
+    else j++;
+  }
+  if (i < a.length || j < b.length) edits++;
+  return edits <= 1;
+}
+
+// Do these two words name the same thing? Exact, an initial standing in for a
+// full word, or one letter of OCR noise.
+function nameWordsMatch(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length === 1 || b.length === 1) return a.charAt(0) === b.charAt(0);
+  return nameWordsWithinOneEdit(a, b);
+}
+
+// How many words of the shorter name are accounted for in the longer one. Each
+// word on the other side can only be used once, so "john john smith" cannot
+// match "john smith smith" twice over.
+function countMatchedNameWords(partsA, partsB) {
   const shorter = partsA.length <= partsB.length ? partsA : partsB;
   const longer = partsA.length <= partsB.length ? partsB : partsA;
-  let longIdx = 0;
-  for (const part of shorter) {
-    let matched = false;
-    while (longIdx < longer.length) {
-      const candidate = longer[longIdx++];
-      if (!candidate) continue;
-      if (part === candidate || part.charAt(0) === candidate.charAt(0)) {
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) return false;
+  const used = new Array(longer.length).fill(false);
+  let matched = 0;
+  for (const word of shorter) {
+    // Prefer an exact hit before spending a fuzzy one on the same word.
+    let idx = longer.findIndex((cand, k) => !used[k] && cand === word);
+    if (idx === -1) idx = longer.findIndex((cand, k) => !used[k] && nameWordsMatch(word, cand));
+    if (idx !== -1) { used[idx] = true; matched++; }
   }
-  return true;
+  return matched;
 }
 
 function matchNames(docName, profileName) {
@@ -10967,14 +11137,20 @@ function matchNames(docName, profileName) {
   const profileParts = normalizeNameParts(profileName);
   if (docParts.length < 2 || profileParts.length < 2) return 'unknown';
   if (docParts.join(' ') === profileParts.join(' ')) return 'exact';
-  const docFirst = docParts[0];
+
+  // The surname has to be present, in full, somewhere in the other name. Checked
+  // from BOTH sides because only one of the two is reliably surname-last: an
+  // account name is typed by the doctor, a document name is whatever the
+  // certificate printed and the model read.
   const docLast = docParts[docParts.length - 1];
-  const profFirst = profileParts[0];
   const profLast = profileParts[profileParts.length - 1];
-  if (docFirst !== profFirst || docLast !== profLast) return 'mismatch';
-  const docMiddle = docParts.slice(1, -1);
-  const profileMiddle = profileParts.slice(1, -1);
-  return middleNamesCompatible(docMiddle, profileMiddle) ? 'fuzzy' : 'mismatch';
+  const surnamePresent = profileParts.includes(docLast) || docParts.includes(profLast);
+  if (!surnamePresent) return 'mismatch';
+
+  // Beyond the surname, at least one more word must correspond — otherwise a
+  // father and son, or two unrelated doctors who happen to share a surname,
+  // would pass.
+  return countMatchedNameWords(docParts, profileParts) >= 2 ? 'fuzzy' : 'mismatch';
 }
 
 function isConfirmedNameMatch(match) {
@@ -63290,15 +63466,7 @@ Return ONLY valid JSON with no markdown formatting:
         }
 
         // 2. The original onboarding upload (stored under a separate key namespace).
-        const ONBOARDING_KEY_FOR_QUAL = {
-          primary_medical_degree: 'onboarding_primary_med_degree',
-          specialist_qualification: 'onboarding_specialist_qualification',
-          cct_certificate: 'onboarding_cct_certificate',
-          onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-          onboarding_specialist_qualification: 'onboarding_specialist_qualification',
-          onboarding_cct_certificate: 'onboarding_cct_certificate'
-        };
-        const onboardKey = ONBOARDING_KEY_FOR_QUAL[task.related_document_key];
+        const onboardKey = ONBOARDING_DOC_KEY_ALIASES[task.related_document_key];
         if (onboardKey) {
           for (const ctry of ['uk', 'ie', 'nz']) {
             const obPath = buildOnboardingDocumentStoragePath(pdUserId, ctry, onboardKey);
@@ -63310,6 +63478,139 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     sendJson(res, 404, { ok: false, message: 'No document is stored for this task. The GP may not have uploaded the file, or it was only scanned and not saved.' });
+    return;
+  }
+
+  /* ── Crop a document that is ALREADY on file ───────────────────────────────
+   * The auto-crop in js/doc-crop.js only runs at upload time, so every document
+   * uploaded before it shipped still carries the desk, the carpet or the bed it
+   * was photographed on — including the ones an RSO is about to send to AHPRA.
+   * This lets staff crop one from the review modal instead of rejecting a
+   * perfectly good certificate just to get a tidier photograph of it.
+   *
+   * The browser does the pixel work (the same crop sheet the doctor sees) and
+   * sends the finished image here. This endpoint OVERWRITES the stored document,
+   * so:
+   *   • the original is kept once, alongside it, under `<path>.precrop-<ts>` —
+   *     a crop is destructive and staff can misjudge a box;
+   *   • the Google Drive mirror's CONTENT is replaced in place, because
+   *     reconcileGpDrive only ever uploads a document once and would otherwise
+   *     leave Drive showing the uncropped picture forever;
+   *   • the cached AI scan on the task is dropped, so the reviewer's next look
+   *     re-reads the cropped image rather than the verdict from the old one.
+   * Nothing about the document's review state, name or status is touched — this
+   * changes the picture, not the decision.
+   */
+  if (pathname === '/api/admin/va/task/crop-document' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const cropAdminCtx = requireAdminSession(req, res);
+    if (!cropAdminCtx) return;
+    let cropDocBody;
+    try { cropDocBody = await readJsonBody(req); } catch (e) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const cropTaskId = String((cropDocBody && (cropDocBody.task_id || cropDocBody.taskId)) || '').trim();
+    if (!cropTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!(await ensureAdminTaskAccess(cropAdminCtx, cropTaskId, res))) return;
+
+    const cropDataUrl = String((cropDocBody && cropDocBody.fileDataUrl) || '');
+    const cropParsed = parseDataUrlPayload(cropDataUrl);
+    if (!cropParsed || !cropParsed.buffer || !cropParsed.buffer.length) {
+      sendJson(res, 400, { ok: false, message: 'Missing or unreadable cropped image.' });
+      return;
+    }
+    // Only ever an image, and only one we can prove is an image: this overwrites
+    // a document on a doctor's file, so the bytes are checked rather than trusted.
+    const cropMime = String(cropParsed.mimeType || '').toLowerCase();
+    if (cropMime !== 'image/jpeg' && cropMime !== 'image/png') {
+      sendJson(res, 422, { ok: false, message: 'A crop can only be saved as a JPEG or PNG image.' });
+      return;
+    }
+    const cropBuf = cropParsed.buffer;
+    const looksJpeg = cropBuf.length > 3 && cropBuf[0] === 0xFF && cropBuf[1] === 0xD8 && cropBuf[2] === 0xFF;
+    const looksPng = cropBuf.length > 8 && cropBuf[0] === 0x89 && cropBuf[1] === 0x50 && cropBuf[2] === 0x4E && cropBuf[3] === 0x47;
+    if (!(cropMime === 'image/jpeg' ? looksJpeg : looksPng)) {
+      sendJson(res, 422, { ok: false, message: 'That file does not look like the image type it claims to be.' });
+      return;
+    }
+    if (cropBuf.length > 12 * 1024 * 1024) {
+      sendJson(res, 413, { ok: false, message: 'That cropped image is too large to store.' });
+      return;
+    }
+
+    const cropTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=*&id=eq.' + encodeURIComponent(cropTaskId) + '&limit=1');
+    if (!cropTaskRes.ok || !cropTaskRes.data || !cropTaskRes.data[0]) {
+      sendJson(res, 404, { ok: false, message: 'Task not found.' });
+      return;
+    }
+    const cropTask = cropTaskRes.data[0];
+    const cropTarget = await resolveTaskDocumentStorage(cropTask);
+    if (!cropTarget) {
+      sendJson(res, 404, { ok: false, message: 'No stored document was found to crop.' });
+      return;
+    }
+
+    // Drop the cached AI scan either way — the picture it judged is gone.
+    const clearCachedScan = async () => {
+      const existingMeta = (cropTask.metadata && typeof cropTask.metadata === 'object') ? cropTask.metadata : {};
+      if (!existingMeta.ai_scan) return;
+      const mergedMeta = Object.assign({}, existingMeta);
+      delete mergedMeta.ai_scan;
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(cropTaskId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { metadata: mergedMeta }
+      });
+    };
+
+    if (cropTarget.kind === 'task_attachment') {
+      const patchRes = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(cropTaskId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { attachment_url: cropDataUrl }
+      });
+      if (!patchRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the cropped image.' }); return; }
+      await clearCachedScan();
+      console.log('[DocCrop admin] task attachment cropped: task ' + cropTaskId + ' by ' + (cropAdminCtx.email || ''));
+      sendJson(res, 200, { ok: true, message: 'Cropped — only the document is stored now.' });
+      return;
+    }
+
+    // Keep the original once, so a misjudged box is recoverable. Best-effort: a
+    // failed backup must not stop staff cleaning up a document, but it is logged.
+    const original = await supabaseStorageDownloadObject(cropTarget.bucket, cropTarget.path);
+    if (original && original.buffer && original.buffer.length) {
+      const stamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+      const backupPath = cropTarget.path + '.precrop-' + stamp;
+      const backupDataUrl = 'data:' + (original.mimeType || 'application/octet-stream') + ';base64,' + original.buffer.toString('base64');
+      const backedUp = await supabaseStorageUploadObject(cropTarget.bucket, backupPath, backupDataUrl, original.mimeType || 'application/octet-stream');
+      if (!backedUp) console.warn('[DocCrop admin] could not back up the original before cropping: ' + cropTarget.path);
+    }
+
+    const stored = await supabaseStorageUploadObject(cropTarget.bucket, cropTarget.path, cropDataUrl, cropMime);
+    if (!stored) { sendJson(res, 502, { ok: false, message: 'Could not save the cropped image to storage.' }); return; }
+
+    // Keep the row honest about what is now stored. The document's review status,
+    // name and file name are deliberately left alone.
+    if (cropTarget.row && cropTarget.row.id) {
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(cropTarget.row.id), {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: { mime_type: cropMime, file_size: cropBuf.length, updated_at: new Date().toISOString() }
+      });
+    }
+
+    let driveUpdated = false;
+    if (cropTarget.row && cropTarget.row.google_drive_file_id) {
+      driveUpdated = await replaceGoogleDriveFileContent(cropTarget.row.google_drive_file_id, cropBuf, cropMime);
+      if (!driveUpdated) console.warn('[DocCrop admin] Drive copy not updated for ' + cropTarget.path);
+    }
+
+    await clearCachedScan();
+    console.log('[DocCrop admin] cropped ' + cropTarget.path + ' by ' + (cropAdminCtx.email || '') + (driveUpdated ? ' (Drive updated)' : ''));
+    sendJson(res, 200, {
+      ok: true,
+      driveUpdated: driveUpdated,
+      message: 'Cropped — only the document is stored now.'
+    });
     return;
   }
 
@@ -63359,15 +63660,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Onboarding-origin qualifications store the file under a separate key namespace.
     if (!scStoragePath) {
-      const ONBOARDING_KEY_FOR_SCAN = {
-        primary_medical_degree: 'onboarding_primary_med_degree',
-        specialist_qualification: 'onboarding_specialist_qualification',
-        cct_certificate: 'onboarding_cct_certificate',
-        onboarding_primary_med_degree: 'onboarding_primary_med_degree',
-        onboarding_specialist_qualification: 'onboarding_specialist_qualification',
-        onboarding_cct_certificate: 'onboarding_cct_certificate'
-      };
-      const scObKey = ONBOARDING_KEY_FOR_SCAN[scanDocKey];
+      const scObKey = ONBOARDING_DOC_KEY_ALIASES[scanDocKey];
       if (scObKey) {
         for (const ctry of ['uk', 'ie', 'nz']) {
           const obPath = buildOnboardingDocumentStoragePath(scUserId, ctry, scObKey);
@@ -63492,13 +63785,12 @@ Return ONLY valid JSON with no markdown formatting:
       const rfCountry = normalizeDocumentCountry(rfRawCountry) || 'uk';
 
       // Locate the GP's stored file (original onboarding upload) to attach to the record.
-      const ONBOARDING_KEY_FOR_QUAL = {
-        primary_medical_degree: 'onboarding_primary_med_degree',
-        specialist_qualification: 'onboarding_specialist_qualification',
-        cct_certificate: 'onboarding_cct_certificate'
-      };
+      // Uses the SHARED alias table: this third hand-written copy was missing the
+      // three `onboarding_*` self-aliases the other two had, so a task already keyed
+      // `onboarding_cct_certificate` resolved to nothing and the approval record was
+      // filed with no document attached.
       let rfFileUrl = '';
-      const rfObKey = ONBOARDING_KEY_FOR_QUAL[rfTask.related_document_key];
+      const rfObKey = ONBOARDING_DOC_KEY_ALIASES[rfTask.related_document_key];
       if (rfObKey) {
         for (const ctry of ['uk', 'ie', 'nz']) {
           const obPath = buildOnboardingDocumentStoragePath(rfUserId, ctry, rfObKey);
