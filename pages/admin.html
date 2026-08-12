@@ -4428,7 +4428,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function closeReviewDocModal(){
     document.getElementById('reviewDocModal').style.display='none';
-    document.getElementById('reviewDocImg').src='';
+    // removeAttribute, NOT src='': an empty src resolves against the document, so the
+    // browser re-requests /pages/admin AS AN IMAGE, fails, and the error reporter files
+    // it as "Resource failed to load: IMG /pages/admin" every time the modal is closed.
+    var _rdImg=document.getElementById('reviewDocImg');
+    _rdImg.removeAttribute('src'); _rdImg.style.display='none';
     document.getElementById('reviewDocFrame').src='about:blank';
     var _aiPanel=document.getElementById('reviewDocAiInsight'); if(_aiPanel)_aiPanel.style.display='none';
     if(_reviewDocObjUrl){URL.revokeObjectURL(_reviewDocObjUrl);_reviewDocObjUrl=null;}
@@ -9978,6 +9982,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.closeReviewDocModal = closeReviewDocModal;
   window.submitReviewDoc = submitReviewDoc;
   window.runReviewDocAiScan = runReviewDocAiScan;
+  window.cropReviewDocImage = cropReviewDocImage;
+  window.vaDeleteIdentityDoc = vaDeleteIdentityDoc;
   window.openDocViewer = openDocViewer;
   window.closeDocViewer = closeDocViewer;
   window.gpDocThumbError = gpDocThumbError;
