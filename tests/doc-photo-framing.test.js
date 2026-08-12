@@ -526,6 +526,6 @@ describe('cache busting', () => {
       expect(html, file).not.toMatch(/qualification-camera\.js\?v=20260614a/);
       expect(html, file).not.toMatch(/qualification-scan\.js\?v=20260715a/);
     }
-    expect(onboardingHtml).toContain('onboarding.js?v=20260801c');
+    expect(onboardingHtml).toContain('onboarding.js?v=20260813a');
   });
 });

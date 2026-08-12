@@ -37,7 +37,11 @@
   // two GMC sign-in links in the Certificate-of-Good-Standing help had no target so
   // they navigated the frame, and the MyIntealth / WhatsApp popup-blocked fallbacks
   // pointed at the frame too. ahpra, myinthealth and messages are all precached.
-  var VERSION = "20260811b";
+  // 20260813a: document auto-crop. The upload pages (onboarding, Documents,
+  // AHPRA) gained a script tag, and pages are served stale-while-revalidate from
+  // VERSION-keyed caches, so without this bump the new HTML lands a navigation
+  // late and the crop looks like it never shipped.
+  var VERSION = "20260813a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

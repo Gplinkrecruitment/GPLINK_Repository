@@ -14,7 +14,8 @@
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260801d" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260801b" defer></script>
+  <script src="../js/doc-crop.js?v=20260813a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260813a" defer></script>
   <script src="../js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2970,6 +2971,23 @@
         });
       }
 
+      /* ── Crop the desk out of a photographed document ────────────────────────
+       * Doctors photograph a certificate lying on a table or a carpet and upload
+       * the whole scene, and from then on every reader — the AI scan, the RSO,
+       * AHPRA — gets the scene too. js/doc-crop.js finds the page (locally first,
+       * AI only when it cannot tell) and shows the doctor the box so they can drag
+       * it. `next` is called with the file to actually use: the cropped one, or the
+       * original whenever there is nothing to trim, the file is not an image, or
+       * the crop could not be worked out. It is NOT called at all when the doctor
+       * cancels — that is the same as never having picked a file.
+       */
+      function withDocCrop(file, label, next) {
+        if (!window.DocCrop) { next(file); return; }
+        window.DocCrop.prepare(file, { label: label, origin: "file" }).then(function (out) {
+          if (out) next(out);
+        }).catch(function () { next(file); });
+      }
+
       panelsWrap.addEventListener("change", function(event) {
         var input = event.target;
         if (!(input instanceof HTMLInputElement)) return;
@@ -3008,14 +3026,27 @@
             showCertResultPopup(false, "Too many pages", "Please upload up to 10 pages for your CV.");
             return;
           }
-          combineImagesToCvPdfFile(files, "CV.pdf").then(function(pdfFile) {
+          // Up to ten pages become one PDF. Cropping each page is done QUIETLY
+          // here (the "camera" mode trims only when the page is unmistakable and
+          // never opens a sheet) — asking a doctor to check ten crop boxes to
+          // upload one CV would be worse than the background it removes.
+          var pageCrops = files.map(function (pageFile) {
+            if (!window.DocCrop) return Promise.resolve(pageFile);
+            return window.DocCrop.prepare(pageFile, { origin: "camera", ai: false })
+              .then(function (out) { return out || pageFile; })
+              .catch(function () { return pageFile; });
+          });
+          Promise.all(pageCrops).then(function (croppedPages) {
+            return combineImagesToCvPdfFile(croppedPages, "CV.pdf");
+          }).then(function(pdfFile) {
             proceed(pdfFile);
           }).catch(function() {
             showCertResultPopup(false, "Upload Failed", "We could not combine those pages. Please try uploading a single PDF, or one clear photo per attempt.");
           });
           return;
         }
-        proceed(files[0]);
+        var docDefForCrop = cfg.prepared.find(function(d) { return d.key === key; });
+        withDocCrop(files[0], (docDefForCrop && docDefForCrop.title) || "document", proceed);
       });
 
       // ── Fit2Work ICHC upload + AI verify ──
@@ -3034,7 +3065,9 @@
           showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file.");
           return;
         }
-        runIchcVerification(file, state, country);
+        withDocCrop(file, "police check", function (cropped) {
+          runIchcVerification(cropped, state, country);
+        });
       });
 
       function handleIchcFailure(ichcState, ichcCountry, issuesHtml, scanMeta) {

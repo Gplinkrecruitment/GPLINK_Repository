@@ -804,7 +804,7 @@
             showError("qualDocsError", err);
             return;
           }
-          if (blob) handleDocVerification(key, blob, doc.label + ".jpg");
+          if (blob) handleDocVerification(key, blob, doc.label + ".jpg", "camera");
         });
       });
     });
@@ -813,8 +813,12 @@
       inp.addEventListener("change", (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        // Clear the input straight away, while we still hold the file. Without
+        // this, a doctor who backs out of the crop sheet and then picks the SAME
+        // file again gets no "change" event at all — the slot just sits there.
+        e.target.value = "";
         const key = inp.id.replace("qualFileInput_", "");
-        handleDocVerification(key, file, file.name);
+        handleDocVerification(key, file, file.name, "file");
       });
     });
 
@@ -1188,12 +1192,39 @@
     });
   }
 
-  async function handleDocVerification(docKey, fileOrBlob, fileName) {
+  async function handleDocVerification(docKey, fileOrBlob, fileName, origin) {
     if (activeDocUploads[docKey]) return; // prevent double submit
     activeDocUploads[docKey] = true;
 
     const doc = (COUNTRY_DOCS[state.country] || []).find((d) => d.key === docKey);
     if (!doc) { delete activeDocUploads[docKey]; return; }
+
+    // ── Trim the desk out of the photo, before anything else happens ────────
+    // Doctors photograph a certificate on a carpet or a kitchen table and send
+    // the whole scene; from here on only the document itself is scanned, stored
+    // and shown to a Registration Support Officer. js/doc-crop.js does the work:
+    // it finds the page itself, asks the AI only when it cannot, and shows the
+    // doctor the box so they can drag it. It hands back the ORIGINAL file
+    // whenever there is nothing to trim or the crop could not be worked out —
+    // a cosmetic crop must never be the thing that blocks a qualification — and
+    // null only when the doctor cancelled, in which case this upload never
+    // happened and the slot must go back to how it was.
+    const cropSource = fileOrBlob;
+    if (window.DocCrop) {
+      try {
+        const cropped = await window.DocCrop.prepare(fileOrBlob, {
+          label: doc.label,
+          origin: origin === "camera" ? "camera" : "file"
+        });
+        if (!cropped) { delete activeDocUploads[docKey]; return; }
+        if (cropped !== cropSource) {
+          fileOrBlob = cropped;
+          if (cropped.name && cropSource.name) fileName = cropped.name;
+        }
+      } catch (cropErr) {
+        /* keep the original file — see above */
+      }
+    }
 
     // Prepare the file BEFORE touching the slot's state. Images are shrunk so a normal
     // phone photo fits inside the platform's request-size cap; anything still too big
@@ -1637,9 +1668,30 @@
     }
   }
 
-  async function handleIdVerification(fileOrBlob, fileName) {
+  async function handleIdVerification(fileOrBlob, fileName, origin) {
     if (idVerifyInProgress) return;
     idVerifyInProgress = true;
+
+    // The ID is kept on file (CEO/ATS only), so the same rule applies here as to
+    // the qualifications: crop the table away first. An ID is landscape, and the
+    // detector measures the page it actually finds rather than assuming a shape,
+    // so nothing extra is needed for that. Cancelling the sheet cancels the
+    // upload — the step goes back to how it was.
+    if (window.DocCrop) {
+      try {
+        const croppedId = await window.DocCrop.prepare(fileOrBlob, {
+          label: "passport or driver's licence",
+          origin: origin === "camera" ? "camera" : "file"
+        });
+        if (!croppedId) { idVerifyInProgress = false; return; }
+        if (croppedId !== fileOrBlob) {
+          if (croppedId.name && fileOrBlob.name) fileName = croppedId.name;
+          fileOrBlob = croppedId;
+        }
+      } catch (idCropErr) {
+        /* keep the original file */
+      }
+    }
 
     state.idVerification = { status: "scanning", fileName: fileName };
     saveState();
@@ -1694,9 +1746,10 @@
     idVerifyFileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      e.target.value = ""; // so re-picking the same file after a cancel still fires
       if (idVerifyInProgress) return;
       if (file.size > MAX_FILE_SIZE) { showError("docsError", "File must be under 10MB."); return; }
-      handleIdVerification(file, file.name);
+      handleIdVerification(file, file.name, "file");
     });
   }
 
@@ -1720,7 +1773,7 @@
           showError("docsError", err);
           return;
         }
-        if (blob) handleIdVerification(blob, "ID_capture.jpg");
+        if (blob) handleIdVerification(blob, "ID_capture.jpg", "camera");
       });
     });
   }

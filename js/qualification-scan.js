@@ -27,6 +27,35 @@
   var isOpen = false;
   var certContext = null; // { key, title, callback } when in certification scan mode
 
+  /* ── The auto-crop module, fetched only if a page needs it ────────────────
+   * This scan modal rides on sixteen pages, but a document is only ever picked
+   * on a few of them. The pages built around uploading (onboarding, Documents,
+   * AHPRA) load js/doc-crop.js with a normal script tag; everywhere else it is
+   * fetched the first time someone actually picks a file, rather than putting it
+   * on every page load for a feature most visits never reach.
+   * Resolves false when it cannot be loaded — the upload then carries on
+   * uncropped, which is exactly what happened before this existed.
+   */
+  var DOC_CROP_SRC = "/js/doc-crop.js?v=20260813a";
+  var docCropLoad = null;
+  function ensureDocCrop() {
+    if (window.DocCrop) return Promise.resolve(true);
+    if (docCropLoad) return docCropLoad;
+    docCropLoad = new Promise(function (resolve) {
+      var existing = document.querySelector('script[data-gp-doc-crop]');
+      var el = existing || document.createElement("script");
+      if (!existing) {
+        el.src = DOC_CROP_SRC;
+        el.setAttribute("data-gp-doc-crop", "1");
+        el.async = true;
+      }
+      el.addEventListener("load", function () { resolve(!!window.DocCrop); });
+      el.addEventListener("error", function () { resolve(false); });
+      if (!existing) document.head.appendChild(el);
+    });
+    return docCropLoad;
+  }
+
   // First-visit Scan mini-tour (part of the app walkthrough). Runs once, gated on state.
   function maybeScanTour() {
     if (!isOpen) return;
@@ -658,11 +687,35 @@
   };
 
   /* ── File selection ── */
-  function pickFile(file) {
+  // Photographed documents arrive with the desk, the carpet or the bedspread
+  // around them. Trim that off before the file is scanned or stored, so what the
+  // AI reads and what an RSO (and later AHPRA) opens is just the document.
+  // js/doc-crop.js hands back the original file whenever there is nothing to
+  // trim or it could not work the crop out, and null when the doctor cancels —
+  // then nothing was picked, which is the same as not choosing a file at all.
+  function pickFile(file, origin) {
     if (!isAiScannableFile(file)) {
       showScanError("Please upload a PDF or image file for the scan.");
       return;
     }
+    if (isImageFile(file)) {
+      ensureDocCrop().then(function (ready) {
+        if (!ready || !window.DocCrop) { showPickedFile(file); return; }
+        return window.DocCrop.prepare(file, {
+          label: (certContext && certContext.title) || "document",
+          origin: origin === "camera" ? "camera" : "file"
+        }).then(function (out) {
+          if (out) showPickedFile(out);
+        });
+      }).catch(function () {
+        showPickedFile(file);
+      });
+      return;
+    }
+    showPickedFile(file);
+  }
+
+  function showPickedFile(file) {
     selectedFile = file;
     var card = document.getElementById("gpScanFileCard");
     var nameEl = document.getElementById("gpScanFileName");
@@ -1301,7 +1354,10 @@
               var capturedFile = new File([blob], "camera-scan.jpg", { type: "image/jpeg" });
               selectedFile = capturedFile;
               openModal();
-              pickFile(capturedFile);
+              // "camera": the camera already lined the page up in its own frame
+              // and made the doctor confirm the shot, so any trim here happens
+              // quietly rather than asking them to check the same photo twice.
+              pickFile(capturedFile, "camera");
             }
           });
         } else {
@@ -1336,7 +1392,11 @@
   // File input change
   document.addEventListener("change", function (e) {
     if (e.target && e.target.id === "gpScanFile" && e.target.files && e.target.files[0]) {
-      pickFile(e.target.files[0]);
+      var pickedFile = e.target.files[0];
+      // Clear it while we still hold the file, so re-picking the same one after
+      // backing out of the crop sheet still fires a change event.
+      e.target.value = "";
+      pickFile(pickedFile, "file");
     }
   });
 

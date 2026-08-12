@@ -35,7 +35,8 @@
   <script src="/js/updates-sync.js?v=20260730a" defer></script>
   <script src="/js/qualification-camera.js?v=20260801d" defer></script>
   <script src="/js/document-prep.js?v=20260614a" defer></script>
-  <script src="/js/qualification-scan.js?v=20260801b" defer></script>
+  <script src="/js/doc-crop.js?v=20260813a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260813a" defer></script>
   <script src="/js/account-dropdown.js?v=20260527a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -3071,7 +3072,20 @@
     // ─── INTRO SCREEN: UPLOAD HANDLER ────────────────────────────
     var introIncompleteDocs = [];
 
+    /* These documents are the ones that go to AHPRA, so the background around a
+     * photographed certificate matters more here than anywhere: trim it first
+     * (js/doc-crop.js — automatic, with a manual sheet the doctor can adjust).
+     * A non-image, or any failure, passes straight through; a cancelled sheet
+     * means no file was chosen at all. */
     function handleIntroUpload(docKey, file) {
+      if (!file) return;
+      if (!window.DocCrop) { handleIntroUploadFile(docKey, file); return; }
+      window.DocCrop.prepare(file, { label: "document", origin: "file" }).then(function (out) {
+        if (out) handleIntroUploadFile(docKey, out);
+      }).catch(function () { handleIntroUploadFile(docKey, file); });
+    }
+
+    function handleIntroUploadFile(docKey, file) {
       if (!file) return;
       if (file.size > 50 * 1024 * 1024) {
         showToast("File is too large. Maximum size is 50 MB.");
@@ -3201,7 +3215,11 @@
     introDocsListEl.addEventListener("change", function(e) {
       var uploadInput = e.target.closest("[data-intro-upload]");
       if (uploadInput && uploadInput.files && uploadInput.files[0]) {
-        handleIntroUpload(uploadInput.dataset.introUpload, uploadInput.files[0]);
+        var introFile = uploadInput.files[0];
+        // Cleared while we still hold the file: otherwise backing out of the crop
+        // sheet and picking the SAME file again fires no change event at all.
+        uploadInput.value = "";
+        handleIntroUpload(uploadInput.dataset.introUpload, introFile);
       }
     });
 
@@ -5030,6 +5048,7 @@
       grid.querySelectorAll('[data-mi-upload]').forEach(function (inp) {
         inp.addEventListener('change', function (e) {
           var f = e.target.files && e.target.files[0];
+          e.target.value = ''; // so re-picking the same file after a cancel still fires
           if (f) handleAhpraUpload(inp.getAttribute('data-mi-upload'), f);
         });
       });
@@ -5046,7 +5065,16 @@
         loadAhpraMoreInfo();
       } catch (e) { showToast('Could not update. Please try again.'); }
     }
-    async function handleAhpraUpload(taskId, file) {
+    // Same crop step as the intro documents above — these are emailed on to AHPRA.
+    function handleAhpraUpload(taskId, file) {
+      if (!file) return;
+      if (!window.DocCrop) { handleAhpraUploadFile(taskId, file); return; }
+      window.DocCrop.prepare(file, { label: "document", origin: "file" }).then(function (out) {
+        if (out) handleAhpraUploadFile(taskId, out);
+      }).catch(function () { handleAhpraUploadFile(taskId, file); });
+    }
+
+    async function handleAhpraUploadFile(taskId, file) {
       if (!file) return;
       if (file.size > 25 * 1024 * 1024) { showToast('File is too large. Maximum size is 25 MB.'); return; }
       showToast('Uploading…');

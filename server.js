@@ -366,6 +366,13 @@ const AHPRA_S80_EXTRACT_MODEL = String(process.env.AHPRA_S80_EXTRACT_MODEL || 'c
 // Kept separate from ANTHROPIC_MODEL so scan calls can advance independently of
 // other call sites (some of which set `temperature`, which the newest Opus rejects).
 const ANTHROPIC_SCAN_MODEL = String(process.env.ANTHROPIC_SCAN_MODEL || 'claude-opus-4-8').trim() || 'claude-opus-4-8';
+// Finding the edges of a document inside a photo (/api/ai/document-crop, the
+// fallback for the browser-side auto-crop). Defaults to the scan model because a
+// bounding box that clips a certificate is worse than no crop at all, and this
+// only runs when the free local detector could not tell. Its own env knob so the
+// owner can drop it to a cheaper/faster model without touching document scanning.
+// NOTE: do NOT send `temperature` with this — Opus 4.7/4.8 and Sonnet 5 reject it.
+const DOC_CROP_MODEL = String(process.env.DOC_CROP_MODEL || ANTHROPIC_SCAN_MODEL).trim() || ANTHROPIC_SCAN_MODEL;
 // Whether the document pipeline may decide a PHOTO on its own (approve it into
 // Drive, or bounce it back to the doctor) instead of routing it to a person.
 // Held off by default: image classification never actually reached the model
@@ -11044,6 +11051,48 @@ function applyPhotoFramingPolicy(result, options) {
   result.framingMessage = message;
   pushVerificationIssue(result, message);
   return true;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * AUTO-CROP — the sanity check on a bounding box the model gave us
+ *
+ * The framing rule above tells a doctor to retake a photo full of desk. This is
+ * the other half of the same problem: the desk that is already in the photos we
+ * hold. js/doc-crop.js finds the page in the browser and only asks the model
+ * (/api/ai/document-crop) when it cannot — and whatever comes back is checked
+ * here before any pixels are cut, because a box that is 5% too tight silently
+ * shaves the top line off a certificate.
+ *
+ * Returns a padded {left,top,right,bottom} in 0-1 fractions, or null — and null
+ * is a perfectly good answer: the doctor then drags the corners themselves.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+const DOC_CROP_PAD = 0.015;       // grown outwards, on every side, before use
+const DOC_CROP_MIN_SIDE = 0.15;   // narrower than this is not a document
+const DOC_CROP_MIN_AREA = 0.05;
+const DOC_CROP_MAX_AREA = 0.95;   // any bigger and there is nothing to trim
+
+function sanitizeAiCropBox(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (parsed.found === false) return null;
+  const src = (parsed.box && typeof parsed.box === 'object') ? parsed.box : parsed;
+  let left = Number(src.left);
+  let top = Number(src.top);
+  let right = Number(src.right);
+  let bottom = Number(src.bottom);
+  if (![left, top, right, bottom].every((n) => Number.isFinite(n))) return null;
+  // "80" meaning 80% is an easy thing for a model to answer with.
+  if (right > 1.5 || bottom > 1.5) { left /= 100; top /= 100; right /= 100; bottom /= 100; }
+  const clamp = (n) => (n < 0 ? 0 : (n > 1 ? 1 : n));
+  left = clamp(left); top = clamp(top); right = clamp(right); bottom = clamp(bottom);
+  if (right - left < DOC_CROP_MIN_SIDE || bottom - top < DOC_CROP_MIN_SIDE) return null;
+  const area = (right - left) * (bottom - top);
+  if (area < DOC_CROP_MIN_AREA || area > DOC_CROP_MAX_AREA) return null;
+  return {
+    left: clamp(left - DOC_CROP_PAD),
+    top: clamp(top - DOC_CROP_PAD),
+    right: clamp(right + DOC_CROP_PAD),
+    bottom: clamp(bottom + DOC_CROP_PAD)
+  };
 }
 
 async function resolveVerificationProfileName(session, suppliedProfileName) {
@@ -53377,6 +53426,127 @@ Classify this document.`;
       sendJson(res, 200, { ok: true, accountStatus: status });
     }
     return;
+  }
+
+  /* ── Where is the document inside this photo? ──────────────────────────────
+   * The fallback for the automatic crop in js/doc-crop.js. The browser finds the
+   * page itself, for free, in milliseconds — this endpoint is only asked when
+   * that cannot tell (the classic case: a white certificate on a white table,
+   * where there is no edge to measure).
+   *
+   * Deliberately narrow: one image in, one bounding box out. It answers WHERE
+   * the document is, never what it says — the real scan endpoints do that, and
+   * this must not become a second, unreviewed document reader.
+   *
+   * Every failure answers 200 with found:false. The caller then leaves the crop
+   * to the doctor by hand, which is a normal outcome, not an error — a doctor
+   * must never be blocked from filing a qualification because a cosmetic crop
+   * could not be worked out.
+   */
+  if (pathname === '/api/ai/document-crop' && req.method === 'POST') {
+    const cropSession = requireSession(req, res);
+    if (!cropSession) return;
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, found: false, message: 'Automatic cropping is not configured.' }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, found: false, message: 'Capacity reached.' }); return; }
+
+    // NOT checkUserAiLimit(): that counter is the doctor's small daily allowance
+    // of document VERIFICATION attempts, and finding the edges of a page must
+    // never spend one of them. Separate key, generous ceiling — a doctor
+    // uploading a dozen documents legitimately hits this many times.
+    const cropEmail = getSessionEmail(cropSession);
+    const cropAllowed = await checkRateLimitWindow('doc-crop:' + (cropEmail || 'anon'), 80, 24 * 60 * 60 * 1000);
+    if (!cropAllowed) { sendJson(res, 200, { ok: false, found: false, message: 'Too many crop checks today.' }); return; }
+
+    let cropBody;
+    try { cropBody = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, found: false, message: 'Invalid request body.' });
+      return;
+    }
+    const cropImageBase64 = cropBody && cropBody.imageBase64;
+    if (!cropImageBase64 || typeof cropImageBase64 !== 'string') {
+      sendJson(res, 400, { ok: false, found: false, message: 'Missing image data.' });
+      return;
+    }
+    // The client downscales to ~1100px before sending — a bounding box needs no
+    // more than that — so anything large here is not a crop request.
+    if (cropImageBase64.length > 8 * 1024 * 1024) {
+      sendJson(res, 413, { ok: false, found: false, message: 'Image too large for a crop check.' });
+      return;
+    }
+    const cropNormalized = await normalizeImageForAi(cropImageBase64, (cropBody && cropBody.mimeType) || 'image/jpeg');
+    if (!cropNormalized.ok) {
+      sendJson(res, 200, { ok: false, found: false, message: cropNormalized.message || 'Unsupported image type.' });
+      return;
+    }
+
+    const cropSystemPrompt = `You locate a document inside a photograph for a GP registration platform. Doctors photograph certificates lying on a desk, a table, a bed or a carpet, and the surroundings are cropped away before the document is filed.
+
+Report the smallest rectangle that contains the WHOLE document — all four corners, every edge, and any certification stamp or signature written in the margin — measured as fractions of the picture, 0 to 1, from its top-left corner. "left" and "right" are across the width; "top" and "bottom" are down the height.
+
+Be generous. Leave a little of the surface showing around the page rather than risk clipping any part of the document. If you are unsure where an edge is, put the box further out.
+
+Answer found:false, and nothing else, when:
+- you cannot clearly see a paper document, card or certificate;
+- more than one document is in the picture;
+- the document already fills essentially the whole picture (there is nothing to trim);
+- any part of the document runs outside the picture — a photo that is already cut off must not be cropped further.
+
+Return ONLY valid JSON, no markdown:
+{"found":true or false,"left":0.0,"top":0.0,"right":0.0,"bottom":0.0}`;
+
+    const cropController = new AbortController();
+    const cropTimeout = setTimeout(() => cropController.abort(), 25000);
+    try {
+      const cropRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: cropController.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: DOC_CROP_MODEL,
+          max_tokens: 200,
+          system: [{ type: 'text', text: cropSystemPrompt, cache_control: { type: 'ephemeral' } }],
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: cropNormalized.mediaType, data: cropNormalized.base64 } },
+              { type: 'text', text: 'Where is the document in this photo?' }
+            ]
+          }]
+        })
+      });
+      if (!cropRes.ok) {
+        const cropErrText = await cropRes.text().catch(() => '');
+        console.error('[DocCrop] Anthropic API error:', cropRes.status, cropErrText);
+        sendJson(res, 200, { ok: false, found: false, message: 'Could not work out the crop automatically.' });
+        return;
+      }
+      const cropData = await cropRes.json();
+      recordAnthropicSpend(
+        (cropData.usage && cropData.usage.input_tokens) || 0,
+        (cropData.usage && cropData.usage.output_tokens) || 0,
+        (cropData.usage && cropData.usage.cache_read_input_tokens) || 0,
+        (cropData.usage && cropData.usage.cache_creation_input_tokens) || 0
+      );
+      const cropText = cropData.content && cropData.content[0] && cropData.content[0].text;
+      const cropParsed = cropText ? extractAiJsonObject(cropText) : null;
+      const cropBox = sanitizeAiCropBox(cropParsed);
+      if (!cropBox) {
+        sendJson(res, 200, { ok: true, found: false });
+        return;
+      }
+      sendJson(res, 200, { ok: true, found: true, box: cropBox });
+      return;
+    } catch (cropErr) {
+      console.error('[DocCrop] error:', cropErr && cropErr.message);
+      sendJson(res, 200, { ok: false, found: false, message: 'Could not work out the crop automatically.' });
+      return;
+    } finally {
+      clearTimeout(cropTimeout);
+    }
   }
 
   if (pathname === '/api/ai/verify-identity' && req.method === 'POST') {
