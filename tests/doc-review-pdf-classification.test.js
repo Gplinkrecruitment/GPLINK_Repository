@@ -277,11 +277,17 @@ describe('the reject note never starts from a broken check', () => {
   });
 
   it('leaves the note box empty rather than pre-filling a broken check (admin)', () => {
-    expect(adminHtml).toContain("var _prefillNote=_reasonIsTechnical?'':_reviewReasonText;");
+    // Originally this only had to hold for a TECHNICAL reason (_reasonIsTechnical ? '' :
+    // _reviewReasonText). It now holds for every reason: the box is the email body the
+    // doctor receives, and no flag reason — broken check or real finding — is written to
+    // them, so nothing is seeded at all. Strictly stronger than the rule this test was
+    // written for. See tests/review-doc-approve-note.js for the rest of that behaviour.
+    expect(adminHtml).toContain("var _prefillNote='';");
     expect(adminHtml).toContain('document.getElementById(\'reviewDocNote\').value=_prefillNote;');
     expect(adminHtml).toContain('_reviewDocInitialNote=_prefillNote;');
-    // The old line seeded the box with whatever the task said.
+    // Neither the old unconditional seed nor the technical-only variant may come back.
     expect(adminHtml).not.toContain("document.getElementById('reviewDocNote').value=_reviewReasonText;");
+    expect(adminHtml).not.toContain("var _prefillNote=_reasonIsTechnical?'':_reviewReasonText;");
   });
 
   it('leaves the note box empty rather than pre-filling a broken check (CEO)', () => {

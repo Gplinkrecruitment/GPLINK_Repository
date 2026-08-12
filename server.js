@@ -63742,7 +63742,15 @@ Return ONLY valid JSON with no markdown formatting:
     const rfDecision = rfBody && rfBody.decision ? String(rfBody.decision).trim().toLowerCase() : '';
     // 4000, not 1000: the note IS the rejection email body now (it's no longer squeezed
     // into a boilerplate "Reason:" slot), so a full structured message must fit.
-    const rfNote = rfBody && rfBody.note ? String(rfBody.note).trim().slice(0, 4000) : '';
+    const rfNoteRaw = rfBody && rfBody.note ? String(rfBody.note).trim().slice(0, 4000) : '';
+    // An APPROVAL carries NO note to the doctor. The reviewer's box opens holding the
+    // internal flag reason ("AI flagged this document for manual review. Reason: …"),
+    // and approving used to append it to the verified email as "Note from our team:" —
+    // so a doctor whose certificate was ACCEPTED was told it had been flagged and that
+    // his names did not match, with nothing to do about it. Dropped here, at the single
+    // point every downstream use reads (email body, user_documents.rejection_reason,
+    // the case timeline and the task_messages record), so no later branch can leak it.
+    const rfNote = rfDecision === 'approve' ? '' : rfNoteRaw;
     if (!rfTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
     if (rfDecision !== 'approve' && rfDecision !== 'reject') { sendJson(res, 400, { ok: false, message: 'decision must be approve or reject.' }); return; }
     if (rfDecision === 'reject' && !rfNote) { sendJson(res, 400, { ok: false, message: 'A reason is required when rejecting — the GP will see it.' }); return; }
@@ -63918,7 +63926,9 @@ Return ONLY valid JSON with no markdown formatting:
         rfSent = await sendGpNotificationEmail(rfUserId,
           'Document Verified, GP Link',
           'Your ' + rfDocLabel + ' has been verified, {{name}}',
-          'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified, no further action is needed for this document.' + (rfNote ? '\n\nNote from our team: ' + rfNote : ''),
+          // Deliberately note-free: an approved document needs nothing from the doctor,
+          // so this stays a clean "verified, nothing to do" message (see rfNote above).
+          'Good news! Our team has reviewed your ' + rfDocLabel + ' and it has been verified, no further action is needed for this document.',
           'View Dashboard', APP_BASE_URL + '/pages/index.html', '', rfMailOpts);
       } else {
         // Deep-link straight to the document's re-upload surface. Onboarding-origin

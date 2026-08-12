@@ -1492,14 +1492,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div id="reviewDocAiBody"></div>
     </div>
     <div style="padding:14px 18px;border-top:1px solid #e5e7eb;flex-shrink:0;">
-      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(required to reject — the email sends exactly what you type here)</span></label>
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Note to GP <span style="font-weight:400;color:#9ca3af;">(only sent if you reject — the email sends exactly what you type here; Approve sends none)</span></label>
       <!-- Formatting toolbar: same [data-fmt] delegation as the Inbox composer (fmtToolbarHtml). -->
       <div class="fmt-toolbar" data-fmt-target="reviewDocNote" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 6px;">
         <button type="button" data-fmt="bold" title="Bold the selected text" style="background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit;font-weight:800;">B</button>
         <button type="button" data-fmt="bullet" title="Turn the selected lines into dot points" style="background:#fff;border:1px solid #d7dee8;border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:#374151;font-family:inherit;">• Dot point</button>
         <span style="font-size:11px;color:#9ca3af;">Line breaks are kept · **text** = bold · start a line with "- " for a dot point</span>
       </div>
-      <textarea id="reviewDocNote" rows="5" placeholder="Reason for rejection / note to the GP — sent as the email body exactly as typed…" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      <textarea id="reviewDocNote" rows="5" placeholder="Write this to the doctor: what is wrong with the document, and exactly what they need to do next. Sent as the email body, as typed. Ignored if you Approve." style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
       <div id="reviewDocError" style="color:#dc2626;font-size:12px;margin-top:6px;display:none;"></div>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">
         <button onclick="closeReviewDocModal()" style="background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;color:#374151;">Cancel</button>
@@ -4245,12 +4245,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var _reasonEl=document.getElementById('reviewDocReason');
     _reasonEl.textContent=_reasonIsTechnical?'The automatic check could not run on this file — please review it yourself below.':_reviewReasonText;
     _reasonEl.style.color=_reasonIsTechnical?'#6b7280':'#b45309';
-    // Pre-fill the note with the reason for now; once the AI scan (kicked off below) returns,
-    // runReviewDocAiScan replaces this with a GP-ready suggested message built from what the
-    // scan actually found — UNLESS the RSO has started typing their own (tracked via
-    // _reviewDocInitialNote). A technical reason is never pre-filled: the box is emailed to the
-    // doctor exactly as it stands, so it starts empty and the RSO writes the real reason.
-    var _prefillNote=_reasonIsTechnical?'':_reviewReasonText;
+    // The box starts EMPTY — it is the email body the doctor receives, and the flag reason
+    // is written for us, not for them ("AI flagged this document for manual review. Reason:
+    // …; Names on your specialist qualification and medical degree do not match each other").
+    // Sent as-is it tells a doctor a machine distrusted their certificate without saying what
+    // to do, and on approve it used to ride along under "Note from our team". The reviewer can
+    // still read that reason — it is the amber line at the top of this modal.
+    // runReviewDocAiScan fills the box below with a GP-ready message (greeting, what is wrong,
+    // what to do next) whenever the scan finds something actionable; when it finds nothing
+    // actionable the box stays empty and the RSO writes the real message, which reject
+    // requires. Both paths give the doctor something addressed to them.
+    var _prefillNote='';
     document.getElementById('reviewDocNote').value=_prefillNote;
     _reviewDocInitialNote=_prefillNote;
     _reviewDocSuggested='';
@@ -4452,7 +4457,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var approveBtn=document.getElementById('reviewDocApproveBtn'),rejectBtn=document.getElementById('reviewDocRejectBtn');
     approveBtn.disabled=true;rejectBtn.disabled=true;
     try{
-      var res=await fetch('/api/admin/va/task/review-flagged-doc',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:_reviewDocTaskId,decision:decision,note:note})});
+      // Approve sends NO note: an approved document needs nothing from the doctor, so the
+      // "verified" email stays clean. Anything left in the box (a suggested rejection the
+      // reviewer decided against, the old flag reason) is dropped here as well as on the
+      // server, so neither path can email it.
+      var res=await fetch('/api/admin/va/task/review-flagged-doc',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:_reviewDocTaskId,decision:decision,note:decision==='approve'?'':note})});
       var d=await res.json().catch(function(){return{};});
       if(!d.ok){err.textContent=d.message||'Action failed.';err.style.display='block';approveBtn.disabled=false;rejectBtn.disabled=false;return;}
       closeReviewDocModal();

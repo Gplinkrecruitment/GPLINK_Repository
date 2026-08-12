@@ -7612,7 +7612,11 @@
       var ceoRawReason = t.description || t.ai_match_reasoning || '';
       var ceoReasonIsTechnical = ceoIsTechnicalReviewReason(ceoRawReason);
       var ceoReason = ceoReasonIsTechnical ? '' : ceoRawReason;
-      _ceoReviewSuggested = ceoReason; // suggested note the reviewer can send as-is or edit
+      // NOT pre-filled into the note box (mirrors admin.html): the flag reason is written for
+      // us, not for the doctor, and the box is the email body they receive. It is still shown
+      // to the reviewer as the amber line below. '' so the "you are sending the suggested
+      // message unedited" confirm below only fires on a real AI-suggested message.
+      _ceoReviewSuggested = '';
       var html = '<div class="modal-title">' + esc(t.title || 'Review flagged document') + '</div>';
       if (ceoReasonIsTechnical) html += '<div class="modal-note" style="color:var(--text-muted);font-size:12px;margin:-4px 0 10px">The automatic check could not run on this file — please review it yourself below.</div>';
       else if (ceoReason) html += '<div class="modal-note" style="color:var(--amber);font-size:12px;margin:-4px 0 10px">' + esc(ceoReason) + '</div>';
@@ -7622,7 +7626,7 @@
       html += '<div id="ceoReviewDocCropBar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px">'
         + '<button type="button" class="btn" id="ceoReviewDocCropBtn" onclick="ceoCropReviewDoc(\'' + esc(taskId) + '\')" style="font-size:12px;padding:6px 12px">✂️ Crop out the background</button>'
         + '<span id="ceoReviewDocCropNote" style="font-size:11px;color:var(--text-muted)">Trims this photo down to the document and replaces the stored copy — the doctor is not asked to re-upload.</span></div>';
-      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Reason for rejection / note to the GP — the email sends exactly what you type</label>';
+      html += '<div style="margin-top:10px"><label style="font-size:11px;color:var(--text-muted)">Note to GP — only sent if you reject; the email sends exactly what you type. Approve sends none.</label>';
       // Formatting toolbar: same [data-fmt] delegation pattern as admin.html — the email
       // keeps line breaks, renders **text** bold and "- " lines as dot points.
       var fmtBtn = 'background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:6px;padding:2px 9px;font-size:12px;cursor:pointer;color:var(--text);font-family:inherit';
@@ -7630,8 +7634,9 @@
         + '<button type="button" data-fmt="bold" title="Bold the selected text" style="' + fmtBtn + ';font-weight:800">B</button>'
         + '<button type="button" data-fmt="bullet" title="Turn the selected lines into dot points" style="' + fmtBtn + '">• Dot point</button>'
         + '<span style="font-size:11px;color:var(--text-muted)">Line breaks are kept · **text** = bold · start a line with "- " for a dot point</span></div>';
-      // Pre-fill the note with the full AI explanation so it can be sent to the GP as-is (or edited).
-      html += '<textarea id="ceoReviewDocNote" rows="5" style="width:100%;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box">' + esc(ceoReason) + '</textarea></div>';
+      // Starts EMPTY — see _ceoReviewSuggested above. The doctor reads whatever is in here
+      // verbatim, so it is written to them, not copied from the internal flag reason.
+      html += '<textarea id="ceoReviewDocNote" rows="5" placeholder="Write this to the doctor: what is wrong with the document, and exactly what they need to do next. Sent as the email body, as typed. Ignored if you Approve." style="width:100%;background:var(--bg-elevated);border:1px solid var(--panel-border);border-radius:8px;color:var(--text);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>';
       html += '<div id="ceoReviewDocError" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>';
       html += '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button>';
       html += '<button class="btn btn-red" id="ceoReviewDocReject" onclick="submitCeoReviewDoc(\'' + esc(taskId) + '\', \'reject\')">Reject — request re-upload</button>';
@@ -7672,7 +7677,8 @@
       if (ap) ap.disabled = true; if (rj) rj.disabled = true;
       apiFetch('/api/admin/va/task/review-flagged-doc', {
         method: 'POST',
-        body: { task_id: taskId, decision: decision, note: note }
+        // Approve sends NO note — the "verified" email stays clean (also enforced server-side).
+        body: { task_id: taskId, decision: decision, note: decision === 'approve' ? '' : note }
       }).then(function(d) {
         if (!d || !d.ok) { if (err) { err.textContent = (d && d.message) || 'Action failed.'; err.style.display = 'block'; } if (ap) ap.disabled = false; if (rj) rj.disabled = false; return; }
         if (_ceoReviewDocObjUrl) { URL.revokeObjectURL(_ceoReviewDocObjUrl); _ceoReviewDocObjUrl = null; }
