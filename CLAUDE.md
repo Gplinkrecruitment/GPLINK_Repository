@@ -25,6 +25,15 @@ verified data shapes, and what is still broken.
   serve stale state because writes never invalidate it. Read §8 before touching any
   cache: the `no-store` split on `/api/career/role` is deliberate (`4e87aec`).
 
+- **Document uploads / cropping / name matching on documents** →
+  [`docs/superpowers/handovers/2026-08-13-document-crop-and-name-matching-handover.md`](docs/superpowers/handovers/2026-08-13-document-crop-and-name-matching-handover.md)
+  — all live as of `935eef4`. Photographed documents are cropped to the page
+  before upload, staff can crop one already on file, and the name matcher no
+  longer demands the first and last word match exactly. **Read §2 and §3 before
+  touching either**: the crop must never block an upload or trim into a document,
+  and the name matcher is *also* the wrong-owner (PII) guard — the surname stays
+  strict on purpose.
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules
