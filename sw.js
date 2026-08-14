@@ -41,7 +41,11 @@
   // AHPRA) gained a script tag, and pages are served stale-while-revalidate from
   // VERSION-keyed caches, so without this bump the new HTML lands a navigation
   // late and the crop looks like it never shipped.
-  var VERSION = "20260813a";
+  // 20260814a: career.html declared `currentChecklistItems` twice, which is a
+  // parse-time SyntaxError — the whole script block died, so My Practice showed
+  // a permanent spinner and the crash toast. The fixed HTML only reaches a
+  // doctor who already has the broken page cached if VERSION moves.
+  var VERSION = "20260814a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

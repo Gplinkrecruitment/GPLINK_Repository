@@ -9863,10 +9863,6 @@
     // destination from here rather than from the button's data-href attribute, so
     // navigation is driven by the page's own data and never by DOM content.
     let currentChecklistItems = [];
-    // The checklist rows this page last rendered. Click handling reads a step's
-    // destination from here rather than from the button's data-href attribute, so
-    // navigation is driven by the page's own data and never by DOM content.
-    let currentChecklistItems = [];
     let currentPracticeLifestyleKey = "";
     let practiceLifestyleHousingSearchTimer = 0;
     // 2026-07-20 audit: after sign-out the error → render → ensure → schedule
@@ -12102,7 +12098,6 @@
     function renderPlacementChecklist(checklistItems) {
       if (!securedChecklistListEl) return;
       const items = buildPlacementChecklistItems(checklistItems);
-      currentChecklistItems = items;
       currentChecklistItems = items;
       if (!items.length) {
         if (securedChecklistProgressEl) securedChecklistProgressEl.textContent = "0/0";

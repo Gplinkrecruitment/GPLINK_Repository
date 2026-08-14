@@ -547,7 +547,12 @@ describe('the module is actually on the pages that need it', () => {
   });
 
   it('bumps the service worker so the new page HTML is not served a navigation late', () => {
-    expect(swJs).toContain('var VERSION = "' + CROP_BUSTER + '"');
+    // Assert the SW moved to at least the crop deploy, not that it is frozen at
+    // it — later fixes must be free to bump VERSION again (a page whose HTML
+    // changed is served a navigation late otherwise). Stamps are sortable
+    // YYYYMMDD+letter strings.
+    const version = (/var VERSION = "([^"]+)"/.exec(swJs) || [])[1] || '';
+    expect(version >= CROP_BUSTER).toBe(true);
   });
 
   it('bumps the busters of the two scripts whose code changed', () => {
