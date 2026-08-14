@@ -201,6 +201,7 @@ var interviewIcs = require('./lib/interview-ics.js');
 const practicePipeline = require('./lib/practice-pipeline');
 // AI bug-fix approval pipeline (risk classifier + approval tokens + prompts).
 const errorFix = require('./lib/error-fix-proposals.js');
+const socialCampaign = require('./lib/social-campaign.js');
 // Approved proposal -> validated edit -> branch -> pull request (pure logic).
 const errorFixExec = require('./lib/error-fix-executor.js');
 const { buildIntakeJobDetails, buildPackageTerms, nearestCity, buildGeneralLocation, parseGpsNeeded, computeJobFill } = require('./lib/practice-intake-logic');
@@ -9451,7 +9452,17 @@ const CRON_SCHEDULES = {
   // 2am from a phone — so the executor cannot be daily or a fix could sit
   // approved-but-unmade for 23 hours. Offset to :25 to stay clear of the
   // on-the-hour crons.
-  'error-fix-execute': { schedule: '25 * * * *', cadenceMinutes: 60 }
+  'error-fix-execute': { schedule: '25 * * * *', cadenceMinutes: 60 },
+  // Hourly at :05. The publisher does not decide WHEN a post goes out — approval
+  // already stamped an exact publish_at on every post — it just drains whatever
+  // is due. Running hourly means a missed run self-heals on the next pass
+  // instead of losing a slot, and the drain is capped so a backlog cannot
+  // machine-gun the page. Keep in sync with vercel.json.
+  'social-publish': { schedule: '5 * * * *', cadenceMinutes: 60 },
+  // 20th of the month, 22:00 UTC ≈ 8am AEST. Opens next month's campaign shell
+  // ten days ahead so there is time to generate 60 creatives and for the owner
+  // to review them before the 1st. Keep in sync with vercel.json.
+  'social-campaign-open': { schedule: '0 22 20 * *', cadenceMinutes: 44640 }
 };
 const _localCronRuns = {}; // in-memory fallback when Supabase is not configured
 
@@ -10113,6 +10124,477 @@ function readTokenActionBody(req) {
 function _efLocalRows() {
   if (!Array.isArray(dbState.errorFixProposals)) dbState.errorFixProposals = [];
   return dbState.errorFixProposals;
+}
+
+// ── Monthly social campaign store ──────────────────────────────────────────
+// Supabase-backed, with the same in-memory fallback the rest of the app uses so
+// the suite runs without a database.
+
+const SOCIAL_BUCKET = 'social-creatives';
+
+function _socLocalCampaigns() {
+  if (!Array.isArray(dbState.socialCampaigns)) dbState.socialCampaigns = [];
+  return dbState.socialCampaigns;
+}
+function _socLocalPosts() {
+  if (!Array.isArray(dbState.socialPosts)) dbState.socialPosts = [];
+  return dbState.socialPosts;
+}
+
+// A missing table must be reported, never treated as "no campaigns". Selecting
+// from a table that does not exist 400s the whole query and the failure is
+// otherwise swallowed, which reads on screen as an empty month.
+function _socTableMissing(result) {
+  if (!result || result.ok) return false;
+  const msg = String((result.error && result.error.message) || result.error || '');
+  return result.status === 404 || /does not exist|schema cache|relation .* does not exist/i.test(msg);
+}
+
+async function socialListCampaignRows() {
+  if (!isSupabaseDbConfigured()) return { ok: true, rows: _socLocalCampaigns().slice() };
+  const r = await supabaseDbRequest('social_campaigns', 'select=*&order=month.desc');
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), rows: [] };
+  return { ok: true, rows: Array.isArray(r.data) ? r.data : [] };
+}
+
+async function socialListPostRows(campaignId) {
+  if (!isSupabaseDbConfigured()) {
+    return {
+      ok: true,
+      rows: _socLocalPosts()
+        .filter(function (p) { return String(p.campaign_id) === String(campaignId); })
+        .sort(function (a, b) { return (a.slot || 0) - (b.slot || 0); })
+    };
+  }
+  const r = await supabaseDbRequest('social_posts',
+    'select=*&campaign_id=eq.' + encodeURIComponent(campaignId) + '&order=slot.asc');
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), rows: [] };
+  return { ok: true, rows: Array.isArray(r.data) ? r.data : [] };
+}
+
+async function socialReadPostRow(id) {
+  if (!isSupabaseDbConfigured()) {
+    return _socLocalPosts().find(function (p) { return String(p.id) === String(id); }) || null;
+  }
+  const r = await supabaseDbRequest('social_posts', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+  return r.data[0];
+}
+
+async function socialPatchPostRow(id, patch) {
+  const body = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+  if (!isSupabaseDbConfigured()) {
+    const row = _socLocalPosts().find(function (p) { return String(p.id) === String(id); });
+    if (!row) return { ok: false, status: 404 };
+    Object.assign(row, body);
+    saveDbState();
+    return { ok: true, row };
+  }
+  const r = await supabaseDbRequest('social_posts', 'id=eq.' + encodeURIComponent(id),
+    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body });
+  if (!r.ok) return { ok: false, status: r.status || 500, error: r.error };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : null };
+}
+
+async function socialPatchCampaignRow(id, patch) {
+  const body = Object.assign({}, patch, { updated_at: new Date().toISOString() });
+  if (!isSupabaseDbConfigured()) {
+    const row = _socLocalCampaigns().find(function (c) { return String(c.id) === String(id); });
+    if (!row) return { ok: false, status: 404 };
+    Object.assign(row, body);
+    saveDbState();
+    return { ok: true, row };
+  }
+  const r = await supabaseDbRequest('social_campaigns', 'id=eq.' + encodeURIComponent(id),
+    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body });
+  if (!r.ok) return { ok: false, status: r.status || 500, error: r.error };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : null };
+}
+
+// Find or create the campaign for a month. Idempotent: the unique index on
+// month is what makes a re-run of the opener safe.
+async function socialEnsureCampaign(month, defaults) {
+  const d = defaults || {};
+  const list = await socialListCampaignRows();
+  if (!list.ok) return { ok: false, tableMissing: list.tableMissing };
+  const found = list.rows.find(function (c) { return String(c.month) === String(month); });
+  if (found) return { ok: true, campaign: found, created: false };
+
+  const row = {
+    month: month,
+    status: 'draft',
+    posts_per_day: Number(d.posts_per_day) || 2,
+    slot_times: d.slot_times || ['09:00', '15:00'],
+    time_zone: d.time_zone || String(process.env.SOCIAL_TIMEZONE || 'Australia/Melbourne'),
+    targets: d.targets || { facebook: true, instagram: true },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  if (!isSupabaseDbConfigured()) {
+    row.id = 'soc_' + month + '_' + Math.random().toString(36).slice(2, 10);
+    _socLocalCampaigns().push(row);
+    saveDbState();
+    return { ok: true, campaign: row, created: true };
+  }
+  const r = await supabaseDbRequest('social_campaigns', '',
+    { method: 'POST', headers: { Prefer: 'return=representation' }, body: [row] });
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), error: r.error };
+  return { ok: true, campaign: Array.isArray(r.data) ? r.data[0] : row, created: true };
+}
+
+// Load one month for the review screen. With no month, picks the one that most
+// needs attention: anything in review, else the newest.
+async function socialLoadCampaign(month) {
+  const list = await socialListCampaignRows();
+  if (!list.ok) return { ok: false, tableMissing: list.tableMissing };
+  const months = list.rows.map(function (c) {
+    return { month: c.month, status: c.status };
+  });
+  let campaign = null;
+  if (month) {
+    campaign = list.rows.find(function (c) { return String(c.month) === String(month); }) || null;
+  } else {
+    campaign = list.rows.find(function (c) { return c.status === 'in_review'; }) ||
+      list.rows.find(function (c) { return c.status === 'draft'; }) ||
+      list.rows[0] || null;
+  }
+  if (!campaign) return { ok: true, campaign: null, posts: [], months: months };
+  const posts = await socialListPostRows(campaign.id);
+  if (!posts.ok) return { ok: false, tableMissing: posts.tableMissing };
+  return { ok: true, campaign: campaign, posts: posts.rows, months: months };
+}
+
+// Accept a batch of creatives. Each item: { slot, caption, image_data_url,
+// image_width, image_height, alt_text, pillar, source_ref, targets }.
+// Re-ingesting the same slot replaces it, so a generator can safely retry.
+async function socialIngestCreatives(month, body) {
+  const ensured = await socialEnsureCampaign(month, body);
+  if (!ensured.ok) return { ok: false, tableMissing: ensured.tableMissing, message: 'Could not open the campaign.' };
+  const campaign = ensured.campaign;
+  if (campaign.status === 'approved' || campaign.status === 'publishing' || campaign.status === 'complete') {
+    return { ok: false, message: 'This month is already approved; ingest into a later month instead.' };
+  }
+
+  const existing = await socialListPostRows(campaign.id);
+  if (!existing.ok) return { ok: false, tableMissing: existing.tableMissing, message: 'Could not read existing posts.' };
+  const bySlot = {};
+  existing.rows.forEach(function (p) { bySlot[String(p.slot)] = p; });
+
+  const incoming = Array.isArray(body.posts) ? body.posts : [];
+  let created = 0, replaced = 0, failed = 0;
+  const problems = [];
+
+  for (let i = 0; i < incoming.length && i < 200; i++) {
+    const item = incoming[i] || {};
+    const slot = Number(item.slot) || (i + 1);
+    const caption = String(item.caption || '');
+    const prior = bySlot[String(slot)];
+
+    let imagePath = prior ? prior.image_path : null;
+    if (item.image_data_url) {
+      const path = month + '/' + String(slot).padStart(3, '0') + '-' + Date.now() + '.jpg';
+      const up = await supabaseStorageUploadObject(SOCIAL_BUCKET, path, item.image_data_url, 'image/jpeg');
+      // Without Supabase (test/dev) the upload is a no-op; keep the path so the
+      // rest of the flow is exercisable.
+      if (!up && isSupabaseDbConfigured()) {
+        failed++; problems.push('slot ' + slot + ': image upload failed'); continue;
+      }
+      imagePath = path;
+    }
+    if (!imagePath) { failed++; problems.push('slot ' + slot + ': no image supplied'); continue; }
+
+    const record = {
+      campaign_id: campaign.id,
+      slot: slot,
+      caption: caption,
+      alt_text: item.alt_text ? String(item.alt_text) : null,
+      image_path: imagePath,
+      image_width: Number(item.image_width) || null,
+      image_height: Number(item.image_height) || null,
+      pillar: item.pillar ? String(item.pillar) : null,
+      source_ref: item.source_ref ? String(item.source_ref) : null,
+      targets: item.targets || campaign.targets || { facebook: true, instagram: true },
+      // Re-ingesting resets the decision: the CEO must look at the new creative.
+      status: 'draft',
+      publish_at: null,
+      updated_at: new Date().toISOString()
+    };
+
+    if (prior) {
+      const upd = await socialPatchPostRow(prior.id, record);
+      if (upd.ok) replaced++; else { failed++; problems.push('slot ' + slot + ': update failed'); }
+      continue;
+    }
+    if (!isSupabaseDbConfigured()) {
+      record.id = 'socp_' + campaign.id + '_' + slot;
+      record.created_at = new Date().toISOString();
+      _socLocalPosts().push(record);
+      saveDbState();
+      created++;
+      continue;
+    }
+    record.created_at = new Date().toISOString();
+    const ins = await supabaseDbRequest('social_posts', '', { method: 'POST', body: [record] });
+    if (ins.ok) created++; else { failed++; problems.push('slot ' + slot + ': insert failed'); }
+  }
+
+  // The generator says when it has finished, which is what puts the month in
+  // front of the CEO. Without this a partially-uploaded month would nag.
+  if (body.ready === true && campaign.status === 'draft') {
+    await socialPatchCampaignRow(campaign.id, { status: 'in_review', submitted_at: new Date().toISOString() });
+  }
+
+  const after = await socialListPostRows(campaign.id);
+  return {
+    ok: failed === 0,
+    month: month,
+    campaign_id: campaign.id,
+    created: created,
+    replaced: replaced,
+    failed: failed,
+    problems: problems,
+    total: after.ok ? after.rows.length : null,
+    status: body.ready === true ? 'in_review' : campaign.status
+  };
+}
+
+async function socialUpdatePost(id, body, actorEmail) {
+  const row = await socialReadPostRow(id);
+  if (!row) return { ok: false, status: 404, message: 'Post not found.' };
+
+  const patch = {};
+  if (typeof body.caption === 'string') patch.caption = body.caption;
+  if (typeof body.alt_text === 'string') patch.alt_text = body.alt_text;
+  if (body.targets && typeof body.targets === 'object') patch.targets = body.targets;
+  if (typeof body.review_note === 'string') patch.review_note = body.review_note;
+
+  if (body.decision === 'approve') patch.status = 'approved';
+  else if (body.decision === 'reject') { patch.status = 'rejected'; patch.publish_at = null; }
+  else if (body.decision === 'reset') { patch.status = 'draft'; patch.publish_at = null; }
+
+  // Editing the copy of a post that is already live changes nothing on the
+  // networks, so say so rather than pretending the edit took effect.
+  if (row.status === 'posted' && Object.keys(patch).length) {
+    return { ok: false, status: 409, message: 'This post has already gone out; editing it here would not change what is live.' };
+  }
+
+  if (!Object.keys(patch).length) return { ok: false, status: 400, message: 'Nothing to change.' };
+  patch.review_note = patch.review_note || row.review_note || null;
+
+  const upd = await socialPatchPostRow(id, patch);
+  if (!upd.ok) return { ok: false, status: upd.status || 500, message: 'Could not save.' };
+
+  const merged = Object.assign({}, row, patch);
+  return {
+    ok: true,
+    post: upd.row || merged,
+    validation: socialCampaign.validatePost(merged, merged.targets),
+    actor: actorEmail || null
+  };
+}
+
+// The approval click. Stamps publish_at across the month for approved posts.
+async function socialApproveCampaign(month, actorEmail) {
+  const loaded = await socialLoadCampaign(month || null);
+  if (!loaded.ok) return { ok: false, status: 503, message: 'Could not read the campaign.' };
+  const campaign = loaded.campaign;
+  if (!campaign) return { ok: false, status: 404, message: 'No campaign for that month.' };
+  if (campaign.status === 'approved' || campaign.status === 'publishing') {
+    return { ok: false, status: 409, message: 'That month is already approved.' };
+  }
+
+  const gate = socialCampaign.canApproveCampaign(campaign, loaded.posts);
+  if (!gate.ok) return { ok: false, status: 400, message: gate.reason, failures: gate.failures || [] };
+
+  const approved = loaded.posts
+    .filter(function (p) { return p.status === 'approved'; })
+    .sort(function (a, b) { return (a.slot || 0) - (b.slot || 0); });
+
+  const assigned = socialCampaign.assignSchedule(approved, {
+    monthKey: campaign.month,
+    slotTimes: campaign.slot_times || ['09:00', '15:00'],
+    perDay: campaign.posts_per_day || 2,
+    timeZone: campaign.time_zone || 'Australia/Melbourne'
+  });
+  if (!assigned.ok) return { ok: false, status: 400, message: 'Could not build the schedule (' + assigned.error + ').' };
+
+  let stamped = 0;
+  for (const p of assigned.assigned) {
+    const upd = await socialPatchPostRow(p.id, { publish_at: p.publish_at });
+    if (upd.ok && p.publish_at) stamped++;
+  }
+
+  await socialPatchCampaignRow(campaign.id, {
+    status: 'approved',
+    approved_at: new Date().toISOString(),
+    approved_by: actorEmail || 'ceo'
+  });
+
+  return {
+    ok: true,
+    month: campaign.month,
+    scheduled: stamped,
+    unscheduled: assigned.unscheduled,
+    capacity: assigned.capacity,
+    first_publish_at: assigned.assigned.length ? assigned.assigned[0].publish_at : null,
+    // Not an error: a month can legitimately hold more creatives than days.
+    note: assigned.unscheduled
+      ? assigned.unscheduled + ' approved post(s) did not fit in ' + campaign.month + ' and were left unscheduled.'
+      : null
+  };
+}
+
+async function socialFetchCreativeBytes(objectPath) {
+  if (!isSupabaseDbConfigured()) return { ok: false };
+  const controller = new AbortController();
+  const timeout = setTimeout(function () { controller.abort(); }, 10000);
+  try {
+    const response = await fetch(
+      SUPABASE_URL + '/storage/v1/object/' + encodeURIComponent(SOCIAL_BUCKET) + '/' + encodeSupabaseObjectPath(objectPath),
+      {
+        signal: controller.signal,
+        headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY }
+      }
+    ).catch(function () { return null; });
+    if (!response || !response.ok) return { ok: false };
+    const buf = Buffer.from(await response.arrayBuffer());
+    return { ok: true, buffer: buf, contentType: response.headers.get('content-type') || 'image/jpeg' };
+  } catch (err) {
+    return { ok: false };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Absolute, publicly reachable URL for a creative. Meta fetches this itself, so
+// it must be the public host, not app. (which is noindexed and sign-in gated).
+function socialPublicImageUrl(postId) {
+  const base = String(process.env.PUBLIC_SITE_ORIGIN || 'https://www.mygplink.com.au').replace(/\/+$/, '');
+  return base + '/api/public/social-image?id=' + encodeURIComponent(postId);
+}
+
+// The publisher. Drains due posts, one network at a time, recording per-network
+// outcomes so a retry never double-posts.
+async function runSocialPublish(opts) {
+  const o = opts || {};
+  const nowIso = o.nowIso || new Date().toISOString();
+  const out = { ok: true, published: 0, failed: 0, skipped: 0, attempted: 0, details: [] };
+
+  const campaigns = await socialListCampaignRows();
+  if (!campaigns.ok) return { ok: false, table_missing: !!campaigns.tableMissing, published: 0, failed: 0, message: 'Social tables are not available.' };
+
+  const live = campaigns.rows.filter(function (c) {
+    return c.status === 'approved' || c.status === 'publishing';
+  });
+  if (!live.length) return Object.assign(out, { detail: 'no approved campaign' });
+
+  const cfg = socialCampaign.graphConfig(process.env);
+  for (const campaign of live) {
+    const posts = await socialListPostRows(campaign.id);
+    if (!posts.ok) continue;
+
+    const due = socialCampaign.selectDuePosts(posts.rows, nowIso, o.limit || 4);
+    for (const post of due) {
+      out.attempted++;
+      const problems = socialCampaign.graphConfigProblems(cfg, post.targets || campaign.targets);
+      if (problems.length) {
+        out.failed++;
+        out.details.push({ slot: post.slot, error: problems.join(' ') });
+        await socialPatchPostRow(post.id, {
+          attempts: (Number(post.attempts) || 0) + 1,
+          last_attempt_at: nowIso,
+          facebook_error: problems.join(' ')
+        });
+        continue;
+      }
+
+      const result = await socialCampaign.publishPost(post, {
+        config: cfg,
+        imageUrl: o.imageUrl || socialPublicImageUrl(post.id),
+        fetchImpl: o.fetchImpl,
+        sleep: o.sleep
+      });
+
+      const patch = {
+        attempts: (Number(post.attempts) || 0) + 1,
+        last_attempt_at: nowIso
+      };
+      if (result.facebook && result.facebook.postId) {
+        patch.facebook_post_id = result.facebook.postId;
+        patch.facebook_posted_at = nowIso;
+        patch.facebook_error = null;
+      } else if (result.facebook && result.facebook.error) {
+        patch.facebook_error = String(result.facebook.error).slice(0, 500);
+      }
+      if (result.instagram && result.instagram.mediaId) {
+        patch.instagram_media_id = result.instagram.mediaId;
+        patch.instagram_posted_at = nowIso;
+        patch.instagram_error = null;
+      } else if (result.instagram && result.instagram.error) {
+        patch.instagram_error = String(result.instagram.error).slice(0, 500);
+      }
+
+      if (result.ok) {
+        patch.status = 'posted';
+        out.published++;
+      } else if (patch.attempts >= socialCampaign.MAX_PUBLISH_ATTEMPTS) {
+        // Out of retries. Park it rather than letting it churn all month.
+        patch.status = 'failed';
+        out.failed++;
+      } else {
+        out.failed++;
+      }
+      out.details.push({ slot: post.slot, ok: !!result.ok, errors: result.errors || [] });
+      await socialPatchPostRow(post.id, patch);
+    }
+
+    if (campaign.status === 'approved' && out.published > 0) {
+      await socialPatchCampaignRow(campaign.id, { status: 'publishing' });
+    }
+    // Nothing left outstanding for this month.
+    const after = await socialListPostRows(campaign.id);
+    if (after.ok) {
+      const outstanding = after.rows.filter(function (p) {
+        return p.status === 'approved' && p.publish_at;
+      });
+      if (!outstanding.length && campaign.status === 'publishing') {
+        await socialPatchCampaignRow(campaign.id, { status: 'complete' });
+      }
+    }
+  }
+  return out;
+}
+
+// Monthly housekeeping: open next month's shell so the generator has somewhere
+// to write, and report what is still waiting on a human.
+async function runSocialCampaignOpen(opts) {
+  const o = opts || {};
+  const now = o.now ? new Date(o.now) : new Date();
+  const thisMonth = socialCampaign.monthKey(now);
+  const next = socialCampaign.nextMonthKey(thisMonth);
+
+  const ensured = await socialEnsureCampaign(next, {
+    time_zone: String(process.env.SOCIAL_TIMEZONE || 'Australia/Melbourne')
+  });
+  if (!ensured.ok) {
+    return { ok: false, table_missing: !!ensured.tableMissing, detail: 'could not open ' + next };
+  }
+
+  const loaded = await socialLoadCampaign(next);
+  const summary = loaded.ok ? socialCampaign.summariseCampaign(loaded.campaign, loaded.posts) : null;
+  const waiting = summary && summary.needs_ceo;
+  const empty = summary && summary.total === 0;
+
+  return {
+    ok: true,
+    month: next,
+    created: ensured.created,
+    total: summary ? summary.total : 0,
+    awaiting_ceo: !!waiting,
+    awaiting_creatives: !!empty,
+    detail: next + ' total=' + (summary ? summary.total : 0) +
+      ' awaitingCeo=' + (!!waiting) + ' awaitingCreatives=' + (!!empty)
+  };
 }
 
 // Rows WITHOUT approval_token_hash — safe to hand to the dashboard.
@@ -39479,6 +39961,149 @@ async function handleApi(req, res, pathname) {
     var efRunMail = { ok: true, sent: false, skipped: true };
     try { efRunMail = await sendErrorFixProposalEmail({ force: false }); } catch (e) { efRunMail = { ok: false, message: String(e && e.message) }; }
     sendJson(res, efRunRes.ok ? 200 : 500, { ok: efRunRes.ok, analysis: efRunRes, email: efRunMail });
+    return;
+  }
+
+  // ── Monthly social campaign ────────────────────────────────────────────────
+  // Generate 60 creatives → CEO reviews every one → approval stamps the schedule
+  // → the publisher drains two a day to Facebook and Instagram.
+  //
+  // Image generation deliberately lives OUTSIDE this server. It needs the
+  // Higgsfield connector, which is interactively authenticated and unavailable
+  // to a Vercel cron, so a Claude session produces the creatives and POSTs them
+  // to /api/admin/social/ingest. Everything downstream of that is automatic.
+
+  // POST /api/admin/social/ingest — the generator's way in.
+  // Authorised by SOCIAL_INGEST_TOKEN (a machine caller) OR a live CEO session
+  // (so the owner can paste a fix in by hand without minting a token).
+  if (pathname === '/api/admin/social/ingest' && req.method === 'POST') {
+    var socIngestToken = String(process.env.SOCIAL_INGEST_TOKEN || '').trim();
+    var socIngestAuth = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    var socIngestMachine = !!socIngestToken && timingSafeEqualStrings(socIngestAuth, socIngestToken);
+    if (!socIngestMachine) {
+      // Falls through to the CEO guard, which sends its own 401/403.
+      if (!requireCeoSession(req, res)) return;
+    }
+    var socInBody = await readJsonBody(req).catch(function () { return null; });
+    if (!socInBody || !Array.isArray(socInBody.posts)) {
+      sendJson(res, 400, { ok: false, message: 'posts[] is required.' });
+      return;
+    }
+    var socInMonth = String(socInBody.month || '').trim() || socialCampaign.monthKey(new Date());
+    if (!socialCampaign.isMonthKey(socInMonth)) {
+      sendJson(res, 400, { ok: false, message: 'month must be YYYY-MM.' });
+      return;
+    }
+    var socInRes = await socialIngestCreatives(socInMonth, socInBody);
+    sendJson(res, socInRes.ok ? 200 : (socInRes.tableMissing ? 503 : 400), socInRes);
+    return;
+  }
+
+  // GET /api/ceo/social — the whole review payload for one month.
+  if (pathname === '/api/ceo/social' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var socGetMonth = String(url.searchParams.get('month') || '').trim();
+    var socGetRes = await socialLoadCampaign(socGetMonth || null);
+    if (!socGetRes.ok) {
+      sendJson(res, socGetRes.tableMissing ? 503 : 500, {
+        ok: false,
+        table_missing: !!socGetRes.tableMissing,
+        message: socGetRes.tableMissing
+          ? 'The social tables do not exist yet — migration 20260815090000_social_campaigns.sql has not been applied.'
+          : 'Could not read the campaign.'
+      });
+      return;
+    }
+    var socGetCfg = socialCampaign.graphConfig(process.env);
+    sendJson(res, 200, {
+      ok: true,
+      campaign: socGetRes.campaign,
+      posts: socGetRes.posts,
+      months: socGetRes.months,
+      summary: socialCampaign.summariseCampaign(socGetRes.campaign, socGetRes.posts),
+      // Surfaced so the CEO is told the token is missing BEFORE approving a
+      // month, rather than finding out when nothing posts.
+      config_problems: socialCampaign.graphConfigProblems(
+        socGetCfg, (socGetRes.campaign && socGetRes.campaign.targets) || null
+      ),
+      publishing_disabled: socGetCfg.disabled
+    });
+    return;
+  }
+
+  // POST /api/ceo/social/post — edit, approve or reject ONE creative.
+  if (pathname === '/api/ceo/social/post' && req.method === 'POST') {
+    var socPostCtx = requireCeoSession(req, res);
+    if (!socPostCtx) return;
+    var socPostBody = await readJsonBody(req).catch(function () { return null; });
+    var socPostId = String((socPostBody && socPostBody.id) || '').trim();
+    if (!socPostId) { sendJson(res, 400, { ok: false, message: 'id is required.' }); return; }
+    var socPostRes = await socialUpdatePost(socPostId, socPostBody || {}, socPostCtx.email || 'ceo');
+    sendJson(res, socPostRes.ok ? 200 : (socPostRes.status || 400), socPostRes);
+    return;
+  }
+
+  // POST /api/ceo/social/approve — the click that schedules the month.
+  if (pathname === '/api/ceo/social/approve' && req.method === 'POST') {
+    var socAppCtx = requireCeoSession(req, res);
+    if (!socAppCtx) return;
+    var socAppBody = await readJsonBody(req).catch(function () { return null; });
+    var socAppMonth = String((socAppBody && socAppBody.month) || '').trim();
+    var socAppRes = await socialApproveCampaign(socAppMonth, socAppCtx.email || 'ceo');
+    sendJson(res, socAppRes.ok ? 200 : (socAppRes.status || 400), socAppRes);
+    return;
+  }
+
+  // GET /api/public/social-image?id= — the ONLY public surface here.
+  //
+  // Meta's Graph API fetches the image itself, so it must be reachable with no
+  // auth. It is served from this origin rather than handing Meta a
+  // *.supabase.co URL, because that host is dropped by iOS content blockers and
+  // Private Relay (see normalizeSupabaseStorageUrl) and the same URL is what the
+  // review UI renders in the owner's browser.
+  //
+  // Exposure is bounded: an opaque UUID, images only, and a post that has been
+  // ingested for publication is by definition about to be public anyway.
+  if (pathname === '/api/public/social-image' && req.method === 'GET') {
+    var socImgId = String(url.searchParams.get('id') || '').trim();
+    if (!/^[0-9a-f-]{36}$/i.test(socImgId)) { sendJson(res, 400, { ok: false, message: 'Bad id.' }); return; }
+    var socImgRow = await socialReadPostRow(socImgId);
+    if (!socImgRow || !socImgRow.image_path) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    var socImgBytes = await socialFetchCreativeBytes(socImgRow.image_path);
+    if (!socImgBytes.ok) { sendJson(res, 502, { ok: false, message: 'Image unavailable.' }); return; }
+    res.writeHead(200, {
+      'Content-Type': socImgBytes.contentType || 'image/jpeg',
+      'Content-Length': socImgBytes.buffer.length,
+      // Long cache: the bytes at a given id never change (a replacement creative
+      // is a new row). Meta re-fetches on every publish attempt.
+      'Cache-Control': 'public, max-age=86400',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(socImgBytes.buffer);
+    return;
+  }
+
+  // GET /api/cron/social-publish — drains whatever is due.
+  if (req.method === 'GET' && pathname === '/api/cron/social-publish') {
+    var socPubToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(socPubToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var socPubRes = await runSocialPublish({});
+    await recordCronRun('social-publish', socPubRes.ok ? 'ok' : 'error',
+      'published=' + socPubRes.published + ' failed=' + socPubRes.failed, 0);
+    sendJson(res, 200, socPubRes);
+    return;
+  }
+
+  // GET /api/cron/social-campaign-open — monthly housekeeping.
+  // Opens next month's campaign shell and chases whatever is still waiting on a
+  // human. It never generates or publishes anything.
+  if (req.method === 'GET' && pathname === '/api/cron/social-campaign-open') {
+    var socOpenToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(socOpenToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var socOpenRes = await runSocialCampaignOpen({});
+    await recordCronRun('social-campaign-open', socOpenRes.ok ? 'ok' : 'error',
+      String(socOpenRes.detail || ''), 0);
+    sendJson(res, 200, socOpenRes);
     return;
   }
 

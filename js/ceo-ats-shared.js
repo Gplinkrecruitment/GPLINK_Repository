@@ -124,7 +124,7 @@
   // 'registration' renders the Overview view; 'rso' + 'technical' are executive-only
   // tabs whose loaders (window.loadRsoTab / window.loadTechnicalTab) are bridged onto
   // the CEO dashboard's loadRsoOversight() / loadTechnical() inside ceo-dashboard.html.
-  var MASTER_PANELS = ['registration', 'rso', 'candidates', 'jobs', 'practices', 'matching', 'meetings', 'leads', 'contracts', 'technical'];
+  var MASTER_PANELS = ['registration', 'rso', 'candidates', 'jobs', 'practices', 'matching', 'meetings', 'leads', 'contracts', 'social', 'technical'];
   // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
   // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
   function setActiveTab(name, skipLoad) {
@@ -206,6 +206,9 @@
       });
     };
     window.ATS.refreshContractsAlert();
+    // Same idea for the monthly social review: a month sitting unapproved means
+    // the owner is the blocker, so the dot shows without opening the tab.
+    if (typeof window.ATS_refreshSocialAlert === 'function') window.ATS_refreshSocialAlert();
     // Honour an initial deep-link hash (used by tab links + screenshots).
     applyHash();
   }

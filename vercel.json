@@ -28,7 +28,9 @@
     { "path": "/api/cron/error-fix-analysis", "schedule": "10 21 * * *" },
     { "path": "/api/cron/error-fix-execute", "schedule": "25 * * * *" },
     { "path": "/api/cron/refresh-summaries", "schedule": "0 * * * *" },
-    { "path": "/api/cron/sppa-backfill-scan", "schedule": "*/15 * * * *" }
+    { "path": "/api/cron/sppa-backfill-scan", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/social-publish", "schedule": "5 * * * *" },
+    { "path": "/api/cron/social-campaign-open", "schedule": "0 22 20 * *" }
   ],
   "builds": [
     {

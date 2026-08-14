@@ -1468,6 +1468,7 @@
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
   <link rel="stylesheet" href="/css/ceo-ats.css?v=20260810a" />
+  <link rel="stylesheet" href="/css/ceo-social.css?v=20260815a" />
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -1534,6 +1535,10 @@
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15h6M9 11h6M9 19h4"/></svg>
         Contracts <span class="ats-alert-dot" id="masterContractsAlert" aria-live="polite"></span>
       </button>
+      <button class="ats-master-tab" data-mtab="social">
+        <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.17L4 17.17V4Z"/><path d="M8 9h8M8 12h5"/></svg>
+        Social <span class="ats-alert-dot" id="masterSocialAlert" aria-live="polite"></span>
+      </button>
       <button class="ats-master-tab" data-mtab="technical">
         <svg class="ats-mtab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
         Technical
@@ -1587,6 +1592,9 @@
     <div class="master-panel ats-scope" id="panel-meetings" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-leads" style="display:none"></div>
     <div class="master-panel ats-scope" id="panel-contracts" style="display:none"></div>
+
+    <!-- SOCIAL (own master tab) — monthly creative review, rendered by /js/ceo-social.js -->
+    <div class="master-panel ats-scope" id="panel-social" style="display:none"></div>
 
     <!-- TECHNICAL (own master tab, far right) — rendered by loadTechnical() -->
     <div class="master-panel" id="panel-technical" style="display:none">
@@ -1770,7 +1778,7 @@
       // for consultants and the server 403s every underlying endpoint.
       // /api/ceo/leads and /api/ceo/contracts are both super-admin only
       // (requireCeoSession), so Leads/Contracts dead-end for consultants; hide them too.
-      ['registration', 'rso', 'technical', 'leads', 'contracts'].forEach(function (mt) {
+      ['registration', 'rso', 'technical', 'leads', 'contracts', 'social'].forEach(function (mt) {
         var tab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="' + mt + '"]');
         if (tab) tab.style.display = 'none';
         var panel = document.getElementById('panel-' + mt);
@@ -8656,5 +8664,6 @@
   <script src="/js/ceo-ats-matching.js?v=20260805a"></script>
   <script src="/js/ceo-ats-leads.js?v=20260724b"></script>
   <script src="/js/ceo-ats-contracts.js?v=20260805d"></script>
+  <script src="/js/ceo-social.js?v=20260815a"></script>
 </body>
 </html>

@@ -1,0 +1,95 @@
+/* ============================================================================
+ * ceo-social.css — monthly social review (CEO dashboard "Social" tab).
+ *
+ * A separate stylesheet rather than an addition to ceo-ats.css on purpose:
+ * that file's cache-buster is pinned by tests/practice-delete.test.js, so
+ * bumping it to ship unrelated styles would break an unrelated test.
+ *
+ * Every class is `soc-`-prefixed. The panel carries .ats-scope, so every token
+ * below (--ats-panel, --ats-green-dim, …) resolves from ceo-ats.css and this
+ * tab cannot drift into a second, slightly-different dark theme.
+ * ========================================================================== */
+
+#panel-social { color: var(--ats-text); }
+
+.soc-head { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; justify-content:space-between; margin-bottom:18px; }
+.soc-head-actions { display:flex; gap:10px; align-items:center; }
+.soc-title { font-size:22px; font-weight:700; margin:0 0 4px; color:var(--ats-text); letter-spacing:-.02em; }
+.soc-sub { font-size:13px; color:var(--ats-muted); }
+
+.soc-select {
+  background:var(--ats-panel); color:var(--ats-text); border:1px solid var(--ats-border);
+  border-radius:8px; padding:8px 12px; font:inherit; font-size:13px;
+}
+
+/* Banners. Ordered by how much they should worry the reader: a red block means
+   approving will not actually make anything post. */
+.soc-warn, .soc-note {
+  border-radius:10px; padding:12px 16px; margin-bottom:14px; font-size:13px; line-height:1.5;
+}
+.soc-warn { background:var(--ats-red-dim); color:#fca5a5; border:1px solid rgba(239,68,68,0.25); }
+.soc-note { background:var(--ats-amber-dim); color:#fcd34d; border:1px solid rgba(251,191,36,0.22); }
+.soc-warn-sm { font-size:11.5px; color:var(--ats-amber); margin-top:6px; line-height:1.45; }
+.soc-err { font-size:11.5px; color:#fca5a5; margin-top:6px; line-height:1.45; }
+
+.soc-stats { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px; }
+.soc-stat {
+  background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:10px;
+  padding:10px 16px; min-width:88px;
+}
+.soc-stat b { display:block; font-size:20px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+.soc-stat span { display:block; margin-top:4px; font-size:11px; color:var(--ats-muted); }
+
+/* The review grid. Cards are wide enough that a 4:5 creative and its caption
+   can be judged together — splitting them across a click is what makes people
+   approve copy they have not actually read. */
+.soc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px; }
+
+.soc-card {
+  background:var(--ats-panel); border:1px solid var(--ats-border); border-radius:14px;
+  overflow:hidden; display:flex; flex-direction:column; transition:border-color .15s;
+}
+.soc-card:hover { border-color:var(--ats-border-hover); }
+.soc-card.is-rejected { opacity:.5; }
+
+.soc-card-img { position:relative; background:#0b0d13; }
+.soc-card-img img { display:block; width:100%; aspect-ratio:4/5; object-fit:cover; }
+.soc-slot {
+  position:absolute; top:10px; left:10px; background:rgba(0,0,0,.66); color:#fff;
+  font-size:11px; font-weight:700; padding:3px 8px; border-radius:100px; backdrop-filter:blur(4px);
+}
+
+.soc-card-body { padding:14px; display:flex; flex-direction:column; gap:10px; flex:1; }
+.soc-card-top { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.soc-when { font-size:11px; color:var(--ats-dim); }
+
+.soc-caption {
+  width:100%; min-height:132px; resize:vertical; background:var(--ats-bg);
+  border:1px solid var(--ats-border); border-radius:8px; padding:10px 12px;
+  color:var(--ats-text); font:inherit; font-size:12.5px; line-height:1.55;
+}
+.soc-caption:focus { outline:none; border-color:var(--ats-blue); }
+.soc-caption[readonly] { opacity:.6; cursor:default; }
+
+.soc-card-actions { display:flex; gap:8px; align-items:center; margin-top:auto; flex-wrap:wrap; }
+.soc-btn {
+  background:rgba(255,255,255,0.06); color:var(--ats-text); border:1px solid var(--ats-border);
+  border-radius:8px; padding:7px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer;
+  transition:background .15s, border-color .15s;
+}
+.soc-btn:hover:not(:disabled) { background:var(--ats-panel-hover); border-color:var(--ats-border-hover); }
+.soc-btn:disabled { opacity:.4; cursor:default; }
+.soc-btn.ok { background:var(--ats-green-dim); color:var(--ats-green); border-color:rgba(52,211,153,0.25); }
+.soc-btn.no { background:var(--ats-red-dim); color:var(--ats-red); border-color:rgba(239,68,68,0.22); }
+
+.soc-empty { max-width:52ch; }
+.soc-empty p { font-size:13.5px; line-height:1.6; color:var(--ats-muted); }
+.soc-empty code {
+  background:rgba(255,255,255,0.07); padding:2px 6px; border-radius:5px;
+  font-family:var(--ats-mono,monospace); font-size:12px; color:var(--ats-blue);
+}
+
+@media (max-width:640px) {
+  .soc-grid { grid-template-columns:1fr; }
+  .soc-head-actions { width:100%; }
+}
