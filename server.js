@@ -7343,8 +7343,198 @@ function parseEmailListWithNames(value) {
   return out;
 }
 
+// Shared mailbox providers. A shared domain says nothing about who someone works for, so
+// it must never be used to vouch for an address.
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'yahoo.com.au', 'ymail.com',
+  'hotmail.com', 'hotmail.co.uk', 'hotmail.com.au', 'outlook.com', 'outlook.com.au',
+  'live.com', 'live.com.au', 'msn.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'mail.com', 'bigpond.com', 'bigpond.com.au',
+  'optusnet.com.au', 'iinet.net.au', 'tpg.com.au', 'internode.on.net', 'nhs.net'
+]);
+
+// Words that appear in half the clinic names in the country: they identify nobody, so they
+// must not be used to match a domain to a practice.
+const GENERIC_PRACTICE_NAME_WORDS = new Set([
+  'medical', 'medicine', 'centre', 'center', 'clinic', 'clinics', 'health', 'healthcare',
+  'practice', 'practices', 'surgery', 'surgeries', 'doctor', 'doctors', 'family', 'care',
+  'group', 'general', 'the', 'and', 'for', 'pty', 'ltd', 'services', 'service', 'associates',
+  'partners', 'partnership', 'australia', 'australian', 'community', 'super'
+]);
+
+function emailDomainOf(address) {
+  var at = String(address || '').toLowerCase().lastIndexOf('@');
+  return at === -1 ? '' : String(address).toLowerCase().slice(at + 1).trim();
+}
+
+// The distinctive words in a practice name — "Halekulani Medical Centre" -> ["halekulani"].
+function practiceIdentityTokens(name) {
+  return String(name || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(function (t) { return t.length >= 4 && !GENERIC_PRACTICE_NAME_WORDS.has(t); });
+}
+
 /**
- * Everyone (other than us) who has appeared on this case's email thread, most-seen first.
+ * What we can prove about who belongs to this case's practice.
+ *
+ * 🧨 Why this exists: the CC picker used to offer EVERY address that had ever appeared on
+ * any email thread filed against the case. The owner's personal accountant
+ * (mini@valantisadvisors.com.au) was therefore offered as a CC on Dr Sana Ahsan's
+ * "Supervisor CV needed" email to her practice — a stranger, one click from a doctor's
+ * registration correspondence. She was on the case only because ONE unrelated email ("Re:
+ * Your Personal TR for FY 2025") also had someone from the practice's domain on it, so the
+ * triage filed it here. Appearing beside the practice once is not evidence of anything.
+ *
+ * @returns {Promise<{trusted:Set<string>, domains:Set<string>, tokens:string[], ourThreads:Set<string>, usable:boolean}>}
+ */
+/**
+ * The `practices` row a GP is placed at, resolved down the authoritative chain
+ * (gp_applications -> career_roles -> practices). Needed wherever the practice's own
+ * record matters — its website domain and the contacts staff have recorded against it —
+ * which resolvePlacedPracticeProfile flattens away.
+ */
+async function resolvePlacedPracticeRow(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return null;
+  try {
+    const placedRows = await fetchPlacedApplicationRows([userId]);
+    const app = practiceContactLib.pickPlacedApplication(placedRows);
+    if (!app) return null;
+    let role = null;
+    if (app.career_role_id != null && app.career_role_id !== '') {
+      const roleRes = await supabaseDbRequest('career_roles',
+        'select=id,practice_id&id=eq.' + encodeURIComponent(app.career_role_id) + '&limit=1');
+      role = (roleRes.ok && Array.isArray(roleRes.data) && roleRes.data[0]) ? roleRes.data[0] : null;
+    }
+    const practiceId = practiceContactLib.practiceIdForRow(app, role && role.practice_id ? { [app.career_role_id]: role.practice_id } : {});
+    if (!practiceId) return null;
+    const pRes = await supabaseDbRequest('practices',
+      'select=id,name,contact_email,contact_name,website,secondary_contacts&id=eq.' + encodeURIComponent(practiceId) + '&limit=1');
+    return (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : null;
+  } catch (e) {
+    console.warn('[placement] resolvePlacedPracticeRow failed:', e.message);
+    return null;
+  }
+}
+
+// Contacts a human has RECORDED against the practice (practices.secondary_contacts).
+// These are the right home for "the practice manager we always copy": they belong to the
+// practice, so they follow it across every doctor placed there, instead of being inferred
+// from whatever email happened to land on one case.
+async function collectPracticeSecondaryContacts(caseId) {
+  if (!caseId || !isSupabaseDbConfigured()) return [];
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases',
+      'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var userId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+    if (!userId) return [];
+    var practice = await resolvePlacedPracticeRow(userId);
+    if (!practice) return [];
+    return atsPracticeUtil.normalizeSecondaryContacts(practice.secondary_contacts, practice.contact_email)
+      .map(function (c) {
+        return { email_address: c.email, display_name: c.name || '', seen_count: 0, source: 'practice_record' };
+      });
+  } catch (e) {
+    console.warn('[email-contacts] secondary contacts failed:', e.message);
+    return [];
+  }
+}
+
+async function buildPracticeAffiliationSignals(caseId) {
+  var signals = { trusted: new Set(), domains: new Set(), tokens: [], ourThreads: new Set(), usable: false };
+  if (!caseId || !isSupabaseDbConfigured()) return signals;
+
+  function addDomain(email) {
+    var d = emailDomainOf(email);
+    if (d && !PUBLIC_EMAIL_DOMAINS.has(d)) signals.domains.add(d);
+  }
+  function addTrusted(email) {
+    var e = String(email || '').trim().toLowerCase();
+    if (e && e.indexOf('@') > 0) { signals.trusted.add(e); addDomain(e); }
+  }
+
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases',
+      'select=user_id,practice_name,practice_contact&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var caseRow = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+    if (caseRow) {
+      if (caseRow.practice_name) signals.tokens = signals.tokens.concat(practiceIdentityTokens(caseRow.practice_name));
+      var pc = caseRow.practice_contact;
+      if (typeof pc === 'string') { try { pc = JSON.parse(pc); } catch (e) { pc = null; } }
+      if (pc && typeof pc === 'object') addTrusted(pc.contactEmail || pc.email);
+
+      // The authoritative placement (gp_applications -> career_roles -> practices) is where
+      // the practice's real name lives when the case row never had it filled in.
+      if (caseRow.user_id) {
+        var profile = await resolvePlacedPracticeProfile(caseRow.user_id);
+        if (profile) {
+          if (profile.practiceName) signals.tokens = signals.tokens.concat(practiceIdentityTokens(profile.practiceName));
+          addTrusted(profile.contactEmail);
+        }
+        // The practice's own record: its website domain, and every contact a human has
+        // recorded against it.
+        var practiceRow = await resolvePlacedPracticeRow(caseRow.user_id);
+        if (practiceRow) {
+          if (practiceRow.name) signals.tokens = signals.tokens.concat(practiceIdentityTokens(practiceRow.name));
+          addTrusted(practiceRow.contact_email);
+          var site = String(practiceRow.website || '').trim().toLowerCase();
+          if (site) {
+            var host = site.replace(/^[a-z]+:\/\//, '').split('/')[0].replace(/^www\./, '');
+            if (host && !PUBLIC_EMAIL_DOMAINS.has(host)) signals.domains.add(host);
+          }
+          atsPracticeUtil.normalizeSecondaryContacts(practiceRow.secondary_contacts, practiceRow.contact_email)
+            .forEach(function (c) { addTrusted(c.email); });
+        }
+      }
+    }
+
+    // Contacts already harvested / recorded for this practice are trusted by definition.
+    var detected = await supabaseDbRequest('practice_detected_contacts',
+      'select=email_address&case_id=eq.' + encodeURIComponent(caseId));
+    (detected.ok && Array.isArray(detected.data) ? detected.data : []).forEach(function (r) { addTrusted(r.email_address); });
+
+    // Anyone a human on our side has already emailed FROM this case, plus every thread we
+    // have actually written on. A practice manager CC'd on a reply to OUR request is on one
+    // of those threads; an unrelated email that merely landed here is not.
+    var msgs = await supabaseDbRequest('task_messages',
+      'select=recipient,cc,direction,gmail_thread_id&case_id=eq.' + encodeURIComponent(caseId) +
+      '&channel=eq.email&direction=eq.outbound&limit=200');
+    (msgs.ok && Array.isArray(msgs.data) ? msgs.data : []).forEach(function (m) {
+      if (m.gmail_thread_id) signals.ourThreads.add(String(m.gmail_thread_id));
+      parseEmailListWithNames(m.recipient).concat(parseEmailListWithNames(m.cc)).forEach(function (x) { addTrusted(x.email); });
+    });
+  } catch (e) {
+    console.warn('[email-contacts] affiliation signals failed:', e.message);
+  }
+
+  signals.usable = signals.trusted.size > 0 || signals.domains.size > 0 || signals.tokens.length > 0 || signals.ourThreads.size > 0;
+  return signals;
+}
+
+// Can we show that this address belongs on this case's practice correspondence?
+function isPracticeAffiliatedAddress(email, threadIds, signals) {
+  var addr = String(email || '').trim().toLowerCase();
+  if (!addr) return false;
+  if (signals.trusted.has(addr)) return true;                 // we already email them
+  var domain = emailDomainOf(addr);
+  if (domain && signals.domains.has(domain)) return true;      // same domain as the practice
+  if (domain && !PUBLIC_EMAIL_DOMAINS.has(domain)) {
+    // "sonia@halekulanimedical.com.au" for "Halekulani Medical Centre".
+    var label = domain.split('.')[0];
+    for (var i = 0; i < signals.tokens.length; i++) {
+      if (label.indexOf(signals.tokens[i]) !== -1) return true;
+    }
+  }
+  // On a thread we ourselves wrote on (so they were brought in by our own correspondence).
+  for (var t = 0; t < threadIds.length; t++) {
+    if (signals.ourThreads.has(threadIds[t])) return true;
+  }
+  return false;
+}
+
+/**
+ * Everyone who has appeared on this case's email threads AND can be shown to belong to the
+ * practice, most-seen first.
  *
  * The addresses were always there — task_messages.sender/recipient store the flattened
  * Gmail headers, so a CC'd practice manager is sitting in `recipient` — but nothing read
@@ -7354,31 +7544,51 @@ function parseEmailListWithNames(value) {
  * a NULL practice_contact) therefore produced "No additional contacts detected" while the
  * person we needed was visibly CC'd on the reply.
  *
+ * ⚠️ Harvesting the thread is NOT the same as trusting it: an email is filed against a case
+ * by an AI triage that only has to be roughly right, so a thread can carry complete
+ * strangers. Everything harvested here is now checked against
+ * buildPracticeAffiliationSignals before it is offered as a CC. See that function for the
+ * incident this prevents.
+ *
  * @param {string} caseId
  * @returns {Promise<Array<{email_address:string, display_name:string, seen_count:number, source:string}>>}
  */
 async function collectCaseThreadContacts(caseId) {
   if (!caseId || !isSupabaseDbConfigured()) return [];
   var msgRes = await supabaseDbRequest('task_messages',
-    'select=sender,recipient,direction,created_at&case_id=eq.' + encodeURIComponent(caseId) +
+    'select=sender,recipient,cc,direction,gmail_thread_id,created_at&case_id=eq.' + encodeURIComponent(caseId) +
     '&channel=eq.email&order=created_at.desc&limit=200');
   if (!msgRes.ok || !Array.isArray(msgRes.data)) return [];
   var byEmail = Object.create(null);
   for (var i = 0; i < msgRes.data.length; i++) {
     var row = msgRes.data[i] || {};
-    var found = parseEmailListWithNames(row.sender).concat(parseEmailListWithNames(row.recipient));
+    var found = parseEmailListWithNames(row.sender)
+      .concat(parseEmailListWithNames(row.recipient))
+      .concat(parseEmailListWithNames(row.cc));
     for (var j = 0; j < found.length; j++) {
       var email = found[j].email;
       if (isOurOwnAddress(email)) continue;
-      if (!byEmail[email]) byEmail[email] = { email_address: email, display_name: '', seen_count: 0, source: 'thread' };
+      if (!byEmail[email]) byEmail[email] = { email_address: email, display_name: '', seen_count: 0, source: 'thread', _threads: [] };
       byEmail[email].seen_count += 1;
+      if (row.gmail_thread_id) byEmail[email]._threads.push(String(row.gmail_thread_id));
       // Keep the first real display name we see (rows are newest-first, so that is the
       // most recent spelling of their name).
       if (!byEmail[email].display_name && found[j].name) byEmail[email].display_name = found[j].name;
     }
   }
-  return Object.keys(byEmail).map(function (k) { return byEmail[k]; })
-    .sort(function (a, b) { return b.seen_count - a.seen_count; });
+
+  var all = Object.keys(byEmail).map(function (k) { return byEmail[k]; });
+  var signals = await buildPracticeAffiliationSignals(caseId);
+  // With nothing at all to judge against we cannot tell a practice manager from a stranger.
+  // Offer only the addresses we have written to ourselves rather than guessing; an empty
+  // list reads as "No additional contacts detected", which is honest.
+  var kept = all.filter(function (c) { return isPracticeAffiliatedAddress(c.email_address, c._threads, signals); });
+  var dropped = all.length - kept.length;
+  if (dropped > 0) {
+    console.log('[email-contacts] case', caseId, '— hid', dropped, 'thread address(es) with no link to the practice');
+  }
+  kept.forEach(function (c) { delete c._threads; });
+  return kept.sort(function (a, b) { return b.seen_count - a.seen_count; });
 }
 
 async function searchGmailForGP(gpEmail, gpName, practiceEmail, daysBack) {
@@ -64682,7 +64892,11 @@ Return ONLY valid JSON with no markdown formatting:
     // own it reports "No additional contacts detected" for a practice manager who is plainly
     // CC'd on the reply. The thread is the ground truth; the harvested table is a bonus.
     try {
-      var threadContacts = await collectCaseThreadContacts(contactsCaseId);
+      // Contacts recorded against the practice itself come first: they are the ones a human
+      // put there on purpose, they survive a case having no useful email history, and they
+      // follow the practice across every doctor placed at it.
+      var threadContacts = (await collectPracticeSecondaryContacts(contactsCaseId))
+        .concat(await collectCaseThreadContacts(contactsCaseId));
       var seenCc = Object.create(null);
       contacts.forEach(function (c) { seenCc[String(c.email_address || '').trim().toLowerCase()] = c; });
       threadContacts.forEach(function (t) {
@@ -75532,6 +75746,11 @@ module.exports.__testUtils = {
   parseEmailListWithNames,
   isOurOwnAddress,
   collectCaseThreadContacts,
+  collectPracticeSecondaryContacts,
+  emailDomainOf,
+  practiceIdentityTokens,
+  isPracticeAffiliatedAddress,
+  PUBLIC_EMAIL_DOMAINS,
   atsJobDisplayNames,
   resolveCareerRolePracticeName,
   careerRoleTitleLeaksPracticeName,
