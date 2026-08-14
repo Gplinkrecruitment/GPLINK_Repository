@@ -27,21 +27,33 @@ selected for publishing. That is a structural guarantee, not a check somebody ca
 later delete by accident. Every other safety property in this pipeline is
 downstream of it.
 
-## Why generation lives outside the app
+## Where generation runs
 
-Producing the creatives needs the Higgsfield connector, which is interactively
-authenticated through claude.ai. A Vercel cron has no way to hold that session, so
-the app cannot generate images on a schedule no matter how it is written.
+The **Higgsfield MCP connector** is interactively authenticated through claude.ai
+and a Vercel cron cannot hold that session. That is a fact about the connector,
+and it is why the first version of this pipeline started at ingest.
 
-The split is therefore deliberate:
+It is **not** a reason generation must stay manual. Both providers expose a
+server-side API that a cron can call:
+
+| Provider | Auth | Notes |
+|---|---|---|
+| **Higgsfield REST API** — `https://platform.higgsfield.ai` | `Authorization: Key <ID>:<SECRET>`, keys from [cloud.higgsfield.ai](https://cloud.higgsfield.ai) | Async: submit, then poll or take a webhook. Same models and prompts as the approved set, including `soul_2`, which has no Google equivalent. ~2 credits/image. |
+| **Google Gemini** — `generativelanguage.googleapis.com/v1beta/interactions` | `x-goog-api-key`, key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `gemini-3-pro-image` **is** the model Higgsfield calls `nano_banana_pro`. One synchronous call, native 4:5. ~$0.134/image, no free tier. |
+
+⚠️ Verify whether an API key bills separately from the subscription before
+committing: the Higgsfield *subscription* enforced a ~5/day generation cap during
+its grace period, which would make a 60-image run take twelve days.
 
 | Step | Where it runs | Automated? |
 |---|---|---|
-| Generate 60 creatives | A Claude session with the Higgsfield connector | Monthly, by a scheduled agent or by hand |
-| Ingest into the queue | `scripts/social-ingest.js` | Yes, part of the same session |
+| Generate 60 creatives | Provider REST API from a cron, or a Claude session | Yes, once a provider key is set |
+| Ingest into the queue | `scripts/social-ingest.js`, or direct write | Yes |
 | CEO review + approve | CEO dashboard, Social tab | No, deliberately |
 | Publish 2/day | `/api/cron/social-publish` | Yes |
 | Open next month | `/api/cron/social-campaign-open` | Yes, 20th of the month |
+
+The review gate stays manual on purpose. Everything else can be machine-driven.
 
 ## Monthly run book
 
