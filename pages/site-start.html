@@ -59,7 +59,30 @@
 
   /* ---------- booking panel ---------- */
   .book-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-    padding:clamp(26px,3.6vw,40px);max-width:640px;margin:34px auto 0;}
+    padding:clamp(26px,3.6vw,40px);max-width:640px;margin:34px auto 0;
+    transition:max-width .25s ease;}
+  /* The 640px reading column is right for the questions and wrong for the
+     calendar: it leaves Calendly under ~680px of usable width, where choosing a
+     day REPLACES the month with a full-height list of times. Given the room it
+     puts the times beside the calendar instead — one screen, no step back and
+     forth, and far less height. Only widened while the calendar is showing. */
+  .book-panel.is-booking{max-width:920px;}
+  /* The old fixed 760px cropped the month grid mid-calendar behind an iframe
+     scrollbar nobody notices: a doctor opened her booking link, saw dates only
+     up to the 15th, and would reasonably read that as all we had.
+     Heights measured against the live widget with the event details hidden
+     (headless Chrome, 2026-08-14): the calendar step needs 600px at 560 wide
+     and 710px at 840 wide; a day with 11 slots needs 1010px in the narrow
+     step layout and 965px in the two-column one.
+     🧨 Do NOT replace these with Calendly's auto-resize. Its script does listen
+     for calendly.page_height (`resize: true` is set below and left on in case
+     they bring it back), but the booking app no longer SENDS that message —
+     verified over a real http origin, desktop and mobile user agents alike, the
+     container was never resized. These numbers are what keep the month visible.
+     Deliberately generous: leftover space just shows Calendly's own grey
+     backdrop, whereas a box that is too short hides half the times. */
+  #calendlyEmbed{min-width:320px;height:1040px;}
+  @media(min-width:1000px){#calendlyEmbed{height:980px;}}
   .book-state h3{margin:0 0 8px;font-size:21px;font-weight:730;color:var(--ink-2);}
   .book-state > p{margin:0 0 20px;font-size:14.5px;color:var(--mut);line-height:1.6;}
   .book-state input,
@@ -241,7 +264,7 @@
 
       <div id="bookCalendly" class="book-state" hidden>
         <p class="book-kicker" id="calGreeting"></p>
-        <div id="calendlyEmbed" style="min-width:320px;height:760px"></div>
+        <div id="calendlyEmbed"></div>
       </div>
 
       <!-- The moment a GP is most willing to take the next step is the ten
@@ -297,6 +320,9 @@
     document.getElementById('bookLoading').hidden = true;
     ['bookEmailMatch', 'bookForm', 'bookTurndown', 'bookCalendly', 'bookConfirmed']
       .forEach(function (s) { document.getElementById(s).hidden = (s !== id); });
+    // Only the calendar needs the extra width — see .book-panel.is-booking.
+    var panel = document.querySelector('.book-panel');
+    if (panel) panel.classList.toggle('is-booking', id === 'bookCalendly');
   }
 
   // Rejects on network failure or a non-JSON response; callers surface
@@ -309,9 +335,11 @@
   }
 
   function loadCalendly(displayName) {
+    // Says "30 minutes" because hide_event_type_details removes Calendly's own
+    // duration line from the calendar step.
     document.getElementById('calGreeting').textContent = displayName
-      ? displayName + ', pick a time that suits you. Your details are pre-filled.'
-      : 'Pick a time that suits you.';
+      ? displayName + ', pick a time that suits you — 30 minutes, and your details are pre-filled.'
+      : 'Pick a time that suits you — the call takes 30 minutes.';
     show('bookCalendly');
     var mount = function () {
       // Calendly's booking form asks for name, email AND a phone number, with
@@ -328,9 +356,18 @@
         prefill.smsReminderNumber = lead.phone;
       }
       window.Calendly.initInlineWidget({
-        url: CAL_BASE + '?hide_gdpr_banner=1',
+        // hide_event_type_details drops Calendly's own header — logo, title,
+        // "30 min" and the blurb with its SHOW MORE. That block is ~600px tall
+        // and repeats what this page already says above the widget, and it was
+        // pushing the calendar itself below the fold.
+        url: CAL_BASE + '?hide_gdpr_banner=1&hide_event_type_details=1',
         parentElement: document.getElementById('calendlyEmbed'),
-        prefill: prefill
+        prefill: prefill,
+        // Opts the parent into Calendly's own height reporting. Harmless but
+        // currently inert — their app has stopped sending calendly.page_height,
+        // so #calendlyEmbed's measured CSS heights are what actually fit the
+        // widget. Left on so it self-corrects if Calendly restores it.
+        resize: true
       });
     };
     if (window.Calendly) { mount(); return; }
