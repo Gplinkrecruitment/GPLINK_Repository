@@ -277,6 +277,54 @@ describe('looksLikeGpLeadForm', () => {
   });
 });
 
+// ── Meta sends the ANSWER as a snake_cased slug ──────────────────────────────
+// Ground truth, not a guess: this is the field map a REAL lead produced on
+// 2026-08-14 (Louise Beet, lead 1044950714846926), copied from the stored row.
+// She tapped "United Kingdom" and Meta delivered `united_kingdom`. Because the
+// matcher looked for 'united kingdom' WITH A SPACE she scored 'other' and a UK
+// GP was shown "We're sorry, we can't take this one on" — a turndown that names
+// the UK as a country we serve. Keep this fixture byte-for-byte: it is the only
+// thing in the suite that reflects Meta's real naming rather than our own.
+const REAL_META_GP_LEAD_FIELDS = {
+  '_where_did_you_complete_your_gp_training?': 'united_kingdom',
+  'full_name': 'Louise Beet',
+  'are_you_a_currently_registered_gp?': 'yes',
+  "anything_you'd_like_us_to_cover_on_the_call?": 'possible areas where work is needed, hours, rates of pay, help with family relocation, schools etc',
+  'phone_number': '+447913895013',
+  'email': 'louisecbeet@gmail.com'
+};
+
+describe('the real Meta payload (2026-08-14 regression)', () => {
+  it('reads United Kingdom out of the slug Meta actually sends', () => {
+    expect(parseCountryAnswer('united_kingdom')).toBe('uk');
+  });
+
+  it('qualifies the real lead end to end', () => {
+    expect(resolveFbLeadCountry(REAL_META_GP_LEAD_FIELDS))
+      .toMatchObject({ country: 'uk', raw: 'united_kingdom', source: 'question' });
+  });
+
+  it('handles the other slugged answers the same form can return', () => {
+    expect(parseCountryAnswer('new_zealand')).toBe('nz');
+    expect(parseCountryAnswer('northern_ireland')).toBe('uk');
+    expect(parseCountryAnswer('republic_of_ireland')).toBe('ie');
+    expect(parseCountryAnswer('united-kingdom')).toBe('uk');   // kebab too
+    expect(parseCountryAnswer('UK/Ireland')).toBe('uk');       // punctuation
+  });
+
+  it('matches a short code that underscores used to hide', () => {
+    // `_` is a word character, so \buk\b could never match inside these.
+    expect(parseCountryAnswer('uk_trained')).toBe('uk');
+    expect(parseCountryAnswer('trained_in_nz')).toBe('nz');
+  });
+
+  it('still says other for a country we do not serve', () => {
+    expect(parseCountryAnswer('south_africa')).toBe('other');
+    expect(parseCountryAnswer('australia')).toBe('other');
+    expect(parseCountryAnswer('india')).toBe('other');
+  });
+});
+
 describe('resolveFbLeadCountry', () => {
   it('reads a country out of a free-text answer when there is no country question', () => {
     expect(resolveFbLeadCountry({ 'anything?': 'I am a GP in Scotland' }))
@@ -284,6 +332,14 @@ describe('resolveFbLeadCountry', () => {
   });
   it('returns source none for an empty form', () => {
     expect(resolveFbLeadCountry({})).toMatchObject({ country: 'other', source: 'none' });
+  });
+  it('still refuses to read a country out of the contact fields', () => {
+    // A surname "Wales" or an @nhs.uk address is not a statement about where
+    // someone trained — normalising separators must not have opened that door.
+    expect(resolveFbLeadCountry({ full_name: 'Jane Wales', email: 'j@x.com' }))
+      .toMatchObject({ country: 'other', source: 'none' });
+    expect(resolveFbLeadCountry({ full_name: 'Jane Smith', email: 'jane@nhs.uk' }))
+      .toMatchObject({ country: 'other', source: 'none' });
   });
 });
 
