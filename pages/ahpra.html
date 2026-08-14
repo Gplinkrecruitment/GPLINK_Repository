@@ -1984,6 +1984,37 @@
       margin-bottom: 12px;
       line-height: 1.4;
     }
+    /* Shown when the ONLY outstanding documents are the ones GP Link prepares with the
+       practice — the doctor has finished their side and must not be left thinking the
+       delay is theirs to fix. */
+    .intro-waiting-banner {
+      background: var(--gp-green-soft);
+      border: 1px solid var(--gp-green-border);
+      border-radius: var(--gp-r-md);
+      padding: 14px 16px;
+      margin-bottom: 20px;
+    }
+    .intro-waiting-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--gp-green-ink);
+      margin-bottom: 6px;
+    }
+    .intro-waiting-title svg {
+      width: 16px; height: 16px;
+      stroke: var(--gp-green);
+      fill: none;
+      flex: none;
+    }
+    .intro-waiting-body {
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--gp-green-ink);
+      margin: 0;
+    }
     .intro-doc-actions {
       display: flex;
       align-items: center;
@@ -2879,6 +2910,17 @@
       }
     }
 
+    // The five documents GP Link prepares WITH the practice (not the doctor). Mirrors
+    // SUPERVISED_PRACTICE_DOCS in pages/my-documents.html — same keys, same order, same
+    // labels — so the two surfaces can never tell the doctor different things.
+    var AHPRA_GPLINK_PREPARED_DOCS = [
+      { key: "sppa_00", label: "Supervised Practice Plan - SPPA-00" },
+      { key: "section_g", label: "Supervised Practice Plan - Section G" },
+      { key: "position_description", label: "Position description" },
+      { key: "offer_contract", label: "Letter of offer / employment contract" },
+      { key: "supervisor_cv", label: "Supervisor's CV" }
+    ];
+
     function getIncompleteDocsForIntro(country) {
       var countryKey = (country || "").toLowerCase();
       if (countryKey === "gb") countryKey = "uk";
@@ -2915,8 +2957,15 @@
         }
       });
 
-      // GP Link prepared docs (SUPERVISED_PRACTICE_DOCS): complete if ready or has url
-      var spDocs = typeof SUPERVISED_PRACTICE_DOCS !== "undefined" ? SUPERVISED_PRACTICE_DOCS : [];
+      // GP Link prepared docs (SUPERVISED_PRACTICE_DOCS): complete if ready or has url.
+      // 🧨 This list used to be referenced here but DEFINED ONLY in my-documents.html, so
+      // `typeof SUPERVISED_PRACTICE_DOCS !== "undefined"` was always false and the whole
+      // "GP Link Prepares" group silently rendered NOTHING. A doctor who had finished
+      // everything on their own side was still told "There are a few documents we need
+      // prepared before commencing" with a "Complete Now" button, and then shown a list
+      // that named only the things they had already done — nothing on screen ever said the
+      // remaining work was OURS. Keep this in step with pages/my-documents.html.
+      var spDocs = typeof SUPERVISED_PRACTICE_DOCS !== "undefined" ? SUPERVISED_PRACTICE_DOCS : AHPRA_GPLINK_PREPARED_DOCS;
       spDocs.forEach(function(doc) {
         var p = prepDocs[doc.key] || {};
         var isDone = p.ready || !!p.url;
@@ -2928,12 +2977,38 @@
       return incomplete;
     }
 
+    // Split the outstanding list by WHO has to act. "Complete Now" is only honest when
+    // there is something the doctor can actually do; the GP Link items are ours and the
+    // practice's, and no amount of tapping moves them.
+    function splitIntroDocsByOwner(incompleteDocs) {
+      var mine = [], ours = [];
+      (incompleteDocs || []).forEach(function (d) {
+        if (d && d.group === "gplink") ours.push(d); else mine.push(d);
+      });
+      return { doctor: mine, gplink: ours };
+    }
+
     function renderIntroCta(incompleteDocs) {
       var html = "";
+      var split = splitIntroDocsByOwner(incompleteDocs);
+
       if (incompleteDocs.length === 0) {
         html += '<div class="intro-ready-check"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>';
         html += '<p class="intro-ready-text">All your documents are prepared and ready</p>';
         html += '<button class="intro-cta-btn success" id="introBeginBtn" type="button">Begin Now <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>';
+      } else if (split.doctor.length === 0) {
+        // The doctor has finished EVERYTHING that is theirs — the only thing left is the
+        // pack we prepare with the practice. Say so plainly, credit them for being done,
+        // and never show a "Complete Now" button for work they cannot do.
+        var waitingCount = split.gplink.length;
+        html += '<div class="intro-ready-check"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>';
+        html += '<p class="intro-ready-text">You\'ve done everything we need from you</p>';
+        html += '<p class="intro-doc-notice">We\'re working with your practice to prepare the '
+             + (waitingCount === 1 ? 'last document' : 'last ' + waitingCount + ' documents')
+             + ' for your application. As soon as ' + (waitingCount === 1 ? 'it\'s' : 'they\'re')
+             + ' ready we\'ll release ' + (waitingCount === 1 ? 'it' : 'them')
+             + ' here and your AHPRA registration will unlock. There\'s nothing further for you to do.</p>';
+        html += '<button class="intro-cta-btn primary" id="introWaitingBtn" type="button">See what we\'re preparing <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>';
       } else {
         html += '<p class="intro-doc-notice">There are a few documents we need prepared before commencing</p>';
         html += '<button class="intro-cta-btn primary" id="introCompleteBtn" type="button">Complete Now <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>';
@@ -2945,12 +3020,28 @@
 
       var completeBtn = document.getElementById("introCompleteBtn");
       if (completeBtn) completeBtn.addEventListener("click", function() { slideToDocsPanel(); });
+
+      var waitingBtn = document.getElementById("introWaitingBtn");
+      if (waitingBtn) waitingBtn.addEventListener("click", function() { slideToDocsPanel(); });
     }
 
     function renderIntroDocsList(incompleteDocs) {
       var html = "";
       var currentGroup = "";
       var groupLabels = { institution: "Direct to AHPRA", prepared: "You Prepare", gplink: "GP Link Prepares" };
+      var splitForList = splitIntroDocsByOwner(incompleteDocs);
+
+      // Nothing left but our own pack: lead with the reassurance so the list below reads
+      // as "here is what WE owe you", not as another to-do list aimed at the doctor.
+      if (incompleteDocs.length > 0 && splitForList.doctor.length === 0) {
+        html += '<div class="intro-waiting-banner">';
+        html += '  <div class="intro-waiting-title">';
+        html += '    <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        html += '    Your part is complete';
+        html += '  </div>';
+        html += '  <p class="intro-waiting-body">Every document you were asked for is done. We\'re now collaborating with your practice on the documents below. We prepare these for you, so there\'s nothing for you to upload. We\'ll release each one here as it\'s ready, and your AHPRA registration unlocks once they\'re all in.</p>';
+        html += '</div>';
+      }
 
       incompleteDocs.forEach(function(doc, idx) {
         if (doc.group !== currentGroup) {
@@ -2968,7 +3059,7 @@
         html += '  </div>';
 
         if (doc.group === "gplink") {
-          html += '  <p class="intro-doc-desc">GP Link is preparing this document for your application</p>';
+          html += '  <p class="intro-doc-desc">GP Link is preparing this with your practice. Nothing needed from you.</p>';
         } else if (doc.group === "institution") {
           html += '  <div class="intro-doc-actions">';
           html += '    <button class="intro-upload-btn" data-intro-action="mark-requested" data-intro-doc-key="' + doc.key + '" type="button">';
@@ -2983,7 +3074,7 @@
           html += '  </div>';
         } else {
           if (doc.status === "rejected") {
-            html += '  <p class="intro-doc-desc" style="color:var(--gp-red-ink);">Rejected — please upload a corrected copy.' + (doc.rejection_reason ? ' ' + escIntro(doc.rejection_reason) : '') + '</p>';
+            html += '  <p class="intro-doc-desc" style="color:var(--gp-red-ink);">Rejected. Please upload a corrected copy.' + (doc.rejection_reason ? ' ' + escIntro(doc.rejection_reason) : '') + '</p>';
           }
           html += '  <div class="intro-doc-actions">';
           html += '    <label class="intro-upload-btn" style="cursor:pointer;">';
@@ -6000,6 +6091,13 @@
       var introParam = new URLSearchParams(window.location.search).get("intro");
       var country = getPageCountry();
       introIncompleteDocs = introParam === "ready" ? [] : getIncompleteDocsForIntro(country);
+      // ?intro=waiting — preview the "your part is done, we're still preparing ours"
+      // state without having to finish the doctor's own documents first. Read-only:
+      // it filters what is RENDERED and writes nothing. (?intro=ready previews the
+      // fully-complete state the same way.)
+      if (introParam === "waiting") {
+        introIncompleteDocs = introIncompleteDocs.filter(function (d) { return d && d.group === "gplink"; });
+      }
 
       renderIntroCta(introIncompleteDocs);
       renderIntroDocsList(introIncompleteDocs);
@@ -6011,6 +6109,12 @@
         syncIntroPreparedDocsFromServer(country).then(function(changed) {
           if (!changed) return;
           introIncompleteDocs = getIncompleteDocsForIntro(country);
+          // Keep the ?intro=waiting preview intact — otherwise the server sync
+          // re-renders the real (unfiltered) list a second later and the preview
+          // flickers back to the ordinary "Complete Now" screen.
+          if (introParam === "waiting") {
+            introIncompleteDocs = introIncompleteDocs.filter(function (d) { return d && d.group === "gplink"; });
+          }
           renderIntroCta(introIncompleteDocs);
           renderIntroDocsList(introIncompleteDocs);
         });

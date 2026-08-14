@@ -18118,6 +18118,26 @@ async function _hasDoubleTickBeenSent(caseId, stageTitle) {
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
+// True when this exact system marker is already on the case's timeline.
+//
+// The career-secured block re-fires: `prevSecured` is derived from the state blob in the
+// request, so a client posting a career payload where career_secured flips false→true
+// again (a stale localStorage sync is enough) replays the WHOLE block. The WhatsApp
+// template has always been guarded by _hasDoubleTickBeenSent — but the two EMAILS beside
+// it were not, so every replay re-sent the doctor "Documents Needed, GP Link" and a fresh
+// "Section G added to your documents". Dr Sana Ahsan received three of each on
+// 2026-08-14. Every outbound side effect in that block must be guarded by a marker.
+async function _hasCaseSystemEvent(caseId, title) {
+  if (!isSupabaseDbConfigured() || !caseId || !title) return false;
+  const q = await supabaseDbRequest('task_timeline',
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) +
+    '&event_type=eq.system&title=eq.' + encodeURIComponent(title) + '&limit=1');
+  return q.ok && Array.isArray(q.data) && q.data.length > 0;
+}
+
+const PRACTICE_PACK_EMAIL_MARKER = 'Practice pack email sent to GP';
+const SECTION_G_DELIVERED_MARKER = 'Section G auto-delivered to MyDocuments and Google Drive';
+
 async function _hasOpenTaskForDoc(caseId, docKey) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
@@ -18812,10 +18832,15 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         }
       }
 
-      // Notify GP about practice pack docs needed
-      const _securedApp = Array.isArray(nxt.career.applications) ? nxt.career.applications.find(function (a) { return a && a.isPlacementSecured; }) : null;
-      const _practiceName = _securedApp && _securedApp.placement ? (_securedApp.placement.practiceName || _securedApp.placement.practice_name || '') : '';
-      sendPracticePackEmail(userId, _practiceName).catch(err => console.error('[Email] Practice pack failed:', err.message));
+      // Notify GP about practice pack docs needed — ONCE per case. The marker is written
+      // before the send because the send is fire-and-forget: a second replay arriving
+      // while the first is still in flight must still be suppressed.
+      if (!(await _hasCaseSystemEvent(caseId, PRACTICE_PACK_EMAIL_MARKER))) {
+        await _logCaseEvent(caseId, null, 'system', PRACTICE_PACK_EMAIL_MARKER, null, 'system');
+        const _securedApp = Array.isArray(nxt.career.applications) ? nxt.career.applications.find(function (a) { return a && a.isPlacementSecured; }) : null;
+        const _practiceName = _securedApp && _securedApp.placement ? (_securedApp.placement.practiceName || _securedApp.placement.practice_name || '') : '';
+        sendPracticePackEmail(userId, _practiceName).catch(err => console.error('[Email] Practice pack failed:', err.message));
+      }
 
       // SPPA-00 auto-send removed — now triggered via conflict scan when supervisor_cv + offer_contract are both complete
 
@@ -18828,12 +18853,16 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         const driveFolderId = await ensureGPDriveFolder(caseId, _gpProfileForDrive.first_name || '', _gpProfileForDrive.last_name || '');
         await reconcileGpDrive(caseId);
 
-        // Auto-deliver Section G
+        // Auto-deliver Section G — ONCE per case. deliverToMyDocuments notifies the
+        // doctor ("Section G (Supervised Practice Goals) added to your documents"), so a
+        // replay of this block re-delivered the same PDF and re-emailed her about it.
+        // The marker is the timeline line this block already writes on success.
+        const _sectionGAlreadyDelivered = await _hasCaseSystemEvent(caseId, SECTION_G_DELIVERED_MARKER);
         try {
           const _fs = require('fs');
           const _path = require('path');
           const sectionGPath = _path.join(__dirname, 'documents', 'section_g.pdf');
-          if (_fs.existsSync(sectionGPath)) {
+          if (!_sectionGAlreadyDelivered && _fs.existsSync(sectionGPath)) {
             const sectionGBuffer = _fs.readFileSync(sectionGPath);
             const sgDelivery = await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', sectionGBuffer, 'application/pdf');
             const sgTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting,deferred)&limit=1');
@@ -18846,7 +18875,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
             }
             // Mark practice_doc_ops as completed
             try { await _ensurePracticeDocOps(caseId); await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.section_g', { method: 'PATCH', body: { ops_status: 'completed' } }); } catch (e) {}
-            await _logCaseEvent(caseId, null, 'system', 'Section G auto-delivered to MyDocuments and Google Drive', null, 'system');
+            await _logCaseEvent(caseId, null, 'system', SECTION_G_DELIVERED_MARKER, null, 'system');
           }
         } catch (sgErr) {
           console.error('[PracticePack] Section G auto-delivery error:', sgErr.message);

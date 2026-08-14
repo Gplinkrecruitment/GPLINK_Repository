@@ -50,7 +50,11 @@
   // between finger-down and click — the AHPRA step's button did nothing for a
   // doctor with several tabs open. 20260814a had already shipped, so a doctor
   // who cached that generation needs a further bump to be served the fix.
-  var VERSION = "20260814b";
+  // 20260814c: ahpra.html now tells a doctor who has finished her own documents that the
+  // only thing left is the pack WE prepare with the practice, and lists those items (the
+  // "GP Link Prepares" group was dead code before, so that screen showed her a
+  // "Complete Now" button for work she could not do). /pages/ahpra is precached.
+  var VERSION = "20260814c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
