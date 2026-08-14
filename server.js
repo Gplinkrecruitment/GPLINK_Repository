@@ -13662,6 +13662,8 @@ async function processFacebookLeadDelivery(body, req, ip) {
     const gpRow = buildConsultLeadRow({
       name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
       isGp: gpLead.isGp === true, country: gpLead.country, question: gpLead.question,
+      countryRaw: gpLead.countryRaw, countrySource: gpLead.countrySource,
+      fieldNames: gpLead.fieldNames,
       source: 'meta_lead_ad', leadId: gpLead.leadId, ip: ip,
       userAgent: req.headers['user-agent']
     });
@@ -24932,7 +24934,17 @@ function buildConsultLeadRow(input) {
     call_booked: false,
     nudges: []
   };
+  // Keep what they actually said and how we read it — a bare 'other' is
+  // unreadable to whoever picks the lead up (see resolveFbLeadCountry).
+  if (input.countryRaw) consult.country_raw = String(input.countryRaw).slice(0, 200);
+  if (input.countrySource) consult.country_source = input.countrySource;
+  // "We could not read a country" is NOT the same as "they told us a country we
+  // don't serve", and must never be recorded as if it were. A screened_out lead
+  // is terminal — nextConsultNudge drops it forever — so a parsing failure filed
+  // under that label buries a doctor nobody ever decided to turn away.
+  const countryUnreadable = input.isGp === true && !qualified && input.countrySource === 'none';
   if (qualified) consult.token = consultLead.generateConsultToken();
+  else if (countryUnreadable) consult.country_unknown = true;
   else consult.screened_out = true;
   return {
     id: crypto.randomUUID(),
@@ -24951,6 +24963,13 @@ function buildConsultLeadRow(input) {
       user_agent: String(input.userAgent || '').slice(0, 300),
       utm: _capUtm(input.utm),
       fb_lead_id: input.leadId || null,
+      // The question keys Meta actually sent. The GP branch stores no raw
+      // payload, so without this a future "why was the country blank?" is
+      // unanswerable — the answers are gone and Meta's field names are the one
+      // thing we cannot re-derive.
+      fb_field_names: Array.isArray(input.fieldNames) && input.fieldNames.length
+        ? input.fieldNames.slice(0, 40)
+        : undefined,
       consult
     }
   };
@@ -25301,18 +25320,38 @@ async function maybeNotifySiteEnquiry(row) {
     const safePhone = escapeHtml(row.phone);
     const safeState = escapeHtml(row.state);
     const safeMessage = escapeHtml(row.message);
+    const meta = row.metadata || {};
+    const consult = meta.consult || {};
+    // A Facebook lead ad is not a website enquiry. Calling it one sent whoever
+    // read the alert looking for a form submission that never existed.
+    const origin = meta.source === 'meta_lead_ad' ? 'Facebook lead ad' : 'website enquiry';
+    // Show their words. "State: other" reads like an unqualified lead even when
+    // they typed "United Kingdom" — that wording is part of why the first real
+    // lead sat unanswered for 17 hours.
+    const countryLine = consult.country_raw
+      ? `Country: ${escapeHtml(consult.country_raw)}` +
+        (consult.country === 'other' ? ' (not a country we place)' : ` (${escapeHtml(consult.country)})`)
+      : (row.state ? `State: ${safeState}` : '');
+    const alertLine = consult.country_unknown
+      ? 'NEEDS A LOOK: this form named no country, so we could not screen them. '
+        + 'They are NOT being emailed automatically — check the lead before dismissing it.'
+      : '';
     await sendEmail({
       to: notifyTo,
-      subject: `New ${row.kind} enquiry, ${row.name}`,
-      html: `<p>New website enquiry (<strong>${safeKind}</strong>) from ${safeName} &lt;${safeEmail}&gt;.</p>` +
+      subject: (consult.country_unknown ? 'Check this lead: ' : `New ${row.kind} enquiry, `) + row.name,
+      html: `<p>New ${origin} (<strong>${safeKind}</strong>) from ${safeName} &lt;${safeEmail}&gt;.</p>` +
+        (alertLine ? `<p><strong>${escapeHtml(alertLine)}</strong></p>` : '') +
         (row.practice_name ? `<p>Practice: ${safePracticeName}</p>` : '') +
         (row.phone ? `<p>Phone: ${safePhone}</p>` : '') +
-        (row.state ? `<p>State: ${safeState}</p>` : '') +
+        (countryLine ? `<p>${countryLine}</p>` : '') +
         (safeMessage ? `<p>${safeMessage}</p>` : ''),
-      text: `New ${row.kind} enquiry from ${row.name} (${row.email}).\n` +
+      text: `New ${row.kind} enquiry from ${row.name} (${row.email}) via ${origin}.\n` +
+        (alertLine ? `${alertLine}\n` : '') +
         (row.practice_name ? `Practice: ${row.practice_name}\n` : '') +
         (row.phone ? `Phone: ${row.phone}\n` : '') +
-        (row.state ? `State: ${row.state}\n` : '') +
+        (consult.country_raw
+          ? `Country: ${consult.country_raw}${consult.country === 'other' ? ' (not a country we place)' : ` (${consult.country})`}\n`
+          : (row.state ? `State: ${row.state}\n` : '')) +
         (row.message ? `\n${row.message}` : '')
     });
   } catch (err) {

@@ -169,6 +169,51 @@ describe('facebook-lead webhook — GP form branch', () => {
     expect(row.metadata.consult.screened_out).toBe(true);
   });
 
+  // End-to-end proof of the 2026-08-13 loss: a UK GP whose country question
+  // carries a field name we never anticipated must come out QUALIFIED with a
+  // token, because a screened_out lead is emailed nothing, ever.
+  it('qualifies a UK GP even when the country question has an unrecognised field name', async () => {
+    const body = nativeFbBody();
+    body.entry[0].changes[0].value.leadgen_id = 'L-1003';
+    body.entry[0].changes[0].value.field_data = [
+      { name: 'full_name', values: ['Rabeeaa'] },
+      { name: 'email', values: ['rabeeaa@example.com'] },
+      { name: 'phone_number', values: ['+447342960304'] },
+      { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+      { name: 'in_which_nation_did_you_qualify_5b2?', values: ['United Kingdom'] },
+      { name: "anything_you'd_like_us_to_cover_on_the_call?", values: ['Contract details'] },
+    ];
+    const res = await post(WH, body);
+    expect(res.status).toBe(200);
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.country).toBe('uk');
+    expect(row.metadata.consult.qualified).toBe(true);
+    expect(typeof row.metadata.consult.token).toBe('string');
+    expect(row.metadata.consult.screened_out).toBeUndefined();
+    // Their own words are kept, so the alert can never read a bare "other".
+    expect(row.metadata.consult.country_raw).toBe('United Kingdom');
+    expect(row.metadata.fb_field_names).toContain('in_which_nation_did_you_qualify_5b2?');
+  });
+
+  // A country we could not READ is not a doctor we decided to turn away, and
+  // must not be filed under the same terminal label.
+  it('flags an unreadable country for a human instead of silently screening out', async () => {
+    const body = nativeFbBody();
+    body.entry[0].changes[0].value.leadgen_id = 'L-1004';
+    body.entry[0].changes[0].value.field_data = [
+      { name: 'full_name', values: ['Unknown Origin'] },
+      { name: 'email', values: ['unknown@example.com'] },
+      { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+      { name: 'anything_else?', values: ['Just exploring'] },
+    ];
+    const res = await post(WH, body);
+    expect(res.status).toBe(200);
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.qualified).toBe(false);
+    expect(row.metadata.consult.country_unknown).toBe(true);
+    expect(row.metadata.consult.screened_out).toBeUndefined();
+  });
+
   it('a form NOT in the allow-list falls through to the practice path', async () => {
     const body = nativeFbBody();
     body.entry[0].changes[0].value.form_id = 'F-UNKNOWN';

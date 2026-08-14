@@ -10,6 +10,7 @@ const {
   parseGpFormIds,
   parseYesNo,
   parseCountryAnswer,
+  resolveFbLeadCountry,
   normalizeFacebookGpLead,
   validateConsultLeadPayload,
   nextConsultNudge,
@@ -162,6 +163,107 @@ describe('normalizeFacebookGpLead', () => {
     expect(lead.name).not.toMatch(/[<>&]/);
     expect(lead.name).toBe('Khan bevil/b');
     expect(lead.question).not.toMatch(/[<>&]/);
+  });
+});
+
+// 2026-08-13 — the first REAL lead through this funnel was screened out while
+// answering "United Kingdom". Whatever Meta named that question's field, it
+// matched none of our key hints, so the country resolved to 'other', the lead
+// was filed screened_out, and she was never emailed at all: no magic link, and
+// nextConsultNudge drops a screened_out lead forever.
+//
+// It hid because every "qualified" row in prod before her was a simulator lead
+// built with the key WE chose — the old tests asserted our own assumption about
+// Meta's naming rather than Meta's behaviour. These use a key that deliberately
+// matches NO hint, which is the only honest stand-in for a form we don't
+// control. Do not "fix" them by renaming the key to something we match.
+describe('normalizeFacebookGpLead — country comes from the ANSWER, not the key', () => {
+  function bodyWithCountryKey(key, answer, extra = []) {
+    return nativeFbBody({
+      field_data: [
+        { name: 'full_name', values: ['Rabeeaa'] },
+        { name: 'email', values: ['rabeeaa@example.com'] },
+        { name: 'phone_number', values: ['+447342960304'] },
+        { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+        { name: key, values: [answer] },
+        ...extra,
+      ],
+    });
+  }
+
+  it('recovers the country when the question key matches nothing we expect', () => {
+    const lead = normalizeFacebookGpLead(
+      bodyWithCountryKey('qualification_origin_5b2?', 'United Kingdom'), ['F-77']);
+    expect(lead.country).toBe('uk');
+    expect(lead.countrySource).toBe('answers');
+    expect(lead.countryRaw).toBe('United Kingdom');
+    // The whole point: this lead now passes screening instead of vanishing.
+    expect(screenConsultLead({ isGp: lead.isGp, country: lead.country })).toBe(true);
+  });
+
+  it('recovers ie and nz the same way', () => {
+    expect(normalizeFacebookGpLead(bodyWithCountryKey('q2', 'Ireland'), ['F-77']).country).toBe('ie');
+    expect(normalizeFacebookGpLead(bodyWithCountryKey('q2', 'New Zealand'), ['F-77']).country).toBe('nz');
+  });
+
+  it('still prefers a real country question when one is recognisable', () => {
+    // Keyed answer wins, so a stray country mentioned in free text cannot
+    // overrule what they actually picked.
+    const lead = normalizeFacebookGpLead(nativeFbBody({
+      field_data: [
+        { name: 'full_name', values: ['Aisha Khan'] },
+        { name: 'email', values: ['aisha@example.co.uk'] },
+        { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+        { name: 'where_did_you_complete_your_gp_training?', values: ['Ireland'] },
+        { name: 'anything_else?', values: ['I trained in New Zealand originally'] },
+      ],
+    }), ['F-77']);
+    expect(lead.country).toBe('ie');
+    expect(lead.countrySource).toBe('question');
+  });
+
+  it('never guesses a country from a name, email or phone number', () => {
+    const lead = normalizeFacebookGpLead(nativeFbBody({
+      field_data: [
+        { name: 'full_name', values: ['Gareth Wales'] },
+        { name: 'email', values: ['gareth@practice.nhs.uk'] },
+        { name: 'phone_number', values: ['+447700900123'] },
+        { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
+      ],
+    }), ['F-77']);
+    expect(lead.country).toBe('other');
+    expect(lead.countrySource).toBe('none');
+  });
+
+  it('keeps an explicit answer we do not serve as their own words', () => {
+    const lead = normalizeFacebookGpLead(
+      bodyWithCountryKey('where_did_you_complete_your_gp_training?', 'India'), ['F-77']);
+    expect(lead.country).toBe('other');
+    expect(lead.countrySource).toBe('question');
+    expect(lead.countryRaw).toBe('India');
+  });
+
+  it('reports source "none" when the form named no country anywhere', () => {
+    const lead = normalizeFacebookGpLead(
+      bodyWithCountryKey('unrelated_q?', 'Contract details'), ['F-77']);
+    expect(lead.country).toBe('other');
+    expect(lead.countrySource).toBe('none');
+  });
+
+  it('records the field names Meta sent so the next mystery is answerable', () => {
+    const lead = normalizeFacebookGpLead(bodyWithCountryKey('mystery_key?', 'United Kingdom'), ['F-77']);
+    expect(lead.fieldNames).toContain('mystery_key?');
+    expect(lead.fieldNames).toContain('are_you_a_currently_registered_gp?');
+  });
+});
+
+describe('resolveFbLeadCountry', () => {
+  it('reads a country out of a free-text answer when there is no country question', () => {
+    expect(resolveFbLeadCountry({ 'anything?': 'I am a GP in Scotland' }))
+      .toMatchObject({ country: 'uk', source: 'answers' });
+  });
+  it('returns source none for an empty form', () => {
+    expect(resolveFbLeadCountry({})).toMatchObject({ country: 'other', source: 'none' });
   });
 });
 
