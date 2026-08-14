@@ -45,7 +45,12 @@
   // parse-time SyntaxError — the whole script block died, so My Practice showed
   // a permanent spinner and the crash toast. The fixed HTML only reaches a
   // doctor who already has the broken page cached if VERSION moves.
-  var VERSION = "20260814a";
+  // 20260814b: index.html's journey list stopped rebuilding itself on every
+  // cross-tab gp_career_state event, which was destroying the "Continue" anchor
+  // between finger-down and click — the AHPRA step's button did nothing for a
+  // doctor with several tabs open. 20260814a had already shipped, so a doctor
+  // who cached that generation needs a further bump to be served the fix.
+  var VERSION = "20260814b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

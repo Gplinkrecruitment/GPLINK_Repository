@@ -18720,7 +18720,19 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     let nextSecured = nxt.career.career_secured === true || nxt.career.secured === true;
     if (!nextSecured && Array.isArray(nxt.career.applications)) { nextSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
     if (!prevSecured && nextSecured) {
-      const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&status=in.(open,in_progress,waiting)');
+      // Close the OPEN job-search / application tasks now that a placement exists.
+      // 🧨 practice_pack_child is EXCLUDED on purpose. Those tasks are created a few
+      // lines below under this same related_stage ('career'), so on any RE-FIRE of this
+      // transition (the client can post a career blob where career_secured flips
+      // false→true again — a stale localStorage sync is enough) this sweep matched the
+      // pack tasks it had created the previous time and marked the practice's whole
+      // document pack 'completed' by 'system' with NO task_documents attached. Admin's
+      // open queue then went quiet, the practice was never asked for anything, and
+      // SPPA-00 sat 'deferred' forever because its prerequisites looked complete but
+      // carried no files. Hit Dr Sana Ahsan (case bebb0985…): pack created 2026-07-08
+      // 15:07, silently swept 2026-07-09 07:48. A document-collection task must only
+      // complete when a document actually lands — never as collateral of a stage sweep.
+      const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&task_type=neq.practice_pack_child&status=in.(open,in_progress,waiting)');
       if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
       if (!(await _hasOpenTask(caseId, 'career', 'practice_pack_child'))) {
         const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };

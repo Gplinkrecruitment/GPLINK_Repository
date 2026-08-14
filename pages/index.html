@@ -1760,14 +1760,55 @@
       let currentIdx = stages.findIndex(s => !s.done && !s.locked);
       if (currentIdx === -1) currentIdx = stages.length - 1;
 
+      // 🧨 Do NOT rebuild the list unless something it displays actually changed.
+      // renderDashboard() re-runs on every cross-tab "storage" event for
+      // gp_career_state, and this function used to answer that with
+      // listEl.innerHTML = "" — destroying and recreating every row. A doctor with
+      // several GP Link tabs open (state-sync writes that key in ANY of them) could
+      // therefore have the row wiped between finger-down and the click being
+      // dispatched, and a tap on "Continue" silently did nothing: the anchor it
+      // started on no longer existed, so no click event was ever delivered. Tapping
+      // again might work, or might race the next write — which is exactly how it was
+      // reported ("the Continue button is not working"). The vast majority of those
+      // events change nothing on screen, so comparing a signature first removes the
+      // race entirely; a real change still re-renders (and preserves the open row
+      // below). Same class of bug as the CV-gate being killed by a stray re-render.
+      const renderSig = JSON.stringify([
+        bypassAll,
+        currentIdx,
+        stages.map(s => [s.key, s.title, s.description, s.num, s.done, s.locked, s.lockReason,
+          liveSubText[s.key] || s.lockReason || s.description])
+      ]);
+      if (listEl.dataset.journeySig === renderSig && listEl.children.length === stages.length) return;
+
+      // Keep whichever row the doctor opened BY HAND, so a genuine re-render can't
+      // collapse the panel they are reading (or are mid-tap inside). Only their own
+      // toggle counts — otherwise the boot render's default (career, before state
+      // hydration fills the snapshot in) would stick and the real current stage
+      // would come back collapsed.
+      const userOpenedKeys = new Set(
+        listEl.dataset.journeyUserOpened
+          ? Array.prototype.slice.call(listEl.querySelectorAll(".journey-step.open"))
+              .map(el => el.getAttribute("data-journey-step"))
+              .filter(Boolean)
+          : []
+      );
+      const honourUserOpen = !!listEl.dataset.journeyUserOpened;
+
       const checkSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
 
       listEl.innerHTML = "";
+      listEl.dataset.journeySig = renderSig;
       stages.forEach((step, idx) => {
         const stepReturnable = step.done && (bypassAll || isRegistrationReturnAllowed(step.key));
         const isActive = idx === currentIdx && !step.done;
         const stateClass = step.done ? "done" : step.locked ? "locked" : isActive ? "active" : "";
-        const isOpen = isActive || (bypassAll && idx === currentIdx) || (stepReturnable && idx === currentIdx);
+        const defaultOpen = isActive || (bypassAll && idx === currentIdx) || (stepReturnable && idx === currentIdx);
+        // On a re-render, honour what the doctor had open rather than snapping back
+        // to the default row (locked rows have no body, so they never re-open).
+        const isOpen = step.locked ? false
+          : honourUserOpen ? userOpenedKeys.has(step.key)
+          : defaultOpen;
         // Locked rows explain WHY they're locked instead of a silent grey row.
         const subText = liveSubText[step.key] || step.lockReason || step.description;
 
@@ -1811,6 +1852,9 @@
               el.classList.add("open");
               headBtn.setAttribute("aria-expanded", "true");
             }
+            // From here on this doctor's own choice of open row wins over the
+            // default, so a background re-render can't collapse what they opened.
+            listEl.dataset.journeyUserOpened = "1";
           });
         } else {
           const headBtn = el.querySelector(".journey-head");
