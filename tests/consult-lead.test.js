@@ -11,6 +11,7 @@ const {
   parseYesNo,
   parseCountryAnswer,
   resolveFbLeadCountry,
+  looksLikeGpLeadForm,
   normalizeFacebookGpLead,
   validateConsultLeadPayload,
   nextConsultNudge,
@@ -254,6 +255,25 @@ describe('normalizeFacebookGpLead — country comes from the ANSWER, not the key
     const lead = normalizeFacebookGpLead(bodyWithCountryKey('mystery_key?', 'United Kingdom'), ['F-77']);
     expect(lead.fieldNames).toContain('mystery_key?');
     expect(lead.fieldNames).toContain('are_you_a_currently_registered_gp?');
+  });
+});
+
+describe('looksLikeGpLeadForm', () => {
+  it('recognises a doctor answering our GP form', () => {
+    expect(looksLikeGpLeadForm([
+      { name: 'full_name' }, { name: 'email' },
+      { name: 'are_you_a_currently_registered_gp?' },
+    ])).toBe(true);
+  });
+  it('does NOT claim a practice enquiry that happens to mention GPs', () => {
+    expect(looksLikeGpLeadForm([
+      { name: 'practice_name' }, { name: 'email' },
+      { name: 'are_you_a_registered_gp_practice?' }, { name: 'gp_needed_by' },
+    ])).toBe(false);
+  });
+  it('is false for an empty or answerless payload', () => {
+    expect(looksLikeGpLeadForm([])).toBe(false);
+    expect(looksLikeGpLeadForm(undefined)).toBe(false);
   });
 });
 

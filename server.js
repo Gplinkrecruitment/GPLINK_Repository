@@ -13650,6 +13650,24 @@ async function handleFacebookLeadWebhook(req, res) {
 
 // One lead, start to finish. Returns { status, body } instead of writing to the
 // response so the caller can process a batch and answer once.
+// A lead we could not route is worth an email, not a console line. Best-effort:
+// the webhook's own answer must never depend on whether this send worked.
+async function notifyFacebookLeadProblem(input) {
+  const to = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim() || GP_OWNER_EMAIL;
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  try {
+    console.error('[fb-lead-webhook]', input.subject, '|', lines.join(' | '));
+    await sendEmail({
+      to,
+      subject: input.subject,
+      html: lines.map((l) => '<p>' + String(l).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>').join(''),
+      text: lines.join('\n')
+    });
+  } catch (err) {
+    console.error('[fb-lead-webhook] problem alert failed:', err && err.message);
+  }
+}
+
 async function processFacebookLeadDelivery(body, req, ip) {
   // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
   // site_enquiries as consult leads instead of the practice pipeline.
@@ -13689,6 +13707,50 @@ async function processFacebookLeadDelivery(body, req, ip) {
       catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
     }
     return { status: 200, body: { ok: true, kind: 'gp_lead', lead_id: gpRow.id } };
+  }
+
+  // Everything below this line is the PRACTICE path. A doctor must never reach
+  // it: two ways in, both of which used to be silent, so both now shout.
+  const deliveryValue = body && body.entry && body.entry[0] && body.entry[0].changes &&
+    body.entry[0].changes[0] && body.entry[0].changes[0].value;
+  const deliveryFields = deliveryValue && Array.isArray(deliveryValue.field_data)
+    ? deliveryValue.field_data : null;
+
+  // (1) A real lead arrived and we could not read a single answer. That means
+  // hydration failed — almost always an expired/missing FB_PAGE_ACCESS_TOKEN,
+  // since Meta's webhook carries only ids. Every lead in the campaign is being
+  // dropped while the ads look perfectly healthy, and the only trace used to be
+  // a console line nobody reads. 500 so Meta retries a transient blip.
+  if (deliveryValue && deliveryValue.leadgen_id && !(deliveryFields && deliveryFields.length)) {
+    await notifyFacebookLeadProblem({
+      subject: 'Facebook leads are being DROPPED — cannot read the answers',
+      lines: [
+        'A Facebook lead arrived but carried no answers, so it could not be stored.',
+        'Meta sends only ids, so this is almost certainly an expired or missing FB_PAGE_ACCESS_TOKEN.',
+        'Every lead from the running ads is being lost until that token is refreshed.',
+        'Lead id: ' + String(deliveryValue.leadgen_id),
+        'Form id: ' + String(deliveryValue.form_id || 'unknown')
+      ]
+    });
+    return { status: 500, body: { ok: false, error: 'lead_answers_unavailable' } };
+  }
+
+  // (2) A GP form we can read, whose id nobody added to FB_GP_LEAD_FORM_IDS.
+  // Left alone it becomes a "practice" named after the doctor and she gets a
+  // practice-intake email. Refuse, and name the form id that fixes it.
+  if (deliveryFields && consultLead.looksLikeGpLeadForm(deliveryFields)) {
+    await notifyFacebookLeadProblem({
+      subject: 'Doctor lead from an unrecognised form — add the form id',
+      lines: [
+        'A Facebook lead looks like a DOCTOR answering the GP form, but its form id is not in FB_GP_LEAD_FORM_IDS.',
+        'It has NOT been saved, and nothing was emailed to them — the alternative was filing them as a practice and sending a practice-intake link.',
+        'Add this form id to FB_GP_LEAD_FORM_IDS in Vercel, then the lead can be re-sent from Meta:',
+        'Form id: ' + String((deliveryValue && deliveryValue.form_id) || 'unknown'),
+        'Lead id: ' + String((deliveryValue && deliveryValue.leadgen_id) || 'unknown'),
+        'Questions on the form: ' + deliveryFields.map((f) => f && f.name).filter(Boolean).join(', ')
+      ]
+    });
+    return { status: 200, body: { ok: true, action: 'gp_form_not_allowlisted' } };
   }
 
   const lead = practicePipeline.normalizeFacebookLeadPayload(body);

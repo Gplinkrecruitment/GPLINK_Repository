@@ -214,13 +214,50 @@ describe('facebook-lead webhook — GP form branch', () => {
     expect(row.metadata.consult.screened_out).toBeUndefined();
   });
 
-  it('a form NOT in the allow-list falls through to the practice path', async () => {
+  // A doctor must never be filed as a clinic and sent a practice-intake link.
+  it('refuses the practice path for a GP form whose id is not allow-listed', async () => {
     const body = nativeFbBody();
-    body.entry[0].changes[0].value.form_id = 'F-UNKNOWN';
-    // practice normalizer requires practice_name or contact_email — email is present, so it creates a practice
+    body.entry[0].changes[0].value.form_id = 'F-NOT-LISTED';
+    body.entry[0].changes[0].value.leadgen_id = 'L-1005';
+    const res = await post(WH, body);
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ ok: true, action: 'gp_form_not_allowlisted' });
+    // Neither store was touched: no bogus practice, no consult lead.
+    const db = readDb();
+    expect((db.atsPractices || []).length).toBe(0);
+    expect((db.siteEnquiries || []).length).toBe(0);
+  });
+
+  // If the answers cannot be read at all, every lead in the campaign is being
+  // lost — that has to be loud, and retryable.
+  it('fails loudly when a real lead arrives with no readable answers', async () => {
+    const res = await post(WH, {
+      entry: [{ changes: [{ value: { leadgen_id: '9988776655443322', form_id: 'F-77' } }] }],
+    });
+    expect(res.status).toBe(500);
+    expect(res.json).toMatchObject({ ok: false, error: 'lead_answers_unavailable' });
+    expect((readDb().atsPractices || []).length).toBe(0);
+  });
+
+  it('a form NOT in the allow-list falls through to the practice path', async () => {
+    // A real PRACTICE enquiry — it names a practice. (This fixture used to be
+    // the GP form with a swapped id, which meant it was proving the practice
+    // path with a doctor's answers: the exact confusion the guard above now
+    // refuses. A practice-shaped payload keeps the fallback genuinely covered.)
+    const body = nativeFbBody({
+      form_id: 'F-UNKNOWN',
+      leadgen_id: 'L-1006',
+      field_data: [
+        { name: 'practice_name', values: ['Bayside Family Clinic'] },
+        { name: 'full_name', values: ['Practice Manager'] },
+        { name: 'email', values: ['manager@baysideclinic.example'] },
+        { name: 'city', values: ['Geelong'] },
+      ],
+    });
     const res = await post(WH, body);
     expect(res.status).toBe(200);
     expect(res.json.kind).toBeUndefined();
+    expect(res.json.action).toBeUndefined();
     expect((readDb().siteEnquiries || []).length).toBe(0);
   });
 
@@ -388,10 +425,16 @@ describe('Graph API hydration (the shape Meta really sends)', () => {
     expect(called).toBe(false);
   });
 
-  it('survives a missing token without throwing (webhook still answers)', async () => {
+  it('answers a missing token loudly and retryably, without throwing', async () => {
     const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', realFbBody());
-    expect([200, 400]).toContain(res.status);
     expect(res.json).toBeTruthy();
+    // No token ⇒ no answers ⇒ the lead cannot be stored. This used to be a
+    // quiet 400 'unrecognized_payload', which looked like a malformed payload
+    // rather than "the whole campaign is being dropped". 500 is deliberate:
+    // Meta retries it, so a transient failure — or a token refreshed quickly
+    // after the alert — recovers leads that are otherwise gone for good.
+    expect(res.status).toBe(500);
+    expect(res.json.error).toBe('lead_answers_unavailable');
   });
 
   it('survives a Graph API error without throwing', async () => {
