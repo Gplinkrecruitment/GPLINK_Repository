@@ -26167,13 +26167,28 @@ async function maybeNotifySiteEnquiry(row) {
     // Show their words. "State: other" reads like an unqualified lead even when
     // they typed "United Kingdom" — that wording is part of why the first real
     // lead sat unanswered for 17 hours.
+    // Report what we KNOW and what we merely GUESSED, separately. The old line
+    // appended "(not a country we place)" to anything scoring 'other', which stated
+    // our reading as fact: the owner was told a registered UK GP who answered
+    // "united_kingdom" was from a country we do not place. An alert that asserts a
+    // wrong conclusion is worse than one that admits doubt, because it stops the
+    // human who could have caught it from looking.
+    const countryVerdict = () => {
+      if (consult.country_inferred_from_phone) {
+        return ` (we could NOT read this answer; the phone number says ${String(consult.country || '').toUpperCase()}, so they have been treated as eligible)`;
+      }
+      if (consult.country_unknown) return ' (we could NOT read this answer)';
+      if (consult.country && consult.country !== 'other') return ` (${escapeHtml(consult.country)})`;
+      return ' (not a country we place)';
+    };
     const countryLine = consult.country_raw
-      ? `Country: ${escapeHtml(consult.country_raw)}` +
-        (consult.country === 'other' ? ' (not a country we place)' : ` (${escapeHtml(consult.country)})`)
-      : (row.state ? `State: ${safeState}` : '');
+      ? `Country: ${escapeHtml(consult.country_raw)}${countryVerdict()}`
+      : (consult.country_unknown ? 'Country: (no answer we could find)' : (row.state ? `State: ${safeState}` : ''));
     const alertLine = consult.country_unknown
-      ? 'NEEDS A LOOK: this form named no country, so we could not screen them. '
-        + 'They are NOT being emailed automatically — check the lead before dismissing it.'
+      ? 'NEEDS A LOOK: we could not tell where this doctor is registered, so nobody has '
+        + 'screened them. They have NOT been turned away and are NOT being emailed '
+        + 'automatically. If they are a UK, Ireland or New Zealand GP, they are eligible: '
+        + 'check before dismissing this.'
       : '';
     await sendEmail({
       to: notifyTo,
@@ -26189,8 +26204,14 @@ async function maybeNotifySiteEnquiry(row) {
         (row.practice_name ? `Practice: ${row.practice_name}\n` : '') +
         (row.phone ? `Phone: ${row.phone}\n` : '') +
         (consult.country_raw
-          ? `Country: ${consult.country_raw}${consult.country === 'other' ? ' (not a country we place)' : ` (${consult.country})`}\n`
-          : (row.state ? `State: ${row.state}\n` : '')) +
+          ? `Country: ${consult.country_raw}${
+              consult.country_inferred_from_phone
+                ? ` (we could NOT read this answer; the phone number says ${String(consult.country || '').toUpperCase()}, so they have been treated as eligible)`
+                : consult.country_unknown
+                  ? ' (we could NOT read this answer)'
+                  : (consult.country && consult.country !== 'other' ? ` (${consult.country})` : ' (not a country we place)')
+            }\n`
+          : (consult.country_unknown ? 'Country: (no answer we could find)\n' : (row.state ? `State: ${row.state}\n` : ''))) +
         (row.message ? `\n${row.message}` : '')
     });
   } catch (err) {
