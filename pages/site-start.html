@@ -485,12 +485,15 @@
       btn.disabled = false;
       if (r.json && r.json.found) {
         // Same treatment as any other recognition: qualified straight to the
-        // calendar, unqualified to the turndown — never a form they'd only
-        // fail again.
-        enterRecognisedLead({
-          displayName: r.json.displayName, email: r.json.email || em,
-          token: r.json.token, qualified: r.json.qualified
-        });
+        // calendar, a confirmed decline to the turndown, and anything we could
+        // not read to the ordinary form.
+        // 🧨 Hand-copying the fields here dropped `undecided`, so this route kept
+        // showing the refusal screen to a doctor the server had explicitly marked
+        // as "no decision made". It matters more than it looks: /start?src=fb is
+        // the ad's own landing URL and it opens on the email-match box, so this
+        // was the likeliest path of all for the next Louise. Pass the payload
+        // through and let one function own the branching.
+        enterRecognisedLead(Object.assign({}, r.json, { email: r.json.email || em }));
       } else {
         document.getElementById('cfEmail').value = em;
         show('bookForm');

@@ -284,6 +284,70 @@ describe('SWEEP: no eligible doctor is turned away, however she phrases it', () 
   });
 });
 
+describe('a training answer is not evidence about registration', () => {
+  // Eligibility turns on where a doctor is REGISTERED. The live Meta form asks where
+  // she TRAINED. A GMC-registered UK GP who trained overseas answers truthfully, and
+  // judging that as if it named her country of registration reproduces the Louise
+  // outcome by parsing the answer perfectly and asking the wrong question.
+  it('does not terminally decline a doctor who trained abroad but phones from the UK', () => {
+    const c = decide({
+      country: 'other', countryRaw: 'india', countryRecognised: true,
+      countryQuestionKind: 'training', phone: '+447700900123', isGp: true
+    });
+    expect(c.screened_out).toBeUndefined();
+    expect(c.country_unknown).toBe(true);
+    expect(c.trained_overseas_needs_check).toBe(true);
+  });
+
+  it('does not auto-qualify her either - a human decides', () => {
+    const c = decide({
+      country: 'other', countryRaw: 'india', countryRecognised: true,
+      countryQuestionKind: 'training', phone: '+447700900123', isGp: true
+    });
+    expect(c.qualified).toBe(false);
+    expect(c.country_inferred_from_phone).toBeUndefined();
+  });
+
+  it('STILL declines someone who trained abroad and phones from abroad', () => {
+    const c = decide({
+      country: 'other', countryRaw: 'india', countryRecognised: true,
+      countryQuestionKind: 'training', phone: '+919812345678', isGp: true
+    });
+    expect(c.screened_out).toBe(true);
+  });
+
+  it('STILL declines on a REGISTRATION answer naming somewhere we do not serve', () => {
+    const c = decide({
+      country: 'other', countryRaw: 'australia', countryRecognised: true,
+      countryQuestionKind: 'registration', phone: '+447700900123', isGp: true
+    });
+    expect(c.screened_out).toBe(true);
+  });
+
+  it('classifies the live form as a training question', () => {
+    expect(consultLead.countryQuestionKind({ '_where_did_you_complete_your_gp_training?': 'x' })).toBe('training');
+    expect(consultLead.countryQuestionKind({ 'where_are_you_registered': 'x' })).toBe('registration');
+    // A registration question wins when a form asks both.
+    expect(consultLead.countryQuestionKind({
+      '_where_did_you_complete_your_gp_training?': 'x', 'where_are_you_registered': 'y'
+    })).toBe('registration');
+  });
+});
+
+describe('opt-out answers are matched exactly, never as substrings', () => {
+  it('treats a bare "Other" as a real opt-out', () => {
+    expect(isRecognisedCountryAnswer('other')).toBe(true);
+    expect(isRecognisedCountryAnswer('none_of_the_above')).toBe(true);
+  });
+  it('does not read "other" inside ordinary words as an opt-out', () => {
+    // "another region" / "mother and baby unit" must stay UNREADABLE, not become a
+    // decline - a substring match here would manufacture the exact false rejection
+    // this whole file exists to prevent.
+    expect(isRecognisedCountryAnswer('another region')).toBe(false);
+    expect(isRecognisedCountryAnswer('mother and baby unit')).toBe(false);
+  });
+});
+
 describe('multi-value answers are not silently truncated', () => {
   it('keeps every value, so a country in the second one is still found', () => {
     const lead = normalizeFacebookGpLead({
