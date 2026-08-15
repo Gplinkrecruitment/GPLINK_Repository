@@ -14371,8 +14371,13 @@ async function processFacebookLeadDelivery(body, req, ip) {
     }
     const gpRow = buildConsultLeadRow({
       name: gpLead.name || gpLead.email, email: gpLead.email, phone: gpLead.phone,
-      isGp: gpLead.isGp === true, country: gpLead.country, question: gpLead.question,
+      // Pass isGp THROUGH, don't coerce. parseYesNo returns null for "we could not
+      // read the answer", and `=== true` flattened that into a flat false — which
+      // buildConsultLeadRow could not tell from a doctor answering "no". Unknown
+      // must stay unknown all the way to the decision.
+      isGp: gpLead.isGp, country: gpLead.country, question: gpLead.question,
       countryRaw: gpLead.countryRaw, countrySource: gpLead.countrySource,
+      countryRecognised: gpLead.countryRecognised,
       fieldNames: gpLead.fieldNames,
       source: 'meta_lead_ad', leadId: gpLead.leadId, ip: ip,
       userAgent: req.headers['user-agent']
@@ -23409,6 +23414,10 @@ async function captureCalendlyDirectBookerLead(d) {
     // the Calendly link. Both stay unqualified (so both stay nudge-ineligible), but the
     // leads view must be able to tell "failed screening" from "never screened".
     delete row.metadata.consult.screened_out;
+    // Same reasoning for country_unknown: we never asked this person a country
+    // question, so "we could not read their answer" is not true either. Only
+    // not_screened describes a direct Calendly booker honestly.
+    delete row.metadata.consult.country_unknown;
     row.metadata.consult.not_screened = true;
 
     const ok = await insertSiteEnquiryRow(row);
@@ -25608,6 +25617,11 @@ function consultRecognitionPayload(row) {
     ok: true,
     found: true,
     qualified: consult.qualified === true,
+    // A lead we merely failed to READ must never be shown "we can't take this one
+    // on". The turndown is for a decision we actually made; country_unknown is the
+    // state that says we made no decision. /start uses this to fall back to the
+    // ordinary booking form (ask, don't assume) instead of the refusal screen.
+    undecided: consult.country_unknown === true && consult.screened_out !== true,
     displayName: consultLead.consultDisplayName(row.name),
     fullName: row.name || '',
     email: row.email || '',
@@ -25709,7 +25723,7 @@ function _capUtm(utm) {
 }
 
 function buildConsultLeadRow(input) {
-  const qualified = consultLead.screenConsultLead({ isGp: input.isGp, country: input.country });
+  let qualified = consultLead.screenConsultLead({ isGp: input.isGp, country: input.country });
   const consult = {
     qualified,
     is_gp: input.isGp === true,
@@ -25721,14 +25735,56 @@ function buildConsultLeadRow(input) {
   // unreadable to whoever picks the lead up (see resolveFbLeadCountry).
   if (input.countryRaw) consult.country_raw = String(input.countryRaw).slice(0, 200);
   if (input.countrySource) consult.country_source = input.countrySource;
-  // "We could not read a country" is NOT the same as "they told us a country we
-  // don't serve", and must never be recorded as if it were. A screened_out lead
-  // is terminal — nextConsultNudge drops it forever — so a parsing failure filed
-  // under that label buries a doctor nobody ever decided to turn away.
-  const countryUnreadable = input.isGp === true && !qualified && input.countrySource === 'none';
+
+  // ── THE GOVERNING RULE ────────────────────────────────────────────────────
+  // We turn a doctor away only when we can point at the evidence for it.
+  // Failing to understand someone is never evidence about them.
+  //
+  // 🧨 This is the line that lost the same doctor twice. It used to read
+  //     input.countrySource === 'none'
+  // i.e. "did we FIND a country question?" — when the question that matters is
+  // "did we UNDERSTAND the answer?". Louise Beet answered the country question,
+  // so source was 'question', so she was filed screened_out: terminal in
+  // nextConsultNudge, no magic link, and the /start page told a registered UK GP
+  // "we can't take this one on". The first incident (Rabeeaa) was the same
+  // mistake wearing a different hat: b12cc37 taught us to FIND the answer, but
+  // left this line judging on the wrong signal, so the next unreadable spelling
+  // walked straight back through the gap.
+  //
+  // A decline now requires ONE of:
+  //   - they positively named somewhere we recognise and do not serve (including
+  //     the form's own "Other"/"none of the above" option), or
+  //   - they positively told us they are not a registered GP.
+  // Anything else is our failure to read them, and a human decides.
+  const saidNotAGp = input.isGp === false;
+  // Careful: "not qualified" is NOT the same as "named somewhere we do not serve".
+  // A doctor can answer "United Kingdom" and still be unqualified because the GP
+  // question was the unreadable one. Judging the decline off `!qualified` would
+  // turn that doctor away on the strength of an answer that was actually correct,
+  // which is the very mistake this block exists to prevent. Ask about the COUNTRY.
+  const servedCountry = consultLead.SUPPORTED_CONSULT_COUNTRIES.includes(String(input.country || '').toLowerCase());
+  const namedSomewhereWeDoNotServe = input.countryRecognised === true && !servedCountry;
+  const confidentDecline = saidNotAGp || namedSomewhereWeDoNotServe;
+
+  // Corroboration, used ONLY to rescue a doctor we could not read. Both real Meta
+  // leads to date arrived with a +44 number, and the ads are targeted at the UK,
+  // so an unreadable answer plus a served dialling code is far more likely to be
+  // a parsing miss than an ineligible doctor. It never overrides an answer we DID
+  // understand, so someone who typed "Australia" is still declined.
+  if (!qualified && !confidentDecline && input.isGp !== false) {
+    const phoneCountry = consultLead.countryFromPhone(input.phone);
+    if (phoneCountry) {
+      qualified = true;
+      consult.qualified = true;
+      consult.country = phoneCountry;
+      consult.country_source = 'phone_inferred';
+      consult.country_inferred_from_phone = true;
+    }
+  }
+
   if (qualified) consult.token = consultLead.generateConsultToken();
-  else if (countryUnreadable) consult.country_unknown = true;
-  else consult.screened_out = true;
+  else if (confidentDecline) consult.screened_out = true;
+  else consult.country_unknown = true;
   return {
     id: crypto.randomUUID(),
     created_at: new Date().toISOString(),
@@ -40253,6 +40309,33 @@ async function handleApi(req, res, pathname) {
         }
         var cnConsult = cnMeta.consult;
         cnScanned++;
+        // ── Re-screen the leads we admitted we could not read ──────────────────
+        // Recognition improves; stored rows do not. Without this, a doctor scored
+        // before a parser fix stays wrong for ever — which is precisely how the
+        // first lost lead (Rabeeaa) sat unreachable until a human found her by
+        // hand. Only country_unknown rows are re-judged: those are the ones where
+        // we recorded "we made no decision". A screened_out row was an actual
+        // decision and is never silently reversed here.
+        if (cnConsult.country_unknown === true && cnConsult.qualified !== true && !cnConsult.call_booked) {
+          var cnReread = consultLead.parseCountryAnswer(cnConsult.country_raw || '');
+          var cnPhoneCountry = consultLead.countryFromPhone(cnRow.phone || '');
+          var cnNowCountry = cnReread !== 'other' ? cnReread : cnPhoneCountry;
+          if (cnNowCountry && cnConsult.is_gp !== false) {
+            var cnFixed = Object.assign({}, cnConsult, {
+              qualified: true,
+              country: cnNowCountry,
+              country_source: cnReread !== 'other' ? 'rescreened' : 'phone_inferred',
+              rescreened_at: new Date().toISOString()
+            });
+            delete cnFixed.country_unknown;
+            if (!cnFixed.token) cnFixed.token = consultLead.generateConsultToken();
+            var cnFixedMeta = Object.assign({}, cnMeta, { consult: cnFixed });
+            await updateSiteEnquiryRow(cnRow.id, { metadata: cnFixedMeta });
+            cnMeta = cnFixedMeta; cnConsult = cnFixed;
+            console.log('[consult-nudge] re-screened lead', cnRow.id, '->', cnNowCountry,
+              '(was unreadable:', JSON.stringify(cnConsult.country_raw || ''), ')');
+          }
+        }
         // Qualified-gate applies to the pre-booking funnel ONLY. A booked lead (screened
         // OR a never-screened direct Calendly booker) gets the signup drip regardless of
         // qualification — booking a call is the strongest intent there is. screened_out (an
@@ -45912,6 +45995,10 @@ async function handleApi(req, res, pathname) {
     }
 
     const row = buildConsultLeadRow(Object.assign({}, validated.value, {
+      // On our own form the country comes from a fixed set (uk/ie/nz/other) and
+      // isGp is a required boolean, so every value here is something the doctor
+      // deliberately selected. That IS positive evidence, so a decline is safe.
+      countryRecognised: true,
       source: 'site_start_form', utm: body.utm, ip, userAgent: req.headers['user-agent']
     }));
     const stored = await insertSiteEnquiryRow(row);

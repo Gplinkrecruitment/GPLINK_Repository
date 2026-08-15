@@ -408,6 +408,18 @@
       });
     }
     if (j.qualified && lead.token) { loadCalendly(j.displayName); return; }
+    // 🧨 Never show the refusal screen to someone we simply could not read.
+    // "We're sorry, we can't take this one on" is a DECISION, and a registered UK
+    // GP was shown it on 2026-08-14 purely because Meta sent her answer as the slug
+    // "united_kingdom". When the server says undecided, ask the question properly
+    // instead of asserting an answer: the ordinary form is pre-filled with what we
+    // do know, and her own reply settles it.
+    if (j.undecided) {
+      if (lead.email) { var ce = document.getElementById('cfEmail'); if (ce) ce.value = lead.email; }
+      if (j.fullName) { var cn = document.getElementById('cfName'); if (cn) cn.value = j.fullName; }
+      show('bookForm');
+      return;
+    }
     if (lead.email) document.getElementById('tdEmail').value = lead.email;
     show('bookTurndown');
   }
