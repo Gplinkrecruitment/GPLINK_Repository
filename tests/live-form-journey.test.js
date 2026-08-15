@@ -132,11 +132,14 @@ async function submit(trainingSlug, email) {
   return { row, consult: row && row.metadata.consult, emails: sentEmails.slice() };
 }
 
-describe('the three eligible choices reach the booking calendar', () => {
+describe('the four eligible choices reach the booking calendar', () => {
   for (const [label, slug, expected] of [
     ['United Kingdom', 'united_kingdom', 'uk'],
     ['Ireland', 'ireland', 'ie'],
-    ['New Zealand', 'new_zealand', 'nz']
+    ['New Zealand', 'new_zealand', 'nz'],
+    // Owner, 2026-08-15: an Australian-trained GP does not need the expedited
+    // pathway, but she is still placeable, so she must be able to book.
+    ['Australia', 'australia', 'au']
   ]) {
     it(`"${label}" qualifies, is emailed a booking link, and that link opens the calendar`, async () => {
       const email = slug + '@example.com';
@@ -163,9 +166,8 @@ describe('the three eligible choices reach the booking calendar', () => {
   }
 });
 
-describe('the two ineligible choices reach the turndown, and nothing else', () => {
+describe('only \"Somewhere else\" reaches the turndown', () => {
   for (const [label, slug] of [
-    ['Australia', 'australia'],
     ['Somewhere else', 'somewhere_else']
   ]) {
     it(`"${label}" is declined, gets no booking link, and is not left undecided`, async () => {
@@ -175,8 +177,8 @@ describe('the two ineligible choices reach the turndown, and nothing else', () =
       expect(consult.qualified).toBe(false);
       expect(consult.screened_out).toBe(true);
       // Where they trained IS the governing fact (MRCGP alone is not enough for the
-      // expedited pathway - the CCT comes from completing training there), so this is
-      // a real decline and must NOT be softened into the review queue.
+      // expedited pathway - the CCT comes from completing training there). "Somewhere
+      // else" is therefore a real decline, not a near-miss for the review queue.
       expect(consult.country_unknown).toBeUndefined();
       expect(consult.token).toBeUndefined();
 
@@ -189,8 +191,8 @@ describe('the two ineligible choices reach the turndown, and nothing else', () =
 
 describe('what the doctor is shown on /start', () => {
   it('a declined doctor is marked declined, not undecided, so she gets the turndown', async () => {
-    const email = 'australia-match@example.com';
-    await submit('australia', email);
+    const email = 'elsewhere-match@example.com';
+    await submit('somewhere_else', email);
     const r = await post('/api/public/consult-lead/match', { email });
     expect(r.status).toBe(200);
     expect(r.json.found).toBe(true);

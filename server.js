@@ -26195,7 +26195,7 @@ async function maybeNotifySiteEnquiry(row) {
     const alertLine = consult.country_unknown
       ? 'NEEDS A LOOK: we could not tell where this doctor is registered, so nobody has '
         + 'screened them. They have NOT been turned away and are NOT being emailed '
-        + 'automatically. If they are a UK, Ireland or New Zealand GP, they are eligible: '
+        + 'automatically. If they trained in the UK, Ireland, New Zealand or Australia, they are eligible: '
         + 'check before dismissing this.'
       : '';
     await sendEmail({

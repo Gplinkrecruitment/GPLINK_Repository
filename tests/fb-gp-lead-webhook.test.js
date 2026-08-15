@@ -345,7 +345,8 @@ describe('magic link on qualification', () => {
       { name: 'full_name', values: ['Bruce Wayne'] },
       { name: 'email', values: ['bruce@example.com.au'] },
       { name: 'are_you_a_currently_registered_gp?', values: ['Yes'] },
-      { name: '_where_did_you_complete_your_gp_training?', values: ['Australia'] },
+      // Australia is SERVED since 2026-08-15 - use a genuinely unserved country here.
+      { name: '_where_did_you_complete_your_gp_training?', values: ['South Africa'] },
     ];
     const res = await post('/api/webhooks/facebook-lead?secret=test-fb-secret', body);
     expect(res.json.kind).toBe('gp_lead');

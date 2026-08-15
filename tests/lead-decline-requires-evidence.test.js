@@ -78,8 +78,11 @@ describe('isRecognisedCountryAnswer separates "declined" from "unreadable"', () 
     expect(isRecognisedCountryAnswer('united_kingdom')).toBe(true);
     expect(isRecognisedCountryAnswer('New Zealand')).toBe(true);
   });
-  it('recognises a country we do NOT serve', () => {
+  it('recognises Australia, which we DO serve since 2026-08-15', () => {
     expect(isRecognisedCountryAnswer('australia')).toBe(true);
+    expect(parseCountryAnswer('australia')).toBe('au');
+  });
+  it('recognises a country we do NOT serve', () => {
     expect(isRecognisedCountryAnswer('south_africa')).toBe(true);
     expect(isRecognisedCountryAnswer('India')).toBe(true);
   });
@@ -97,12 +100,13 @@ describe('isRecognisedCountryAnswer separates "declined" from "unreadable"', () 
 
 describe('countryFromPhone corroborates only', () => {
   it('reads the served dialling codes', () => {
+    expect(countryFromPhone('+61406281243')).toBe('au');
     expect(countryFromPhone('+447913895013')).toBe('uk');
     expect(countryFromPhone('+353 87 123 4567')).toBe('ie');
     expect(countryFromPhone('+64 21 123 456')).toBe('nz');
   });
   it('is empty for anything else', () => {
-    expect(countryFromPhone('+61406281243')).toBe('');
+    expect(countryFromPhone('+61406281243')).toBe('au');
     expect(countryFromPhone('07913895013')).toBe('');
     expect(countryFromPhone('')).toBe('');
   });
@@ -117,7 +121,7 @@ describe('THE RULE: a decline requires positive evidence', () => {
   });
 
   it('DECLINES someone who names a country we do not serve', () => {
-    const c = decide({ country: 'other', countryRaw: 'Australia', countryRecognised: true });
+    const c = decide({ country: 'other', countryRaw: 'South Africa', countryRecognised: true });
     expect(c.qualified).toBe(false);
     expect(c.screened_out).toBe(true);
   });
@@ -150,8 +154,8 @@ describe('THE RULE: a decline requires positive evidence', () => {
   });
 
   it('does NOT let the phone override an answer we DID understand', () => {
-    // A UK mobile does not turn "Australia" into an eligible lead.
-    const c = decide({ countryRaw: 'Australia', countryRecognised: true, phone: '+447913895013' });
+    // A UK mobile does not turn "South Africa" into an eligible lead.
+    const c = decide({ countryRaw: 'South Africa', countryRecognised: true, phone: '+447913895013' });
     expect(c.qualified).toBe(false);
     expect(c.screened_out).toBe(true);
     expect(c.country_inferred_from_phone).toBeUndefined();
@@ -258,7 +262,8 @@ describe('SWEEP: no eligible doctor is turned away, however she phrases it', () 
     ['gp question missing',        'united_kingdom',           null,  '+447700900123'],
     ['a hospital, not a country',  'NHS Grampian',             'yes', '+447700900123'],
     ['a city, not a country',      'Manchester',               'yes', '+447700900123'],
-    ['blank country',              '',                         'yes', '+447700900123']
+    ['blank country',              '',                         'yes', '+447700900123'],
+    ['australia (served since 2026-08-15)', 'australia',      'yes', '+61406281243']
   ];
 
   it.each(ELIGIBLE)('never turns away: %s', (_label, country, gp, phone) => {
@@ -269,7 +274,6 @@ describe('SWEEP: no eligible doctor is turned away, however she phrases it', () 
   });
 
   const INELIGIBLE = [
-    ['australia',       'australia',      'yes', '+61406281243'],
     ['india',           'india',          'yes', '+919812345678'],
     ['south africa',    'south_africa',   'yes', '+27821234567'],
     ['picked "Other"',  'other',          'yes', '+447700900123'],
@@ -289,9 +293,9 @@ describe('where they TRAINED is the governing fact (owner-confirmed)', () => {
   // AND the CCT, and the CCT is only issued on completing UK GP training. So an answer
   // of "Australia" or "Somewhere else" on the training question is a genuine decline,
   // and a UK phone number must not soften it into a review queue.
-  it('declines someone who trained abroad even on a UK number', () => {
+  it('declines someone who trained outside all four, even on a UK number', () => {
     const c = decide({
-      country: 'other', countryRaw: 'australia', countryRecognised: true,
+      country: 'other', countryRaw: 'south_africa', countryRecognised: true,
       phone: '+447700900123', isGp: true
     });
     expect(c.screened_out).toBe(true);

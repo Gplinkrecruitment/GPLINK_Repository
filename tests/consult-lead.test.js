@@ -318,9 +318,15 @@ describe('the real Meta payload (2026-08-14 regression)', () => {
     expect(parseCountryAnswer('trained_in_nz')).toBe('nz');
   });
 
+  it('reads Australia as a country we DO serve (owner, 2026-08-15)', () => {
+    // Australian-trained GPs are placeable here and must be able to book.
+    expect(parseCountryAnswer('australia')).toBe('au');
+    expect(parseCountryAnswer('Australia')).toBe('au');
+  });
+
   it('still says other for a country we do not serve', () => {
     expect(parseCountryAnswer('south_africa')).toBe('other');
-    expect(parseCountryAnswer('australia')).toBe('other');
+    expect(parseCountryAnswer('pakistan')).toBe('other');
     expect(parseCountryAnswer('india')).toBe('other');
   });
 });
