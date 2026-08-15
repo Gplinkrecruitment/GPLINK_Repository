@@ -14378,7 +14378,6 @@ async function processFacebookLeadDelivery(body, req, ip) {
       isGp: gpLead.isGp, country: gpLead.country, question: gpLead.question,
       countryRaw: gpLead.countryRaw, countrySource: gpLead.countrySource,
       countryRecognised: gpLead.countryRecognised,
-      countryQuestionKind: gpLead.countryQuestionKind,
       fieldNames: gpLead.fieldNames,
       source: 'meta_lead_ad', leadId: gpLead.leadId, ip: ip,
       userAgent: req.headers['user-agent']
@@ -25766,35 +25765,21 @@ function buildConsultLeadRow(input) {
   const servedCountry = consultLead.SUPPORTED_CONSULT_COUNTRIES.includes(String(input.country || '').toLowerCase());
   const namedSomewhereWeDoNotServe = input.countryRecognised === true && !servedCountry;
 
-  // 🧨 …and evidence about a DIFFERENT fact is not evidence about this one.
-  // Eligibility turns on where a doctor is REGISTERED. The live Meta form asks
-  // "_where_did_you_complete_your_gp_training?". A GMC-registered UK GP who trained
-  // in India answers "india" truthfully and, judged as if she had named her country
-  // of registration, is declined outright — the Louise outcome reached by parsing
-  // the answer perfectly and asking the wrong question. Her dialling code says where
-  // she actually is, so when a training answer is the ONLY thing against her and the
-  // phone says a country we serve, this is not a decision we are entitled to make
-  // alone: a human looks. A doctor who trained abroad AND phones from abroad is
-  // still declined, so the screen keeps working.
-  const phoneSaysServed = consultLead.countryFromPhone(input.phone);
-  const declineRestsOnTrainingAnswer = namedSomewhereWeDoNotServe &&
-    input.countryQuestionKind === 'training' && !!phoneSaysServed;
-  const confidentDecline = saidNotAGp || (namedSomewhereWeDoNotServe && !declineRestsOnTrainingAnswer);
-  if (declineRestsOnTrainingAnswer) {
-    consult.trained_overseas_needs_check = true;
-    consult.country_raw_question = 'training';
-  }
+  // ⚖️ WHERE THEY TRAINED IS THE RIGHT QUESTION — owner-confirmed 2026-08-15.
+  // The expedited specialist pathway needs the training certificate itself, not just
+  // membership: a UK GP needs MRCGP *and* the CCT, which is only issued on completing
+  // UK GP training. So "Australia" or "Somewhere else" on the training question is a
+  // genuine, final decline, not a near-miss for a human to review. An earlier version
+  // of this block softened that into a review queue on the theory that registration
+  // was the governing fact; it is not, and the softening has been removed.
+  const confidentDecline = saidNotAGp || namedSomewhereWeDoNotServe;
 
   // Corroboration, used ONLY to rescue a doctor we could not read. Both real Meta
   // leads to date arrived with a +44 number, and the ads are targeted at the UK,
   // so an unreadable answer plus a served dialling code is far more likely to be
   // a parsing miss than an ineligible doctor. It never overrides an answer we DID
-  // understand, so someone who typed "Australia" is still declined.
-  // Not applied to the trained-overseas case: there the doctor DID tell us something
-  // real, it just wasn't about registration. Auto-qualifying on her phone would quietly
-  // widen who we offer calls to; leaving her as country_unknown puts a person on it,
-  // which is the honest answer to "we don't know yet".
-  if (!qualified && !confidentDecline && !declineRestsOnTrainingAnswer && input.isGp !== false) {
+  // understand, so someone who picked "Australia" is still declined.
+  if (!qualified && !confidentDecline && input.isGp !== false) {
     const phoneCountry = consultLead.countryFromPhone(input.phone);
     if (phoneCountry) {
       qualified = true;
