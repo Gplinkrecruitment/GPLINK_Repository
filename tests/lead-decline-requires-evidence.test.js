@@ -219,6 +219,71 @@ describe('the regression that would have caught BOTH incidents', () => {
   });
 });
 
+// The property that matters, stated as a table rather than as anecdotes about the two
+// doctors we already lost. If a future edit re-opens the class, one of these fails.
+describe('SWEEP: no eligible doctor is turned away, however she phrases it', () => {
+  const FORM = '2029012337751132';
+
+  function score(country, gp, phone) {
+    const field_data = [
+      { name: 'full_name', values: ['Test Doctor'] },
+      { name: 'email', values: ['t@example.com'] },
+      { name: 'phone_number', values: [phone] },
+      { name: '_where_did_you_complete_your_gp_training?', values: [country] }
+    ];
+    if (gp !== null) field_data.push({ name: 'are_you_a_currently_registered_gp?', values: [gp] });
+    const lead = normalizeFacebookGpLead(
+      { entry: [{ changes: [{ value: { form_id: FORM, leadgen_id: 'x', field_data } }] }] }, [FORM]
+    );
+    return buildConsultLeadRow({
+      name: lead.name, email: lead.email, phone: lead.phone, isGp: lead.isGp,
+      country: lead.country, countryRaw: lead.countryRaw, countrySource: lead.countrySource,
+      countryRecognised: lead.countryRecognised, source: 'meta_lead_ad'
+    }).metadata.consult;
+  }
+
+  const ELIGIBLE = [
+    ['the real Louise payload',    'united_kingdom',           'yes', '+447913895013'],
+    ['display text',               'United Kingdom',           'Yes', '+447913895013'],
+    ['slugged yes',                'united_kingdom',           'yes_i_am_currently_registered', '+447913895013'],
+    ['kebab case',                 'united-kingdom',           'yes', '+447913895013'],
+    ['uppercase slug',             'UNITED_KINGDOM',           'YES_I_AM', '+447913895013'],
+    ['short code in a slug',       'uk_trained',               'yes', '+447913895013'],
+    ['a nation, not the state',    'scotland',                 'yes', '+447700900123'],
+    ['northern ireland',           'northern_ireland',         'yes', '+447700900123'],
+    ['ireland',                    'republic_of_ireland',      'yes', '+353871234567'],
+    ['new zealand',                'new_zealand',              'yes', '+6421123456'],
+    ['aotearoa',                   'aotearoa',                 'yes', '+6421123456'],
+    ['gp answer unreadable',       'united_kingdom',           'i am a gp', '+447700900123'],
+    ['gp question missing',        'united_kingdom',           null,  '+447700900123'],
+    ['a hospital, not a country',  'NHS Grampian',             'yes', '+447700900123'],
+    ['a city, not a country',      'Manchester',               'yes', '+447700900123'],
+    ['blank country',              '',                         'yes', '+447700900123']
+  ];
+
+  it.each(ELIGIBLE)('never turns away: %s', (_label, country, gp, phone) => {
+    const c = score(country, gp, phone);
+    expect(c.screened_out).toBeUndefined();
+    // She must remain reachable: either offered the call, or queued for a human.
+    expect(c.qualified === true || c.country_unknown === true).toBe(true);
+  });
+
+  const INELIGIBLE = [
+    ['australia',       'australia',      'yes', '+61406281243'],
+    ['india',           'india',          'yes', '+919812345678'],
+    ['south africa',    'south_africa',   'yes', '+27821234567'],
+    ['picked "Other"',  'other',          'yes', '+447700900123'],
+    ['says not a GP',   'united_kingdom', 'no',  '+447700900123'],
+    ['slugged no',      'united_kingdom', 'no_not_yet', '+447700900123']
+  ];
+
+  it.each(INELIGIBLE)('still declines: %s', (_label, country, gp, phone) => {
+    const c = score(country, gp, phone);
+    expect(c.qualified).toBe(false);
+    expect(c.screened_out).toBe(true);
+  });
+});
+
 describe('multi-value answers are not silently truncated', () => {
   it('keeps every value, so a country in the second one is still found', () => {
     const lead = normalizeFacebookGpLead({
