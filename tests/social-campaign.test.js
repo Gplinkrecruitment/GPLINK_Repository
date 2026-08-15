@@ -297,6 +297,57 @@ describe('publishPost', () => {
   });
 });
 
+describe('configuredTargets', () => {
+  // Instagram needs a Business account, a Page link and a use case that Facebook
+  // does not, so the two are routinely ready weeks apart. A campaign must target
+  // what is actually configured, or every post on a Facebook-only setup burns an
+  // Instagram failure against its retry budget and eventually parks as 'failed'
+  // despite having published perfectly well to the Page.
+  const conf = (over) => social.graphConfig(Object.assign(
+    { FB_PAGE_ACCESS_TOKEN: 'tok', FB_PAGE_ID: '1', IG_USER_ID: '2' }, over || {}
+  ));
+
+  it('targets both when both are configured', () => {
+    expect(social.configuredTargets(conf())).toEqual({ facebook: true, instagram: true });
+    expect(social.nothingConfigured(conf())).toBe(false);
+  });
+
+  it('drops Instagram when IG_USER_ID is missing', () => {
+    expect(social.configuredTargets(conf({ IG_USER_ID: '' })))
+      .toEqual({ facebook: true, instagram: false });
+  });
+
+  it('drops Facebook when FB_PAGE_ID is missing', () => {
+    expect(social.configuredTargets(conf({ FB_PAGE_ID: '' })))
+      .toEqual({ facebook: false, instagram: true });
+  });
+
+  it('treats a missing token as nothing configured, since both networks need it', () => {
+    const none = conf({ FB_PAGE_ACCESS_TOKEN: '' });
+    expect(social.configuredTargets(none)).toEqual({ facebook: false, instagram: false });
+    expect(social.nothingConfigured(none)).toBe(true);
+  });
+
+  it('a Facebook-only campaign reports no configuration problems', () => {
+    const fbOnly = conf({ IG_USER_ID: '' });
+    expect(social.graphConfigProblems(fbOnly, social.configuredTargets(fbOnly))).toEqual([]);
+  });
+
+  it('a Facebook-only post publishes and is never touched by the missing Instagram', async () => {
+    const fbOnly = conf({ IG_USER_ID: '' });
+    const fetchImpl = async (url) => String(url).includes('/photos')
+      ? { ok: true, status: 200, json: async () => ({ post_id: 'fb1' }) }
+      : { ok: false, status: 400, json: async () => ({ error: { message: 'should not be called' } }) };
+    const r = await social.publishPost(
+      { caption: 'Hi.', targets: social.configuredTargets(fbOnly) },
+      { config: fbOnly, imageUrl: 'https://x/i.jpg', fetchImpl }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.facebook.postId).toBe('fb1');
+    expect(r.instagram).toBe(null);
+  });
+});
+
 describe('graphConfigProblems', () => {
   it('names exactly what is missing for the networks in play', () => {
     const none = social.graphConfig({});

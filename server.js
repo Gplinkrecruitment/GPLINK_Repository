@@ -10226,7 +10226,12 @@ async function socialEnsureCampaign(month, defaults) {
     posts_per_day: Number(d.posts_per_day) || 2,
     slot_times: d.slot_times || ['09:00', '15:00'],
     time_zone: d.time_zone || String(process.env.SOCIAL_TIMEZONE || 'Australia/Melbourne'),
-    targets: d.targets || { facebook: true, instagram: true },
+    // Follows what is actually configured rather than assuming both networks.
+    // Instagram needs a Business account, a Page link and a use case that
+    // Facebook does not, so the two are routinely ready at different times; a
+    // campaign that targeted an unconfigured network would fail every post
+    // against its retry budget despite publishing fine to the Page.
+    targets: d.targets || socialCampaign.configuredTargets(socialCampaign.graphConfig(process.env)),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
@@ -40111,6 +40116,11 @@ async function handleApi(req, res, pathname) {
       config_problems: socialCampaign.graphConfigProblems(
         socGetCfg, (socGetRes.campaign && socGetRes.campaign.targets) || null
       ),
+      // Which networks this deployment can actually publish to right now, so
+      // the tab can say "Facebook only" rather than showing an error for an
+      // Instagram that was never meant to be live yet.
+      configured_targets: socialCampaign.configuredTargets(socGetCfg),
+      nothing_configured: socialCampaign.nothingConfigured(socGetCfg),
       publishing_disabled: socGetCfg.disabled
     });
     return;

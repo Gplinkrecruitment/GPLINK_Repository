@@ -76,10 +76,21 @@
       '</div>' +
     '</div>';
 
-    if (state.config && state.config.length) {
+    // Two different messages on purpose. Nothing configured is a real problem.
+    // One network configured is a normal state while the other is being set up,
+    // and saying so plainly stops it reading as a fault.
+    var ct = state.configuredTargets || {};
+    if (state.nothingConfigured) {
       html += '<div class="soc-warn"><strong>Publishing is not configured.</strong> ' +
         esc(state.config.join(' ')) +
         ' Nothing will post until these are set, even after approval.</div>';
+    } else if (ct.facebook && !ct.instagram) {
+      html += '<div class="soc-note"><strong>Facebook only.</strong> Instagram is not configured yet' +
+        ' (IG_USER_ID is not set), so this month posts to the Page and skips Instagram. Nothing is' +
+        ' broken, and Instagram can be switched on later without redoing a campaign.</div>';
+    } else if (ct.instagram && !ct.facebook) {
+      html += '<div class="soc-note"><strong>Instagram only.</strong> Facebook is not configured yet' +
+        ' (FB_PAGE_ID is not set), so this month posts to Instagram and skips the Page.</div>';
     }
     if (state.publishingDisabled) {
       html += '<div class="soc-warn"><strong>Publishing is switched off.</strong> ' +
@@ -250,6 +261,8 @@
       state.months = d.months || [];
       state.summary = d.summary || null;
       state.config = d.config_problems || [];
+      state.configuredTargets = d.configured_targets || {};
+      state.nothingConfigured = !!d.nothing_configured;
       state.publishingDisabled = !!d.publishing_disabled;
       state.month = state.campaign ? state.campaign.month : null;
       render();
