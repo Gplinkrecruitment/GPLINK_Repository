@@ -45,9 +45,31 @@
   }
 
   // ── rendering ────────────────────────────────────────────────────────────
+  // The master-tab switcher calls the loader inside a try/catch, so anything
+  // thrown in here used to surface as a silently blank panel with the error only
+  // in the console. A blank tab is indistinguishable from "no data", which costs
+  // far more to diagnose than it should. Every failure now paints itself.
   function render() {
+    try {
+      renderInner();
+    } catch (err) {
+      var root = el();
+      if (!root) return;
+      root.innerHTML = '<div class="content" style="padding:32px">' +
+        '<div class="soc-warn"><strong>The Social tab hit an error while drawing.</strong><br>' +
+        esc(String((err && err.message) || err)) +
+        '<br><br>The data loaded fine, so this is a display problem. Send this message over ' +
+        'and it can be fixed directly.</div></div>';
+      try { console.error('[social] render failed', err); } catch (e2) { /* ignore */ }
+    }
+  }
+
+  function renderInner() {
     var root = el();
-    if (!root) return;
+    if (!root) {
+      try { console.error('[social] #panel-social is missing — the page HTML is stale, hard-reload'); } catch (e) { /* ignore */ }
+      return;
+    }
     if (state.loading && !state.campaign) { root.innerHTML = (A.loadingHtml ? A.loadingHtml() : '<div class="content">Loading…</div>'); return; }
 
     if (!state.campaign) {
@@ -267,6 +289,17 @@
       state.month = state.campaign ? state.campaign.month : null;
       render();
       refreshAlert();
+    }).catch(function (err) {
+      // A rejected fetch used to leave the loading state on screen forever,
+      // which reads as an empty tab. Say what happened instead.
+      state.loading = false;
+      var root = el();
+      if (root) {
+        root.innerHTML = '<div class="content" style="padding:32px">' +
+          '<div class="soc-warn"><strong>Could not reach the campaign.</strong><br>' +
+          esc(String((err && err.message) || err)) + '</div></div>';
+      }
+      try { console.error('[social] load failed', err); } catch (e) { /* ignore */ }
     });
   }
 

@@ -8655,7 +8655,11 @@
   </script>
   <!-- ATS modules (master tabs: Candidates / Jobs / Practices / Matching) -->
   <script src="/js/guide-panel.js?v=20260708b"></script>
-  <script src="/js/ceo-ats-shared.js?v=20260805a"></script>
+  <!-- ?v= bumped 20260816a: adding 'social' to MASTER_PANELS changed this file, and
+       /js/* is served `max-age=31536000, immutable`, so without a new URL the browser
+       keeps the old copy for a year. That is what made the Social tab render into a
+       panel the old switcher never un-hid: a blank tab with no error anywhere. -->
+  <script src="/js/ceo-ats-shared.js?v=20260816a"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
   <script src="/js/ceo-ats-candidates.js?v=20260805b"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260805c"></script>
@@ -8664,6 +8668,6 @@
   <script src="/js/ceo-ats-matching.js?v=20260805a"></script>
   <script src="/js/ceo-ats-leads.js?v=20260724b"></script>
   <script src="/js/ceo-ats-contracts.js?v=20260805d"></script>
-  <script src="/js/ceo-social.js?v=20260815a"></script>
+  <script src="/js/ceo-social.js?v=20260816a"></script>
 </body>
 </html>
