@@ -10483,7 +10483,7 @@ function socialPublicImageUrl(postId) {
 async function runSocialPublish(opts) {
   const o = opts || {};
   const nowIso = o.nowIso || new Date().toISOString();
-  const out = { ok: true, published: 0, failed: 0, skipped: 0, attempted: 0, details: [] };
+  const out = { ok: true, published: 0, failed: 0, skipped: 0, held: 0, attempted: 0, details: [] };
 
   const campaigns = await socialListCampaignRows();
   if (!campaigns.ok) return { ok: false, table_missing: !!campaigns.tableMissing, published: 0, failed: 0, message: 'Social tables are not available.' };
@@ -10503,12 +10503,16 @@ async function runSocialPublish(opts) {
       out.attempted++;
       const problems = socialCampaign.graphConfigProblems(cfg, post.targets || campaign.targets);
       if (problems.length) {
-        out.failed++;
-        out.details.push({ slot: post.slot, error: problems.join(' ') });
+        // A missing env var is not the post's fault. Burning an attempt here
+        // would retire a perfectly good creative as 'failed' after three runs
+        // purely because a token had not been pasted in yet, and the owner would
+        // have to notice and undo it. Hold instead: record why, leave attempts
+        // alone, and it publishes on the next run after the config lands.
+        out.held++;
+        out.details.push({ slot: post.slot, held: true, reason: problems.join(' ') });
         await socialPatchPostRow(post.id, {
-          attempts: (Number(post.attempts) || 0) + 1,
           last_attempt_at: nowIso,
-          facebook_error: problems.join(' ')
+          facebook_error: 'Waiting on configuration: ' + problems.join(' ')
         });
         continue;
       }
@@ -40184,7 +40188,8 @@ async function handleApi(req, res, pathname) {
     if (!isValidCronSecret(socPubToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     var socPubRes = await runSocialPublish({});
     await recordCronRun('social-publish', socPubRes.ok ? 'ok' : 'error',
-      'published=' + socPubRes.published + ' failed=' + socPubRes.failed, 0);
+      'published=' + socPubRes.published + ' failed=' + socPubRes.failed +
+      ' held=' + (socPubRes.held || 0), 0);
     sendJson(res, 200, socPubRes);
     return;
   }

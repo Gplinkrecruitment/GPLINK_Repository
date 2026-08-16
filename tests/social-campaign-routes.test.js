@@ -189,6 +189,19 @@ describe('ingest → schedule', () => {
   });
 });
 
+describe('a post waiting on configuration is held, not failed', () => {
+  // Approving a month before its token exists must not retire good creatives.
+  // The publisher records why and leaves attempts alone, so the post goes out by
+  // itself on the next run after the value lands, with no cleanup required.
+  it('reports held rather than failed when a target network is unconfigured', async () => {
+    const r = await req('GET', '/api/cron/social-publish', { headers: cronAuth });
+    expect(r.status).toBe(200);
+    expect(r.json).toHaveProperty('held');
+    // Nothing may be marked failed purely because an env var is absent.
+    expect(r.json.failed).toBe(0);
+  });
+});
+
 describe('the public image route', () => {
   it('rejects an id that is not a uuid instead of touching storage', async () => {
     const r = await req('GET', '/api/public/social-image?id=../../etc/passwd');

@@ -201,9 +201,15 @@
         '<textarea class="soc-caption" data-role="caption"' + (live ? ' readonly' : '') + '>' + esc(p.caption || '') + '</textarea>' +
         (errs.length ? '<div class="soc-err">' + esc(errs.join(' ')) + '</div>' : '') +
         (warn.length ? '<div class="soc-warn-sm">' + esc(warn.join(' ')) + '</div>' : '') +
-        (p.facebook_error || p.instagram_error
-          ? '<div class="soc-err">' + esc([p.facebook_error, p.instagram_error].filter(Boolean).join(' · ')) + '</div>'
-          : '') +
+        (function () {
+          // A post waiting on a missing env var is not a failure, and must not
+          // be dressed as one. It publishes by itself once the value lands.
+          var err = [p.facebook_error, p.instagram_error].filter(Boolean).join(' · ');
+          if (!err) return '';
+          var waiting = err.indexOf('Waiting on configuration') === 0;
+          return '<div class="' + (waiting ? 'soc-warn-sm' : 'soc-err') + '">' +
+            esc(waiting ? err + ' It will go out on its own once that is set.' : err) + '</div>';
+        })() +
         '<div class="soc-card-actions">' +
           (live
             ? '<span class="soc-when">Live' + (p.facebook_post_id ? ' · Facebook' : '') + (p.instagram_media_id ? ' · Instagram' : '') + '</span>'
