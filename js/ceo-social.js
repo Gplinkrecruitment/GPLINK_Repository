@@ -40,8 +40,16 @@
     } catch (e) { return String(iso); }
   }
 
+  // The image route caches for a day and its URL is keyed only on the post id,
+  // so replacing a creative on an existing row left every reviewer looking at
+  // the old picture with no way to tell. Version the URL by the row's
+  // updated_at: a replaced image is a new URL, an unchanged one still hits cache.
+  // The server ignores the extra parameter, so the canonical URL Meta fetches at
+  // publish time is unaffected.
   function imgUrl(post) {
-    return '/api/public/social-image?id=' + encodeURIComponent(post.id);
+    var v = post.updated_at || post.created_at || '';
+    return '/api/public/social-image?id=' + encodeURIComponent(post.id) +
+      (v ? '&v=' + encodeURIComponent(String(v).replace(/[^0-9]/g, '').slice(0, 14)) : '');
   }
 
   // ── rendering ────────────────────────────────────────────────────────────

@@ -57,6 +57,14 @@ describe('CEO Social tab wiring', () => {
     expect(social).toMatch(/\.catch\(/);
   });
 
+  it('image URLs are versioned, so a replaced creative is not hidden by cache', () => {
+    // /api/public/social-image caches for a day and is keyed only on the post
+    // id. Replacing the picture on an existing row therefore showed every
+    // reviewer the old one, with nothing on screen to suggest why.
+    expect(social).toMatch(/updated_at \|\| post\.created_at/);
+    expect(social).toMatch(/'&v='/);
+  });
+
   it('the shared bundle is busted past the version that lacked social', () => {
     // js/* is immutable-cached for a year; the old URL can never update.
     const m = /ceo-ats-shared\.js\?v=(\d{8}[a-z]?)/.exec(html);
