@@ -115,8 +115,13 @@
     // approved post and the publisher needs BOTH.
     var pending = state.posts.filter(function (p) { return p.status === 'approved' && !p.publish_at; }).length;
     var scheduled = state.posts.filter(function (p) { return !!p.publish_at; }).length;
+    var approvedTotal = state.posts.filter(function (p) { return p.status === 'approved'; }).length;
     var isLiveMonth = c.status === 'approved' || c.status === 'publishing' || c.status === 'complete';
-    var canApprove = pending > 0 && c.status !== 'complete';
+    // "Start today" re-lays the WHOLE approved batch from now instead of adding to
+    // the campaign month, so it stays available even when nothing new is pending —
+    // moving an already-booked batch forward is an action in its own right.
+    var startToday = !!state.startToday;
+    var canApprove = (startToday ? approvedTotal > 0 : pending > 0) && c.status !== 'complete';
 
     var html = '<div class="content" style="padding:20px 24px 60px">';
 
@@ -132,11 +137,22 @@
       '<div class="soc-head-actions">' + monthPicker() +
         (isLiveMonth ? '<span class="ats-pill green" style="align-self:center">Scheduled</span>' : '') +
         (c.status === 'complete' ? '' :
+          '<label class="soc-start-today" title="Book the whole approved batch from today instead of ' +
+            monthLabel(c.month) + '. Anything already posted stays where it is.">' +
+            '<input type="checkbox" id="socStartToday"' + (startToday ? ' checked' : '') + '> Start today</label>' +
           '<button class="btn-primary" id="socApproveBtn"' + (canApprove ? '' : ' disabled') + '>' +
-            (scheduled ? 'Schedule' : 'Approve &amp; schedule') +
-            (pending ? ' (' + pending + ')' : '') + '</button>') +
+            (startToday ? 'Schedule from today' : (scheduled ? 'Schedule' : 'Approve &amp; schedule')) +
+            (startToday ? (approvedTotal ? ' (' + approvedTotal + ')' : '') : (pending ? ' (' + pending + ')' : '')) +
+          '</button>') +
       '</div>' +
     '</div>';
+
+    if (startToday && scheduled) {
+      html += '<div class="soc-note"><strong>Start today is on.</strong> The next click moves all ' +
+        approvedTotal + ' approved post' + (approvedTotal === 1 ? '' : 's') + ' to run from today at ' +
+        esc((c.slot_times || ['09:00', '15:00']).join(' and ')) + ', ' + esc(c.time_zone || '') +
+        ', replacing the dates they hold now. Anything already posted stays where it is.</div>';
+    }
 
     // Two different messages on purpose. Nothing configured is a real problem.
     // One network configured is a normal state while the other is being set up,
@@ -162,8 +178,11 @@
     // the button above stamps a date, which is what makes an unreviewed post
     // unpublishable by construction. Without saying so, the natural read after
     // approving a card is "done", and the month then sits silently doing nothing.
+    // Keyed off `pending`, NOT `canApprove`: with "Start today" armed the button is
+    // live even when nothing new is pending, and these notes would otherwise
+    // announce "0 posts ready for dates". The start-today note above covers that case.
     var plural = function (n) { return n === 1 ? '' : 's'; };
-    if (canApprove && by.draft > 0) {
+    if (pending > 0 && by.draft > 0) {
       // The case the old copy got wrong: it said scheduling was LOCKED until every
       // post had a decision, which is no longer true and was never necessary.
       html += '<div class="soc-note"><strong>' + pending + ' post' + plural(pending) +
@@ -171,7 +190,7 @@
         ' Click <strong>' + (scheduled ? 'Schedule' : 'Approve &amp; schedule') + '</strong> above to book' +
         ' ' + (pending === 1 ? 'it' : 'them') + ' now. The other ' + by.draft + ' can be reviewed and added' +
         ' later, and nothing goes out until you do.</div>';
-    } else if (canApprove) {
+    } else if (pending > 0) {
       html += '<div class="soc-note"><strong>Every post is reviewed. ' +
         (scheduled ? pending + ' still ' + (pending === 1 ? 'has' : 'have') + ' no date.' : 'Nothing is scheduled yet.') +
         '</strong> Approving a card marks the creative good, it does not set a date.' +
@@ -362,6 +381,14 @@
     var approve = document.getElementById('socApproveBtn');
     if (approve) approve.addEventListener('click', approveCampaign);
 
+    var startToday = document.getElementById('socStartToday');
+    if (startToday) {
+      startToday.addEventListener('change', function () {
+        state.startToday = !!startToday.checked;
+        render(); // repaint the label + warning; caption state is preserved
+      });
+    }
+
     // The delegated card handler is bound to the PERSISTENT root, so exactly once.
     if (panelWired) return;
     panelWired = true;
@@ -420,17 +447,22 @@
   function approveCampaign() {
     var btn = document.getElementById('socApproveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Scheduling…'; }
-    A.api('/api/ceo/social/approve', { method: 'POST', body: { month: state.month } }).then(function (d) {
+    var body = { month: state.month };
+    if (state.startToday) body.start_today = true;
+    A.api('/api/ceo/social/approve', { method: 'POST', body: body }).then(function (d) {
       if (!d || !d.ok) {
         A.toast((d && d.message) || 'Could not approve.');
         return load(state.month, true);
       }
       // Name the first date explicitly. Approving in the evening books the next
       // morning's slot, which reads as "nothing happened" unless it is said.
-      A.toast(d.scheduled + ' scheduled. ' +
-        (d.already_scheduled ? 'Next of this batch goes out ' : 'First one goes out ') +
-        (d.first_publish_at ? fmtWhen(d.first_publish_at) : 'shortly') + '.');
+      A.toast(d.scheduled + (d.rescheduled ? ' moved. Now starting ' : ' scheduled. ') +
+        (d.rescheduled ? '' : (d.already_scheduled ? 'Next of this batch goes out ' : 'First one goes out ')) +
+        (d.first_publish_at ? fmtWhen(d.first_publish_at) : 'shortly') +
+        (d.rescheduled && d.last_publish_at ? ', last one ' + fmtWhen(d.last_publish_at) : '') + '.');
       if (d.note) A.toast(d.note);
+      // A re-lay is a one-off action, not a mode to leave armed.
+      state.startToday = false;
       return load(state.month, true);
     });
   }

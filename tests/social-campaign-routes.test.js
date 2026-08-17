@@ -334,6 +334,71 @@ describe('a month can be scheduled in batches, then topped up', () => {
     expect((await board()).posts.find((p) => p.slot === 4).publish_at).toBe(freed);
   });
 
+  // ── "start posting from today" ──────────────────────────────────────────────
+  // The batch is labelled for a future month, so a month-fenced schedule can only
+  // ever answer "1 <that month>". start_today re-lays the whole approved batch from
+  // now instead (owner, 2026-08-18: approved September's creatives and wanted them
+  // going out that day).
+  it('start_today moves the whole approved batch to run from now', async () => {
+    const before = await board();
+    const wasFuture = before.posts.filter((p) => p.publish_at).map((p) => p.publish_at).sort();
+    expect(wasFuture.length).toBeGreaterThan(1);
+    // Everything currently sits in the campaign month, which is two months out, so
+    // every date is weeks away. (Not asserted by month string: 1 Oct 09:00 Melbourne
+    // is 30 Sep in UTC, so the ISO month can legitimately read one lower.)
+    wasFuture.forEach((d) => {
+      expect(new Date(d).getTime() - Date.now()).toBeGreaterThan(20 * 24 * 3600 * 1000);
+    });
+
+    const r = await req('POST', '/api/ceo/social/approve', {
+      body: { month, start_today: true }, headers: ceo()
+    });
+    expect(r.status).toBe(200);
+    expect(r.json.rescheduled).toBe(true);
+    expect(r.json.scheduled).toBe(wasFuture.length);
+
+    const after = await board();
+    const now = Date.now();
+    const dates = after.posts.filter((p) => p.publish_at && p.status === 'approved')
+      .map((p) => p.publish_at).sort();
+    expect(dates).toHaveLength(wasFuture.length);
+    // Every date moved earlier, none is in the past, and none collides.
+    expect(new Set(dates).size).toBe(dates.length);
+    dates.forEach((d) => expect(new Date(d).getTime()).toBeGreaterThan(now));
+    expect(new Date(dates[0]).getTime()).toBeLessThan(new Date(wasFuture[0]).getTime());
+    // The first one is within a day, i.e. it really does start now rather than
+    // on the first of the campaign month.
+    expect(new Date(dates[0]).getTime() - now).toBeLessThan(36 * 3600 * 1000);
+  });
+
+  it('a re-lay is allowed even when nothing new has been approved', async () => {
+    // The normal gate refuses when there is nothing NEW to date. Moving an
+    // already-booked batch forward is an action in its own right, so it must not
+    // be caught by that gate.
+    const r = await req('POST', '/api/ceo/social/approve', {
+      body: { month, start_today: true }, headers: ceo()
+    });
+    expect(r.status).toBe(200);
+    expect(r.json.rescheduled).toBe(true);
+    expect(r.json.scheduled).toBeGreaterThan(0);
+  });
+
+  it('a re-lay with nothing approved at all is refused, not an empty success', async () => {
+    const otherMonth = (() => {
+      const d = new Date();
+      d.setUTCMonth(d.getUTCMonth() + 5, 1);
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+    })();
+    await req('POST', '/api/admin/social/ingest', {
+      body: { month: otherMonth, posts: [creative(1)], ready: true }, headers: ingestAuth
+    });
+    const r = await req('POST', '/api/ceo/social/approve', {
+      body: { month: otherMonth, start_today: true }, headers: ceo()
+    });
+    expect(r.status).toBe(400);
+    expect(r.json.message).toMatch(/Nothing is approved yet/);
+  });
+
   it('the publisher still refuses to touch anything without a date', async () => {
     // The guarantee that made all-or-nothing approval unnecessary in the first place.
     const b = await board();

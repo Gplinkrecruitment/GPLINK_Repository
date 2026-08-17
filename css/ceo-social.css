@@ -14,6 +14,16 @@
 
 .soc-head { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; justify-content:space-between; margin-bottom:18px; }
 .soc-head-actions { display:flex; gap:10px; align-items:center; }
+
+/* "Start today": re-lays the approved batch from now instead of the campaign month. */
+.soc-start-today {
+  display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  font-size:12.5px; font-weight:600; color:var(--ats-dim); cursor:pointer;
+  padding:7px 10px; border:1px solid var(--ats-border); border-radius:8px;
+}
+.soc-start-today:hover { color:var(--ats-text); border-color:var(--ats-border-hover); }
+.soc-start-today input { accent-color:var(--ats-blue); cursor:pointer; margin:0; }
+.soc-start-today:has(input:checked) { color:var(--ats-text); border-color:var(--ats-blue); }
 .soc-title { font-size:22px; font-weight:700; margin:0 0 4px; color:var(--ats-text); letter-spacing:-.02em; }
 .soc-sub { font-size:13px; color:var(--ats-muted); }
 

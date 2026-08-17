@@ -10399,7 +10399,14 @@ async function socialUpdatePost(id, body, actorEmail) {
 }
 
 // The approval click. Stamps publish_at across the month for approved posts.
-async function socialApproveCampaign(month, actorEmail) {
+async function socialApproveCampaign(month, actorEmail, options) {
+  const opts = options || {};
+  // "Start posting from today": re-lay the whole approved batch from `startFrom`
+  // instead of adding to what the campaign month already holds. Without it the
+  // answer to "go out now" is always "1 <campaign month>", because the schedule is
+  // fenced to the month. Anything already POSTED is never touched.
+  const startFrom = opts.startFrom ? new Date(opts.startFrom) : null;
+  const relay = !!(startFrom && Number.isFinite(startFrom.getTime()));
   const loaded = await socialLoadCampaign(month || null);
   if (!loaded.ok) return { ok: false, status: 503, message: 'Could not read the campaign.' };
   const campaign = loaded.campaign;
@@ -10413,21 +10420,30 @@ async function socialApproveCampaign(month, actorEmail) {
     return { ok: false, status: 409, message: 'That month has finished publishing.' };
   }
 
-  const gate = socialCampaign.canApproveCampaign(campaign, loaded.posts);
-  if (!gate.ok) return { ok: false, status: 400, message: gate.reason, failures: gate.failures || [] };
+  // A re-lay is not gated on there being anything NEW: moving an already-scheduled
+  // batch to start today is a legitimate action on its own.
+  if (!relay) {
+    const gate = socialCampaign.canApproveCampaign(campaign, loaded.posts);
+    if (!gate.ok) return { ok: false, status: 400, message: gate.reason, failures: gate.failures || [] };
+  } else if (!loaded.posts.some(function (p) { return p.status === 'approved'; })) {
+    return { ok: false, status: 400, message: 'Nothing is approved yet, so there is nothing to schedule.' };
+  }
 
-  // Only the approved posts that do NOT already hold a date.
+  // A re-lay takes EVERY approved post (dated or not) in slot order; a normal run
+  // takes only the ones that do not already hold a date. Anything already posted is
+  // excluded from both: its date is history, not a booking.
   const approved = loaded.posts
-    .filter(function (p) { return p.status === 'approved' && !p.publish_at; })
+    .filter(function (p) { return p.status === 'approved' && (relay || !p.publish_at); })
     .sort(function (a, b) { return (a.slot || 0) - (b.slot || 0); });
 
-  // 🛑 A date already booked is never moved. Re-flowing the whole month on a top-up
-  // would shift dates the owner has already been told, and could move a post that
-  // is minutes from going out. So the earlier batch keeps its slots and the new one
+  // 🛑 On a normal top-up a date already booked is never moved. Re-flowing the month
+  // would shift dates the owner has already been told, and could move a post that is
+  // minutes from going out. So the earlier batch keeps its slots and the new one
   // takes the next free ones, which means schedule order follows approval order
-  // rather than slot number. That is the intended trade.
+  // rather than slot number. A re-lay is the explicit opt-out from that rule: the
+  // owner asked for the whole batch to move, so only POSTED slots stay reserved.
   const takenSlots = loaded.posts
-    .filter(function (p) { return !!p.publish_at; })
+    .filter(function (p) { return !!p.publish_at && (relay ? p.status === 'posted' : true); })
     .map(function (p) { return p.publish_at; });
 
   const assigned = socialCampaign.assignSchedule(approved, {
@@ -10435,7 +10451,8 @@ async function socialApproveCampaign(month, actorEmail) {
     slotTimes: campaign.slot_times || ['09:00', '15:00'],
     perDay: campaign.posts_per_day || 2,
     timeZone: campaign.time_zone || 'Australia/Melbourne',
-    exclude: takenSlots
+    exclude: takenSlots,
+    startFrom: relay ? startFrom.toISOString() : null
   });
   if (!assigned.ok) return { ok: false, status: 400, message: 'Could not build the schedule (' + assigned.error + ').' };
 
@@ -10468,19 +10485,23 @@ async function socialApproveCampaign(month, actorEmail) {
   }
   if (stillToReview) {
     notes.push(stillToReview + ' post(s) are still waiting on a decision. Approve them and click ' +
-      'Approve & schedule again to add them to this month.');
+      (relay ? 'Schedule' : 'Approve & schedule') + ' again to add them.');
   }
 
   return {
     ok: true,
     month: campaign.month,
+    rescheduled: relay,
     scheduled: stamped,
     unscheduled: assigned.unscheduled,
     capacity: assigned.capacity,
     free_slots_remaining: Math.max(0, (Number(assigned.free) || 0) - stamped),
-    already_scheduled: takenSlots.length,
+    already_scheduled: relay ? 0 : takenSlots.length,
     still_to_review: stillToReview,
     first_publish_at: firstPublishAt,
+    last_publish_at: assigned.assigned.reduce(function (acc, p) {
+      return p.publish_at && (!acc || p.publish_at > acc) ? p.publish_at : acc;
+    }, null),
     note: notes.length ? notes.join(' ') : null
   };
 }
@@ -10519,7 +10540,8 @@ function socialPublicImageUrl(postId) {
 async function runSocialPublish(opts) {
   const o = opts || {};
   const nowIso = o.nowIso || new Date().toISOString();
-  const out = { ok: true, published: 0, failed: 0, skipped: 0, held: 0, attempted: 0, details: [] };
+  // `partial` = the ready network published, the other is still waiting on config.
+  const out = { ok: true, published: 0, failed: 0, skipped: 0, held: 0, partial: 0, attempted: 0, details: [] };
 
   const campaigns = await socialListCampaignRows();
   if (!campaigns.ok) return { ok: false, table_missing: !!campaigns.tableMissing, published: 0, failed: 0, message: 'Social tables are not available.' };
@@ -10537,13 +10559,24 @@ async function runSocialPublish(opts) {
     const due = socialCampaign.selectDuePosts(posts.rows, nowIso, o.limit || 4);
     for (const post of due) {
       out.attempted++;
-      const problems = socialCampaign.graphConfigProblems(cfg, post.targets || campaign.targets);
-      if (problems.length) {
-        // A missing env var is not the post's fault. Burning an attempt here
-        // would retire a perfectly good creative as 'failed' after three runs
-        // purely because a token had not been pasted in yet, and the owner would
-        // have to notice and undo it. Hold instead: record why, leave attempts
-        // alone, and it publishes on the next run after the config lands.
+      // 🧨 A post can want two networks while only ONE of them is publishable today.
+      // This used to hold the WHOLE post whenever any wanted network was
+      // unconfigured, which means switching Instagram on for a month would have
+      // stopped Facebook going out too — the opposite of what turning a network on
+      // should do. Publish the legs that are ready, and leave the other one waiting:
+      // no attempt is burned for a missing env var, and the waiting leg completes by
+      // itself on a later run once the value lands.
+      const wanted = post.targets || campaign.targets || { facebook: true, instagram: true };
+      const split = socialCampaign.publishableTargets(wanted, cfg);
+      const publishable = split.publishable;
+      const problems = socialCampaign.graphConfigProblems(cfg, wanted);
+      const waitingFacebook = !!(split.waiting.facebook && !post.facebook_post_id);
+      const waitingInstagram = !!(split.waiting.instagram && !post.instagram_media_id);
+
+      if (!publishable.facebook && !publishable.instagram) {
+        // Nothing at all can go out. A missing env var is not the post's fault:
+        // burning an attempt would retire a perfectly good creative as 'failed'
+        // after three runs purely because a token had not been pasted in yet.
         out.held++;
         out.details.push({ slot: post.slot, held: true, reason: problems.join(' ') });
         await socialPatchPostRow(post.id, {
@@ -10553,12 +10586,13 @@ async function runSocialPublish(opts) {
         continue;
       }
 
-      const result = await socialCampaign.publishPost(post, {
-        config: cfg,
-        imageUrl: o.imageUrl || socialPublicImageUrl(post.id),
-        fetchImpl: o.fetchImpl,
-        sleep: o.sleep
-      });
+      const result = await socialCampaign.publishPost(
+        Object.assign({}, post, { targets: publishable }), {
+          config: cfg,
+          imageUrl: o.imageUrl || socialPublicImageUrl(post.id),
+          fetchImpl: o.fetchImpl,
+          sleep: o.sleep
+        });
 
       const patch = {
         attempts: (Number(post.attempts) || 0) + 1,
@@ -10579,9 +10613,23 @@ async function runSocialPublish(opts) {
         patch.instagram_error = String(result.instagram.error).slice(0, 500);
       }
 
-      if (result.ok) {
+      // Say WHY a leg has not gone out when the reason is configuration, so the
+      // review screen shows "waiting" rather than a blank or a scary error.
+      const waitingReason = 'Waiting on configuration: ' + problems.join(' ');
+      if (waitingFacebook) patch.facebook_error = waitingReason;
+      if (waitingInstagram) patch.instagram_error = waitingReason;
+      const stillWaiting = waitingFacebook || waitingInstagram;
+
+      if (result.ok && !stillWaiting) {
         patch.status = 'posted';
         out.published++;
+      } else if (result.ok) {
+        // The ready half went out. Leave it 'approved' so the other half completes
+        // on its own once the config lands, and do NOT burn an attempt: three runs
+        // waiting on an env var would otherwise park a good creative as 'failed'.
+        patch.attempts = Number(post.attempts) || 0;
+        out.published++;
+        out.partial = (out.partial || 0) + 1;
       } else if (patch.attempts >= socialCampaign.MAX_PUBLISH_ATTEMPTS) {
         // Out of retries. Park it rather than letting it churn all month.
         patch.status = 'failed';
@@ -10589,7 +10637,12 @@ async function runSocialPublish(opts) {
       } else {
         out.failed++;
       }
-      out.details.push({ slot: post.slot, ok: !!result.ok, errors: result.errors || [] });
+      out.details.push({
+        slot: post.slot,
+        ok: !!result.ok,
+        partial: !!(result.ok && stillWaiting),
+        errors: result.errors || []
+      });
       await socialPatchPostRow(post.id, patch);
     }
 
@@ -40190,7 +40243,12 @@ async function handleApi(req, res, pathname) {
     if (!socAppCtx) return;
     var socAppBody = await readJsonBody(req).catch(function () { return null; });
     var socAppMonth = String((socAppBody && socAppBody.month) || '').trim();
-    var socAppRes = await socialApproveCampaign(socAppMonth, socAppCtx.email || 'ceo');
+    // start_today re-lays the whole approved batch from now. An explicit start_from
+    // is accepted too, so a future start date is possible without a new endpoint.
+    var socAppStart = null;
+    if (socAppBody && socAppBody.start_today) socAppStart = new Date().toISOString();
+    else if (socAppBody && socAppBody.start_from) socAppStart = String(socAppBody.start_from);
+    var socAppRes = await socialApproveCampaign(socAppMonth, socAppCtx.email || 'ceo', { startFrom: socAppStart });
     sendJson(res, socAppRes.ok ? 200 : (socAppRes.status || 400), socAppRes);
     return;
   }

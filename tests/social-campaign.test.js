@@ -152,6 +152,69 @@ describe('assignSchedule', () => {
     expect(r.ok).toBe(true);
     expect(r.assigned[0].publish_at).toBe('2026-08-31T23:00:00.000Z');
   });
+
+  // ── "start posting from today" ─────────────────────────────────────────────
+  // A month-bounded schedule can only ever answer "1 <campaign month>". The owner
+  // approved September's batch on 18 August and wanted it going out immediately
+  // (2026-08-18), so `startFrom` begins on a given day and rolls forward past the
+  // month's end. The month key stays the batch's NAME; it stops being a fence.
+  describe('startFrom rolls the batch forward from a given day', () => {
+    const from = { monthKey: '2026-09', slotTimes: ['09:00', '15:00'], perDay: 2, timeZone: 'Australia/Melbourne' };
+
+    it('starts on the day given, not on the first of the campaign month', () => {
+      const r = social.assignSchedule([{ slot: 1 }, { slot: 2 }], Object.assign({}, from, {
+        startFrom: '2026-08-17T17:35:00Z', notBefore: '2026-08-17T17:35:00Z'
+      }));
+      expect(r.ok).toBe(true);
+      // 18 Aug 09:00 and 15:00 Melbourne (AEST, UTC+10) = 17 Aug 23:00Z and 18 Aug 05:00Z.
+      expect(r.assigned[0].publish_at).toBe('2026-08-17T23:00:00.000Z');
+      expect(r.assigned[1].publish_at).toBe('2026-08-18T05:00:00.000Z');
+    });
+
+    it('rolls straight past the end of the starting month', () => {
+      // 30 posts at 2/day from 18 Aug runs into September, which a month-fenced
+      // schedule could never express.
+      const posts = Array.from({ length: 30 }, (_, i) => ({ slot: i + 1 }));
+      const r = social.assignSchedule(posts, Object.assign({}, from, {
+        startFrom: '2026-08-17T17:35:00Z', notBefore: '2026-08-17T17:35:00Z'
+      }));
+      expect(r.unscheduled).toBe(0);
+      expect(r.assigned.every((p) => p.publish_at)).toBe(true);
+      expect(r.assigned[0].publish_at.slice(0, 7)).toBe('2026-08');
+      expect(r.assigned[29].publish_at.slice(0, 7)).toBe('2026-09');
+      // Strictly increasing, no duplicates.
+      const dates = r.assigned.map((p) => p.publish_at);
+      expect(new Set(dates).size).toBe(30);
+      expect([...dates].sort()).toEqual(dates);
+    });
+
+    it('never books a slot that has already passed today', () => {
+      // 03:35 Melbourne on the 18th takes today's 09:00; 10:30 Melbourne has missed it
+      // and must take 15:00 instead.
+      const r = social.assignSchedule([{ slot: 1 }], Object.assign({}, from, {
+        startFrom: '2026-08-17T17:35:00Z', notBefore: '2026-08-17T17:35:00Z'
+      }));
+      expect(r.assigned[0].publish_at).toBe('2026-08-17T23:00:00.000Z');
+      const later = social.assignSchedule([{ slot: 1 }], Object.assign({}, from, {
+        startFrom: '2026-08-18T00:30:00Z', notBefore: '2026-08-18T01:00:00Z'
+      }));
+      expect(later.assigned[0].publish_at).toBe('2026-08-18T05:00:00.000Z');
+    });
+
+    it('still skips slots another post already holds', () => {
+      const r = social.assignSchedule([{ slot: 1 }], Object.assign({}, from, {
+        startFrom: '2026-08-17T17:35:00Z', notBefore: '2026-08-17T17:35:00Z',
+        exclude: ['2026-08-17T23:00:00.000Z']
+      }));
+      expect(r.assigned[0].publish_at).toBe('2026-08-18T05:00:00.000Z');
+    });
+
+    it('refuses a start date it cannot read rather than guessing', () => {
+      const r = social.assignSchedule([{ slot: 1 }], Object.assign({}, from, { startFrom: 'whenever' }));
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe('invalid_start_from');
+    });
+  });
 });
 
 describe('validatePost', () => {
@@ -441,6 +504,54 @@ describe('configuredTargets', () => {
     expect(r.ok).toBe(true);
     expect(r.facebook.postId).toBe('fb1');
     expect(r.instagram).toBe(null);
+  });
+});
+
+// Turning a second network ON must never stop the first one going out. The
+// publisher used to hold a whole post whenever ANY network it wanted was
+// unconfigured, so setting targets to {facebook, instagram} before IG_USER_ID
+// existed would have silently stopped Facebook too.
+describe('publishableTargets', () => {
+  const fbOnly = { pageId: '123', pageToken: 'tok', igUserId: '' };
+  const both = { pageId: '123', pageToken: 'tok', igUserId: '17841400000000000' };
+  const none = { pageId: '', pageToken: '', igUserId: '' };
+
+  it('publishes the network that IS configured and marks the other as waiting', () => {
+    const r = social.publishableTargets({ facebook: true, instagram: true }, fbOnly);
+    expect(r.publishable).toEqual({ facebook: true, instagram: false });
+    expect(r.waiting).toEqual({ facebook: false, instagram: true });
+  });
+
+  it('publishes to both when both are configured', () => {
+    const r = social.publishableTargets({ facebook: true, instagram: true }, both);
+    expect(r.publishable).toEqual({ facebook: true, instagram: true });
+    expect(r.waiting).toEqual({ facebook: false, instagram: false });
+  });
+
+  it('a network the post does not want is neither published nor waiting', () => {
+    const r = social.publishableTargets({ facebook: true, instagram: false }, fbOnly);
+    expect(r.publishable).toEqual({ facebook: true, instagram: false });
+    expect(r.waiting).toEqual({ facebook: false, instagram: false });
+  });
+
+  it('nothing publishable when nothing is configured, which is the hold case', () => {
+    const r = social.publishableTargets({ facebook: true, instagram: true }, none);
+    expect(r.publishable).toEqual({ facebook: false, instagram: false });
+    expect(r.waiting).toEqual({ facebook: true, instagram: true });
+  });
+
+  it('an IG_USER_ID holding the Page id counts as waiting, not publishable', () => {
+    const r = social.publishableTargets({ facebook: true, instagram: true },
+      { pageId: '123', pageToken: 'tok', igUserId: '123' });
+    expect(r.publishable.instagram).toBe(false);
+    expect(r.waiting.instagram).toBe(true);
+    // ...and Facebook still goes out.
+    expect(r.publishable.facebook).toBe(true);
+  });
+
+  it('defaults to wanting both when a post carries no targets', () => {
+    const r = social.publishableTargets(null, both);
+    expect(r.publishable).toEqual({ facebook: true, instagram: true });
   });
 });
 
