@@ -129,6 +129,15 @@
     if (by.draft > 0) {
       html += '<div class="soc-note">' + by.draft + ' post' + (by.draft === 1 ? '' : 's') +
         ' still need a decision. Approve or reject every one to unlock scheduling.</div>';
+    } else if (canApprove) {
+      // Approving a card marks the creative good; it does NOT schedule anything.
+      // Only the campaign-level click stamps publish_at, which is what makes an
+      // unreviewed post unpublishable by construction. Without saying so here,
+      // the natural read after approving the last card is "done", and the month
+      // then sits silently doing nothing.
+      html += '<div class="soc-note"><strong>Every post is reviewed. Nothing is scheduled yet.</strong>' +
+        ' Approving a card marks the creative good, it does not set a date.' +
+        ' Click <strong>Approve &amp; schedule</strong> above to lock in the dates and start publishing.</div>';
     }
 
     html += '<div class="soc-stats">' +
@@ -259,7 +268,16 @@
     return A.api('/api/ceo/social/post', { method: 'POST', body: body }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not save.'); return; }
       A.toast(okMsg);
-      return load(state.month, true);
+      return load(state.month, true).then(function () {
+        // Say the quiet part out loud at the moment it matters: the last card
+        // being decided is the point where people assume the job is finished.
+        var s = state.summary || {};
+        var by = s.by_status || {};
+        var c = state.campaign;
+        if (body.decision && by.draft === 0 && c && (c.status === 'in_review' || c.status === 'draft')) {
+          A.toast('All reviewed. Now click Approve & schedule to set the dates.');
+        }
+      });
     });
   }
 
@@ -271,7 +289,10 @@
         A.toast((d && d.message) || 'Could not approve.');
         return load(state.month, true);
       }
-      A.toast(d.scheduled + ' posts scheduled' + (d.first_publish_at ? ', starting ' + fmtWhen(d.first_publish_at) : ''));
+      // Name the first date explicitly. Approving in the evening books the next
+      // morning's slot, which reads as "nothing happened" unless it is said.
+      A.toast(d.scheduled + ' scheduled. First one goes out ' +
+        (d.first_publish_at ? fmtWhen(d.first_publish_at) : 'shortly') + '.');
       if (d.note) A.toast(d.note);
       return load(state.month, true);
     });
