@@ -14019,6 +14019,10 @@ async function handleDoubleTickWebhook(req, res) {
 
   const { messageBody, fromPhone, contactName, conversationUrl, messageId } = payload;
 
+  // Hoisted out of the storage block below: whether this number belongs to a doctor we
+  // already know decides whether the classifier is allowed to drop her message.
+  let knownGpCaseId = null;
+
   // Store message for reconciliation
   if (isSupabaseDbConfigured()) {
     const phoneClean = fromPhone.replace(/[^0-9]/g, '');
@@ -14028,14 +14032,23 @@ async function handleDoubleTickWebhook(req, res) {
     // Try to match phone to a user profile (fuzzy last-9-digit match on both phone columns)
     if (phoneClean.length >= 9) {
       const phoneSuffix = phoneClean.slice(-9);
+      // 🧨 This used to select `id`, which user_profiles DOES NOT HAVE. PostgREST 400s the
+      // WHOLE query for one unknown column and supabaseDbRequest never throws, so the
+      // failure was swallowed: dtUserId/dtCaseId stayed null and EVERY row written to
+      // doubletick_messages was orphaned — case_id null on all of them, in all of prod.
+      // That matters because the case-detail views read this table by case_id, so a
+      // doctor's WhatsApp history was invisible on her own file. The GP-facing symptom:
+      // Dr Mercy's 2026-08-17 message ("I have sent back the SPPA-00 form, signed") could
+      // not be seen anywhere. See supabase-schema-drift-silent-400 in the handover notes.
       const userLookup = await supabaseDbRequest('user_profiles',
-        'select=id,user_id&or=(phone.ilike.*' + phoneSuffix + ',phone_number.ilike.*' + phoneSuffix + ')&limit=1');
+        'select=user_id&or=(phone.ilike.*' + phoneSuffix + ',phone_number.ilike.*' + phoneSuffix + ')&limit=1');
       if (userLookup.ok && Array.isArray(userLookup.data) && userLookup.data.length > 0) {
         dtUserId = userLookup.data[0].user_id;
         const caseLookup = await supabaseDbRequest('registration_cases',
           'user_id=eq.' + dtUserId + '&select=id');
         if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data.length > 0) {
           dtCaseId = caseLookup.data[0].id;
+          knownGpCaseId = dtCaseId;
         }
       }
     }
@@ -14056,9 +14069,26 @@ async function handleDoubleTickWebhook(req, res) {
     }).catch(err => console.error('[DT] Message storage failed:', err.message));
   }
 
-  // Use AI to determine if the message is a question or help request
+  // Use AI to determine if the message is a question or help request.
+  //
+  // 🧨 THE CLASSIFIER MAY NOT DECIDE WHETHER A HUMAN EVER SEES A DOCTOR'S MESSAGE.
+  // It answers "is this a question?", and a "NO" used to end the request right here —
+  // silently and permanently, because the only other copy lands in doubletick_messages,
+  // which no queue reads. Dr Mercy wrote "Hi Hazel. I have sent back the SPPA-00 form,
+  // signed" on 2026-08-17. That is not a question, so the model correctly answered NO by
+  // its own instructions, and a placed doctor telling her RSO that a signed statutory
+  // form was on its way reached nobody. Replayed through the live model to confirm, not
+  // assumed.
+  //
+  // A status update from a doctor we are mid-registration with ALWAYS needs eyes. So the
+  // classifier now only governs STRANGERS, where the real risk is spam. For a number we
+  // can tie to an open case the message always lands somewhere a human looks: folded into
+  // her existing ticket when one is open (see the grouping block below), otherwise a new
+  // one — flagged low priority and titled as a message rather than a help request, so the
+  // dashboard stays honest about which is which.
   const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
-  if (!isHelpRequest) {
+  const isSocialFromKnownGp = !isHelpRequest && !!knownGpCaseId;
+  if (!isHelpRequest && !knownGpCaseId) {
     sendJson(res, 200, { ok: true, action: 'ignored' });
     return;
   }
@@ -14190,7 +14220,9 @@ async function handleDoubleTickWebhook(req, res) {
     const taskTitle = isNudgeReply
       ? 'Reply to nudge — ' + _dtStageLabel
       : activeCase
-        ? 'GP requested WhatsApp help — ' + _dtStageLabel
+        // "message" not "requested help" when the classifier judged it wasn't a question:
+        // an RSO scanning the queue should be able to tell an update from a plea.
+        ? (isSocialFromKnownGp ? 'GP message — ' : 'GP requested WhatsApp help — ') + _dtStageLabel
         : 'WhatsApp enquiry from ' + (gpName || fromPhone);
     // For unregistered contacts, include phone + contact name in description so VA can respond
     const taskDescription = activeCase
@@ -14201,7 +14233,7 @@ async function handleDoubleTickWebhook(req, res) {
       task_type: 'whatsapp_help',
       title: taskTitle,
       description: taskDescription,
-      priority: activeCase ? 'normal' : 'low',
+      priority: (activeCase && !isSocialFromKnownGp) ? 'normal' : 'low',
       status: 'open',
       source_trigger: 'doubletick_webhook',
       related_stage: activeCase ? (activeCase.stage || '') : '',
