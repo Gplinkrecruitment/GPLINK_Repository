@@ -16,6 +16,24 @@
 
   var state = { month: null, campaign: null, posts: [], summary: null, config: [], loading: false };
 
+  // 🧨 #panel-social is a PERSISTENT element in ceo-dashboard.html — renderInner()
+  // only replaces its innerHTML, never the node. So attaching the delegated click
+  // handler inside wire() (which runs on every render) stacked one more listener
+  // every time. Measured in a real browser: the POSTs and toasts one Approve click
+  // produced DOUBLED each time — 1, 2, 4, 8, 16 — which is the column of "Approved"
+  // toasts the owner saw, plus 16 identical writes to the server. Attach once.
+  // Same trap that made the Contracts card refuse to open (stacked toggles
+  // cancelling each other); ceo-ats-matching.js already guards it this way.
+  var panelWired = false;
+
+  // Post ids with a decision in flight, so a double-click cannot double-post.
+  var inFlight = {};
+
+  // The captions the LAST render painted, keyed by post id. This is the baseline
+  // that tells "the owner has unsaved edits" apart from "the server's copy moved
+  // on" when restoring state across a re-render.
+  var lastPainted = {};
+
   function el() { return document.getElementById('panel-social'); }
 
   function statusPill(status) {
@@ -153,8 +171,73 @@
     state.posts.forEach(function (p) { html += card(p); });
     html += '</div></div>';
 
+    // 🧨 A card decision reloads the month and repaints the whole grid, which
+    // destroys and rebuilds all ~60 textareas. Measured: a caption the owner had
+    // scrolled to read snapped back to the top the moment they approved a
+    // DIFFERENT card, and an unsaved edit in it was silently thrown away. Carry
+    // the per-caption state across the repaint.
+    var prevState = captureCaptionState();
+    var prevPainted = lastPainted;
+
     root.innerHTML = html;
+
+    lastPainted = {};
+    state.posts.forEach(function (p) { lastPainted[p.id] = String(p.caption == null ? '' : p.caption); });
+    restoreCaptionState(prevState, prevPainted);
     wire();
+  }
+
+  // Scroll position, unsaved text, focus and selection for every caption on screen.
+  function captureCaptionState() {
+    var root = el();
+    var out = {};
+    if (!root) return out;
+    var active = document.activeElement;
+    var boxes = root.querySelectorAll('.soc-caption');
+    for (var i = 0; i < boxes.length; i++) {
+      var box = boxes[i];
+      var card = box.closest ? box.closest('.soc-card') : null;
+      var id = card && card.getAttribute('data-id');
+      if (!id) continue;
+      out[id] = {
+        scrollTop: box.scrollTop,
+        value: box.value,
+        focused: box === active,
+        selStart: box.selectionStart,
+        selEnd: box.selectionEnd
+      };
+    }
+    return out;
+  }
+
+  function restoreCaptionState(prev, prevPainted) {
+    var root = el();
+    if (!root || !prev) return;
+    var boxes = root.querySelectorAll('.soc-caption');
+    for (var i = 0; i < boxes.length; i++) {
+      var box = boxes[i];
+      var card = box.closest ? box.closest('.soc-card') : null;
+      var id = card && card.getAttribute('data-id');
+      var was = id && prev[id];
+      if (!was) continue;
+      // An edit the owner has not saved yet is theirs to keep — but ONLY while the
+      // stored copy is unchanged. If the server's caption really moved on, the
+      // server wins, otherwise a genuine change would be silently masked by a
+      // stale box (and "Save copy" would then write the stale text back).
+      var painted = prevPainted ? prevPainted[id] : undefined;
+      if (was.value !== box.value && was.value !== painted && box.value === painted) {
+        box.value = was.value;
+      }
+      box.scrollTop = was.scrollTop;
+      if (was.focused) {
+        // preventScroll so restoring the caret cannot yank the page around.
+        try {
+          box.focus({ preventScroll: true });
+          if (was.selStart != null) box.setSelectionRange(was.selStart, was.selEnd);
+        } catch (e) { /* ignore */ }
+        box.scrollTop = was.scrollTop;
+      }
+    }
   }
 
   function stat(n, label) {
@@ -243,30 +326,52 @@
     var root = el();
     if (!root) return;
 
+    // These two live INSIDE the replaced innerHTML, so they are new nodes on every
+    // render and must be re-bound each time.
     var sel = document.getElementById('socMonthSel');
     if (sel) sel.addEventListener('change', function () { load(sel.value); });
 
     var approve = document.getElementById('socApproveBtn');
     if (approve) approve.addEventListener('click', approveCampaign);
 
-    root.addEventListener('click', function (e) {
-      var btn = e.target.closest ? e.target.closest('.soc-btn[data-act]') : null;
-      if (!btn) return;
-      var card = btn.closest('.soc-card');
-      if (!card) return;
-      var id = card.getAttribute('data-id');
-      var act = btn.getAttribute('data-act');
-      var caption = (card.querySelector('[data-role="caption"]') || {}).value;
-      if (act === 'save') return postUpdate(id, { caption: caption }, 'Copy saved');
-      if (act === 'approve') return postUpdate(id, { caption: caption, decision: 'approve' }, 'Approved');
-      if (act === 'reject') return postUpdate(id, { decision: 'reject' }, 'Rejected');
-    });
+    // The delegated card handler is bound to the PERSISTENT root, so exactly once.
+    if (panelWired) return;
+    panelWired = true;
+    root.addEventListener('click', onCardClick);
+  }
+
+  function onCardClick(e) {
+    var btn = e.target.closest ? e.target.closest('.soc-btn[data-act]') : null;
+    if (!btn) return;
+    var card = btn.closest('.soc-card');
+    if (!card) return;
+    var id = card.getAttribute('data-id');
+    var act = btn.getAttribute('data-act');
+    // Belt and braces on top of the once-only binding: an impatient double-click
+    // must not write the same decision twice.
+    if (!id || inFlight[id]) return;
+    var caption = (card.querySelector('[data-role="caption"]') || {}).value;
+    if (act === 'save') return postUpdate(id, { caption: caption }, 'Copy saved');
+    if (act === 'approve') return postUpdate(id, { caption: caption, decision: 'approve' }, 'Approved');
+    if (act === 'reject') return postUpdate(id, { decision: 'reject' }, 'Rejected');
   }
 
   function postUpdate(id, body, okMsg) {
     body.id = id;
+    inFlight[id] = true;
+    // Grey the row's buttons out while it is in flight so the click visibly landed.
+    var pending = el() && el().querySelector('.soc-card[data-id="' + id + '"]');
+    if (pending) {
+      pending.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = true; });
+    }
     return A.api('/api/ceo/social/post', { method: 'POST', body: body }).then(function (d) {
-      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not save.'); return; }
+      delete inFlight[id];
+      if (!d || !d.ok) {
+        A.toast((d && d.message) || 'Could not save.');
+        // Give the buttons back — the decision did not land, so it must be retryable.
+        if (pending) pending.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = false; });
+        return;
+      }
       A.toast(okMsg);
       return load(state.month, true).then(function () {
         // Say the quiet part out loud at the moment it matters: the last card

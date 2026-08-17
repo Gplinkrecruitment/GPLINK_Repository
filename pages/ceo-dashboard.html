@@ -1876,11 +1876,39 @@
     })();
 
     /* ── Toast ── */
+    // Toasts stack downward with no bound of their own, so a caller that fires the
+    // same message N times paints a column that runs off the screen and hides the
+    // page behind it (seen 2026-08-17: a stacked listener in the Social tab fired
+    // 16 "Approved" toasts from one click). The stacking bug is fixed at source, but
+    // a notification strip must never be able to take the screen over, so: collapse
+    // a repeat of the message already on screen into a "xN" counter, and hard-cap
+    // how many can be visible at once, dropping the oldest.
+    var TOAST_MAX_VISIBLE = 4;
     function showToast(msg, type) {
       var c = document.getElementById('toastContainer');
+      if (!c) return;
+      var text = String(msg == null ? '' : msg);
+
+      var live = c.querySelectorAll('.toast:not(.removing)');
+      var last = live.length ? live[live.length - 1] : null;
+      if (last && last.getAttribute('data-toast-msg') === text) {
+        var n = (Number(last.getAttribute('data-toast-count')) || 1) + 1;
+        last.setAttribute('data-toast-count', String(n));
+        last.textContent = text + ' ×' + n;
+        return;
+      }
+
+      while (live.length >= TOAST_MAX_VISIBLE) {
+        var oldest = live[0];
+        if (oldest && oldest.parentNode) oldest.parentNode.removeChild(oldest);
+        live = c.querySelectorAll('.toast:not(.removing)');
+      }
+
       var t = document.createElement('div');
       t.className = 'toast ' + (type || 'info');
-      t.textContent = msg;
+      t.setAttribute('data-toast-msg', text);
+      t.setAttribute('data-toast-count', '1');
+      t.textContent = text;
       c.appendChild(t);
       setTimeout(function() {
         t.classList.add('removing');
@@ -8668,6 +8696,6 @@
   <script src="/js/ceo-ats-matching.js?v=20260805a"></script>
   <script src="/js/ceo-ats-leads.js?v=20260724b"></script>
   <script src="/js/ceo-ats-contracts.js?v=20260805d"></script>
-  <script src="/js/ceo-social.js?v=20260817b"></script>
+  <script src="/js/ceo-social.js?v=20260818a"></script>
 </body>
 </html>
