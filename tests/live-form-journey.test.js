@@ -209,3 +209,98 @@ describe('what the doctor is shown on /start', () => {
     expect(r.json.token).toBeTruthy(); // -> loadCalendly()
   });
 });
+
+// The owner is duplicating the Meta form with "are you a currently registered GP?"
+// REMOVED, leaving only the training question. That payload has never hit the
+// webhook, so prove it works BEFORE the form goes live rather than discovering it
+// through a week of leads that were never contacted. The field is not merely empty
+// here — it is absent entirely, which is what Meta actually sends.
+function leadNoGpQuestion(trainingSlug, email) {
+  return {
+    entry: [{ changes: [{ value: {
+      leadgen_id: 'L-' + Math.random().toString(36).slice(2),
+      form_id: FORM_ID,
+      field_data: [
+        { name: 'full_name', values: ['Test Doctor'] },
+        { name: 'email', values: [email] },
+        { name: 'phone_number', values: ['+447700900123'] },
+        { name: '_where_did_you_complete_your_gp_training?', values: [trainingSlug] },
+        { name: "anything_you'd_like_us_to_cover_on_the_call?", values: ['pay and schools'] }
+      ]
+    } }] }]
+  };
+}
+
+async function submitNoGpQuestion(trainingSlug, email) {
+  sentEmails = [];
+  const res = await post('/api/webhooks/facebook-lead?secret=test-secret',
+    leadNoGpQuestion(trainingSlug, email));
+  expect(res.status).toBe(200);
+  const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  const row = (db.siteEnquiries || []).find((r) => r.email === email);
+  return { row, consult: row && row.metadata.consult, emails: sentEmails.slice() };
+}
+
+describe('the new one-question form (no "are you a registered GP?")', () => {
+  it('a UK-trained doctor still qualifies and is emailed her booking link', async () => {
+    const email = 'newform-uk@example.com';
+    const { consult, emails } = await submitNoGpQuestion('united_kingdom', email);
+    expect(consult.qualified).toBe(true);
+    expect(consult.country).toBe('uk');
+    expect(consult.screened_out).toBeUndefined();
+    expect(consult.country_unknown).toBeUndefined();
+    expect(consult.token).toBeTruthy();
+    // The point of the whole change: she qualifies on her ANSWER. Her +44 number
+    // must not be what rescued her, or a GP on an overseas number is still lost.
+    expect(consult.country_inferred_from_phone).toBeUndefined();
+    const toHer = emails.filter((e) => JSON.stringify(e.to || '').includes(email));
+    expect(toHer.length).toBeGreaterThan(0);
+  });
+
+  it('an overseas number does not stop a UK-trained doctor qualifying', async () => {
+    const email = 'newform-overseas-phone@example.com';
+    const payload = leadNoGpQuestion('united_kingdom', email);
+    payload.entry[0].changes[0].value.field_data[2] = { name: 'phone_number', values: ['+919876543210'] };
+    const res = await post('/api/webhooks/facebook-lead?secret=test-secret', payload);
+    expect(res.status).toBe(200);
+    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const consult = (db.siteEnquiries || []).find((r) => r.email === email).metadata.consult;
+    expect(consult.qualified).toBe(true);
+    expect(consult.token).toBeTruthy();
+  });
+
+  it('"Somewhere else" is still declined without the GP question', async () => {
+    const email = 'newform-elsewhere@example.com';
+    const { consult, emails } = await submitNoGpQuestion('somewhere_else', email);
+    expect(consult.qualified).toBe(false);
+    expect(consult.screened_out).toBe(true);
+    expect(consult.token).toBeUndefined();
+    const toHer = emails.filter((e) => JSON.stringify(e.to || '').includes(email));
+    expect(toHer.length).toBe(0);
+  });
+
+  // The phone fallback is NOT gone — it just stopped being the only way to qualify.
+  // These two pin what it is now for: rescuing an answer we could not read.
+  it('an unreadable training answer is still rescued by a served dialling code', async () => {
+    const email = 'newform-unreadable-uk-phone@example.com';
+    const { consult } = await submitNoGpQuestion('st_elsewhere_vts_1998', email);
+    expect(consult.screened_out).toBeUndefined();
+    expect(consult.qualified).toBe(true);
+    expect(consult.country_inferred_from_phone).toBe(true);
+  });
+
+  it('an unreadable answer AND an overseas number goes to a human, not a turndown', async () => {
+    const email = 'newform-unreadable-overseas@example.com';
+    const payload = leadNoGpQuestion('st_elsewhere_vts_1998', email);
+    payload.entry[0].changes[0].value.field_data[2] = { name: 'phone_number', values: ['+919876543210'] };
+    const res = await post('/api/webhooks/facebook-lead?secret=test-secret', payload);
+    expect(res.status).toBe(200);
+    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    const consult = (db.siteEnquiries || []).find((r) => r.email === email).metadata.consult;
+    // Failing to read her is never evidence about her — she waits for a human
+    // rather than being told we cannot take her on.
+    expect(consult.screened_out).toBeUndefined();
+    expect(consult.qualified).not.toBe(true);
+    expect(consult.country_unknown).toBe(true);
+  });
+});
