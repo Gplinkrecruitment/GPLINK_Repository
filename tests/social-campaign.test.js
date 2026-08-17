@@ -328,6 +328,26 @@ describe('configuredTargets', () => {
     expect(social.nothingConfigured(none)).toBe(true);
   });
 
+  it('catches IG_USER_ID being set to the Page id, which Meta reports opaquely', () => {
+    // Real incident: the Page id was pasted into both variables. Facebook kept
+    // working, and Instagram failed with "Object with ID ... does not support
+    // this operation", which reads as a permissions problem.
+    const wrong = social.graphConfig({
+      FB_PAGE_ACCESS_TOKEN: 'tok', FB_PAGE_ID: '769864969547691', IG_USER_ID: '769864969547691'
+    });
+    expect(social.configuredTargets(wrong)).toEqual({ facebook: true, instagram: false });
+    const problems = social.graphConfigProblems(wrong, { facebook: true, instagram: true });
+    expect(problems.join(' ')).toMatch(/set to the Facebook Page id/);
+  });
+
+  it('a genuine Instagram id is accepted', () => {
+    const right = social.graphConfig({
+      FB_PAGE_ACCESS_TOKEN: 'tok', FB_PAGE_ID: '769864969547691', IG_USER_ID: '17841400000000000'
+    });
+    expect(social.configuredTargets(right)).toEqual({ facebook: true, instagram: true });
+    expect(social.graphConfigProblems(right, { facebook: true, instagram: true })).toEqual([]);
+  });
+
   it('a Facebook-only campaign reports no configuration problems', () => {
     const fbOnly = conf({ IG_USER_ID: '' });
     expect(social.graphConfigProblems(fbOnly, social.configuredTargets(fbOnly))).toEqual([]);
