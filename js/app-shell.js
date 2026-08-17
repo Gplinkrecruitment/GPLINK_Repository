@@ -556,9 +556,22 @@
     return parsed && typeof parsed === "object" ? parsed : {};
   }
 
+  // 🧨 TWO spellings of the MyIntealth stage are live inside this ONE key — the
+  // server writes "myintealth" (STAGE_ORDER / PAGE_STAGE_MAP), the client journey
+  // key is "myinthealth", and the manual admin endpoint defaults to the client
+  // spelling. Accept either or an admin re-open grants nothing. See the full note
+  // in pages/myinthealth.html.
+  function registrationReturnKeysFor(stepKey) {
+    if (stepKey === "myinthealth" || stepKey === "myintealth") return ["myinthealth", "myintealth"];
+    return [stepKey];
+  }
+
   function isRegistrationReturnAllowed(stepKey) {
     if (stepKey === "career") return true;
-    return getRegistrationReturnOverrides()[stepKey] === true;
+    var overrides = getRegistrationReturnOverrides();
+    var keys = registrationReturnKeysFor(stepKey);
+    for (var i = 0; i < keys.length; i++) { if (overrides[keys[i]] === true) return true; }
+    return false;
   }
 
   function buildRegistrationRow(stepKey, config) {
@@ -639,7 +652,12 @@
           amcDone = amcDone || forcedAmcDone;
           ahpraDone = ahpraDone || forcedAhpraDone;
         }
-        careerSecured = careerSecured || overrideIdx > 0;
+        // 🧨 Keep in lockstep with pages/index.html getProgressSnapshot(): a stage
+        // rail that has merely moved off index 0 does NOT mean the doctor is placed.
+        // The server's _deriveStageFromState floor is 'myintealth' and it returns
+        // 'career' while they are still looking, so `overrideIdx > 0` claimed
+        // "Placement secured" for every doctor with a case. Only PAST 'career'.
+        careerSecured = careerSecured || overrideIdx > OVERRIDE_ORDER.indexOf("career");
         if (!epicDone) epicCurrentLabel = EPIC_STAGE_LABELS.create_account;
         if (!amcDone) amcCurrentLabel = AMC_STAGE_LABELS.create_portfolio;
       }
@@ -675,9 +693,14 @@
 
     var ROW_EXTRAS = {
       career: {
-        sub: "View your secured practice placement.",
-        mobileDetail: "Your placed practice details and contact information.",
-        mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
+        // Unconditional "your secured placement" copy claimed a placement the doctor
+        // may not have. All three lines follow the real flag now, in step with
+        // pages/index.html's ROW_EXTRAS.
+        sub: snap.careerSecured ? "View your secured practice placement." : "Find and secure your position.",
+        mobileDetail: snap.careerSecured
+          ? "Your placed practice details and contact information."
+          : "Browse open GP positions and secure your placement.",
+        mobileStatus: snap.careerSecured ? "Placement secured" : "Find a position",
         href: "/pages/career"
       },
       myinthealth: {

@@ -1647,8 +1647,21 @@
       return parsed && typeof parsed === "object" ? parsed : {};
     }
 
+    // 🧨 TWO spellings of the MyIntealth stage are live inside this ONE key — the
+    // server writes "myintealth" (STAGE_ORDER / PAGE_STAGE_MAP), the client journey
+    // key is "myinthealth", and the manual admin endpoint defaults to the client
+    // spelling. Accept either or an admin re-open grants nothing. See the full note
+    // in pages/myinthealth.html.
+    function registrationReturnKeysFor(stepKey) {
+      if (stepKey === "myinthealth" || stepKey === "myintealth") return ["myinthealth", "myintealth"];
+      return [stepKey];
+    }
+
     function isRegistrationReturnAllowed(stepKey) {
-      return getRegistrationReturnOverrides()[stepKey] === true;
+      var overrides = getRegistrationReturnOverrides();
+      var keys = registrationReturnKeysFor(stepKey);
+      for (var i = 0; i < keys.length; i++) { if (overrides[keys[i]] === true) return true; }
+      return false;
     }
 
     function buildRegistrationRow(stepKey, config) {

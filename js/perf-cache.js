@@ -8,7 +8,7 @@
   var WARM_MESSAGE = "GP_CACHE_URLS";
   var DEFAULT_WARM_URLS = [
     "/pages/index?gp_shell=embedded&gp_shell_static=1",
-    "/js/app-shell.js?v=20260722a",
+    "/js/app-shell.js?v=20260818a",
     "/js/native-bridge.js?v=20260707a",
     "/js/nav-shell-bridge.js?v=20260608a",
     "/js/auth-guard.js?v=20260810a",

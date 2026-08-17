@@ -54,7 +54,14 @@
   // only thing left is the pack WE prepare with the practice, and lists those items (the
   // "GP Link Prepares" group was dead code before, so that screen showed her a
   // "Complete Now" button for work she could not do). /pages/ahpra is precached.
-  var VERSION = "20260814c";
+  // 20260818a: a completed journey step can be revisited. index.html's done row now
+  // links into the step instead of showing an inert "Completed" chip, and
+  // myinthealth/amc/ahpra open READ-ONLY rather than bouncing the doctor on to their
+  // next unfinished stage. index.html also stopped claiming "Placement secured" for
+  // any doctor whose case stage had merely moved off 'placement'. All five of those
+  // pages are precached and served stale-while-revalidate, so without this bump the
+  // fixes land a navigation late and read as never shipped.
+  var VERSION = "20260818a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -86,7 +93,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20260724a",
+    "/js/app-shell.js?v=20260818a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",

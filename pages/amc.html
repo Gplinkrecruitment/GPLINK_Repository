@@ -228,6 +228,45 @@
       padding: var(--sp-6) var(--sp-7) var(--sp-10);
     }
 
+    /* ---- COMPLETED-STEP REVIEW BANNER ---- */
+    /* Shown when a doctor re-opens a step they have already finished. In this mode
+       the page is READ-ONLY (STEP_REVIEW_ONLY in the script below), so going back
+       to read a tutorial they clicked past can never rewrite the stage they are
+       actually on. The same block lives in myinthealth.html and ahpra.html. */
+    .step-review-banner {
+      display: none;
+      align-items: flex-start; gap: 12px;
+      margin: 0 0 22px; padding: 14px 16px;
+      border: 1px solid #bfdbfe; border-radius: 14px;
+      background: #eff6ff; color: #1e3a8a;
+    }
+    html[data-step-review="1"] .step-review-banner { display: flex; }
+    .step-review-banner > svg {
+      width: 18px; height: 18px; flex: 0 0 18px; margin-top: 2px;
+      stroke: #2563eb; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .srb-body { flex: 1 1 auto; min-width: 0; }
+    .srb-title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+    .srb-text { font-size: 13px; line-height: 1.5; color: #1d4ed8; }
+    .srb-back {
+      flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 10px; border: 1px solid #bfdbfe;
+      background: #fff; color: #1d4ed8; font-size: 13px; font-weight: 600;
+      text-decoration: none; cursor: pointer; white-space: nowrap;
+    }
+    .srb-back:hover { background: #dbeafe; }
+    @media (max-width: 640px) {
+      .step-review-banner { flex-wrap: wrap; }
+      .srb-back { width: 100%; justify-content: center; }
+    }
+    /* Anything that would advance or revert the step is removed while reviewing.
+       display:none needs !important here — an author `display:` rule on these
+       buttons would otherwise win over a plain override. */
+    html[data-step-review="1"] #actionMarkBtn,
+    html[data-step-review="1"] #actionPrevBtn,
+    html[data-step-review="1"] #headerMarkBtn,
+    html[data-step-review="1"] #headerPrevBtn { display: none !important; }
+
     /* ---- STEP TITLE (on light surface) ---- */
     .step-title {
       font-family: var(--gp-font-display);
@@ -1138,6 +1177,15 @@
 
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content gp-reveal gp-reveal-2">
+      <!-- Read-only review of an already-completed step (see STEP_REVIEW_ONLY) -->
+      <div class="step-review-banner" id="stepReviewBanner">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div class="srb-body">
+          <div class="srb-title">You have already completed this step</div>
+          <div class="srb-text">This is a read-only view so you can go back over the guide. Nothing you do here changes the step you are up to.</div>
+        </div>
+        <a class="srb-back" id="stepReviewBackBtn" href="/pages/index" data-route="/pages/index">Back to my journey</a>
+      </div>
       <h2 class="step-title mobile-step-title" id="stepTitleMobile">Create Your AMC Account</h2>
       <p class="step-desc mobile-step-desc" id="stepSubMobile">Set up your AMC Candidate Portfolio account.</p>
 
@@ -1385,7 +1433,17 @@
       return base;
     }
 
+    // Read-only review of an already-completed step — resolved in
+    // applyStepReviewMode() before anything is loaded or saved. While true, NOTHING
+    // on this page may persist progress, so revisiting a finished step cannot
+    // rewrite the stage the doctor is actually on.
+    var STEP_REVIEW_ONLY = false;
+
     function saveProgress(progress, force) {
+      // Last line of defence. Every mutator below refuses on its own, but a single
+      // stray write here would leak back to the server through state-sync and move
+      // the doctor's real stage, so the write itself is barred too.
+      if (STEP_REVIEW_ONLY) return;
       progress.updatedAt = new Date().toISOString();
       queueBatchedSave(STORAGE_KEY, JSON.stringify(progress), force);
     }
@@ -1600,7 +1658,16 @@
     }
 
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
+    // Every mutator below refuses in review mode, and says why — a silently dead
+    // button is how "the Continue button is not working" got reported before.
+    function blockedByStepReview() {
+      if (!STEP_REVIEW_ONLY) return false;
+      showToast("You are viewing a completed step. Your progress has not changed.");
+      return true;
+    }
+
     function markStageComplete(progress, key) {
+      if (blockedByStepReview()) return;
       if (stageStatus(progress, key) !== "current") return;
       if (progress.stage !== key) progress.stage = key;
 
@@ -1630,6 +1697,7 @@
     }
 
     function undoToStage(progress, key) {
+      if (blockedByStepReview()) return;
       const idx = STAGES.indexOf(key);
       if (idx === -1) return;
       for (let i = idx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
@@ -1642,6 +1710,7 @@
     }
 
     function rewindToPreviousStep(progress, key) {
+      if (blockedByStepReview()) return;
       const tabIdx = TAB_STAGES.indexOf(key);
       if (tabIdx <= 0) return;
       const previous = TAB_STAGES[tabIdx - 1];
@@ -1657,6 +1726,7 @@
     }
 
     function resetProgressToStage(progress, key) {
+      if (blockedByStepReview()) return;
       const stageIdx = STAGES.indexOf(key);
       if (stageIdx === -1) return;
       for (let i = stageIdx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
@@ -2049,8 +2119,21 @@
       return parsed && typeof parsed === "object" ? parsed : {};
     }
 
+    // 🧨 TWO spellings of the MyIntealth stage are live inside this ONE key — the
+    // server writes "myintealth" (STAGE_ORDER / PAGE_STAGE_MAP), the client journey
+    // key is "myinthealth", and the manual admin endpoint defaults to the client
+    // spelling. Accept either or an admin re-open grants nothing. See the full note
+    // in pages/myinthealth.html.
+    function registrationReturnKeysFor(stepKey) {
+      if (stepKey === "myinthealth" || stepKey === "myintealth") return ["myinthealth", "myintealth"];
+      return [stepKey];
+    }
+
     function isRegistrationReturnAllowed(stepKey) {
-      return getRegistrationReturnOverrides()[stepKey] === true;
+      var overrides = getRegistrationReturnOverrides();
+      var keys = registrationReturnKeysFor(stepKey);
+      for (var i = 0; i < keys.length; i++) { if (overrides[keys[i]] === true) return true; }
+      return false;
     }
 
     function parseStoredString(key) {
@@ -2406,28 +2489,44 @@
       window.location.replace(href);
     }
 
+    // 🚪 A completed step is now REVIEWABLE, never a redirect.
+    // This used to bounce any doctor who had finished AMC on to their next
+    // unfinished stage, so a doctor who clicked ahead through the journey to preview
+    // it could never come back and read the guide they skipped (reported for Ibrahim
+    // Fashola, 2026-08-17). Now a finished AMC opens READ-ONLY instead: everything
+    // is visible, no progress write can land, and a banner says so with a way back.
+    // The FORWARD gate stays — AMC genuinely is not open until MyIntealth is done.
+    function resolveStepReviewMode() {
+      if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
+      const amc = parseStorage(AMC_KEY);
+      // No amc blob yet (fresh session, state-sync has not hydrated) — assume the
+      // doctor is working the step. Guessing "completed" here would make a live
+      // step silently read-only, which is far worse than the reverse.
+      if (!amc) return false;
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      return amcDone && !isRegistrationReturnAllowed("amc");
+    }
+
+    function applyStepReviewMode() {
+      STEP_REVIEW_ONLY = resolveStepReviewMode();
+      document.documentElement.setAttribute("data-step-review", STEP_REVIEW_ONLY ? "1" : "0");
+      return STEP_REVIEW_ONLY;
+    }
+
     function redirectToAllowedStage() {
+      applyStepReviewMode();
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
       const epic = parseStorage(EPIC_KEY);
       const amc = parseStorage(AMC_KEY);
-      const ahpra = parseStorage(AHPRA_KEY);
       // If no epic data in localStorage yet (fresh session), don't redirect —
       // show the gate instead and let state-sync hydration correct the state.
       if (!epic) return false;
       const epicDone = effectiveEpicDone(epic, amc);
-      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
-      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       if (!epicDone) {
         shellNavigate("/pages/myinthealth");
         return true;
       }
-      if (!amcDone || isRegistrationReturnAllowed("amc")) return false;
-      if (!ahpraDone) {
-        shellNavigate("/pages/ahpra");
-        return true;
-      }
-      shellNavigate("/pages/index");
-      return true;
+      return false;
     }
 
     // ─── MyIntealth ID Gate ──────────────────────────────────────

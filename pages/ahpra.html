@@ -239,6 +239,45 @@
       padding: var(--sp-6) var(--sp-7) var(--sp-10);
     }
 
+    /* ---- COMPLETED-STEP REVIEW BANNER ---- */
+    /* Shown when a doctor re-opens a step they have already finished. In this mode
+       the page is READ-ONLY (STEP_REVIEW_ONLY in the script below), so going back
+       to read a tutorial they clicked past can never rewrite the stage they are
+       actually on. The same block lives in myinthealth.html and amc.html. */
+    .step-review-banner {
+      display: none;
+      align-items: flex-start; gap: 12px;
+      margin: 0 0 22px; padding: 14px 16px;
+      border: 1px solid #bfdbfe; border-radius: 14px;
+      background: #eff6ff; color: #1e3a8a;
+    }
+    html[data-step-review="1"] .step-review-banner { display: flex; }
+    .step-review-banner > svg {
+      width: 18px; height: 18px; flex: 0 0 18px; margin-top: 2px;
+      stroke: #2563eb; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .srb-body { flex: 1 1 auto; min-width: 0; }
+    .srb-title { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+    .srb-text { font-size: 13px; line-height: 1.5; color: #1d4ed8; }
+    .srb-back {
+      flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 10px; border: 1px solid #bfdbfe;
+      background: #fff; color: #1d4ed8; font-size: 13px; font-weight: 600;
+      text-decoration: none; cursor: pointer; white-space: nowrap;
+    }
+    .srb-back:hover { background: #dbeafe; }
+    @media (max-width: 640px) {
+      .step-review-banner { flex-wrap: wrap; }
+      .srb-back { width: 100%; justify-content: center; }
+    }
+    /* Anything that would advance or revert the step is removed while reviewing.
+       display:none needs !important here — an author `display:` rule on these
+       buttons would otherwise win over a plain override. */
+    html[data-step-review="1"] #actionMarkBtn,
+    html[data-step-review="1"] #actionPrevBtn,
+    html[data-step-review="1"] #headerMarkBtn,
+    html[data-step-review="1"] #headerPrevBtn { display: none !important; }
+
     /* ---- STEP TITLE (on light surface) ---- */
     .step-title {
       font-family: var(--font-heading);
@@ -2258,6 +2297,15 @@
 
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content gp-reveal gp-reveal-2">
+      <!-- Read-only review of an already-completed step (see STEP_REVIEW_ONLY) -->
+      <div class="step-review-banner" id="stepReviewBanner">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div class="srb-body">
+          <div class="srb-title">You have already completed this step</div>
+          <div class="srb-text">This is a read-only view so you can go back over the guide. Nothing you do here changes the step you are up to.</div>
+        </div>
+        <a class="srb-back" id="stepReviewBackBtn" href="/pages/index" data-route="/pages/index">Back to my journey</a>
+      </div>
       <h2 class="step-title mobile-step-title" id="stepTitleMobile">Create AHPRA Account</h2>
       <p class="step-desc mobile-step-desc" id="stepSubMobile">Set up your AHPRA Online Services account.</p>
 
@@ -3529,7 +3577,17 @@
       return base;
     }
 
+    // Read-only review of an already-completed step — resolved in
+    // applyStepReviewMode() before anything is loaded or saved. While true, NOTHING
+    // on this page may persist progress, so revisiting a finished step cannot
+    // rewrite the stage the doctor is actually on.
+    var STEP_REVIEW_ONLY = false;
+
     function saveProgress(progress, force) {
+      // Last line of defence. Every mutator below refuses on its own, but a single
+      // stray write here would leak back to the server through state-sync and move
+      // the doctor's real stage, so the write itself is barred too.
+      if (STEP_REVIEW_ONLY) return;
       progress.updatedAt = new Date().toISOString();
       queueBatchedSave(STORAGE_KEY, JSON.stringify(progress), force);
     }
@@ -4283,7 +4341,16 @@
     }
 
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
+    // Every mutator below refuses in review mode, and says why — a silently dead
+    // button is how "the Continue button is not working" got reported before.
+    function blockedByStepReview() {
+      if (!STEP_REVIEW_ONLY) return false;
+      showToast("You are viewing a completed step. Your progress has not changed.");
+      return true;
+    }
+
     function markStageComplete(progress, key) {
+      if (blockedByStepReview()) return;
       if (stageStatus(progress, key) !== "current") return;
       // Gate: the AHPRA application step needs the GP's English pathway (and, for the
       // Test Pathway, which test + whether it's done) before it can be completed.
@@ -4309,6 +4376,7 @@
     }
 
     function undoToStage(progress, key) {
+      if (blockedByStepReview()) return;
       if (ahpraOfficerLocked) { showToast(OFFICER_LOCK_TOAST); return; }
       const idx = STAGES.indexOf(key);
       if (idx === -1) return;
@@ -4322,6 +4390,7 @@
     }
 
     function rewindToPreviousStep(progress, key) {
+      if (blockedByStepReview()) return;
       if (ahpraOfficerLocked) { showToast(OFFICER_LOCK_TOAST); return; }
       const tabIdx = TAB_STAGES.indexOf(key);
       if (tabIdx <= 0) return;
@@ -4337,6 +4406,7 @@
     }
 
     function resetProgressToStage(progress, key) {
+      if (blockedByStepReview()) return;
       if (ahpraOfficerLocked && key !== "awaiting_outcome") { showToast(OFFICER_LOCK_TOAST); return; }
       const stageIdx = STAGES.indexOf(key);
       if (stageIdx === -1) return;
@@ -5606,8 +5676,21 @@
       return parsed && typeof parsed === "object" ? parsed : {};
     }
 
+    // 🧨 TWO spellings of the MyIntealth stage are live inside this ONE key — the
+    // server writes "myintealth" (STAGE_ORDER / PAGE_STAGE_MAP), the client journey
+    // key is "myinthealth", and the manual admin endpoint defaults to the client
+    // spelling. Accept either or an admin re-open grants nothing. See the full note
+    // in pages/myinthealth.html.
+    function registrationReturnKeysFor(stepKey) {
+      if (stepKey === "myinthealth" || stepKey === "myintealth") return ["myinthealth", "myintealth"];
+      return [stepKey];
+    }
+
     function isRegistrationReturnAllowed(stepKey) {
-      return getRegistrationReturnOverrides()[stepKey] === true;
+      var overrides = getRegistrationReturnOverrides();
+      var keys = registrationReturnKeysFor(stepKey);
+      for (var i = 0; i < keys.length; i++) { if (overrides[keys[i]] === true) return true; }
+      return false;
     }
 
     function hasMeaningfulAhpraProgress(progress) {
@@ -5969,15 +6052,34 @@
       window.location.replace(href);
     }
 
-    function redirectToAllowedStage() {
+    // 🚪 A completed step is now REVIEWABLE, never a redirect.
+    // This used to bounce a doctor whose AHPRA step was finished straight back to
+    // the dashboard, so they could never re-read the guide (reported for Ibrahim
+    // Fashola, 2026-08-17). Now it opens READ-ONLY: everything is visible, no
+    // progress write can land, and a banner says so with a way back. An explicit
+    // admin re-open (gp_registration_return_overrides) still gives full edit.
+    function resolveStepReviewMode() {
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
-      // No longer redirects for missing EPIC/AMC — the placement gate handles messaging.
-      // Only redirect away if AHPRA is fully completed and no return override is set.
       const ahpra = parseStorage(STORAGE_KEY);
+      // No ahpra blob yet (fresh session, state-sync has not hydrated) — assume the
+      // doctor is working the step. Guessing "completed" here would make a live
+      // step silently read-only, which is far worse than the reverse.
+      if (!ahpra) return false;
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.awaiting_outcome === true);
-      if (!ahpraDone || isRegistrationReturnAllowed("ahpra")) return false;
-      shellNavigate("/pages/index");
-      return true;
+      return ahpraDone && !isRegistrationReturnAllowed("ahpra");
+    }
+
+    function applyStepReviewMode() {
+      STEP_REVIEW_ONLY = resolveStepReviewMode();
+      document.documentElement.setAttribute("data-step-review", STEP_REVIEW_ONLY ? "1" : "0");
+      return STEP_REVIEW_ONLY;
+    }
+
+    // Kept as a no-op shim: the boot block below reads it, and a completed step no
+    // longer redirects anywhere.
+    function redirectToAllowedStage() {
+      applyStepReviewMode();
+      return false;
     }
 
     // ─── PLACEMENT GATE ─────────────────────────────────────────

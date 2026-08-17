@@ -520,13 +520,16 @@
       transition: transform var(--gp-dur-fast) var(--gp-ease), box-shadow var(--gp-dur-fast) var(--gp-ease);
     }
     .journey-body-cta:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -10px rgba(29, 78, 216, 0.6); }
+    /* A completed step's CTA is a real link into a read-only review of that step,
+       not the old inert "Completed" chip — the row's Done pill already reports
+       status, so this slot is better spent giving the doctor a way back in. */
     .journey-body-cta.done-cta {
       background: var(--gp-green-soft); color: var(--gp-green-ink); border: 1px solid var(--gp-green-border);
       box-shadow: none;
-      cursor: default;
+      cursor: pointer;
     }
     .journey-body-cta.done-cta svg { stroke: var(--gp-green); }
-    .journey-body-cta.done-cta:hover { transform: none; box-shadow: none; }
+    .journey-body-cta.done-cta:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -12px rgba(5, 150, 105, 0.5); }
     .journey-body-cta svg {
       width: 14px; height: 14px; stroke: currentColor;
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
@@ -1293,10 +1296,23 @@
       return parsed && typeof parsed === "object" ? parsed : {};
     }
 
+    // 🧨 TWO spellings of the MyIntealth stage are live inside this ONE key — the
+    // server writes "myintealth" (STAGE_ORDER / PAGE_STAGE_MAP), the client journey
+    // key is "myinthealth", and the manual admin endpoint defaults to the client
+    // spelling. Accept either or an admin re-open grants nothing. See the full note
+    // in pages/myinthealth.html.
+    function registrationReturnKeysFor(stepKey) {
+      if (stepKey === "myinthealth" || stepKey === "myintealth") return ["myinthealth", "myintealth"];
+      return [stepKey];
+    }
+
     function isRegistrationReturnAllowed(stepKey) {
       if (stepKey === "career") return true;
       if (BYPASS_LOCK_EMAILS[getCurrentUserEmail()]) return true;
-      return getRegistrationReturnOverrides()[stepKey] === true;
+      var overrides = getRegistrationReturnOverrides();
+      var keys = registrationReturnKeysFor(stepKey);
+      for (var i = 0; i < keys.length; i++) { if (overrides[keys[i]] === true) return true; }
+      return false;
     }
 
     function buildRegistrationRow(stepKey, config) {
@@ -1641,7 +1657,17 @@
             amcDone = amcDone || forcedAmcDone;
             ahpraDone = ahpraDone || forcedAhpraDone;
           }
-          careerSecured = careerSecured || overrideIdx > 0;
+          // 🧨 "Placement secured" must NOT be inferred from the stage rail simply
+          // having moved off index 0. The server's _deriveStageFromState never
+          // returns 'placement' — its floor is 'myintealth' — and it returns
+          // 'career' precisely while the doctor is STILL LOOKING for a position.
+          // So `overrideIdx > 0` marked EVERY doctor with a case as placed: Ibrahim
+          // Fashola (zero gp_applications rows, registration_cases.practice_name
+          // NULL, gp_career_state.applications []) was shown "Secure Placement ·
+          // Placement secured · DONE" plus a banner offering "your secured placement
+          // details". Only a stage PAST 'career' implies a real placement, because
+          // that is the only way _deriveStageFromState gets past the career gate.
+          careerSecured = careerSecured || overrideIdx > OVERRIDE_ORDER.indexOf("career");
           if (!epicDone) epicCurrentLabel = epicStageLabels.create_account;
           if (!amcDone) amcCurrentLabel = amcStageLabels.create_portfolio;
         }
@@ -1670,7 +1696,9 @@
       let currentTitle = "MyIntealth Account";
       let currentSub = epicCurrentLabel;
       if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
-      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "View your secured practice placement"; }
+      // This branch is reached precisely BECAUSE there is no placement yet, so it
+      // must not offer to show one.
+      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "Browse open positions and secure your placement"; }
       else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
       else if (epicDone && amcDone && careerSecured && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
       // Commencement is vaulted (js/journey-stages.js) — PBS & Medicare is the
@@ -1748,7 +1776,9 @@
       // AHPRA is always navigable — gate page inside ahpra.html handles placement-required messaging
       const ahpraSubText = snap.ahpraDone ? "Completed" : !snap.careerSecured ? "Secure a placement to continue" : "Specialist registration";
       const liveSubText = {
-        career: snap.careerSecured ? "Placement secured" : "View your practice placement",
+        // "View your practice placement" still implied he had one. An unplaced
+        // doctor is pointed at finding one, matching the featured banner above.
+        career: snap.careerSecured ? "Placement secured" : "Find and secure your position",
         myinthealth: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
         amc: snap.amcDone ? "Completed" : (snap.epicDone ? snap.amcCurrentLabel : null),
         ahpra: ahpraSubText,
@@ -1757,7 +1787,15 @@
         commencement: snap.pbsDone ? "Pre-arrival checklist & first day" : null
       };
 
-      let currentIdx = stages.findIndex(s => !s.done && !s.locked);
+      // Highlight the row the hero's "next action" already points at, so the two
+      // surfaces agree. While "Placement secured" was being inferred from the stage
+      // rail, step 1 was always done and the first-open-step fallback happened to
+      // land on the right row. Now that an unplaced doctor's step 1 is honestly NOT
+      // done, that fallback would flag "Secure Placement" as Current (and auto-open
+      // it) while the hero said "Next: AMC Portfolio" — securing a position is a
+      // parallel track that gates AHPRA, not a prerequisite for MyIntealth or AMC.
+      let currentIdx = stages.findIndex(s => s.key === snap.currentRoute && !s.done && !s.locked);
+      if (currentIdx === -1) currentIdx = stages.findIndex(s => !s.done && !s.locked);
       if (currentIdx === -1) currentIdx = stages.length - 1;
 
       // 🧨 Do NOT rebuild the list unless something it displays actually changed.
@@ -1796,6 +1834,9 @@
       const honourUserOpen = !!listEl.dataset.journeyUserOpened;
 
       const checkSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
+      // Left-turn arrow — "go back into this step" rather than the forward chevron
+      // the un-finished steps use for Continue.
+      const quickViewSvg = '<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/></svg>';
 
       listEl.innerHTML = "";
       listEl.dataset.journeySig = renderSig;
@@ -1821,7 +1862,16 @@
 
         let bodyHtml = `<p>${step.description}</p>`;
         if (step.done) {
-          bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
+          // 🚪 Doctors routinely click straight through the journey to preview what
+          // is coming, then want to go back and actually read the tutorial they
+          // skipped (reported for Ibrahim Fashola, 2026-08-17). This slot used to
+          // hold an inert green "Completed" chip, so a finished step was a dead end
+          // on this page — and the step pages themselves BOUNCED anyone who got
+          // there another way. It is now a real link, and the step opens in
+          // read-only review mode (STEP_REVIEW_ONLY in myinthealth/amc/ahpra) so
+          // looking back can never rewrite the stage they are actually on. The
+          // header pill still says "Done", so nothing is lost by dropping the chip.
+          bodyHtml += `<a class="journey-body-cta done-cta" href="/pages/${step.page}" data-route="/pages/${step.page}">${quickViewSvg} Quick view</a>`;
         } else if (!step.locked) {
           bodyHtml += `<a class="journey-body-cta" href="/pages/${step.page}" data-route="/pages/${step.page}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
         }
@@ -1899,9 +1949,13 @@
         : "In progress";
       const ROW_EXTRAS = {
         career: {
-          sub: "View your secured practice placement.",
-          mobileDetail: "Your placed practice details and contact information.",
-          mobileStatus: snap.careerSecured ? "Placement secured" : "View placement"
+          // Unconditional "your secured placement" copy claimed a placement the
+          // doctor may not have. Both lines follow the real flag now.
+          sub: snap.careerSecured ? "View your secured practice placement." : "Find and secure your position.",
+          mobileDetail: snap.careerSecured
+            ? "Your placed practice details and contact information."
+            : "Browse open GP positions and secure your placement.",
+          mobileStatus: snap.careerSecured ? "Placement secured" : "Find a position"
         },
         myinthealth: {
           sub: "Create account and complete EPIC verification.",
