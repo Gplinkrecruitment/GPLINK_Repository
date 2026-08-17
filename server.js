@@ -46054,7 +46054,15 @@ async function handleApi(req, res, pathname) {
     const known = await findConsultLeadByCookie(req);
     if (known && known.metadata && known.metadata.consult &&
         known.metadata.consult.call_booked !== true) {
-      const reScreened = consultLead.screenConsultLead(validated.value);
+      // countryRecognised for the same reason the insert path below sets it: on our
+      // own form the country comes from a fixed dropdown, so whatever arrived is
+      // something the doctor deliberately picked, never something we failed to read.
+      // Without it a returning visitor re-screens as unqualified and line ~46031
+      // stamps them screened_out — which is exactly how the /start form would have
+      // broken when it stopped asking "are you a currently registered GP?".
+      const reScreened = consultLead.screenConsultLead(
+        Object.assign({}, validated.value, { countryRecognised: true })
+      );
       const consult = Object.assign({}, known.metadata.consult, {
         qualified: reScreened,
         is_gp: validated.value.isGp === true,

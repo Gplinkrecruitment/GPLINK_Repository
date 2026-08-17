@@ -238,9 +238,7 @@
           <input id="cfEmail" type="email" autocomplete="email" maxlength="200" placeholder="Email" required>
           <label for="cfPhone">Phone (optional)</label>
           <input id="cfPhone" type="tel" autocomplete="tel" maxlength="40" placeholder="Phone (with country code)">
-          <label for="cfIsGp">Are you a currently registered GP?</label>
-          <select id="cfIsGp"><option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option></select>
-          <label for="cfCountry">Where are you registered?</label>
+          <label for="cfCountry">Where did you complete your GP training?</label>
           <select id="cfCountry"><option value="">Choose…</option><option value="uk">United Kingdom</option><option value="ie">Ireland</option><option value="nz">New Zealand</option><option value="au">Australia</option><option value="other">Somewhere else</option></select>
           <label for="cfQuestion">Your main question (optional)</label>
           <textarea id="cfQuestion" maxlength="2000" placeholder="Optional: what's your main question?"></textarea>
@@ -508,20 +506,22 @@
   document.getElementById('consultForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
     var err = document.getElementById('cfErr');
-    var isGpRaw = document.getElementById('cfIsGp').value;
+    // "Are you a currently registered GP?" was removed on 2026-08-18: where they
+    // completed GP training is the fact eligibility actually turns on, and asking
+    // both was charging the doctor twice for one answer. isGp is simply not sent —
+    // the server treats absent as "not asked", never as "no".
     var country = document.getElementById('cfCountry').value;
     var payload = {
       name: document.getElementById('cfName').value.trim(),
       email: document.getElementById('cfEmail').value.trim(),
       phone: document.getElementById('cfPhone').value.trim(),
-      isGp: isGpRaw === 'yes',
       country: country,
       question: document.getElementById('cfQuestion').value.trim(),
       website: document.getElementById('cfWebsite').value,
       utm: utm
     };
-    if (!payload.name || !payload.email || !isGpRaw || !country) {
-      err.textContent = 'Please fill in your name, email and both dropdowns.'; err.hidden = false; return;
+    if (!payload.name || !payload.email || !country) {
+      err.textContent = 'Please fill in your name, email and where you trained.'; err.hidden = false; return;
     }
     err.hidden = true;
     var submitBtn = document.getElementById('cfSubmit');

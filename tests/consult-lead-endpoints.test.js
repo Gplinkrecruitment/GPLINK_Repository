@@ -124,6 +124,26 @@ describe('POST /api/public/consult-lead', () => {
     const row = readDb().siteEnquiries[0];
     expect(row.metadata.consult.screened_out).toBe(true);
   });
+  // The /start form stopped asking "are you a currently registered GP?" on
+  // 2026-08-18 and now asks only where they completed GP training. isGp is simply
+  // not in the payload. This is the shape the live form posts — if it ever 400s or
+  // comes back qualified:false, the booking page is dead for every doctor.
+  it('qualifies a UK-trained doctor when the payload carries no isGp at all', async () => {
+    const { isGp, ...noGpQuestion } = goodLead();
+    const res = await post('/api/public/consult-lead', noGpQuestion);
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ ok: true, qualified: true });
+    expect(typeof res.json.token).toBe('string');
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.qualified).toBe(true);
+    expect(row.metadata.consult.screened_out).toBeUndefined();
+  });
+  it('still declines "somewhere else" when the payload carries no isGp', async () => {
+    const { isGp, ...noGpQuestion } = goodLead();
+    const res = await post('/api/public/consult-lead', { ...noGpQuestion, country: 'other' });
+    expect(res.json).toMatchObject({ ok: true, qualified: false });
+    expect(readDb().siteEnquiries[0].metadata.consult.screened_out).toBe(true);
+  });
   it('honeypot returns fake success and stores nothing', async () => {
     const res = await post('/api/public/consult-lead', { ...goodLead(), website: 'spam.com' });
     expect(res.json).toEqual({ ok: true, qualified: true });

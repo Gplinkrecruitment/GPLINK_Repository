@@ -61,7 +61,7 @@
   // any doctor whose case stage had merely moved off 'placement'. All five of those
   // pages are precached and served stale-while-revalidate, so without this bump the
   // fixes land a navigation late and read as never shipped.
-  var VERSION = "20260818a";
+  var VERSION = "20260818b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
