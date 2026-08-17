@@ -23653,7 +23653,23 @@ async function handleScheduledCallFailure(call, kind, opts) {
     patch.calendly_event_uri = null;
     patch.calendly_old_invitee_uri = call.calendly_invitee_uri || null;
     patch.calendly_invitee_uri = null;
-    patch.zoom_meeting_id = null; patch.zoom_meeting_uuid = null; patch.zoom_join_url = null; patch.zoom_passcode = null;
+    // 🧨 KEEP zoom_meeting_id / zoom_meeting_uuid. They are the ONLY key
+    // handleZoomMeetingEnded matches on, and it deliberately accepts an 'invited'
+    // row precisely so a meeting that happened after all can still complete its
+    // call. Nulling them here destroyed that key ~90 minutes after the slot, which
+    // is BEFORE a late call has even started — so the rescue could never fire.
+    //
+    // Live case (Dr Asha, 2026-08-17): call booked 12:00Z, the no-show sweep struck
+    // at 13:30:29Z and cleared the meeting id, the conversation actually happened
+    // and Zoom sent meeting.ended at 15:04:24Z — which then matched nothing at all.
+    // She was emailed "please re-book" while the call was about to happen, and the
+    // call was never recorded as held. Keeping the id makes that self-heal.
+    //
+    // Safe to keep: the sweep that struck this row only selects status='booked'
+    // (this is now 'invited'), and re-booking overwrites both ids with the new
+    // meeting's. The JOIN details still go, because the booking really is gone and
+    // offering a dead join link would be worse than offering none.
+    patch.zoom_join_url = null; patch.zoom_passcode = null;
     patch.completed_at = null; patch.no_show_at = null; patch.cancelled_at = null;
     patch.invite_sent_at = now;
     patch.resend_count = (Number(call.resend_count) || 0) + 1;
@@ -41616,10 +41632,29 @@ async function handleApi(req, res, pathname) {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
     try {
       const nowMs = Date.now();
-      // Settle window: only judge a call ~1h after it ends, so Zoom's attendance record is ready
-      // (avoids a transient "no record yet" being mis-read as a no-show). GRACE_MIN below matches.
-      const GRACE_MIN = 60;
-      const cutoffIso = new Date(nowMs - (30 + GRACE_MIN) * 60 * 1000).toISOString(); // 30m call + 60m settle
+      // Settle window: only judge a call once Zoom's attendance record is ready AND
+      // a late start is no longer plausible.
+      //
+      // This was 60 minutes, i.e. a verdict 90 minutes after the booked slot. Calls
+      // routinely start late, and 90 minutes is not long enough: on 2026-08-17 a
+      // consultation booked for 12:00Z was struck at 13:30:29Z and the doctor was
+      // emailed "please re-book" — while the call was about to happen. It then ran
+      // at ~15:00Z. A no-show verdict has to outlast an ordinary delay, and nothing
+      // downstream is urgent (it only sends a re-book nudge), so the cost of waiting
+      // is far lower than the cost of being wrong. Tunable without a deploy.
+      const GRACE_MIN = Math.max(15, Number(process.env.SCHEDULED_CALL_NOSHOW_GRACE_MIN) || 180);
+      // ⚠️ The prefilter must NOT bake GRACE_MIN in. Attendance ambiguity is a
+      // Zoom-only problem, and this same query also feeds the zoomless branch
+      // below, which completes a call purely on "enough time has passed"
+      // (duration + 15m) and owes the practice its decision email promptly.
+      // Widening the settle window from 60 to 180 minutes here would have delayed
+      // every zoomless completion by two hours as a side effect. So the prefilter
+      // stays at the permissive floor and each branch applies its own rule:
+      // the zoomless branch its duration+15m check, the Zoom branch
+      // isNoShowCandidate(..., GRACE_MIN). That also makes the zoomless branch's
+      // own arithmetic binding rather than dead code, which it previously was.
+      const PREFILTER_MIN = 30 + 15;
+      const cutoffIso = new Date(nowMs - PREFILTER_MIN * 60 * 1000).toISOString();
       const sinceIso = new Date(nowMs - 7 * 24 * 60 * 60 * 1000).toISOString();        // ignore anything older than 7d
       const r = await supabaseDbRequest('scheduled_calls',
         'select=*&status=eq.booked&no_show_at=is.null&completed_at=is.null&scheduled_at=lt.' + encodeURIComponent(cutoffIso) + '&scheduled_at=gt.' + encodeURIComponent(sinceIso) + '&order=scheduled_at.asc&limit=50',
