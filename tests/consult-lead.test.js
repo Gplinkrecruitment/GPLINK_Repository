@@ -294,6 +294,23 @@ describe('looksLikeGpLeadForm', () => {
     expect(looksLikeGpLeadForm([])).toBe(false);
     expect(looksLikeGpLeadForm(undefined)).toBe(false);
   });
+  // 🧨 The regression that prompted this: the live form dropped "are you a
+  // currently registered GP?", and all three original hints named that one
+  // question. The new form matched NONE of them, so a doctor arriving from a form
+  // id missing from FB_GP_LEAD_FORM_IDS would have sailed past this guard and been
+  // filed as a clinic named after herself — the exact failure the guard exists for.
+  it('recognises the new one-question form (training, no GP question)', () => {
+    expect(looksLikeGpLeadForm([
+      { name: 'full_name' }, { name: 'email' }, { name: 'phone_number' },
+      { name: '_where_did_you_complete_your_gp_training?' },
+    ])).toBe(true);
+  });
+  it('still refuses to claim a practice enquiry that mentions training', () => {
+    expect(looksLikeGpLeadForm([
+      { name: 'practice_name' }, { name: 'email' },
+      { name: 'are_you_a_gp_training_practice?' }, { name: 'gp_needed_by' },
+    ])).toBe(false);
+  });
 });
 
 // ── Meta sends the ANSWER as a snake_cased slug ──────────────────────────────
