@@ -106,21 +106,35 @@
     var c = state.campaign;
     var s = state.summary || {};
     var by = s.by_status || {};
-    var canApprove = (by.draft === 0) && (c.status === 'in_review' || c.status === 'draft');
+
+    // ⚖️ Scheduling is per BATCH, not all-or-nothing (owner, 2026-08-18: "I should
+    // be able to approve and schedule in less than all of the creatives"). What the
+    // button books is the approved posts that do not have a date yet, so that count
+    // is the gate and the label. Undecided posts are irrelevant to it: nothing
+    // unreviewed can ever publish, because a date is only ever written to an
+    // approved post and the publisher needs BOTH.
+    var pending = state.posts.filter(function (p) { return p.status === 'approved' && !p.publish_at; }).length;
+    var scheduled = state.posts.filter(function (p) { return !!p.publish_at; }).length;
+    var isLiveMonth = c.status === 'approved' || c.status === 'publishing' || c.status === 'complete';
+    var canApprove = pending > 0 && c.status !== 'complete';
 
     var html = '<div class="content" style="padding:20px 24px 60px">';
 
-    // Header: which month, where it is up to, and the one action.
+    // Header: which month, where it is up to, and the one action. The Scheduled pill
+    // and the button now coexist — a part-scheduled month is both live AND still
+    // has work to add, and hiding the button behind the pill was what made the
+    // remaining posts unreachable.
     html += '<div class="soc-head">' +
       '<div>' +
         '<h2 class="soc-title">' + esc(monthLabel(c.month)) + '</h2>' +
         '<div class="soc-sub">' + esc(campaignBlurb(c, s)) + '</div>' +
       '</div>' +
       '<div class="soc-head-actions">' + monthPicker() +
-        (c.status === 'approved' || c.status === 'publishing' || c.status === 'complete'
-          ? '<span class="ats-pill green" style="align-self:center">Scheduled</span>'
-          : '<button class="btn-primary" id="socApproveBtn"' + (canApprove ? '' : ' disabled') + '>' +
-              'Approve &amp; schedule' + (by.approved ? ' (' + by.approved + ')' : '') + '</button>') +
+        (isLiveMonth ? '<span class="ats-pill green" style="align-self:center">Scheduled</span>' : '') +
+        (c.status === 'complete' ? '' :
+          '<button class="btn-primary" id="socApproveBtn"' + (canApprove ? '' : ' disabled') + '>' +
+            (scheduled ? 'Schedule' : 'Approve &amp; schedule') +
+            (pending ? ' (' + pending + ')' : '') + '</button>') +
       '</div>' +
     '</div>';
 
@@ -144,24 +158,38 @@
       html += '<div class="soc-warn"><strong>Publishing is switched off.</strong> ' +
         'SOCIAL_PUBLISH_DISABLED is true, so approved posts will be scheduled but held.</div>';
     }
-    if (by.draft > 0) {
-      html += '<div class="soc-note">' + by.draft + ' post' + (by.draft === 1 ? '' : 's') +
-        ' still need a decision. Approve or reject every one to unlock scheduling.</div>';
+    // Approving a card marks the creative good; it does NOT schedule anything. Only
+    // the button above stamps a date, which is what makes an unreviewed post
+    // unpublishable by construction. Without saying so, the natural read after
+    // approving a card is "done", and the month then sits silently doing nothing.
+    var plural = function (n) { return n === 1 ? '' : 's'; };
+    if (canApprove && by.draft > 0) {
+      // The case the old copy got wrong: it said scheduling was LOCKED until every
+      // post had a decision, which is no longer true and was never necessary.
+      html += '<div class="soc-note"><strong>' + pending + ' post' + plural(pending) +
+        ' ready for dates.</strong> Approving a card marks the creative good, it does not set a date.' +
+        ' Click <strong>' + (scheduled ? 'Schedule' : 'Approve &amp; schedule') + '</strong> above to book' +
+        ' ' + (pending === 1 ? 'it' : 'them') + ' now. The other ' + by.draft + ' can be reviewed and added' +
+        ' later, and nothing goes out until you do.</div>';
     } else if (canApprove) {
-      // Approving a card marks the creative good; it does NOT schedule anything.
-      // Only the campaign-level click stamps publish_at, which is what makes an
-      // unreviewed post unpublishable by construction. Without saying so here,
-      // the natural read after approving the last card is "done", and the month
-      // then sits silently doing nothing.
-      html += '<div class="soc-note"><strong>Every post is reviewed. Nothing is scheduled yet.</strong>' +
-        ' Approving a card marks the creative good, it does not set a date.' +
-        ' Click <strong>Approve &amp; schedule</strong> above to lock in the dates and start publishing.</div>';
+      html += '<div class="soc-note"><strong>Every post is reviewed. ' +
+        (scheduled ? pending + ' still ' + (pending === 1 ? 'has' : 'have') + ' no date.' : 'Nothing is scheduled yet.') +
+        '</strong> Approving a card marks the creative good, it does not set a date.' +
+        ' Click <strong>' + (scheduled ? 'Schedule' : 'Approve &amp; schedule') + '</strong> above to lock in the' +
+        ' dates and start publishing.</div>';
+    } else if (by.draft > 0) {
+      html += '<div class="soc-note">' + by.draft + ' post' + plural(by.draft) +
+        ' still need a decision.' + (scheduled ? ' The ' + scheduled + ' already scheduled will keep going out.' : '') +
+        ' Approve any of them and they can be added to this month.</div>';
     }
 
     html += '<div class="soc-stats">' +
       stat(s.total || 0, 'creatives') +
       stat(by.draft || 0, 'to review') +
       stat(by.approved || 0, 'approved') +
+      // With batch scheduling, "approved" and "has a date" are no longer the same
+      // thing, so the split has to be visible or a part-scheduled month is unreadable.
+      stat(scheduled, 'scheduled') +
       stat(by.rejected || 0, 'rejected') +
       stat(by.posted || 0, 'posted') +
       (by.failed ? stat(by.failed, 'failed') : '') +
@@ -374,13 +402,16 @@
       }
       A.toast(okMsg);
       return load(state.month, true).then(function () {
-        // Say the quiet part out loud at the moment it matters: the last card
-        // being decided is the point where people assume the job is finished.
-        var s = state.summary || {};
-        var by = s.by_status || {};
+        // Say the quiet part out loud at the moment it matters: approving a card is
+        // where people assume the job is finished, and it sets no date at all.
+        var by = (state.summary || {}).by_status || {};
         var c = state.campaign;
-        if (body.decision && by.draft === 0 && c && (c.status === 'in_review' || c.status === 'draft')) {
-          A.toast('All reviewed. Now click Approve & schedule to set the dates.');
+        if (!body.decision || !c || c.status === 'complete') return;
+        var undated = state.posts.filter(function (p) { return p.status === 'approved' && !p.publish_at; }).length;
+        if (!undated) return;
+        if (by.draft === 0) {
+          A.toast('All reviewed. Now click ' + (undated === state.posts.length ? 'Approve & schedule' : 'Schedule') +
+            ' to set the dates.');
         }
       });
     });
@@ -396,7 +427,8 @@
       }
       // Name the first date explicitly. Approving in the evening books the next
       // morning's slot, which reads as "nothing happened" unless it is said.
-      A.toast(d.scheduled + ' scheduled. First one goes out ' +
+      A.toast(d.scheduled + ' scheduled. ' +
+        (d.already_scheduled ? 'Next of this batch goes out ' : 'First one goes out ') +
         (d.first_publish_at ? fmtWhen(d.first_publish_at) : 'shortly') + '.');
       if (d.note) A.toast(d.note);
       return load(state.month, true);

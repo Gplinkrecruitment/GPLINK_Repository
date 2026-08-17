@@ -202,6 +202,152 @@ describe('a post waiting on configuration is held, not failed', () => {
   });
 });
 
+// ── scheduling a month in batches ───────────────────────────────────────────
+// Owner, 2026-08-18: "I should be able to approve and schedule in less than all of
+// the creatives." Approving used to demand a decision on every post, which stranded
+// 19 reviewed creatives behind 11 unread ones, and the endpoint then 409'd
+// ("That month is already approved.") so a partial schedule could never be topped up.
+//
+// The security property is unchanged and is re-asserted below: a date is only ever
+// written to an approved post, and the publisher's due-query needs BOTH, so an
+// undecided post stays unpublishable no matter how many batches are booked.
+describe('a month can be scheduled in batches, then topped up', () => {
+  const month = (() => {
+    const d = new Date();
+    d.setUTCMonth(d.getUTCMonth() + 2, 1);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+  })();
+  let ids = {};
+
+  function b64url(s) { return Buffer.from(s).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function ceoCookie() {
+    const payload = b64url(JSON.stringify({
+      userProfile: { email: 'ceo@gplink-test.local', adminRole: 'super_admin' },
+      expiresAt: Date.now() + 3600000
+    }));
+    const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+    return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+  }
+  // Built lazily: AUTH_SECRET is only set in beforeAll, and a cookie minted at
+  // collection time would be signed with `undefined`.
+  const ceo = () => ({ Cookie: ceoCookie() });
+
+  async function board() {
+    const r = await req('GET', '/api/ceo/social?month=' + month, { headers: ceo() });
+    expect(r.status).toBe(200);
+    return r.json;
+  }
+  function decide(slot, decision) {
+    return req('POST', '/api/ceo/social/post', { body: { id: ids[slot], decision }, headers: ceo() });
+  }
+  const scheduleNow = () => req('POST', '/api/ceo/social/approve', { body: { month }, headers: ceo() });
+
+  it('ingests five creatives and marks the month ready', async () => {
+    const r = await req('POST', '/api/admin/social/ingest', {
+      body: { month, posts: [1, 2, 3, 4, 5].map((s) => creative(s)), ready: true }, headers: ingestAuth
+    });
+    expect(r.status).toBe(200);
+    expect(r.json.total).toBe(5);
+    const b = await board();
+    b.posts.forEach((p) => { ids[p.slot] = p.id; });
+    expect(Object.keys(ids)).toHaveLength(5);
+    expect(b.summary.by_status.draft).toBe(5);
+  });
+
+  it('refuses to schedule while nothing has been approved yet', async () => {
+    const r = await scheduleNow();
+    expect(r.status).toBe(400);
+    expect(r.json.message).toMatch(/Approve at least one of the 5 post/);
+  });
+
+  it('schedules the first batch of two while three are still undecided', async () => {
+    expect((await decide(1, 'approve')).status).toBe(200);
+    expect((await decide(2, 'approve')).status).toBe(200);
+    const r = await scheduleNow();
+    expect(r.status).toBe(200);
+    expect(r.json.scheduled).toBe(2);
+    expect(r.json.still_to_review).toBe(3);
+    expect(r.json.first_publish_at).toBeTruthy();
+    expect(r.json.note).toMatch(/3 post\(s\) are still waiting on a decision/);
+  });
+
+  it('only those two carry a date; the undecided ones carry none', async () => {
+    const b = await board();
+    const dated = b.posts.filter((p) => p.publish_at).map((p) => p.slot).sort();
+    expect(dated).toEqual([1, 2]);
+    b.posts.filter((p) => p.status === 'draft').forEach((p) => expect(p.publish_at).toBeFalsy());
+    expect(b.campaign.status).toBe('approved');
+  });
+
+  it('a second click tops the month up instead of being refused as already approved', async () => {
+    const before = (await board()).posts.filter((p) => p.publish_at).map((p) => p.publish_at);
+    expect((await decide(3, 'approve')).status).toBe(200);
+    const r = await scheduleNow();
+    expect(r.status).toBe(200);
+    expect(r.json.scheduled).toBe(1);
+    expect(r.json.already_scheduled).toBe(2);
+
+    const after = await board();
+    const dated = after.posts.filter((p) => p.publish_at);
+    expect(dated).toHaveLength(3);
+    // The earlier batch keeps the exact dates it was given, and the new post lands
+    // on a slot nobody already held.
+    const newDate = after.posts.find((p) => p.slot === 3).publish_at;
+    expect(before).not.toContain(newDate);
+    before.forEach((d) => expect(after.posts.some((p) => p.publish_at === d)).toBe(true));
+    expect(new Set(dated.map((p) => p.publish_at)).size).toBe(3);
+  });
+
+  it('a further click with nothing newly approved is refused, not a no-op success', async () => {
+    const r = await scheduleNow();
+    expect(r.status).toBe(400);
+    expect(r.json.message).toMatch(/Approve at least one of the 2 post/);
+  });
+
+  it('a rejected post is never scheduled, and approving the last one still tops up', async () => {
+    expect((await decide(4, 'reject')).status).toBe(200);
+    expect((await decide(5, 'approve')).status).toBe(200);
+    const r = await scheduleNow();
+    expect(r.status).toBe(200);
+    expect(r.json.scheduled).toBe(1);
+    expect(r.json.still_to_review).toBe(0);
+
+    const b = await board();
+    expect(b.posts.find((p) => p.slot === 4).publish_at).toBeFalsy();
+    expect(b.posts.filter((p) => p.publish_at)).toHaveLength(4);
+    expect(new Set(b.posts.filter((p) => p.publish_at).map((p) => p.publish_at)).size).toBe(4);
+  });
+
+  it('rejecting an already-scheduled post frees its slot for the next top-up', async () => {
+    const b0 = await board();
+    const freed = b0.posts.find((p) => p.slot === 2).publish_at;
+    expect(freed).toBeTruthy();
+    expect((await decide(2, 'reject')).status).toBe(200);
+    expect((await board()).posts.find((p) => p.slot === 2).publish_at).toBeFalsy();
+
+    // Bring slot 4 back and schedule it: it should be handed the freed slot, which
+    // is the earliest one now available.
+    expect((await decide(4, 'approve')).status).toBe(200);
+    const r = await scheduleNow();
+    expect(r.status).toBe(200);
+    expect(r.json.scheduled).toBe(1);
+    expect((await board()).posts.find((p) => p.slot === 4).publish_at).toBe(freed);
+  });
+
+  it('the publisher still refuses to touch anything without a date', async () => {
+    // The guarantee that made all-or-nothing approval unnecessary in the first place.
+    const b = await board();
+    const undated = b.posts.filter((p) => !p.publish_at);
+    expect(undated.length).toBeGreaterThan(0);
+    const r = await req('GET', '/api/cron/social-publish', { headers: cronAuth });
+    expect(r.status).toBe(200);
+    expect(r.json.failed).toBe(0);
+    // Nothing undated may ever appear in a publish attempt.
+    const attemptedSlots = (r.json.details || []).map((d) => d.slot);
+    undated.forEach((p) => expect(attemptedSlots).not.toContain(p.slot));
+  });
+});
+
 describe('the public image route', () => {
   it('rejects an id that is not a uuid instead of touching storage', async () => {
     const r = await req('GET', '/api/public/social-image?id=../../etc/passwd');

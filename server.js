@@ -10404,36 +10404,72 @@ async function socialApproveCampaign(month, actorEmail) {
   if (!loaded.ok) return { ok: false, status: 503, message: 'Could not read the campaign.' };
   const campaign = loaded.campaign;
   if (!campaign) return { ok: false, status: 404, message: 'No campaign for that month.' };
-  if (campaign.status === 'approved' || campaign.status === 'publishing') {
-    return { ok: false, status: 409, message: 'That month is already approved.' };
+  // 🔁 Re-runnable ON PURPOSE. A month can be scheduled in batches now, so the
+  // second and third clicks must TOP UP rather than be refused — the old
+  // "That month is already approved." made partial scheduling a trap: book the 19
+  // that are ready and the remaining 11 could never be added afterwards. Only a
+  // finished month is closed off.
+  if (campaign.status === 'complete') {
+    return { ok: false, status: 409, message: 'That month has finished publishing.' };
   }
 
   const gate = socialCampaign.canApproveCampaign(campaign, loaded.posts);
   if (!gate.ok) return { ok: false, status: 400, message: gate.reason, failures: gate.failures || [] };
 
+  // Only the approved posts that do NOT already hold a date.
   const approved = loaded.posts
-    .filter(function (p) { return p.status === 'approved'; })
+    .filter(function (p) { return p.status === 'approved' && !p.publish_at; })
     .sort(function (a, b) { return (a.slot || 0) - (b.slot || 0); });
+
+  // 🛑 A date already booked is never moved. Re-flowing the whole month on a top-up
+  // would shift dates the owner has already been told, and could move a post that
+  // is minutes from going out. So the earlier batch keeps its slots and the new one
+  // takes the next free ones, which means schedule order follows approval order
+  // rather than slot number. That is the intended trade.
+  const takenSlots = loaded.posts
+    .filter(function (p) { return !!p.publish_at; })
+    .map(function (p) { return p.publish_at; });
 
   const assigned = socialCampaign.assignSchedule(approved, {
     monthKey: campaign.month,
     slotTimes: campaign.slot_times || ['09:00', '15:00'],
     perDay: campaign.posts_per_day || 2,
-    timeZone: campaign.time_zone || 'Australia/Melbourne'
+    timeZone: campaign.time_zone || 'Australia/Melbourne',
+    exclude: takenSlots
   });
   if (!assigned.ok) return { ok: false, status: 400, message: 'Could not build the schedule (' + assigned.error + ').' };
 
   let stamped = 0;
+  let firstPublishAt = null;
   for (const p of assigned.assigned) {
+    if (!p.publish_at) continue;
     const upd = await socialPatchPostRow(p.id, { publish_at: p.publish_at });
-    if (upd.ok && p.publish_at) stamped++;
+    if (!upd.ok) continue;
+    stamped++;
+    if (!firstPublishAt || p.publish_at < firstPublishAt) firstPublishAt = p.publish_at;
   }
 
-  await socialPatchCampaignRow(campaign.id, {
-    status: 'approved',
-    approved_at: new Date().toISOString(),
-    approved_by: actorEmail || 'ceo'
-  });
+  // A top-up must not restamp status over 'publishing', nor overwrite the original
+  // approval record — approved_at is when the month was first released.
+  const campaignPatch = {};
+  if (campaign.status !== 'approved' && campaign.status !== 'publishing') campaignPatch.status = 'approved';
+  if (!campaign.approved_at) {
+    campaignPatch.approved_at = new Date().toISOString();
+    campaignPatch.approved_by = actorEmail || 'ceo';
+  }
+  if (Object.keys(campaignPatch).length) await socialPatchCampaignRow(campaign.id, campaignPatch);
+
+  const stillToReview = loaded.posts.filter(function (p) { return p.status === 'draft'; }).length;
+  const notes = [];
+  // Not an error: a month can legitimately hold more creatives than days.
+  if (assigned.unscheduled) {
+    notes.push(assigned.unscheduled + ' approved post(s) did not fit in the remaining ' +
+      campaign.month + ' slots and were left unscheduled.');
+  }
+  if (stillToReview) {
+    notes.push(stillToReview + ' post(s) are still waiting on a decision. Approve them and click ' +
+      'Approve & schedule again to add them to this month.');
+  }
 
   return {
     ok: true,
@@ -10441,11 +10477,11 @@ async function socialApproveCampaign(month, actorEmail) {
     scheduled: stamped,
     unscheduled: assigned.unscheduled,
     capacity: assigned.capacity,
-    first_publish_at: assigned.assigned.length ? assigned.assigned[0].publish_at : null,
-    // Not an error: a month can legitimately hold more creatives than days.
-    note: assigned.unscheduled
-      ? assigned.unscheduled + ' approved post(s) did not fit in ' + campaign.month + ' and were left unscheduled.'
-      : null
+    free_slots_remaining: Math.max(0, (Number(assigned.free) || 0) - stamped),
+    already_scheduled: takenSlots.length,
+    still_to_review: stillToReview,
+    first_publish_at: firstPublishAt,
+    note: notes.length ? notes.join(' ') : null
   };
 }
 

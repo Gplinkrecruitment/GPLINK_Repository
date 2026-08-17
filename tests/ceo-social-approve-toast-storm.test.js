@@ -314,7 +314,11 @@ describe('the module still loads and the buster moved', () => {
   });
 
   it('js/* is served immutable for a year, so the tag must carry a new ?v=', () => {
-    expect(dashboard).toContain('/js/ceo-social.js?v=20260818a');
-    expect(dashboard).not.toContain('/js/ceo-social.js?v=20260817b');
+    // Asserted as "moved past the broken build", not frozen at one stamp — later
+    // fixes must stay free to bump it. Stamps are sortable YYYYMMDD+letter strings.
+    const m = /\/js\/ceo-social\.js\?v=([0-9a-z]+)/.exec(dashboard);
+    expect(m, 'ceo-social.js must be loaded with a ?v= buster').toBeTruthy();
+    // 20260817b shipped the toast storm; anything at or before it is a stale copy.
+    expect(m[1] > '20260817b').toBe(true);
   });
 });

@@ -107,6 +107,51 @@ describe('assignSchedule', () => {
     expect(r.unscheduled).toBe(2);
     expect(r.assigned[61].publish_at).toBe(null);
   });
+
+  // ── topping a part-scheduled month up ──────────────────────────────────────
+  // A month can be scheduled in batches now, so a later run must skip the slots the
+  // earlier batch already holds. Handing the same minute out twice would stack two
+  // posts on it, and the publisher would fire both in the same run.
+  it('never hands out a slot another post already holds', () => {
+    const first = social.assignSchedule([{ slot: 1 }, { slot: 2 }], opts);
+    const taken = first.assigned.map((p) => p.publish_at);
+    const second = social.assignSchedule([{ slot: 3 }], Object.assign({}, opts, { exclude: taken }));
+    expect(second.ok).toBe(true);
+    expect(taken).not.toContain(second.assigned[0].publish_at);
+    // The first batch took both of day 1's slots (09:00 and 15:00 AEST), so the next
+    // free one is day 2 at 09:00. It takes that, not a re-flow from the top.
+    expect(taken).toEqual(['2026-08-31T23:00:00.000Z', '2026-09-01T05:00:00.000Z']);
+    expect(second.assigned[0].publish_at).toBe('2026-09-01T23:00:00.000Z');
+  });
+
+  it('a freed slot (a scheduled post later rejected) becomes available again', () => {
+    const all = social.assignSchedule([{ slot: 1 }, { slot: 2 }, { slot: 3 }], opts);
+    const slots = all.assigned.map((p) => p.publish_at);
+    // Slot 2 is rejected, so only 1 and 3 still hold dates.
+    const stillTaken = [slots[0], slots[2]];
+    const topUp = social.assignSchedule([{ slot: 4 }], Object.assign({}, opts, { exclude: stillTaken }));
+    expect(topUp.assigned[0].publish_at).toBe(slots[1]);
+  });
+
+  it('reports how many slots were still free, so a top-up that did not fit is visible', () => {
+    const full = social.assignSchedule(
+      Array.from({ length: 60 }, (_, i) => ({ slot: i + 1 })), opts
+    );
+    const taken = full.assigned.map((p) => p.publish_at).filter(Boolean);
+    expect(taken).toHaveLength(60);
+    const topUp = social.assignSchedule([{ slot: 61 }], Object.assign({}, opts, { exclude: taken }));
+    expect(topUp.free).toBe(0);
+    expect(topUp.unscheduled).toBe(1);
+    expect(topUp.assigned[0].publish_at).toBe(null);
+    // capacity stays the month's whole capacity; `free` is what this run could use.
+    expect(topUp.capacity).toBe(60);
+  });
+
+  it('an exclude list of junk is ignored rather than throwing', () => {
+    const r = social.assignSchedule([{ slot: 1 }], Object.assign({}, opts, { exclude: ['not-a-date', null, undefined] }));
+    expect(r.ok).toBe(true);
+    expect(r.assigned[0].publish_at).toBe('2026-08-31T23:00:00.000Z');
+  });
 });
 
 describe('validatePost', () => {
@@ -156,10 +201,41 @@ describe('canApproveCampaign', () => {
   const campaign = { targets: { facebook: true, instagram: true } };
   const ok = (slot) => ({ slot, status: 'approved', caption: 'Fine.', image_path: 'a.jpg', image_width: 1080, image_height: 1350 });
 
-  it('refuses while any post is still undecided', () => {
+  // CONTRACT CHANGED 2026-08-18 (owner: "I should be able to approve and schedule in
+  // less than all of the creatives"). This used to refuse while ANY post was still
+  // undecided, which left 19 reviewed posts stranded behind 11 unread ones. An
+  // undecided post can never publish — selectDuePosts requires an 'approved' status
+  // AND a publish_at, and a date is only ever written to an approved post — so it has
+  // no business gating the batch that IS ready.
+  it('schedules the ready batch while other posts are still undecided', () => {
     const r = social.canApproveCampaign(campaign, [ok(1), { ...ok(2), status: 'draft' }]);
+    expect(r.ok).toBe(true);
+    expect(r.count).toBe(1);
+    expect(r.undecided).toBe(1);
+  });
+
+  it('refuses when there is nothing NEW to schedule but work is still undecided', () => {
+    // Everything approved already holds a date, so this click would book nothing.
+    const r = social.canApproveCampaign(campaign, [
+      { ...ok(1), publish_at: '2026-09-01T23:00:00Z' },
+      { ...ok(2), status: 'draft' }
+    ]);
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/need a decision/);
+    expect(r.reason).toMatch(/Approve at least one of the 1 post/);
+  });
+
+  it('refuses a second identical click once every approved post has a date', () => {
+    const r = social.canApproveCampaign(campaign, [{ ...ok(1), publish_at: '2026-09-01T23:00:00Z' }]);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/already has a date/);
+  });
+
+  it('only validates the batch being scheduled, not an undecided post', () => {
+    // A broken draft is not going out either way; blocking on it would re-create
+    // exactly the dead end this change removed.
+    const r = social.canApproveCampaign(campaign, [ok(1), { ...ok(2), status: 'draft', caption: '' }]);
+    expect(r.ok).toBe(true);
+    expect(r.count).toBe(1);
   });
 
   it('refuses when an approved post fails validation', () => {
