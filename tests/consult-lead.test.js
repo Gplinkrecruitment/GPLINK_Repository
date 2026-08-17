@@ -33,6 +33,25 @@ describe('screenConsultLead', () => {
     expect(screenConsultLead({ isGp: false, country: 'uk' })).toBe(false);
     expect(screenConsultLead({ isGp: null, country: 'uk' })).toBe(false);
   });
+
+  // The form dropped "are you a currently registered GP?", so isGp arrives null.
+  // A country we positively READ must be enough on its own, or the only route to
+  // qualifying is the +44 dialling code — which fails every UK GP on an overseas
+  // number. See the comment on screenConsultLead.
+  it('qualifies on a recognised served country when the GP question is absent', () => {
+    expect(screenConsultLead({ isGp: null, country: 'uk', countryRecognised: true })).toBe(true);
+    expect(screenConsultLead({ isGp: null, country: 'au', countryRecognised: true })).toBe(true);
+  });
+
+  it('still refuses to qualify an answer it could not read', () => {
+    // countryRecognised false = we failed to parse them, not a served country.
+    expect(screenConsultLead({ isGp: null, country: 'other', countryRecognised: false })).toBe(false);
+    expect(screenConsultLead({ isGp: null, country: '', countryRecognised: true })).toBe(false);
+  });
+
+  it('never lets a recognised country override an explicit "not a GP"', () => {
+    expect(screenConsultLead({ isGp: false, country: 'uk', countryRecognised: true })).toBe(false);
+  });
 });
 
 describe('parseYesNo / parseCountryAnswer', () => {

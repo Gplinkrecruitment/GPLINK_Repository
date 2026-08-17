@@ -172,9 +172,19 @@ describe('THE RULE: a decline requires positive evidence', () => {
     // question was unreadable. Deciding the decline from "is this lead qualified?"
     // rather than "what country did she name?" would turn her away on the strength
     // of an answer that was right - which is exactly the original bug, relocated.
+    //
+    // 2026-08-18: she now QUALIFIES here rather than parking in country_unknown.
+    // The live form stopped asking "are you a currently registered GP?", so isGp is
+    // null for everyone and an unreadable GP answer is no longer a meaningful signal
+    // — while "United Kingdom" still is. Note the empty phone: the point of the
+    // change is that she no longer needs a +44 number to be recognised, because
+    // plenty of UK-trained GPs hold an overseas one. The RULE itself is untouched:
+    // screened_out still requires positive evidence, which is why it stays unset.
     const c = decide({ isGp: null, country: 'uk', countryRaw: 'united_kingdom', countryRecognised: true, phone: '' });
     expect(c.screened_out).toBeUndefined();
-    expect(c.country_unknown).toBe(true);
+    expect(c.qualified).toBe(true);
+    expect(c.country_unknown).toBeUndefined();
+    expect(c.country_inferred_from_phone).toBeUndefined();
   });
 
   it('and qualifies her outright when her phone agrees', () => {

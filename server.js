@@ -25732,7 +25732,13 @@ function _capUtm(utm) {
 }
 
 function buildConsultLeadRow(input) {
-  let qualified = consultLead.screenConsultLead({ isGp: input.isGp, country: input.country });
+  // countryRecognised is what lets a lead qualify without the "are you a registered
+  // GP?" question, which the live form no longer asks. See screenConsultLead.
+  let qualified = consultLead.screenConsultLead({
+    isGp: input.isGp,
+    country: input.country,
+    countryRecognised: input.countryRecognised,
+  });
   const consult = {
     qualified,
     is_gp: input.isGp === true,
