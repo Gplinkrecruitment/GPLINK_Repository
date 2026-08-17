@@ -399,6 +399,68 @@ describe('a month can be scheduled in batches, then topped up', () => {
     expect(r.json.message).toMatch(/Nothing is approved yet/);
   });
 
+  // ── "Post now" ──────────────────────────────────────────────────────────────
+  // The hourly cron was the only way anything published, so proving a network
+  // worked meant waiting an hour and then reading a row. publish-now skips the
+  // CLOCK and nothing else: still CEO-only, still approved-only, still bounded by
+  // the retry budget.
+  describe('publish-now sends one post ahead of its slot', () => {
+    it('is closed to an anonymous caller', async () => {
+      const r = await req('POST', '/api/ceo/social/publish-now', { body: { id: ids[1] } });
+      expect([401, 403]).toContain(r.status);
+    });
+
+    it('requires an id rather than guessing which post to send', async () => {
+      const r = await req('POST', '/api/ceo/social/publish-now', { body: {}, headers: ceo() });
+      expect(r.status).toBe(400);
+    });
+
+    it('refuses a post that is not approved, so review still cannot be skipped', async () => {
+      // Slot 2 was rejected earlier in this describe.
+      const r = await req('POST', '/api/ceo/social/publish-now', { body: { id: ids[2] }, headers: ceo() });
+      expect(r.status).toBe(409);
+      expect(r.json.message).toMatch(/has to be approved/);
+      const b = await board();
+      expect(b.posts.find((p) => p.slot === 2).status).toBe('rejected');
+    });
+
+    it('refuses an id that does not exist', async () => {
+      const r = await req('POST', '/api/ceo/social/publish-now', {
+        body: { id: crypto.randomUUID() }, headers: ceo()
+      });
+      expect(r.status).toBe(409);
+    });
+
+    it('attempts an approved post immediately and reports what Meta did', async () => {
+      // Nothing is configured in this test env, so the honest outcome is "held",
+      // with the reason named — NOT a cheerful success and NOT a burned retry.
+      const before = await board();
+      const target = before.posts.find((p) => p.status === 'approved');
+      expect(target).toBeTruthy();
+      const r = await req('POST', '/api/ceo/social/publish-now', {
+        body: { id: target.id }, headers: ceo()
+      });
+      expect(r.status).toBe(200);
+      expect(r.json.held).toBe(1);
+      expect(r.json.failed).toBe(0);
+      expect(r.json.reason).toMatch(/FB_PAGE_ACCESS_TOKEN|FB_PAGE_ID|IG_USER_ID/);
+
+      const after = await board();
+      const same = after.posts.find((p) => p.id === target.id);
+      // A missing env var must not cost the creative a retry or its slot.
+      expect(same.status).toBe('approved');
+      expect(same.publish_at).toBe(target.publish_at);
+      expect(Number(same.attempts) || 0).toBe(Number(target.attempts) || 0);
+    });
+
+    it('leaves every other post on its schedule', async () => {
+      const b = await board();
+      const dated = b.posts.filter((p) => p.publish_at && p.status === 'approved');
+      expect(dated.length).toBeGreaterThan(1);
+      expect(new Set(dated.map((p) => p.publish_at)).size).toBe(dated.length);
+    });
+  });
+
   it('the publisher still refuses to touch anything without a date', async () => {
     // The guarantee that made all-or-nothing approval unnecessary in the first place.
     const b = await board();

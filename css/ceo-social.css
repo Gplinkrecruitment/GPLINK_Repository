@@ -88,6 +88,10 @@
   transition:background .15s, border-color .15s;
 }
 .soc-btn:hover:not(:disabled) { background:var(--ats-panel-hover); border-color:var(--ats-border-hover); }
+/* "Post now" sends publicly and immediately, so it reads as the deliberate action
+   it is rather than sitting quietly alongside Save/Approve. */
+.soc-btn.now { border-color:var(--ats-blue); color:var(--ats-blue); }
+.soc-btn.now:hover:not(:disabled) { background:rgba(51,153,255,0.12); border-color:var(--ats-blue); }
 .soc-btn:disabled { opacity:.4; cursor:default; }
 .soc-btn.ok { background:var(--ats-green-dim); color:var(--ats-green); border-color:rgba(52,211,153,0.25); }
 .soc-btn.no { background:var(--ats-red-dim); color:var(--ats-red); border-color:rgba(239,68,68,0.22); }

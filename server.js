@@ -10556,7 +10556,21 @@ async function runSocialPublish(opts) {
     const posts = await socialListPostRows(campaign.id);
     if (!posts.ok) continue;
 
-    const due = socialCampaign.selectDuePosts(posts.rows, nowIso, o.limit || 4);
+    // "Post now": publish ONE named post immediately, ahead of its slot. The only
+    // gate that is skipped is the CLOCK — the post must still be 'approved' and
+    // within its retry budget, so an undecided creative can no more be forced out
+    // this way than by any other route. Used to prove a network end to end before
+    // a whole month rides on it (owner, 2026-08-18: "I want the first post to go
+    // out right now so we can troubleshoot").
+    let due;
+    if (o.postId) {
+      due = posts.rows.filter(function (p) {
+        return p.id === o.postId && p.status === 'approved' &&
+          (Number(p.attempts) || 0) < socialCampaign.MAX_PUBLISH_ATTEMPTS;
+      });
+    } else {
+      due = socialCampaign.selectDuePosts(posts.rows, nowIso, o.limit || 4);
+    }
     for (const post of due) {
       out.attempted++;
       // 🧨 A post can want two networks while only ONE of them is publishable today.
@@ -40250,6 +40264,42 @@ async function handleApi(req, res, pathname) {
     else if (socAppBody && socAppBody.start_from) socAppStart = String(socAppBody.start_from);
     var socAppRes = await socialApproveCampaign(socAppMonth, socAppCtx.email || 'ceo', { startFrom: socAppStart });
     sendJson(res, socAppRes.ok ? 200 : (socAppRes.status || 400), socAppRes);
+    return;
+  }
+
+  // POST /api/ceo/social/publish-now — send ONE approved post immediately.
+  //
+  // The hourly cron is the only other way anything publishes, so proving a network
+  // works meant waiting up to an hour and then reading a row. This gives the owner
+  // the loop directly: publish one, see the Meta error on the card, fix, retry.
+  // It skips the CLOCK and nothing else — the post must be 'approved' and still
+  // have retries left, so unreviewed work stays unpublishable by construction.
+  if (pathname === '/api/ceo/social/publish-now' && req.method === 'POST') {
+    var socNowCtx = requireCeoSession(req, res);
+    if (!socNowCtx) return;
+    var socNowBody = await readJsonBody(req).catch(function () { return null; });
+    var socNowId = String((socNowBody && socNowBody.id) || '').trim();
+    if (!socNowId) { sendJson(res, 400, { ok: false, message: 'id is required.' }); return; }
+    var socNowRes = await runSocialPublish({ postId: socNowId });
+    var socNowDetail = (socNowRes.details || [])[0] || null;
+    if (!socNowRes.attempted) {
+      sendJson(res, 409, {
+        ok: false,
+        message: 'That post could not be sent. It has to be approved, and it must not have used up ' +
+          'its retries. Approve it (or reject and re-approve it) and try again.'
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: !!(socNowRes.published || socNowRes.held),
+      published: socNowRes.published,
+      partial: socNowRes.partial,
+      held: socNowRes.held,
+      failed: socNowRes.failed,
+      errors: socNowDetail ? (socNowDetail.errors || []) : [],
+      reason: socNowDetail ? socNowDetail.reason || null : null,
+      detail: socNowDetail
+    });
     return;
   }
 

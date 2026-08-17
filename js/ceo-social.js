@@ -362,7 +362,14 @@
             ? '<span class="soc-when">Live' + (p.facebook_post_id ? ' · Facebook' : '') + (p.instagram_media_id ? ' · Instagram' : '') + '</span>'
             : '<button class="soc-btn" data-act="save">Save copy</button>' +
               '<button class="soc-btn ok" data-act="approve"' + (p.status === 'approved' ? ' disabled' : '') + '>Approve</button>' +
-              '<button class="soc-btn no" data-act="reject"' + (p.status === 'rejected' ? ' disabled' : '') + '>Reject</button>') +
+              '<button class="soc-btn no" data-act="reject"' + (p.status === 'rejected' ? ' disabled' : '') + '>Reject</button>' +
+              // Only on an approved post: sending immediately skips the clock, never
+              // the review. Useful to prove a network end to end before a whole
+              // month rides on the schedule.
+              (p.status === 'approved'
+                ? '<button class="soc-btn now" data-act="publish-now" title="Send this one to ' +
+                    'Facebook and Instagram right now, ahead of its slot.">Post now</button>'
+                : '')) +
         '</div>' +
       '</div>' +
     '</article>';
@@ -409,6 +416,37 @@
     if (act === 'save') return postUpdate(id, { caption: caption }, 'Copy saved');
     if (act === 'approve') return postUpdate(id, { caption: caption, decision: 'approve' }, 'Approved');
     if (act === 'reject') return postUpdate(id, { decision: 'reject' }, 'Rejected');
+    if (act === 'publish-now') return publishNow(id, card);
+  }
+
+  // Publishing is public and cannot be undone from here, so it asks first. Naming
+  // the slot makes a mis-click on the wrong card obvious before it goes out.
+  function publishNow(id, card) {
+    var slotEl = card.querySelector('.soc-slot');
+    var slot = slotEl ? slotEl.textContent : 'this post';
+    if (!window.confirm('Send ' + slot + ' to Facebook and Instagram right now?\n\n' +
+      'It goes out publicly and cannot be taken back from here. The rest of the month ' +
+      'keeps its schedule.')) return;
+
+    inFlight[id] = true;
+    card.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = true; });
+    A.toast('Sending…');
+    return A.api('/api/ceo/social/publish-now', { method: 'POST', body: { id: id } }).then(function (d) {
+      delete inFlight[id];
+      if (!d || !d.ok) {
+        A.toast((d && d.message) || 'Could not send that post.');
+        card.querySelectorAll('.soc-btn').forEach(function (b) { b.disabled = false; });
+        return;
+      }
+      // Say exactly what happened. "Sent" when a network is still waiting on its
+      // configuration would be a lie, and the whole point of this button is to
+      // show the real Meta error rather than hide it.
+      if (d.failed) A.toast('Meta refused it: ' + ((d.errors || []).join(' ') || 'unknown error'));
+      else if (d.held) A.toast('Nothing could be sent: ' + (d.reason || 'publishing is not configured.'));
+      else if (d.partial) A.toast('Sent to the network that is configured. The other is still waiting on its setting.');
+      else A.toast('Sent to Facebook and Instagram.');
+      return load(state.month, true);
+    });
   }
 
   function postUpdate(id, body, okMsg) {
