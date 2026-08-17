@@ -4985,6 +4985,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html=renderOpsGeneric(task,msgs,docs);
     }
     container.innerHTML=html;
+    // The Ops Queue never loaded them, so every CC box it rendered sat on
+    // "Loading contacts…" forever and no one could be copied in from here. The GP
+    // profile path (loadGpTaskDetail) has always called this.
+    loadCcContacts(task.case_id||S.selectedCaseId);
   }
 
   // Render a zoom_call task in the Ops Queue as the rich call card (same as the
@@ -5167,6 +5171,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (checkedAt) h += '<div style="color:#9ca3af;margin-top:4px;font-size:10px">Checked ' + esc(checkedAt) + '</div>';
     h += '</div>';
     return h;
+  }
+
+  /* One CC control for every email composer.
+
+     `preselect` ticks each offered contact as soon as loadCcContacts fills the box. It is
+     used on the practice CHASE composers (the nudges), where a chase that reaches one
+     person is the bug being fixed — an unticked box is still a one-person email.
+     Safe to tick: every address offered here has already proved practice affiliation
+     server-side (buildPracticeAffiliationSignals), and /email-contacts strips both the
+     doctor and whoever is already in "To". The note line spells out who is being copied,
+     so a pre-ticked CC can never be a surprise.
+
+     `never` is a list of addresses this particular composer must not offer at all. The
+     endpoint only knows the doctor's user_profiles.email; a doctor who replied from a
+     second address (Mercy wrote from a personal gmail) is affiliation-proven by our own
+     reply to her and would otherwise be offered — and now ticked — on a chase aimed at
+     her practice. Ticking made that worth closing at the composer, which is the only
+     place that knows the doctor is not the audience. */
+  function opsCcRow(taskId, preselect, never){
+    var bad = (never || []).map(function(a){ return String(a || '').trim().toLowerCase(); }).filter(Boolean);
+    return '<div class="ops-cc-row"><span class="ops-email-label">CC:</span>'
+      + '<select data-email-cc="' + esc(taskId) + '"' + (preselect ? ' data-email-cc-preselect="1"' : '')
+      + (bad.length ? ' data-email-cc-exclude="' + esc(bad.join(',')) + '"' : '')
+      + ' multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>'
+      + '<div data-email-cc-note="' + esc(taskId) + '" style="font-size:11px;color:var(--muted);margin:-4px 0 6px 0"></div>';
   }
 
   /* ── SPPA-00 (7-state lifecycle) ── */
@@ -5405,6 +5434,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div id="opsNudgeWrap_' + esc(task.id) + '" style="display:none;margin-top:8px">';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(nudgeTo) + '" /></div>';
+      // The chase went to the supervisor alone: this composer had no CC row at all, so the
+      // practice manager could not be copied even though the practice put them on the thread.
+      // Pre-ticked because a chase is exactly when you want everyone who can act on it.
+      h += opsCcRow(task.id, true, [candidateEmail, meta.sent_to_candidate_email]);
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
@@ -5471,6 +5504,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div id="opsResendWrap_' + esc(task.id) + '" style="display:none;margin-top:8px">';
       h += '<div class="ops-email-composer">';
       h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(resendTo) + '" /></div>';
+      // Same chase, same reason as the nudge above — the practice manager belongs on it.
+      h += opsCcRow(task.id, true, [candidateEmail, meta.sent_to_candidate_email]);
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Corrections Needed — Dr ' + esc(gpName) + '" /></div>';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
@@ -5801,7 +5836,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h2+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(nudgeTo)+'" /></div>';
       // The nudge is the one composer that had no CC row, so the person the practice
       // delegated to (and CC'd us on) could not be copied into the chase aimed at them.
-      h2+='<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="'+esc(task.id)+'" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
+      // Pre-ticked: offering them was not enough, an unticked box still sends to one person.
+      h2+=opsCcRow(task.id, true, [task.candidate_email, task.gp_email]);
       h2+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="Follow-up: '+esc(docTitle)+' for Dr '+esc(gpName)+'" /></div>';
       h2+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
         +'Hi '+esc(contactName||'')+',<br><br>'
@@ -6463,9 +6499,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var tid = sel.getAttribute('data-email-cc');
         var toInput = document.querySelector('[data-email-to="' + tid + '"]') || document.querySelector('[data-gp-email-to="' + tid + '"]');
         var toVal = toInput ? String(toInput.value || '').trim().toLowerCase() : '';
+        // Chase composers tick their contacts by default — see opsCcRow.
+        var preselect = sel.hasAttribute('data-email-cc-preselect');
+        var never = (sel.getAttribute('data-email-cc-exclude') || '').split(',').filter(Boolean);
+        var note = document.querySelector('[data-email-cc-note="' + tid + '"]');
         sel.innerHTML = '';
         var list = (data.ok && Array.isArray(data.contacts) ? data.contacts : []).filter(function(c) {
-          return String(c.email_address || '').trim().toLowerCase() !== toVal;
+          var addr = String(c.email_address || '').trim().toLowerCase();
+          return addr !== toVal && never.indexOf(addr) === -1;
         });
         if (list.length > 0) {
           list.forEach(function(c) {
@@ -6476,6 +6517,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             // Kept on hover, and the list is already ordered by seen_count.
             opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address);
             opt.title = c.email_address + ' — seen ' + c.seen_count + 'x on this case';
+            if (preselect) opt.selected = true;
             sel.appendChild(opt);
           });
         } else {
@@ -6484,6 +6526,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           opt.textContent = 'No additional contacts detected';
           opt.disabled = true;
           sel.appendChild(opt);
+        }
+        // Say plainly who is going to be copied. A pre-ticked CC that is only visible as a
+        // highlight in a small scrolling box is not something an RSO can be expected to read.
+        if (note) {
+          if (preselect && list.length > 0) {
+            note.textContent = 'Copying ' + list.map(function(c) { return c.display_name || c.email_address; }).join(', ')
+              + '. Deselect above to leave anyone off.';
+          } else if (preselect) {
+            note.textContent = 'No one else on file for this practice to copy.';
+          } else {
+            note.textContent = '';
+          }
         }
       });
     } catch (e) {

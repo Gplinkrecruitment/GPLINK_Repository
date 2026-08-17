@@ -5715,6 +5715,19 @@
     }
     // Conversation thread (port of admin opsRenderThread 4743–4764): newest-first, in/out
     // direction badge, channel, sender, relative time, optional "Open in Gmail" link.
+    /* CC control for the task composers. `preselect` ticks every offered contact once
+       loadCcContacts fills the box — used on the practice chase (nudge), where an email
+       that reaches one person is the bug. Port of admin.html opsCcRow; see the comment
+       there for why ticking cannot over-share. */
+    function ceoCcRow(taskId, preselect, never) {
+      var bad = (never || []).map(function (a) { return String(a || '').trim().toLowerCase(); }).filter(Boolean);
+      return '<div class="ops-cc-row"><span class="ops-email-label">CC:</span>'
+        + '<select data-email-cc="' + esc(taskId) + '"' + (preselect ? ' data-email-cc-preselect="1"' : '')
+        + (bad.length ? ' data-email-cc-exclude="' + esc(bad.join(',')) + '"' : '')
+        + ' multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>'
+        + '<div data-email-cc-note="' + esc(taskId) + '" style="font-size:11px;color:var(--muted);margin:-4px 0 6px 0"></div>';
+    }
+
     function ceoOpsRenderThread(msgs) {
       if (!msgs || !msgs.length) return '';
       var sorted = msgs.slice().sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
@@ -5913,7 +5926,8 @@
         var nTitle = task.title || 'Document', nGp = task.gp_name || 'the GP', nContact = task.practice_contact_name || '';
         h += '<div id="ceoNudgeWrap_' + esc(task.id) + '" style="display:none;margin-top:8px"><div class="ops-email-composer">';
         h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(task.practice_contact_email || '') + '" /></div>';
-        h += '<div class="ops-cc-row"><span class="ops-email-label">CC:</span><select data-email-cc="' + esc(task.id) + '" multiple style="min-height:28px"><option value="">Loading contacts…</option></select></div>';
+        // Pre-ticked on the nudge — a chase that reaches one person is the bug. Port of admin opsCcRow.
+        h += ceoCcRow(task.id, true, [task.candidate_email, task.gp_email]);
         h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: ' + esc(nTitle) + ' for Dr ' + esc(nGp) + '" /></div>';
         h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">Hi ' + esc(nContact) + ',<br><br>Just following up on our earlier email regarding the <strong>' + esc(nTitle) + '</strong> for Dr ' + esc(nGp) + '.<br><br>Could you please provide this at your earliest convenience? We need this document to proceed with their registration.' + (signReq ? ' ' + signReq : '') + '<br><br>Kind regards,<br>Hazel — GP Link Registration Team</div>';
         h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send</button></div>';
@@ -6367,9 +6381,16 @@
           var tid = sel.getAttribute('data-email-cc');
           var toInput = document.querySelector('[data-email-to="' + tid + '"]');
           var toVal = toInput ? String(toInput.value || '').trim().toLowerCase() : '';
+          // Chase composers tick their contacts by default — see ceoCcRow.
+          var preselect = sel.hasAttribute('data-email-cc-preselect');
+          var never = (sel.getAttribute('data-email-cc-exclude') || '').split(',').filter(Boolean);
+          var note = document.querySelector('[data-email-cc-note="' + tid + '"]');
           sel.innerHTML = '';
           var contacts = (data && data.ok && Array.isArray(data.contacts)) ? data.contacts : [];
-          var listc = contacts.filter(function(c) { return String(c.email_address || '').trim().toLowerCase() !== toVal; });
+          var listc = contacts.filter(function(c) {
+            var addr = String(c.email_address || '').trim().toLowerCase();
+            return addr !== toVal && never.indexOf(addr) === -1;
+          });
           if (listc.length) {
             listc.forEach(function(c) {
               var opt = document.createElement('option');
@@ -6377,12 +6398,23 @@
               // Name + address only — see admin.html: "(seen Nx)" clipped the real address.
               opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address);
               opt.title = c.email_address + ' — seen ' + c.seen_count + 'x on this case';
+              if (preselect) opt.selected = true;
               sel.appendChild(opt);
             });
           } else {
             var opt0 = document.createElement('option');
             opt0.value = ''; opt0.textContent = 'No additional contacts detected'; opt0.disabled = true;
             sel.appendChild(opt0);
+          }
+          if (note) {
+            if (preselect && listc.length) {
+              note.textContent = 'Copying ' + listc.map(function(c) { return c.display_name || c.email_address; }).join(', ')
+                + '. Deselect above to leave anyone off.';
+            } else if (preselect) {
+              note.textContent = 'No one else on file for this practice to copy.';
+            } else {
+              note.textContent = '';
+            }
           }
         });
       }).catch(function() {});
