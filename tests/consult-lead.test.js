@@ -560,7 +560,41 @@ describe('consultNudgeCopy + consultDisplayName', () => {
   it('consultDisplayName of a sanitized (angle-bracket-stripped) name stays sensible', () => {
     const sanitized = validateConsultLeadPayload({
       name: 'Khan <b>evil</b>', email: 'a@b.co', isGp: true, country: 'uk',
+      phone: '+447700900123',
     }).value.name;
     expect(consultDisplayName(sanitized)).toBe('Dr bevil/b');
+  });
+});
+
+describe('validateConsultLeadPayload — a booking must carry a phone number', () => {
+  const base = { name: 'Dr Khan', email: 'a@b.co', country: 'uk' };
+
+  it('rejects a booking with no phone', () => {
+    const r = validateConsultLeadPayload(base);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/phone/i);
+  });
+
+  it('accepts a booking that carries one', () => {
+    expect(validateConsultLeadPayload({ ...base, phone: '+447700900123' }).ok).toBe(true);
+  });
+
+  // "Keep me posted when you support my country" is an email capture, not a
+  // booking. It posts no phone by design and must not 400.
+  it('lets the waitlist row through without a phone', () => {
+    const r = validateConsultLeadPayload({
+      name: 'Future-country lead', email: 'a@b.co', isGp: false,
+      country: 'other', waitlist: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.value.phone).toBe('');
+  });
+
+  // 🛑 Owner's rule, 2026-08-19: a foreign dialling code must NEVER cost a doctor
+  // her place. Plenty of UK-trained GPs are already living abroad when they enquire.
+  it('an overseas number is a valid booking and still qualifies', () => {
+    const r = validateConsultLeadPayload({ ...base, phone: '+919876543210' });
+    expect(r.ok).toBe(true);
+    expect(screenConsultLead({ ...r.value, countryRecognised: true })).toBe(true);
   });
 });

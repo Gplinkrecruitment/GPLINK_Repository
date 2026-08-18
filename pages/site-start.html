@@ -236,8 +236,8 @@
           <input id="cfName" type="text" autocomplete="name" maxlength="200" placeholder="Full name" required>
           <label for="cfEmail">Email</label>
           <input id="cfEmail" type="email" autocomplete="email" maxlength="200" placeholder="Email" required>
-          <label for="cfPhone">Phone (optional)</label>
-          <input id="cfPhone" type="tel" autocomplete="tel" maxlength="40" placeholder="Phone (with country code)">
+          <label for="cfPhone">Phone</label>
+          <input id="cfPhone" type="tel" autocomplete="tel" maxlength="40" placeholder="Phone (with country code)" required>
           <label for="cfCountry">Where did you complete your GP training?</label>
           <select id="cfCountry"><option value="">Choose…</option><option value="uk">United Kingdom</option><option value="ie">Ireland</option><option value="nz">New Zealand</option><option value="au">Australia</option><option value="other">Somewhere else</option></select>
           <label for="cfQuestion">Your main question (optional)</label>
@@ -520,8 +520,8 @@
       website: document.getElementById('cfWebsite').value,
       utm: utm
     };
-    if (!payload.name || !payload.email || !country) {
-      err.textContent = 'Please fill in your name, email and where you trained.'; err.hidden = false; return;
+    if (!payload.name || !payload.email || !payload.phone || !country) {
+      err.textContent = 'Please fill in your name, email, phone and where you trained.'; err.hidden = false; return;
     }
     err.hidden = true;
     var submitBtn = document.getElementById('cfSubmit');
@@ -556,7 +556,9 @@
     if (em && !lead.recognised) {
       // Fire-and-forget by design; the thanks line shows regardless.
       post('/api/public/consult-lead', {
-        name: 'Future-country lead', email: em, isGp: false, country: 'other',
+        // waitlist:true is what lets this row through without a phone — it is an
+        // email capture, not a booking. See validateConsultLeadPayload.
+        name: 'Future-country lead', email: em, isGp: false, country: 'other', waitlist: true,
         question: 'Keep me posted when GP Link supports my country.', utm: utm
       }).catch(function () {});
     }
