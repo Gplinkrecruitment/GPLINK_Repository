@@ -2028,6 +2028,16 @@ async function hasRecordedWebhookEvent(provider, eventId) {
   const existing = await supabaseDbRequest('webhook_events', 'provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id', { method: 'GET' });
   return existing.ok && Array.isArray(existing.data) && existing.data.length > 0;
 }
+
+// Like hasRecordedWebhookEvent, but hands back the stored row instead of a
+// boolean. Callers that need to know *when* a marker was first written — e.g.
+// "how long have we been failing on this lead?" — cannot get that from a bool.
+async function getRecordedWebhookEvent(provider, eventId) {
+  if (!eventId) return null;
+  const existing = await supabaseDbRequest('webhook_events', 'provider=eq.' + encodeURIComponent(provider) + '&event_id=eq.' + encodeURIComponent(eventId) + '&select=id,event_type,payload&limit=1', { method: 'GET' });
+  if (!existing.ok || !Array.isArray(existing.data) || !existing.data.length) return null;
+  return existing.data[0];
+}
 // ── End Zoom Call Scheduling helpers ──────────────────────
 
 async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType, opts) {
@@ -14361,6 +14371,13 @@ async function handleDoubleTickWebhook(req, res) {
 // the same one avoids a payload shape drifting out from under us mid-campaign.
 const FB_GRAPH_VERSION = process.env.FB_GRAPH_VERSION || 'v26.0';
 
+// Returns { fieldData, reason }. `fieldData` is the answers or null; `reason`
+// is a short human string describing why they could not be read, which the
+// alert email quotes verbatim. Meta's own wording for a lead it will not hand
+// over is famously ambiguous — "does not exist, cannot be loaded due to
+// missing permissions, or does not support this operation" covers a deleted
+// test lead AND a token missing `leads_retrieval` — so we deliberately do NOT
+// branch on it. Naming the error in the alert is useful; acting on it is not.
 async function fetchFacebookLeadFieldData(leadgenId) {
   // Own variable, shared fallback. See graphConfig() in lib/social-campaign.js:
   // this token needs `leads_retrieval`, the publisher's needs the posting and
@@ -14369,7 +14386,8 @@ async function fetchFacebookLeadFieldData(leadgenId) {
   // the new variables are actually set.
   const token = process.env.FB_LEADS_PAGE_TOKEN || process.env.FB_PAGE_ACCESS_TOKEN;
   const id = String(leadgenId || '').trim();
-  if (!token || !/^[0-9]{4,}$/.test(id)) return null;
+  if (!token) return { fieldData: null, reason: 'FB_PAGE_ACCESS_TOKEN is not set' };
+  if (!/^[0-9]{4,}$/.test(id)) return { fieldData: null, reason: 'lead id is not a Meta id' };
   const url = 'https://graph.facebook.com/' + FB_GRAPH_VERSION + '/' + id
     + '?fields=id,created_time,field_data&access_token=' + encodeURIComponent(token);
   try {
@@ -14377,14 +14395,18 @@ async function fetchFacebookLeadFieldData(leadgenId) {
     const data = await resp.json().catch(() => null);
     if (!resp.ok) {
       const err = data && data.error;
-      console.error('[fb-lead-webhook] Graph lookup failed for', id,
-        '→', resp.status, err ? (err.type + ': ' + err.message) : '');
-      return null;
+      const reason = 'Graph ' + resp.status + (err
+        ? ' ' + err.type + ' (code ' + err.code + '/' + err.error_subcode + '): ' + err.message
+        : '');
+      console.error('[fb-lead-webhook] Graph lookup failed for', id, '→', reason);
+      return { fieldData: null, reason };
     }
-    return data && Array.isArray(data.field_data) ? data.field_data : null;
+    if (data && Array.isArray(data.field_data)) return { fieldData: data.field_data, reason: null };
+    return { fieldData: null, reason: 'Graph returned no field_data' };
   } catch (e) {
+    const reason = 'Graph request failed: ' + (e && e.message);
     console.error('[fb-lead-webhook] Graph lookup threw for', id, ':', e && e.message);
-    return null;
+    return { fieldData: null, reason };
   }
 }
 
@@ -14412,20 +14434,27 @@ function splitFacebookLeadDeliveries(body) {
 
 // Fills in field_data on a native Meta payload, in place. No-ops when the
 // answers are already present (relay shape) or when there is no leadgen_id.
+// Returns the failure reason string when the answers could not be fetched, or
+// null on success / when there was nothing to fetch. The caller quotes that
+// reason in the alert so the email itself says which failure this was, instead
+// of always guessing "expired or missing token".
 async function hydrateFacebookLeadPayload(body) {
   const value = body && body.entry && body.entry[0] && body.entry[0].changes &&
     body.entry[0].changes[0] && body.entry[0].changes[0].value;
-  if (!value || typeof value !== 'object') return;
-  if (Array.isArray(value.field_data) && value.field_data.length) return;
-  if (!value.leadgen_id) return;
-  const fieldData = await fetchFacebookLeadFieldData(value.leadgen_id);
+  if (!value || typeof value !== 'object') return null;
+  if (Array.isArray(value.field_data) && value.field_data.length) return null;
+  if (!value.leadgen_id) return null;
+  const { fieldData, reason } = await fetchFacebookLeadFieldData(value.leadgen_id);
   if (fieldData) {
     value.field_data = fieldData;
-  } else if (!process.env.FB_LEADS_PAGE_TOKEN && !process.env.FB_PAGE_ACCESS_TOKEN) {
+    return null;
+  }
+  if (!process.env.FB_LEADS_PAGE_TOKEN && !process.env.FB_PAGE_ACCESS_TOKEN) {
     console.error('[fb-lead-webhook] FB_PAGE_ACCESS_TOKEN not set — a real Meta '
       + 'webhook carries no answers, so this lead cannot be read. Set a Page token '
       + 'with leads_retrieval.');
   }
+  return reason;
 }
 
 async function handleFacebookLeadWebhook(req, res) {
@@ -14495,9 +14524,9 @@ async function handleFacebookLeadWebhook(req, res) {
     // without this hydration step every genuine lead would fall through to
     // "unrecognized_payload" while the ad looked perfectly healthy. (A
     // Zapier-style relay posts the answers inline and skips this entirely.)
-    await hydrateFacebookLeadPayload(delivery);
+    const hydrationFailure = await hydrateFacebookLeadPayload(delivery);
     try {
-      results.push(await processFacebookLeadDelivery(delivery, req, ip));
+      results.push(await processFacebookLeadDelivery(delivery, req, ip, hydrationFailure));
     } catch (err) {
       console.error('[fb-lead-webhook] Unexpected error:', err && err.message);
       results.push({ status: 500, body: { ok: false, message: 'Internal error' } });
@@ -14532,7 +14561,52 @@ async function notifyFacebookLeadProblem(input) {
   }
 }
 
-async function processFacebookLeadDelivery(body, req, ip) {
+// How long we keep asking Meta to resend a lead we cannot read.
+//
+// This window exists because of a real save: on 2026-08-17 a lead was dropped
+// at 09:51 with a token missing `leads_retrieval`, the token was replaced at
+// 12:28, and Meta's own retry re-delivered the SAME lead at 12:54 — it stored
+// itself, no manual recovery. Returning 200 early would have thrown that away.
+//
+// It is bounded because of the opposite failure: one deleted test lead on
+// 2026-08-17 was retried for 12 hours straight, and every retry sent another
+// "leads are being DROPPED" email. 6 hours is comfortably longer than the 3h
+// recovery above while capping the retry storm.
+const FB_LEAD_UNREADABLE_RETRY_MS = 6 * 60 * 60 * 1000;
+
+// Decides what to do about a lead whose answers we could not read. Pure, so
+// the policy is testable without Supabase, Meta or a live webhook.
+//
+//   firstSeenAt — ISO string of when we first failed on this lead, or null
+//                 when this is the first failure.
+//
+// Returns { shouldAlert, status, action }:
+//   • first failure        → alert once, 500 so Meta retries
+//   • inside the window    → stay silent, 500 so Meta keeps retrying
+//   • past the window      → stay silent, 200 so Meta stops
+//
+// The alert fires on the FIRST failure only. Meta's retry schedule (1m, 1m,
+// 30m, 1h, 1.5h, 3h, 6h, 12h…) otherwise turns one unreadable lead into a
+// dozen identical emails, which is what made a solved outage look ongoing.
+function decideUnreadableLeadResponse(firstSeenAt, now, windowMs) {
+  const limit = typeof windowMs === 'number' ? windowMs : FB_LEAD_UNREADABLE_RETRY_MS;
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (!firstSeenAt) {
+    return { shouldAlert: true, status: 500, action: 'lead_answers_unavailable' };
+  }
+  const seenMs = new Date(firstSeenAt).getTime();
+  // An unparseable or future timestamp must not be read as "ancient" and
+  // silently abandon a lead — treat it as if the clock just started.
+  if (!Number.isFinite(seenMs) || seenMs > nowMs) {
+    return { shouldAlert: false, status: 500, action: 'lead_answers_unavailable' };
+  }
+  if (nowMs - seenMs < limit) {
+    return { shouldAlert: false, status: 500, action: 'lead_answers_unavailable' };
+  }
+  return { shouldAlert: false, status: 200, action: 'lead_answers_unavailable_abandoned' };
+}
+
+async function processFacebookLeadDelivery(body, req, ip, hydrationFailure) {
   // GP lead-gen forms (Meta-ads GP funnel): allow-listed form IDs route to
   // site_enquiries as consult leads instead of the practice pipeline.
   const gpFormIds = consultLead.parseGpFormIds(process.env.FB_GP_LEAD_FORM_IDS);
@@ -14591,17 +14665,51 @@ async function processFacebookLeadDelivery(body, req, ip) {
   // dropped while the ads look perfectly healthy, and the only trace used to be
   // a console line nobody reads. 500 so Meta retries a transient blip.
   if (deliveryValue && deliveryValue.leadgen_id && !(deliveryFields && deliveryFields.length)) {
-    await notifyFacebookLeadProblem({
-      subject: 'Facebook leads are being DROPPED — cannot read the answers',
-      lines: [
-        'A Facebook lead arrived but carried no answers, so it could not be stored.',
-        'Meta sends only ids, so this is almost certainly an expired or missing FB_PAGE_ACCESS_TOKEN.',
-        'Every lead from the running ads is being lost until that token is refreshed.',
-        'Lead id: ' + String(deliveryValue.leadgen_id),
-        'Form id: ' + String(deliveryValue.form_id || 'unknown')
-      ]
-    });
-    return { status: 500, body: { ok: false, error: 'lead_answers_unavailable' } };
+    const leadId = String(deliveryValue.leadgen_id);
+    const formId = String(deliveryValue.form_id || 'unknown');
+    // Namespaced so it cannot collide with the success marker recorded for the
+    // same leadgen_id — a lead that fails now and stores on a later retry must
+    // be able to hold both records.
+    const failureKey = 'unreadable:' + leadId;
+    const prior = await getRecordedWebhookEvent('facebook_lead', failureKey);
+    const firstSeenAt = (prior && prior.payload && prior.payload.created_at) || null;
+    const decision = decideUnreadableLeadResponse(firstSeenAt, new Date());
+
+    if (!prior) {
+      // 🧨 Until now a lead we could not read left NO trace but an email. If
+      // nobody kept the email the lead was simply gone, because Meta stops
+      // retrying and its own retention is ~90 days. Record it first, so the
+      // ids survive even when the alert send fails.
+      await checkAndRecordWebhookEvent('facebook_lead', failureKey, 'lead_unreadable', {
+        event: 'lead_unreadable form_id=' + formId,
+        created_at: new Date().toISOString()
+      });
+    }
+
+    if (decision.shouldAlert) {
+      await notifyFacebookLeadProblem({
+        subject: 'Facebook leads are being DROPPED — cannot read the answers',
+        lines: [
+          'A Facebook lead arrived but carried no answers, so it could not be stored.',
+          'Meta sends only ids, so the answers have to be fetched with FB_PAGE_ACCESS_TOKEN.',
+          'What Meta said: ' + String(hydrationFailure || 'no reason reported'),
+          'Lead id: ' + leadId,
+          'Form id: ' + formId,
+          'You will not be emailed again about this lead. Meta will keep retrying it for '
+            + (FB_LEAD_UNREADABLE_RETRY_MS / (60 * 60 * 1000)) + ' hours, so fixing the token '
+            + 'within that window recovers it automatically.',
+          'If other leads are still arriving normally, this is about this one lead — a deleted '
+            + 'test lead reads exactly like a permissions failure in Meta\'s wording.'
+        ]
+      });
+    }
+
+    // 500 keeps the existing `error` shape byte-for-byte (Meta ignores the
+    // body; our own tests do not). 200 reports `action`, matching how every
+    // other deliberate we-are-done-here answer in this handler is phrased.
+    return decision.status === 200
+      ? { status: 200, body: { ok: true, action: decision.action } }
+      : { status: 500, body: { ok: false, error: decision.action } };
   }
 
   // (2) A GP form we can read, whose id nobody added to FB_GP_LEAD_FORM_IDS.
@@ -76786,6 +76894,8 @@ module.exports.__testUtils = {
   renderContractDocumentHtml,
   sanitizeContractHtml,
   recordServerError,
+  decideUnreadableLeadResponse,
+  FB_LEAD_UNREADABLE_RETRY_MS,
   recordCronRun,
   classifyClientErrorNoise,
   redactEmailsInText,
