@@ -555,6 +555,35 @@ describe('publishableTargets', () => {
   });
 });
 
+describe('isCredentialError', () => {
+  // Real incident, 2026-08-18: a bad paste into FB_PAGE_ACCESS_TOKEN produced
+  // "Malformed access token" on every post as it came due. Two creatives burned
+  // three attempts each and retired themselves before anyone noticed, and the
+  // rest of the month was queued to do the same, one post at a time.
+  it('recognises the wordings Meta uses for a bad or expired token', () => {
+    [
+      'Malformed access token',
+      '(#190) Invalid OAuth access token - Cannot parse access token',
+      'Error validating access token: Session has expired',
+      'The user has not authorized application',
+      '(#190) This method must be called with a Page Access Token'
+    ].forEach(function (m) {
+      expect(social.isCredentialError(m), m).toBe(true);
+    });
+  });
+
+  it('does not swallow real content problems, which SHOULD burn attempts', () => {
+    [
+      'The image is too large',
+      'Instagram could not process the image (ERROR)',
+      'Unsupported post request. Object with ID x does not support this operation',
+      ''
+    ].forEach(function (m) {
+      expect(social.isCredentialError(m), m).toBe(false);
+    });
+  });
+});
+
 describe('graphConfigProblems', () => {
   it('names exactly what is missing for the networks in play', () => {
     const none = social.graphConfig({});

@@ -10608,6 +10608,29 @@ async function runSocialPublish(opts) {
           sleep: o.sleep
         });
 
+      // 🧨 A present-but-INVALID token is not a missing env var, so it slips past
+      // the configuration check above, takes the normal publish path, and is
+      // charged to the post. On 2026-08-18 a bad paste into FB_PAGE_ACCESS_TOKEN
+      // did exactly that: "Malformed access token" on every post as it came due,
+      // three attempts each, two creatives retired before anyone noticed, and the
+      // rest of the month queued to follow one slot at a time. It is the one
+      // failure guaranteed to hit every post equally and to be fixed in one place,
+      // so it is held, never charged.
+      const credentialErrors = (result.errors || []).filter(function (e) {
+        return socialCampaign.isCredentialError(e);
+      });
+      if (!result.ok && credentialErrors.length &&
+          !(result.facebook && result.facebook.postId) &&
+          !(result.instagram && result.instagram.mediaId)) {
+        out.held++;
+        out.details.push({ slot: post.slot, held: true, reason: credentialErrors.join(' ') });
+        await socialPatchPostRow(post.id, {
+          last_attempt_at: nowIso,
+          facebook_error: 'Waiting on configuration: ' + credentialErrors.join(' ')
+        });
+        continue;
+      }
+
       const patch = {
         attempts: (Number(post.attempts) || 0) + 1,
         last_attempt_at: nowIso
