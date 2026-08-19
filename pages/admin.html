@@ -6552,7 +6552,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             // Name + address only. "(seen Nx)" is internal telemetry that ate ~10 characters
             // of a line that cannot ellipsize — it pushed the actual address out of view.
             // Kept on hover, and the list is already ordered by seen_count.
-            opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address);
+            // The name they SIGN OFF with beats the header name, which is often just a role
+            // ("Practice Manager"). The RSO ticking a box should see the person. See
+            // lib/email-signature-name.js.
+            var ccLabel = c.signature_name || c.display_name;
+            opt.textContent = (ccLabel ? ccLabel + ' <' + c.email_address + '>' : c.email_address);
             opt.title = c.email_address + ' — seen ' + c.seen_count + 'x on this case';
             if (preselect) opt.selected = true;
             sel.appendChild(opt);
@@ -6568,7 +6572,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         // highlight in a small scrolling box is not something an RSO can be expected to read.
         if (note) {
           if (preselect && list.length > 0) {
-            note.textContent = 'Copying ' + list.map(function(c) { return c.display_name || c.email_address; }).join(', ')
+            note.textContent = 'Copying ' + list.map(function(c) { return c.signature_name || c.display_name || c.email_address; }).join(', ')
               + '. Deselect above to leave anyone off.';
           } else if (preselect) {
             note.textContent = 'No one else on file for this practice to copy.';

@@ -223,6 +223,7 @@ const practiceNudgeDraft = require('./lib/practice-nudge-draft.js');
 const practiceDocClassify = require('./lib/practice-doc-classify.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
 const aiTextSafety = require('./lib/ai-text-safety.js');
+const emailSignatureName = require('./lib/email-signature-name.js');
 // Every Anthropic call in this process goes out through a body that has had unpaired UTF-16
 // surrogates removed. One emoji sliced in half by a `.substring` used to 400 the WHOLE request
 // ("no low surrogate in string") and take every AI feature on that case down with it — see
@@ -7605,6 +7606,34 @@ async function collectCaseThreadContacts(caseId) {
     console.log('[email-contacts] case', caseId, '— hid', dropped, 'thread address(es) with no link to the practice');
   }
   kept.forEach(function (c) { delete c._threads; });
+
+  // Header names are often a ROLE, not a person — "Practice Manager <pm@thefamilydoctors.com.au>".
+  // When the practice then delegates by first name ("Naomi will get back to you today"), nothing
+  // downstream can join the two, so the draft asks for an address we have had all along. The name
+  // they sign off with is in the body of their own emails, so read it from there. Best-effort:
+  // one extra query, and a contact with no recoverable name is left exactly as it was.
+  try {
+    var bodyRes = await supabaseDbRequest('task_messages',
+      'select=sender,body_text,created_at&case_id=eq.' + encodeURIComponent(caseId) +
+      '&channel=eq.email&direction=eq.inbound&order=created_at.desc&limit=60');
+    if (bodyRes.ok && Array.isArray(bodyRes.data)) {
+      var newestBodyBySender = Object.create(null);
+      for (var b = 0; b < bodyRes.data.length; b++) {
+        var brow = bodyRes.data[b] || {};
+        var from = parseEmailListWithNames(brow.sender);
+        if (!from.length) continue;
+        // Rows are newest-first, so the first body we see for an address is their latest.
+        if (!newestBodyBySender[from[0].email]) newestBodyBySender[from[0].email] = brow.body_text || '';
+      }
+      kept.forEach(function (c) {
+        var body = newestBodyBySender[c.email_address];
+        if (!body) return;
+        var signed = emailSignatureName.nameFromSignature(body);
+        if (signed) c.signature_name = signed;
+      });
+    }
+  } catch (e) { console.warn('[email-contacts] signature-name pass failed:', e && e.message); }
+
   return kept.sort(function (a, b) { return b.seen_count - a.seen_count; });
 }
 

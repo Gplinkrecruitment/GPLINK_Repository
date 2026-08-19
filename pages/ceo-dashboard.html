@@ -6414,7 +6414,11 @@
               var opt = document.createElement('option');
               opt.value = c.email_address;
               // Name + address only — see admin.html: "(seen Nx)" clipped the real address.
-              opt.textContent = (c.display_name ? c.display_name + ' <' + c.email_address + '>' : c.email_address);
+              // The name they SIGN OFF with beats the header name, which is often just a role
+              // ("Practice Manager"). The RSO ticking a box should see the person. See
+              // lib/email-signature-name.js.
+              var ccLabel = c.signature_name || c.display_name;
+              opt.textContent = (ccLabel ? ccLabel + ' <' + c.email_address + '>' : c.email_address);
               opt.title = c.email_address + ' — seen ' + c.seen_count + 'x on this case';
               if (preselect) opt.selected = true;
               sel.appendChild(opt);
@@ -6426,7 +6430,7 @@
           }
           if (note) {
             if (preselect && listc.length) {
-              note.textContent = 'Copying ' + listc.map(function(c) { return c.display_name || c.email_address; }).join(', ')
+              note.textContent = 'Copying ' + listc.map(function(c) { return c.signature_name || c.display_name || c.email_address; }).join(', ')
                 + '. Deselect above to leave anyone off.';
             } else if (preselect) {
               note.textContent = 'No one else on file for this practice to copy.';
