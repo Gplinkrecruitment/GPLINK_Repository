@@ -28,31 +28,54 @@ direction** (§3).
 
 ## 2. Verified live state as of 2026-08-19
 
-- **Leads work.** Proven by test leads `1062334336283017` and `1686379759134963`
+> ⚠️ **SUPERSEDED 2026-08-19 (evening), same day this was written.** The two
+> bullets below recorded the state as of the morning. By that evening, prod
+> `social_posts` rows proved the value the owner pasted into Vercel on
+> 2026-08-18 (~16:00Z) was **structurally malformed** — every publish attempt
+> from 18 Aug 23:05Z on failed with Meta's `Malformed access token` (it cannot
+> parse the string; not a scope or expiry problem). That same broken value is
+> the shared token, so **lead hydration was equally dead from ~18 Aug 16:00Z**
+> — the drop alerts of 18 Aug 17:54Z and 19 Aug 02:16Z had TWO sufficient
+> causes at once: the malformed token, and (for untargeted leads) §3a's form
+> setting. The token split below was BUILT and shipped in `840a7cf`
+> (19 Aug 13:10Z, deployed), with `558409b` making a credential failure hold
+> posts instead of burning attempts. The two creatives that burned (slots 3–4)
+> were revived and re-slotted to 27 Aug directly in prod.
+
+- **Leads work.** *(true until ~18 Aug 16:00Z — see the note above)* Proven by
+  test leads `1062334336283017` and `1686379759134963`
   (17 Aug 12:38 / 12:42Z), by real lead `1432788012009668` storing on retry at
   12:54Z, and by an owner test at 17:45Z.
-- **Instagram/Facebook posting works.** Owner confirmed 2026-08-18.
-- **The token currently in Vercel is a Graph-API-Explorer-derived Page token**
-  minted 2026-08-18 by the owner: `type: Page`, Page `769864969547691`,
+- **Instagram/Facebook posting works.** *(also true until ~18 Aug 16:00Z; last
+  successful post 18 Aug 05:05Z)* Owner confirmed 2026-08-18.
+- **The token the owner MEANT to put in Vercel is a Graph-API-Explorer-derived
+  Page token** minted 2026-08-18: `type: Page`, Page `769864969547691`,
   `Expires: Never`, 8 scopes (all of the above plus `pages_show_list`,
-  `ads_management`, `pages_manage_metadata`).
+  `ads_management`, `pages_manage_metadata`). The paste mangled it — the value
+  actually stored is unparseable.
 - ⚠️ **It carries `data_access_expires_at = 1794843457` → 2026-11-16.** That is a
   90-day clock tied to Khaleed's *personal* Facebook login, not to the token.
   The **System User** token it replaced (`AutomatedPosts`, `61593571162433`)
   had no such clock and is strictly better.
 
-### Two pending owner actions, both non-urgent
+### Pending owner actions — the first one is now URGENT
 
-1. **Restore the System User token** — Business Settings for business
+1. **Mint and paste a clean token — nothing on Meta works until this is done.**
+   Business Settings for business
    `1500341461017110` → Users → System users → `AutomatedPosts` → Generate token
    → app `GP Link Leads` → tick `leads_retrieval` (the four social scopes are
-   locked-in app defaults and come automatically) → paste into
-   `FB_PAGE_ACCESS_TOKEN` → redeploy. **No page-token exchange is needed** — a
-   System User token reads leads directly. Do this before 2026-11-16.
-2. 🎯 **Turn on "Allow retrieval of untargeted leads"** on the live form
-   `1571202738133124`, and check the same setting on `1957628845192779`. This is
-   the actual cause of the drop alerts — see §3a. Not optional: with it off, any
-   untargeted lead is unreachable by the API for good.
+   locked-in app defaults and come automatically). **No page-token exchange is
+   needed** — a System User token reads leads directly, and it published the
+   17–18 Aug posts. Paste the SAME value into BOTH new Vercel vars
+   `FB_LEADS_PAGE_TOKEN` and `FB_SOCIAL_PAGE_TOKEN` (so the next re-mint of one
+   can never break the other), then redeploy. Paste hygiene — this is what
+   broke on 18 Aug: the token is ONE unbroken line starting `EAA…` (~200–250
+   chars), no quotes, no spaces, no line breaks, nothing before or after.
+2. 🎯 **Turn on "Allow retrieval of untargeted leads"** (Sharing = Open) on
+   whichever form the ads point at. The owner duplicated a new Open form
+   19 Aug ~13:14Z; its id must be added to `FB_GP_LEAD_FORM_IDS` (+ redeploy)
+   BEFORE repointing the ad. With Sharing = Restricted, any *untargeted* lead
+   is unreachable by the API for good — see §3a.
 3. **Add `1571202738133124` to `FB_GP_LEAD_FORM_IDS`** if it is not there.
    `1957628845192779` was added on 18 Aug; this third form went live after that.
 
@@ -142,6 +165,13 @@ into an error-code check.
 ---
 
 ## 4. The work
+
+> ✅ **DONE — shipped as `840a7cf` on 2026-08-19 13:10Z (deployed), exactly the
+> shape below, plus `sharingLeadToken` surfaced on the CEO Social tab.** What
+> remains is only the Vercel side: neither `FB_LEADS_PAGE_TOKEN` nor
+> `FB_SOCIAL_PAGE_TOKEN` is set yet, and the shared fallback value is the
+> malformed 18 Aug paste — see the §2 note. The rollout order below still
+> applies from step 2.
 
 Give each consumer its own variable, with a fallback so nothing breaks mid-roll.
 
