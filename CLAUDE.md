@@ -34,6 +34,16 @@ verified data shapes, and what is still broken.
   and the name matcher is *also* the wrong-owner (PII) guard — the surname stays
   strict on purpose.
 
+- **Facebook lead ads / `FB_PAGE_ACCESS_TOKEN` / "leads are being DROPPED" emails** →
+  [`docs/superpowers/handovers/2026-08-19-meta-token-split-handover.md`](docs/superpowers/handovers/2026-08-19-meta-token-split-handover.md)
+  — leads and social posting **both work** as of 2026-08-19. **Read §3 before
+  diagnosing that alert email**: it blames the token by default and has been
+  misleading twice; 13 alerts turned out to be 2 leads, because the handler
+  returns 500 and Meta re-sends on every retry. Count distinct lead ids and check
+  Gmail for `subject:"New gp enquiry"` (the success log) first. The open work is
+  splitting one env var that two features with different Meta scopes share (§4),
+  plus restoring the System User token before its 2026-11-16 data-access expiry (§2).
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules
