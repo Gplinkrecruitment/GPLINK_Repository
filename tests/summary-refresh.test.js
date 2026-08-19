@@ -120,3 +120,56 @@ describe('/api/cron/refresh-summaries — registered + scheduled', () => {
     expect(serverSrc).toMatch(/ANTHROPIC_DAILY_LIMIT_USD \|\| 25\)/);
   });
 });
+
+// ── 2026-08-19: the job kept refreshing what it had just refreshed ───────────
+//
+// Saving a summary is a `PATCH registration_cases`, which bumps `updated_at`. So a fraction of a
+// second after ANY refresh, that case satisfied `changed` (activity > gen) again — permanently.
+// Two consequences, both measured in prod:
+//   1. Every case was always eligible, defeating the "quiet GPs cost nothing" design.
+//   2. Ties break on FRESHEST activity, so the cases just rewritten sorted to the TOP of the next
+//      run while genuinely stale ones sank. Dr Mercy Obanimoh's summary — the oldest in the system
+//      by nine days — ranked 8th of 9 and was never reached, run after run.
+// Prod evidence: every refreshed case had updated_at 0.1-0.6s AFTER its own generated_at.
+describe('selectStaleSummaryCases — the job must not re-trigger on its own write', () => {
+  // A case refreshed a moment ago: summary written, and the write bumped the row.
+  const justRefreshed = (genMs, bumpMs) => ({
+    id: 'just-refreshed',
+    updated_at: iso(genMs + bumpMs),
+    ai_handover_summary: { generated_at: iso(genMs) },
+  });
+
+  it('does not re-select a case whose only "activity" is the summary write itself', () => {
+    const picked = selectStaleSummaryCases([justRefreshed(T - H, 500)], T, {});
+    expect(picked).toEqual([]);
+  });
+
+  it('tolerates clock skew between the app-set generated_at and the db-set updated_at', () => {
+    // generated_at comes from the app clock, updated_at from the database's.
+    expect(selectStaleSummaryCases([justRefreshed(T - H, 30 * 1000)], T, {})).toEqual([]);
+  });
+
+  it('still picks up real activity that lands after the tolerance window', () => {
+    const picked = selectStaleSummaryCases([justRefreshed(T - 5 * H, 2 * H)], T, {});
+    expect(picked.map((c) => c.id)).toEqual(['just-refreshed']);
+  });
+
+  it('no longer starves the oldest summary behind cases it just rewrote', () => {
+    // The exact prod shape: a case refreshed seconds ago, versus one nine days stale whose last
+    // real activity is older. Freshest-activity-first put the fresh one first, for ever.
+    const cases = [
+      justRefreshed(T - 1000, 500),
+      { id: 'mercy', updated_at: iso(T - 14 * H), ai_handover_summary: { generated_at: iso(T - 9 * 24 * H) } },
+    ];
+    const picked = selectStaleSummaryCases(cases, T, { cap: 1 });
+    expect(picked.map((c) => c.id)).toEqual(['mercy']);
+  });
+
+  it('a genuinely busy GP is still refreshed promptly (the intent survives)', () => {
+    const cases = [
+      { id: 'busy', updated_at: iso(T - 60 * 1000), ai_handover_summary: { generated_at: iso(T - 3 * 24 * H) } },
+      { id: 'quiet', updated_at: iso(T - 20 * 24 * H), ai_handover_summary: { generated_at: iso(T - 21 * 24 * H) } },
+    ];
+    expect(selectStaleSummaryCases(cases, T, { cap: 1 }).map((c) => c.id)).toEqual(['busy']);
+  });
+});
