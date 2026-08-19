@@ -20549,14 +20549,28 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
   var gpEmail = '';
   var contactName = '';
   try {
-    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,practice_contact_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    // registration_cases has NO practice_contact_name column — asking for it 400s the WHOLE
+    // query in PostgREST, so this used to come back empty and take user_id down with it: every
+    // drafted follow-up lost the doctor's name AND the contact's name and opened "Hi ," about
+    // "Dr". Found 2026-08-19 while backfilling Mercy Obanimoh's reply. The contact name lives
+    // where the dashboards read it from — the GP's secured placement in gp_career_state.
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     var regCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : {};
-    contactName = regCase.practice_contact_name || '';
     if (regCase.user_id) {
       var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
       var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : {};
       gpName = ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
       gpEmail = String(prof.email || '').trim().toLowerCase();
+      // Same resolution the dashboards use, and in the same order: the OWNED gp_applications
+      // rows are authoritative and the user_state career-state mirror only fills gaps. That
+      // order matters here — Mercy Obanimoh's mirror carries another GP's placement, so
+      // trusting it would address the follow-up to the wrong practice's contact.
+      var stRes = await supabaseDbRequest('user_state', 'select=user_id,state&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+      var stateMap = {};
+      if (stRes.ok && Array.isArray(stRes.data) && stRes.data[0]) stateMap[regCase.user_id] = _parseStateVal(stRes.data[0].state);
+      var contactMap = buildPracticeContactMap(
+        await resolvePlacedPracticeProfiles([regCase.user_id]), stateMap, [regCase.user_id]);
+      contactName = (contactMap[regCase.user_id] && contactMap[regCase.user_id].contactName) || '';
     }
   } catch (e) { /* names are cosmetic — never block the draft on them */ }
 
