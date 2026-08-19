@@ -75,3 +75,46 @@ describe('dashboard: stale MyIntealth ID guard', () => {
     expect(isMyintealthIdStale('2026-06-08T07:50:58.427Z', '')).toBe(false);
   });
 });
+
+// ── 2026-08-19: the summary was cut off mid-JSON and blamed on the model ──────
+//
+// Owner reported "AI service error: ... no low surrogate in string" (a truncated emoji in our
+// request — see tests/ai-text-safety.test.js). Fixing that JSON parse error exposed a SECOND
+// failure that had been hidden behind it, because a parse error is raised before any other
+// validation: the request now reached the model, and the model ran out of output budget.
+//
+// Verified against the live API on this very case: `max_tokens: 4096`, of which Sonnet 5 spent
+// ~2,200 thinking, then began the JSON and stopped at the cap — stop_reason "max_tokens",
+// 1,615 characters of half-written object. JSON.parse threw and the endpoint returned
+// "AI returned invalid format", i.e. it blamed the model for our own under-budgeting.
+// At 16,000 the same request returns stop_reason "end_turn" and parses.
+describe('candidate summary output budget', () => {
+  const summaryCall = SERVER.slice(
+    SERVER.indexOf('var summarySystemPrompt'),
+    SERVER.indexOf('var summary;'),
+  );
+
+  it('budgets enough output for the model to think AND write the JSON', () => {
+    expect(summaryCall).toContain('max_tokens: 16000');
+    expect(summaryCall).not.toContain('max_tokens: 4096');
+  });
+
+  it('says the output was cut off instead of calling a truncated answer invalid', () => {
+    expect(summaryCall).toContain("anthropicData.stop_reason === 'max_tokens'");
+    expect(summaryCall).toContain('cut off before it finished');
+  });
+
+  it('checks for truncation BEFORE trying to parse, so the honest error wins', () => {
+    // Anchored on the parse of rawText specifically — there is an earlier JSON.parse in the
+    // non-ok error branch that has nothing to do with this ordering.
+    const stopAt = SERVER.indexOf("anthropicData.stop_reason === 'max_tokens'");
+    const parseAt = SERVER.indexOf('summary = JSON.parse(rawText.trim());');
+    expect(stopAt).toBeGreaterThan(-1);
+    expect(parseAt).toBeGreaterThan(-1);
+    expect(parseAt).toBeGreaterThan(stopAt);
+  });
+
+  it('collects only text blocks — a thinking block is not part of the answer', () => {
+    expect(summaryCall).toContain("if (anthropicData.content[i].type === 'text') rawText += anthropicData.content[i].text;");
+  });
+});

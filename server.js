@@ -59451,7 +59451,13 @@ Return ONLY valid JSON with no markdown formatting:
         body: JSON.stringify({
           // ⚠️ Sonnet 5 rejects `temperature`/`top_p` (400) — do NOT re-add sampling params here.
           model: ANTHROPIC_SUMMARY_MODEL,
-          max_tokens: 4096,
+          // ⚠️ This budget covers THINKING as well as the answer. Sonnet 5 reasons before it
+          // writes, and on a normal case that costs ~2,200 tokens — so at the old 4,096 the model
+          // was spending half its allowance thinking, starting the JSON, and being cut off
+          // mid-object (stop_reason "max_tokens"). The endpoint then failed JSON.parse and
+          // reported "AI returned invalid format", blaming the model for our own under-budgeting.
+          // The summary itself is only ~1,200 tokens; the headroom here is for the thinking.
+          max_tokens: 16000,
           system: [{ type: 'text', text: summarySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: prompt }]
         })
@@ -59477,8 +59483,17 @@ Return ONLY valid JSON with no markdown formatting:
       var rawText = '';
       if (anthropicData.content && Array.isArray(anthropicData.content)) {
         for (var i = 0; i < anthropicData.content.length; i++) {
+          // Only the text blocks — a thinking block is not part of the answer.
           if (anthropicData.content[i].type === 'text') rawText += anthropicData.content[i].text;
         }
+      }
+      // Ran out of room rather than finished: whatever we hold is a half-written object, and
+      // parsing it would only produce the misleading "AI returned invalid format". Say what
+      // actually happened so the next occurrence is diagnosable instead of a mystery.
+      if (anthropicData.stop_reason === 'max_tokens') {
+        console.error('[AI Summary] hit max_tokens — output truncated at', outputTokens, 'tokens for case', caseId);
+        sendJson(res, 502, { ok: false, error: 'AI summary was cut off before it finished (output limit reached). Please try again.' });
+        return;
       }
 
       var summary;
