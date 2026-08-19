@@ -555,6 +555,60 @@ describe('publishableTargets', () => {
   });
 });
 
+describe('split Meta tokens, with a shared fallback', () => {
+  // FB_PAGE_ACCESS_TOKEN was one variable read by two features needing different
+  // scopes. Minting for one broke the other, in both directions: social work
+  // killed lead capture on 2026-08-16, lead work killed posting on 08-18. The
+  // split exists so that can no longer happen; the fallback exists so shipping
+  // it changes nothing until the new variables are actually set.
+
+  it('falls back to the shared variable, so shipping the split changes nothing', () => {
+    const cfg = social.graphConfig({ FB_PAGE_ACCESS_TOKEN: 'shared' });
+    expect(cfg.pageToken).toBe('shared');
+    expect(cfg.pageTokenSource).toBe('FB_PAGE_ACCESS_TOKEN');
+    expect(cfg.sharingLeadToken).toBe(true);
+  });
+
+  it('prefers the social variable once it is set', () => {
+    const cfg = social.graphConfig({
+      FB_PAGE_ACCESS_TOKEN: 'shared', FB_SOCIAL_PAGE_TOKEN: 'social-only'
+    });
+    expect(cfg.pageToken).toBe('social-only');
+    expect(cfg.pageTokenSource).toBe('FB_SOCIAL_PAGE_TOKEN');
+    // No longer drawing on the value lead capture depends on.
+    expect(cfg.sharingLeadToken).toBe(false);
+  });
+
+  it('is unaffected by the LEADS variable, which is the whole point', () => {
+    // Setting a leads token must never change what the publisher uses. This is
+    // the exact collision that broke posting on 2026-08-18.
+    const before = social.graphConfig({ FB_PAGE_ACCESS_TOKEN: 'shared' }).pageToken;
+    const after = social.graphConfig({
+      FB_PAGE_ACCESS_TOKEN: 'shared', FB_LEADS_PAGE_TOKEN: 'leads-only'
+    }).pageToken;
+    expect(after).toBe(before);
+    expect(after).not.toBe('leads-only');
+  });
+
+  it('reports nothing configured when neither variable is set', () => {
+    const cfg = social.graphConfig({});
+    expect(cfg.pageToken).toBe('');
+    expect(cfg.sharingLeadToken).toBe(false);
+    expect(social.nothingConfigured(cfg)).toBe(true);
+  });
+
+  it('names the variable the operator must actually fix', () => {
+    const shared = social.graphConfig({ FB_PAGE_ID: '1', IG_USER_ID: '2' });
+    expect(social.graphConfigProblems(shared, { facebook: true, instagram: true })
+      .join(' ')).toMatch(/FB_PAGE_ACCESS_TOKEN is not set/);
+
+    // Once the social variable is the declared source, an empty value should
+    // point at THAT name, not the shared one that is right for neither.
+    const split = social.graphConfig({ FB_SOCIAL_PAGE_TOKEN: '   ', FB_PAGE_ID: '1' });
+    expect(split.pageTokenSource).toBe('FB_PAGE_ACCESS_TOKEN');
+  });
+});
+
 describe('isCredentialError', () => {
   // Real incident, 2026-08-18: a bad paste into FB_PAGE_ACCESS_TOKEN produced
   // "Malformed access token" on every post as it came due. Two creatives burned

@@ -14362,7 +14362,12 @@ async function handleDoubleTickWebhook(req, res) {
 const FB_GRAPH_VERSION = process.env.FB_GRAPH_VERSION || 'v26.0';
 
 async function fetchFacebookLeadFieldData(leadgenId) {
-  const token = process.env.FB_PAGE_ACCESS_TOKEN;
+  // Own variable, shared fallback. See graphConfig() in lib/social-campaign.js:
+  // this token needs `leads_retrieval`, the publisher's needs the posting and
+  // Instagram scopes, and while they were one value each re-mint broke the other
+  // feature. FB_PAGE_ACCESS_TOKEN stays as the fallback so nothing changes until
+  // the new variables are actually set.
+  const token = process.env.FB_LEADS_PAGE_TOKEN || process.env.FB_PAGE_ACCESS_TOKEN;
   const id = String(leadgenId || '').trim();
   if (!token || !/^[0-9]{4,}$/.test(id)) return null;
   const url = 'https://graph.facebook.com/' + FB_GRAPH_VERSION + '/' + id
@@ -14416,7 +14421,7 @@ async function hydrateFacebookLeadPayload(body) {
   const fieldData = await fetchFacebookLeadFieldData(value.leadgen_id);
   if (fieldData) {
     value.field_data = fieldData;
-  } else if (!process.env.FB_PAGE_ACCESS_TOKEN) {
+  } else if (!process.env.FB_LEADS_PAGE_TOKEN && !process.env.FB_PAGE_ACCESS_TOKEN) {
     console.error('[fb-lead-webhook] FB_PAGE_ACCESS_TOKEN not set — a real Meta '
       + 'webhook carries no answers, so this lead cannot be read. Set a Page token '
       + 'with leads_retrieval.');
@@ -40304,6 +40309,10 @@ async function handleApi(req, res, pathname) {
       // the tab can say "Facebook only" rather than showing an error for an
       // Instagram that was never meant to be live yet.
       configured_targets: socialCampaign.configuredTargets(socGetCfg),
+      // Surfaced so the one state that caused both outages is visible on the
+      // screen that cares, instead of only in a handover nobody reads first.
+      sharing_lead_token: !!socGetCfg.sharingLeadToken,
+      token_source: socGetCfg.pageTokenSource,
       nothing_configured: socialCampaign.nothingConfigured(socGetCfg),
       publishing_disabled: socGetCfg.disabled
     });

@@ -170,6 +170,15 @@
       html += '<div class="soc-note"><strong>Instagram only.</strong> Facebook is not configured yet' +
         ' (FB_PAGE_ID is not set), so this month posts to Instagram and skips the Page.</div>';
     }
+    // The shared-token state is what broke posting twice and leads twice: one
+    // value, two features, different scopes. Say so where it will be read.
+    if (state.sharingLeadToken) {
+      html += '<div class="soc-note"><strong>Posting is using the shared Meta token.</strong>' +
+        ' FB_PAGE_ACCESS_TOKEN also feeds Facebook lead capture, which needs different' +
+        ' permissions, so re-minting it for one feature has twice broken the other.' +
+        ' Set <strong>FB_SOCIAL_PAGE_TOKEN</strong> to give posting its own.</div>';
+    }
+
     if (state.publishingDisabled) {
       html += '<div class="soc-warn"><strong>Publishing is switched off.</strong> ' +
         'SOCIAL_PUBLISH_DISABLED is true, so approved posts will be scheduled but held.</div>';
@@ -526,6 +535,7 @@
       state.summary = d.summary || null;
       state.config = d.config_problems || [];
       state.configuredTargets = d.configured_targets || {};
+      state.sharingLeadToken = !!d.sharing_lead_token;
       state.nothingConfigured = !!d.nothing_configured;
       state.publishingDisabled = !!d.publishing_disabled;
       state.month = state.campaign ? state.campaign.month : null;
