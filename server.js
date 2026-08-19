@@ -222,6 +222,12 @@ const practiceReplyFollowup = require('./lib/practice-reply-followup.js');
 const practiceNudgeDraft = require('./lib/practice-nudge-draft.js');
 const practiceDocClassify = require('./lib/practice-doc-classify.js');
 const internalNoteGuard = require('./lib/internal-note-guard.js');
+const aiTextSafety = require('./lib/ai-text-safety.js');
+// Every Anthropic call in this process goes out through a body that has had unpaired UTF-16
+// surrogates removed. One emoji sliced in half by a `.substring` used to 400 the WHOLE request
+// ("no low surrogate in string") and take every AI feature on that case down with it — see
+// lib/ai-text-safety.js. Installed once, here, so no call site has to remember.
+aiTextSafety.installAnthropicRequestGuard(globalThis);
 const agreementVariants = require('./lib/agreement-variants.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
@@ -20432,6 +20438,7 @@ const PRACTICE_DOC_SIGN_REQUIREMENT = {
   supervisor_cv: 'Please make sure the CV is dated and signed by the supervisor.',
   position_description: 'Please make sure the position description is signed by the practice owner/employer.',
   offer_contract: 'Please make sure the contract carries both the candidate and employer signatures.',
+  sppa_00: 'Please make sure the supervisor completes their sections and signs the form before returning it.',
 };
 
 /**
@@ -20451,10 +20458,14 @@ const PRACTICE_DOC_SIGN_REQUIREMENT = {
 async function _recordPracticeReplyFollowup(caseId, task, reply) {
   if (!isSupabaseDbConfigured()) return null;
   if (!task || task.task_type !== 'practice_pack_child' || !task.related_document_key) return null;
-  // sppa_00 runs its own state machine (sent_to_candidate → gp_returned → sent_to_practice →
-  // practice_returned) with its own panel and its own wording; section_g auto-delivers and has
-  // no detail panel at all. Neither should be driven by this generic reply handling.
-  if (task.related_document_key === 'sppa_00' || task.related_document_key === 'section_g') return null;
+  // section_g auto-delivers and has no detail panel at all — nothing here can help it.
+  if (task.related_document_key === 'section_g') return null;
+  // sppa_00 IS read (owner 2026-08-19: the SPPA card showed the raw email thread and no word on
+  // what it meant, so the RSO had to read four emails to learn the practice had handed the form
+  // to a colleague). It is read for the SUMMARY only: the writes below touch metadata.practice_reply
+  // and nothing else, so the SPPA state machine (sent_to_candidate → gp_returned →
+  // sent_to_practice → practice_returned) still owns sppa_state, the guided line and the buttons.
+  var isSppa = task.related_document_key === 'sppa_00';
   reply = reply || {};
 
   // Re-read metadata rather than trusting the (possibly stale) matched row, so a concurrent
@@ -20470,7 +20481,11 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
   // the document and then sent a bare "did you get it?" got a drafted chase-up for a document
   // already sitting on the task. What matters is whether the TASK holds the document, not
   // whether this particular email carried it.
-  if (!hasDocument) {
+  // ...except on the SPPA-00, where it is the wrong question. That task accumulates documents
+  // across its whole lifecycle — the Q7-filled form the conflict scan attaches, then the version
+  // the candidate signs and returns — so "the task holds a document" is true long before the
+  // practice has sent anything back. Asking it there would silence the read on every SPPA reply.
+  if (!hasDocument && !isSppa) {
     try {
       var _hdRes = await supabaseDbRequest('task_documents',
         'select=id&task_id=eq.' + encodeURIComponent(task.id) + '&is_current=eq.true&limit=1');
@@ -20488,8 +20503,10 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
   // A reply — with or without the document — means the ball is back with us, so the task must
   // not sit under a "⏳ Waiting on practice" pill. The thread-match path already flips to open;
   // this makes every path agree (the conversation-match path used to leave it waiting).
+  // ...but not on the SPPA-00, whose status is owned by its state machine and whose pill is
+  // computed from sppa_state, not status. Nudging it here would be a write with no reader.
   var firstPatch = { metadata: meta, updated_at: new Date().toISOString() };
-  if (String(task.status || '').indexOf('waiting') === 0) firstPatch.status = 'open';
+  if (!isSppa && String(task.status || '').indexOf('waiting') === 0) firstPatch.status = 'open';
   await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
     { method: 'PATCH', body: firstPatch });
 
@@ -41409,10 +41426,16 @@ async function handleApi(req, res, pathname) {
           await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(spTask.id),
             { method: 'PATCH', body: { metadata: spMeta, updated_at: chNowIso } });
           await _logCaseEvent(spTask.case_id, spTask.id, 'note', 'Automatic reminder sent — practice has not returned the SPPA-00', spEmail, 'system:chase');
-          await chEnsureRsoTask(spTask.case_id, 'practice_sppa_chase',
-            'Practice has not returned the SPPA-00',
-            'Automatic reminder #' + spMeta.practice_chase_count + ' emailed to ' + spEmail + '. Consider phoning the practice if this keeps stalling.',
-            'placement');
+          // No RSO chase TASK for the SPPA-00. Owner 2026-08-19: "completely delete that
+          // 'Practice has not returned the SPPA-00' task from the system as it's not a real
+          // task we need." There is nothing for the RSO to DO on it — the reminder has already
+          // been emailed automatically, and the real SPPA-00 task (which owns the state machine,
+          // the thread and the Upload/Nudge buttons) is already sitting in the same case under
+          // its own stage. A second card saying the same thing was noise, and worse: it filed
+          // itself under Secure Placement while the live task sat under AHPRA Registration, so
+          // one candidate looked like two pieces of work. The chase itself is unchanged — the
+          // email still goes, the counter still increments, and the case event above is the
+          // durable record. The officer and GP chases keep their tasks: those DO need a human.
           chChased.practice++;
         }
       } catch (chAErr) { chErrors.push('practice_pass:' + String(chAErr && chAErr.message)); }
@@ -59293,18 +59316,18 @@ Return ONLY valid JSON with no markdown formatting:
       prompt += '\n--- EMAILS FROM GMAIL (' + emails.length + ') ---\n';
       emails.forEach(function(e) {
         prompt += e.from + ' → ' + e.to + ' | ' + e.subject + ' | ' + e.date + '\n';
-        if (e.snippet) prompt += e.snippet.substring(0, 200) + '\n';
+        if (e.snippet) prompt += aiTextSafety.clipText(e.snippet, 200) + '\n';
       });
 
       prompt += '\n--- EMAILS FROM TASK MESSAGES (' + messages.length + ') ---\n';
       messages.forEach(function(m) {
         prompt += '[' + (m.direction || '') + '] ' + (m.subject || '') + ' | ' + (m.sender || m.email_sender || '') + ' | ' + (m.created_at || '') + '\n';
-        if (m.body_text) prompt += m.body_text.substring(0, 200) + '\n';
+        if (m.body_text) prompt += aiTextSafety.clipText(m.body_text, 200) + '\n';
       });
 
       prompt += '\n--- WHATSAPP (' + dtMessages.length + ') ---\n';
       dtMessages.forEach(function(m) {
-        prompt += '[' + (m.direction || 'unknown') + '] ' + (m.message_body || '').substring(0, 200) + ' | ' + (m.created_at || '') + '\n';
+        prompt += '[' + (m.direction || 'unknown') + '] ' + aiTextSafety.clipText(m.message_body || '', 200) + ' | ' + (m.created_at || '') + '\n';
       });
 
       prompt += '\n--- SUPPORT TICKETS (' + tickets.length + ' unresolved) ---\n';
@@ -59312,7 +59335,7 @@ Return ONLY valid JSON with no markdown formatting:
         prompt += '[' + (t.status || '') + '] ' + (t.title || '') + ' (' + (t.category || '') + ')';
         if (t.thread && Array.isArray(t.thread) && t.thread.length > 0) {
           var last = t.thread[t.thread.length - 1];
-          prompt += ' — latest: ' + (last.text || '').substring(0, 150);
+          prompt += ' — latest: ' + aiTextSafety.clipText(last.text || '', 150);
         }
         prompt += '\n';
       });

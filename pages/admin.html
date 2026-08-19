@@ -5222,6 +5222,37 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return h;
     }
 
+    // ── What the last reply on this thread actually meant ──────────────────
+    // Owner 2026-08-19: the SPPA-00 card showed the raw email thread and nothing else, so the
+    // RSO had to read four emails to discover the practice had passed the form to a colleague.
+    // Every OTHER practice-pack task already gets this read (State D in renderOpsPracticePackChild);
+    // the SPPA-00 was excluded because it runs its own state machine. It still does — this is the
+    // AI's summary only. Every button, state and next step below is unchanged.
+    //
+    // Gated on the LAST message being inbound: once we have answered them the ball is back with
+    // the practice, and a banner still announcing "they replied" would be describing history.
+    function sppaReplyRead() {
+      var pr = meta.practice_reply;
+      if (!pr || !(pr.summary || pr.outcome)) return '';
+      var lastMsg = (msgs && msgs.length) ? msgs[msgs.length - 1] : null;
+      if (!lastMsg || lastMsg.direction !== 'inbound') return '';
+      var b = '<div class="ops-expand-section">';
+      b += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;font-size:12px;color:#1d4ed8">';
+      b += '<b>\u2139 They replied \u2014 no completed SPPA-00 attached</b>';
+      if (pr.summary) b += '<div style="margin-top:4px"><strong>What they said:</strong> ' + esc(pr.summary) + '</div>';
+      if (pr.outcome) b += '<div style="margin-top:4px">' + esc(opsPracticeReplyGuidance(pr.outcome)) + '</div>';
+      if (pr.handed_to) b += '<div style="margin-top:4px"><strong>Passed to:</strong> ' + esc(pr.handed_to) + '</div>';
+      b += '<div style="margin-top:6px;font-size:10px;color:#3730a3">From ' + esc(pr.sender || 'the practice')
+        + (pr.received_at ? ' \u00b7 ' + new Date(pr.received_at).toLocaleString('en-AU') : '') + '</div>';
+      b += '</div>';
+      // Anything the AI flagged for the RSO renders here, never inside an email body it is about
+      // to send (see lib/internal-note-guard.js).
+      if (pr.rso_notes) b += '<div style="margin-top:8px;padding:8px 10px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;font-size:12px;color:#78350f"><b>Check before sending \u2014 not part of the email</b><br>' + esc(pr.rso_notes) + '</div>';
+      b += '</div>';
+      return b;
+    }
+    h += sppaReplyRead();
+
     // Conflict alert banner (shown in ready_to_send state)
     function conflictBanner() {
       var b = '';
@@ -5439,11 +5470,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       // Pre-ticked because a chase is exactly when you want everyone who can act on it.
       h += opsCcRow(task.id, true, [candidateEmail, meta.sent_to_candidate_email]);
       h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="Follow-up: SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + '" /></div>';
+      // When the AI has read their reply, its draft is the starting point — a template that
+      // repeats the original request reads as though we never opened their email (the failure
+      // commit a274f6d fixed for the other practice tasks). Falls back to the template whenever
+      // there is no draft: AI off, over budget, or they simply went quiet without replying.
+      var sppaNudgeDraft = (meta.practice_reply && meta.practice_reply.suggested_reply) ? meta.practice_reply.suggested_reply : '';
       h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
-        + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
-        + 'Just following up on the Supervised Practice Plan Agreement (SPPA-00) for Dr ' + esc(gpName) + ' that was sent on ' + esc(meta.sent_to_practice_at ? new Date(meta.sent_to_practice_at).toLocaleDateString('en-AU') : '') + '.<br><br>'
-        + 'Could you please complete and return the signed document at your earliest convenience? We need this to proceed with their AHPRA registration.<br><br>'
-        + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        + (sppaNudgeDraft ? opsPlainTextToHtml(sppaNudgeDraft)
+          : 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
+          + 'Just following up on the Supervised Practice Plan Agreement (SPPA-00) for Dr ' + esc(gpName) + ' that was sent on ' + esc(meta.sent_to_practice_at ? new Date(meta.sent_to_practice_at).toLocaleDateString('en-AU') : '') + '.<br><br>'
+          + 'Could you please complete and return the signed document at your earliest convenience? We need this to proceed with their AHPRA registration.<br><br>'
+          + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team')
         + '</div>';
       h += '<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '">Send</button></div>';
       h += '</div></div>';

@@ -309,7 +309,10 @@ describe('GET /api/cron/chase-nonresponders', () => {
     const chasedSppa = db.registration_tasks.find((t) => ['t-sppa1', 't-sppa2'].includes(t.id) && t.metadata && t.metadata.practice_chase_last_at);
     expect(chasedSppa).toBeTruthy();
     expect(chasedSppa.metadata.practice_chase_count).toBe(1);
-    expect(db.registration_tasks.some((t) => t.task_type === 'chase' && t.source_trigger === 'practice_sppa_chase' && t.case_id === chasedSppa.case_id)).toBe(true);
+    // No RSO task for the SPPA chase — the reminder email and the case-event note ARE the
+    // chase. Owner 2026-08-19: a "Practice has not returned the SPPA-00" card is not real work,
+    // it just duplicates the live SPPA-00 task under a different stage.
+    expect(db.registration_tasks.some((t) => t.task_type === 'chase' && t.source_trigger === 'practice_sppa_chase')).toBe(false);
     const ah1 = db.registration_tasks.find((t) => t.id === 't-ah1');
     expect(ah1.metadata.officer_chase_last_at).toBeTruthy();
     expect(db.registration_tasks.some((t) => t.task_type === 'chase' && t.source_trigger === 'ahpra_officer_chase' && t.case_id === 'c-of1')).toBe(true);
@@ -357,6 +360,6 @@ describe('GET /api/cron/chase-nonresponders', () => {
     expect(sentEmails.length).toBe(before);
     // Still exactly one open RSO chase task per case/category (no pile-up)
     const sppaChases = db.registration_tasks.filter((t) => t.task_type === 'chase' && t.source_trigger === 'practice_sppa_chase');
-    expect(sppaChases.length).toBe(2); // one per chased practice case
+    expect(sppaChases.length).toBe(0); // the SPPA chase never creates a task — email + case event only
   });
 });

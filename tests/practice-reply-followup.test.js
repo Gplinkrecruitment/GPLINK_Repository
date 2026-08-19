@@ -183,8 +183,37 @@ describe('server wiring', () => {
     expect(serverSrc).toContain('No practice reply on this task yet.');
   });
 
-  it('leaves the SPPA-00 and Section G state machines alone', () => {
-    expect(serverSrc).toContain("if (task.related_document_key === 'sppa_00' || task.related_document_key === 'section_g') return null;");
+  it('leaves Section G alone — it auto-delivers and has no detail panel', () => {
+    expect(serverSrc).toContain("if (task.related_document_key === 'section_g') return null;");
+  });
+
+  // Owner 2026-08-19: the SPPA-00 card showed the raw email thread and no word on what it
+  // meant. It now gets the same AI read as the other practice-pack tasks — but ONLY the read.
+  it('reads a reply on the SPPA-00 without touching its state machine', () => {
+    const fn = serverSrc.slice(
+      serverSrc.indexOf('async function _recordPracticeReplyFollowup'),
+      serverSrc.indexOf('async function _buildPracticeReplyDraft'),
+    );
+    expect(fn).toContain("var isSppa = task.related_document_key === 'sppa_00';");
+    // The status nudge is the only write outside metadata.practice_reply — skipped for SPPA,
+    // whose status and pill are owned by sppa_state.
+    expect(fn).toContain("if (!isSppa && String(task.status || '').indexOf('waiting') === 0) firstPatch.status = 'open';");
+    // Nothing in here may WRITE sppa_state (the comments name the field; the code must not set it).
+    expect(fn).not.toMatch(/sppa_state\s*[:=][^=]/);
+  });
+
+  it('judges "did a document arrive" per message on the SPPA-00, which carries earlier documents', () => {
+    const fn = serverSrc.slice(
+      serverSrc.indexOf('async function _recordPracticeReplyFollowup'),
+      serverSrc.indexOf('async function _buildPracticeReplyDraft'),
+    );
+    expect(fn).toContain('if (!hasDocument && !isSppa) {');
+  });
+
+  it('shows the read on the SPPA card in both dashboards, gated on the last message being inbound', () => {
+    expect(adminSrc).toContain('function sppaReplyRead()');
+    expect(adminSrc).toContain("if (!lastMsg || lastMsg.direction !== 'inbound') return '';");
+    expect(ceoSrc).toContain("_sppaLast && _sppaLast.direction === 'inbound'");
   });
 
   it('writes the deterministic marker before the AI runs, so the next step is right even if AI is down', () => {
