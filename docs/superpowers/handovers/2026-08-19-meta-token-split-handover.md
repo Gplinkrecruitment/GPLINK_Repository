@@ -49,25 +49,66 @@ direction** (§3).
    locked-in app defaults and come automatically) → paste into
    `FB_PAGE_ACCESS_TOKEN` → redeploy. **No page-token exchange is needed** — a
    System User token reads leads directly. Do this before 2026-11-16.
-2. **Verify form `1957628845192779`** (the new one-question Meta form) hydrates,
-   via `developers.facebook.com/tools/lead-ads-testing`. It is the one form we
-   have never seen succeed. Its id was added to `FB_GP_LEAD_FORM_IDS` on 18 Aug.
+2. 🎯 **Turn on "Allow retrieval of untargeted leads"** on the live form
+   `1571202738133124`, and check the same setting on `1957628845192779`. This is
+   the actual cause of the drop alerts — see §3a. Not optional: with it off, any
+   untargeted lead is unreachable by the API for good.
+3. **Add `1571202738133124` to `FB_GP_LEAD_FORM_IDS`** if it is not there.
+   `1957628845192779` was added on 18 Aug; this third form went live after that.
 
 ---
 
 ## 3. History — read this before diagnosing a "leads DROPPED" email
 
-**The alert email names `FB_PAGE_ACCESS_TOKEN` as the likely cause. Twice now
-that has been misleading.** Do these three checks before believing it:
+**The alert email names `FB_PAGE_ACCESS_TOKEN` as the likely cause. It has been
+misleading every time but the first.** Do these four checks, in this order:
 
-1. **Count *distinct lead ids*, not emails.** The handler returns 500 so Meta
+1. 🎯 **Open the form in Meta → Lead ads forms → Lead breakdown and read
+   "Allow retrieval of untargeted leads".** If it is **No**, any *untargeted*
+   lead on that form **can never be fetched through the Graph API** — and Meta
+   refuses it with the same wording a permissions failure produces. This is the
+   actual cause of every drop alert after 2026-08-17 12:28. See §3a.
+2. **Count *distinct lead ids*, not emails.** The handler returns 500 so Meta
    retries, and every retry re-sends the alert. On 17–18 Aug, **13 emails were
    2 leads**. Meta's backoff is 1m, 1m, 30m, 1h, 1.5h, 3h, 6h, 12h.
-2. **Check Gmail for `subject:"New gp enquiry"`.** A *successful* hydration
+3. **Check Gmail for `subject:"New gp enquiry"`.** A *successful* hydration
    emails the owner. Those messages are the real success log — if they are
    arriving, hydration is fine and the alert is about one specific lead.
-3. **Fetch a known-good lead id with the candidate token.** If one form's lead
-   reads and another's does not, it is a form/lead problem, not a token problem.
+4. **Only then suspect the token.** Fetch a known-good lead id with it.
+
+### 3a. "Allow retrieval of untargeted leads" — the real cause
+
+Found 2026-08-19 from the form panel for `1571202738133124`
+("GP Link — Overseas GP enquiry NEW-copy"):
+
+```
+Allow retrieval of untargeted leads:  No
+Targeted: 1        Untargeted: 1        Expired: 0
+```
+
+One untargeted lead on the form; one lead the API would not serve
+(`1716625716276091`, 2026-08-19 02:16Z). A lead is *untargeted* when the person
+reached the form from outside the ad's target audience.
+
+| Form | Reads? |
+|---|---|
+| `2029012337751132` (old) | ✅ leads were targeted / retrieval allowed |
+| `1957628845192779` | ❌ check this setting — earlier blamed on "a deleted test lead", probably wrong |
+| `1571202738133124` (current) | ❌ confirmed by the screenshot above |
+
+"Old form works, new forms don't" is what made this look like a credential
+problem for three days. **Fix: the running form needs that setting ON.** Meta
+may lock form settings once a form has leads — confirm before assuming you must
+duplicate it. The form panel's **Download** button exports untargeted leads even
+when the API refuses them, so such a lead is recoverable by hand.
+
+⚠️ **This is permanent, not transient.** Retries will never succeed for these
+leads, which is exactly why §5's bounded retry window is the right shape and why
+branching on Meta's error code still would not have helped.
+
+**No doctor has actually been lost to any of this** — both affected doctors
+self-rescued via the `/start?src=fb` thank-you-screen path, and Prashant Malla
+(+44 7578 572757) went on to book a call. Do not remove that fallback.
 
 ### 2026-08-16 — leads broken by the social work
 
