@@ -233,6 +233,7 @@ const agreementVariants = require('./lib/agreement-variants.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
+var consultWhatsapp = require('./lib/consult-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 // apex/www (mygplink.com.au) still serve the LEGACY site until the DNS cutover — only
 // app.mygplink.com.au is guaranteed to serve /start, so consult-lead links must not
@@ -344,6 +345,11 @@ const DOUBLETICK_STAGE_TEMPLATES = {
 // slot with the same value, since WhatsApp is safest without a repeated variable).
 // Pending WhatsApp approval — sends fail-soft until live.
 const DOUBLETICK_RSO_WELCOME_TEMPLATE = { templateName: 'gp_link_app_rso_welcome', language: 'en' };
+// Consult-funnel WhatsApp follow-ups (call booked / book nudge / signup welcome /
+// onboarding nudge — lib/consult-whatsapp.js). On by default; set to 'false' to
+// switch the whole feature off without a deploy of code. Sends still no-op when
+// DOUBLETICK_API_KEY is absent, and fail soft while templates await approval.
+const CONSULT_WHATSAPP_ENABLED = String(process.env.CONSULT_WHATSAPP_ENABLED || 'true').trim().toLowerCase() !== 'false';
 // Direct text messages used while templates are pending approval
 const DOUBLETICK_STAGE_MESSAGES = {
   myintealth: 'Hi {{name}}, welcome to GP Link! 🎉 Your first step is creating your MyIntealth account. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
@@ -19679,6 +19685,131 @@ async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, custom
   }
 }
 
+// Send one consult-funnel WhatsApp template via DoubleTick. Fail-soft: never
+// throws, returns { ok, … }. Template-only on purpose — every consult lead is a
+// first-contact recipient on WhatsApp, and WhatsApp requires an approved
+// template for those (same rule as ensureRsoWelcomeSent above).
+async function sendConsultWhatsAppTemplate(toPhone, message) {
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: true, reason: 'no_api_key' };
+  const phone = normalizePhone(toPhone);
+  if (!phone || !message || !message.templateName) return { ok: false, skipped: true, reason: 'bad_input' };
+  const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+  const reqBody = JSON.stringify({
+    messages: [{
+      to: phone,
+      from: fromNumber,
+      content: {
+        templateName: message.templateName,
+        language: message.language || 'en',
+        templateData: { body: { placeholders: message.placeholders || [] } }
+      }
+    }]
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(function () { controller.abort(); }, 15000);
+  try {
+    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: reqBody
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(function () { return ''; });
+      console.warn('[consult-wa] send failed', message.templateName, resp.status, String(t).slice(0, 200),
+        '(template may be pending WhatsApp approval)');
+      return { ok: false, status: resp.status };
+    }
+    console.log('[consult-wa] sent', message.templateName, 'to', maskPhone(phone));
+    return { ok: true };
+  } catch (err) {
+    console.error('[consult-wa] send error:', err && err.message);
+    return { ok: false, error: err && err.message };
+  } finally { clearTimeout(timeout); }
+}
+
+// One consult-funnel WhatsApp touch for one lead row. Marker-guarded (at most
+// one send per kind per lead, ever), eligibility mirrors the email funnel's
+// gates (lib/consult-whatsapp.js), and the marker is stamped ONLY after a
+// successful send so a pending-approval template stays retryable. Mutates
+// row.metadata in place after a successful stamp so callers that keep writing
+// this row do not clobber the marker. Never throws.
+async function maybeSendConsultWa(row, kind, extra) {
+  try {
+    if (!CONSULT_WHATSAPP_ENABLED) return { ok: false, skipped: true, reason: 'disabled' };
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return { ok: false, skipped: true, reason: 'no_consult' };
+    const consult = row.metadata.consult;
+    if (!consultWhatsapp.consultWaEligible(kind, consult)) return { ok: false, skipped: true, reason: 'not_eligible' };
+    const phone = normalizePhone(row.phone || '');
+    if (!phone) return { ok: false, skipped: true, reason: 'no_phone' };
+    const ctx = { name: row.name };
+    if (kind === 'call_booked') ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
+    if (kind === 'not_booked') {
+      ctx.bookUrl = consult.token
+        ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
+        : CONSULT_START_BASE + '/start#book';
+    }
+    const message = consultWhatsapp.buildConsultWaMessage(kind, ctx);
+    if (!message) return { ok: false, skipped: true, reason: 'no_message' };
+    const sent = await sendConsultWhatsAppTemplate(phone, message);
+    if (!sent || !sent.ok) return sent || { ok: false };
+    const wa = Object.assign({}, consult.wa, {});
+    wa[kind] = { sent_at: new Date().toISOString() };
+    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { wa: wa }) });
+    const up = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (up) row.metadata = md;
+    else console.warn('[consult-wa] marker write failed for lead', row.id, kind, '(message WAS sent)');
+    return { ok: true };
+  } catch (err) {
+    console.error('[consult-wa] maybeSendConsultWa error:', kind, err && err.message);
+    return { ok: false, error: err && err.message };
+  }
+}
+
+// Stamp a terminal onboarding-pass marker (completed / window_passed / …) so the
+// cron never re-examines this lead. Distinct from a sent marker: value records why.
+async function markConsultWaOnboardingResolved(row, value) {
+  try {
+    const consult = row.metadata.consult;
+    const wa = Object.assign({}, consult.wa, {});
+    wa.onboarding_incomplete = { resolved: value, resolved_at: new Date().toISOString() };
+    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { wa: wa }) });
+    const up = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (up) row.metadata = md;
+  } catch (err) {
+    console.error('[consult-wa] mark resolved error:', err && err.message);
+  }
+}
+
+// Resolve what the onboarding pass needs to know about a signed-up lead's
+// account: does it exist, when was it created, is onboarding complete.
+// Supabase mode reads user_profiles (onboarding_completed_at is the canonical
+// column — the same one /api/state trusts); local-JSON mode reads dbState.users.
+async function getConsultLeadAccountState(email) {
+  const em = String(email || '').trim().toLowerCase();
+  if (!em) return { userExists: false };
+  if (isSupabaseDbConfigured()) {
+    const userId = await getSupabaseUserIdByEmail(em);
+    if (!userId) return { userExists: false };
+    const r = await supabaseDbRequest('user_profiles',
+      'select=created_at,onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const p = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    if (!p) return { userExists: false };
+    return {
+      userExists: true,
+      signupAtMs: p.created_at ? new Date(p.created_at).getTime() : NaN,
+      onboardingComplete: !!p.onboarding_completed_at
+    };
+  }
+  const u = dbState.users && dbState.users[em];
+  if (!u) return { userExists: false };
+  return {
+    userExists: true,
+    signupAtMs: u.created_at ? new Date(u.created_at).getTime() : NaN,
+    onboardingComplete: !!(u.onboarding_completed_at || u.onboardingComplete)
+  };
+}
+
 // Dual-write a ticket into the new support_tickets table from the legacy
 // gpLinkSupportCases JSON shape. Idempotent on (user_id, source_ticket_id).
 async function upsertSupportTicketFromLegacy(userId, caseId, legacyTicket, stage, substage) {
@@ -23652,9 +23783,16 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso) {
     const patch = {};
     if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
     if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso; }
-    if (!Object.keys(patch).length) return;
-    const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
-    await updateSiteEnquiryRow(lead.id, { metadata: md });
+    if (Object.keys(patch).length) {
+      const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
+      await updateSiteEnquiryRow(lead.id, { metadata: md });
+      lead.metadata = md;
+    }
+    // WhatsApp booking confirmation — marker-guarded (one per lead, ever), so
+    // repeat webhook deliveries and reschedules can't double-send. Runs on the
+    // no-patch path too: a send that failed while the template awaited
+    // WhatsApp approval gets another chance on the next webhook event.
+    await maybeSendConsultWa(lead, 'call_booked', { callAtIso: scheduledAt || lead.metadata.consult.call_at || '' });
   } catch (e) { console.warn('[calendly] ensureLeadBookedCallAt error for', em, ':', e && e.message); }
 }
 
@@ -40864,6 +41002,8 @@ async function handleApi(req, res, pathname) {
             if (cnExhUserExists) {
               var cnMetaExhConv = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'signed_up' }) });
               await updateSiteEnquiryRow(cnRow.id, { status: 'converted', metadata: cnMetaExhConv });
+              cnRow.metadata = cnMetaExhConv;
+              await maybeSendConsultWa(cnRow, 'signed_up');
             } else {
               var cnMetaExhausted = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'exhausted' }) });
               await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaExhausted });
@@ -40889,6 +41029,8 @@ async function handleApi(req, res, pathname) {
         if (cnUserExists) {
           var cnMetaConv = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'signed_up' }) });
           await updateSiteEnquiryRow(cnRow.id, { status: 'converted', metadata: cnMetaConv });
+          cnRow.metadata = cnMetaConv;
+          await maybeSendConsultWa(cnRow, 'signed_up');
           cnStopped++;
           continue;
         }
@@ -40905,10 +41047,54 @@ async function handleApi(req, res, pathname) {
           ]);
           var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
           await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
+          cnRow.metadata = cnMetaSent;
+          // WhatsApp rides along on the pre-booking nudge — marker-guarded, so
+          // only the FIRST due not_booked touch carries a WhatsApp message.
+          if (cnDue.seq === 'not_booked') await maybeSendConsultWa(cnRow, 'not_booked');
           cnSent++;
         } else {
           cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
         }
+      }
+      // ── WhatsApp onboarding pass ─────────────────────────────────────────
+      // The main loop skips stopped rows forever, so signed-up leads who never
+      // finish onboarding would otherwise get nothing. This pass looks ONLY at
+      // stopped:'signed_up' rows without an onboarding_incomplete marker,
+      // checks the account's canonical onboarding state, and sends at most one
+      // WhatsApp nudge 24h+ after signup. Terminal outcomes (completed /
+      // window passed / no account / no phone) stamp a resolved marker so a
+      // lead is examined a bounded number of times, not hourly forever.
+      var cnObSeen = new Set(); var cnObSent = 0;
+      for (var cnObRow of cnRows) {
+        if (Date.now() - cnStart > CN_TIME_BUDGET_MS) { cnPartial = true; break; }
+        if (cnObSent >= 15) break; // per-run send cap; the rest catch up next hour
+        var cnObMeta = cnObRow && cnObRow.metadata;
+        if (!cnObMeta || cnObRow.kind !== 'gp' || !cnObMeta.consult) continue;
+        var cnObConsult = cnObMeta.consult;
+        if (cnObConsult.stopped !== 'signed_up') continue;
+        if (cnObConsult.wa && cnObConsult.wa.onboarding_incomplete) continue;
+        var cnObEmail = String(cnObRow.email || '').trim().toLowerCase();
+        if (!cnObEmail || cnObSeen.has(cnObEmail)) continue;
+        cnObSeen.add(cnObEmail);
+        if (!normalizePhone(cnObRow.phone || '')) {
+          await markConsultWaOnboardingResolved(cnObRow, 'no_phone');
+          continue;
+        }
+        var cnObAcct = await getConsultLeadAccountState(cnObEmail);
+        var cnObDecision = consultWhatsapp.onboardingNudgeDecision({
+          consult: cnObConsult,
+          userExists: cnObAcct.userExists,
+          signupAtMs: cnObAcct.signupAtMs,
+          onboardingComplete: cnObAcct.onboardingComplete,
+          nowMs: Date.now()
+        });
+        if (cnObDecision.action === 'mark') {
+          await markConsultWaOnboardingResolved(cnObRow, cnObDecision.value);
+          continue;
+        }
+        if (cnObDecision.action !== 'send') continue;
+        var cnObRes = await maybeSendConsultWa(cnObRow, 'onboarding_incomplete');
+        if (cnObRes && cnObRes.ok) { cnSent++; cnObSent++; }
       }
       sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, partial: cnPartial });
     } catch (e) {
@@ -77225,6 +77411,11 @@ module.exports.__testUtils = {
   buildConsultLeadRow,
   captureCalendlyDirectBookerLead,
   sendConsultNudgeEmail,
+  sendConsultWhatsAppTemplate,
+  maybeSendConsultWa,
+  markConsultWaOnboardingResolved,
+  getConsultLeadAccountState,
+  ensureLeadBookedCallAt,
   // Test-only: seeds a signed-up account directly into dbState.users (local-
   // JSON mode) — dbState is loaded once at module import, so a raw write to
   // the DB file mid-test would never be seen by the running process; cron
