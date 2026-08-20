@@ -4174,7 +4174,16 @@ async function recoverSppaThreadReply(task, mailbox) {
     try {
       var _seenMetaIds = {};
       metas.forEach(function (m) { if (m && m.messageId) _seenMetaIds[m.messageId] = true; });
-      var _sList = await gmail.users.messages.list({ userId: mailbox, q: 'from:' + _expectedSender + ' has:attachment newer_than:30d', maxResults: 15 });
+      // Same date bound as the recheck sweep: a form returned to us cannot predate the email
+      // asking for it, and an older PDF from this sender belongs to some other conversation.
+      var _awaitIso = String((preState === 'sent_to_practice' || preState === 'corrections_requested')
+        ? (meta.corrections_requested_at || meta.sent_to_practice_at)
+        : (meta.gp_corrections_requested_at || meta.sent_to_candidate_at) || '').trim();
+      var _awaitMs = _awaitIso ? Date.parse(_awaitIso) : NaN;
+      var _sWindow = (isFinite(_awaitMs) && _awaitMs > 0)
+        ? ' after:' + Math.floor((_awaitMs - 60 * 60 * 1000) / 1000)
+        : ' newer_than:30d';
+      var _sList = await gmail.users.messages.list({ userId: mailbox, q: 'from:' + _expectedSender + ' has:attachment' + _sWindow, maxResults: 15 });
       var _sMsgs = (_sList.data && _sList.data.messages) || [];
       for (var _smi = 0; _smi < _sMsgs.length; _smi++) {
         var _sid = _sMsgs[_smi] && _sMsgs[_smi].id;
@@ -5516,7 +5525,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
     }
     if (options.recoverFromSender) {
       try {
-        var recSearch = await gmail.users.messages.list({ userId: emailAddress, q: 'from:' + String(options.recoverFromSender) + ' newer_than:30d', maxResults: 25 });
+        // Bound the search to mail that arrived AFTER we put the ball in their court. A reply to
+        // an email we have not sent yet is a contradiction, and without this bound the sweep
+        // hands the matcher every message this sender wrote in the last 30 days — including
+        // long-since-filed threads about OTHER documents. That is how Dr Mercy Obanimoh's
+        // 2-Aug and 9-Aug Position Description emails were re-read onto her SPPA-00 task and
+        // flipped it to "returned by practice" (owner report 2026-08-20).
+        var _recAfter = Number(options.recoverFromSenderAfterMs);
+        var _recWindow = (isFinite(_recAfter) && _recAfter > 0)
+          ? ' after:' + Math.floor(_recAfter / 1000)
+          : ' newer_than:30d';
+        var recSearch = await gmail.users.messages.list({ userId: emailAddress, q: 'from:' + String(options.recoverFromSender) + _recWindow, maxResults: 25 });
         var recSearchMsgs = (recSearch.data && recSearch.data.messages) || [];
         for (var rsm = 0; rsm < recSearchMsgs.length; rsm++) {
           var recSid = recSearchMsgs[rsm] && recSearchMsgs[rsm].id;
@@ -5851,12 +5870,20 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
           var earlyMatch = await matchResponseToTask(earlyGpCase.id, emailMeta);
           if (earlyMatch && earlyMatch.confidence > 0.5) {
             var earlyTask = earlyMatch.task;
-            // Idempotency: never re-ingest a Gmail message already attached to this task.
+            // Idempotency: never re-ingest a Gmail message already filed anywhere on this CASE.
             // This survives the processed_gmail_messages deletion that recovery tooling does,
             // and stops a reprocessed reply re-attaching documents or re-firing an SPPA state
             // transition (the cause of the bogus practice_returned from a re-read candidate reply).
+            //
+            // Scoped to the case, not the task (owner report 2026-08-20). A per-task check only
+            // asks "have I seen this email HERE", so an email already filed on a sibling task
+            // sails straight through onto another one: Dr Mercy Obanimoh's Position Description
+            // emails from 2 and 9 Aug — long since filed on that task — were re-filed onto her
+            // SPPA-00 task by a manual recheck and flipped it to "returned by practice". One
+            // email belongs to one task; a document meant for a sibling is moved by
+            // _scanAndRoutePracticeDocs, which never needs a second copy of the message.
             var _alreadyAttached = await supabaseDbRequest('task_messages',
-              'select=id&task_id=eq.' + encodeURIComponent(earlyTask.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
+              'select=id,task_id&case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1');
             if (_alreadyAttached.ok && Array.isArray(_alreadyAttached.data) && _alreadyAttached.data.length > 0) {
               console.log('[Gmail] Skipping re-ingest — message', currentMsgId, 'already attached to task', earlyTask.id);
               await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'duplicate_skipped', processed_at: new Date().toISOString() }] }).catch(function () {});
@@ -5929,8 +5956,23 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                 await _scanAndRoutePracticeDocs(earlyTask, earlyGpCase, _earlyStoredDocIds);
               } catch (scanErr) { console.error('[Gmail] Practice doc scan failed:', scanErr && scanErr.message); }
             }
-            // SPPA-00 lifecycle: transition to gp_returned when GP replies with document
-            if (earlyTask.related_document_key === 'sppa_00' && earlyIsDoc) {
+            // SPPA-00 lifecycle: transition to gp_returned when GP replies with document.
+            //
+            // 🧨 `earlyIsDoc` is a CLAIM, not a fact. It is true when the matcher's AI decides the
+            // text reads like a delivery ("Below is the Position description") or when the message
+            // merely has an attachment of any kind — a signature logo counts. It says nothing about
+            // whether a document actually landed on this task. Owner report 2026-08-20, Dr Mercy
+            // Obanimoh: a manual "Check for practice reply now" re-ingested the practice contact's
+            // 17-day-old Position Description emails, matchResponseToTask routed them here on an
+            // ai_content_match of 72%, and the task flipped to `practice_returned` having stored
+            // nothing. The card then showed the newest document it had — the candidate's OWN form,
+            // returned on 13 Aug — under "Completed SPPA-00 returned by practice", and offered
+            // "Submit — Deliver to GP". The practice had sent nothing.
+            //
+            // A return is a DOCUMENT, so require one from THIS message. With no document the flow
+            // falls through to the branch below, which records the reply and reads it for the RSO
+            // ("Practice replied — no completed SPPA-00 attached") without moving the machine.
+            if (earlyTask.related_document_key === 'sppa_00' && earlyIsDoc && _earlyStoredDocIds.length > 0) {
               var sppaTaskFull = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(earlyTask.id) + '&limit=1');
               var sppaMeta = (sppaTaskFull.ok && sppaTaskFull.data && sppaTaskFull.data[0]) ? sppaTaskFull.data[0].metadata : {};
               if (typeof sppaMeta === 'string') try { sppaMeta = JSON.parse(sppaMeta); } catch (e) { sppaMeta = {}; }
@@ -6018,8 +6060,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             // Flip task status to open (Hazel's ball) for review
             await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
               { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
-            // Update practice_doc_ops to completed for non-SPPA practice_pack_child docs
-            if (earlyIsDoc && earlyTask.task_type === 'practice_pack_child' && earlyTask.related_document_key) {
+            // Update practice_doc_ops to completed for non-SPPA practice_pack_child docs.
+            // Gated on a document having actually been stored, for the same reason as the SPPA
+            // transition above: `earlyIsDoc` alone would mark the document "completed" on the
+            // strength of an email that merely SOUNDS like a delivery.
+            if (earlyIsDoc && _earlyStoredDocIds.length > 0 && earlyTask.task_type === 'practice_pack_child' && earlyTask.related_document_key) {
               _ensurePracticeDocOps(earlyGpCase.id).then(function () {
                 return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.' + encodeURIComponent(earlyTask.related_document_key), { method: 'PATCH', body: { ops_status: 'completed' } });
               }).catch(function (err) { console.error('[Gmail] Early match practice_doc_ops update failed:', err.message); });
@@ -64449,7 +64494,20 @@ Return ONLY valid JSON with no markdown formatting:
     if (_scanInbox && _recheckInboxes.indexOf(String(_scanInbox).toLowerCase()) < 0) _recheckInboxes.push(String(_scanInbox).toLowerCase());
     for (var _twi of TEST_WATCH_INBOXES) { if (_recheckInboxes.indexOf(_twi) < 0) _recheckInboxes.push(_twi); }
     var _recheckScanned = [];
-    var _recheckOpts = { recoverThreadId: _recheckThreadId, recoverFromSender: _recheckPracticeEmail || null };
+    // Only mail since we last put the ball in their court can be a reply to us. One hour of
+    // slack absorbs clock skew between our stored timestamp and Gmail's internalDate.
+    var _recheckAwaitingSince = 0;
+    try {
+      var _rsIso = String(_recheckMeta.corrections_requested_at || _recheckMeta.sent_to_practice_at
+        || _recheckMeta.gp_corrections_requested_at || _recheckMeta.sent_to_candidate_at || '').trim();
+      var _rsMs = _rsIso ? Date.parse(_rsIso) : NaN;
+      if (isFinite(_rsMs) && _rsMs > 0) _recheckAwaitingSince = _rsMs - (60 * 60 * 1000);
+    } catch (e) { _recheckAwaitingSince = 0; }
+    var _recheckOpts = {
+      recoverThreadId: _recheckThreadId,
+      recoverFromSender: _recheckPracticeEmail || null,
+      recoverFromSenderAfterMs: _recheckAwaitingSince || null,
+    };
     for (var _sib of _recheckInboxes) {
       try { await processGmailNotification(_sib, null, _recheckOpts); _recheckScanned.push({ inbox: _sib, ok: true }); }
       catch (e) { _recheckScanned.push({ inbox: _sib, ok: false, error: e.message }); }
