@@ -181,6 +181,11 @@ describe('cron wiring', () => {
     expect(msg.content.templateName).toBe('gp_link_consult_book_nudge');
     expect(msg.content.templateData.body.placeholders[0]).toBe('Aisha');
     expect(msg.content.templateData.body.placeholders[1]).toContain('/start?lead=' + lead.metadata.consult.token);
+    // The DoubleTick contact is named with the candidate's FULL name before
+    // the message, so the chat never shows a bare phone number as the name.
+    const nameSaves = dtCaptured.filter((c) => c.path === '/customer/assign-tags-custom-fields');
+    expect(nameSaves.length).toBe(1);
+    expect(nameSaves[0].body).toEqual({ phone: '447700900123', name: 'Aisha Khan', wabaNumber: '61494391968' });
     const row = readDb().siteEnquiries[0];
     expect(row.metadata.consult.wa.not_booked.sent_at).toEqual(expect.any(String));
     // Rerun: nothing due, marker holds — no second WhatsApp.
@@ -249,6 +254,16 @@ describe('cron wiring', () => {
     const byEmail = Object.fromEntries(rows.map((r) => [r.email, r]));
     expect(byEmail[stale.email].metadata.consult.wa.onboarding_incomplete.resolved).toBe('window_passed');
     expect(byEmail[done.email].metadata.consult.wa.onboarding_incomplete.resolved).toBe('completed');
+  });
+
+  it('refuses to save a junk contact name (digits-only or too short)', async () => {
+    dtCaptured.length = 0;
+    expect((await testUtils.ensureDoubleTickContactName('+447700900123', '447700900123')).skipped).toBe(true);
+    expect((await testUtils.ensureDoubleTickContactName('+447700900123', ' ')).skipped).toBe(true);
+    expect((await testUtils.ensureDoubleTickContactName('', 'Aisha Khan')).skipped).toBe(true);
+    expect(dtCaptured.length).toBe(0);
+    expect((await testUtils.ensureDoubleTickContactName('+447700900123', 'Aisha Khan')).ok).toBe(true);
+    expect(dtCaptured.length).toBe(1);
   });
 
   it('confirms a booked call over WhatsApp via maybeSendConsultWa, once ever', async () => {

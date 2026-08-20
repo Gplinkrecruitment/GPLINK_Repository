@@ -19474,10 +19474,20 @@ async function ensureRsoWelcomeSent(opts) {
     // One welcome per GP, ever — sentinel stamped in task_timeline on success.
     if (await _hasDoubleTickBeenSent(caseId, 'RSO welcome')) return { ok: true, alreadySent: true };
     let gpFirstName = '';
+    let gpLastName = '';
     try {
-      const pr = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
-      if (pr && pr.ok && Array.isArray(pr.data) && pr.data[0]) gpFirstName = String(pr.data[0].first_name || '').trim();
+      const pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
+      if (pr && pr.ok && Array.isArray(pr.data) && pr.data[0]) {
+        gpFirstName = String(pr.data[0].first_name || '').trim();
+        gpLastName = String(pr.data[0].last_name || '').trim();
+      }
     } catch (_) { /* name is best-effort */ }
+    // This send MATERIALIZES the GP's DoubleTick conversation — name the
+    // contact first or it is created with the phone number as its name.
+    // Full name only (the API overwrites unconditionally; see the helper).
+    if (gpFirstName && gpLastName) {
+      await ensureDoubleTickContactName(gpPhone, gpFirstName + ' ' + gpLastName);
+    }
     const fromNumber = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
     const reqBody = JSON.stringify({
       messages: [{
@@ -19685,6 +19695,45 @@ async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, custom
   }
 }
 
+// Save the candidate's NAME on their DoubleTick contact, so a chat the API
+// creates shows "Louise Beet" instead of a bare phone number (none of the
+// message-send endpoints carry a name; POST /customer/assign-tags-custom-fields
+// is the documented way to set it, and it CREATES the customer if needed).
+// ⚠️ The API overwrites the stored name unconditionally — only ever call this
+// with a person's FULL display name, or a first-name-only caller will downgrade
+// a contact that another path already named properly. Fail-soft, never throws.
+async function ensureDoubleTickContactName(toPhone, fullName) {
+  try {
+    if (!DOUBLETICK_API_KEY) return { ok: false, skipped: true };
+    const phone = normalizePhone(toPhone).replace(/[^\d]/g, '');
+    const name = String(fullName || '').trim();
+    if (!phone || name.length < 2 || /^[\d\s()+-]+$/.test(name)) return { ok: false, skipped: true };
+    const controller = new AbortController();
+    const timeout = setTimeout(function () { controller.abort(); }, 15000);
+    try {
+      const resp = await fetch(DOUBLETICK_BASE_URL + '/customer/assign-tags-custom-fields', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: phone,
+          name: name,
+          wabaNumber: String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '')
+        })
+      });
+      if (!resp.ok) {
+        const t = await resp.text().catch(function () { return ''; });
+        console.warn('[doubletick-contact] name save failed', resp.status, String(t).slice(0, 200));
+        return { ok: false, status: resp.status };
+      }
+      return { ok: true };
+    } finally { clearTimeout(timeout); }
+  } catch (err) {
+    console.error('[doubletick-contact] error:', err && err.message);
+    return { ok: false, error: err && err.message };
+  }
+}
+
 // Send one consult-funnel WhatsApp template via DoubleTick. Fail-soft: never
 // throws, returns { ok, … }. Template-only on purpose — every consult lead is a
 // first-contact recipient on WhatsApp, and WhatsApp requires an approved
@@ -19751,6 +19800,9 @@ async function maybeSendConsultWa(row, kind, extra) {
     }
     const message = consultWhatsapp.buildConsultWaMessage(kind, ctx);
     if (!message) return { ok: false, skipped: true, reason: 'no_message' };
+    // Name the DoubleTick contact BEFORE the first message lands, so the chat
+    // never shows a bare phone number. Lead-form names are full names.
+    await ensureDoubleTickContactName(phone, row.name);
     const sent = await sendConsultWhatsAppTemplate(phone, message);
     if (!sent || !sent.ok) return sent || { ok: false };
     const wa = Object.assign({}, consult.wa, {});
@@ -77412,6 +77464,7 @@ module.exports.__testUtils = {
   captureCalendlyDirectBookerLead,
   sendConsultNudgeEmail,
   sendConsultWhatsAppTemplate,
+  ensureDoubleTickContactName,
   maybeSendConsultWa,
   markConsultWaOnboardingResolved,
   getConsultLeadAccountState,
