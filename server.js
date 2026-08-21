@@ -32415,7 +32415,11 @@ async function lookupAuthAccountState(email) {
   const unknown = { known: false, exists: false, confirmed: false };
   if (!key || !isSupabaseDbConfigured()) return unknown;
 
-  const isConfirmed = (u) => !!(u && (u.email_confirmed_at || u.confirmed_at));
+  // "Confirmed" here means verified by OUR rule (app_metadata stamp for
+  // verify-later accounts, GoTrue confirmation for pre-switch ones) — the
+  // callers use it to decide whether to nag/re-send, not whether GoTrue will
+  // accept a sign-in.
+  const isConfirmed = (u) => isAccountEmailVerified(u);
 
   try {
     const uid = await getSupabaseUserIdByEmail(key);
@@ -33578,38 +33582,100 @@ function buildZoomCallInviteEmailHtml(gpFirstName, stageDisplay, bookingUrl, rea
 
 /* ───────── Email confirmation via Resend ───────── */
 
-async function sendEmailConfirmationViaResend(email) {
-  if (!isEmailConfigured() || !SUPABASE_SERVICE_ROLE_KEY) return false;
+// ── Verify-later switch (2026-08-21) ──
+// Supabase Auth refuses password sign-in for ANY account whose email is
+// unconfirmed, regardless of the dashboard "Confirm email" toggle (verified
+// live 2026-08-21: mailer_autoconfirm=true, token grant still returns
+// email_not_confirmed — the toggle only governs GoTrue's own signup path).
+// So the verify-later flow is owned HERE: accounts are created ALREADY
+// confirmed in GoTrue (sign-in always works), and the real "has this GP
+// proven the inbox is theirs?" state lives in the auth user's
+// app_metadata.email_verified_at, stamped by GET /api/auth/verify-email when
+// our own signed 24h link is clicked. app_metadata, not user_metadata, on
+// purpose: only the service key can write it, so a GP cannot mark themselves
+// verified from the browser. Accounts created BEFORE this switch went through
+// the old enforced flow, so for them GoTrue's email_confirmed_at is the truth.
+// Pinned to just BEFORE this code deployed. Must never sit after the deploy
+// moment: an account created by the new code (GoTrue-confirmed at creation)
+// but classified pre-switch would count as verified without ever clicking a
+// link. The other direction is safe — an old-code account classified
+// post-switch simply verifies via the new link like everyone else.
+const VERIFY_LATER_SWITCH_MS = Date.parse('2026-08-21T16:53:00Z');
+const EMAIL_VERIFY_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // matches the "expires in 24 hours" email copy
 
-  // Generate a confirmation link via Supabase Admin API
-  const redirectTo = APP_BASE_URL + '/pages/signin?confirmed=true';
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+function isAccountEmailVerified(authUser) {
+  if (!authUser) return false;
+  const appMeta = authUser.app_metadata && typeof authUser.app_metadata === 'object' ? authUser.app_metadata : {};
+  if (appMeta.email_verified_at) return true;
+  if (!(authUser.email_confirmed_at || authUser.confirmed_at)) return false;
+  // OAuth accounts (google/apple) hand us an address the provider already
+  // verified — GoTrue's confirmation is genuine for them.
+  const providers = [].concat(appMeta.provider || [], Array.isArray(appMeta.providers) ? appMeta.providers : []);
+  if (providers.some(p => p && p !== 'email')) return true;
+  // Password accounts: GoTrue "confirmed" only means "clicked the link" for
+  // accounts that predate the switch; newer ones are confirmed at creation.
+  const createdMs = Date.parse(authUser.created_at || '');
+  return Number.isFinite(createdMs) && createdMs < VERIFY_LATER_SWITCH_MS;
+}
+
+// Same signed-payload shape as createReinstateToken, but expiry is reported
+// back as a flag instead of swallowed — the landing page owes the GP an
+// honest "expired" rather than a scary "invalid".
+function createEmailVerifyToken(email, supabaseUserId) {
+  const payload = base64UrlEncode(JSON.stringify({
+    emailVerify: true,
+    email: String(email || '').trim().toLowerCase(),
+    supabaseUserId: String(supabaseUserId || '').trim(),
+    expiresAt: now() + EMAIL_VERIFY_TOKEN_TTL_MS
+  }));
+  return `${payload}.${hmacSign(payload)}`;
+}
+
+function parseEmailVerifyToken(token) {
+  const raw = String(token || '');
+  const dotIdx = raw.lastIndexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = raw.slice(0, dotIdx);
+  const signature = raw.slice(dotIdx + 1);
+  const expected = hmacSign(payload);
+  if (signature.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) {
+    return null;
+  }
   try {
-    const linkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        type: 'signup',
-        email: email,
-        options: { redirect_to: redirectTo }
-      })
-    });
-    const linkData = await linkRes.json().catch(() => ({}));
-    const confirmUrl = linkData.action_link || linkData.properties && linkData.properties.action_link || '';
-    if (!confirmUrl) {
-      console.error('[email-confirm] No action_link returned from Supabase:', JSON.stringify(linkData).slice(0, 300));
+    const parsed = JSON.parse(base64UrlDecode(payload));
+    if (!parsed || parsed.emailVerify !== true) return null;
+    if (typeof parsed.expiresAt !== 'number') return null;
+    return {
+      email: String(parsed.email || ''),
+      supabaseUserId: String(parsed.supabaseUserId || ''),
+      expired: parsed.expiresAt <= now()
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function sendEmailConfirmationViaResend(email, knownUserId) {
+  if (!isEmailConfigured() || !SUPABASE_SERVICE_ROLE_KEY) return false;
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) return false;
+  try {
+    // Our OWN signed 24h link, not GoTrue's: accounts are created already
+    // confirmed in GoTrue (see VERIFY_LATER_SWITCH_MS above) and
+    // admin/generate_link refuses type=signup for a confirmed address
+    // (422 email_exists).
+    const uid = String(knownUserId || '').trim() || await getSupabaseUserIdByEmail(cleanEmail).catch(() => '');
+    if (!uid) {
+      console.error('[email-confirm] No auth user found for', cleanEmail);
       return false;
     }
+    const confirmUrl = APP_BASE_URL + '/api/auth/verify-email?token=' +
+      encodeURIComponent(createEmailVerifyToken(cleanEmail, uid));
 
     // Send via Resend
     const result = await sendEmail({
-      to: email,
+      to: cleanEmail,
       subject: 'Verify your GP Link account',
       html: buildCareerEmailHtml({
         title: 'Verify your email',
@@ -33620,7 +33686,7 @@ async function sendEmailConfirmationViaResend(email) {
       })
     });
     if (result.ok) {
-      console.log('[email-confirm] Confirmation email sent to', email);
+      console.log('[email-confirm] Confirmation email sent to', cleanEmail);
       return true;
     }
     console.error('[email-confirm] Resend send failed:', result.error);
@@ -33628,8 +33694,6 @@ async function sendEmailConfirmationViaResend(email) {
   } catch (err) {
     console.error('[email-confirm] Error:', err && err.message);
     return false;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -43154,12 +43218,17 @@ async function handleApi(req, res, pathname) {
 
     // Use admin API to create user — prevents Supabase from sending its own
     // default confirmation email. Only our branded GP Link email is sent.
+    // email_confirm: true is what makes verify-later work — Supabase refuses
+    // password sign-in for a GoTrue-unconfirmed account no matter what the
+    // dashboard toggles say, so the account is confirmed at creation and the
+    // REAL verification state lives in app_metadata.email_verified_at
+    // (see VERIFY_LATER_SWITCH_MS / GET /api/auth/verify-email).
     const signupResult = await supabaseAuthAdminRequest('admin/users', {
       method: 'POST',
       body: {
         email,
         password,
-        email_confirm: false,
+        email_confirm: true,
         user_metadata: { firstName, lastName, countryDial, phoneNumber }
       }
     });
@@ -43193,12 +43262,13 @@ async function handleApi(req, res, pathname) {
     }
 
     // Send only our branded GP Link confirmation email
-    const confirmationSent = await sendEmailConfirmationViaResend(email).catch(err => {
+    const confirmationSent = await sendEmailConfirmationViaResend(email, signupUserId).catch(err => {
       console.error('[Email] Confirmation failed:', err.message);
       return false;
     });
 
-    // Try auto-login — will fail if email confirmation is required (expected)
+    // Auto-login — the account was just created pre-confirmed, so this
+    // succeeds and the GP goes straight into onboarding (verify-later).
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
       sendJson(res, 200, {
@@ -43219,16 +43289,15 @@ async function handleApi(req, res, pathname) {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
     });
-    // Auto-login succeeded, so this Supabase project does NOT block sign-in on
-    // confirmation — the GP is in, but their address is still unverified
-    // (created with email_confirm: false). Tell the client so onboarding can
+    // The GP is in, but their address is still unverified (no
+    // app_metadata.email_verified_at yet). Tell the client so onboarding can
     // show the "check your inbox" banner.
     sendJson(res, 200, {
       ok: true,
       message: 'Account created.',
       redirectTo: '/pages/onboarding',
       email,
-      emailVerified: !!(loginUser && (loginUser.email_confirmed_at || loginUser.confirmed_at)),
+      emailVerified: isAccountEmailVerified(loginUser),
       confirmationSent: !!confirmationSent,
       bootstrap
     });
@@ -43273,57 +43342,42 @@ async function handleApi(req, res, pathname) {
       if (!loginResult.ok) {
         const rawMsg = loginResult.data && (loginResult.data.msg || loginResult.data.message || loginResult.data.error_description) || '';
         const rawCode = loginResult.data && (loginResult.data.error_code || loginResult.data.code) || '';
-        // Supabase says 'Invalid login credentials' for a wrong password AND for
-        // an unconfirmed account. Never guess from the string: an explicit
-        // "not confirmed" message is trustworthy, anything else gets checked
-        // against the admin API before we tell the GP anything.
+        // GoTrue only refuses with "email not confirmed" for accounts that
+        // predate the verify-later switch (created email_confirm:false, never
+        // clicked their link) — newer accounts are confirmed at creation and
+        // can always sign in. Re-send a fresh link: it is these stragglers'
+        // only way in, and the new link both GoTrue-confirms them and stamps
+        // app_metadata (see /api/auth/verify-email).
         const saysUnconfirmed = /email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg)
           || /email_not_confirmed/i.test(String(rawCode));
-        const isCredentialFailure = loginResult.status === 400 || loginResult.status === 401;
+        if (saysUnconfirmed) {
+          const sent = await sendEmailConfirmationViaResend(email).catch(() => false);
+          sendJson(res, 401, {
+            ok: false,
+            reason: 'email_unconfirmed',
+            email,
+            message: sent
+              ? 'Your email address has not been verified yet. We have just sent a fresh verification link to ' + email + '. Please open it (check your spam or junk folder too), then come back and sign in.'
+              : 'Your email address has not been verified yet. Please open the verification link we emailed to ' + email + ' (check your spam or junk folder too), then come back and sign in.'
+          });
+          return;
+        }
 
-        if (saysUnconfirmed || isCredentialFailure) {
-          // Only pay for the extra round-trip when the string is ambiguous.
-          const account = saysUnconfirmed
-            ? { known: true, exists: true, confirmed: false }
-            : await lookupAuthAccountState(email).catch(() => ({ known: false, exists: false, confirmed: false }));
-
-          if (account.known && account.exists && !account.confirmed) {
-            const sent = await sendEmailConfirmationViaResend(email).catch(() => false);
-            sendJson(res, 401, {
-              ok: false,
-              reason: 'email_unconfirmed',
-              email,
-              message: sent
-                ? 'Your email address has not been verified yet. We have just sent a fresh verification link to ' + email + '. Please open it (check your spam or junk folder too), then come back and sign in.'
-                : 'Your email address has not been verified yet. Please open the verification link we emailed to ' + email + ' (check your spam or junk folder too), then come back and sign in.'
-            });
-            return;
-          }
-
-          if (account.known) {
-            // Either the password is wrong on a verified account, or there is no
-            // account at all. Deliberately ONE message for both: telling them
-            // apart here would make address enumeration easier than it is today.
-            // No confirmation email is sent on this path.
-            sendJson(res, 401, {
-              ok: false,
-              reason: 'invalid_credentials',
-              message: 'That email and password don\'t match. Please check your password and try again — or use "Forgot password?" below to set a new one.'
-            });
-            return;
-          }
-
-          // Lookup failed (Supabase unreachable). Say something honest and
-          // generic rather than a confident guess that may be wrong.
+        if (loginResult.status === 400 || loginResult.status === 401) {
+          // Any other credential failure IS one — wrong password or no such
+          // account. Deliberately ONE message for both (address enumeration),
+          // and no verification email on this path: it would mislead a GP who
+          // fat-fingered a password, and let a stranger trigger mail to an
+          // arbitrary address.
           sendJson(res, 401, {
             ok: false,
             reason: 'invalid_credentials',
-            message: 'We couldn\'t sign you in with those details. Please check your password, or use "Forgot password?" below. If you have just created your account, open the verification link we emailed you first.'
+            message: 'That email and password don\'t match. Please check your password and try again — or use "Forgot password?" below to set a new one.'
           });
           return;
         }
         const msg = rawMsg || 'Invalid email or password.';
-        sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
+        sendJson(res, loginResult.status, { ok: false, message: msg });
         return;
       }
 
@@ -43351,10 +43405,23 @@ async function handleApi(req, res, pathname) {
       ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
       await issueGpSession(res, sessionProfile);
-      // Send welcome email on first login (confirmed_at exists but last_sign_in was null before this login)
       const supaUserId = sessionProfile.supabaseUserId;
-      if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at) {
+      // Welcome email, old rule, PRE-switch accounts only: first login after
+      // verifying (confirmed_at exists, last_sign_in was null before this
+      // login). Verify-later accounts can't satisfy it — their first login
+      // happens at signup, before verification — so theirs is sent by
+      // GET /api/auth/verify-email at the moment they verify.
+      const loginCreatedMs = Date.parse(loginUser.created_at || '');
+      if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at
+          && Number.isFinite(loginCreatedMs) && loginCreatedMs < VERIFY_LATER_SWITCH_MS) {
         sendWelcomeEmail(supaUserId).catch(err => console.error('[Email] Welcome failed:', err.message));
+      }
+      // Verify-later: signing in with a still-unverified address re-sends a
+      // fresh 24h link. This is what keeps the sign-in page's "sign in and
+      // we'll email you a fresh one" promise on an expired link, and it nags
+      // gently without gating anything.
+      if (supaUserId && !isAccountEmailVerified(loginUser)) {
+        sendEmailConfirmationViaResend(email, supaUserId).catch(err => console.error('[email-confirm] Login re-send failed:', err && err.message));
       }
       // Ensure the registration case exists in the background, then attach any prior direct
       // consultation (+ its AI summary) booked with this account's email to their file.
@@ -44187,7 +44254,8 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, verified: true, message: 'Your email address is already verified.' });
       return;
     }
-    const rvSent = await sendEmailConfirmationViaResend(rvEmail).catch(() => false);
+    const rvSent = await sendEmailConfirmationViaResend(rvEmail,
+      String((rvSession.userProfile && rvSession.userProfile.supabaseUserId) || '')).catch(() => false);
     sendJson(res, rvSent ? 200 : 502, {
       ok: !!rvSent,
       verified: false,
@@ -44196,6 +44264,72 @@ async function handleApi(req, res, pathname) {
         : 'We could not send the email just now. Please try again in a moment.'
     });
     return;
+  }
+
+  // The emailed "Verify Email" button lands here (GET, sessionless — it must
+  // work from any device or browser). Possession of the signed token IS the
+  // proof of inbox access. Deliberately NOT single-use: mail pre-scanners
+  // fetch links before the human does, and a second click should get a calm
+  // success, never a false "invalid link" (same posture as welcome-setup).
+  if (pathname === '/api/auth/verify-email' && req.method === 'GET') {
+    const veUrl = new URL(req.url, 'http://localhost');
+    const veSigninBase = APP_BASE_URL + '/pages/signin';
+    const veParsed = parseEmailVerifyToken(String(veUrl.searchParams.get('token') || '').trim());
+    if (!veParsed || !veParsed.supabaseUserId) {
+      res.writeHead(302, { Location: veSigninBase + '?verify=invalid' });
+      res.end();
+      return;
+    }
+    if (veParsed.expired) {
+      res.writeHead(302, { Location: veSigninBase + '?verify=expired' });
+      res.end();
+      return;
+    }
+    try {
+      const veLookup = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(veParsed.supabaseUserId));
+      const veUser = veLookup.ok && veLookup.data && veLookup.data.id ? veLookup.data : null;
+      // The token must still match the account's CURRENT address — an
+      // in-flight email change must not let the old inbox verify the new one.
+      if (!veUser || String(veUser.email || '').trim().toLowerCase() !== veParsed.email) {
+        res.writeHead(302, { Location: veSigninBase + '?verify=invalid' });
+        res.end();
+        return;
+      }
+      const veAppMeta = veUser.app_metadata && typeof veUser.app_metadata === 'object' ? veUser.app_metadata : {};
+      if (!veAppMeta.email_verified_at) {
+        const veStamp = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(veParsed.supabaseUserId), {
+          method: 'PUT',
+          body: {
+            // Also GoTrue-confirms pre-switch stragglers, unblocking their
+            // password sign-in. app_metadata merges by top-level key, so the
+            // provider keys survive.
+            email_confirm: true,
+            app_metadata: { email_verified_at: new Date().toISOString() }
+          }
+        });
+        if (!veStamp.ok) {
+          console.error('[verify-email] stamp failed:', JSON.stringify(veStamp.data || {}).slice(0, 200));
+          res.writeHead(302, { Location: veSigninBase + '?verify=error' });
+          res.end();
+          return;
+        }
+        // First verification is the welcome moment for verify-later accounts.
+        // Pre-switch accounts keep the old first-verified-login welcome in
+        // /api/auth/login — don't double up on them here.
+        const veCreatedMs = Date.parse(veUser.created_at || '');
+        if (Number.isFinite(veCreatedMs) && veCreatedMs >= VERIFY_LATER_SWITCH_MS) {
+          sendWelcomeEmail(veParsed.supabaseUserId).catch(err => console.error('[Email] Welcome failed:', err && err.message));
+        }
+      }
+      res.writeHead(302, { Location: veSigninBase + '?confirmed=true' });
+      res.end();
+      return;
+    } catch (veErr) {
+      console.error('[verify-email] error:', veErr && veErr.message);
+      res.writeHead(302, { Location: veSigninBase + '?verify=error' });
+      res.end();
+      return;
+    }
   }
 
   if (pathname === '/api/media-config' && req.method === 'GET') {

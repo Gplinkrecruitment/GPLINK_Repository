@@ -1557,6 +1557,17 @@
       const hasOAuthParams = hash.includes("access_token") || hash.includes("error_description") || search.includes("code=");
       if (!hasOAuthParams) return;
 
+      // A bare error bounce — no token, no code — is not an OAuth handshake
+      // to finish. Legacy Supabase-hosted verification links (sent before
+      // 2026-08-22) land here like this when they have expired; say so
+      // honestly instead of "OAuth sign-in failed".
+      if (!hash.includes("access_token") && !search.includes("code=")) {
+        if (/otp_expired|access_denied/i.test(hash)) {
+          setStatus(signInStatusEl, "That verification link has expired. Sign in below and we'll email you a fresh one right away.", "error");
+        }
+        return;
+      }
+
       // ── Detect password recovery flow ──
       const isRecovery = hash.includes("type=recovery");
       if (isRecovery) {
@@ -1944,14 +1955,24 @@
         if (gpSignupEmailEl && !gpSignupEmailEl.value) gpSignupEmailEl.value = gpPrefillEmail.slice(0, 120);
       }
     } catch (e) { /* no-op */ }
-    // Arriving back from the verification email (redirect_to is
-    // /pages/signin?confirmed=true). When Supabase also returns a session in the
-    // URL hash, finalizeSupabaseOAuthSessionIfPresent() below signs them in and
-    // this message is never seen; when it doesn't, tell them plainly it worked.
+    // Arriving back from the verification email. /api/auth/verify-email
+    // redirects here with ?confirmed=true on success, or ?verify=expired /
+    // invalid / error when the link couldn't be honoured — never claim
+    // success on those. (Signing in while unverified re-sends a fresh link
+    // automatically, which is what makes the "we'll email you a fresh one"
+    // promise true.) Legacy Supabase-hosted links report failure in the URL
+    // hash instead; finalizeSupabaseOAuthSessionIfPresent() handles those.
     try {
-      var gpConfirmedFlag = new URLSearchParams(window.location.search).get("confirmed");
-      if (gpConfirmedFlag === "true" && !(window.location.hash || "").includes("access_token")) {
-        setStatus(signInStatusEl, "Email verified — thank you. Please sign in to continue.", "ok");
+      var gpSigninParams = new URLSearchParams(window.location.search);
+      var gpConfirmedFlag = gpSigninParams.get("confirmed");
+      var gpVerifyFlag = gpSigninParams.get("verify");
+      var gpSigninHash = window.location.hash || "";
+      if (gpVerifyFlag === "expired") {
+        setStatus(signInStatusEl, "That verification link has expired. Sign in below and we'll email you a fresh one right away.", "error");
+      } else if (gpVerifyFlag === "invalid" || gpVerifyFlag === "error") {
+        setStatus(signInStatusEl, "We couldn't verify your email with that link. Sign in below and we'll email you a fresh one.", "error");
+      } else if (gpConfirmedFlag === "true" && !gpSigninHash.includes("access_token") && !/error/i.test(gpSigninHash)) {
+        setStatus(signInStatusEl, "Email verified — thank you. If you're already signed in on another tab you're all set; otherwise sign in below.", "ok");
       }
     } catch (e) { /* no-op */ }
     pickCountryDialFromLocale();

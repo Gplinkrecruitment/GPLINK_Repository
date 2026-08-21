@@ -66,7 +66,7 @@
   // served stale-while-revalidate from PAGE_CACHE, so without this bump the
   // pixel lands a navigation late for exactly the returning visitors it should
   // be measuring.
-  var VERSION = "20260822a";
+  var VERSION = "20260822b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
