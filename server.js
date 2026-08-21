@@ -19833,6 +19833,108 @@ async function markConsultWaOnboardingResolved(row, value) {
   }
 }
 
+// WhatsApp reminders for an upcoming consultation, carrying the Zoom link so the
+// doctor can join straight from the chat. Two touches per booking — a day-before
+// heads-up and a "starting now" — both approved templates, because a consult lead
+// has never messaged us and free text to them would be refused.
+//
+// Driven off scheduled_calls, NOT the lead's metadata.consult.call_at: only the
+// booking row knows whether the call is still on. A cancelled or rescheduled slot
+// stops matching status=booked, so a cancelled call can never be reminded, and no
+// separate cancellation hook is needed.
+//
+// Scoped to the free CEO consultation (host_kind='ceo'). RSO registration-stage
+// calls share meeting_kind='consultation' but are a different meeting with
+// different copy and their own RSO-side reminder below.
+//
+// Markers live on the booking row (notification_channels.consult_reminders) and
+// are stamped only after a successful send, so a failed send retries on the next
+// run. Returns counts for the cron response. Never throws.
+async function runConsultCallReminders(nowMs) {
+  const out = { checked: 0, sent: 0, skipped: 0 };
+  try {
+    if (!CONSULT_WHATSAPP_ENABLED) return Object.assign(out, { disabled: true });
+    if (!DOUBLETICK_API_KEY) return Object.assign(out, { skippedReason: 'no_api_key' });
+    if (!isSupabaseDbConfigured()) return Object.assign(out, { skippedReason: 'no_db' });
+    const now = Number(nowMs) || Date.now();
+    // Only rows that could possibly be due: from now to the far edge of the
+    // day-before window. Ordered soonest-first so the per-run cap can never
+    // starve an imminent call in favour of a distant one.
+    const fromIso = new Date(now).toISOString();
+    const toIso = new Date(now + consultWhatsapp.CALL_REMINDER_DAY_MS).toISOString();
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=id,invitee_email,user_id,scheduled_at,booked_at,zoom_join_url,notification_channels' +
+      '&meeting_kind=eq.consultation&host_kind=eq.ceo&status=eq.booked' +
+      '&scheduled_at=gte.' + encodeURIComponent(fromIso) +
+      '&scheduled_at=lte.' + encodeURIComponent(toIso) +
+      '&order=scheduled_at.asc&limit=100');
+    const rows = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+    out.checked = rows.length;
+    for (const call of rows) {
+      try {
+        if (out.sent >= 25) { out.capped = true; break; }
+        const nc = (call.notification_channels && typeof call.notification_channels === 'object'
+          && !Array.isArray(call.notification_channels)) ? call.notification_channels : {};
+        const decision = consultWhatsapp.consultCallReminderDecision({
+          scheduledAt: call.scheduled_at,
+          bookedAt: call.booked_at,
+          nowMs: now,
+          markers: nc.consult_reminders
+        });
+        if (decision.action !== 'send') { out.skipped++; continue; }
+        // Zoom URLs arrive from Calendly; sanitise before putting one in a message.
+        const joinUrl = safeZoomOrHttpUrl(call.zoom_join_url);
+        if (!joinUrl) {
+          // No link yet — the whole point of the message. Leave the marker
+          // unstamped and look again next run.
+          console.warn('[consult-wa] call', call.id, 'has no join link yet — reminder deferred');
+          out.skipped++;
+          continue;
+        }
+        // The lead row carries the phone and the name for every /start booker.
+        const lead = await findSiteEnquiryByEmail(String(call.invitee_email || ''));
+        const consult = (lead && lead.metadata && lead.metadata.consult) ? lead.metadata.consult : null;
+        if (!consultWhatsapp.consultCallReminderAllowedForLead(consult)) { out.skipped++; continue; }
+        // Direct Calendly bookers have a lead with no phone (Calendly never asked
+        // for one); a booker who has since signed up is reachable via their profile.
+        let phone = normalizePhone((lead && lead.phone) || '');
+        if (!phone && call.user_id) phone = await getGpWhatsAppPhone(call.user_id);
+        if (!phone) { out.skipped++; continue; }
+        const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
+          name: (lead && lead.name) || '',
+          callAtIso: call.scheduled_at,
+          joinUrl: joinUrl
+        });
+        if (!message) { out.skipped++; continue; }
+        await ensureDoubleTickContactName(phone, (lead && lead.name) || '');
+        const sent = await sendConsultWhatsAppTemplate(phone, message);
+        if (!sent || !sent.ok) { out.skipped++; continue; }
+        const markers = Object.assign({}, decision.markers);
+        markers[decision.window] = new Date().toISOString();
+        // Merge, never replace: interview reminders use a sibling key on this
+        // same JSONB column.
+        const nextNc = Object.assign({}, nc, { consult_reminders: markers });
+        const upd = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { notification_channels: nextNc, updated_at: new Date().toISOString() }
+        });
+        if (!upd || !upd.ok) {
+          console.warn('[consult-wa] reminder marker write failed for call', call.id,
+            decision.window, '(message WAS sent)');
+        }
+        out.sent++;
+      } catch (rowErr) {
+        console.error('[consult-wa] reminder error for call', call && call.id, ':', rowErr && rowErr.message);
+        out.skipped++;
+      }
+    }
+    return out;
+  } catch (err) {
+    console.error('[consult-wa] runConsultCallReminders error:', err && err.message);
+    return Object.assign(out, { error: err && err.message });
+  }
+}
+
 // Resolve what the onboarding pass needs to know about a signed-up lead's
 // account: does it exist, when was it created, is onboarding complete.
 // Supabase mode reads user_profiles (onboarding_completed_at is the canonical
@@ -42544,6 +42646,10 @@ async function handleApi(req, res, pathname) {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
     try {
       const now = new Date();
+      // The GUEST's own reminders: a day-before heads-up and a "starting now",
+      // both carrying the join link. Runs on every tick regardless of whether any
+      // RSO reminder is due below — the two audiences are independent.
+      const consultReminders = await runConsultCallReminders(now.getTime());
       const fromIso = now.toISOString();
       const toDate = new Date(now.getTime() + 15 * 60 * 1000);
       const toIso = toDate.toISOString();
@@ -42554,7 +42660,7 @@ async function handleApi(req, res, pathname) {
       const calls = callsRes.ok && Array.isArray(callsRes.data) ? callsRes.data : [];
       const needsReminder = calls.filter(c => c.assigned_rso_email);
       if (needsReminder.length === 0) {
-        sendJson(res, 200, { ok: true, message: 'No reminders needed', reminded: 0 });
+        sendJson(res, 200, { ok: true, message: 'No RSO reminders needed', reminded: 0, consultReminders: consultReminders });
         return;
       }
       const rsoRoster = await loadRsoTeam({ includeInactive: true });
@@ -42608,7 +42714,7 @@ async function handleApi(req, res, pathname) {
         });
         reminded++;
       }
-      sendJson(res, 200, { ok: true, reminded });
+      sendJson(res, 200, { ok: true, reminded, consultReminders: consultReminders });
     } catch (err) {
       console.error('[call-reminders] Error:', err.message);
       await respondServerError(res, err, { route: pathname, method: req.method, safeMessage: 'Reminder cron failed.' });
@@ -77552,6 +77658,7 @@ module.exports.__testUtils = {
   markConsultWaOnboardingResolved,
   getConsultLeadAccountState,
   ensureLeadBookedCallAt,
+  runConsultCallReminders,
   // Test-only: seeds a signed-up account directly into dbState.users (local-
   // JSON mode) — dbState is loaded once at module import, so a raw write to
   // the DB file mid-test would never be seen by the running process; cron
