@@ -65874,23 +65874,41 @@ Return ONLY valid JSON with no markdown formatting:
         if (rfExist) rfFileUrl = rfExist.storage_path || rfExist.file_url;
       }
 
-      await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: [{
-          user_id: rfUserId,
-          country_code: rfCountry,
-          document_key: rfTask.related_document_key,
-          status: rfDecision === 'approve' ? 'approved' : 'rejected',
-          flag_reason: '',
-          rejection_reason: rfDecision === 'approve' ? '' : rfNote,
-          file_name: rfDocLabel,
-          file_url: rfFileUrl,
-          storage_path: rfFileUrl,
-          storage_bucket: SUPABASE_DOCUMENT_BUCKET,
-          updated_at: new Date().toISOString()
-        }]
-      });
+      // An onboarding qualification upload is collected ONLY to name-match the GP and to store
+      // the file — the AI scan explicitly does NOT check whether it is a CERTIFIED true copy
+      // (see requireCertification in processDocumentUpload, which is false for onboarding
+      // uploads). The canonical key (e.g. primary_medical_degree) is the GP's AHPRA
+      // CERTIFIED-COPY slot. Upserting an onboarding decision into it marked that slot
+      // "approved" for a GP who had never uploaded a certified copy at all — the admin
+      // Documents grid showed an accepted certified degree, pointing at the onboarding scan
+      // file, while the GP's own My Documents page still showed the slot as not uploaded.
+      // So for a certification-required key, an onboarding-origin decision writes ONLY to the
+      // onboarding row (mirrored below); the certified-copy slot stays untouched until the GP
+      // uploads one from My Documents and it is reviewed on its own merits.
+      // rfObKey is required too, so the decision always has an onboarding row to land on and
+      // can never be dropped entirely by this skip.
+      var rfSkipCanonical = rfIsOnboardingDoc
+        && isCertificationRequiredDocKey(rfTask.related_document_key)
+        && !!rfObKey;
+      if (!rfSkipCanonical) {
+        await supabaseDbRequest('user_documents', 'on_conflict=user_id,document_key,country_code', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: [{
+            user_id: rfUserId,
+            country_code: rfCountry,
+            document_key: rfTask.related_document_key,
+            status: rfDecision === 'approve' ? 'approved' : 'rejected',
+            flag_reason: '',
+            rejection_reason: rfDecision === 'approve' ? '' : rfNote,
+            file_name: rfDocLabel,
+            file_url: rfFileUrl,
+            storage_path: rfFileUrl,
+            storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+            updated_at: new Date().toISOString()
+          }]
+        });
+      }
 
       // Mirror the decision onto the onboarding-key row (separate key namespace).
       // The onboarding wizard reads its documents back via GET /api/onboarding-documents,

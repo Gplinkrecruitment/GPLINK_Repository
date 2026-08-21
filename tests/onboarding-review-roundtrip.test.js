@@ -311,20 +311,39 @@ describe('onboarding-origin flagged-doc review mirrors + deep-links', () => {
     expect(obDegreeRow.rejection_reason).toBe('');
   });
 
+  it('approving an onboarding degree must NOT approve the AHPRA certified-copy slot (critical)', async () => {
+    // Dr Fashola, 2026-08-12: his onboarding primary-degree scan was flagged, an RSO
+    // approved it, and the approval was upserted into the canonical
+    // primary_medical_degree key — which IS the AHPRA certified-copy slot. His
+    // Documents tab then showed an APPROVED "Primary medical degree" card pointing at
+    // the onboarding scan file, for a certified copy he had never uploaded.
+    // Onboarding qualification scans are name-checked only (requireCertification is
+    // false for them), so they can never satisfy that slot.
+    const canonDegree = db.user_documents.find((d) => d.document_key === 'primary_medical_degree');
+    expect(canonDegree).toBeFalsy();
+
+    // And nothing anywhere is left pointing the certified slot at the onboarding file.
+    const leaked = db.user_documents.filter((d) =>
+      d.document_key === 'primary_medical_degree'
+      && String(d.file_url || d.storage_path || '').includes('onboarding-documents'));
+    expect(leaked).toHaveLength(0);
+  });
+
   it('CCT (uk third doc): reject mirrors onto onboarding_cct_certificate + deep-links with cct_certificate', async () => {
     const r = await postJson('/api/admin/va/task/review-flagged-doc',
       { task_id: 't-ob-flag-cct', decision: 'reject', note: 'CCT unreadable — please re-upload.' }, adminCookie());
     expect(r.status).toBe(200);
 
-    // Mirror/canonical mapping: the canonical cct_certificate row is written
-    // AND the onboarding-namespace row the wizard reads back is mirrored —
-    // same behaviour already pinned above for the two older onboarding keys.
+    // The onboarding-namespace row the wizard reads back IS mirrored.
     const obCctRow = db.user_documents.find((d) => d.document_key === 'onboarding_cct_certificate');
     expect(obCctRow.status).toBe('rejected');
     expect(obCctRow.rejection_reason).toBe('CCT unreadable — please re-upload.');
+
+    // The canonical cct_certificate row is the AHPRA CERTIFIED-COPY slot and must NOT
+    // be written from an onboarding-origin decision — the onboarding scan is never
+    // checked for certification, so it can neither approve nor reject that slot.
     const canonCct = db.user_documents.find((d) => d.document_key === 'cct_certificate');
-    expect(canonCct).toBeTruthy();
-    expect(canonCct.status).toBe('rejected');
+    expect(canonCct).toBeFalsy();
 
     // Rejection bell alert deep-links into the onboarding wizard keyed by the
     // canonical cct_certificate (resolveReuploadParamKey maps it client-side).
