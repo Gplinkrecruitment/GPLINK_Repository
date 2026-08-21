@@ -20672,6 +20672,125 @@ function generateQuestionnairePdf(questionnaire, gpProfile, visaCase) {
   });
 }
 
+// Practice-pack keys whose task is finished the moment the document is in hand.
+// sppa_00 is excluded on purpose: it has its own multi-step state machine
+// (ready_to_send → sent_to_candidate → gp_returned → sent_to_practice →
+// practice_returned → completed) and holding the file is only the first step of it.
+const PRACTICE_DOC_AUTO_COMPLETE_KEYS = new Set(['supervisor_cv', 'position_description', 'offer_contract', 'section_g']);
+
+// ── Shared completion tail for a practice-pack document ──────────────────────
+// A practice document is done once its file is in hand — whether the practice
+// emailed it back ("Submit to Drive & Complete") or a staff member was sent it
+// directly and filed it by hand (/api/admin/practice-doc/upload). Both paths must
+// leave EXACTLY the same trail, or the manual one half-finishes: the file lands
+// but the task stays open and overdue, its "request document from practice"
+// composer keeps rendering, the doctor never sees the document in My Documents
+// or the AHPRA pack, and the SPPA-00 conflict scan — which requires supervisor_cv
+// and offer_contract to be COMPLETED *with* documents — never unlocks the
+// deferred SPPA-00 task. One writer, so the two paths cannot drift again
+// (same reasoning as upsertPreparedDocumentRow).
+async function _finalisePracticeDocCompletion(opts) {
+  const o = opts || {};
+  const caseId = String(o.caseId || '').trim();
+  const docKey = String(o.docKey || '').trim();
+  const taskId = String(o.taskId || '').trim();
+  // Nothing to attach the work to. A task with no document key is still completed
+  // below — only the document-keyed steps are skipped.
+  if (!caseId && !taskId) return;
+  const userId = String(o.userId || '').trim();
+  const driveFileId = o.driveFileId || null;
+  const fileName = String(o.fileName || '').trim();
+  const actor = String(o.actor || '').trim();
+  const taskDocId = String(o.taskDocId || '').trim();
+  const tag = o.logPrefix || '[PracticeDocComplete]';
+
+  // 1. user_documents — authoritative for /api/gplink-docs-status, the doctor's
+  //    My Documents list and the AHPRA download pack.
+  if (userId && docKey) {
+    try {
+      const existingUD = await supabaseDbRequest('user_documents',
+        'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+      const udRecord = {
+        user_id: userId,
+        document_key: docKey,
+        file_name: fileName,
+        status: 'approved',
+        reviewed_at: new Date().toISOString()
+      };
+      if (driveFileId) udRecord.google_drive_file_id = driveFileId;
+      if (existingUD.ok && Array.isArray(existingUD.data) && existingUD.data[0]) {
+        await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existingUD.data[0].id), { method: 'PATCH', body: udRecord });
+      } else {
+        await supabaseDbRequest('user_documents', '', { method: 'POST', body: [udRecord] });
+      }
+    } catch (udErr) {
+      console.error(tag + ' Failed to upsert user_documents:', udErr.message);
+    }
+    // 2. gp_prepared_docs in user_state (the localStorage sync source).
+    try {
+      await _updatePreparedDocsState(userId, docKey, driveFileId, fileName);
+    } catch (stErr) {
+      console.error(tag + ' Failed to update gp_prepared_docs:', stErr.message);
+    }
+  }
+
+  // 3. practice_doc_ops chip (admin documents grid).
+  if (caseId && docKey) {
+    try {
+      await _ensurePracticeDocOps(caseId);
+      const opsPatch = { ops_status: 'completed' };
+      if (driveFileId) opsPatch.google_drive_file_id = driveFileId;
+      await supabaseDbRequest('practice_doc_ops',
+        'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey),
+        { method: 'PATCH', body: opsPatch });
+    } catch (opsErr) {
+      console.error(tag + ' Failed to update practice_doc_ops:', opsErr.message);
+    }
+  }
+
+  // 4. The task itself. Without this the card stays open, overdue and escalated on
+  //    the GP profile no matter how many documents are attached to it.
+  if (taskId) {
+    const taskPatch = { status: 'completed', completed_at: new Date().toISOString() };
+    if (actor) taskPatch.completed_by = actor;
+    if (driveFileId) taskPatch.google_drive_file_id = driveFileId;
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: taskPatch });
+    if (driveFileId) {
+      // Prefer the row we know about; otherwise the task's current document.
+      const tdFilter = taskDocId
+        ? 'id=eq.' + encodeURIComponent(taskDocId)
+        : 'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true';
+      try {
+        await supabaseDbRequest('task_documents', tdFilter, { method: 'PATCH', body: { google_drive_file_id: driveFileId } });
+      } catch (e) {}
+    }
+  }
+
+  // 5. Timeline entry + case liveness.
+  if (caseId) {
+    try {
+      await _logCaseEvent(caseId, taskId || null, 'completed',
+        o.eventTitle || ('Document completed: ' + (fileName || docKey.replace(/_/g, ' '))), null, actor);
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId),
+        { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+    } catch (e) {}
+  }
+
+  // 6. supervisor_cv and offer_contract are the two SPPA-00 prerequisites; this
+  //    scan is what flips the deferred SPPA-00 task to ready_to_send. Idempotent,
+  //    so fire-and-forget is safe.
+  if (caseId && (docKey === 'supervisor_cv' || docKey === 'offer_contract')) {
+    _maybeRunSppaConflictScan(caseId, userId || null).catch(function (e) {
+      console.error('[SPPA-00] completion trigger error:', e.message);
+    });
+  }
+
+  // 7. File the Drive document into its per-document subfolder (best-effort).
+  if (driveFileId && caseId && docKey) {
+    fileDocOnDrive(caseId, docKey, driveFileId).catch(function () {});
+  }
+}
+
 // Ensure practice_doc_ops records exist for a case
 async function _ensurePracticeDocOps(caseId) {
   if (!isSupabaseDbConfigured()) return [];
@@ -61634,79 +61753,24 @@ Return ONLY valid JSON with no markdown formatting:
           console.error('[AdminSubmitDrive] Error checking old contract:', delErr.message);
         }
       }
-      if (docKey && regCase && regCase.user_id) {
-        try {
-          // 6a. Upsert user_documents (authoritative source for /api/gplink-docs-status)
-          const existingUD = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
-          const udRecord = {
-            user_id: regCase.user_id,
-            document_key: docKey,
-            file_name: doc.filename || '',
-            status: 'approved',
-            reviewed_at: new Date().toISOString()
-          };
-          if (driveFileId) udRecord.google_drive_file_id = driveFileId;
-          if (existingUD.ok && Array.isArray(existingUD.data) && existingUD.data[0]) {
-            await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existingUD.data[0].id), { method: 'PATCH', body: udRecord });
-          } else {
-            await supabaseDbRequest('user_documents', '', { method: 'POST', body: [udRecord] });
-          }
-          console.log('[AdminSubmitDrive] Upserted user_documents.' + docKey + ' for user:', regCase.user_id);
-        } catch (udErr) {
-          console.error('[AdminSubmitDrive] Failed to upsert user_documents:', udErr.message);
-        }
-
-        // 6b. Update gp_prepared_docs in user_state (localStorage sync source)
-        try {
-          await _updatePreparedDocsState(regCase.user_id, docKey, driveFileId, doc.filename || '');
-          console.log('[AdminSubmitDrive] Updated gp_prepared_docs.' + docKey + ' for user:', regCase.user_id);
-        } catch (stErr) {
-          console.error('[AdminSubmitDrive] Failed to update gp_prepared_docs:', stErr.message);
-        }
-      }
-
-      // 6c. Mark practice_doc_ops as completed (admin documents grid)
-      if (docKey && task.case_id) {
-        try {
-          await _ensurePracticeDocOps(task.case_id);
-          await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.' + encodeURIComponent(docKey), {
-            method: 'PATCH', body: { ops_status: 'completed' }
-          });
-          console.log('[AdminSubmitDrive] Marked practice_doc_ops.' + docKey + ' as completed for case:', task.case_id);
-        } catch (opsErr) {
-          console.error('[AdminSubmitDrive] Failed to update practice_doc_ops:', opsErr.message);
-        }
-      }
-
-      // 7. Store Drive file ID on task + task_documents so the documents grid can match it
-      var taskPatch = { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email };
-      if (driveFileId) taskPatch.google_drive_file_id = driveFileId;
-      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
-        method: 'PATCH', body: taskPatch
+      // 6. Everything that makes the document "done": user_documents +
+      // gp_prepared_docs so the doctor can see it, the practice_doc_ops chip, the
+      // task itself (status/completed_at/Drive id), the timeline entry, the SPPA-00
+      // conflict scan that unlocks the deferred SPPA-00 task, and per-document Drive
+      // filing. Shared with /api/admin/practice-doc/upload so a document filed by
+      // hand ends up in exactly the same state as one the practice emailed back.
+      await _finalisePracticeDocCompletion({
+        caseId: task.case_id,
+        taskId: taskId,
+        docKey: docKey,
+        userId: regCase ? regCase.user_id : null,
+        driveFileId: driveFileId,
+        fileName: doc.filename || '',
+        actor: adminCtx.email,
+        taskDocId: doc.id || '',
+        eventTitle: 'Document submitted to Drive: ' + doc.filename,
+        logPrefix: '[AdminSubmitDrive]'
       });
-      if (driveFileId && doc.id) {
-        try {
-          await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(doc.id), {
-            method: 'PATCH', body: { google_drive_file_id: driveFileId }
-          });
-        } catch (e) {}
-      }
-
-      // 8. Log timeline event
-      await _logCaseEvent(task.case_id, taskId, 'completed', 'Document submitted to Drive: ' + doc.filename, null, adminCtx.email);
-      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(task.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
-
-      // 9. If this completes an SPPA-00 prerequisite, trigger the AI conflict scan that unlocks the
-      // deferred SPPA-00 task. This "Submit to Drive & Complete" path does NOT go through
-      // _completeRegTask, so the trigger must be wired here too (idempotent + fire-and-forget).
-      if (task.related_document_key === 'supervisor_cv' || task.related_document_key === 'offer_contract') {
-        _maybeRunSppaConflictScan(task.case_id, regCase ? regCase.user_id : null).catch(function (e) { console.error('[SPPA-00] submit-drive trigger error:', e.message); });
-      }
-
-      // 10. File the Drive document into its per-document subfolder (best-effort).
-      if (driveFileId && docKey && task.case_id) {
-        fileDocOnDrive(task.case_id, docKey, driveFileId).catch(function () {});
-      }
 
       sendJson(res, 200, { ok: true, driveFileId: driveFile ? driveFile.id : null });
     } catch (err) {
@@ -68746,8 +68810,9 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Upload to Google Drive if configured
     let driveFileId = null;
-    const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     const gdFolderId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].google_drive_folder_id : null;
+    const caseUserId = caseRes.ok && caseRes.data && caseRes.data[0] ? caseRes.data[0].user_id : null;
     if (gdFolderId && isGoogleDriveConfigured()) {
       try {
         const drive = await getGoogleDriveClient();
@@ -68773,15 +68838,33 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (driveErr) { console.error('[PracticeDocUpload] Drive upload failed:', driveErr.message); }
     }
 
-    // Mark ops_status as completed and record the Drive file id so the
-    // placeholder can be matched back even when no practice_pack_child task exists.
-    await _ensurePracticeDocOps(caseId);
-    const opsPatch = { ops_status: 'completed' };
-    if (driveFileId) opsPatch.google_drive_file_id = driveFileId;
-    await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey),
-      { method: 'PATCH', body: opsPatch });
-
-    await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
+    // A practice that emails the document straight to a staff member never replies
+    // to our request email, so nothing else will ever close this task. Filing it by
+    // hand IS the completion: run the same tail as "Submit to Drive & Complete" so
+    // the task closes (and stops rendering its request-the-practice composer), the
+    // doctor gets the document, and the SPPA-00 prerequisites unlock.
+    if (PRACTICE_DOC_AUTO_COMPLETE_KEYS.has(docKey)) {
+      await _finalisePracticeDocCompletion({
+        caseId: caseId,
+        taskId: taskId,
+        docKey: docKey,
+        userId: caseUserId,
+        driveFileId: driveFileId,
+        fileName: fileName,
+        actor: adminCtx.email,
+        eventTitle: fileName + ' filed by staff for ' + docKey.replace(/_/g, ' '),
+        logPrefix: '[PracticeDocUpload]'
+      });
+    } else {
+      // sppa_00 runs its own state machine — holding the file is only step one of
+      // it, so record the document against the case and leave the task alone.
+      await _ensurePracticeDocOps(caseId);
+      const opsPatch = { ops_status: 'completed' };
+      if (driveFileId) opsPatch.google_drive_file_id = driveFileId;
+      await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey),
+        { method: 'PATCH', body: opsPatch });
+      await _logCaseEvent(caseId, taskId, 'system', fileName + ' uploaded for ' + docKey.replace(/_/g, ' '), null, adminCtx.email);
+    }
     sendJson(res, 200, { ok: true, message: 'Document uploaded.', driveFileId: driveFileId });
     return;
   }
