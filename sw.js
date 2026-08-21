@@ -61,7 +61,12 @@
   // any doctor whose case stage had merely moved off 'placement'. All five of those
   // pages are precached and served stale-while-revalidate, so without this bump the
   // fixes land a navigation late and read as never shipped.
-  var VERSION = "20260819a";
+  // 20260822a: Meta pixel added to every site-*.html head. Marketing pages are
+  // not precached, but a doctor who has used the app gets marketing navigations
+  // served stale-while-revalidate from PAGE_CACHE, so without this bump the
+  // pixel lands a navigation late for exactly the returning visitors it should
+  // be measuring.
+  var VERSION = "20260822a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

@@ -129,6 +129,29 @@
     .turndown-row .btn{width:100%;}
   }
 </style>
+<!-- Meta pixel (marketing site only): PageView here; Lead/Schedule fire on /start.
+     Guarded to the real public hosts so local, dev and preview traffic never pollutes
+     the dataset. The consult magic-link token is scrubbed from the address BEFORE the
+     pixel bootstraps, so the token can never reach Meta inside the page URL. -->
+<script>
+try {
+  if (/[?&]lead=/.test(location.search)) {
+    var _cu = new URL(location.href);
+    window.__consultLeadToken = _cu.searchParams.get('lead');
+    _cu.searchParams.delete('lead');
+    history.replaceState(null, '', _cu.pathname + _cu.search + _cu.hash);
+  }
+} catch (e) {}
+if (/^(www\.|app\.)?mygplink\.com\.au$/.test(location.hostname)) {
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '2269935553370606');
+fbq('track', 'PageView');
+}
+</script>
 </head>
 <body data-page="start">
 <script src="/js/error-reporter.js?v=20260720a"></script>
@@ -379,6 +402,9 @@
   window.addEventListener('message', function (e) {
     if (e.origin !== 'https://calendly.com') return;
     if (!e.data || e.data.event !== 'calendly.event_scheduled') return;
+    // Meta pixel: a completed booking is the conversion the ads should learn from.
+    // Guarded because the pixel only initialises on the real domain.
+    if (typeof fbq === 'function') { fbq('track', 'Schedule'); }
     if (lead.token) { post('/api/public/consult-lead/booked', { token: lead.token, question: lead.question || '' }).catch(function () {}); }
     var su = document.getElementById('confirmedSignup');
     if (lead.email) su.href = '/pages/signin?signup=1&email=' + encodeURIComponent(lead.email);
@@ -427,7 +453,9 @@
   //   ?fbl=<lead id> Meta instant-form thank-you screen
   //   cookie         any previous recognition on this browser — this is what
   //                  survives a GP changing the email on their booking
-  var tokenParam = params.get('lead');
+  // The head pixel snippet scrubs ?lead= from the address before Meta can see
+  // it and stashes the token here; the query param remains only as a fallback.
+  var tokenParam = window.__consultLeadToken || params.get('lead');
   var fblParam = params.get('fbl');
   var loading = document.getElementById('bookLoading');
 
@@ -531,6 +559,8 @@
       if (r.status !== 200 || !r.json.ok) {
         err.textContent = (r.json && r.json.error) || 'Something went wrong. Please try again.'; err.hidden = false; return;
       }
+      // Meta pixel: count every accepted enquiry, qualified or not.
+      if (typeof fbq === 'function') { fbq('track', 'Lead'); }
       if (r.json.qualified) {
         // They just typed all of this, so carry it into Calendly rather than
         // asking for the same phone number twice on consecutive screens.

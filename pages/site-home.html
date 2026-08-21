@@ -220,6 +220,29 @@
     .doc-visual img{animation:none;}
   }
 </style>
+<!-- Meta pixel (marketing site only): PageView here; Lead/Schedule fire on /start.
+     Guarded to the real public hosts so local, dev and preview traffic never pollutes
+     the dataset. The consult magic-link token is scrubbed from the address BEFORE the
+     pixel bootstraps, so the token can never reach Meta inside the page URL. -->
+<script>
+try {
+  if (/[?&]lead=/.test(location.search)) {
+    var _cu = new URL(location.href);
+    window.__consultLeadToken = _cu.searchParams.get('lead');
+    _cu.searchParams.delete('lead');
+    history.replaceState(null, '', _cu.pathname + _cu.search + _cu.hash);
+  }
+} catch (e) {}
+if (/^(www\.|app\.)?mygplink\.com\.au$/.test(location.hostname)) {
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '2269935553370606');
+fbq('track', 'PageView');
+}
+</script>
 </head>
 <body>
 <script src="/js/error-reporter.js?v=20260720a"></script>
