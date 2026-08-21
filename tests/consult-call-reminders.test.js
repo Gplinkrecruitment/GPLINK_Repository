@@ -187,6 +187,7 @@ function seedBooking(overrides = {}) {
     booked_at: new Date(Date.now() - 6 * H).toISOString(),
     zoom_join_url: JOIN_URL,
     notification_channels: null,
+    invitee_notes: null,
     assigned_rso_email: null,
     reminder_sent_at: null
   }, overrides);
@@ -353,6 +354,30 @@ describe('reminder message building', () => {
     expect(waLib.buildConsultWaMessage('call_reminder', { name: 'A', callAtIso: '', joinUrl: JOIN_URL })).toBe(null);
   });
 
+  it('recovers the phone Calendly required at booking, and refuses to guess', () => {
+    // The question naming a phone wins over a number sitting in free text.
+    expect(waLib.extractConsultPhone([
+      { question: 'Anything you would like to cover?', answer: 'I did my MRCGP in 2019, 4 years ago' },
+      { question: 'Please share your phone number for contact via WhatsApp', answer: '+44 7474 408218' }
+    ])).toBe('+447474408218');
+    // A lone phone-shaped answer is accepted even with no question text.
+    expect(waLib.extractConsultPhone([{ question: '', answer: '+44 7578 572757' }])).toBe('+447578572757');
+    // Older bookings only have the joined notes blob — the real prod shape.
+    expect(waLib.extractConsultPhone(null,
+      '+44 7756 134905\nDo I need work experience as a salaried GP?')).toBe('+447756134905');
+    expect(waLib.extractConsultPhone(null,
+      '+44 7578 572757\nI have two children - 9 & 4 so i will need to think about their school.'))
+      .toBe('+447578572757');
+
+    // …and everything that is not convincingly a phone number is refused,
+    // because the cost of a wrong number is messaging a stranger.
+    expect(waLib.extractConsultPhone([{ question: 'Notes', answer: 'I have two children - 9 & 4' }])).toBe('');
+    expect(waLib.extractConsultPhone(null, 'Booked on 2026-08-24, ref 12345')).toBe('');
+    expect(waLib.extractConsultPhone(null, 'no numbers here at all')).toBe('');
+    expect(waLib.extractConsultPhone(null, '')).toBe('');
+    expect(waLib.extractConsultPhone(undefined, undefined)).toBe('');
+  });
+
   it('only an unsubscribe silences a reminder — funnel gates do not apply', () => {
     expect(waLib.consultCallReminderAllowedForLead(null)).toBe(true);
     expect(waLib.consultCallReminderAllowedForLead({ qualified: false, screened_out: true })).toBe(true);
@@ -427,6 +452,25 @@ describe('GET /api/cron/call-reminders — consultation reminders', () => {
     db.scheduled_calls[0].zoom_join_url = JOIN_URL;
     await get(CRON);
     expect(templateSends().length).toBe(1);
+  });
+
+  it('falls back to the number Calendly took at booking when the lead has none', async () => {
+    // The real shape of every consultation already on file: our lead row never
+    // captured a phone, but the booking answers carry one.
+    const call = seedBooking({ invitee_notes: '+44 7828 859699\nspeak with khaleed' });
+    seedLead(call.invitee_email, { phone: '' });
+
+    const res = await get(CRON);
+    expect(res.json.consultReminders.sent).toBe(1);
+    expect(lastTemplate().to).toBe('+447828859699');
+  });
+
+  it('prefers the number the doctor gave us over the one typed into Calendly', async () => {
+    const call = seedBooking({ invitee_notes: '+44 7000 000000' });
+    seedLead(call.invitee_email); // has +44 7700 900123
+
+    await get(CRON);
+    expect(lastTemplate().to).toBe('+447700900123');
   });
 
   it('leaves out unsubscribed leads, RSO stage calls, and calls with no phone', async () => {

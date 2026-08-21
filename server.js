@@ -19899,7 +19899,7 @@ async function runConsultCallReminders(nowMs) {
     const fromIso = new Date(now).toISOString();
     const toIso = new Date(now + consultWhatsapp.CALL_REMINDER_DAY_MS).toISOString();
     const r = await supabaseDbRequest('scheduled_calls',
-      'select=id,invitee_email,user_id,scheduled_at,booked_at,zoom_join_url,notification_channels' +
+      'select=id,invitee_email,user_id,scheduled_at,booked_at,zoom_join_url,notification_channels,invitee_notes' +
       '&meeting_kind=eq.consultation&host_kind=eq.ceo&status=eq.booked' +
       '&scheduled_at=gte.' + encodeURIComponent(fromIso) +
       '&scheduled_at=lte.' + encodeURIComponent(toIso) +
@@ -19931,10 +19931,13 @@ async function runConsultCallReminders(nowMs) {
         const lead = await findSiteEnquiryByEmail(String(call.invitee_email || ''));
         const consult = (lead && lead.metadata && lead.metadata.consult) ? lead.metadata.consult : null;
         if (!consultWhatsapp.consultCallReminderAllowedForLead(consult)) { out.skipped++; continue; }
-        // Direct Calendly bookers have a lead with no phone (Calendly never asked
-        // for one); a booker who has since signed up is reachable via their profile.
+        // Three sources, best first: the number the doctor gave US, their account,
+        // then the one Calendly required at booking. The last is what makes a
+        // booking made before the webhook captured phones still reachable — every
+        // consultation on file has a number sitting in its booking answers.
         let phone = normalizePhone((lead && lead.phone) || '');
         if (!phone && call.user_id) phone = await getGpWhatsAppPhone(call.user_id);
+        if (!phone) phone = normalizePhone(consultWhatsapp.extractConsultPhone(null, call.invitee_notes));
         if (!phone) { out.skipped++; continue; }
         const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
           name: (lead && lead.name) || '',
@@ -23859,6 +23862,11 @@ async function handleCalendlyInviteeCreated(payload) {
   // Extract invitee notes from questions_and_answers
   const qna = Array.isArray(invitee.questions_and_answers) ? invitee.questions_and_answers : [];
   const inviteeNotes = qna.map(q => String(q.answer || '').trim()).filter(Boolean).join('\n') || null;
+  // Calendly's form asks for a phone number and marks it required, so the
+  // booking itself is a reliable source of one — better than our lead row, which
+  // is empty for a direct booker and can be blank on older /start leads. This is
+  // what makes the pre-call WhatsApp reminders reachable for every booking.
+  const inviteePhone = normalizePhone(consultWhatsapp.extractConsultPhone(qna, inviteeNotes));
 
   // Extract correlation token from utm_content (format: call_HEXTOKEN)
   const tracking = invitee.tracking || {};
@@ -23947,7 +23955,7 @@ async function handleCalendlyInviteeCreated(payload) {
     // row (double-up on the Meetings tab, and a phantom no-show for the cron). Cancel the stale
     // slot(s) before recording the new one so at most one active consultation survives per booker.
     await supersedeActiveDirectConsultations(email, inviteeUri);
-    await ensureLeadBookedCallAt(email, scheduledAt, now);
+    await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone);
     await createScheduledCallFromDirectCalendlyBooking({
       nowIso: now,
       email,
@@ -23959,7 +23967,8 @@ async function handleCalendlyInviteeCreated(payload) {
       zoomJoinUrl,
       zoomMeetingId,
       zoomMeetingPassword,
-      inviteeNotes
+      inviteeNotes,
+      phone: inviteePhone
     });
     return;
   }
@@ -23984,7 +23993,7 @@ async function handleCalendlyInviteeCreated(payload) {
   });
   console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
   // Anchor the signup drip on the real call time for a screened booker's pre-existing lead.
-  await ensureLeadBookedCallAt(email, scheduledAt, now);
+  await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone);
 
   // Update linked registration_tasks
   const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
@@ -24082,7 +24091,7 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
 // the screened /start booker (whose lead pre-exists, so captureCalendlyDirectBookerLead
 // early-returns without call_at) and reschedules (call_at tracks the new slot). Fills gaps
 // only — never resurrects a stopped/unsubscribed/signed_up sequence. Best-effort.
-async function ensureLeadBookedCallAt(email, scheduledAt, nowIso) {
+async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone) {
   const em = String(email || '').trim().toLowerCase();
   if (!em || !isSupabaseDbConfigured()) return;
   try {
@@ -24092,10 +24101,20 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso) {
     const patch = {};
     if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
     if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso; }
+    const rowPatch = {};
+    // Backfill a phone we never captured. Our /start form's phone can be blank on
+    // older leads, but Calendly requires one at booking — so a booked lead should
+    // never be unreachable on WhatsApp. Fill ONLY when empty: a number the doctor
+    // gave us directly outranks one typed into Calendly.
+    if (inviteePhone && !String(lead.phone || '').trim()) rowPatch.phone = inviteePhone;
     if (Object.keys(patch).length) {
       const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
-      await updateSiteEnquiryRow(lead.id, { metadata: md });
+      rowPatch.metadata = md;
       lead.metadata = md;
+    }
+    if (Object.keys(rowPatch).length) {
+      await updateSiteEnquiryRow(lead.id, rowPatch);
+      if (rowPatch.phone) lead.phone = rowPatch.phone;
     }
     // WhatsApp booking confirmation — marker-guarded (one per lead, ever), so
     // repeat webhook deliveries and reschedules can't double-send. Runs on the
@@ -24236,6 +24255,14 @@ async function captureCalendlyDirectBookerLead(d) {
       source: 'calendly_direct',
       question: safeNotes || null
     });
+    // Set the phone AFTER building, never as buildConsultLeadRow input: that
+    // helper infers a country from the number and would flip this lead to
+    // `qualified`, which is exactly the thing the comment above says must not
+    // happen (a stranger off the public link would start receiving GP-targeted
+    // nudges). Reachability and qualification are separate questions — this
+    // person still gets the reminders for the call they actually booked, because
+    // consultCallReminderAllowedForLead does not consult the funnel gates.
+    if (d.phone) row.phone = d.phone;
     row.metadata.consult.call_booked = true;
     row.metadata.consult.call_booked_at = d.nowIso;
     // The actual call time (Calendly slot) — anchors the "after your call" + weekly
