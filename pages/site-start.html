@@ -122,9 +122,75 @@
   .confirm-benefits li::before{content:"✓";position:absolute;left:2px;top:0;color:var(--teal);font-weight:800;font-size:14px;}
   .confirm-micro{margin:13px 0 0;font-size:12.5px;color:var(--mut-2);text-align:center;}
 
+  /* ---------- inside your free account ---------- */
+  /* A quiet band: sells the account door without shouting over the booking
+     section below it, which stays the page's main event for ad traffic. */
+  .acct-section{background:#fbfcfd;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .acct-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(28px,4.5vw,64px);align-items:center;}
+  .acct-list{list-style:none;margin:28px 0 0;padding:0;display:flex;flex-direction:column;gap:16px;}
+  .acct-item{display:flex;gap:13px;align-items:flex-start;}
+  .acct-item .ic{flex:0 0 auto;width:38px;height:38px;border-radius:11px;background:var(--teal-soft);
+    color:var(--teal);display:flex;align-items:center;justify-content:center;}
+  .acct-item b{display:block;font-size:15.5px;font-weight:720;color:var(--ink-2);margin-bottom:2px;}
+  .acct-item span{display:block;font-size:14px;color:var(--mut);line-height:1.55;max-width:52ch;}
+  .acct-item .badge-free{display:inline-block;margin-left:7px;padding:2px 9px;border-radius:999px;
+    background:var(--teal);color:#fff;font-size:10.5px;font-weight:750;letter-spacing:.02em;
+    vertical-align:middle;white-space:nowrap;}
+  .acct-cta{display:flex;gap:14px;flex-wrap:wrap;margin-top:28px;}
+  .acct-micro{margin:14px 0 0;font-size:12.5px;color:var(--mut-2);}
+  @media(max-width:880px){.acct-grid{grid-template-columns:1fr}}
+
+  /* ---------- phone mockup (ported verbatim from site-app.html) ---------- */
+  .phone-wrap{display:flex;justify-content:center;position:relative;}
+  .phone{width:min(300px,82vw);background:#0c2038;border-radius:42px;padding:11px;
+    box-shadow:0 50px 90px -40px rgba(6,20,40,.9), 0 0 0 1px rgba(255,255,255,.08);
+    transform:rotate(2.5deg);}
+  .screen{background:#f4f8fd;border-radius:32px;overflow:hidden;font-size:12px;color:var(--ink-2);}
+  .scr-top{display:flex;align-items:center;justify-content:space-between;padding:14px 15px 10px;}
+  .scr-top .hello b{font-size:13.5px;}
+  .scr-top .hello span{display:block;color:var(--mut-2);font-size:10.5px;}
+  .scr-top .ava{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--sky));
+    color:#fff;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;}
+  .scr-card{background:#fff;border:1px solid #e3ecf5;border-radius:14px;margin:0 12px 10px;padding:12px 13px;}
+  .scr-card .t{font-weight:750;font-size:12px;margin-bottom:8px;}
+  .pbar{height:7px;border-radius:5px;background:#e6eef7;overflow:hidden;}
+  .pbar i{display:block;height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,var(--teal),var(--sky));
+    transition:width 1.4s cubic-bezier(.2,.7,.2,1) .3s;}
+  .in .pbar i{width:68%;}
+  .pbar-l{display:flex;justify-content:space-between;color:var(--mut-2);font-size:10px;margin-top:6px;}
+  .step-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid #eef4fa;}
+  .step-row:last-child{border-bottom:0;}
+  .step-row .dot{flex:0 0 auto;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;}
+  .dot.done{background:#d9f2e4;color:#0e7a45;}
+  .dot.now{background:var(--teal);color:#fff;box-shadow:0 0 0 4px rgba(17,109,255,.18);}
+  .dot.next{background:#e9eff6;color:#9fb1c4;}
+  .step-row .nm{font-weight:640;font-size:11.5px;}
+  .step-row .st{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+  .st.g{color:#0e7a45;}.st.b{color:var(--teal);}.st.m{color:#9fb1c4;}
+  .scr-note{display:flex;gap:9px;align-items:center;background:var(--teal-soft);border:1px solid #cfe4ff;
+    border-radius:12px;margin:0 12px 12px;padding:10px 12px;opacity:0;transform:translateY(10px);
+    transition:opacity .6s ease 1.4s, transform .6s ease 1.4s;}
+  .in .scr-note{opacity:1;transform:none;}
+  .scr-note .bell{width:26px;height:26px;border-radius:8px;background:var(--teal);color:#fff;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .scr-note b{font-size:11px;display:block;}
+  .scr-note span{font-size:10px;color:var(--mut);}
+  .float-chip{position:absolute;background:#fff;color:var(--ink-2);border-radius:12px;padding:9px 13px;
+    font-size:12px;font-weight:650;box-shadow:0 18px 40px -16px rgba(6,20,40,.55);display:flex;gap:8px;align-items:center;}
+  .float-chip.c1{top:8%;left:2%;transform:rotate(-3deg);}
+  .float-chip.c2{bottom:10%;right:0;transform:rotate(2deg);}
+  .float-chip .ok{color:#0e7a45;font-weight:800;}
+  @media(max-width:880px){.phone{transform:rotate(0)}.float-chip{display:none}}
+  @media (prefers-reduced-motion: reduce){
+    .pbar i,.scr-note{transition:none !important;}
+    .scr-note{opacity:1;transform:none;}
+  }
+
   @media(max-width:640px){
     .start-hero .cta-row .btn{width:100%;justify-content:center;}
     .doors-grid .btn{width:100%;justify-content:center;}
+    .acct-cta .btn{width:100%;justify-content:center;}
     .turndown-row{flex-direction:column;}
     .turndown-row .btn{width:100%;}
   }
@@ -226,6 +292,73 @@ fbq('track', 'PageView');
         <h3>Book a free call</h3>
         <p>Prefer to talk it through first? Tell us a little about you and pick a time that suits. No pressure, no cost.</p>
         <a class="btn ghost dark" href="#book">Book a free call <span class="arr">→</span></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Sells the account door with the app's own story. Deliberately a quiet,
+     light band: ad traffic lands on #book below and that stays the headline
+     act — this section earns the signup from readers who scroll. -->
+<section class="block acct-section" id="free-account">
+  <div class="container">
+    <div class="acct-grid">
+      <div>
+        <div class="reveal">
+          <div class="sec-eyebrow">Inside your free account</div>
+          <h2 class="sec-title">Your whole move to Australia, in one app</h2>
+          <p class="sec-sub">Your free account opens the GP Link app. Two minutes to set up, and you'll see the exact pathway for your situation before you've spoken to anyone.</p>
+        </div>
+        <ul class="acct-list" data-stagger="90">
+          <li class="acct-item reveal">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span>
+            <div><b>Your exact pathway, mapped in minutes</b><span>Every AHPRA, AMC and visa step for your specific situation, each with a live status. You always know what's next.</span></div>
+          </li>
+          <li class="acct-item reveal">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></span>
+            <div><b>Document checks in minutes</b><span>Upload once. Smart verification catches problems before the regulator does.</span></div>
+          </li>
+          <li class="acct-item reveal">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>
+            <div><b>Job matches built around your visa</b><span>Real roles across Australia filtered to your visa and the life you want, including ones we never advertise publicly.</span></div>
+          </li>
+          <li class="acct-item reveal">
+            <span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+            <div><b>Your own Registration Support Officer<span class="badge-free">Included free</span></b><span>A dedicated human who answers your questions and chases the paperwork for you, all at no cost.</span></div>
+          </li>
+        </ul>
+        <div class="acct-cta reveal dl2">
+          <a class="btn primary" href="/pages/signin?signup=1">Create my free account <span class="arr">→</span></a>
+          <a class="btn ghost dark" href="#book">Prefer to talk first? Book your call</a>
+        </div>
+        <p class="acct-micro reveal dl3">Free forever for doctors · takes 2 minutes · no obligation</p>
+      </div>
+      <div class="phone-wrap reveal rv-right dl2">
+        <div class="float-chip c1"><span class="ok">✓</span> CV verified</div>
+        <div class="phone"><div class="screen">
+          <div class="scr-top">
+            <div class="hello"><b>Good morning, Dr Patel</b><span>Your move to Australia</span></div>
+            <div class="ava">SP</div>
+          </div>
+          <div class="scr-card">
+            <div class="t">Registration progress</div>
+            <div class="pbar"><i></i></div>
+            <div class="pbar-l"><span>Step 4 of 6</span><span>68%</span></div>
+          </div>
+          <div class="scr-card">
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">Secure placement</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">MyIntealth</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot done">✓</span><span class="nm">AMC verification</span><span class="st g">Done</span></div>
+            <div class="step-row"><span class="dot now">4</span><span class="nm">AHPRA registration</span><span class="st b">In progress</span></div>
+            <div class="step-row"><span class="dot next">5</span><span class="nm">PBS &amp; Medicare</span><span class="st m">Up next</span></div>
+            <div class="step-row"><span class="dot next">6</span><span class="nm">Commencement</span><span class="st m">Up next</span></div>
+          </div>
+          <div class="scr-note">
+            <span class="bell"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></span>
+            <div><b>New job match: Brisbane, QLD</b><span>Mixed billing · DPA approved · meets your visa needs</span></div>
+          </div>
+        </div></div>
+        <div class="float-chip c2">🔔 Document verified</div>
       </div>
     </div>
   </div>
