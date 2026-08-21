@@ -18371,25 +18371,60 @@ async function _runSppaConflictScanInner(caseId, userId) {
       return { buffer: Buffer.from(b64, 'base64'), mimeType: mime };
     }
 
-    // 3a. Supervisor CV
-    var svTask = tasks.find(function (t) { return t.related_document_key === 'supervisor_cv'; });
-    var svDocRes = await supabaseDbRequest('task_documents',
-      'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(svTask.id) + '&is_current=eq.true&limit=1');
-    var svDoc = svDocRes.ok && svDocRes.data && svDocRes.data[0] ? svDocRes.data[0] : null;
-
-    // 3b. Offer/Contract
-    var ocTask = tasks.find(function (t) { return t.related_document_key === 'offer_contract'; });
-    var ocDocRes = await supabaseDbRequest('task_documents',
-      'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(ocTask.id) + '&is_current=eq.true&limit=1');
-    var ocDoc = ocDocRes.ok && ocDocRes.data && ocDocRes.data[0] ? ocDocRes.data[0] : null;
-
-    if (!svDoc || !svDoc.attachment_url || !ocDoc || !ocDoc.attachment_url) {
-      console.error('[SPPA-00] Missing document attachments for conflict scan');
-      return;
+    // A practice document does NOT always live in task_documents. The offer/
+    // contract in particular is filed through the direct-to-Storage uploader
+    // (/api/admin/offer-contract/finalize), which records it in user_documents +
+    // Storage and never creates a task_documents row. Requiring one here silently
+    // stranded the entire SPPA-00 flow for those cases: the guard below logged to
+    // a console nobody reads and returned, so the deferred SPPA-00 task never
+    // unlocked no matter how many times the documents were re-uploaded, and every
+    // admin surface showed the contract present and "COMPLETED" the whole time.
+    // Read whichever copy actually exists — the same Storage read the MRCGP
+    // certificate already uses below.
+    async function loadPracticeDocBuffer(task, docKey) {
+      if (task && task.id) {
+        var tdRes = await supabaseDbRequest('task_documents',
+          'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(task.id) + '&is_current=eq.true&limit=1');
+        var td = tdRes.ok && tdRes.data && tdRes.data[0] ? tdRes.data[0] : null;
+        if (td && typeof td.attachment_url === 'string' && td.attachment_url.indexOf('data:') === 0) {
+          var dec = decodeDataUrl(td.attachment_url);
+          if (dec && dec.buffer && dec.buffer.length) return dec;
+        }
+      }
+      if (!userId || !docKey) return null;
+      // One GP can hold SEVERAL user_documents rows per key (they are keyed by
+      // country_code), and a row can point at a dead path — so try each rather
+      // than letting the first one mask a sibling that really has the file.
+      var udRes = await supabaseDbRequest('user_documents',
+        'select=storage_path,file_url,mime_type&user_id=eq.' + encodeURIComponent(userId) +
+        '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=5');
+      var udRows = (udRes.ok && Array.isArray(udRes.data)) ? udRes.data : [];
+      for (var ui = 0; ui < udRows.length; ui++) {
+        var storedPath = udRows[ui].storage_path || udRows[ui].file_url || '';
+        if (!storedPath) continue;
+        try {
+          var dl = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storedPath);
+          if (dl && dl.buffer && dl.buffer.length) {
+            return { buffer: dl.buffer, mimeType: dl.mimeType || udRows[ui].mime_type || 'application/pdf' };
+          }
+        } catch (e) { /* try the next row */ }
+      }
+      return null;
     }
 
-    var svDecoded = decodeDataUrl(svDoc.attachment_url);
-    var ocDecoded = decodeDataUrl(ocDoc.attachment_url);
+    // 3a. Supervisor CV   3b. Offer/Contract
+    var svTask = tasks.find(function (t) { return t.related_document_key === 'supervisor_cv'; });
+    var ocTask = tasks.find(function (t) { return t.related_document_key === 'offer_contract'; });
+    var svDecoded = await loadPracticeDocBuffer(svTask, 'supervisor_cv');
+    var ocDecoded = await loadPracticeDocBuffer(ocTask, 'offer_contract');
+
+    if (!svDecoded || !ocDecoded) {
+      // Name which one is missing: the old message said only "Missing document
+      // attachments", which is why this went undiagnosed for so long.
+      console.error('[SPPA-00] Cannot run conflict scan for case ' + caseId + ' — supervisor_cv='
+        + (svDecoded ? 'ok' : 'MISSING') + ', offer_contract=' + (ocDecoded ? 'ok' : 'MISSING'));
+      return;
+    }
 
     // 3c. MRCGP certificate from user_documents via Supabase storage
     var mrcgpBuffer = null;
