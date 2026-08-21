@@ -19886,7 +19886,30 @@ async function markConsultWaOnboardingResolved(row, value) {
 // Markers live on the booking row (notification_channels.consult_reminders) and
 // are stamped only after a successful send, so a failed send retries on the next
 // run. Returns counts for the cron response. Never throws.
-async function runConsultCallReminders(nowMs) {
+// The two audiences this pass serves. Same machinery, different meeting: the
+// CEO consultation a lead books off the funnel, and the registration-support
+// call an RSO sets up for a doctor already using the app. Separate templates
+// (different voice), separate marker keys (a doctor can legitimately have one
+// of each in the same 24h and must be reminded about both).
+const CALL_REMINDER_TRACKS = {
+  consult: {
+    hostKind: 'ceo',
+    markerKey: 'consult_reminders',
+    kinds: consultWhatsapp.CONSULT_CALL_REMINDER_KIND,
+    // Consult leads are UK doctors and the approved copy reads "(UK time)".
+    useBookerTimezone: false
+  },
+  registration: {
+    hostKind: 'rso',
+    markerKey: 'reg_call_reminders',
+    kinds: consultWhatsapp.REGISTRATION_CALL_REMINDER_KIND,
+    // These doctors may already have moved — render their own clock.
+    useBookerTimezone: true
+  }
+};
+
+async function runConsultCallReminders(nowMs, trackName) {
+  const track = CALL_REMINDER_TRACKS[trackName || 'consult'] || CALL_REMINDER_TRACKS.consult;
   const out = { checked: 0, sent: 0, skipped: 0 };
   try {
     if (!CONSULT_WHATSAPP_ENABLED) return Object.assign(out, { disabled: true });
@@ -19899,8 +19922,8 @@ async function runConsultCallReminders(nowMs) {
     const fromIso = new Date(now).toISOString();
     const toIso = new Date(now + consultWhatsapp.CALL_REMINDER_DAY_MS).toISOString();
     const r = await supabaseDbRequest('scheduled_calls',
-      'select=id,invitee_email,user_id,scheduled_at,booked_at,zoom_join_url,notification_channels,invitee_notes' +
-      '&meeting_kind=eq.consultation&host_kind=eq.ceo&status=eq.booked' +
+      'select=id,invitee_email,user_id,scheduled_at,booked_at,zoom_join_url,notification_channels,invitee_notes,timezone' +
+      '&meeting_kind=eq.consultation&host_kind=eq.' + encodeURIComponent(track.hostKind) + '&status=eq.booked' +
       '&scheduled_at=gte.' + encodeURIComponent(fromIso) +
       '&scheduled_at=lte.' + encodeURIComponent(toIso) +
       '&order=scheduled_at.asc&limit=100');
@@ -19915,7 +19938,8 @@ async function runConsultCallReminders(nowMs) {
           scheduledAt: call.scheduled_at,
           bookedAt: call.booked_at,
           nowMs: now,
-          markers: nc.consult_reminders
+          markers: nc[track.markerKey],
+          kinds: track.kinds
         });
         if (decision.action !== 'send') { out.skipped++; continue; }
         // Zoom URLs arrive from Calendly; sanitise before putting one in a message.
@@ -19930,29 +19954,53 @@ async function runConsultCallReminders(nowMs) {
         // The lead row carries the phone and the name for every /start booker.
         const lead = await findSiteEnquiryByEmail(String(call.invitee_email || ''));
         const consult = (lead && lead.metadata && lead.metadata.consult) ? lead.metadata.consult : null;
-        if (!consultWhatsapp.consultCallReminderAllowedForLead(consult)) { out.skipped++; continue; }
+        // An unsubscribe from the CONSULT funnel is an opt-out of marketing, not
+        // of the app: a doctor already in registration who has booked a call with
+        // their own RSO must still get the link. So the gate applies to the
+        // consult track only.
+        if (track.hostKind === 'ceo' && !consultWhatsapp.consultCallReminderAllowedForLead(consult)) {
+          out.skipped++;
+          continue;
+        }
+        // Registration-support calls belong to an app user, whose profile is the
+        // authoritative name — a stale lead row from their enquiry days is not.
+        let personName = (lead && lead.name) || '';
+        if (call.user_id && (track.hostKind === 'rso' || !personName)) {
+          const pr = await supabaseDbRequest('user_profiles',
+            'select=first_name,last_name&user_id=eq.' + encodeURIComponent(call.user_id) + '&limit=1');
+          const prof = (pr && pr.ok && Array.isArray(pr.data) && pr.data[0]) ? pr.data[0] : null;
+          const full = prof ? ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim() : '';
+          if (full) personName = full;
+        }
         // Three sources, best first: the number the doctor gave US, their account,
         // then the one Calendly required at booking. The last is what makes a
         // booking made before the webhook captured phones still reachable — every
         // consultation on file has a number sitting in its booking answers.
-        let phone = normalizePhone((lead && lead.phone) || '');
+        // …except for an app user, whose profile outranks an old enquiry row.
+        let phone = '';
+        if (track.hostKind === 'rso' && call.user_id) phone = await getGpWhatsAppPhone(call.user_id);
+        if (!phone) phone = normalizePhone((lead && lead.phone) || '');
         if (!phone && call.user_id) phone = await getGpWhatsAppPhone(call.user_id);
         if (!phone) phone = normalizePhone(consultWhatsapp.extractConsultPhone(null, call.invitee_notes));
         if (!phone) { out.skipped++; continue; }
         const message = consultWhatsapp.buildConsultWaMessage(decision.kind, {
-          name: (lead && lead.name) || '',
+          name: personName,
           callAtIso: call.scheduled_at,
+          whenText: track.useBookerTimezone
+            ? consultWhatsapp.formatCallTimeInZone(call.scheduled_at, call.timezone)
+            : '',
           joinUrl: joinUrl
         });
         if (!message) { out.skipped++; continue; }
-        await ensureDoubleTickContactName(phone, (lead && lead.name) || '');
+        await ensureDoubleTickContactName(phone, personName);
         const sent = await sendConsultWhatsAppTemplate(phone, message);
         if (!sent || !sent.ok) { out.skipped++; continue; }
         const markers = Object.assign({}, decision.markers);
         markers[decision.window] = new Date().toISOString();
-        // Merge, never replace: interview reminders use a sibling key on this
-        // same JSONB column.
-        const nextNc = Object.assign({}, nc, { consult_reminders: markers });
+        // Merge, never replace: interview reminders and the other track both keep
+        // sibling keys on this same JSONB column.
+        const nextNc = Object.assign({}, nc);
+        nextNc[track.markerKey] = markers;
         const upd = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(call.id), {
           method: 'PATCH', headers: { Prefer: 'return=minimal' },
           body: { notification_channels: nextNc, updated_at: new Date().toISOString() }
@@ -42709,10 +42757,12 @@ async function handleApi(req, res, pathname) {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
     try {
       const now = new Date();
-      // The GUEST's own reminders: a day-before heads-up and a "starting now",
+      // The DOCTOR's own reminders: a day-before heads-up and a "starting now",
       // both carrying the join link. Runs on every tick regardless of whether any
-      // RSO reminder is due below — the two audiences are independent.
-      const consultReminders = await runConsultCallReminders(now.getTime());
+      // RSO reminder is due below — the two audiences are independent, and the
+      // RSO pass only ever notified the RSO.
+      const consultReminders = await runConsultCallReminders(now.getTime(), 'consult');
+      const registrationReminders = await runConsultCallReminders(now.getTime(), 'registration');
       const fromIso = now.toISOString();
       const toDate = new Date(now.getTime() + 15 * 60 * 1000);
       const toIso = toDate.toISOString();
@@ -42723,7 +42773,7 @@ async function handleApi(req, res, pathname) {
       const calls = callsRes.ok && Array.isArray(callsRes.data) ? callsRes.data : [];
       const needsReminder = calls.filter(c => c.assigned_rso_email);
       if (needsReminder.length === 0) {
-        sendJson(res, 200, { ok: true, message: 'No RSO reminders needed', reminded: 0, consultReminders: consultReminders });
+        sendJson(res, 200, { ok: true, message: 'No RSO reminders needed', reminded: 0, consultReminders: consultReminders, registrationReminders: registrationReminders });
         return;
       }
       const rsoRoster = await loadRsoTeam({ includeInactive: true });
@@ -42777,7 +42827,7 @@ async function handleApi(req, res, pathname) {
         });
         reminded++;
       }
-      sendJson(res, 200, { ok: true, reminded, consultReminders: consultReminders });
+      sendJson(res, 200, { ok: true, reminded, consultReminders: consultReminders, registrationReminders: registrationReminders });
     } catch (err) {
       console.error('[call-reminders] Error:', err.message);
       await respondServerError(res, err, { route: pathname, method: req.method, safeMessage: 'Reminder cron failed.' });

@@ -473,21 +473,25 @@ describe('GET /api/cron/call-reminders — consultation reminders', () => {
     expect(lastTemplate().to).toBe('+447700900123');
   });
 
-  it('leaves out unsubscribed leads, RSO stage calls, and calls with no phone', async () => {
+  it('leaves out unsubscribed leads and bookers with no phone, and never claims an RSO call', async () => {
     const un = seedBooking();
     seedLead(un.invitee_email, {
       metadata: { consult: { stopped: 'unsubscribed' } }
     });
-    const rso = seedBooking({ host_kind: 'rso' });
+    const rso = seedBooking({ host_kind: 'rso', stage: 'amc' });
     seedLead(rso.invitee_email);
     const nophone = seedBooking();
     seedLead(nophone.invitee_email, { phone: '' });
 
     const res = await get(CRON);
-    expect(templateSends().length).toBe(0);
     expect(res.json.consultReminders.sent).toBe(0);
-    // host_kind='rso' is filtered by the query itself, so only two rows are even examined.
+    // host_kind='rso' is filtered by the consult query itself, so only two rows
+    // are even examined — and both are correctly declined.
     expect(res.json.consultReminders.checked).toBe(2);
+    // The RSO call is not dropped, it belongs to the other track.
+    expect(res.json.registrationReminders.sent).toBe(1);
+    expect(templateSends().length).toBe(1);
+    expect(lastTemplate().content.templateName).toBe('gp_link_reg_call_reminder');
   });
 
   it('ignores cancelled bookings and calls already under way', async () => {
@@ -505,5 +509,101 @@ describe('GET /api/cron/call-reminders — consultation reminders', () => {
     const res = await get(CRON);
     expect(res.status).toBe(200);
     expect(res.json.consultReminders).toMatchObject({ checked: 0, sent: 0 });
+    expect(res.json.registrationReminders).toMatchObject({ checked: 0, sent: 0 });
+  });
+});
+
+describe('registration-support calls — the doctor now gets reminded too', () => {
+  function seedGpProfile(userId, first, last, phone) {
+    db.user_profiles = db.user_profiles || [];
+    db.user_profiles.push({ user_id: userId, first_name: first, last_name: last, phone });
+  }
+
+  beforeEach(() => { db.user_profiles = []; });
+
+  it('sends the generic GP Link template, in the doctor’s own timezone', async () => {
+    seedBooking({
+      host_kind: 'rso',
+      stage: 'ahpra',
+      user_id: 'user-1',
+      invitee_email: 'gp1@example.com',
+      timezone: 'Australia/Sydney'
+    });
+    seedGpProfile('user-1', 'Mercy', 'Obanimoh', '+61 400 111 222');
+
+    const res = await get(CRON);
+    expect(res.json.registrationReminders.sent).toBe(1);
+    expect(res.json.consultReminders.sent).toBe(0); // the CEO track ignored it
+
+    const msg = lastTemplate();
+    expect(msg.to).toBe('+61400111222');
+    expect(msg.content.templateName).toBe('gp_link_reg_call_reminder');
+    expect(msg.content.templateData.body.placeholders[0]).toBe('Mercy');
+    // Rendered on THEIR clock, not "(UK time)".
+    expect(msg.content.templateData.body.placeholders[1]).not.toContain('UK time');
+    expect(msg.content.templateData.body.placeholders[2]).toBe(JOIN_URL);
+
+    // Its own marker key, so it can never collide with the consult track.
+    const stored = db.scheduled_calls[0].notification_channels;
+    expect(stored.reg_call_reminders.h24).toBeTruthy();
+    expect(stored.consult_reminders).toBeUndefined();
+  });
+
+  it('sends the starting-now variant and does not repeat itself', async () => {
+    seedBooking({
+      host_kind: 'rso', stage: 'amc', user_id: 'user-2',
+      invitee_email: 'gp2@example.com',
+      scheduled_at: new Date(Date.now() + 9 * MIN).toISOString()
+    });
+    seedGpProfile('user-2', 'Priya', 'Patel', '+44 7700 900555');
+
+    await get(CRON);
+    expect(templateSends().length).toBe(1);
+    expect(lastTemplate().content.templateName).toBe('gp_link_reg_call_starting');
+    expect(lastTemplate().content.templateData.body.placeholders).toEqual(['Priya', JOIN_URL]);
+
+    await get(CRON);
+    expect(templateSends().length).toBe(1);
+  });
+
+  it('still reminds a doctor who unsubscribed from the consult funnel long ago', async () => {
+    // Their marketing opt-out is not an opt-out of a call they have booked with
+    // their own RSO.
+    seedBooking({ host_kind: 'rso', stage: 'myintealth', user_id: 'user-3', invitee_email: 'gp3@example.com' });
+    seedLead('gp3@example.com', { phone: '', metadata: { consult: { stopped: 'unsubscribed' } } });
+    seedGpProfile('user-3', 'Aisha', 'Khan', '+44 7700 900777');
+
+    const res = await get(CRON);
+    expect(res.json.registrationReminders.sent).toBe(1);
+    expect(lastTemplate().to).toBe('+447700900777');
+  });
+
+  it('keeps the two tracks independent when a doctor has one of each', async () => {
+    seedBooking({ host_kind: 'ceo', invitee_email: 'both@example.com' });
+    seedBooking({ host_kind: 'rso', stage: 'amc', user_id: 'user-4', invitee_email: 'both@example.com' });
+    seedLead('both@example.com');
+    seedGpProfile('user-4', 'Sam', 'Reed', '+44 7700 900888');
+
+    const res = await get(CRON);
+    expect(res.json.consultReminders.sent).toBe(1);
+    expect(res.json.registrationReminders.sent).toBe(1);
+    const names = templateSends().map((s) => s.body.messages[0].content.templateName).sort();
+    expect(names).toEqual(['gp_link_consult_call_reminder', 'gp_link_reg_call_reminder']);
+  });
+});
+
+describe('formatCallTimeInZone', () => {
+  const ISO = '2026-08-24T13:00:00Z';
+  it('renders the booker’s clock, and falls back to UK when it cannot', () => {
+    expect(waLib.formatCallTimeInZone(ISO, 'Europe/London')).toContain('(UK time)');
+    expect(waLib.formatCallTimeInZone(ISO, '')).toContain('(UK time)');
+    const syd = waLib.formatCallTimeInZone(ISO, 'Australia/Sydney');
+    expect(syd).not.toContain('UK time');
+    expect(syd).toContain('August');
+    // 13:00 UTC is the 24th in London but 11pm the same day in Sydney.
+    expect(syd).toContain('Monday 24 August');
+    // A nonsense zone must not cost the doctor their reminder.
+    expect(waLib.formatCallTimeInZone(ISO, 'Not/AZone')).toContain('(UK time)');
+    expect(waLib.formatCallTimeInZone('', 'Australia/Sydney')).toBe('');
   });
 });
