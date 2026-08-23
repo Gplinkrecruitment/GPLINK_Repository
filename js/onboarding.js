@@ -1986,7 +1986,20 @@
 
     switch (step) {
       case 0: return true; // intro
-      case 1: // country + trained-where + qualification docs
+      case 1: // relocation details (date + city + who) — the value-first step
+        let ok = true;
+        if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
+        else {
+          const d = new Date(state.targetDate);
+          if (d < minDate) { showError("dateError", "Your target date must be at least 5 months from today."); ok = false; }
+          else hideError("dateError");
+        }
+        if (!state.preferredCity) { showError("cityError"); ok = false; }
+        else hideError("cityError");
+        if (!state.whoMoving) { showError("whoError"); ok = false; }
+        else hideError("whoError");
+        return ok;
+      case 2: // country + trained-where + qualification docs
         if (!state.country) { showError("countryError"); return false; }
         if (!COUNTRY_DOCS[state.country]) {
           const hint = document.getElementById("countryHint");
@@ -2000,19 +2013,6 @@
         }
         hideError("qualDocsError");
         return true;
-      case 2: // relocation details (date + city + who)
-        let ok = true;
-        if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
-        else {
-          const d = new Date(state.targetDate);
-          if (d < minDate) { showError("dateError", "Your target date must be at least 5 months from today."); ok = false; }
-          else hideError("dateError");
-        }
-        if (!state.preferredCity) { showError("cityError"); ok = false; }
-        else hideError("cityError");
-        if (!state.whoMoving) { showError("whoError"); ok = false; }
-        else hideError("whoError");
-        return ok;
       case 3: return true; // review
       case 4: // identity check
         const idStatus = state.idVerification && state.idVerification.status;
@@ -2220,7 +2220,7 @@
       buildReview();
     }
 
-    if (step === 1) renderQualDocSlots();
+    if (step === 2) renderQualDocSlots();
     if (step === 4) renderIdVerifyStatus();
 
     saveState();
@@ -2232,8 +2232,8 @@
     triggerButtonHaptic(14);
     if (!validateStep(currentStep)) return;
     if (currentStep === TOTAL_STEPS - 1) {
-      // Final gate: a GP resumed past step 1 (saved currentStep or ?step deep
-      // link) may be missing a document added since (e.g. UK CCT) —
+      // Final gate: a GP resumed past the documents step (saved currentStep or
+      // ?step deep link) may be missing a document added since (e.g. UK CCT) —
       // validateStep only checks the CURRENT step, so re-check the docs here.
       if (!canBypassOnboardingValidation() && !allDocsComplete()) {
         const docs = COUNTRY_DOCS[state.country] || [];
@@ -2242,7 +2242,7 @@
           const d = state.qualDocs && state.qualDocs[doc.key];
           return !(d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested" || d.status === "approved" || d.status === "under_review"));
         });
-        goToStep(1);
+        goToStep(2);
         showError("qualDocsError", "Please upload and verify all required documents before finishing setup.");
         if (firstIncomplete) highlightQualSlot(firstIncomplete.key);
         return;
@@ -2405,7 +2405,7 @@
           if (!isNaN(urlStep) && urlStep >= 0 && urlStep < TOTAL_STEPS) currentStep = urlStep;
           var reuploadRaw = params.get("reupload") || "";
           var reuploadKey = reuploadRaw && state.country ? resolveReuploadParamKey(reuploadRaw, state.country) : null;
-          if (reuploadKey) currentStep = 1;
+          if (reuploadKey) currentStep = 2;
           saveState();
           goToStep(currentStep);
           initRendered = true;
