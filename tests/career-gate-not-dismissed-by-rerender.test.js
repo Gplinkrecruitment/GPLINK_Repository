@@ -71,17 +71,36 @@ describe('careers CV gate cannot be dismissed by a re-render', () => {
     expect(outsideGuard).not.toContain('ensureSecuredScrollable()');
   });
 
-  it('the gate has exactly the known close paths: its definition, the verified-CV CTA, and the guarded placed-GP clear', () => {
-    // A non-dismissible modal stays non-dismissible only while nobody adds a
+  it('the gate has exactly the known close paths: its definition, the verified-CV CTA, the skip link, and the guarded placed-GP clear', () => {
+    // The gate stays un-dismissible-by-accident only while nobody adds a
     // new closeCareerGateModal() call without thinking. Pin the call sites:
     //   1. the function definition,
     //   2. the CTA click handler (which requires !disabled — CV verified),
-    //   3. the shouldLockCareerToSecuredView()-guarded clear above.
-    // 4 name matches = 3 sites: the guarded clear spends two on one line
+    //   3. the "Skip for now" click handler (owner 2026-08-24 — deliberate
+    //      dismissal: browsing allowed, applying re-gates on the job page),
+    //   4. the shouldLockCareerToSecuredView()-guarded clear above.
+    // 5 name matches = 4 sites: the guarded clear spends two on one line
     // (`typeof closeCareerGateModal === "function"` + the call itself).
     const calls = [...html.matchAll(/closeCareerGateModal/g)];
-    expect(calls.length).toBe(4);
+    expect(calls.length).toBe(5);
     const ctaHandler = html.slice(html.indexOf("ev.target.id === 'careerGateCta'"));
     expect(ctaHandler.slice(0, 120)).toContain('!ev.target.disabled');
+    // The skip close path must remember the skip BEFORE closing, so the gate
+    // does not immediately re-open on the next ensureCareerGate() pass.
+    expect(html).toMatch(/closest\('#careerGateSkip'\)\)\s*\{\s*careerGateRememberSkip\(\);\s*closeCareerGateModal\(\);/);
+  });
+
+  it('a skipped gate stays skipped for browsing but never survives a verified CV', () => {
+    // ensureCareerGate honours the per-tab skip only AFTER the server says the
+    // gate is required (server truth first), and both CV-verified paths clear
+    // the marker so it cannot linger once a CV is on file.
+    const ensure = extractFunction(html, 'ensureCareerGate');
+    const gateRequiredIdx = ensure.indexOf('gateRequired !== true');
+    const skipIdx = ensure.indexOf('careerGateSkipActive()');
+    expect(gateRequiredIdx).toBeGreaterThan(-1);
+    expect(skipIdx).toBeGreaterThan(gateRequiredIdx);
+    expect(ensure).toContain('careerGateClearSkip()');
+    const upload = extractFunction(html, 'careerGateUpload');
+    expect(upload).toMatch(/data\.verified\)\s*\{[^}]*careerGateClearSkip\(\)/);
   });
 });

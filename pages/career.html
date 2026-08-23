@@ -5481,12 +5481,15 @@
     /* Sticky header: stays pinned at the top of the scrollable card while the
        CV/cover-letter content scrolls beneath it (mirrors .career-gate-footer).
        Solid gradient background hides content passing behind it. z-index above
-       the footer (2) and content so nothing bleeds over the pinned bar. */
+       the footer (2) and content so nothing bleeds over the pinned bar.
+       Background deviates from the mockup on purpose (owner 2026-08-24): the
+       mockup's blue-ink→blue gradient didn't match the app — use the same
+       hero gradient as every other hero panel (career intro, dashboard). */
     .career-gate-top {
       position: sticky;
       top: 0;
       z-index: 3;
-      background: linear-gradient(135deg, var(--gp-blue-ink), var(--gp-blue));
+      background: var(--gp-grad-hero);
       padding: 26px 28px 22px;
       color: #fff;
     }
@@ -5796,6 +5799,37 @@
       background: var(--gp-green);
       color: #fff;
       box-shadow: 0 8px 22px rgba(22, 163, 74, .32);
+    }
+
+    /* "Skip for now" (owner 2026-08-24): quiet text link under the CTA so a
+       doctor can browse jobs first. Applying still requires the CV: the
+       server refuses the apply endpoint without career_cv and job.html
+       re-opens its CV modal on that refusal. */
+    .career-gate-skip {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      padding: 6px;
+      border: none;
+      background: none;
+      font-family: var(--gp-font-body);
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .career-gate-skip-link {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--gp-muted);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .career-gate-skip-hint {
+      display: block;
+      margin-top: 3px;
+      font-size: 11.5px;
+      color: var(--gp-faint);
     }
 
     .career-gate-foot {
@@ -8710,15 +8744,17 @@
     </div>
   </div>
 
-  <!-- Careers profile-completion gate modal (Task 5). Not dismissible: no close
-       button, no scrim-click close, no Escape handler — the CTA only enables
-       once the CV is AI-verified, and that's the only way to close it. -->
+  <!-- Careers profile-completion gate modal (Task 5). No close button,
+       scrim-click close or Escape handler — the ways out are the CTA (only
+       enabled once the CV is AI-verified) and the "Skip for now" link
+       (owner 2026-08-24), which allows browsing but not applying: the server
+       refuses the apply endpoint without career_cv and job.html re-gates. -->
   <div class="modal career-gate-modal" id="careerGateModal" aria-hidden="true" role="dialog" aria-label="Complete your careers profile">
     <div class="modal-card career-gate-card">
       <div class="career-gate-top">
         <div class="career-gate-kicker">One quick step</div>
         <h3>Complete your profile to start browsing careers</h3>
-        <p>Medical centres see your CV the moment we introduce you — let’s make sure it’s ready.</p>
+        <p>Medical centres see your CV the moment we introduce you. Let’s make sure it’s ready.</p>
       </div>
       <div class="career-gate-body">
         <div class="career-gate-req">
@@ -8757,6 +8793,7 @@
         </div>
         <div class="career-gate-footer">
           <button class="career-gate-cta" id="careerGateCta" disabled>Upload your CV to continue</button>
+          <button type="button" class="career-gate-skip" id="careerGateSkip"><span class="career-gate-skip-link">Skip for now</span><span class="career-gate-skip-hint">You can browse jobs, but you’ll need your CV to apply.</span></button>
           <div class="career-gate-foot">Your documents are only shared with practices when we introduce you to a role.</div>
         </div>
       </div>
@@ -14646,6 +14683,17 @@
        must never lock the page (fails open). */
     var careerGateState = { cvVerified: false, checked: false };
     function careerGateEl(id) { return document.getElementById(id); }
+    // "Skip for now" (owner 2026-08-24): a doctor may put the gate aside and
+    // browse jobs first. The skip is remembered per tab (sessionStorage) so
+    // coming back to this page doesn't re-gate mid-browse; a new session asks
+    // again. Applying is still impossible without the CV: the server's apply
+    // endpoint refuses with requiresCv and job.html re-opens its CV modal on
+    // the job page itself, then continues the application once the upload
+    // verifies.
+    var CAREER_GATE_SKIP_KEY = 'gp_career_gate_skipped';
+    function careerGateSkipActive() { try { return sessionStorage.getItem(CAREER_GATE_SKIP_KEY) === '1'; } catch (e) { return false; } }
+    function careerGateRememberSkip() { try { sessionStorage.setItem(CAREER_GATE_SKIP_KEY, '1'); } catch (e) {} }
+    function careerGateClearSkip() { try { sessionStorage.removeItem(CAREER_GATE_SKIP_KEY); } catch (e) {} }
     // Anyone waiting on the gate (e.g. the walkthrough first-visit tip defers
     // while the gate owns the screen) listens for this on window.
     function announceCareerGateClosed() { try { window.dispatchEvent(new CustomEvent('gp-career-gate-closed')); } catch (e) {} }
@@ -14701,7 +14749,7 @@
         data = await res.json().catch(function () { return {}; });
       } catch (err) { data = {}; }
       if (kind === 'cv') {
-        if (res && res.ok && data.verified) { careerGateState.cvVerified = true; careerGateSetScanState('ok', { fileName: data.fileName }); }
+        if (res && res.ok && data.verified) { careerGateState.cvVerified = true; careerGateClearSkip(); careerGateSetScanState('ok', { fileName: data.fileName }); }
         else if (res && res.status === 429) careerGateSetScanState('bad', { reason: data.message || 'You’ve reached today’s CV check limit — please try again tomorrow.', hint: 'Come back tomorrow to try again.' });
         else careerGateSetScanState('bad', { reason: data.reason || data.message || 'We couldn’t check that file — please try again.', attemptsRemaining: data.attemptsRemaining });
         careerGateSyncCta();
@@ -14717,8 +14765,9 @@
         if (!res.ok) return;
         var data = await res.json();
         careerGateState.checked = true;
-        if (data && data.cv) { careerGateState.cvVerified = true; return; }
+        if (data && data.cv) { careerGateState.cvVerified = true; careerGateClearSkip(); return; }
         if (!data || data.gateRequired !== true) return; // server truth: e.g. already placed on a stale local cache
+        if (careerGateSkipActive()) return; // skipped this tab: browse freely, applying re-gates on the job page
         careerGateSyncCta();
         openCareerGateModal();
       } catch (err) { /* network failure: don't lock the page */ }
@@ -14729,6 +14778,8 @@
     });
     document.addEventListener('click', function (ev) {
       if (ev.target && ev.target.id === 'careerGateCta' && !ev.target.disabled) closeCareerGateModal();
+      // closest(): the skip button's label/hint spans are the click target.
+      if (ev.target && ev.target.closest && ev.target.closest('#careerGateSkip')) { careerGateRememberSkip(); closeCareerGateModal(); }
     });
 
     // Reveal the page once the correct view is known (removes the boot spinner set
