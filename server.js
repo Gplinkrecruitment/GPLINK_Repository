@@ -157,7 +157,7 @@ function isValidCronSecret(token) {
 }
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
-const { checkSppaCompleteness, isOnlyAltCvOutstanding } = require('./lib/sppa-completeness-check.js');
+const { checkSppaCompleteness, isOnlyAltCvOutstanding, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
@@ -4210,6 +4210,53 @@ async function _readSppaSuperviseeName(gmail, mailbox, em) {
 // like the inline auto-pickup (task_message + task_documents + sppa_state transition + ops + AI
 // follow-ups + Drive upload + dedup row). This is the safety net that guarantees a surfaced reply
 // can never be silently dropped. Always logs one line. Returns a structured result.
+// File a practice-returned document that is NOT the SPPA-00 (and not a CV) into the GP's
+// document files as "Other": demote it on the task (category 'other', not current — so the
+// submit/preview/completeness flows can never pick it up as THE form), upload it to an
+// "Other Practice Documents" folder in the GP's Drive file, and record it in user_documents
+// (practice_other_N) so it sits on the GP's documents list like a delivered alt-CV does.
+// Never throws — filing the extra must not be able to sink the return transition itself.
+async function _fileExtraPracticeDocToGp(caseId, taskId, doc, verdict, tag) {
+  tag = tag || '[SPPA return]';
+  try {
+    await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(doc.id),
+      { method: 'PATCH', body: { category: 'other', is_current: false } });
+  } catch (e) { console.error(tag, 'extra-doc demote failed:', e.message); }
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var userId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+    var driveFileId = null;
+    try {
+      var caseFolderId = await ensureGPDriveFolder(caseId, null, null);
+      if (caseFolderId && doc.b64) {
+        var otherFolder = await createGoogleDriveFolder('Other Practice Documents', caseFolderId);
+        if (otherFolder) {
+          var extraBuf = Buffer.from(String(doc.b64).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+          var driveFile = await uploadToGoogleDrive(otherFolder.id, doc.filename || 'Practice document.pdf', extraBuf, doc.mimeType || 'application/pdf');
+          if (driveFile) driveFileId = driveFile.id;
+        }
+      }
+    } catch (e) { console.error(tag, 'extra-doc Drive upload failed:', e.message); }
+    if (userId) {
+      var existing = await supabaseDbRequest('user_documents',
+        'select=document_key&user_id=eq.' + encodeURIComponent(userId) + '&document_key=like.practice_other_%25');
+      var usedKeys = (existing.ok && Array.isArray(existing.data)) ? existing.data.map(function (r) { return r.document_key; }) : [];
+      var slot = 1;
+      while (usedKeys.indexOf('practice_other_' + slot) >= 0) slot++;
+      var rec = {
+        user_id: userId, document_key: 'practice_other_' + slot,
+        file_name: String((doc.filename || 'Practice document') + (verdict && verdict.looks_like ? ' — ' + verdict.looks_like : '')).slice(0, 200),
+        status: 'approved', reviewed_at: new Date().toISOString()
+      };
+      if (driveFileId) rec.google_drive_file_id = driveFileId;
+      await supabaseDbRequest('user_documents', '', { method: 'POST', body: [rec] });
+    }
+    await _logCaseEvent(caseId, taskId, 'system',
+      'Extra document from the practice filed under Other',
+      (doc.filename || 'document') + (verdict && verdict.looks_like ? ' — AI read it as: ' + verdict.looks_like : ''), 'system').catch(function () {});
+  } catch (e) { console.error(tag, 'extra-doc filing failed:', e.message); }
+}
+
 // The ONE practice-return transition, shared by the inline Gmail auto-pickup, the thread
 // recovery, and the RSO's manual "Accept as practice return". Three near-identical copies of
 // this block is how the trusted-sender gap survived — every new pickup path re-implemented the
@@ -4220,6 +4267,67 @@ async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, store
   opts = opts || {};
   var tag = opts.logTag || '[SPPA return]';
   storedDocs = Array.isArray(storedDocs) ? storedDocs : [];
+
+  // ── The AI decides WHICH document is the SPPA-00 ────────────────────────────────────────
+  // Scanner filenames say nothing (CCF_000527.pdf), and a practice can return its own home-
+  // drafted "supervision plan" alongside — or instead of — the real form. Dr Mercy Obanimoh
+  // (owner, 2026-08-25): both arrived in one email and the filename heuristic attached the
+  // wrong one. Identify every document; the real SPPA-00 becomes the task's document, a CV
+  // stays an alternate-supervisor CV, anything else is filed to the GP's documents as Other.
+  // If NO document is the SPPA-00 (confidently), the return is REFUSED and flagged for the
+  // RSO instead of moving the machine. AI unavailable → fail OPEN to the old heuristic (the
+  // completeness check still re-judges identity afterwards).
+  var identityVerdicts = null;
+  var canIdentify = storedDocs.length > 0 && storedDocs.every(function (d) { return d && d.b64; });
+  if (canIdentify) {
+    try {
+      var idResult = await identifySppaDocuments(storedDocs.map(function (d) {
+        return {
+          filename: d.filename || '',
+          buffer: Buffer.from(String(d.b64).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+          mime: (d.mimeType && /^image\//i.test(d.mimeType)) ? d.mimeType : 'application/pdf'
+        };
+      }));
+      if (idResult && idResult._error) console.warn(tag, 'form identity check unavailable:', idResult._error);
+      else if (idResult && Array.isArray(idResult.docs)) identityVerdicts = idResult.docs;
+    } catch (idErr) { console.error(tag, 'form identity check failed:', idErr.message); }
+  }
+  var mainSppa = null;
+  if (identityVerdicts) {
+    for (var vi = 0; vi < identityVerdicts.length; vi++) {
+      if (identityVerdicts[vi] && identityVerdicts[vi].is_sppa_form === true) { mainSppa = storedDocs[vi]; break; }
+    }
+    if (!mainSppa) {
+      var confidentNotSppa = identityVerdicts.length > 0 && identityVerdicts.every(function (v) { return v && v.is_sppa_form === false && v.confidence !== 'low'; });
+      if (confidentNotSppa && !opts.force) {
+        fm.unverified_return = {
+          message_id: (fm.unverified_return && fm.unverified_return.message_id) || null,
+          sender: opts.sender || (fm.unverified_return && fm.unverified_return.sender) || '',
+          received_at: new Date().toISOString(),
+          doc_ids: storedDocs.map(function (d) { return d.id; }),
+          filenames: storedDocs.map(function (d) { return d.filename; }).filter(Boolean),
+          reason: 'not_sppa_form',
+          identity: identityVerdicts
+        };
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+          { method: 'PATCH', body: { status: 'open', metadata: fm, updated_at: new Date().toISOString() } });
+        await _logCaseEvent(caseId, taskId, 'system',
+          'AI checked the returned document — it is NOT the SPPA-00 form; left for review (state unchanged)',
+          identityVerdicts.map(function (v) { return v && v.looks_like; }).filter(Boolean).join(' | ').slice(0, 400), 'system').catch(function () {});
+        console.warn(tag, 'return REFUSED — no document identified as the SPPA-00 for task', taskId);
+        return { applied: false, identity: identityVerdicts };
+      }
+    }
+  }
+  if (!mainSppa) mainSppa = storedDocs.find(function (d) { return (d.filename || '').toLowerCase().indexOf('sppa') > -1; }) || storedDocs[0];
+  if (identityVerdicts) {
+    fm.form_identity = {
+      checked_at: new Date().toISOString(),
+      main_filename: mainSppa ? (mainSppa.filename || '') : '',
+      docs: storedDocs.map(function (d, i) { return { filename: d.filename || '', verdict: identityVerdicts[i] || null }; })
+    };
+  }
+
   fm.sppa_state = 'practice_returned';
   fm.practice_returned_at = new Date().toISOString();
   fm.practice_returned_via = opts.via || 'email_auto';
@@ -4230,15 +4338,21 @@ async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, store
   delete fm.completeness_check;
   delete fm.completeness_override;
   delete fm.unverified_return;
-  // Tag attachments: the SPPA PDF is the main doc; any others are alternative supervisor CVs.
-  var mainSppa = storedDocs.find(function (d) { return (d.filename || '').toLowerCase().indexOf('sppa') > -1; }) || storedDocs[0];
+  // Route the other attachments: a CV (or anything the AI could not judge) keeps the old
+  // alternate-supervisor-CV behaviour; a judged non-CV, non-SPPA document goes to the GP's
+  // document files as Other so it never masquerades as the form.
   if (storedDocs.length > 1 && mainSppa) {
-    for (var aDoc of storedDocs) {
-      if (aDoc.id !== mainSppa.id) {
+    for (var di = 0; di < storedDocs.length; di++) {
+      var aDoc = storedDocs[di];
+      if (aDoc.id === mainSppa.id) continue;
+      var aVerdict = identityVerdicts ? identityVerdicts[di] : null;
+      if (aVerdict && aVerdict.is_cv !== true && aVerdict.is_sppa_form === false) {
+        await _fileExtraPracticeDocToGp(caseId, taskId, aDoc, aVerdict, tag);
+      } else {
         await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
+        fm.has_alt_supervisor_cvs = true;
       }
     }
-    fm.has_alt_supervisor_cvs = true;
   }
   if (mainSppa && mainSppa.b64) {
     try {
@@ -4265,7 +4379,89 @@ async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, store
     var pracBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     _uploadSppaDocToDrive(caseId, mainSppa.id, pracBuf, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error(tag, 'Drive upload error:', e.message); });
   }
-  return fm;
+  return { applied: true, fm: fm, identity: identityVerdicts };
+}
+
+// A prior ingest can store only SOME of a return email's attachments: the task_documents POST
+// fails silently (supabaseDbRequest never throws) and the loop moves on. Dr Mercy Obanimoh
+// (2026-08-25): the real signed SPPA-00 (CCF_000528.pdf) was lost exactly this way while the
+// practice's own draft plan (CCF_000527.pdf) stored fine — so the task held only the wrong
+// document. This re-fetches any attachment a task_message LISTS but task_documents does not
+// HOLD (sender must be the expected practice contact or a trusted affiliate), then re-runs the
+// return transition over the message's FULL document set so the AI picks the real form.
+// Idempotent: with nothing missing it does nothing.
+async function _repairSppaMissingAttachments(task, mailbox, gmail, meta, isTrustedSender) {
+  var state = String((meta && meta.sppa_state) || '');
+  if (state !== 'sent_to_practice' && state !== 'corrections_requested') return { repaired: false, reason: 'not-awaiting-practice' };
+  var expected = String(meta.sent_to_practice_email || '').trim().toLowerCase();
+  function bare(s) { var m = String(s || '').match(/<([^>]+)>/); var a = m ? m[1] : String(s || ''); var mm = a.match(/[\w.+-]+@[\w.-]+\.\w+/); return (mm ? mm[0] : a).trim().toLowerCase(); }
+  var msgsRes = await supabaseDbRequest('task_messages',
+    'select=id,sender,gmail_message_id,attachments&task_id=eq.' + encodeURIComponent(task.id) +
+    '&direction=eq.inbound&is_document_delivery=eq.true&order=created_at.desc&limit=3');
+  var rows = (msgsRes.ok && Array.isArray(msgsRes.data)) ? msgsRes.data : [];
+  for (var ri = 0; ri < rows.length; ri++) {
+    var row = rows[ri];
+    if (!row.gmail_message_id) continue;
+    var senderBare = bare(row.sender);
+    var senderOk = senderBare && (senderBare === expected || (typeof isTrustedSender === 'function' && isTrustedSender(senderBare)));
+    if (!senderOk) continue;
+    var listed = [];
+    try { listed = JSON.parse(row.attachments || '[]'); } catch (e) { listed = []; }
+    listed = (Array.isArray(listed) ? listed : []).filter(Boolean);
+    if (!listed.length) continue;
+    var docRes = await supabaseDbRequest('task_documents',
+      'select=id,filename,mime_type,attachment_url&task_id=eq.' + encodeURIComponent(task.id) + '&message_id=eq.' + encodeURIComponent(row.id));
+    var haveRows = (docRes.ok && Array.isArray(docRes.data)) ? docRes.data : [];
+    var haveNames = {};
+    haveRows.forEach(function (d) { haveNames[String(d.filename || '').toLowerCase()] = true; });
+    var missing = listed.filter(function (n) { return !haveNames[String(n).toLowerCase()]; });
+    if (!missing.length) continue;
+    var missingLower = missing.map(function (n) { return String(n).toLowerCase(); });
+    // Gmail ids are per-mailbox — a foreign id 404s; the caller tries each inbox in turn.
+    var full;
+    try { full = await gmail.users.messages.get({ userId: mailbox, id: row.gmail_message_id, format: 'full' }); }
+    catch (e) { console.warn('[SPPA repair] messages.get failed for', row.gmail_message_id, 'in', mailbox, '-', e.message); continue; }
+    var em = extractEmailMeta(full.data);
+    var newDocs = [];
+    for (var ai = 0; ai < (em.attachments || []).length; ai++) {
+      var ap = em.attachments[ai];
+      if (!ap || !ap.attachmentId) continue;
+      if (missingLower.indexOf(String(ap.filename || '').toLowerCase()) < 0) continue;
+      try {
+        var att = await gmail.users.messages.attachments.get({ userId: mailbox, messageId: row.gmail_message_id, id: ap.attachmentId });
+        var b64 = (att.data && att.data.data) || '';
+        if (!b64) { console.error('[SPPA repair] empty attachment body for', ap.filename); continue; }
+        var insBody = [{ task_id: task.id, case_id: task.case_id, message_id: row.id,
+          filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
+          version: 1, is_current: true, uploaded_by: 'email_response',
+          attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + b64 }];
+        var ins = await supabaseDbRequest('task_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: insBody });
+        if (!ins.ok) {
+          console.error('[SPPA repair] task_documents store FAILED for', ap.filename, '- status', ins.status, String(JSON.stringify(ins.data || '')).slice(0, 300), '— retrying once');
+          ins = await supabaseDbRequest('task_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: insBody });
+        }
+        var newId = (ins.ok && ins.data && ins.data[0]) ? ins.data[0].id : null;
+        if (newId) newDocs.push({ id: newId, b64: b64, filename: ap.filename, mimeType: ap.mimeType || '' });
+        else console.error('[SPPA repair] task_documents store failed twice for', ap.filename, '- status', ins.status);
+      } catch (attErr) { console.error('[SPPA repair] attachment fetch failed for', ap.filename, '-', attErr.message); }
+    }
+    if (!newDocs.length) continue;
+    var allDocs = haveRows.map(function (d) {
+      var b = ''; var m = String(d.attachment_url || '').match(/^data:[^;]*;base64,(.*)$/s); if (m) b = m[1];
+      return { id: d.id, b64: b, filename: d.filename || '', mimeType: d.mime_type || '' };
+    }).concat(newDocs);
+    await _logCaseEvent(task.case_id, task.id, 'system',
+      'Missing attachment(s) recovered from the practice reply', newDocs.map(function (d) { return d.filename; }).join(', '), 'system').catch(function () {});
+    var fmRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+    var fm2 = (fmRes.ok && fmRes.data && fmRes.data[0]) ? fmRes.data[0].metadata : meta;
+    if (typeof fm2 === 'string') { try { fm2 = JSON.parse(fm2); } catch (e) { fm2 = {}; } }
+    fm2 = fm2 || {};
+    var applied = await _applySppaPracticeReturn(task.case_id, task.id, task.gmail_thread_id, fm2, allDocs, {
+      via: 'attachment_repair', sender: senderBare, logTag: '[SPPA repair]'
+    });
+    return { repaired: true, applied: !(applied && applied.applied === false), newDocs: newDocs.map(function (d) { return d.filename; }) };
+  }
+  return { repaired: false, reason: 'nothing-missing' };
 }
 
 async function recoverSppaThreadReply(task, mailbox) {
@@ -4398,6 +4594,17 @@ async function recoverSppaThreadReply(task, mailbox) {
   }
   var pick = selectSppaReplyMessage(metas, meta, attachedIds, _isTrustedSender);
   if (!pick.direction || !pick.message) {
+    // Nothing NEW to pick up — but a previously-ingested return may be missing some of its
+    // attachments (a silent task_documents store failure). Repair those before giving up.
+    if (pick.reason === 'already-attached' || pick.reason === 'no-matching-reply') {
+      try {
+        var _rep = await _repairSppaMissingAttachments(task, mailbox, gmail, meta, _isTrustedSender);
+        if (_rep && _rep.repaired) {
+          console.log('[SPPA repair] task', task.id, '— recovered missing attachment(s):', (_rep.newDocs || []).join(', '), _rep.applied ? '(return applied)' : '(flagged for review)');
+          return { recovered: true, direction: 'practice', via: 'attachment_repair', sppa_state: _rep.applied ? 'practice_returned' : preState, flagged_wrong_form: !_rep.applied, repaired_files: _rep.newDocs || [] };
+        }
+      } catch (repErr) { console.error('[SPPA repair] error:', repErr.message); }
+    }
     console.log('[SPPA recover] task', task.id, 'mailbox', mailbox, '— no pickup (' + pick.reason + ', state ' + preState + ', thread msgs ' + metas.length + ')');
     return { recovered: false, reason: pick.reason, sppa_state: preState };
   }
@@ -4448,7 +4655,8 @@ async function recoverSppaThreadReply(task, mailbox) {
         }]
       });
       var docId = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0].id : null;
-      if (docId) storedDocs.push({ id: docId, b64: attData.data.data || '', filename: ap.filename });
+      if (!docId) console.error('[SPPA recover] task_documents store FAILED for', ap.filename, '- status', docRes.status, String(JSON.stringify(docRes.data || '')).slice(0, 300));
+      if (docId) storedDocs.push({ id: docId, b64: attData.data.data || '', filename: ap.filename, mimeType: ap.mimeType || '' });
     }
   } catch (attErr) { console.error('[SPPA recover] attachment extraction failed:', attErr.message); }
 
@@ -4477,13 +4685,22 @@ async function recoverSppaThreadReply(task, mailbox) {
       _uploadSppaDocToDrive(task.case_id, gpDoc.id, gpBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[SPPA recover] Drive upload error:', e.message); });
     }
   } else {
-    newState = 'practice_returned';
     var _pickedBare = String(picked.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
-    await _applySppaPracticeReturn(task.case_id, task.id, task.gmail_thread_id, fm, storedDocs, {
+    var _prResult = await _applySppaPracticeReturn(task.case_id, task.id, task.gmail_thread_id, fm, storedDocs, {
       via: (_pickedBare && _pickedBare !== pick.expectedSender) ? 'thread_recovery_trusted' : 'thread_recovery',
       sender: _pickedBare || (picked.sender || ''),
       logTag: '[SPPA recover]'
     });
+    if (!_prResult || _prResult.applied === false) {
+      // Ingested, but the AI says none of the documents is the SPPA-00 — the card now shows
+      // the review banner instead of flipping. Dedup so the message is never re-ingested.
+      await supabaseDbRequest('processed_gmail_messages', '', {
+        method: 'POST',
+        body: [{ gmail_message_id: picked.messageId, email_address: mailbox, sender: picked.sender || '', subject: picked.subject || '', result: 'matched', ai_summary: 'sppa thread_recovery (flagged: not the SPPA-00)', processed_at: new Date().toISOString() }]
+      }).catch(function () {});
+      return { recovered: true, direction: 'practice', message_id: picked.messageId, sppa_state: preState, flagged_wrong_form: true };
+    }
+    newState = 'practice_returned';
   }
 
   // 4) Dedup row so the heuristic path won't re-ingest this message later.
@@ -6087,6 +6304,21 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                       uploaded_by: 'email_response',
                       attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
                   var _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
+                  // supabaseDbRequest never throws — a failed store used to vanish silently,
+                  // losing an attachment (Dr Mercy's real SPPA-00, CCF_000528). Retry once and
+                  // ALWAYS log a failure; the repair sweep re-fetches whatever is still lost.
+                  if (!_earlyDocId) {
+                    console.error('[Gmail] task_documents store FAILED for', ap.filename, '- status', _earlyDocRes.status, String(JSON.stringify(_earlyDocRes.data || '')).slice(0, 300), '— retrying once');
+                    _earlyDocRes = await supabaseDbRequest('task_documents', '', {
+                      method: 'POST', headers: { Prefer: 'return=representation' },
+                      body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
+                        filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
+                        version: 1, is_current: (_earlyStoredDocIds.length === 0 || _earlyIsSppa),
+                        uploaded_by: 'email_response',
+                        attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
+                    _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
+                    if (!_earlyDocId) console.error('[Gmail] task_documents store failed TWICE for', ap.filename, '- status', _earlyDocRes.status, '— attachment NOT stored');
+                  }
                   if (_earlyDocId) _earlyStoredDocIds.push({ id: _earlyDocId, b64: attData.data.data || '', filename: ap.filename, mimeType: ap.mimeType || '' });
                 }
               } catch (attErr) { console.error('[Gmail] Early match attachment extraction failed:', attErr.message); }
@@ -18817,10 +19049,12 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
     if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
     if (!meta || typeof meta !== 'object') meta = {};
 
-    // The completed SPPA-00 PDF (exclude alternate supervisor CVs).
+    // The completed SPPA-00 PDF (exclude alternate supervisor CVs AND documents the identity
+    // check filed as "other" — a practice-drafted plan must never be the form we check).
+    // Newest first: after an attachment repair the re-fetched real form is the latest row.
     var docRes = await supabaseDbRequest('task_documents',
       'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(sppaTask.id) +
-      '&is_current=eq.true&category=neq.alt_supervisor_cv&limit=1');
+      '&is_current=eq.true&category=not.in.(alt_supervisor_cv,other)&order=created_at.desc&limit=1');
     var doc = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0] : null;
     if (!doc || !doc.attachment_url) return null;
     var commaIdx = doc.attachment_url.indexOf(',');
@@ -18888,6 +19122,9 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
     });
 
     var stored = {
+      // null = judged before the identity check existed; only an explicit false is "wrong form".
+      is_sppa_form: (verdict.is_sppa_form === true || verdict.is_sppa_form === false) ? verdict.is_sppa_form : null,
+      document_identity: verdict.document_identity || '',
       is_complete: verdict.is_complete,
       confidence: verdict.confidence,
       missing_fields: verdict.missing_fields,
@@ -65337,6 +65574,9 @@ Return ONLY valid JSON with no markdown formatting:
     const sarAdmin = requireAdminSession(req, res);
     if (!sarAdmin) return;
     const sarTaskId = pathname.split('/')[5];
+    var sarBody = {};
+    try { sarBody = await readJsonBody(req) || {}; } catch (e) { sarBody = {}; }
+    var sarForce = sarBody.force === true;
     const sarTaskRes = await supabaseDbRequest('registration_tasks',
       'select=id,case_id,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(sarTaskId) + '&related_document_key=eq.sppa_00&limit=1');
     if (!sarTaskRes.ok || !sarTaskRes.data || !sarTaskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
@@ -65386,11 +65626,25 @@ Return ONLY valid JSON with no markdown formatting:
         return { id: d.id, b64: b64, filename: d.filename || '' };
       });
       sarMeta.practice_return_accepted_by = sarAdmin.email || 'admin';
-      await _applySppaPracticeReturn(sarTask.case_id, sarTaskId, sarTask.gmail_thread_id, sarMeta, sarStored, {
-        via: 'manual_accept', sender: sarSender, logTag: '[SPPA accept]'
+      var sarResult = await _applySppaPracticeReturn(sarTask.case_id, sarTaskId, sarTask.gmail_thread_id, sarMeta, sarStored, {
+        via: sarForce ? 'manual_accept_forced' : 'manual_accept', sender: sarSender, force: sarForce, logTag: '[SPPA accept]'
       });
+      if (!sarResult || sarResult.applied === false) {
+        // The AI is confident none of these documents is the SPPA-00 — refuse, tell the RSO
+        // what it read, and let them force-accept only after that warning.
+        var sarLooks = (sarResult && Array.isArray(sarResult.identity))
+          ? sarResult.identity.map(function (v) { return v && v.looks_like; }).filter(Boolean).join('; ')
+          : '';
+        sendJson(res, 409, {
+          error: 'AI checked the document — it does not look like the SPPA-00 form we sent'
+            + (sarLooks ? '. It reads as: ' + sarLooks : '')
+            + '. Ask the practice for the completed SPPA-00, or force-accept only if you have checked it yourself.',
+          not_sppa_form: true, identity: (sarResult && sarResult.identity) || null
+        });
+        return;
+      }
       await _logCaseEvent(sarTask.case_id, sarTaskId, 'system',
-        'SPPA-00 emailed document accepted as the practice return',
+        'SPPA-00 emailed document accepted as the practice return' + (sarForce ? ' (forced past the AI form check)' : ''),
         'Accepted by ' + (sarAdmin.email || 'admin') + (sarSender ? ' — originally from ' + sarSender : ''), sarAdmin.email || 'admin').catch(function () {});
       sendJson(res, 200, { ok: true, sppa_state: 'practice_returned', accepted_docs: sarStored.length });
     } catch (sarErr) {

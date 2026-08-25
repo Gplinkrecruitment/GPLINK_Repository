@@ -207,6 +207,23 @@ describe('unverified-return surfacing (source guard)', () => {
     expect(src).toContain('unverified_return');
     expect(src).toContain('async function buildSppaTrustedReturnSenders(');
   });
+  it('the shared transition identifies documents with AI and files extras as Other', () => {
+    const src = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+    // The transition asks the AI which document IS the SPPA-00 (filenames like CCF_000527
+    // say nothing), refuses a confident non-SPPA return unless forced, and files a judged
+    // non-CV extra to the GP's documents (practice_other_N + Drive) instead of calling
+    // everything an alternate-supervisor CV.
+    const fn = src.slice(src.indexOf('async function _applySppaPracticeReturn('), src.indexOf('async function _repairSppaMissingAttachments('));
+    expect(fn).toContain('identifySppaDocuments(');
+    expect(fn).toContain("reason: 'not_sppa_form'");
+    expect(fn).toContain('_fileExtraPracticeDocToGp(');
+    expect(src).toContain("document_key: 'practice_other_' + slot");
+    // Missing-attachment self-heal: a listed-but-never-stored file is re-fetched from Gmail.
+    expect(src).toContain('async function _repairSppaMissingAttachments(');
+    expect(src).toContain("via: 'attachment_repair'");
+    // The completeness check can never be pointed at a demoted "other" document.
+    expect(src).toContain('category=not.in.(alt_supervisor_cv,other)');
+  });
   it('admin dashboard renders the banner and calls the endpoint', () => {
     const src = fs.readFileSync(path.join(root, 'pages', 'admin.html'), 'utf8');
     expect(src).toContain('sppa-accept-return');

@@ -62,3 +62,66 @@ describe('isOnlyAltCvOutstanding', () => {
     expect(isOnlyAltCvOutstanding(undefined)).toBe(false);
   });
 });
+
+// ── Form identity (owner 2026-08-25, Dr Mercy Obanimoh) ─────────────────────────────────────
+// The practice returned its own home-drafted "supervision plan" alongside the real SPPA-00;
+// the pipeline must know which document is which, and the completeness verdict must be able to
+// say "this is not the SPPA-00 at all".
+const { parseCompletenessResponse, parseIdentifyResponse, COMPLETENESS_SYSTEM_PROMPT, IDENTIFY_SYSTEM_PROMPT } = require('../lib/sppa-completeness-check.js');
+
+describe('completeness verdict carries form identity', () => {
+  it('parses is_sppa_form and document_identity', () => {
+    const v = parseCompletenessResponse(JSON.stringify({
+      is_sppa_form: false,
+      document_identity: 'A practice-drafted Level 3 supervision plan, not the AHPRA SPPA-00',
+      is_complete: false, confidence: 'high',
+      missing_fields: [], missing_signatures: [], missing_documents: [], issues: [],
+      summary: 'This is not the SPPA-00 form GP Link sent.'
+    }));
+    expect(v.is_sppa_form).toBe(false);
+    expect(v.document_identity).toContain('practice-drafted');
+  });
+
+  it('a verdict without the field is null (back-compat), never false', () => {
+    const v = parseCompletenessResponse(JSON.stringify({ is_complete: true, confidence: 'high', missing_fields: [], missing_signatures: [], missing_documents: [], issues: [], summary: 'ok' }));
+    expect(v.is_sppa_form).toBe(null);
+  });
+
+  it('the prompt instructs the identity check', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('is_sppa_form');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('document_identity');
+  });
+});
+
+describe('parseIdentifyResponse', () => {
+  it('maps verdicts back by position', () => {
+    const out = parseIdentifyResponse(JSON.stringify({
+      documents: [
+        { position: 1, is_sppa_form: false, is_cv: false, looks_like: 'Practice-drafted supervision plan', confidence: 'high' },
+        { position: 2, is_sppa_form: true, is_cv: false, looks_like: 'AHPRA SPPA-00 supervised practice plan', confidence: 'high' },
+      ]
+    }), 2);
+    expect(out[0].is_sppa_form).toBe(false);
+    expect(out[1].is_sppa_form).toBe(true);
+    expect(out[1].position).toBe(2);
+  });
+
+  it('unparseable output yields null verdicts (fail open, never a false)', () => {
+    const out = parseIdentifyResponse('nonsense', 2);
+    expect(out).toHaveLength(2);
+    expect(out[0].is_sppa_form).toBe(null);
+    expect(out[1].is_sppa_form).toBe(null);
+    expect(out[0].confidence).toBe('low');
+  });
+
+  it('an out-of-range position is ignored', () => {
+    const out = parseIdentifyResponse(JSON.stringify({ documents: [{ position: 5, is_sppa_form: true }] }), 2);
+    expect(out[0].is_sppa_form).toBe(null);
+    expect(out[1].is_sppa_form).toBe(null);
+  });
+
+  it('the identify prompt describes the SPPA-00 and the home-drafted trap', () => {
+    expect(IDENTIFY_SYSTEM_PROMPT).toContain('SPPA-00');
+    expect(IDENTIFY_SYSTEM_PROMPT).toContain('drafted');
+  });
+});
