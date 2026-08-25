@@ -4394,19 +4394,29 @@ async function _repairSppaMissingAttachments(task, mailbox, gmail, meta, isTrust
   var state = String((meta && meta.sppa_state) || '');
   if (state !== 'sent_to_practice' && state !== 'corrections_requested') return { repaired: false, reason: 'not-awaiting-practice' };
   var expected = String(meta.sent_to_practice_email || '').trim().toLowerCase();
+  // Only a message that arrived AFTER we last asked the practice can be their return — an
+  // older doc-delivery must never re-flip the card (same bound as every other pickup path).
+  var _awaitIso = String((state === 'corrections_requested'
+    ? (meta.corrections_requested_at || meta.sent_to_practice_at) : meta.sent_to_practice_at) || '').trim();
+  var _awaitMs = _awaitIso ? (Date.parse(_awaitIso) - 60 * 60 * 1000) : 0;
   function bare(s) { var m = String(s || '').match(/<([^>]+)>/); var a = m ? m[1] : String(s || ''); var mm = a.match(/[\w.+-]+@[\w.-]+\.\w+/); return (mm ? mm[0] : a).trim().toLowerCase(); }
   var msgsRes = await supabaseDbRequest('task_messages',
-    'select=id,sender,gmail_message_id,attachments&task_id=eq.' + encodeURIComponent(task.id) +
+    'select=id,sender,gmail_message_id,attachments,created_at&task_id=eq.' + encodeURIComponent(task.id) +
     '&direction=eq.inbound&is_document_delivery=eq.true&order=created_at.desc&limit=3');
   var rows = (msgsRes.ok && Array.isArray(msgsRes.data)) ? msgsRes.data : [];
   for (var ri = 0; ri < rows.length; ri++) {
     var row = rows[ri];
-    if (!row.gmail_message_id) continue;
     var senderBare = bare(row.sender);
     var senderOk = senderBare && (senderBare === expected || (typeof isTrustedSender === 'function' && isTrustedSender(senderBare)));
     if (!senderOk) continue;
-    var listed = [];
-    try { listed = JSON.parse(row.attachments || '[]'); } catch (e) { listed = []; }
+    if (_awaitMs && Date.parse(row.created_at || 0) < _awaitMs) continue;
+    // task_messages.attachments is jsonb — PostgREST returns an ARRAY, not a string. The
+    // first version JSON.parse'd it, which THROWS on an array, so "listed" came back empty
+    // and the repair concluded nothing was missing (why Mercy's first recheck click no-op'd).
+    var listed = row.attachments;
+    if (!Array.isArray(listed)) {
+      try { listed = JSON.parse(listed || '[]'); } catch (e) { listed = []; }
+    }
     listed = (Array.isArray(listed) ? listed : []).filter(Boolean);
     if (!listed.length) continue;
     var docRes = await supabaseDbRequest('task_documents',
@@ -4415,47 +4425,69 @@ async function _repairSppaMissingAttachments(task, mailbox, gmail, meta, isTrust
     var haveNames = {};
     haveRows.forEach(function (d) { haveNames[String(d.filename || '').toLowerCase()] = true; });
     var missing = listed.filter(function (n) { return !haveNames[String(n).toLowerCase()]; });
-    if (!missing.length) continue;
-    var missingLower = missing.map(function (n) { return String(n).toLowerCase(); });
-    // Gmail ids are per-mailbox — a foreign id 404s; the caller tries each inbox in turn.
-    var full;
-    try { full = await gmail.users.messages.get({ userId: mailbox, id: row.gmail_message_id, format: 'full' }); }
-    catch (e) { console.warn('[SPPA repair] messages.get failed for', row.gmail_message_id, 'in', mailbox, '-', e.message); continue; }
-    var em = extractEmailMeta(full.data);
     var newDocs = [];
-    for (var ai = 0; ai < (em.attachments || []).length; ai++) {
-      var ap = em.attachments[ai];
-      if (!ap || !ap.attachmentId) continue;
-      if (missingLower.indexOf(String(ap.filename || '').toLowerCase()) < 0) continue;
-      try {
-        var att = await gmail.users.messages.attachments.get({ userId: mailbox, messageId: row.gmail_message_id, id: ap.attachmentId });
-        var b64 = (att.data && att.data.data) || '';
-        if (!b64) { console.error('[SPPA repair] empty attachment body for', ap.filename); continue; }
-        var insBody = [{ task_id: task.id, case_id: task.case_id, message_id: row.id,
-          filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
-          version: 1, is_current: true, uploaded_by: 'email_response',
-          attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + b64 }];
-        var ins = await supabaseDbRequest('task_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: insBody });
-        if (!ins.ok) {
-          console.error('[SPPA repair] task_documents store FAILED for', ap.filename, '- status', ins.status, String(JSON.stringify(ins.data || '')).slice(0, 300), '— retrying once');
-          ins = await supabaseDbRequest('task_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: insBody });
+    if (missing.length && row.gmail_message_id) {
+      var missingLower = missing.map(function (n) { return String(n).toLowerCase(); });
+      // Gmail ids are per-mailbox — a foreign id 404s; the caller tries each inbox in turn.
+      var full = null;
+      try { full = await gmail.users.messages.get({ userId: mailbox, id: row.gmail_message_id, format: 'full' }); }
+      catch (e) { console.warn('[SPPA repair] messages.get failed for', row.gmail_message_id, 'in', mailbox, '-', e.message); }
+      if (full) {
+        var em = extractEmailMeta(full.data);
+        for (var ai = 0; ai < (em.attachments || []).length; ai++) {
+          var ap = em.attachments[ai];
+          if (!ap || !ap.attachmentId) continue;
+          if (missingLower.indexOf(String(ap.filename || '').toLowerCase()) < 0) continue;
+          try {
+            var att = await gmail.users.messages.attachments.get({ userId: mailbox, messageId: row.gmail_message_id, id: ap.attachmentId });
+            var b64 = (att.data && att.data.data) || '';
+            if (!b64) { console.error('[SPPA repair] empty attachment body for', ap.filename); continue; }
+            var insBody = [{ task_id: task.id, case_id: task.case_id, message_id: row.id,
+              filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
+              version: 1, is_current: true, uploaded_by: 'email_response',
+              attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + b64 }];
+            var ins = await supabaseDbRequest('task_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: insBody });
+            if (!ins.ok) {
+              console.error('[SPPA repair] task_documents store FAILED for', ap.filename, '- status', ins.status, String(JSON.stringify(ins.data || '')).slice(0, 300), '— retrying once');
+              ins = await supabaseDbRequest('task_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: insBody });
+            }
+            var newId = (ins.ok && ins.data && ins.data[0]) ? ins.data[0].id : null;
+            if (newId) newDocs.push({ id: newId, b64: b64, filename: ap.filename, mimeType: ap.mimeType || '' });
+            else console.error('[SPPA repair] task_documents store failed twice for', ap.filename, '- status', ins.status);
+          } catch (attErr) { console.error('[SPPA repair] attachment fetch failed for', ap.filename, '-', attErr.message); }
         }
-        var newId = (ins.ok && ins.data && ins.data[0]) ? ins.data[0].id : null;
-        if (newId) newDocs.push({ id: newId, b64: b64, filename: ap.filename, mimeType: ap.mimeType || '' });
-        else console.error('[SPPA repair] task_documents store failed twice for', ap.filename, '- status', ins.status);
-      } catch (attErr) { console.error('[SPPA repair] attachment fetch failed for', ap.filename, '-', attErr.message); }
+      }
+      // Still missing and nothing recovered from THIS mailbox → let the caller try the next
+      // one rather than applying a return over an incomplete document set.
+      if (!newDocs.length) continue;
     }
-    if (!newDocs.length) continue;
+    if (!haveRows.length && !newDocs.length) continue;
+    if (newDocs.length) {
+      await _logCaseEvent(task.case_id, task.id, 'system',
+        'Missing attachment(s) recovered from the practice reply', newDocs.map(function (d) { return d.filename; }).join(', '), 'system').catch(function () {});
+    }
+    // Apply (or RE-apply) the return over the message's full document set. The re-apply half
+    // matters for resilience: if a prior run stored the documents but died before the state
+    // flip (serverless time cap mid-AI-call), the next run must finish the job, not conclude
+    // "nothing missing". Idempotent: state practice_returned exits at the top of the caller.
     var allDocs = haveRows.map(function (d) {
       var b = ''; var m = String(d.attachment_url || '').match(/^data:[^;]*;base64,(.*)$/s); if (m) b = m[1];
       return { id: d.id, b64: b, filename: d.filename || '', mimeType: d.mime_type || '' };
     }).concat(newDocs);
-    await _logCaseEvent(task.case_id, task.id, 'system',
-      'Missing attachment(s) recovered from the practice reply', newDocs.map(function (d) { return d.filename; }).join(', '), 'system').catch(function () {});
     var fmRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
     var fm2 = (fmRes.ok && fmRes.data && fmRes.data[0]) ? fmRes.data[0].metadata : meta;
     if (typeof fm2 === 'string') { try { fm2 = JSON.parse(fm2); } catch (e) { fm2 = {}; } }
     fm2 = fm2 || {};
+    // Loop guard: this exact document set was already judged not-the-SPPA-00 and flagged.
+    // Without this, the hourly sweep would re-run the AI on the same documents forever;
+    // any NEW document (newDocs) clears the way for a fresh judgement.
+    if (!newDocs.length) {
+      var _ur = fm2.unverified_return;
+      if (_ur && _ur.reason === 'not_sppa_form' && Array.isArray(_ur.doc_ids)
+          && allDocs.every(function (d) { return _ur.doc_ids.indexOf(d.id) >= 0; })) {
+        return { repaired: false, reason: 'already-flagged' };
+      }
+    }
     var applied = await _applySppaPracticeReturn(task.case_id, task.id, task.gmail_thread_id, fm2, allDocs, {
       via: 'attachment_repair', sender: senderBare, logTag: '[SPPA repair]'
     });
@@ -65550,7 +65582,10 @@ Return ONLY valid JSON with no markdown formatting:
       if (_stillTask && ['sent_to_practice', 'corrections_requested', 'sent_to_candidate', 'gp_corrections_requested'].includes(_stillState)) {
         for (var _rib of _recheckInboxes) {
           var _rr = await recoverSppaThreadReply(_stillTask, _rib);
-          if (_rr && _rr.recovered) { _recheckRecovered = Object.assign({ inbox: _rib }, _rr); break; }
+          // Keep the last non-recovery too — "recovered: null" in the timeline made a silent
+          // repair no-op undiagnosable; now the reason each mailbox gave is on record.
+          if (_rr) _recheckRecovered = Object.assign({ inbox: _rib }, _rr);
+          if (_rr && _rr.recovered) break;
         }
       }
     } catch (e) { _recheckRecovered = { recovered: false, error: e.message }; }
