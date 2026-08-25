@@ -114,3 +114,109 @@ describe('selectSppaReplyMessage', () => {
     expect(r.reason).toBe('no-expected-sender');
   });
 });
+
+// ── Trusted-return senders (owner 2026-08-25, Dr Mercy Obanimoh) ────────────────────────────
+// The practice manager the supervisor passed the form to returns it from her own address; a
+// predicate over provably-affiliated addresses lets that reply flip the machine, PDF required.
+const TRUSTED_PM = 'pm@thefamilydoctors.com.au';
+const trustFn = (addr) => addr === TRUSTED_PM;
+
+describe('selectSppaReplyMessage — trusted senders', () => {
+  it('accepts a PDF return from a trusted non-expected sender while awaiting the practice', () => {
+    const meta = { sppa_state: 'sent_to_practice', sent_to_practice_email: PRACTICE, sent_to_candidate_email: CANDIDATE };
+    const messages = [msg('m-pm', 'Naomi Milne <pm@thefamilydoctors.com.au>', { internalDate: '400', attachments: [{ filename: 'CCF_000527.pdf' }] })];
+    const r = selectSppaReplyMessage(messages, meta, [], trustFn);
+    expect(r.direction).toBe('practice');
+    expect(r.message.messageId).toBe('m-pm');
+  });
+
+  it('still rejects an untrusted third party even with a PDF', () => {
+    const meta = { sppa_state: 'sent_to_practice', sent_to_practice_email: PRACTICE };
+    const messages = [msg('m-x', 'stranger@example.com', { internalDate: '400', attachments: [{ filename: 'x.pdf' }] })];
+    const r = selectSppaReplyMessage(messages, meta, [], trustFn);
+    expect(r.direction).toBe(null);
+  });
+
+  it('a trusted sender must return a PDF — an image attachment is not a return', () => {
+    const meta = { sppa_state: 'sent_to_practice', sent_to_practice_email: PRACTICE };
+    const messages = [msg('m-pm', TRUSTED_PM, { internalDate: '400', attachments: [{ filename: 'photo.jpg', mimeType: 'image/jpeg' }] })];
+    const r = selectSppaReplyMessage(messages, meta, [], trustFn);
+    expect(r.direction).toBe(null);
+  });
+
+  it('the expected sender still passes without a PDF (in-thread path stays permissive)', () => {
+    const meta = { sppa_state: 'sent_to_practice', sent_to_practice_email: PRACTICE };
+    const messages = [msg('m-prac', PRACTICE, { internalDate: '400', attachments: [{ filename: 'scan.jpg' }] })];
+    const r = selectSppaReplyMessage(messages, meta, [], trustFn);
+    expect(r.direction).toBe('practice');
+  });
+
+  it('trust is never consulted while awaiting the CANDIDATE', () => {
+    const meta = { sppa_state: 'sent_to_candidate', sent_to_practice_email: PRACTICE, sent_to_candidate_email: CANDIDATE };
+    const messages = [msg('m-pm', TRUSTED_PM, { internalDate: '400', attachments: [{ filename: 'form.pdf' }] })];
+    const r = selectSppaReplyMessage(messages, meta, [], trustFn);
+    expect(r.direction).toBe(null);
+  });
+});
+
+describe('sppaSenderIsTrustedForReturn', () => {
+  const { sppaSenderIsTrustedForReturn } = __testUtils;
+  const trust = {
+    addresses: new Set(['pm@thefamilydoctors.com.au']),
+    excluded: new Set(['dzungwemb@gmail.com']),
+    signals: {
+      domains: new Set(['thefamilydoctors.com.au']),
+      tokens: ['werribee'],
+    },
+  };
+
+  it('trusts an explicitly harvested address', () => {
+    expect(sppaSenderIsTrustedForReturn('pm@thefamilydoctors.com.au', trust)).toBe(true);
+  });
+  it('trusts the practice domain', () => {
+    expect(sppaSenderIsTrustedForReturn('reception@thefamilydoctors.com.au', trust)).toBe(true);
+  });
+  it('trusts a domain label echoing the practice name', () => {
+    expect(sppaSenderIsTrustedForReturn('admin@werribeefamilyclinic.com.au', trust)).toBe(true);
+  });
+  it('NEVER trusts the candidate, even if harvested', () => {
+    const t2 = { ...trust, addresses: new Set(['dzungwemb@gmail.com']) };
+    expect(sppaSenderIsTrustedForReturn('dzungwemb@gmail.com', t2)).toBe(false);
+  });
+  it('a public webmail domain never vouches by domain', () => {
+    expect(sppaSenderIsTrustedForReturn('someoneelse@gmail.com', trust)).toBe(false);
+  });
+  it('never trusts our own mailboxes', () => {
+    expect(sppaSenderIsTrustedForReturn('registration@mygplink.com.au', trust)).toBe(false);
+  });
+  it('rejects a stranger', () => {
+    expect(sppaSenderIsTrustedForReturn('stranger@example.com', trust)).toBe(false);
+  });
+});
+
+// The surfacing + one-click accept must exist on BOTH dashboards and in the server (parity
+// guard, same style as the repo's page greps — the endpoint literal is the contract).
+describe('unverified-return surfacing (source guard)', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const root = path.join(__dirname, '..');
+  it('server exposes the accept endpoint + shared transition', () => {
+    const src = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+    expect(src).toContain("pathname.endsWith('/sppa-accept-return')");
+    expect(src).toContain('async function _applySppaPracticeReturn(');
+    expect(src).toContain('unverified_return');
+    expect(src).toContain('async function buildSppaTrustedReturnSenders(');
+  });
+  it('admin dashboard renders the banner and calls the endpoint', () => {
+    const src = fs.readFileSync(path.join(root, 'pages', 'admin.html'), 'utf8');
+    expect(src).toContain('sppa-accept-return');
+    expect(src).toContain('Accept as practice return');
+    expect(src).toContain('unverified_return');
+  });
+  it('CEO dashboard renders the banner and calls the endpoint', () => {
+    const src = fs.readFileSync(path.join(root, 'pages', 'ceo-dashboard.html'), 'utf8');
+    expect(src).toContain('sppa-accept-return');
+    expect(src).toContain('Accept as practice return');
+    expect(src).toContain('unverified_return');
+  });
+});

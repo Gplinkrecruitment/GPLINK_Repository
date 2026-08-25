@@ -5253,6 +5253,34 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     h += sppaReplyRead();
 
+    // ── A document arrived but the machine could not trust the sender ──────────
+    // The auto-flip only trusts the expected sender or a provably-affiliated contact; anyone
+    // else's document is stored + flagged (metadata.unverified_return). Without this banner the
+    // stored form sat invisible while the card kept saying "awaiting return" (Dr Mercy
+    // Obanimoh, 2026-08-25). Also covers returns filed before the flag existed, via
+    // practice_reply.has_document.
+    function sppaUnverifiedReturn() {
+      if (sppaState !== 'sent_to_practice' && sppaState !== 'corrections_requested') return '';
+      var ur = meta.unverified_return;
+      var pr = meta.practice_reply;
+      if (!ur && !(pr && pr.has_document)) return '';
+      var sender = (ur && ur.sender) || (pr && pr.sender) || 'an unrecognised sender';
+      var when = (ur && ur.received_at) || (pr && pr.received_at) || '';
+      var files = (ur && ur.filenames && ur.filenames.length) ? ur.filenames.join(', ') : '';
+      var b = '<div class="ops-expand-section">';
+      b += '<div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:8px;padding:10px 12px;font-size:12px;color:#14532d">';
+      b += '<b>📄 Document received — review needed</b>';
+      b += '<div style="margin-top:4px">A reply' + (files ? ' with <b>' + esc(files) + '</b>' : ' with a document') + ' arrived from <b>' + esc(sender) + '</b>'
+        + (when ? ' on ' + esc(new Date(when).toLocaleString('en-AU')) : '') + '.';
+      b += ' That is not the address the form was sent to (' + esc(meta.sent_to_practice_email || 'unknown') + '), so it was not accepted automatically.</div>';
+      b += '<div style="margin-top:4px">If this is the completed SPPA-00 from the practice, accept it below — the completeness check runs as normal.</div>';
+      b += '<div style="margin-top:8px"><button class="ops-btn-green" onclick="sppaAcceptReturn(\'' + escAttr(task.id) + '\')">Accept as practice return</button> ';
+      b += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button></div>';
+      b += '</div></div>';
+      return b;
+    }
+    h += sppaUnverifiedReturn();
+
     // Conflict alert banner (shown in ready_to_send state)
     function conflictBanner() {
       var b = '';
@@ -9557,6 +9585,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     } catch (err) { toast('Network error', 'red'); }
   }
 
+  async function sppaAcceptReturn(taskId) {
+    if (!confirm('Accept the emailed document as the completed SPPA-00 from the practice?')) return;
+    toast('Accepting the practice return…');
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-accept-return', { method: 'POST', credentials: 'same-origin' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) {
+        toast('Accepted — the SPPA-00 is now marked returned by the practice; the completeness check is running');
+        await loadAll(true);
+      } else {
+        toast((d && d.error) || 'Could not accept the return', 'red');
+      }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
   async function altCvRecheck(taskId) {
     var statusEl = document.getElementById('altcv-recheck-' + taskId);
     if (statusEl) statusEl.textContent = 'Checking…';
@@ -10115,6 +10158,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.sppaRequestCorrections = sppaRequestCorrections;
   window.sppaRequestGpCorrections = sppaRequestGpCorrections;
   window.sppaRecheckThread = sppaRecheckThread;
+  window.sppaAcceptReturn = sppaAcceptReturn;
   function closeCorrectionModal() { var el = document.getElementById('correctionOverlay'); if (el) el.style.display = 'none'; }
   function sendSppaCorrection() { closeCorrectionModal(); toast('Use the Request Corrections button on the task instead'); }
   window.closeCorrectionModal = closeCorrectionModal;

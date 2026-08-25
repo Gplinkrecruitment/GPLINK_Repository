@@ -4037,14 +4037,110 @@ function extractEmailMeta(gmailMessage) {
 }
 
 // Deterministic SPPA reply selection (no AI / no thread-match heuristics). Given the messages
+// ── SPPA-00 trusted-return senders ──────────────────────────────────────────────────────────
+// The completed SPPA-00 often comes back from someone OTHER than the address we sent it to: the
+// supervisor forwards it to the practice manager, who returns it from the practice's own mailbox.
+// Trust to move the state machine reuses the SAME affiliation proof that gates the CC picker
+// (buildPracticeAffiliationSignals: we already emailed them from this case, they are recorded on
+// the practice, or the practice's own domain/name vouches for theirs) PLUS the signal the owner
+// asked for directly: an address the practice side itself put on an email — To/Cc of an INBOUND
+// message from an already-trusted sender. The CC picker's broader "arrived on a thread we wrote
+// on" rule is deliberately NOT enough here: any stranger who lands in the thread would pass it,
+// and this trust flips sppa_state (see the false-return incident in metadata notes / 52761d6).
+//
+// The CANDIDATE's own addresses are excluded fail-closed — a doctor CC'd at her own practice must
+// never have her reply recorded as the practice returning the form.
+async function buildSppaTrustedReturnSenders(caseId, taskMeta) {
+  var trust = { addresses: new Set(), excluded: new Set(), signals: null };
+  if (!caseId || !isSupabaseDbConfigured()) return trust;
+  taskMeta = taskMeta || {};
+  function bare(s) {
+    var angle = String(s || '').match(/<([^>]+)>/);
+    var addr = angle ? angle[1] : String(s || '');
+    var m = addr.match(/[\w.+-]+@[\w.-]+\.\w+/);
+    return (m ? m[0] : addr).trim().toLowerCase();
+  }
+  var candAddr = bare(taskMeta.sent_to_candidate_email);
+  if (candAddr) trust.excluded.add(candAddr);
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases',
+      'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var caseUserId = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+    if (caseUserId) {
+      var profRes = await supabaseDbRequest('user_profiles',
+        'select=email&user_id=eq.' + encodeURIComponent(caseUserId) + '&limit=1');
+      var profEmail = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? bare(profRes.data[0].email) : '';
+      if (profEmail) trust.excluded.add(profEmail);
+    }
+  } catch (e) { /* an unknown profile email just means one fewer exclusion candidate */ }
+  try {
+    trust.signals = await buildPracticeAffiliationSignals(caseId);
+    trust.signals.trusted.forEach(function (a) { trust.addresses.add(a); });
+  } catch (e) { console.warn('[SPPA trust] affiliation signals failed:', e.message); }
+  // One-hop bring-in: recipients of an inbound email FROM a trusted sender (the practice contact
+  // CC'ing their practice manager). Fixed-point over a bounded page so a chain (contact CCs the
+  // PM, the PM CCs the nurse lead) also resolves; 3 passes bounds the work, not the correctness.
+  try {
+    var inb = await supabaseDbRequest('task_messages',
+      'select=sender,recipient,cc&case_id=eq.' + encodeURIComponent(caseId) +
+      '&channel=eq.email&direction=eq.inbound&limit=200');
+    var rows = (inb.ok && Array.isArray(inb.data)) ? inb.data : [];
+    for (var pass = 0; pass < 3; pass++) {
+      var grew = false;
+      for (var i = 0; i < rows.length; i++) {
+        var from = bare(rows[i].sender);
+        if (!from || !trust.addresses.has(from)) continue;
+        parseEmailListWithNames(rows[i].recipient).concat(parseEmailListWithNames(rows[i].cc))
+          .forEach(function (x) {
+            var a = bare(x.email);
+            if (a && !trust.addresses.has(a)) { trust.addresses.add(a); grew = true; }
+          });
+      }
+      if (!grew) break;
+    }
+  } catch (e) { console.warn('[SPPA trust] inbound cc harvest failed:', e.message); }
+  trust.excluded.forEach(function (a) { trust.addresses.delete(a); });
+  return trust;
+}
+
+// Bare lowercase address → is it allowed to return the practice's SPPA-00? Explicit addresses
+// win; otherwise the practice's own (non-public) domain or a domain echoing the practice name
+// vouches, exactly as in isPracticeAffiliatedAddress. Public webmail domains never vouch.
+function sppaSenderIsTrustedForReturn(addr, trust) {
+  addr = String(addr || '').trim().toLowerCase();
+  if (!addr || !trust) return false;
+  if (trust.excluded && trust.excluded.has(addr)) return false;
+  if (isOurOwnAddress(addr)) return false;
+  if (trust.addresses && trust.addresses.has(addr)) return true;
+  var signals = trust.signals;
+  if (!signals) return false;
+  var domain = emailDomainOf(addr);
+  if (domain && signals.domains && signals.domains.has(domain)) return true;
+  if (domain && !PUBLIC_EMAIL_DOMAINS.has(domain) && Array.isArray(signals.tokens)) {
+    var label = domain.split('.')[0];
+    for (var i = 0; i < signals.tokens.length; i++) {
+      if (label.indexOf(signals.tokens[i]) !== -1) return true;
+    }
+  }
+  return false;
+}
+
 // of a task's OWN Gmail thread (each extractEmailMeta-shaped) plus the task's metadata, decide
 // which message is the awaited reply and from which side. The whole SPPA exchange lives in one
 // thread, so thread-matching alone cannot tell the candidate's reply from the practice's — the
 // EXPECTED SENDER (the address we actually sent the form to) is what identifies the awaited
 // reply. This is the known-task recovery path that bypasses the fragile earlyGpCase /
 // matchResponseToTask chain (which could surface a reply yet silently drop it).
+//
+// `isTrustedSender` (optional): a predicate over a bare lowercase address. While awaiting the
+// PRACTICE, a reply from a sender it approves is accepted as the practice's return even though
+// they are not the expected sender — the supervisor routinely passes the form to the practice
+// manager, who returns it from the practice's own mailbox (owner 2026-08-25, Dr Mercy Obanimoh:
+// the PM's signed return sat filed on the task while the card kept chasing). A trusted sender
+// must return a PDF (same rule as the sender-search path — a stray screenshot can't advance the
+// machine). Never consulted while awaiting the CANDIDATE: only the candidate returns their form.
 // Returns { direction:'practice'|'candidate'|null, message, expectedSender, reason }.
-function selectSppaReplyMessage(messages, meta, alreadyAttachedIds) {
+function selectSppaReplyMessage(messages, meta, alreadyAttachedIds, isTrustedSender) {
   meta = meta || {};
   var state = String(meta.sppa_state || '');
   var awaitingPractice = (state === 'sent_to_practice' || state === 'corrections_requested');
@@ -4065,10 +4161,15 @@ function selectSppaReplyMessage(messages, meta, alreadyAttachedIds) {
     var m2 = addr.match(/[\w.+-]+@[\w.-]+\.\w+/);
     return (m2 ? m2[0] : addr).trim().toLowerCase();
   }
+  var trustFn = (awaitingPractice && typeof isTrustedSender === 'function') ? isTrustedSender : null;
   var candidates = (messages || []).filter(function (msg) {
     if (!msg) return false;
-    if (bareEmail(msg.sender) !== expectedSender) return false;
+    var from = bareEmail(msg.sender);
+    var isExpected = from === expectedSender;
+    var isTrusted = !isExpected && !!(trustFn && trustFn(from));
+    if (!isExpected && !isTrusted) return false;
     if (!msg.attachments || msg.attachments.length === 0) return false;
+    if (isTrusted && !(msg.attachments || []).some(function (a) { return a && (/\.pdf$/i.test(a.filename || '') || /pdf/i.test(a.mimeType || '')); })) return false;
     return true;
   });
   if (candidates.length === 0) {
@@ -4109,6 +4210,64 @@ async function _readSppaSuperviseeName(gmail, mailbox, em) {
 // like the inline auto-pickup (task_message + task_documents + sppa_state transition + ops + AI
 // follow-ups + Drive upload + dedup row). This is the safety net that guarantees a surfaced reply
 // can never be silently dropped. Always logs one line. Returns a structured result.
+// The ONE practice-return transition, shared by the inline Gmail auto-pickup, the thread
+// recovery, and the RSO's manual "Accept as practice return". Three near-identical copies of
+// this block is how the trusted-sender gap survived — every new pickup path re-implemented the
+// flip and inherited someone else's blind spot. Mutates + persists `fm` (the task's metadata):
+// state fields, alt-supervisor-CV tagging/requests, ops sync, completeness check, Drive upload.
+// `storedDocs`: [{id, b64, filename}] already written to task_documents for THIS return.
+async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, storedDocs, opts) {
+  opts = opts || {};
+  var tag = opts.logTag || '[SPPA return]';
+  storedDocs = Array.isArray(storedDocs) ? storedDocs : [];
+  fm.sppa_state = 'practice_returned';
+  fm.practice_returned_at = new Date().toISOString();
+  fm.practice_returned_via = opts.via || 'email_auto';
+  if (opts.sender) fm.practice_returned_sender = opts.sender;
+  // Fresh practice return → discard any stale AI completeness verdict / override so the
+  // submit gate re-checks THIS document version, not the prior one. An accepted return also
+  // clears the unverified-return flag that surfaced it for review.
+  delete fm.completeness_check;
+  delete fm.completeness_override;
+  delete fm.unverified_return;
+  // Tag attachments: the SPPA PDF is the main doc; any others are alternative supervisor CVs.
+  var mainSppa = storedDocs.find(function (d) { return (d.filename || '').toLowerCase().indexOf('sppa') > -1; }) || storedDocs[0];
+  if (storedDocs.length > 1 && mainSppa) {
+    for (var aDoc of storedDocs) {
+      if (aDoc.id !== mainSppa.id) {
+        await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
+      }
+    }
+    fm.has_alt_supervisor_cvs = true;
+  }
+  if (mainSppa && mainSppa.b64) {
+    try {
+      var sppaBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+      var altNames = await extractAltSupervisorNames(sppaBuf);
+      if (altNames.length > 0) {
+        fm.alt_supervisor_names = altNames;
+        _createAltSupervisorCvPlaceholders(caseId, altNames).catch(function (e) { console.error(tag, 'alt CV placeholder error:', e.message); });
+      }
+    } catch (exErr) { console.error(tag, 'alt supervisor name extraction error:', exErr.message); }
+  }
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
+    { method: 'PATCH', body: { status: 'in_progress', metadata: fm, updated_at: new Date().toISOString() } });
+  if (fm.alt_supervisor_names && fm.alt_supervisor_names.length) {
+    _ensureAltSupervisorCvRequest(caseId, { id: taskId, case_id: caseId, metadata: fm, gmail_thread_id: gmailThreadId }, fm.alt_supervisor_names)
+      .catch(function (e) { console.error(tag, 'alt CV request error:', e.message); });
+  }
+  _ensurePracticeDocOps(caseId).then(function () {
+    return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
+  }).catch(function (err) { console.error(tag, 'ops sync error:', err.message); });
+  // AI: check the completed form against AHPRA-approved patterns + supporting docs (fire-and-forget).
+  _runSppaCompletenessCheck(caseId, taskId).catch(function (e) { console.error(tag, 'completeness check error:', e.message); });
+  if (storedDocs.length > 0 && mainSppa) {
+    var pracBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    _uploadSppaDocToDrive(caseId, mainSppa.id, pracBuf, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error(tag, 'Drive upload error:', e.message); });
+  }
+  return fm;
+}
+
 async function recoverSppaThreadReply(task, mailbox) {
   if (!task || !task.id || !task.gmail_thread_id || !mailbox) {
     return { recovered: false, reason: 'missing-inputs' };
@@ -4226,7 +4385,18 @@ async function recoverSppaThreadReply(task, mailbox) {
     if (amRes.ok && Array.isArray(amRes.data)) attachedIds = amRes.data.map(function (r) { return r.gmail_message_id; }).filter(Boolean);
   } catch (e) {}
 
-  var pick = selectSppaReplyMessage(metas, meta, attachedIds);
+  // While awaiting the PRACTICE, a reply from a provably-affiliated third party (the practice
+  // manager the supervisor passed the form to) is accepted too — see selectSppaReplyMessage's
+  // trusted-sender contract. Built fail-open to null: if the signals can't be built we simply
+  // fall back to the strict expected-sender rule, never the other way around.
+  var _isTrustedSender = null;
+  if (preState === 'sent_to_practice' || preState === 'corrections_requested') {
+    try {
+      var _trust = await buildSppaTrustedReturnSenders(task.case_id, meta);
+      _isTrustedSender = function (addr) { return sppaSenderIsTrustedForReturn(addr, _trust); };
+    } catch (e) { console.warn('[SPPA recover] trusted-sender signals failed:', e.message); }
+  }
+  var pick = selectSppaReplyMessage(metas, meta, attachedIds, _isTrustedSender);
   if (!pick.direction || !pick.message) {
     console.log('[SPPA recover] task', task.id, 'mailbox', mailbox, '— no pickup (' + pick.reason + ', state ' + preState + ', thread msgs ' + metas.length + ')');
     return { recovered: false, reason: pick.reason, sppa_state: preState };
@@ -4308,45 +4478,12 @@ async function recoverSppaThreadReply(task, mailbox) {
     }
   } else {
     newState = 'practice_returned';
-    fm.sppa_state = 'practice_returned';
-    fm.practice_returned_at = new Date().toISOString();
-    fm.practice_returned_via = 'thread_recovery';
-    delete fm.completeness_check;
-    delete fm.completeness_override;
-    // Tag attachments: the SPPA PDF is the main doc; any others are alternative supervisor CVs.
-    var mainSppa = storedDocs.find(function (d) { return (d.filename || '').toLowerCase().indexOf('sppa') > -1; }) || storedDocs[0];
-    if (storedDocs.length > 1 && mainSppa) {
-      for (var aDoc of storedDocs) {
-        if (aDoc.id !== mainSppa.id) {
-          await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
-        }
-      }
-      fm.has_alt_supervisor_cvs = true;
-    }
-    if (mainSppa && mainSppa.b64) {
-      try {
-        var sppaBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-        var altNames = await extractAltSupervisorNames(sppaBuf);
-        if (altNames.length > 0) {
-          fm.alt_supervisor_names = altNames;
-          _createAltSupervisorCvPlaceholders(task.case_id, altNames).catch(function (e) { console.error('[SPPA recover] alt CV placeholder error:', e.message); });
-        }
-      } catch (exErr) { console.error('[SPPA recover] alt supervisor name extraction error:', exErr.message); }
-    }
-    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id),
-      { method: 'PATCH', body: { status: 'in_progress', metadata: fm, updated_at: new Date().toISOString() } });
-    if (fm.alt_supervisor_names && fm.alt_supervisor_names.length) {
-      _ensureAltSupervisorCvRequest(task.case_id, { id: task.id, case_id: task.case_id, metadata: fm, gmail_thread_id: task.gmail_thread_id }, fm.alt_supervisor_names)
-        .catch(function (e) { console.error('[SPPA recover] alt CV request error:', e.message); });
-    }
-    _ensurePracticeDocOps(task.case_id).then(function () {
-      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
-    }).catch(function (err) { console.error('[SPPA recover] ops sync error:', err.message); });
-    _runSppaCompletenessCheck(task.case_id, task.id).catch(function (e) { console.error('[SPPA recover] completeness check error:', e.message); });
-    if (storedDocs.length > 0 && mainSppa) {
-      var pracBuf = Buffer.from((mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-      _uploadSppaDocToDrive(task.case_id, mainSppa.id, pracBuf, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[SPPA recover] Drive upload error:', e.message); });
-    }
+    var _pickedBare = String(picked.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+    await _applySppaPracticeReturn(task.case_id, task.id, task.gmail_thread_id, fm, storedDocs, {
+      via: (_pickedBare && _pickedBare !== pick.expectedSender) ? 'thread_recovery_trusted' : 'thread_recovery',
+      sender: _pickedBare || (picked.sender || ''),
+      logTag: '[SPPA recover]'
+    });
   }
 
   // 4) Dedup row so the heuristic path won't re-ingest this message later.
@@ -5986,6 +6123,23 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
               // two identified roles, but fail-CLOSED for the new 'unknown' role a thread-
               // resolved sender carries: an unidentified third party replying on an SPPA
               // thread must never be recorded as the candidate returning their form.
+              //
+              // One widening (owner 2026-08-25, Dr Mercy Obanimoh): while awaiting the
+              // PRACTICE, an 'unknown' sender who is provably part of the practice's own
+              // correspondence — the practice manager the supervisor passed the form to —
+              // counts as the practice, but only when a PDF from THIS message was stored.
+              // See buildSppaTrustedReturnSenders for what "provably" means; the candidate's
+              // own addresses can never qualify.
+              var _sppaTrustedReturn = false;
+              if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested')
+                  && earlySenderRole !== 'practice' && earlySenderRole !== 'candidate' && senderEmail
+                  && _earlyStoredDocIds.some(function (d) { return /\.pdf$/i.test(d.filename || '') || /pdf/i.test(d.mimeType || ''); })) {
+                try {
+                  var _sppaTrust = await buildSppaTrustedReturnSenders(earlyGpCase.id, sppaMeta);
+                  _sppaTrustedReturn = sppaSenderIsTrustedForReturn(senderEmail, _sppaTrust);
+                  if (_sppaTrustedReturn) console.log('[Gmail] SPPA trusted-return sender', senderEmail, 'accepted for task', earlyTask.id);
+                } catch (trustErr) { console.error('[Gmail] SPPA trusted-sender check failed:', trustErr.message); }
+              }
               if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_candidate' || sppaMeta.sppa_state === 'gp_corrections_requested') && earlySenderRole === 'candidate') {
                 sppaMeta.sppa_state = 'gp_returned';
                 sppaMeta.gp_returned_at = new Date().toISOString();
@@ -6005,62 +6159,39 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                   _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc.id, _sppaBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
                 }
-              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole === 'practice') {
-                sppaMeta.sppa_state = 'practice_returned';
-                sppaMeta.practice_returned_at = new Date().toISOString();
-                sppaMeta.practice_returned_via = 'email_auto';
-                // Fresh practice return → discard any stale AI completeness verdict / override
-                // so the submit gate re-checks THIS document version, not the prior one.
-                delete sppaMeta.completeness_check;
-                delete sppaMeta.completeness_override;
-                // Tag attachments: first PDF = SPPA, others = alt supervisor CVs
-                var _mainSppa = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
-                if (_earlyStoredDocIds.length > 1) {
-                  for (var _aDoc of _earlyStoredDocIds) {
-                    if (_aDoc.id !== _mainSppa.id) {
-                      await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(_aDoc.id), { method: 'PATCH', body: { category: 'alt_supervisor_cv' } });
-                    }
-                  }
-                  sppaMeta.has_alt_supervisor_cvs = true;
-                }
-                // Extract alt supervisor names from the SPPA PDF
-                if (_mainSppa && _mainSppa.b64) {
-                  try {
-                    var _sppaPdfBuf = Buffer.from((_mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-                    var _altNames = await extractAltSupervisorNames(_sppaPdfBuf);
-                    if (_altNames.length > 0) {
-                      sppaMeta.alt_supervisor_names = _altNames;
-                      console.log('[Gmail] Extracted alt supervisor names:', _altNames);
-                      _createAltSupervisorCvPlaceholders(earlyGpCase.id, _altNames).catch(function (e) { console.error('[Gmail] Alt CV placeholder error:', e.message); });
-                    }
-                  } catch (exErr) { console.error('[Gmail] Alt supervisor name extraction error:', exErr.message); }
-                }
-                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
-                  { method: 'PATCH', body: { status: 'in_progress', metadata: sppaMeta, updated_at: new Date().toISOString() } });
-                if (sppaMeta.alt_supervisor_names && sppaMeta.alt_supervisor_names.length) {
-                  _ensureAltSupervisorCvRequest(earlyGpCase.id, { id: earlyTask.id, case_id: earlyGpCase.id, metadata: sppaMeta, gmail_thread_id: earlyTask.gmail_thread_id }, sppaMeta.alt_supervisor_names)
-                    .catch(function (e) { console.error('[Gmail] alt CV request error:', e.message); });
-                }
-                _ensurePracticeDocOps(earlyGpCase.id).then(function () {
-                  return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
-                }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
-                // AI: check the completed form against AHPRA-approved patterns + supporting docs (fire-and-forget).
-                _runSppaCompletenessCheck(earlyGpCase.id, earlyTask.id).catch(function (e) { console.error('[Gmail] SPPA completeness check error:', e.message); });
-                if (_earlyStoredDocIds.length > 0) {
-                  var _sppaPdfDoc2 = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('sppa') > -1; }) || _earlyStoredDocIds[0];
-                  var _sppaBuf2 = Buffer.from((_sppaPdfDoc2.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-                  _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc2.id, _sppaBuf2, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
-                }
+              } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && (earlySenderRole === 'practice' || _sppaTrustedReturn)) {
+                await _applySppaPracticeReturn(earlyGpCase.id, earlyTask.id, earlyTask.gmail_thread_id, sppaMeta, _earlyStoredDocIds, {
+                  via: _sppaTrustedReturn ? 'email_auto_trusted' : 'email_auto',
+                  sender: senderEmail || (emailMeta.sender || ''),
+                  logTag: '[Gmail]'
+                });
               } else {
                 // No state advance: either the SPPA isn't awaiting a return, or the sender's
                 // role contradicts the state (e.g. a candidate reply arriving while we're
                 // waiting on the PRACTICE). Record + surface for RSO review; do NOT advance.
+                var _sppaNoAdvancePatch = { status: 'open', updated_at: new Date().toISOString() };
                 if (sppaMeta && earlySenderRole && ((sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole === 'candidate')) {
                   console.warn('[Gmail] SPPA sender-role mismatch — candidate replied while awaiting practice; not advancing task', earlyTask.id);
                   await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'system', 'SPPA-00 reply from the candidate received while awaiting the practice — left for review (state unchanged)', 'From: ' + (emailMeta.sender || ''), 'system');
+                } else if (sppaMeta && (sppaMeta.sppa_state === 'sent_to_practice' || sppaMeta.sppa_state === 'corrections_requested')) {
+                  // A DOCUMENT arrived while awaiting the practice, from a sender we can
+                  // neither identify nor affiliate. The machine rightly refuses to move on
+                  // its own — but silently filing the document leaves the RSO chasing a form
+                  // that is already on the task (how Dr Mercy's return went unseen). Flag it
+                  // so both dashboards surface "document received — review & accept".
+                  sppaMeta.unverified_return = {
+                    message_id: currentMsgId,
+                    sender: emailMeta.sender || '',
+                    received_at: new Date().toISOString(),
+                    doc_ids: _earlyStoredDocIds.map(function (d) { return d.id; }),
+                    filenames: _earlyStoredDocIds.map(function (d) { return d.filename; }).filter(Boolean)
+                  };
+                  _sppaNoAdvancePatch.metadata = sppaMeta;
+                  console.warn('[Gmail] SPPA document from unrecognised sender', senderEmail || '(unparsed)', '— flagged for review on task', earlyTask.id);
+                  await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'system', 'SPPA-00 document received from an unrecognised sender — review & accept needed (state unchanged)', 'From: ' + (emailMeta.sender || ''), 'system');
                 }
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
-                  { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+                  { method: 'PATCH', body: _sppaNoAdvancePatch });
               }
             } else {
             // Flip task status to open (Hazel's ball) for review
@@ -65195,6 +65326,80 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── SPPA-00: accept an already-stored document as the practice's return ──
+  // The automatic flip is deliberately strict (expected sender, or a provably-affiliated
+  // trusted sender, with a PDF). When a document arrives from anyone else it is stored and
+  // flagged (metadata.unverified_return) but the machine does not move — this endpoint is the
+  // RSO's one-click "yes, that IS the completed SPPA-00", running the same shared transition
+  // as the automatic paths (_applySppaPracticeReturn), so the completeness check, alt-CV
+  // handling, ops sync and Drive upload all still happen.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-accept-return')) {
+    const sarAdmin = requireAdminSession(req, res);
+    if (!sarAdmin) return;
+    const sarTaskId = pathname.split('/')[5];
+    const sarTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,gmail_thread_id,metadata&id=eq.' + encodeURIComponent(sarTaskId) + '&related_document_key=eq.sppa_00&limit=1');
+    if (!sarTaskRes.ok || !sarTaskRes.data || !sarTaskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const sarTask = sarTaskRes.data[0];
+    var sarMeta = sarTask.metadata;
+    if (typeof sarMeta === 'string') { try { sarMeta = JSON.parse(sarMeta); } catch (e) { sarMeta = {}; } }
+    sarMeta = sarMeta || {};
+    var sarState = String(sarMeta.sppa_state || '');
+    if (sarState === 'practice_returned' || sarState === 'completed') {
+      sendJson(res, 200, { ok: true, sppa_state: sarState, already: true });
+      return;
+    }
+    if (sarState !== 'sent_to_practice' && sarState !== 'corrections_requested') {
+      sendJson(res, 409, { error: 'This task is not awaiting the practice (state: ' + (sarState || 'none') + ').' });
+      return;
+    }
+    try {
+      // The docs to accept: the flagged unverified return when present, else whatever the most
+      // recent inbound email delivered (covers returns filed before this feature existed).
+      var sarDocIds = (sarMeta.unverified_return && Array.isArray(sarMeta.unverified_return.doc_ids)) ? sarMeta.unverified_return.doc_ids : [];
+      var sarSender = (sarMeta.unverified_return && sarMeta.unverified_return.sender) || '';
+      var sarDocs = [];
+      if (sarDocIds.length > 0) {
+        var sarByIds = await supabaseDbRequest('task_documents',
+          'select=id,filename,attachment_url&task_id=eq.' + encodeURIComponent(sarTaskId) + '&id=in.(' + sarDocIds.map(encodeURIComponent).join(',') + ')');
+        if (sarByIds.ok && Array.isArray(sarByIds.data)) sarDocs = sarByIds.data;
+      }
+      if (sarDocs.length === 0) {
+        var sarMsgRes = await supabaseDbRequest('task_messages',
+          'select=id,sender&task_id=eq.' + encodeURIComponent(sarTaskId) + '&direction=eq.inbound&is_document_delivery=eq.true&order=created_at.desc&limit=1');
+        var sarMsg = (sarMsgRes.ok && Array.isArray(sarMsgRes.data) && sarMsgRes.data[0]) ? sarMsgRes.data[0] : null;
+        if (sarMsg) {
+          if (!sarSender) sarSender = sarMsg.sender || '';
+          var sarByMsg = await supabaseDbRequest('task_documents',
+            'select=id,filename,attachment_url&task_id=eq.' + encodeURIComponent(sarTaskId) + '&message_id=eq.' + encodeURIComponent(sarMsg.id));
+          if (sarByMsg.ok && Array.isArray(sarByMsg.data)) sarDocs = sarByMsg.data;
+        }
+      }
+      if (sarDocs.length === 0) {
+        sendJson(res, 400, { error: 'No emailed document found on this task to accept. Use Upload Practice Return instead.' });
+        return;
+      }
+      var sarStored = sarDocs.map(function (d) {
+        var b64 = '';
+        var m = String(d.attachment_url || '').match(/^data:[^;]*;base64,(.*)$/s);
+        if (m) b64 = m[1];
+        return { id: d.id, b64: b64, filename: d.filename || '' };
+      });
+      sarMeta.practice_return_accepted_by = sarAdmin.email || 'admin';
+      await _applySppaPracticeReturn(sarTask.case_id, sarTaskId, sarTask.gmail_thread_id, sarMeta, sarStored, {
+        via: 'manual_accept', sender: sarSender, logTag: '[SPPA accept]'
+      });
+      await _logCaseEvent(sarTask.case_id, sarTaskId, 'system',
+        'SPPA-00 emailed document accepted as the practice return',
+        'Accepted by ' + (sarAdmin.email || 'admin') + (sarSender ? ' — originally from ' + sarSender : ''), sarAdmin.email || 'admin').catch(function () {});
+      sendJson(res, 200, { ok: true, sppa_state: 'practice_returned', accepted_docs: sarStored.length });
+    } catch (sarErr) {
+      console.error('[SPPA accept] Error:', sarErr.message);
+      sendJson(res, 500, { error: 'Internal error accepting the return.' });
+    }
+    return;
+  }
+
   // ── Alt-supervisor-CV: pull the practice's reply now (deterministic, watch-independent) ──
   // The instant operator path that mirrors the SPPA "Check for practice reply now" button, for
   // alt_supervisor_cv_request tasks. Needs only an admin session (no cron secret), so it can be
@@ -77697,6 +77902,8 @@ module.exports.__testUtils = {
   _createRegTask,
   parseEmailListWithNames,
   isOurOwnAddress,
+  buildSppaTrustedReturnSenders,
+  sppaSenderIsTrustedForReturn,
   collectCaseThreadContacts,
   collectPracticeSecondaryContacts,
   emailDomainOf,

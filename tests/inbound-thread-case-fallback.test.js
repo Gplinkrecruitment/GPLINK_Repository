@@ -77,7 +77,11 @@ describe('SPPA transitions are fail-closed for an unidentified sender', () => {
   });
 
   it('requires a POSITIVELY identified practice to record a practice return', () => {
-    expect(serverSrc).toContain("sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole === 'practice'");
+    // Widened 2026-08-25 (Dr Mercy Obanimoh): a provably-affiliated trusted sender — the
+    // practice manager the supervisor passed the form to — also counts, but only via the
+    // explicit _sppaTrustedReturn check (PDF stored from this message + affiliation proof).
+    // Still a positive identification, never a negation of the other party.
+    expect(serverSrc).toContain("sppaMeta.sppa_state === 'corrections_requested') && (earlySenderRole === 'practice' || _sppaTrustedReturn)");
     expect(serverSrc).not.toContain("sppaMeta.sppa_state === 'corrections_requested') && earlySenderRole !== 'candidate'");
   });
 });

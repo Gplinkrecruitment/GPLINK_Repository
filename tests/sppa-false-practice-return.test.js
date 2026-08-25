@@ -33,11 +33,21 @@ describe('a practice "return" requires a document that actually arrived', () => 
 
   it('the transitions themselves are unreachable without a stored document', () => {
     const gate = EARLY.indexOf('_earlyStoredDocIds.length > 0');
-    const practiceReturn = EARLY.indexOf("sppaMeta.sppa_state = 'practice_returned'");
+    // The practice transition now lives in the shared _applySppaPracticeReturn helper (one
+    // transition for the auto-pickup, the thread recovery and the manual accept); what this
+    // guard pins is that the early path only CALLS it inside the stored-document gate.
+    const practiceReturn = EARLY.indexOf('await _applySppaPracticeReturn(earlyGpCase.id');
     const gpReturn = EARLY.indexOf("sppaMeta.sppa_state = 'gp_returned'");
     expect(gate).toBeGreaterThan(-1);
     expect(practiceReturn).toBeGreaterThan(gate);
     expect(gpReturn).toBeGreaterThan(gate);
+  });
+
+  it('a trusted third-party return still requires a stored PDF from THIS message', () => {
+    const trustGate = EARLY.indexOf('_earlyStoredDocIds.some(function (d) { return /\\.pdf$/i.test(d.filename');
+    const trustCheck = EARLY.indexOf('buildSppaTrustedReturnSenders(earlyGpCase.id');
+    expect(trustGate).toBeGreaterThan(-1);
+    expect(trustCheck).toBeGreaterThan(trustGate);
   });
 
   it('does not mark a sibling practice document "completed" on an email that merely sounds like a delivery', () => {

@@ -6260,6 +6260,28 @@
         h += '</div>';
       }
 
+      // A document arrived but the machine could not trust the sender (admin sppaUnverifiedReturn
+      // parity, dark-converted). The auto-flip only trusts the expected sender or a provably-
+      // affiliated contact; anyone else's document is stored + flagged (metadata.unverified_return)
+      // — without this banner it sat invisible while the card kept saying "awaiting return"
+      // (Dr Mercy Obanimoh, 2026-08-25). practice_reply.has_document covers pre-flag returns.
+      if ((sppaState === 'sent_to_practice' || sppaState === 'corrections_requested')
+          && (meta.unverified_return || (_sppaPr && _sppaPr.has_document))) {
+        var _sppaUr = meta.unverified_return || {};
+        var _urSender = _sppaUr.sender || (_sppaPr && _sppaPr.sender) || 'an unrecognised sender';
+        var _urWhen = _sppaUr.received_at || (_sppaPr && _sppaPr.received_at) || '';
+        var _urFiles = (_sppaUr.filenames && _sppaUr.filenames.length) ? _sppaUr.filenames.join(', ') : '';
+        h += '<div style="background:var(--green-dim,#f0fdf4);border:2px solid var(--green,#16a34a);border-radius:8px;padding:10px 12px;margin:8px 0;font-size:12px;color:var(--text)">';
+        h += '<div style="font-weight:700">📄 Document received — review needed</div>';
+        h += '<div style="margin-top:4px">A reply' + (_urFiles ? ' with <b>' + esc(_urFiles) + '</b>' : ' with a document') + ' arrived from <b>' + esc(_urSender) + '</b>'
+          + (_urWhen ? ' on ' + esc(new Date(_urWhen).toLocaleString('en-AU')) : '') + '. That is not the address the form was sent to ('
+          + esc(meta.sent_to_practice_email || 'unknown') + '), so it was not accepted automatically.</div>';
+        h += '<div style="margin-top:4px">If this is the completed SPPA-00 from the practice, accept it — the completeness check runs as normal.</div>';
+        h += '<div style="margin-top:8px"><button class="ops-btn-green" data-ceo-act="sppa_accept_return" data-task="' + esc(task.id) + '">Accept as practice return</button> ';
+        h += '<button class="ops-btn-secondary" data-ceo-act="open_pdf" data-pdf-task="' + esc(task.id) + '">Preview PDF</button></div>';
+        h += '</div>';
+      }
+
       // GP-section completeness banner (gp_returned): did the candidate fill Section A Q1 and
       // sign Section I? Result comes from the AI scan stored in meta.gp_section_scan. Port of
       // admin gpSectionBanner() (admin.html ~5265), dark-converted.
@@ -6556,6 +6578,18 @@
         .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
     }
     // Re-run the AI scan of the candidate's Section A / Section I (port of admin sppaScanGpSections 8543).
+    function ceoSppaAcceptReturn(taskId) {
+      if (!confirm('Accept the emailed document as the completed SPPA-00 from the practice?')) return;
+      showToast('Accepting the practice return…', 'info');
+      apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-accept-return', { method: 'POST' })
+        .then(function(d) {
+          if (d && d.ok) {
+            showToast('Accepted — SPPA-00 marked returned by the practice; completeness check running', 'success');
+            refreshGpDetailTasks();
+          } else showToast((d && (d.error || d.message)) || 'Could not accept the return', 'error');
+        })
+        .catch(function(e) { showToast('Error: ' + ((e && e.message) || 'network'), 'error'); });
+    }
     function ceoSppaScanGpSections(taskId) {
       showToast('Scanning the candidate’s sections…', 'info');
       apiFetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-scan-gp-sections', { method: 'POST' })
@@ -8152,6 +8186,7 @@
         else if (cAct === 'sppa_correct_gp') ceoSppaRequestCorrections(cTid, 'gp', ceoActBtn.getAttribute('data-email') || '', '', ceoActBtn.getAttribute('data-gp') || '');
         else if (cAct === 'sppa_correct_practice') ceoSppaRequestCorrections(cTid, 'practice', ceoActBtn.getAttribute('data-email') || '', ceoActBtn.getAttribute('data-name') || '', ceoActBtn.getAttribute('data-gp') || '');
         else if (cAct === 'sppa_recheck') ceoSppaCompletenessCheck(cTid);
+        else if (cAct === 'sppa_accept_return') ceoSppaAcceptReturn(cTid);
         else if (cAct === 'sppa_scan_sections') ceoSppaScanGpSections(cTid);
         else if (cAct === 'open_pdf') ceoOpenTaskPdf(ceoActBtn.getAttribute('data-pdf-task') || cTid);
         return;
