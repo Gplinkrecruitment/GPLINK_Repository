@@ -4225,6 +4225,20 @@ async function _fileExtraPracticeDocToGp(caseId, taskId, doc, verdict, tag) {
   try {
     var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
     var userId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+    // Idempotency FIRST — before the Drive upload, or a raced second run still duplicates
+    // the file in Drive. Two pickup paths can land on the same return together (recheck
+    // click + hourly sweep did on Dr Mercy's — practice_other_1 AND _2 for one file); the
+    // same source filename already filed for this GP means this doc is already recorded.
+    var existingRows = [];
+    if (userId) {
+      var existing = await supabaseDbRequest('user_documents',
+        'select=document_key,file_name&user_id=eq.' + encodeURIComponent(userId) + '&document_key=like.practice_other_%25');
+      existingRows = (existing.ok && Array.isArray(existing.data)) ? existing.data : [];
+      var _fnPrefix = String(doc.filename || 'Practice document');
+      if (existingRows.some(function (r) { return String(r.file_name || '').indexOf(_fnPrefix) === 0; })) {
+        return;
+      }
+    }
     var driveFileId = null;
     try {
       var caseFolderId = await ensureGPDriveFolder(caseId, null, null);
@@ -4238,9 +4252,7 @@ async function _fileExtraPracticeDocToGp(caseId, taskId, doc, verdict, tag) {
       }
     } catch (e) { console.error(tag, 'extra-doc Drive upload failed:', e.message); }
     if (userId) {
-      var existing = await supabaseDbRequest('user_documents',
-        'select=document_key&user_id=eq.' + encodeURIComponent(userId) + '&document_key=like.practice_other_%25');
-      var usedKeys = (existing.ok && Array.isArray(existing.data)) ? existing.data.map(function (r) { return r.document_key; }) : [];
+      var usedKeys = existingRows.map(function (r) { return r.document_key; });
       var slot = 1;
       while (usedKeys.indexOf('practice_other_' + slot) >= 0) slot++;
       var rec = {
