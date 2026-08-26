@@ -101,11 +101,11 @@ describe('stampSppaQ12OnScan', () => {
     expect(out.buffer.length).toBeGreaterThan(scan.length);
   }, 30000);
 
-  it('legacy-scan repairs: white-out of the stray 40hrs and Q14 NO / Q19 YES crosses', async () => {
+  it('legacy-scan repairs: white-out of the stray 40hrs and Q14 NO / Q17 YES / Q19 YES crosses', async () => {
     const scan = await makeScanLikePdf(13);
-    const out = await stampSppaQ12OnScan(scan, { whiteOutStrayHours: true, crossQ14No: true, crossQ19Yes: true });
+    const out = await stampSppaQ12OnScan(scan, { whiteOutStrayHours: true, crossQ14No: true, crossQ17Yes: true, crossQ19Yes: true });
     expect(out.filled).toBe(true);
-    expect(out.stamped.sort()).toEqual(['q14_no', 'q19_yes', 'stray_hours_whiteout']);
+    expect(out.stamped.sort()).toEqual(['q14_no', 'q17_yes', 'q19_yes', 'stray_hours_whiteout']);
   }, 30000);
 
   it('refuses a scan whose layout it cannot trust (wrong page count)', async () => {
