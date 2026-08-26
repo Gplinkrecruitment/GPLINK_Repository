@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { fillSppaQ7, extractSppaFormFields, autofillSppaStartDate } = require('../lib/sppa-pdf-fill.js');
+const { fillSppaQ7, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('../lib/sppa-pdf-fill.js');
 const { PDFDocument } = require('pdf-lib');
+
+async function makeScanLikePdf(pages) {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < pages; i++) doc.addPage([595.276, 841.89]);
+  return Buffer.from(await doc.save());
+}
 
 // Owner rules (2026-08-27, Dr Mercy Obanimoh's return as the example):
 // - Q12 hours must be IN the designated box on the form GP Link sends (not below it).
@@ -58,5 +64,32 @@ describe('autofillSppaStartDate', () => {
     const out = await autofillSppaStartDate(blankBuf, '27/01/2027');
     expect(out.filled).toBe(false);
     expect(out.buffer).toBe(null);
+  }, 30000);
+});
+
+// A print-and-scan return has no fields to fill — the date (and hours, when asked) are drawn
+// onto the page at the template's box position so the RSO's "Review PDF" shows them on the form.
+describe('stampSppaQ12OnScan', () => {
+  it('stamps the start date (and hours) onto a 13-page field-less scan', async () => {
+    const scan = await makeScanLikePdf(13);
+    const out = await stampSppaQ12OnScan(scan, { startDate: '25/01/2027', hoursText: '40hrs Per Week' });
+    expect(out.filled).toBe(true);
+    expect(out.reason).toBe('stamped_on_scan');
+    expect(out.stamped.sort()).toEqual(['hours', 'start_date']);
+    expect(out.buffer.length).toBeGreaterThan(scan.length);
+  }, 30000);
+
+  it('refuses a scan whose layout it cannot trust (wrong page count)', async () => {
+    const scan = await makeScanLikePdf(3);
+    const out = await stampSppaQ12OnScan(scan, { startDate: '25/01/2027' });
+    expect(out.filled).toBe(false);
+    expect(out.reason).toBe('scan_layout_unknown');
+  }, 30000);
+
+  it('refuses a fillable PDF — fields are filled, not painted over', async () => {
+    const filled = await fillSppaQ7({ isConflict: false });
+    const out = await stampSppaQ12OnScan(filled, { startDate: '25/01/2027' });
+    expect(out.filled).toBe(false);
+    expect(out.reason).toBe('has_form_fields');
   }, 30000);
 });

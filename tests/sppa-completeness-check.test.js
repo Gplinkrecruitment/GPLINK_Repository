@@ -123,6 +123,19 @@ describe('completeness prompt: Mercy false-positive rules', () => {
     expect(COMPLETENESS_SYSTEM_PROMPT).toContain('GP Link pre-selects NO on Q14');
     expect(COMPLETENESS_SYSTEM_PROMPT).toContain('unmistakably ticked YES');
   });
+
+  it('the AI observes the start-date box state (drives the scan stamp), never flags it', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('q12_start_date_observed');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('neutral OBSERVATION');
+  });
+
+  it('q12_start_date_observed parses, defaulting to unclear', () => {
+    const base = { is_complete: true, confidence: 'high', missing_fields: [], missing_signatures: [], missing_documents: [], issues: [], summary: 'ok' };
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q12_start_date_observed: 'blank' })).q12_start_date_observed).toBe('blank');
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q12_start_date_observed: 'filled' })).q12_start_date_observed).toBe('filled');
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q12_start_date_observed: 'maybe' })).q12_start_date_observed).toBe('unclear');
+    expect(parseCompletenessResponse(JSON.stringify(base)).q12_start_date_observed).toBe('unclear');
+  });
 });
 
 describe('parseIdentifyResponse', () => {

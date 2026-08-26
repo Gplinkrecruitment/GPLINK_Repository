@@ -158,7 +158,7 @@ function isValidCronSecret(token) {
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
-const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate } = require('./lib/sppa-pdf-fill.js');
+const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 // Turns the doctor's drawn signature into an executed PDF (GP side of the
@@ -19075,6 +19075,29 @@ async function _runGpSectionScanInner(taskId, opts) {
  * (metadata.completeness_check). Returns the stored verdict object, or null if it
  * could not run. Safe to call fire-and-forget.
  */
+// Store an autofilled/stamped SPPA-00 as the task's new current document (the PDF the RSO's
+// "Review PDF" opens and the submit sends to AHPRA), superseding the prior version. Alt-CV /
+// "other" documents keep their own is_current flags.
+async function _storeSppaAutofilledDoc(caseId, taskId, pdfBuffer) {
+  await supabaseDbRequest('task_documents',
+    'task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&category=not.in.(alt_supervisor_cv,other)',
+    { method: 'PATCH', body: { is_current: false } });
+  var docRes = await supabaseDbRequest('task_documents', '', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: [{
+      task_id: taskId, case_id: caseId,
+      filename: 'SPPA-00.pdf', mime_type: 'application/pdf',
+      size_bytes: pdfBuffer.length, version: 1, is_current: true,
+      uploaded_by: 'system_start_date_autofill',
+      attachment_url: 'data:application/pdf;base64,' + pdfBuffer.toString('base64')
+    }]
+  });
+  var docId = (docRes.ok && docRes.data && docRes.data[0]) ? docRes.data[0].id : null;
+  _uploadSppaDocToDrive(caseId, docId, pdfBuffer, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[SPPA] start-date autofill Drive upload error:', e.message); });
+  return docId;
+}
+
 async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
   try {
     if (!isSupabaseDbConfigured()) return null;
@@ -19112,10 +19135,12 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
 
     // ── Q12 start date: fill it ourselves when the practice left it blank ────────────────
     // Owner rule (2026-08-27): a missing start date is never chased — it defaults to 5 months
-    // after the practice sent the form back. Fillable PDFs get the date written into the form
-    // (new document version); scanned returns can't be written to, so the intended date is
-    // recorded on the task instead. Idempotent: a filled field or a prior attempt both skip.
+    // after the practice sent the form back, and the date must land ON the PDF the RSO sees.
+    // Fillable PDFs get the field written here; scanned returns are stamped AFTER the AI check
+    // below confirms the box is visibly blank (a scan has no field to read, and stamping over
+    // a date the practice hand-wrote is worse than leaving it). Idempotent via metadata.
     var startDateAutofill = (meta.start_date_autofill && typeof meta.start_date_autofill === 'object') ? meta.start_date_autofill : null;
+    var _sdFresh = false;
     if (!startDateAutofill && meta.sppa_state === 'practice_returned' && /pdf/i.test(pdfMime)) {
       try {
         var _sdBase = meta.practice_returned_at ? new Date(meta.practice_returned_at) : new Date();
@@ -19124,38 +19149,24 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
         var _sdText = ('0' + _sdBase.getDate()).slice(-2) + '/' + ('0' + (_sdBase.getMonth() + 1)).slice(-2) + '/' + _sdBase.getFullYear();
         var _sdResult = await autofillSppaStartDate(pdfBuffer, _sdText);
         startDateAutofill = { date: _sdText, applied: _sdResult.filled, reason: _sdResult.reason, at: new Date().toISOString() };
+        _sdFresh = true;
         if (_sdResult.filled && _sdResult.buffer) {
           pdfBuffer = _sdResult.buffer;
-          await supabaseDbRequest('task_documents',
-            'task_id=eq.' + encodeURIComponent(sppaTask.id) + '&is_current=eq.true&category=not.in.(alt_supervisor_cv,other)',
-            { method: 'PATCH', body: { is_current: false } });
-          var _sdDocRes = await supabaseDbRequest('task_documents', '', {
-            method: 'POST',
-            headers: { Prefer: 'return=representation' },
-            body: [{
-              task_id: sppaTask.id, case_id: caseId,
-              filename: 'SPPA-00.pdf', mime_type: 'application/pdf',
-              size_bytes: pdfBuffer.length, version: 1, is_current: true,
-              uploaded_by: 'system_start_date_autofill',
-              attachment_url: 'data:application/pdf;base64,' + pdfBuffer.toString('base64')
-            }]
-          });
-          var _sdDocId = (_sdDocRes.ok && _sdDocRes.data && _sdDocRes.data[0]) ? _sdDocRes.data[0].id : null;
-          _uploadSppaDocToDrive(caseId, _sdDocId, pdfBuffer, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[SPPA] start-date autofill Drive upload error:', e.message); });
+          await _storeSppaAutofilledDoc(caseId, sppaTask.id, pdfBuffer);
           await _logCaseEvent(caseId, sppaTask.id, 'system',
             'Q12 start date was blank — auto-filled as ' + _sdText + ' (5 months from the practice return)',
             null, 'system').catch(function () {});
-        } else if (_sdResult.reason === 'no_form_fields' || _sdResult.reason === 'field_not_found') {
-          // Scanned return — nothing to write into. Record the intended date where the RSO sees it.
-          await _logCaseEvent(caseId, sppaTask.id, 'system',
-            'Q12 start date is blank — GP Link records it as ' + _sdText + ' (5 months from the practice return)',
-            'The returned copy is a scan, so the date could not be written onto the form itself.', 'system').catch(function () {});
         }
       } catch (sdErr) {
         console.error('[SPPA] start-date autofill error:', sdErr.message);
         startDateAutofill = null;
       }
     }
+    // A scanned return recorded in an earlier run but never written onto the form is
+    // eligible for the post-check stamp below too.
+    var _sdScanPending = !!(startDateAutofill && startDateAutofill.applied === false && startDateAutofill.date &&
+      (startDateAutofill.reason === 'no_form_fields' || startDateAutofill.reason === 'field_not_found') &&
+      meta.sppa_state === 'practice_returned' && /pdf/i.test(pdfMime));
 
     // Supporting-document inventory.
     var sibRes = await supabaseDbRequest('registration_tasks',
@@ -19223,6 +19234,35 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       altSupervisorNames: altNames
     });
 
+    // ── Scanned return: stamp the start date onto the page once the AI confirms the box is
+    // visibly blank. The stamped copy becomes the current document (what the RSO reviews and
+    // what goes to AHPRA). If the AI saw a date, the practice filled it — leave the scan alone.
+    if (_sdScanPending && !verdict._error) {
+      try {
+        if (verdict.q12_start_date_observed === 'blank') {
+          var _sdStamp = await stampSppaQ12OnScan(pdfBuffer, { startDate: startDateAutofill.date });
+          if (_sdStamp.filled && _sdStamp.buffer) {
+            await _storeSppaAutofilledDoc(caseId, sppaTask.id, _sdStamp.buffer);
+            startDateAutofill = { date: startDateAutofill.date, applied: true, reason: 'stamped_on_scan', at: new Date().toISOString() };
+            await _logCaseEvent(caseId, sppaTask.id, 'system',
+              'Q12 start date was blank — auto-filled as ' + startDateAutofill.date + ' (5 months from the practice return)',
+              'The date was stamped onto the scanned form.', 'system').catch(function () {});
+          } else if (_sdFresh) {
+            await _logCaseEvent(caseId, sppaTask.id, 'system',
+              'Q12 start date is blank — GP Link records it as ' + startDateAutofill.date + ' (5 months from the practice return)',
+              'The returned copy could not be written onto (' + _sdStamp.reason + ').', 'system').catch(function () {});
+          }
+        } else if (verdict.q12_start_date_observed === 'filled') {
+          // The practice wrote a date on the paper form — ours is not needed.
+          startDateAutofill = { date: null, applied: false, reason: 'practice_filled_on_scan', at: new Date().toISOString() };
+        } else if (_sdFresh) {
+          await _logCaseEvent(caseId, sppaTask.id, 'system',
+            'Q12 start date could not be read on the scanned return — GP Link records it as ' + startDateAutofill.date + ' (5 months from the practice return)',
+            null, 'system').catch(function () {});
+        }
+      } catch (stampErr) { console.error('[SPPA] start-date scan stamp error:', stampErr.message); }
+    }
+
     var stored = {
       // null = judged before the identity check existed; only an explicit false is "wrong form".
       is_sppa_form: (verdict.is_sppa_form === true || verdict.is_sppa_form === false) ? verdict.is_sppa_form : null,
@@ -19235,6 +19275,7 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       issues: verdict.issues,
       summary: verdict.summary,
       alternate_supervisors_on_form: verdict.alternate_supervisors_on_form,
+      q12_start_date_observed: verdict.q12_start_date_observed || 'unclear',
       // True when the form is otherwise complete/signed and the ONLY gap is an alternate-supervisor
       // CV — that has its own task, so the UI reframes it as a reminder and the submit gate allows it.
       only_alt_cv_outstanding: isOnlyAltCvOutstanding(verdict),
