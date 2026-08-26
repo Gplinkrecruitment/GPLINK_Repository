@@ -93,6 +93,38 @@ describe('completeness verdict carries form identity', () => {
   });
 });
 
+// ── Owner-corrected rules (2026-08-27, Dr Mercy Obanimoh's return) ──────────────────────────
+// Four false-positive classes the AI must never raise:
+// Q4 template pre-ticks are not an "incomplete alternate entry"; Q8/Q9 are irrelevant with no
+// named alternate; a blank Q12 start date is GP Link's job (5 months from the return); Q12
+// hours placement never matters; an unticked Q14 is NO (GP Link pre-selects it).
+describe('completeness prompt: Mercy false-positive rules', () => {
+  it('never flags a blank start date (GP Link auto-fills it)', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('NEVER flag a blank,');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('5 months after the practice returns the form');
+  });
+
+  it('hours placement never matters, only total absence', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('NEVER flag the value\'s placement');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('40hrs Per Week');
+  });
+
+  it('Q8/Q9 are ignored when no alternate supervisor is named at Q4', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('IGNORE Q8 and Q9 entirely');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('they are NOT always required');
+  });
+
+  it('Q4 template pre-ticks with no name are never an inconsistency', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('Q4/Q8 inconsistency');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('pre-ticked');
+  });
+
+  it('an unticked Q14 is treated as NO (GP Link pre-selects it)', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('GP Link pre-selects NO on Q14');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('unmistakably ticked YES');
+  });
+});
+
 describe('parseIdentifyResponse', () => {
   it('maps verdicts back by position', () => {
     const out = parseIdentifyResponse(JSON.stringify({

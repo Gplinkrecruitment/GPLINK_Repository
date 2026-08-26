@@ -158,7 +158,7 @@ function isValidCronSecret(token) {
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
 const { checkSppaCompleteness, isOnlyAltCvOutstanding, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
-const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields } = require('./lib/sppa-pdf-fill.js');
+const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
 // Turns the doctor's drawn signature into an executed PDF (GP side of the
@@ -4350,6 +4350,8 @@ async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, store
   delete fm.completeness_check;
   delete fm.completeness_override;
   delete fm.unverified_return;
+  // A fresh return also gets a fresh start-date autofill pass (Q12 default = return + 5 months).
+  delete fm.start_date_autofill;
   // Route the other attachments: a CV (or anything the AI could not judge) keeps the old
   // alternate-supervisor-CV behaviour; a judged non-CV, non-SPPA document goes to the GP's
   // document files as Other so it never masquerades as the form.
@@ -19107,6 +19109,53 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
     var pdfBuffer = Buffer.from(pdfB64, 'base64');
     var pdfMime = doc.mime_type || 'application/pdf';
 
+    // ── Q12 start date: fill it ourselves when the practice left it blank ────────────────
+    // Owner rule (2026-08-27): a missing start date is never chased — it defaults to 5 months
+    // after the practice sent the form back. Fillable PDFs get the date written into the form
+    // (new document version); scanned returns can't be written to, so the intended date is
+    // recorded on the task instead. Idempotent: a filled field or a prior attempt both skip.
+    var startDateAutofill = (meta.start_date_autofill && typeof meta.start_date_autofill === 'object') ? meta.start_date_autofill : null;
+    if (!startDateAutofill && meta.sppa_state === 'practice_returned' && /pdf/i.test(pdfMime)) {
+      try {
+        var _sdBase = meta.practice_returned_at ? new Date(meta.practice_returned_at) : new Date();
+        if (isNaN(_sdBase.getTime())) _sdBase = new Date();
+        _sdBase.setMonth(_sdBase.getMonth() + 5);
+        var _sdText = ('0' + _sdBase.getDate()).slice(-2) + '/' + ('0' + (_sdBase.getMonth() + 1)).slice(-2) + '/' + _sdBase.getFullYear();
+        var _sdResult = await autofillSppaStartDate(pdfBuffer, _sdText);
+        startDateAutofill = { date: _sdText, applied: _sdResult.filled, reason: _sdResult.reason, at: new Date().toISOString() };
+        if (_sdResult.filled && _sdResult.buffer) {
+          pdfBuffer = _sdResult.buffer;
+          await supabaseDbRequest('task_documents',
+            'task_id=eq.' + encodeURIComponent(sppaTask.id) + '&is_current=eq.true&category=not.in.(alt_supervisor_cv,other)',
+            { method: 'PATCH', body: { is_current: false } });
+          var _sdDocRes = await supabaseDbRequest('task_documents', '', {
+            method: 'POST',
+            headers: { Prefer: 'return=representation' },
+            body: [{
+              task_id: sppaTask.id, case_id: caseId,
+              filename: 'SPPA-00.pdf', mime_type: 'application/pdf',
+              size_bytes: pdfBuffer.length, version: 1, is_current: true,
+              uploaded_by: 'system_start_date_autofill',
+              attachment_url: 'data:application/pdf;base64,' + pdfBuffer.toString('base64')
+            }]
+          });
+          var _sdDocId = (_sdDocRes.ok && _sdDocRes.data && _sdDocRes.data[0]) ? _sdDocRes.data[0].id : null;
+          _uploadSppaDocToDrive(caseId, _sdDocId, pdfBuffer, 'SPPA-00 (Completed).pdf').catch(function (e) { console.error('[SPPA] start-date autofill Drive upload error:', e.message); });
+          await _logCaseEvent(caseId, sppaTask.id, 'system',
+            'Q12 start date was blank — auto-filled as ' + _sdText + ' (5 months from the practice return)',
+            null, 'system').catch(function () {});
+        } else if (_sdResult.reason === 'no_form_fields' || _sdResult.reason === 'field_not_found') {
+          // Scanned return — nothing to write into. Record the intended date where the RSO sees it.
+          await _logCaseEvent(caseId, sppaTask.id, 'system',
+            'Q12 start date is blank — GP Link records it as ' + _sdText + ' (5 months from the practice return)',
+            'The returned copy is a scan, so the date could not be written onto the form itself.', 'system').catch(function () {});
+        }
+      } catch (sdErr) {
+        console.error('[SPPA] start-date autofill error:', sdErr.message);
+        startDateAutofill = null;
+      }
+    }
+
     // Supporting-document inventory.
     var sibRes = await supabaseDbRequest('registration_tasks',
       'select=id,related_document_key,status&case_id=eq.' + encodeURIComponent(caseId) +
@@ -19156,7 +19205,15 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       'Alternate supervisor CVs held by GP Link: ' + altCvDocs.length +
         (altCvDocs.length ? ' (' + altCvDocs.map(function (d) { return d.filename || 'CV'; }).join('; ') + ')' : ''),
       'Alternate supervisor name(s) auto-detected on the form: ' + (altNames.length ? altNames.join('; ') : 'none detected')
-    ].join('\n');
+    ];
+    if (startDateAutofill && startDateAutofill.date) {
+      inventory.push('Q12 proposed start date: handled by GP Link — ' +
+        (startDateAutofill.applied
+          ? 'auto-filled on the form as ' + startDateAutofill.date + '.'
+          : 'the practice left it blank and GP Link has recorded it as ' + startDateAutofill.date + ' (the returned copy is a scan, so the box itself may look empty).') +
+        ' Do not flag the start date.');
+    }
+    inventory = inventory.join('\n');
 
     var verdict = await checkSppaCompleteness({
       sppaPdfBuffer: pdfBuffer,
@@ -19194,6 +19251,7 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
     if (typeof freshMeta === 'string') try { freshMeta = JSON.parse(freshMeta); } catch (e) { freshMeta = meta; }
     if (!freshMeta || typeof freshMeta !== 'object') freshMeta = {};
     freshMeta.completeness_check = stored;
+    if (startDateAutofill) freshMeta.start_date_autofill = startDateAutofill;
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(sppaTask.id),
       { method: 'PATCH', body: { metadata: freshMeta, updated_at: new Date().toISOString() } });
 
@@ -64751,6 +64809,7 @@ Return ONLY valid JSON with no markdown formatting:
       // gate re-checks this document version.
       delete taskMeta.completeness_check;
       delete taskMeta.completeness_override;
+      delete taskMeta.start_date_autofill;
       // Extract alt supervisor names from the returned SPPA PDF
       try {
         var altNames = await extractAltSupervisorNames(pdfBuf);
