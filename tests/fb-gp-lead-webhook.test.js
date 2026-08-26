@@ -68,6 +68,7 @@ function nativeFbBody(overrides = {}) {
         value: Object.assign({
           leadgen_id: 'L-1001',
           form_id: 'F-77',
+          ad_id: 'AD-501',
           field_data: [
             { name: 'full_name', values: ['Aisha Khan'] },
             { name: 'email', values: ['aisha@example.co.uk'] },
@@ -151,6 +152,10 @@ describe('facebook-lead webhook — GP form branch', () => {
     expect(row.kind).toBe('gp');
     expect(row.metadata.source).toBe('meta_lead_ad');
     expect(row.metadata.fb_lead_id).toBe('L-1001');
+    // The form id is the A/B arm marker (straight-to-Calendly form test):
+    // booking rate per form is unmeasurable without it on the stored row.
+    expect(row.metadata.fb_form_id).toBe('F-77');
+    expect(row.metadata.fb_ad_id).toBe('AD-501');
     expect(row.metadata.consult.qualified).toBe(true);
     expect(typeof row.metadata.consult.token).toBe('string');
     expect((db.atsPractices || []).length).toBe(0);

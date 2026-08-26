@@ -15121,7 +15121,8 @@ async function processFacebookLeadDelivery(body, req, ip, hydrationFailure) {
       countryRaw: gpLead.countryRaw, countrySource: gpLead.countrySource,
       countryRecognised: gpLead.countryRecognised,
       fieldNames: gpLead.fieldNames,
-      source: 'meta_lead_ad', leadId: gpLead.leadId, ip: ip,
+      source: 'meta_lead_ad', leadId: gpLead.leadId,
+      formId: gpLead.formId, adId: gpLead.adId, ip: ip,
       userAgent: req.headers['user-agent']
     });
     const gpStored = await insertSiteEnquiryRow(gpRow);
@@ -27209,6 +27210,12 @@ function buildConsultLeadRow(input) {
       user_agent: String(input.userAgent || '').slice(0, 300),
       utm: _capUtm(input.utm),
       fb_lead_id: input.leadId || null,
+      // Which Meta form (and ad) produced this lead. The form id is the A/B
+      // arm marker for the straight-to-Calendly form test: booking rate per
+      // form is unmeasurable without it, since Meta's per-form lead counts
+      // can't be joined to our per-person call_booked flag any other way.
+      fb_form_id: input.formId || undefined,
+      fb_ad_id: input.adId || undefined,
       // The question keys Meta actually sent. The GP branch stores no raw
       // payload, so without this a future "why was the country blank?" is
       // unanswerable — the answers are gone and Meta's field names are the one
