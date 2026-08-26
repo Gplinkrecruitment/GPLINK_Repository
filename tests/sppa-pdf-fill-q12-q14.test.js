@@ -26,6 +26,28 @@ describe('SPPA-00 template fill: Q12 hours + Q14 NO', () => {
     expect(hours && hours.value).toBeTruthy();
   }, 30000);
 
+  it('the stray "40hrs" FreeText note below the hours box is deleted, other notes kept', async () => {
+    const { PDFName } = require('pdf-lib');
+    const buf = await fillSppaQ7({ isConflict: false });
+    const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+    const texts = [];
+    for (const page of doc.getPages()) {
+      let annots;
+      try { annots = page.node.Annots(); } catch (e) { annots = null; }
+      if (!annots) continue;
+      for (let a = 0; a < annots.size(); a++) {
+        const an = doc.context.lookup(annots.get(a));
+        if (!an || String(an.get(PDFName.of('Subtype')) || '') !== '/FreeText') continue;
+        const c = an.get(PDFName.of('Contents'));
+        texts.push((c && c.decodeText ? c.decodeText() : String(c || '')).trim());
+      }
+    }
+    expect(texts).not.toContain('40hrs');
+    // The two legitimate page-6 notes survive.
+    expect(texts).toContain('Fortnightly');
+    expect(texts.some((t) => t.startsWith('Reporting (TSPR-00)'))).toBe(true);
+  }, 30000);
+
   it('appearance streams are well-formed (no slash-prefixed dict keys)', async () => {
     // '/Type' as a JS key produces a PDF name literally called "/Type" (#2FType) — a
     // malformed XObject that macOS Preview / Quick Look and print pipelines refuse to
@@ -77,6 +99,13 @@ describe('stampSppaQ12OnScan', () => {
     expect(out.reason).toBe('stamped_on_scan');
     expect(out.stamped.sort()).toEqual(['hours', 'start_date']);
     expect(out.buffer.length).toBeGreaterThan(scan.length);
+  }, 30000);
+
+  it('legacy-scan repairs: white-out of the stray 40hrs and Q14 NO / Q19 YES crosses', async () => {
+    const scan = await makeScanLikePdf(13);
+    const out = await stampSppaQ12OnScan(scan, { whiteOutStrayHours: true, crossQ14No: true, crossQ19Yes: true });
+    expect(out.filled).toBe(true);
+    expect(out.stamped.sort()).toEqual(['q14_no', 'q19_yes', 'stray_hours_whiteout']);
   }, 30000);
 
   it('refuses a scan whose layout it cannot trust (wrong page count)', async () => {
