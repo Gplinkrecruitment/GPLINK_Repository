@@ -234,6 +234,7 @@ const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConf
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 var consultLead = require('./lib/consult-lead.js');
 var consultWhatsapp = require('./lib/consult-whatsapp.js');
+var matchWhatsapp = require('./lib/match-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 // apex/www (mygplink.com.au) still serve the LEGACY site until the DNS cutover — only
 // app.mygplink.com.au is guaranteed to serve /start, so consult-lead links must not
@@ -36297,6 +36298,102 @@ async function sendMatchEmail(applicationRow, opts) {
 // How long a doctor has to answer a shortlist invitation.
 var SHORTLIST_MATCH_WINDOW_DAYS = 5;
 
+// How many OTHER doctors are currently sitting on a live shortlist for this same
+// position. Feeds the WhatsApp urgency line, which states a real number or says
+// nothing about rivals at all — so this has to be an honest count: live
+// shortlist rows only (a lapsed or declined one is not competition), excluding
+// the doctor we are writing to. Any failure returns 0, which downgrades the copy
+// to the deadline-only variant rather than inventing a number.
+async function countOtherLiveShortlistsForRole(roleId, excludeApplicationId) {
+  if (!roleId || !isSupabaseDbConfigured()) return 0;
+  try {
+    var res = await supabaseDbRequest('gp_applications',
+      'select=id,match_expires_at&career_role_id=eq.' + encodeURIComponent(roleId)
+      + '&ats_stage=eq.shortlisted&match_outcome=is.null&limit=200');
+    if (!res.ok || !Array.isArray(res.data)) return 0;
+    var now = Date.now();
+    return res.data.filter(function (r) {
+      if (!r || String(r.id) === String(excludeApplicationId)) return false;
+      var exp = Date.parse(r.match_expires_at || '');
+      return !Number.isFinite(exp) || exp > now; // no expiry recorded = still live
+    }).length;
+  } catch (e) {
+    console.warn('[match-whatsapp] competitor count failed:', e && e.message);
+    return 0;
+  }
+}
+
+// The WhatsApp leg of a shortlist. Best-effort and fail-soft in every direction:
+// no API key, no phone, or a template still awaiting WhatsApp approval must
+// never cost the doctor their email/in-app/push.
+async function sendMatchWhatsAppToGp(appRow) {
+  var row = appRow || {};
+  if (!row.id || !row.user_id) return { ok: false, error: 'missing_application' };
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'no_api_key' };
+  try {
+    var job = row.career_role_id ? await atsGetJobRow(row.career_role_id) : null;
+    if (!job) return { ok: false, error: 'job_not_found' };
+    var practice = job.practice_id ? await atsGetPracticeRow(job.practice_id) : null;
+
+    var profRes = await supabaseDbRequest('user_profiles',
+      'select=first_name,last_name,phone,country_dial,phone_number&user_id=eq.' + encodeURIComponent(row.user_id) + '&limit=1');
+    var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+    if (!prof) return { ok: false, error: 'gp_not_found' };
+    var rawPhone = prof.phone || [prof.country_dial, prof.phone_number].filter(Boolean).join(' ').trim() || '';
+    var toPhone = normalizePhone(rawPhone);
+    if (!toPhone) return { ok: false, skipped: 'no_phone' };
+
+    // The SAME destination the match email's primary button uses, so the two
+    // channels can never point a doctor at different places.
+    var matchUrl = APP_BASE_URL + '/pages/signin?next='
+      + encodeURIComponent('/pages/career?match=' + row.id);
+
+    var built = matchWhatsapp.buildMatchWhatsAppPlaceholders({
+      firstName: prof.first_name || '',
+      practiceName: atsJobDisplayNames(job, practice).practice || '',
+      city: job.location_city || '',
+      state: job.location_state || '',
+      expiresAt: row.match_expires_at || '',
+      otherShortlistedCount: await countOtherLiveShortlistsForRole(row.career_role_id, row.id),
+      matchUrl: matchUrl
+    });
+    if (!built) return { ok: false, skipped: 'no_link' };
+
+    var fromNumber = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 15000);
+    try {
+      var resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{
+            to: toPhone,
+            from: fromNumber,
+            content: {
+              templateName: built.templateName,
+              language: built.language,
+              templateData: { body: { placeholders: built.placeholders } }
+            }
+          }]
+        })
+      });
+      if (!resp.ok) {
+        var t = await resp.text().catch(function () { return ''; });
+        console.warn('[match-whatsapp] send failed', resp.status, String(t).slice(0, 200),
+          '(template may be pending WhatsApp approval)');
+        return { ok: false, status: resp.status };
+      }
+      console.log('[match-whatsapp] sent to', maskPhone(toPhone), 'application:', row.id);
+      return { ok: true };
+    } finally { clearTimeout(timeout); }
+  } catch (e) {
+    console.error('[match-whatsapp] error:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+
 // The doctor-facing half of a shortlist: the "You've been personally matched"
 // email PLUS the in-app update and the push, so it reaches them wherever they
 // are rather than only in an inbox.
@@ -36338,9 +36435,13 @@ async function announceShortlistToGp(appRow) {
       body: body,
       data: { type: 'career', action: 'shortlisted', url: '/pages/career.html#applications' }
     }).then(function () { return { ok: true }; })
-      .catch(function (e) { console.error('[shortlist-announce] push failed for', row.user_id, ':', e && e.message); return { ok: false, error: e && e.message }; })
+      .catch(function (e) { console.error('[shortlist-announce] push failed for', row.user_id, ':', e && e.message); return { ok: false, error: e && e.message }; }),
+    // WhatsApp — the channel this audience actually reads. Added 2026-08-29;
+    // before it, a match reached them only by email/in-app/push.
+    sendMatchWhatsAppToGp(row)
+      .catch(function (e) { console.error('[shortlist-announce] whatsapp failed for', row.user_id, ':', e && e.message); return { ok: false, error: e && e.message }; })
   ]);
-  return { ok: true, email: results[0], inApp: results[1], push: results[2] };
+  return { ok: true, email: results[0], inApp: results[1], push: results[2], whatsapp: results[3] };
 }
 
 // Turn an existing pipeline row into a live shortlist invitation: the match
