@@ -22,9 +22,20 @@ const base = {
 };
 
 describe('urgency copy is competitive but never invented', () => {
-  it('names the REAL number of rival doctors when there are some', () => {
+  it('says others are shortlisted when they really are', () => {
     expect(M.buildUrgencyLine({ ...base, otherShortlistedCount: 3 }))
-      .toContain('3 other doctors have also been shortlisted');
+      .toContain('Other doctors have also been shortlisted');
+  });
+
+  it('never states HOW MANY (owner call 2026-08-29)', () => {
+    // A number invites arithmetic and exposes pipeline detail. The count still
+    // decides WHETHER the sentence appears — it must never appear IN it.
+    for (const n of [1, 2, 3, 7, 12, 40]) {
+      const line = M.buildUrgencyLine({ ...base, otherShortlistedCount: n });
+      const beforeDate = line.split('held until')[0];
+      expect(beforeDate).not.toMatch(/\d/);       // no digits in the rival clause
+      expect(beforeDate).not.toMatch(/\b(one|two|three|four|five|several|dozens)\b/i);
+    }
   });
 
   it('claims no EXISTING rivals when nobody else is shortlisted', () => {
@@ -47,10 +58,11 @@ describe('urgency copy is competitive but never invented', () => {
     }
   });
 
-  it('singular reads as English, not "1 other doctors"', () => {
+  it('stays true when there is exactly one other doctor', () => {
+    // Still no number, but not falsely plural either.
     const line = M.buildUrgencyLine({ ...base, otherShortlistedCount: 1 });
-    expect(line).toContain('One other doctor has also been shortlisted');
-    expect(line).not.toContain('1 other doctors');
+    expect(line).toContain('Another doctor has also been shortlisted');
+    expect(line).not.toContain('Other doctors have');
   });
 
   it('a missing/garbled count degrades to the deadline-only line', () => {
@@ -111,7 +123,7 @@ describe('rendered message', () => {
   it('greets, names the practice, carries the urgency line and the link', () => {
     expect(text).toContain('Hi Deepika');
     expect(text).toContain('PKG Medical Centre in Tweed Heads West, NSW');
-    expect(text).toContain('3 other doctors have also been shortlisted');
+    expect(text).toContain('Other doctors have also been shortlisted');
     expect(text).toContain(base.matchUrl);
   });
   it('offers a no-pressure way out — a doctor must be able to decline', () => {
