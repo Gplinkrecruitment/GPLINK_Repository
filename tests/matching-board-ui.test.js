@@ -501,6 +501,116 @@ describe('corporate groups — GPs direction leads with the practice too (owner 
   });
 });
 
+describe('ranked-list type-ahead (find a practice without scrolling ~50 rows)', () => {
+  const sugg = (roleId, clinic, chips) => ({
+    career_role_id: roleId, title: clinic + ' || General Practitioner', practice_name: clinic,
+    score: 70, reasons: ['A long reason naming Brisbane and chronic disease care'], chips: chips || [],
+  });
+  const bigGpRow = (extra) => ({
+    gp: { user_id: 'gp1', name: 'Dr Deepika Ganesh', email: 'd@test.local', days_on_books: 28 },
+    live: [],
+    suggestions: [
+      sugg('r-1', 'PKG Medical Centre', ['Bulk Billing']),
+      sugg('r-2', 'Springfield Medical & Dental Centre'),
+      sugg('r-3', 'Central Medical Centre'),
+      sugg('r-4', 'Gladstone Family Medical Centre'),
+      sugg('r-5', 'Toowoomba Medical & Dental Centre'),
+      sugg('r-6', 'Bertha Street Medical Centre'),
+    ].concat(extra || []),
+    ranking: { generated_at: hoursAgo(4), age_hours: 4, excluded_count: 0 },
+  });
+
+  it('renders the find box and a total count once the list is long enough to scroll', () => {
+    const html = MB.mbExpandHtml(bigGpRow(), {}, NOW);
+    expect(html).toContain('data-mb-sugg-find');
+    expect(html).toContain('Start typing to find a practice');
+    expect(html).toContain('6 practices');
+  });
+
+  it('a short list gets no find box (nothing to search)', () => {
+    const r = bigGpRow();
+    r.suggestions = r.suggestions.slice(0, 3);
+    expect(MB.mbExpandHtml(r, {}, NOW)).not.toContain('data-mb-sugg-find');
+  });
+
+  it('a partial name hides the other rows and reports "1 of 6 practices"', () => {
+    const html = MB.mbExpandHtml(bigGpRow(), {}, NOW, 'pkg');
+    expect(html).toContain('1 of 6 practices');
+    expect(html).toMatch(/class="ats-mb-exrow" data-mb-sugg-row data-mb-sugg-text="PKG Medical Centre/);
+    // every other row carries the is-off class
+    expect(html.match(/ats-mb-exrow is-off/g)).toHaveLength(5);
+  });
+
+  it('matches tokens in ANY order, so you never type the name in full', () => {
+    // This is the whole point: a plain substring search of the typed string
+    // (what the board-level search does) fails all three of these.
+    expect(MB.mbSuggestionMatches('med pkg', 'PKG Medical Centre Bulk Billing')).toBe(true);
+    expect(MB.mbSuggestionMatches('bulk pkg', 'PKG Medical Centre Bulk Billing')).toBe(true);
+    expect(MB.mbSuggestionMatches('pkg   med', 'PKG Medical Centre Bulk Billing')).toBe(true);
+    expect(MB.mbSuggestionMatches('pkg dental', 'PKG Medical Centre Bulk Billing')).toBe(false);
+  });
+
+  it('is case-insensitive and an empty query matches everything', () => {
+    expect(MB.mbSuggestionMatches('', 'anything')).toBe(true);
+    expect(MB.mbSuggestionMatches('   ', 'anything')).toBe(true);
+    expect(MB.mbSuggestionMatches('SPRINGFIELD', 'Springfield Medical')).toBe(true);
+  });
+
+  it('searches names, the owning corporation and chips — never the long reasons', () => {
+    const text = MB.mbSuggestionSearchText(
+      { title: 'PKG Medical Centre || General Practitioner', practice_name: 'Kennedy Drive Group', chips: ['Bulk Billing'], reasons: ['Brisbane and chronic disease care'] },
+      true,
+      { heading: 'PKG Medical Centre', sub: 'General Practitioner', groupName: 'Kennedy Drive Group' }
+    );
+    expect(text).toContain('PKG Medical Centre');
+    expect(text).toContain('Kennedy Drive Group');
+    expect(text).toContain('Bulk Billing');
+    // reasons name cities/specialties — including them would make "brisbane"
+    // match half the board and stop this behaving like a name lookup.
+    expect(text).not.toContain('Brisbane');
+  });
+
+  it('a search that matches nothing explains that the list is the last AI ranking', () => {
+    const html = MB.mbExpandHtml(bigGpRow(), {}, NOW, 'nosuchpractice');
+    expect(html).toContain('0 of 6 practices');
+    expect(html).toContain('No practice matches that search');
+    expect(html).toContain('↻ Re-run fresh');
+    expect(html).not.toContain('data-mb-sugg-empty hidden');
+  });
+
+  it('hides the empty-state whenever something still matches', () => {
+    expect(MB.mbExpandHtml(bigGpRow(), {}, NOW, 'pkg')).toContain('data-mb-sugg-empty hidden');
+    expect(MB.mbExpandHtml(bigGpRow(), {}, NOW)).toContain('data-mb-sugg-empty hidden');
+  });
+
+  it('a filtered-out row keeps its tick, so the bulk count never lies', () => {
+    // Filter to PKG while r-2 is already ticked: r-2 is hidden but still counted
+    // and still submitted — a filter must never silently drop a selection.
+    const html = MB.mbExpandHtml(bigGpRow(), { 'r-2': true }, NOW, 'pkg');
+    expect(html).toContain('1 selected');
+    expect(html).toContain('data-mb-cb="r-2" checked');
+  });
+
+  it('escapes the search haystack it writes into the row attribute', () => {
+    const r = bigGpRow([{ career_role_id: 'r-x', title: '"><img src=x> Clinic', practice_name: 'Corp', score: 1, reasons: [], chips: [] }]);
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).not.toContain('"><img src=x>');
+  });
+
+  it('the positions direction gets the same box, worded for GPs', () => {
+    const r = {
+      job: { id: 'j1', practice_name: 'Clinic', title: 'GP', city: 'Perth', state: 'WA', days_open: 10, posted: hoursAgo(240) },
+      pipeline: [],
+      suggestions: ['Alvarez', 'Bhatt', 'Chen', 'Dumont', 'Egwu', 'Fitzgerald'].map((n, i) => ({ user_id: 'u' + i, name: 'Dr ' + n, email: n.toLowerCase() + '@example.test', score: 60 + i, reasons: [], chips: [] })),
+      ranking: { generated_at: hoursAgo(4), age_hours: 4, excluded_count: 0 },
+    };
+    const html = MB.mbExpandHtml(r, {}, NOW);
+    expect(html).toContain('Start typing to find a GP');
+    expect(html).toContain('6 GPs');
+    expect(MB.mbExpandHtml(r, {}, NOW, 'bha')).toContain('1 of 6 GPs');
+  });
+});
+
 describe('GPs -> Positions (flip) urgency + track', () => {
   function gpRow(overrides) {
     return Object.assign({ gp: { user_id: 'gp1', name: 'Dr Sana Mirza', email: 'sana@test.local', days_on_books: 5 }, live: [], suggestions: [], ranking: null }, overrides || {});
@@ -794,7 +904,7 @@ describe('cache buster + dead CSS pruned', () => {
     // deployed fine without this, but browsers keep serving the copy they
     // cached under the OLD query string, so the fix was invisible in the UI
     // until the URL changed — the version token IS the delivery mechanism.
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260805a');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260829a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260727a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
@@ -810,7 +920,7 @@ describe('cache buster + dead CSS pruned', () => {
     // new rules without a bump, which is exactly how that happened. The guard
     // for it lives in ats-endpoints.test.js ("never lets the CSS cache key
     // fall behind the JS one").
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260810a');
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260829a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805d');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805c');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805b');

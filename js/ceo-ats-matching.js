@@ -700,7 +700,62 @@
     );
   }
 
-  function mbExpandSuggestionRowHtml(entry, isGp, checked) {
+  // Type-ahead over the ranked list. EVERY whitespace-separated token has to
+  // appear somewhere in the haystack, in any order — so "pkg", "pkg med" and
+  // "tweed bulk" all find "PKG Medical Centre · Tweed Heads West · Bulk
+  // Billing" without typing the name out in full. A plain indexOf of the whole
+  // string (what mbTextMatches does for the board-level search) would fail on
+  // every one of those except a left-anchored prefix.
+  function mbSuggestionMatches(q, haystack) {
+    var tokens = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+    var hay = String(haystack || '').toLowerCase();
+    return tokens.every(function (tok) { return hay.indexOf(tok) !== -1; });
+  }
+
+  // What the find box searches. Names, the owning corporation and the short
+  // chips — deliberately NOT entry.reasons, which are full sentences naming
+  // cities and specialties, so "brisbane" would hit half the board and the box
+  // would stop behaving like a name lookup.
+  function mbSuggestionSearchText(entry, isGp, disp) {
+    var fields = isGp
+      ? [disp && disp.heading, disp && disp.sub, disp && disp.groupName, entry.title, entry.practice_name]
+      : [entry.name, entry.email];
+    return fields.concat([(entry.chips || []).join(' ')]).filter(Boolean).join(' ');
+  }
+
+  function mbSuggestionNoun(isGp) { return isGp ? 'practice' : 'GP'; }
+  function mbSuggestionCountLabel(isGp, n) {
+    return n + ' ' + mbSuggestionNoun(isGp) + (n === 1 ? '' : 's');
+  }
+
+  function mbSuggestionFindHtml(isGp, total, shown, q) {
+    var noun = mbSuggestionNoun(isGp);
+    var count = String(q || '').trim()
+      ? (shown + ' of ' + mbSuggestionCountLabel(isGp, total))
+      : mbSuggestionCountLabel(isGp, total);
+    return (
+      '<div class="ats-mb-exfind">' +
+        '<input type="text" class="ats-mb-exfindin" data-mb-sugg-find autocomplete="off" ' +
+          'aria-label="Find a ' + noun + ' in the ranked list" ' +
+          'placeholder="🔍 Start typing to find a ' + noun + '…" value="' + A.escAttr(q || '') + '" />' +
+        '<span class="ats-mb-exfindct" data-mb-sugg-count data-mb-sugg-isgp="' + (isGp ? '1' : '0') + '">' + A.esc(count) + '</span>' +
+      '</div>'
+    );
+  }
+
+  // Shown only while a search is hiding everything. Names the reason the board
+  // itself can't fix: this list is the LAST AI ranking, so a job opened after
+  // it was generated is genuinely absent until the ranking is re-run.
+  function mbSuggestionEmptyHtml(isGp, hidden) {
+    return (
+      '<div class="ats-mb-exfindempty" data-mb-sugg-empty' + (hidden ? ' hidden' : '') + '>' +
+        'No ' + mbSuggestionNoun(isGp) + ' matches that search. This list is the last AI ranking — anything added since then only appears after <strong>↻ Re-run fresh</strong>.' +
+      '</div>'
+    );
+  }
+
+  function mbExpandSuggestionRowHtml(entry, isGp, checked, searchText, visible) {
     var disp = isGp ? mbPracticeDisplay(entry) : null;
     var name = isGp ? disp.heading : (entry.name || '—');
     var id = isGp ? entry.career_role_id : entry.user_id;
@@ -709,7 +764,8 @@
     var reasons = (entry.reasons || []).map(function (r) { return '<div class="ats-mb-tick">' + A.esc(r) + '</div>'; }).join('');
     var chips = (entry.chips || []).map(function (c) { return '<span class="ats-pill blue">' + A.esc(c) + '</span>'; }).join('');
     return (
-      '<div class="ats-mb-exrow">' +
+      '<div class="ats-mb-exrow' + (visible === false ? ' is-off' : '') + '"' +
+        ' data-mb-sugg-row data-mb-sugg-text="' + A.escAttr(searchText || '') + '">' +
         '<input type="checkbox" class="ats-mb-excb" data-mb-cb="' + A.escAttr(id) + '"' + (checked ? ' checked' : '') + ' />' +
         '<div class="ats-mb-exgav" style="background:' + color + '">' + A.esc(initials) + '</div>' +
         '<div class="ats-mb-exbody">' +
@@ -728,10 +784,15 @@
   // module only ever keeps one row's selection live at a time — an accordion,
   // one open row). nowMs optional (defaults Date.now()) purely for
   // deterministic tests.
-  function mbExpandHtml(row, selection, nowMs) {
+  // findQuery: the ranked-list type-ahead. Applied at BUILD time (not only in
+  // the DOM) so the filter survives a re-render — ticking a checkbox calls
+  // renderBoard(), which rebuilds this whole panel, and a DOM-only filter would
+  // silently pop all 49 rows back the moment you selected one.
+  function mbExpandHtml(row, selection, nowMs, findQuery) {
     row = row || {};
     selection = selection || {};
     nowMs = nowMs || Date.now();
+    findQuery = String(findQuery || '');
     var isGp = !!row.gp;
     var pipelineList = mbSortPipeline(isGp ? (row.live || []) : (row.pipeline || []));
     var suggestions = row.suggestions || [];
@@ -753,10 +814,19 @@
     }
 
     var pipeHtml = pipelineList.map(function (e) { return mbExpandPipelineRowHtml(e, isGp, nowMs); }).join('');
+    var suggShown = 0;
     var suggHtml = suggestions.map(function (s) {
       var id = isGp ? s.career_role_id : s.user_id;
-      return mbExpandSuggestionRowHtml(s, isGp, !!selection[id]);
+      var text = mbSuggestionSearchText(s, isGp, isGp ? mbPracticeDisplay(s) : null);
+      var hit = mbSuggestionMatches(findQuery, text);
+      if (hit) suggShown++;
+      return mbExpandSuggestionRowHtml(s, isGp, !!selection[id], text, hit);
     }).join('');
+    // Only worth a find box once the list is long enough to scroll for.
+    var findHtml = suggestions.length > 5
+      ? mbSuggestionFindHtml(isGp, suggestions.length, suggShown, findQuery)
+      : '';
+    var findEmptyHtml = findHtml ? mbSuggestionEmptyHtml(isGp, suggShown > 0) : '';
 
     var n = 0;
     suggestions.forEach(function (s) { var id = isGp ? s.career_role_id : s.user_id; if (selection[id]) n++; });
@@ -782,7 +852,7 @@
     return (
       '<div class="ats-mb-expand" data-mb-expand-for="' + A.escAttr(rowId) + '">' +
         '<div class="ats-mb-exhead">RANKED MATCHES — review, tick, then notify. Nothing is sent until you click.</div>' +
-        pipeHtml + suggHtml + bulkHtml + footerHtml +
+        pipeHtml + findHtml + suggHtml + findEmptyHtml + bulkHtml + footerHtml +
       '</div>'
     );
   }
@@ -831,6 +901,7 @@
     filters: { urgency: '', status: '', state: '', dpa: false, filled: false, q: '', sort: 'default' },
     expandedId: null,            // job.id (positions) or gp.user_id (gps) of the open accordion row, or null
     selection: {},               // {suggestionId: true} for the CURRENTLY EXPANDED row only
+    suggFind: '',                // ranked-list type-ahead, for the CURRENTLY EXPANDED row only (cleared with the accordion)
     runningIds: {},              // id -> true while a run/refresh fetch is in flight for that row
     visibleCount: 25,
     nowMs: Date.now()
@@ -843,6 +914,7 @@
     if (!panel) return;
     state.expandedId = null;
     state.selection = {};
+    state.suggFind = '';
     state.visibleCount = 25;
     panel.innerHTML = A.loadingHtml('Loading the matching board…');
     if (!panelWired) {
@@ -901,7 +973,7 @@
       var blockedRows = visibleRows.filter(mbIsBlockedRow);
       var gpRow = function (r) {
         return mbGpRowHtml(r, ctx) +
-          (state.expandedId != null && String(state.expandedId) === String(r.gp.user_id) ? mbExpandHtml(r, state.selection, state.nowMs) : '');
+          (state.expandedId != null && String(state.expandedId) === String(r.gp.user_id) ? mbExpandHtml(r, state.selection, state.nowMs, state.suggFind) : '');
       };
       rowsHtml = readyRows.map(gpRow).join('');
       if (blockedRows.length) {
@@ -912,7 +984,7 @@
           blockedRows.map(gpRow).join('');
       }
     } else {
-      rowsHtml = visibleRows.map(function (r) { return mbRowHtml(r, ctx) + (state.expandedId != null && String(state.expandedId) === String(r.job.id) ? mbExpandHtml(r, state.selection, state.nowMs) : ''); }).join('');
+      rowsHtml = visibleRows.map(function (r) { return mbRowHtml(r, ctx) + (state.expandedId != null && String(state.expandedId) === String(r.job.id) ? mbExpandHtml(r, state.selection, state.nowMs, state.suggFind) : ''); }).join('');
     }
 
     var filledSection = '';
@@ -975,6 +1047,7 @@
     if (state.expandedId != null && String(state.expandedId) === String(id)) { state.expandedId = null; }
     else { state.expandedId = id; }
     state.selection = {};
+    state.suggFind = '';
     renderBoard();
   }
 
@@ -992,6 +1065,7 @@
     state.direction = dir;
     state.expandedId = null;
     state.selection = {};
+    state.suggFind = '';
     state.visibleCount = 25;
     var panel = panelEl();
     if (panel) panel.innerHTML = A.loadingHtml('Loading the matching board…');
@@ -1031,6 +1105,34 @@
   function onToggleCheckbox(id, checked) {
     if (checked) state.selection[id] = true; else delete state.selection[id];
     renderBoard();
+  }
+
+  // Ranked-list type-ahead. Filters the already-rendered rows in place rather
+  // than calling renderBoard() — a re-render replaces the input element, which
+  // takes the caret and focus with it and makes the box impossible to type in.
+  // state.suggFind is still updated so the NEXT render (a checkbox tick, a
+  // shortlist) rebuilds the panel already filtered; mbExpandHtml applies the
+  // identical mbSuggestionMatches, so the two paths cannot disagree.
+  function onSuggestionFind(input) {
+    state.suggFind = input.value || '';
+    var panel = input.closest ? input.closest('.ats-mb-expand') : null;
+    if (!panel) return;
+    var rows = panel.querySelectorAll('[data-mb-sugg-row]');
+    var shown = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var hit = mbSuggestionMatches(state.suggFind, rows[i].getAttribute('data-mb-sugg-text'));
+      if (hit) shown++;
+      if (rows[i].classList) rows[i].classList.toggle('is-off', !hit);
+    }
+    var countEl = panel.querySelector('[data-mb-sugg-count]');
+    if (countEl) {
+      var isGp = countEl.getAttribute('data-mb-sugg-isgp') === '1';
+      countEl.textContent = String(state.suggFind).trim()
+        ? (shown + ' of ' + mbSuggestionCountLabel(isGp, rows.length))
+        : mbSuggestionCountLabel(isGp, rows.length);
+    }
+    var emptyEl = panel.querySelector('[data-mb-sugg-empty]');
+    if (emptyEl) emptyEl.hidden = shown > 0;
   }
 
   function onShortlistOne(id) {
@@ -1150,7 +1252,10 @@
   }
 
   function onPanelInput(e) {
-    if (e.target && e.target.getAttribute && e.target.getAttribute('data-mb-search') != null) onSearchInput(e.target.value);
+    var t = e.target;
+    if (!t || !t.getAttribute) return;
+    if (t.getAttribute('data-mb-search') != null) { onSearchInput(t.value); return; }
+    if (t.getAttribute('data-mb-sugg-find') != null) { onSuggestionFind(t); return; }
   }
   function onPanelChange(e) {
     var t = e.target;
@@ -1181,6 +1286,8 @@
     mbFilledToggleHtml: mbFilledToggleHtml,
     mbFilledRowHtml: mbFilledRowHtml,
     mbExpandHtml: mbExpandHtml,
+    mbSuggestionMatches: mbSuggestionMatches,
+    mbSuggestionSearchText: mbSuggestionSearchText,
     mbFilterPositionsRows: mbFilterPositionsRows,
     mbFilterGpRows: mbFilterGpRows,
     mbIsBlockedRow: mbIsBlockedRow,
