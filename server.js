@@ -16316,6 +16316,20 @@ function getSessionEmail(session) {
   return email || null;
 }
 
+// Is this GP session actually a staff member using admin "View as"? The marker
+// is stamped onto the GP profile at /api/admin/impersonate (gpProfile
+// ._impersonatedBy = admin.email) and rides in the session cookie.
+//
+// Why this matters (owner report 2026-08-29): some GP-facing state is ONE-TIME
+// — the AI-match popup shows only while match_seen_at is null and stamps it on
+// render. Staff opening "View as" therefore CONSUMED the doctor's single
+// showing: Dr Deepika's match was created 06:21 and marked seen 06:25 by an
+// impersonated session, so she could never receive it. Previewing a doctor's
+// dashboard must never spend something that is theirs to see once.
+function isImpersonatedSession(session) {
+  return !!(session && session.userProfile && session.userProfile._impersonatedBy);
+}
+
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
   // Khaleed's "crypto" test GP account bypass removed 2026-07-24 now that he is past
   // onboarding — he navigates the app as a real GP with all registration gateways enforced.
@@ -49466,6 +49480,14 @@ async function handleApi(req, res, pathname) {
     const msnRowRes = await supabaseDbRequest('gp_applications', 'select=id,user_id,match_seen_at&id=eq.' + encodeURIComponent(msnAppId) + '&user_id=eq.' + encodeURIComponent(msnUserId) + '&limit=1');
     const msnRow = (msnRowRes.ok && Array.isArray(msnRowRes.data) && msnRowRes.data[0]) ? msnRowRes.data[0] : null;
     if (!msnRow) { sendJson(res, 404, { ok: false, message: 'Match not found.' }); return; }
+    // Staff "View as" must not burn the doctor's one-and-only match popup —
+    // see isImpersonatedSession. Report the CURRENT value so the previewing
+    // admin still sees the overlay for this page load; nothing is written, so
+    // the doctor's own next login still gets it.
+    if (isImpersonatedSession(msnSession)) {
+      sendJson(res, 200, { ok: true, seenAt: msnRow.match_seen_at || null, impersonated: true });
+      return;
+    }
     if (!msnRow.match_seen_at) {
       const msnNowIso = new Date().toISOString();
       await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(msnAppId), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { match_seen_at: msnNowIso } });

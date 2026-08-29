@@ -332,12 +332,41 @@
     }
   }
 
+  // ---- Match-check handshake for the walkthrough ------------------------
+  // js/gp-walkthrough-shell.js runs in this same document and needs two
+  // answers this module is already fetching, so it waits on these rather than
+  // racing a second /api/career/matches call:
+  //   pending      — the check is still in flight; hold any coach overlay so
+  //                  the "Start here" pointer can never paint over the popup.
+  //   hasLiveMatch — ANY live match, seen or not. A doctor already holding a
+  //                  match has passed the moment "Start here — secure a
+  //                  position first" describes, so the pointer retires.
+  // Set synchronously at init: both scripts are `defer`, and this file's tag
+  // comes first in pages/app-shell.html, so the flag is up before the
+  // walkthrough's own DOMContentLoaded listener runs.
+  function publishMatchCheck(patch) {
+    var s = window.gpMatchCheck || (window.gpMatchCheck = { pending: true, hasLiveMatch: false, popupShown: false });
+    if (patch) for (var k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) s[k] = patch[k];
+    if (patch && patch.pending === false) {
+      try { window.dispatchEvent(new CustomEvent("gp-match-check-done", { detail: s })); } catch (e) {}
+    }
+    return s;
+  }
+
   function init() {
     // Never stack a second popup over an already-open one.
     if (document.getElementById("gpMatchPopup")) return;
+    publishMatchCheck({ pending: true });
     fetchMatches().then(function (data) {
+      var live = (data && data.ok === true && Array.isArray(data.matches)) ? data.matches : [];
       var match = pickNewestUnseen(data);
-      if (!match) return; // no unseen match, locked account, or fetch failure — do nothing silently
+      if (!match) {
+        // No UNSEEN match — but there may still be a live one (already seen, or
+        // seen by a staff "View as"). The walkthrough needs to know either way.
+        publishMatchCheck({ pending: false, hasLiveMatch: live.length > 0, popupShown: false });
+        return; // locked account or fetch failure — do nothing silently
+      }
+      publishMatchCheck({ pending: false, hasLiveMatch: true, popupShown: true });
       markSeen(match.applicationId);
       showOverlay(match, data.gp || {});
     });

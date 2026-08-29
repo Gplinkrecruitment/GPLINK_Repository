@@ -98,9 +98,13 @@ describe('shell broadcasts coach activity and runs the pointer (Tasks 2+3)', () 
     expect(fn).toContain("navEl('practice')");
     expect(fn).toContain('pointer: true');
     expect(fn).toContain('onTargetClick: markNextStepDone');
-    // Done/Skip must NOT mark the pointer done — Escape/"Got it" re-arms next boot
-    expect(fn).not.toContain('onDone');
-    expect(fn).not.toContain('onSkip');
+    // 2026-08-29 (owner report): "Got it" used to mark nothing, so the pointer
+    // returned on EVERY login for anyone who dismissed it rather than clicking
+    // the nav item. An explicit dismissal now retires it. onDone stays absent —
+    // pointer mode renders no Done button.
+    expect(fn).toContain('onSkip: markNextStepDone');
+    // match the HANDLER, not the word — prose about onDone is allowed
+    expect(fn).not.toMatch(/onDone\s*:/);
   });
   it('placement signal reuses GPJourneyStages.hasCareerSecured over gp_career_state', () => {
     const fn = js.slice(js.indexOf('function readCareerSecured'), js.indexOf('function runNextStepPointer'));

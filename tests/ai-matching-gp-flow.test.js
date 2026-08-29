@@ -26,7 +26,7 @@ describe('AI Matching Task 4 — client wiring (source regex)', () => {
 
   it('pages/app-shell.html loads match-popup.js AFTER app-shell.js, with a cache buster', () => {
     const shellIdx = appShellHtml.indexOf('/js/app-shell.js?v=');
-    const popupMatch = appShellHtml.match(/<script src="\/js\/match-popup\.js\?v=20260729[a-z]" defer><\/script>/);
+    const popupMatch = appShellHtml.match(/<script src="\/js\/match-popup\.js\?v=20260829[a-z]" defer><\/script>/);
     expect(shellIdx).toBeGreaterThan(-1);
     expect(popupMatch).toBeTruthy();
     expect(appShellHtml.indexOf(popupMatch[0])).toBeGreaterThan(shellIdx);

@@ -70,8 +70,20 @@
     // The qualification-scan sheet lives in THIS document — never tour over it.
     var scanModal = document.getElementById('gpScanModal');
     if (scanModal && scanModal.classList.contains('open')) return true;
+    // The AI-match popup is a full-viewport takeover in THIS document
+    // (js/match-popup.js, `gpmp-open` on <html>). Owner report 2026-08-29: the
+    // "Start here" pointer painted straight over it. Its check is async, so
+    // block while it is still PENDING too — otherwise the coach can win the
+    // race and be on screen before the popup mounts.
+    if (document.documentElement.classList.contains('gpmp-open')) return true;
+    if (window.gpMatchCheck && window.gpMatchCheck.pending === true) return true;
     if (C && C.isActive && C.isActive()) return true;
     return false;
+  }
+  // A doctor already holding a live match has passed the moment the pointer
+  // describes. Fail-closed: only a definite answer retires it.
+  function hasLiveMatch() {
+    return !!(window.gpMatchCheck && window.gpMatchCheck.pending === false && window.gpMatchCheck.hasLiveMatch === true);
   }
   function readState() { try { return S.parseState(localStorage.getItem(KEY)); } catch (e) { return S.defaultState(); } }
   function markDone() {
@@ -141,6 +153,18 @@
   function runNextStepPointer() {
     if (!C || !S || C.isActive()) { broadcastCoachActive(false); return; }
     if (guarded() || !S.shouldRunNextStep(readState())) { broadcastCoachActive(false); return; }
+    // Already matched to a practice: "Start here — secure a position first" is
+    // stale guidance, so retire the pointer permanently instead of showing it.
+    // Owner report 2026-08-29 (Dr Deepika): her state carried tourDone:true but
+    // no nextStepDone key, so the pointer re-armed on EVERY boot — "Got it"
+    // only ever dismissed it for that page load — while she already had a live
+    // match waiting. Checked before readCareerSecured because a match arrives
+    // long before a placement is secured.
+    if (hasLiveMatch()) {
+      broadcastCoachActive(false);
+      markNextStepDone();
+      return;
+    }
     if (readCareerSecured()) {
       broadcastCoachActive(false); // page pointer must not see the shell as active
       // Placed AND MyIntealth already complete (existing users mid-journey):
@@ -166,7 +190,15 @@
     }], {
       pointer: true,
       label: function () { return 'Next step'; },
-      onTargetClick: markNextStepDone
+      onTargetClick: markNextStepDone,
+      // "Got it" used to mark nothing, so a doctor who dismissed the pointer
+      // met it again on every single login, forever — the owner reported it as
+      // the walkthrough "reappearing after it was completed". An explicit
+      // dismissal is an answer; honour it. Covers Escape too (gpCoach routes
+      // both through skip()). The one path that must still leave it pending is
+      // a target that vanished mid-run — that ends via cleanup('lost'), which
+      // deliberately calls neither onDone nor onSkip.
+      onSkip: markNextStepDone
     }).then(function () { broadcastCoachActive(false); });
   }
   function scheduleNextStepPointer(delay) {
@@ -180,7 +212,27 @@
     // path's own broadcast — and every bail inside runNextStepPointer (plus its
     // run().then) answers with false, mirroring the pointerPending pattern.
     broadcastCoachActive(true);
-    setTimeout(function () { pointerPending = false; runNextStepPointer(); }, delay || 600);
+    setTimeout(function () {
+      // js/match-popup.js is still asking whether this doctor has a match.
+      // Deciding now would be a coin toss between "pointer over the popup" and
+      // "pointer that should never have run", so wait for its answer — with a
+      // ceiling so a hung/failed request can't strand the pointer for good.
+      if (window.gpMatchCheck && window.gpMatchCheck.pending === true) {
+        var settled = false;
+        var go = function () {
+          if (settled) return;
+          settled = true;
+          window.removeEventListener('gp-match-check-done', go);
+          pointerPending = false;
+          runNextStepPointer();
+        };
+        window.addEventListener('gp-match-check-done', go);
+        setTimeout(go, 4000);
+        return;
+      }
+      pointerPending = false;
+      runNextStepPointer();
+    }, delay || 600);
   }
 
   function runTour() {
