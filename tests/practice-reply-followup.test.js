@@ -317,3 +317,69 @@ describe('dashboard wiring', () => {
     });
   }
 });
+
+// The AI read of a practice reply used to be shown ONLY the email thread. On the SPPA-00 the
+// thread can lie about the present: our reminder claiming non-receipt predates the form being
+// recovered through another channel, so the drafter faithfully wrote "we do not appear to have
+// received it" about a form already stored and verified on the task (Dr Mercy Obanimoh,
+// 2026-08-27). The state machine's answer now outranks the thread everywhere.
+describe('SPPA reply read knows when the completed form is already on file', () => {
+  it('computes form-on-file from the SPPA state machine, read-only', () => {
+    const fn = serverSrc.slice(
+      serverSrc.indexOf('async function _recordPracticeReplyFollowup'),
+      serverSrc.indexOf('async function _buildPracticeReplyDraft'),
+    );
+    expect(fn).toContain("var sppaFormOnFile = isSppa && (meta.sppa_state === 'practice_returned' || meta.sppa_state === 'completed');");
+    expect(fn).toContain('if (isSppa) meta.practice_reply.form_on_file = sppaFormOnFile;');
+  });
+
+  it('feeds the flag into BOTH the AI prompt and the deterministic fallback', () => {
+    const fn = serverSrc.slice(serverSrc.indexOf('async function _buildPracticeReplyDraft'));
+    const fallbackCall = fn.slice(fn.indexOf('buildFallbackFollowup({'), fn.indexOf('});', fn.indexOf('buildFallbackFollowup({')));
+    const messagesCall = fn.slice(fn.indexOf('buildPracticeReplyMessages({'), fn.indexOf('});', fn.indexOf('buildPracticeReplyMessages({')));
+    expect(fallbackCall).toContain('formOnFile: !!reply.formOnFile');
+    expect(messagesCall).toContain('formOnFile: !!reply.formOnFile');
+  });
+
+  it('prompt carries the fact and forbids claiming non-receipt when the form is held', () => {
+    const msgs = lib.buildPracticeReplyMessages({
+      docTitle: 'SPPA-00', gpName: 'Mercy Obanimoh', replyText: 'We already sent it.', formOnFile: true,
+    });
+    expect(msgs.userText).toContain('"completed_document_already_on_file": true');
+    const sys = msgs.system[0].text;
+    expect(sys).toContain('NEVER say or imply we have not received it');
+    expect(sys).toContain('already_received');
+  });
+
+  it('prompt says the form is NOT on file when it is not', () => {
+    const msgs = lib.buildPracticeReplyMessages({
+      docTitle: 'SPPA-00', gpName: 'Mercy Obanimoh', replyText: 'We already sent it.',
+    });
+    expect(msgs.userText).toContain('"completed_document_already_on_file": false');
+  });
+
+  it('deterministic fallback acknowledges receipt instead of chasing when the form is held', () => {
+    const out = lib.buildFallbackFollowup({
+      docTitle: 'SPPA-00', gpName: 'Mercy Obanimoh', contactName: 'Naomi', formOnFile: true,
+    });
+    expect(out.outcome).toBe('already_received');
+    expect(out.summary).toContain('already on file');
+    expect(out.suggested_reply).toContain('we do have the completed document on file');
+    expect(out.suggested_reply).not.toContain('Could you please send it through');
+  });
+
+  it('already_received is a recognised outcome with its own guidance', () => {
+    expect(lib.normalizeOutcome('Already_Received')).toBe('already_received');
+    expect(lib.outcomeGuidance('already_received')).toContain('already on file');
+  });
+
+  it('both dashboards flip the banner headline once the form is on file', () => {
+    for (const src of [adminSrc, ceoSrc]) {
+      // admin writes the dash as a backslash-u2014 escape, ceo as the literal character.
+      expect(src).toContain('the completed SPPA-00 is already on file');
+      // Render-time state check so a reply summarised BEFORE the form was recovered corrects itself.
+      expect(src).toMatch(/form_on_file === true[\s\S]{0,200}sppaState === 'practice_returned' \|\| sppaState === 'completed'/);
+      expect(src).toContain("'already_received'");
+    }
+  });
+});

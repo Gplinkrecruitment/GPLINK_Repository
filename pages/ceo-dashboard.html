@@ -5826,6 +5826,7 @@
       if (outcome === 'will_send_later') return 'They said they will send it — no document has arrived yet.';
       if (outcome === 'question_for_us') return 'They asked us something before they can send it — answer them to unblock it.';
       if (outcome === 'cannot_provide') return 'They said they cannot provide it — this may need a different route.';
+      if (outcome === 'already_received') return 'The completed form is already on file — nothing needs re-sending. A short acknowledgement closes the loop.';
       return 'No document was attached to this reply — read it and decide what to send back.';
     }
 
@@ -6261,10 +6262,16 @@
       var _sppaLast = (msgs && msgs.length) ? msgs[msgs.length - 1] : null;
       var _sppaPr = meta.practice_reply;
       if (_sppaPr && (_sppaPr.summary || _sppaPr.outcome) && _sppaLast && _sppaLast.direction === 'inbound') {
+        // Admin parity: once the state machine says the completed form is on file, the reply
+        // must read as "they were right, acknowledge it" — not as a missing document. Checked
+        // at render time too so replies summarised before the form was recovered correct themselves.
+        var _sppaOnFile = _sppaPr.form_on_file === true || _sppaPr.outcome === 'already_received'
+          || sppaState === 'practice_returned' || sppaState === 'completed';
         h += '<div style="background:var(--blue-dim,#eff6ff);border:1px solid rgba(59,130,246,0.3);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12px;color:var(--text)">';
-        h += '<div style="font-weight:700">They replied — no completed SPPA-00 attached</div>';
+        h += '<div style="font-weight:700">' + (_sppaOnFile ? 'They replied — the completed SPPA-00 is already on file' : 'They replied — no completed SPPA-00 attached') + '</div>';
         if (_sppaPr.summary) h += '<div style="margin-top:4px"><strong>What they said:</strong> ' + esc(_sppaPr.summary) + '</div>';
-        if (_sppaPr.outcome) h += '<div style="margin-top:4px">' + esc(ceoPracticeReplyGuidance(_sppaPr.outcome)) + '</div>';
+        if (_sppaOnFile) h += '<div style="margin-top:4px">' + esc(ceoPracticeReplyGuidance('already_received')) + '</div>';
+        else if (_sppaPr.outcome) h += '<div style="margin-top:4px">' + esc(ceoPracticeReplyGuidance(_sppaPr.outcome)) + '</div>';
         if (_sppaPr.handed_to) h += '<div style="margin-top:4px"><strong>Passed to:</strong> ' + esc(_sppaPr.handed_to) + '</div>';
         h += '<div style="margin-top:6px;font-size:10px;color:var(--muted)">From ' + esc(_sppaPr.sender || 'the practice')
           + (_sppaPr.received_at ? ' · ' + new Date(_sppaPr.received_at).toLocaleString() : '') + '</div>';

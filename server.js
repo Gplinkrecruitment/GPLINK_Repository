@@ -21598,6 +21598,16 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
   if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
   if (!meta || typeof meta !== 'object') meta = {};
 
+  // On the SPPA-00, whether we HOLD the completed form is answered by the state machine, not by
+  // this message. Once the state says practice_returned (or completed), a late "we already sent
+  // it" reply on an old reminder thread must be summarised as "they were right, it is on file"
+  // and answered with an acknowledgement. Without this the drafter is shown only the email
+  // thread, whose last outbound line is our own pre-recovery reminder claiming non-receipt, and
+  // it faithfully writes "we do not appear to have received it" about a form we are holding
+  // (Dr Mercy Obanimoh, 2026-08-27). Read-only: this never writes the state, it only reads it.
+  var sppaFormOnFile = isSppa && (meta.sppa_state === 'practice_returned' || meta.sppa_state === 'completed');
+  reply.formOnFile = sppaFormOnFile;
+
   var hasDocument = !!reply.hasDocument;
   // Owner 2026-08-10: "we don't need a reply email if the document is approved by [the] RSO
   // when received." hasDocument used to describe THIS message only, so a practice that sent
@@ -21623,6 +21633,9 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
     has_document: hasDocument,
     draft_status: hasDocument ? 'not_needed' : 'pending',
   };
+  // Stored so both dashboards can render "already on file" instead of "no completed SPPA-00
+  // attached" without re-deriving the state the reply was read under.
+  if (isSppa) meta.practice_reply.form_on_file = sppaFormOnFile;
   // A reply — with or without the document — means the ball is back with us, so the task must
   // not sit under a "⏳ Waiting on practice" pill. The thread-match path already flips to open;
   // this makes every path agree (the conversation-match path used to leave it waiting).
@@ -21653,7 +21666,9 @@ async function _recordPracticeReplyFollowup(caseId, task, reply) {
     { method: 'PATCH', body: { metadata: meta2, updated_at: new Date().toISOString() } });
 
   await _logCaseEvent(caseId, task.id, 'note',
-    'Practice replied without the document — follow-up drafted',
+    sppaFormOnFile
+      ? 'Practice replied — completed form already on file, acknowledgement drafted'
+      : 'Practice replied without the document — follow-up drafted',
     (draft.summary || '') + (draft.outcome ? ' (' + draft.outcome + ')' : ''), 'system').catch(function () {});
 
   return meta2.practice_reply;
@@ -21713,6 +21728,7 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
 
   var fallback = practiceReplyFollowup.buildFallbackFollowup({
     docTitle: docTitle, gpName: gpName, contactName: contactName, rsoName: rsoName, signRequirement: signRequirement,
+    formOnFile: !!reply.formOnFile,
   });
 
   var apiKey = process.env.ANTHROPIC_API_KEY;
@@ -21752,6 +21768,7 @@ async function _buildPracticeReplyDraft(caseId, task, reply) {
     replySender: reply.sender || '',
     requestText: requestText,
     knownContacts: knownContacts,
+    formOnFile: !!reply.formOnFile,
   });
 
   var controller = new AbortController();

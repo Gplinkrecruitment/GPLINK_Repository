@@ -5247,11 +5247,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (!pr || !(pr.summary || pr.outcome)) return '';
       var lastMsg = (msgs && msgs.length) ? msgs[msgs.length - 1] : null;
       if (!lastMsg || lastMsg.direction !== 'inbound') return '';
+      // "No completed SPPA-00 attached" is about ONE email; whether we hold the form is about
+      // the task. Once the state machine says the completed form is on file, the same reply must
+      // read as "they were right, acknowledge it" \u2014 checked at render time too so a reply
+      // summarised BEFORE the form was recovered (Dr Mercy Obanimoh, 2026-08-31) corrects itself.
+      var prOnFile = pr.form_on_file === true || pr.outcome === 'already_received'
+        || sppaState === 'practice_returned' || sppaState === 'completed';
       var b = '<div class="ops-expand-section">';
       b += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;font-size:12px;color:#1d4ed8">';
-      b += '<b>\u2139 They replied \u2014 no completed SPPA-00 attached</b>';
+      b += '<b>\u2139 ' + (prOnFile ? 'They replied \u2014 the completed SPPA-00 is already on file' : 'They replied \u2014 no completed SPPA-00 attached') + '</b>';
       if (pr.summary) b += '<div style="margin-top:4px"><strong>What they said:</strong> ' + esc(pr.summary) + '</div>';
-      if (pr.outcome) b += '<div style="margin-top:4px">' + esc(opsPracticeReplyGuidance(pr.outcome)) + '</div>';
+      if (prOnFile) b += '<div style="margin-top:4px">' + esc(opsPracticeReplyGuidance('already_received')) + '</div>';
+      else if (pr.outcome) b += '<div style="margin-top:4px">' + esc(opsPracticeReplyGuidance(pr.outcome)) + '</div>';
       if (pr.handed_to) b += '<div style="margin-top:4px"><strong>Passed to:</strong> ' + esc(pr.handed_to) + '</div>';
       b += '<div style="margin-top:6px;font-size:10px;color:#3730a3">From ' + esc(pr.sender || 'the practice')
         + (pr.received_at ? ' \u00b7 ' + new Date(pr.received_at).toLocaleString('en-AU') : '') + '</div>';
@@ -5778,6 +5785,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(outcome==='will_send_later')return 'They said they will send it — no document has arrived yet.';
     if(outcome==='question_for_us')return 'They asked us something before they can send it — answer them to unblock it.';
     if(outcome==='cannot_provide')return 'They said they cannot provide it — this may need a different route.';
+    if(outcome==='already_received')return 'The completed form is already on file — nothing needs re-sending. A short acknowledgement closes the loop.';
     return 'No document was attached to this reply — read it and decide what to send back.';
   }
 
