@@ -9443,10 +9443,13 @@ const PERFORMERS_MIRROR_MIN_ROWS = Number(process.env.PERFORMERS_MIRROR_MIN_ROWS
 
 async function runPerformersMirrorSync() {
   const started = Date.now();
-  const deadline = started + 50 * 1000; // stay inside the serverless window
+  // vercel.json maxDuration is 300s (raised 2026-09-01 for exactly this: the
+  // first prod sync inserted 56k rows and then hit the old 60s window mid-
+  // download). Budget well inside it.
+  const deadline = started + 240 * 1000;
   const batchId = new Date().toISOString();
   const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), 48 * 1000);
+  const abortTimer = setTimeout(() => controller.abort(), 235 * 1000);
   let inserted = 0;
   let chunk = [];
   const flush = async () => {
