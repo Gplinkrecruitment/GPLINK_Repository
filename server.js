@@ -20812,7 +20812,12 @@ const CALL_REMINDER_TRACKS = {
     markerKey: 'consult_reminders',
     kinds: consultWhatsapp.CONSULT_CALL_REMINDER_KIND,
     // Consult leads are UK doctors and the approved copy reads "(UK time)".
-    useBookerTimezone: false
+    useBookerTimezone: false,
+    // Owner request 2026-09-01: the consult "starting" touch fires at T-5min
+    // (template copy says "starts in 5 minutes"), with a small post-start
+    // grace so one delayed cron tick still delivers the join link.
+    soonMs: consultWhatsapp.CONSULT_CALL_STARTING_SOON_MS,
+    lateGraceMs: consultWhatsapp.CONSULT_CALL_STARTING_LATE_GRACE_MS
   },
   registration: {
     hostKind: 'rso',
@@ -20833,8 +20838,11 @@ async function runConsultCallReminders(nowMs, trackName) {
     const now = Number(nowMs) || Date.now();
     // Only rows that could possibly be due: from now to the far edge of the
     // day-before window. Ordered soonest-first so the per-run cap can never
-    // starve an imminent call in favour of a distant one.
-    const fromIso = new Date(now).toISOString();
+    // starve an imminent call in favour of a distant one. The lower bound
+    // reaches back by the track's post-start grace — without that, a call that
+    // began a minute ago would drop out of the query before the grace in
+    // consultCallReminderDecision could ever apply.
+    const fromIso = new Date(now - (track.lateGraceMs || 0)).toISOString();
     const toIso = new Date(now + consultWhatsapp.CALL_REMINDER_DAY_MS).toISOString();
     const r = await supabaseDbRequest('scheduled_calls',
       'select=id,invitee_email,user_id,scheduled_at,booked_at,zoom_join_url,notification_channels,invitee_notes,timezone' +
@@ -20854,7 +20862,9 @@ async function runConsultCallReminders(nowMs, trackName) {
           bookedAt: call.booked_at,
           nowMs: now,
           markers: nc[track.markerKey],
-          kinds: track.kinds
+          kinds: track.kinds,
+          soonMs: track.soonMs,
+          lateGraceMs: track.lateGraceMs
         });
         if (decision.action !== 'send') { out.skipped++; continue; }
         // Zoom URLs arrive from Calendly; sanitise before putting one in a message.

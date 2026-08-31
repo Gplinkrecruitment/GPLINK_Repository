@@ -276,6 +276,26 @@ describe('consultCallReminderDecision', () => {
     expect(soon.kind).toBe('call_starting');
   });
 
+  it('honours a per-track soon window and post-start grace (the consult 5-minute touch)', () => {
+    const consult = { soonMs: waLib.CONSULT_CALL_STARTING_SOON_MS, lateGraceMs: waLib.CONSULT_CALL_STARTING_LATE_GRACE_MS };
+    // Inside the 5-minute window → the starting touch.
+    const soon = waLib.consultCallReminderDecision(base(Object.assign({ scheduledAt: at(4 * MIN) }, consult)));
+    expect(soon).toMatchObject({ action: 'send', window: 'soon' });
+    // 8 minutes out is no longer "soon" for the consult track — it falls back
+    // to the day-before ladder rung (which also carries the join link).
+    const notYet = waLib.consultCallReminderDecision(base(Object.assign({ scheduledAt: at(8 * MIN) }, consult)));
+    expect(notYet).toMatchObject({ action: 'send', window: 'h24' });
+    // A cron tick delayed past the start still delivers, within the grace…
+    const late = waLib.consultCallReminderDecision(base(Object.assign({ scheduledAt: at(-2 * MIN) }, consult)));
+    expect(late).toMatchObject({ action: 'send', window: 'soon' });
+    // …but not beyond it.
+    expect(waLib.consultCallReminderDecision(base(Object.assign({ scheduledAt: at(-4 * MIN) }, consult))))
+      .toEqual({ action: 'skip', reason: 'already_started' });
+    // No grace passed (the registration track) keeps the old hard cutoff.
+    expect(waLib.consultCallReminderDecision(base({ scheduledAt: at(-1 * MIN), soonMs: consult.soonMs })))
+      .toEqual({ action: 'skip', reason: 'already_started' });
+  });
+
   it('ignores a call further than 24h out and one that has already started', () => {
     expect(waLib.consultCallReminderDecision(base({ scheduledAt: at(30 * H) })))
       .toEqual({ action: 'skip', reason: 'too_far_out' });
@@ -344,7 +364,7 @@ describe('reminder message building', () => {
     expect(day.placeholders[2]).toBe(JOIN_URL);
 
     const soon = waLib.buildConsultWaMessage('call_starting', { name: '', joinUrl: JOIN_URL });
-    expect(soon.templateName).toBe('gp_link_consult_call_starting');
+    expect(soon.templateName).toBe('gp_link_consult_call_starting_5m');
     expect(soon.placeholders).toEqual(['there', JOIN_URL]);
 
     // A link-less reminder is not worth sending.
@@ -428,16 +448,27 @@ describe('GET /api/cron/call-reminders — consultation reminders', () => {
     expect(lastTemplate().content.templateName).toBe('gp_link_consult_call_reminder');
   });
 
-  it('sends the starting-now template with the link when the call is minutes away', async () => {
-    const call = seedBooking({ scheduled_at: new Date(Date.now() + 8 * MIN).toISOString() });
+  it('sends the starting-in-5 template with the link when the call is minutes away', async () => {
+    const call = seedBooking({ scheduled_at: new Date(Date.now() + 4 * MIN).toISOString() });
     seedLead(call.invitee_email);
 
     const res = await get(CRON);
     expect(res.json.consultReminders.sent).toBe(1);
     const msg = lastTemplate();
-    expect(msg.content.templateName).toBe('gp_link_consult_call_starting');
+    expect(msg.content.templateName).toBe('gp_link_consult_call_starting_5m');
     expect(msg.content.templateData.body.placeholders).toEqual(['Aisha', JOIN_URL]);
     expect(db.scheduled_calls[0].notification_channels.consult_reminders.soon).toBeTruthy();
+  });
+
+  it('a delayed tick just after the start time still delivers the join link', async () => {
+    // 2 minutes into the call: inside the consult track's post-start grace.
+    // The query's lower bound has to reach back for this row to be seen at all.
+    const call = seedBooking({ scheduled_at: new Date(Date.now() - 2 * MIN).toISOString() });
+    seedLead(call.invitee_email);
+
+    const res = await get(CRON);
+    expect(res.json.consultReminders.sent).toBe(1);
+    expect(lastTemplate().content.templateName).toBe('gp_link_consult_call_starting_5m');
   });
 
   it('holds the reminder until the Zoom link exists, then sends it', async () => {
