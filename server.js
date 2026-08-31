@@ -20308,11 +20308,13 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
   if (!phone || !message || !message.templateName) return { ok: false, skipped: true, reason: 'bad_input' };
   const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
   // Optional dynamic-button parameters (e.g. the practice-submission
-  // template's decision-link token). Omitted entirely for the button-less
-  // consult/reg templates — DoubleTick rejects a buttons key the template
-  // doesn't declare.
+  // template's decision-link token) and optional media header (the _cv
+  // variant's DOCUMENT header carrying the candidate's CV). Both omitted
+  // entirely for templates that don't declare them — DoubleTick rejects keys
+  // the template doesn't have.
   const templateData = { body: { placeholders: message.placeholders || [] } };
   if (Array.isArray(message.buttons) && message.buttons.length) templateData.buttons = message.buttons;
+  if (message.header && typeof message.header === 'object') templateData.header = message.header;
   const reqBody = JSON.stringify({
     messages: [{
       to: phone,
@@ -54207,11 +54209,31 @@ async function handleApi(req, res, pathname) {
     // an unawaited send would silently never happen.
     try {
       const inAppPracticePhone = inAppPractice ? String(inAppPractice.contact_phone || '').trim() : '';
+      // Attach the SAME CV the email carries, as the _cv template's DOCUMENT
+      // header — WhatsApp fetches it from a 1-hour Supabase-storage signed URL
+      // at send time. Only the identity-guard-cleared attachment is ever
+      // offered (inAppCvAttachment is nulled above on a wrong-owner CV), and
+      // a failed signing simply falls back to the text-only template.
+      let inAppCvSignedUrl = '';
+      if (inAppCvAttachment && inAppCvRow) {
+        const inAppCvStoragePath = String(inAppCvRow.storage_path || inAppCvRow.file_url || '').trim();
+        if (inAppCvStoragePath && !/^https?:/i.test(inAppCvStoragePath)) {
+          try {
+            inAppCvSignedUrl = await supabaseStorageCreateSignedUrl(
+              inAppCvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET,
+              inAppCvStoragePath,
+              inAppCvAttachment.filename
+            ) || '';
+          } catch (signErr) { inAppCvSignedUrl = ''; }
+        }
+      }
       const inAppWaMsg = practiceSubmissionWa.buildPracticeSubmissionWaMessage({
         contactName: inAppContactName,
         practiceName: inAppPracticeLabel,
         introParagraph: inAppIntro.paragraph,
-        actionToken: inAppActionToken
+        actionToken: inAppActionToken,
+        cvUrl: inAppCvSignedUrl,
+        cvFilename: inAppCvAttachment ? inAppCvAttachment.filename : ''
       });
       if (inAppPracticePhone && inAppWaMsg) {
         await ensureDoubleTickContactName(inAppPracticePhone, inAppContactName || inAppPracticeLabel);

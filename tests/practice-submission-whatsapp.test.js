@@ -103,6 +103,44 @@ describe('lib/practice-submission-whatsapp pure logic', () => {
     expect(waLib.buildPracticeSubmissionWaMessage({ ...base, actionToken: 'has space' })).toBe(null);
     expect(waLib.buildPracticeSubmissionWaMessage({ ...base, actionToken: 'a&b=c' })).toBe(null);
   });
+
+  it('uses the _cv template with a DOCUMENT header when an https CV link is given', () => {
+    const msg = waLib.buildPracticeSubmissionWaMessage({
+      ...base,
+      cvUrl: 'https://login.mygplink.com.au/storage/v1/object/sign/b/p.pdf?token=x',
+      cvFilename: 'Deepika-Ganesh-CV.pdf'
+    });
+    expect(msg.templateName).toBe('gp_link_practice_candidate_intro_cv');
+    expect(msg.header).toEqual({
+      type: 'DOCUMENT',
+      mediaUrl: 'https://login.mygplink.com.au/storage/v1/object/sign/b/p.pdf?token=x',
+      filename: 'Deepika-Ganesh-CV.pdf'
+    });
+    // Body and button are identical across the two templates.
+    expect(msg.placeholders.length).toBe(3);
+    expect(msg.buttons).toEqual([{ type: 'URL', parameter: base.actionToken }]);
+  });
+
+  it('falls back to the text-only template when the CV link is absent or not https', () => {
+    expect(waLib.buildPracticeSubmissionWaMessage(base).header).toBe(undefined);
+    expect(waLib.buildPracticeSubmissionWaMessage(base).templateName).toBe('gp_link_practice_candidate_intro');
+    const httpMsg = waLib.buildPracticeSubmissionWaMessage({ ...base, cvUrl: 'http://insecure/cv.pdf' });
+    expect(httpMsg.templateName).toBe('gp_link_practice_candidate_intro');
+    expect(httpMsg.header).toBe(undefined);
+    const junkMsg = waLib.buildPracticeSubmissionWaMessage({ ...base, cvUrl: 'not a url' });
+    expect(junkMsg.templateName).toBe('gp_link_practice_candidate_intro');
+  });
+
+  it('sanitizes the document filename and falls back when it is empty', () => {
+    const msg = waLib.buildPracticeSubmissionWaMessage({
+      ...base,
+      cvUrl: 'https://x/cv.pdf',
+      cvFilename: '  weird\\name:with|chars?.pdf  '
+    });
+    expect(msg.header.filename).toBe('weird name with chars .pdf');
+    const noName = waLib.buildPracticeSubmissionWaMessage({ ...base, cvUrl: 'https://x/cv.pdf', cvFilename: '' });
+    expect(noName.header.filename).toBe('Candidate-CV.pdf');
+  });
 });
 
 describe('sendConsultWhatsAppTemplate buttons passthrough', () => {
@@ -121,6 +159,30 @@ describe('sendConsultWhatsAppTemplate buttons passthrough', () => {
     const content = captured[0].body.messages[0].content;
     expect(content.templateName).toBe('gp_link_practice_candidate_intro');
     expect(content.templateData.body.placeholders.length).toBe(3);
+    expect(content.templateData.buttons).toEqual([{ type: 'URL', parameter: 'tok123' }]);
+  });
+
+  it('forwards a DOCUMENT header into templateData.header for the _cv template', async () => {
+    dtCaptured.length = 0;
+    const msg = waLib.buildPracticeSubmissionWaMessage({
+      contactName: 'Dr Chris Ifediora',
+      practiceName: 'PKG Medical Centre',
+      introParagraph: 'An internationally trained GP.',
+      actionToken: 'tok123',
+      cvUrl: 'https://x/signed/cv.pdf?token=y',
+      cvFilename: 'Deepika-Ganesh-CV.pdf'
+    });
+    const sent = await testUtils.sendConsultWhatsAppTemplate('+61458183994', msg);
+    expect(sent.ok).toBe(true);
+    const captured = dtCaptured.filter((c) => c.path === '/whatsapp/message/template');
+    expect(captured.length).toBe(1);
+    const content = captured[0].body.messages[0].content;
+    expect(content.templateName).toBe('gp_link_practice_candidate_intro_cv');
+    expect(content.templateData.header).toEqual({
+      type: 'DOCUMENT',
+      mediaUrl: 'https://x/signed/cv.pdf?token=y',
+      filename: 'Deepika-Ganesh-CV.pdf'
+    });
     expect(content.templateData.buttons).toEqual([{ type: 'URL', parameter: 'tok123' }]);
   });
 
