@@ -61770,7 +61770,11 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
 
-      // 5. Save handover summary to the case record (fire and forget)
+      // 5. Save handover summary to the case record. AWAITED, not fire-and-forget: the
+      // serverless instance freezes the moment the response is sent (same trap as
+      // _maybeRunSppaConflictScan), so an un-awaited PATCH here silently vanished — a
+      // force-refresh returned the corrected summary to the client while the stored cache
+      // kept serving the stale one for up to 24h (Dr Mercy Obanimoh, 2026-09-01).
       var handoverPayload = {
         overview: summary.overview || '',
         action_items: summary.action_items || [],
@@ -61778,12 +61782,11 @@ Return ONLY valid JSON with no markdown formatting:
         key_history: summary.key_history || '',
         generated_at: new Date().toISOString()
       };
-      supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+      var handoverSave = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
         method: 'PATCH',
         body: { ai_handover_summary: handoverPayload }
-      }).catch(function(err) {
-        console.error('[AI Summary] Failed to save handover:', err.message);
       });
+      if (!handoverSave.ok) console.error('[AI Summary] Failed to save handover:', handoverSave.status);
 
       sendJson(res, 200, {
         ok: true,

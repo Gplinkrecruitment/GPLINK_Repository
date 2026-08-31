@@ -44,4 +44,14 @@ describe('escalated SPPA relics cannot mislead the list count or the AI summary'
     expect(serverSrc).toContain('These are authoritative and OUTRANK');
     expect(serverSrc).toContain('never report it as missing, unreceived, or still being chased');
   });
+
+  it('the summary cache write is awaited so the serverless freeze cannot drop it', () => {
+    // Fire-and-forget right before sendJson dies with the frozen instance (same class as
+    // _maybeRunSppaConflictScan): the client got the fresh summary, the 24h cache kept the
+    // stale one.
+    const at = serverSrc.indexOf('var handoverPayload = {');
+    expect(at).toBeGreaterThan(-1);
+    const seg = serverSrc.slice(at, at + 800);
+    expect(seg).toContain('var handoverSave = await supabaseDbRequest');
+  });
 });
