@@ -1653,7 +1653,65 @@
         field("Family / who's moving", ATS.esc(ob.family || '—')) +
         '<div class="ats-detail-field"><div class="df-lbl">Identity verified</div><div class="df-val">' +
           (ob.idVerified ? '<span class="ats-pill green">Yes</span>' : '<span class="ats-pill amber">Pending</span>') + '</div></div>' +
-      '</div>';
+      '</div>' +
+      registerRowInner(c);
+  }
+
+  // Medical-register verification row (owner decision 2026-08-31): doctors now
+  // onboard with their register number instead of certificate uploads. Staff
+  // confirm the number against the LIVE public register (link opens it) and
+  // record the outcome here. No row renders for doctors who onboarded the old
+  // way (no register number on file).
+  function recordRegisterVerification(btn, c) {
+    var action = btn.getAttribute('data-action');
+    var userId = btn.getAttribute('data-user-id');
+    if (!action || !userId) return;
+    btn.disabled = true;
+    ATS.api('/api/ats/candidate/register-verification', { method: 'POST', body: { userId: userId, action: action } }).then(function (res) {
+      if (res && res.ok) {
+        if (c.onboarding) c.onboarding.registerStatus = res.register_status;
+        var row = document.getElementById('ats-register-row');
+        if (row) {
+          var wrap = document.createElement('div');
+          wrap.innerHTML = registerRowInner(c);
+          row.replaceWith(wrap.firstChild);
+        }
+        ATS.toast(action === 'verified' ? 'Register verified.' : 'Marked as a mismatch — follow up with the doctor.');
+      } else {
+        btn.disabled = false;
+        ATS.toast((res && (res.error || res.message)) || 'Could not save the verification.');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      ATS.toast('Could not save the verification.');
+    });
+  }
+
+  function registerRowInner(c) {
+    var ob = c.onboarding || {};
+    if (!ob.registerNumber) return '';
+    var label = ob.registerLabel || 'Register';
+    var status = ob.registerStatus || 'pending_verification';
+    var pill = status === 'verified'
+      ? '<span class="ats-pill green">Verified</span>'
+      : status === 'mismatch'
+        ? '<span class="ats-pill red">Mismatch</span>'
+        : '<span class="ats-pill amber">Pending check</span>';
+    var uid = ' data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    var actions = '';
+    if (status !== 'verified') {
+      actions =
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="verified"' + uid + '>&#10003; Verified</button>' +
+        (status === 'mismatch' ? '' : '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="mismatch"' + uid + '>Mismatch</button>');
+    }
+    return '<div class="ats-doc-line" id="ats-register-row">' +
+      '<div class="ats-doc-ico ' + (status === 'verified' ? 'yes' : 'no') + '">' + (status === 'verified' ? '✓' : '○') + '</div>' +
+      '<div style="flex:1"><div class="dl-name">' + ATS.esc(label) + ' register: ' + ATS.esc(ob.registerNumber) + '</div>' +
+      '<div class="dl-sub">Check the number and name on the public register, then record the outcome.</div></div>' +
+      pill +
+      (ob.registerSearchUrl ? '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + ATS.escAttr(ob.registerSearchUrl) + '" target="_blank" rel="noopener">Open register</a>' : '') +
+      actions +
+    '</div>';
   }
 
   function docsCardInner(c) {
@@ -1991,6 +2049,9 @@
       // AI Matching (Task 8): career-lock release / restore-intent.
       if (e.target.closest('#ats-lock-release')) { releaseCareerLock(c); return; }
       if (e.target.closest('#ats-lock-restore-intent')) { restoreCareerLockIntent(c); return; }
+      // Record the outcome of the staff check against the public register.
+      var regBtn = e.target.closest('.ats-register-verify');
+      if (regBtn) { recordRegisterVerification(regBtn, c); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');

@@ -346,7 +346,7 @@ describe('cache busting', () => {
     expect(CEO_HTML).not.toContain('/js/ceo-ats-jobs.js?v=20260729a');
     expect(CEO_HTML).toContain('/js/ceo-ats-practices.js?v=20260810c'); // map removed here
     expect(CEO_HTML).not.toContain('/js/ceo-ats-practices.js?v=20260809a');
-    expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20260829a');
+    expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20260831a');
     expect(CEO_HTML).not.toContain('/css/ceo-ats.css?v=20260805e');
   });
 });

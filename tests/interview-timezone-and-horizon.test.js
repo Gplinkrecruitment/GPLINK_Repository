@@ -254,8 +254,8 @@ describe('staff and doctor see the same moment, correctly labelled', () => {
   });
 
   it('both changed assets are cache-busted, or the dashboard serves the old ones', () => {
-    expect(dashSrc).toContain('ceo-ats-candidates.js?v=20260805b');
-    expect(dashSrc).toContain('ceo-ats.css?v=20260829a');
+    expect(dashSrc).toContain('ceo-ats-candidates.js?v=20260831a');
+    expect(dashSrc).toContain('ceo-ats.css?v=20260831a');
     expect(dashSrc).not.toContain('ceo-ats.css?v=20260805d');
     expect(dashSrc).not.toContain('ceo-ats.css?v=20260805c');
     expect(dashSrc).not.toContain('ceo-ats.css?v=20260805b');

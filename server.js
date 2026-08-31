@@ -243,6 +243,7 @@ var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
 const careerIntro = require('./lib/career-intro.js');
 const practiceSubmissionWa = require('./lib/practice-submission-whatsapp.js');
+const registerVerification = require('./lib/register-verification.js');
 const { identityRetentionDue } = require('./lib/identity-retention.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -39987,7 +39988,14 @@ async function atsProdCandidateFacts(regCase) {
       target: prof.target_arrival_date || ob.targetDate || 'Not set',
       city: prof.preferred_city || ob.preferredCity || '',
       family: ob.whoMoving || (prof.who_moving || ''),
-      idVerified: !!(ob.idVerification && ob.idVerification.status === 'verified') || !!docs.idDoc
+      idVerified: !!(ob.idVerification && ob.idVerification.status === 'verified') || !!docs.idDoc,
+      // Medical-register verification (owner decision 2026-08-31): the drawer
+      // shows the number + status with a one-click live-register check.
+      registerBody: prof.register_body || '',
+      registerNumber: prof.register_number || '',
+      registerStatus: prof.register_status || '',
+      registerSearchUrl: (registerVerification.registerBodyMeta(prof.register_body) || {}).searchUrl || '',
+      registerLabel: (registerVerification.registerBodyMeta(prof.register_body) || {}).label || ''
     },
     docs: docs,
     regStage: regCase.stage || 'myintealth',
@@ -45925,6 +45933,8 @@ async function handleApi(req, res, pathname) {
           ? dcStateRes.data[0].state : {};
       } catch (dcStateErr) { dcStateVal = {}; }
       const dcOb = _parseStateVal(dcStateVal.gp_onboarding);
+      const dcRegMeta = dcProf.register_status === 'verified'
+        ? registerVerification.registerBodyMeta(dcProf.register_body) : null;
       dcIntro = careerIntro.buildCandidateIntro({
         gpName: (ctx && ctx.gpName) || '',
         countryCode: dcProf.registration_country || dcOb.country,
@@ -45932,7 +45942,8 @@ async function handleApi(req, res, pathname) {
         specialty: atsSpecialtyFromOnboarding(dcOb),
         targetDate: dcProf.target_arrival_date || dcOb.targetDate,
         practiceName: (ctx && ctx.practiceName) || '',
-        roleTitle: roleTitle || ''
+        roleTitle: roleTitle || '',
+        registerVerifiedLabel: dcRegMeta ? (dcRegMeta.label + ' registration verified') : ''
       });
       dcHasCv = !!(await findPracticeFacingCvRow(appRow.user_id));
     } catch (dcErr) { dcIntro = null; }
@@ -54138,6 +54149,10 @@ async function handleApi(req, res, pathname) {
     // copy used (_parseStateVal(inAppStateVal.gp_onboarding)), now feeding the
     // shared pure builder instead of hand-rolled sentences.
     const inAppOb = _parseStateVal(inAppStateVal.gp_onboarding);
+    // "GMC registration verified" fact chip — ONLY when staff have confirmed
+    // the number on the public register, never for pending/mismatch.
+    const inAppRegMeta = inAppProfile.register_status === 'verified'
+      ? registerVerification.registerBodyMeta(inAppProfile.register_body) : null;
     const inAppIntro = careerIntro.buildCandidateIntro({
       gpName: inAppGpName,
       countryCode: inAppProfile.registration_country || inAppOb.country,
@@ -54145,7 +54160,8 @@ async function handleApi(req, res, pathname) {
       specialty: atsSpecialtyFromOnboarding(inAppOb),
       targetDate: inAppProfile.target_arrival_date || inAppOb.targetDate,
       practiceName: inAppPracticeLabel,
-      roleTitle: inAppRoleLabel
+      roleTitle: inAppRoleLabel,
+      registerVerifiedLabel: inAppRegMeta ? (inAppRegMeta.label + ' registration verified') : ''
     });
     const inAppDisplayName = /^dr\b/i.test(inAppGpName) ? inAppGpName : 'Dr ' + inAppGpName;
 
@@ -55834,6 +55850,22 @@ async function handleApi(req, res, pathname) {
         // Also update user profile with onboarding data
         const profileUpdate = {};
         if (body.country) profileUpdate.qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
+        // Medical-register details (owner decision 2026-08-31): onboarding
+        // takes a register number instead of certificate uploads. Persist it
+        // pending staff verification against the live public register. An
+        // invalid value never blocks completion (the wizard validates
+        // client-side; this is belt-and-braces) — it is simply not stamped.
+        if (body.registerNumber && body.country) {
+          const obRegBody = registerVerification.registerBodyForCountry(body.country);
+          const obRegCheck = registerVerification.validateRegisterDetails(obRegBody, body.registerNumber);
+          if (obRegCheck.ok) {
+            profileUpdate.register_body = obRegCheck.body;
+            profileUpdate.register_number = obRegCheck.number;
+            profileUpdate.register_status = 'pending_verification';
+          } else {
+            console.warn('[Onboarding] register number not stamped (invalid):', obRegBody, String(body.registerNumber).slice(0, 20));
+          }
+        }
         if (body.preferredCity) profileUpdate.preferred_city = body.preferredCity;
         if (body.targetDate) profileUpdate.target_arrival_date = body.targetDate;
         if (body.whoMoving) profileUpdate.who_moving = body.whoMoving;
@@ -59357,6 +59389,41 @@ Return ONLY valid JSON with no markdown formatting:
 
     const docs = await getOnboardingDocumentsForUser(userId, email, country);
     sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null });
+    return;
+  }
+
+  // GET /api/registration/qual-docs-status — the MyIntealth gateway (owner
+  // decision 2026-08-31): a doctor who onboarded via the register-number path
+  // skipped their certificates, and MyIntealth must not begin without them.
+  // Answers { gated, missing:[{key,label}] } from the SAME per-document
+  // statuses the wizard reads, so uploading through the docs-mode wizard
+  // (onboarding?docs=1) lifts the gate on its own — no completion flag.
+  // Doctors who onboarded the old way (no register_status on their profile)
+  // are never gated: their certificates were collected at onboarding.
+  if (pathname === '/api/registration/qual-docs-status' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
+    const qdUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!qdUserId) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
+    const qdProfRes = await supabaseDbRequest('user_profiles', `select=register_status,qualification_country,registration_country&user_id=eq.${encodeURIComponent(qdUserId)}&limit=1`);
+    const qdProf = (qdProfRes.ok && Array.isArray(qdProfRes.data) && qdProfRes.data[0]) ? qdProfRes.data[0] : {};
+    if (!qdProf.register_status) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
+    const qdCode = registerVerification.qualCountryCode(qdProf.qualification_country || qdProf.registration_country);
+    const qdRequired = registerVerification.DEFERRED_QUAL_DOCS[qdCode] || [];
+    if (!qdRequired.length) { sendJson(res, 200, { ok: true, gated: false, missing: [] }); return; }
+    const qdDocs = await getOnboardingDocumentsForUser(qdUserId, email, qdCode);
+    // getOnboardingDocumentsForUser answers toStatusLabel() values: an
+    // 'accepted' or 'under_review' document is PROVIDED (uploaded and either
+    // approved or awaiting a human); 'rejected' and 'pending' are still owed.
+    const qdOkStatuses = ['accepted', 'under_review'];
+    const qdMissing = qdRequired.filter((doc) => {
+      const d = qdDocs.docs && qdDocs.docs[doc.key];
+      return !(d && qdOkStatuses.indexOf(String(d.status || '')) !== -1);
+    });
+    sendJson(res, 200, { ok: true, gated: qdMissing.length > 0, missing: qdMissing });
     return;
   }
 
@@ -74719,6 +74786,51 @@ Return ONLY valid JSON with no markdown formatting:
   //
   // `/api/ats/candidate/career-cv` is kept as an alias so a browser holding
   // the previously-shipped script keeps working.
+  // POST /api/ats/candidate/register-verification — staff record the outcome
+  // of their one-click check against the LIVE public register (the register
+  // websites are the up-to-date source; automated lookups were rejected —
+  // gmc-uk.org 403s non-browser traffic). Body { userId, action } where
+  // action is 'verified' or 'mismatch'. CEO + consultants (the same audience
+  // that sees the drawer).
+  if (pathname === '/api/ats/candidate/register-verification' && req.method === 'POST') {
+    const rvAdmin = requireAtsSession(req, res);
+    if (!rvAdmin) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    let rvBody;
+    try { rvBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const rvUserId = String(rvBody && rvBody.userId || '').trim();
+    const rvAction = String(rvBody && rvBody.action || '').trim();
+    if (!rvUserId || (rvAction !== 'verified' && rvAction !== 'mismatch')) {
+      sendJson(res, 400, { ok: false, message: 'userId and action (verified | mismatch) are required.' });
+      return;
+    }
+    const rvProfRes = await supabaseDbRequest('user_profiles', `select=register_body,register_number,first_name,last_name&user_id=eq.${encodeURIComponent(rvUserId)}&limit=1`);
+    const rvProf = (rvProfRes.ok && Array.isArray(rvProfRes.data) && rvProfRes.data[0]) ? rvProfRes.data[0] : null;
+    if (!rvProf) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
+    if (!rvProf.register_number) { sendJson(res, 409, { ok: false, message: 'This doctor has no register number on file to verify.' }); return; }
+    const rvNowIso = new Date().toISOString();
+    const rvPatch = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(rvUserId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: { register_status: rvAction, register_verified_at: rvNowIso, register_verified_by: rvAdmin.email || '' }
+    });
+    if (!rvPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the verification.' }); return; }
+    try {
+      const rvCase = await _ensureRegCase(rvUserId);
+      if (rvCase) {
+        const rvMeta = registerVerification.registerBodyMeta(rvProf.register_body) || { label: 'register' };
+        await _logCaseEvent(
+          rvCase.id, null, 'system',
+          rvAction === 'verified' ? 'Medical register verified' : 'Medical register mismatch',
+          rvMeta.label + ' number ' + rvProf.register_number + ' marked ' + rvAction + ' by ' + (rvAdmin.email || 'staff') + ' against the public register.',
+          rvAdmin.email || 'system'
+        );
+      }
+    } catch (rvEvtErr) { /* best-effort audit trail */ }
+    sendJson(res, 200, { ok: true, register_status: rvAction, register_verified_at: rvNowIso });
+    return;
+  }
+
   if ((pathname === '/api/ats/candidate/document' || pathname === '/api/ats/candidate/career-cv') && req.method === 'POST') {
     var ctxCCV = requireAtsSession(req, res); if (!ctxCCV) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }

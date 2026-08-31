@@ -508,7 +508,7 @@ describe('onboarding wizard client wiring (source-level)', () => {
     expect(src).toContain('encodeURIComponent(dest)');
   });
   it('cache buster bumped', () => {
-    expect(html).toMatch(/onboarding\.js\?v=20260824a/);
+    expect(html).toMatch(/onboarding\.js\?v=20260831a/);
   });
   it('rejected docs do not count as complete', () => {
     const fn = src.slice(src.indexOf('function allDocsComplete'), src.indexOf('}', src.indexOf('function allDocsComplete')) + 1);

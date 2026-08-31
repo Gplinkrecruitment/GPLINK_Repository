@@ -1115,6 +1115,22 @@
       <div class="step-header-actions" id="stepHeaderActions"></div>
     </div>
 
+    <!-- CERTIFICATE GATEWAY (owner decision 2026-08-31): doctors now onboard
+         with their medical-register number instead of certificate uploads, so
+         the certificates are collected HERE, at the moment MyIntealth actually
+         needs them. Shown/hidden by the qual-docs-status fetch at the bottom
+         of this page; the upload button reuses the onboarding wizard's scan
+         machinery in docs-only mode. -->
+    <section id="qualDocsGate" hidden style="margin:18px 16px 0;padding:20px;background:#fff;border:1px solid #e2e8f0;border-radius:16px;">
+      <h2 style="margin:0 0 8px;font-size:19px;">First, your certificates</h2>
+      <p style="margin:0 0 12px;color:#475569;font-size:14.5px;line-height:1.5;">
+        To begin MyIntealth we need the certificates you skipped at sign-up.
+        Upload them once and they carry you through the whole registration.
+      </p>
+      <ul id="qualDocsGateList" style="margin:0 0 16px;padding-left:20px;color:#475569;font-size:14px;"></ul>
+      <button id="qualDocsGateBtn" type="button" style="appearance:none;border:0;background:#2563eb;color:#fff;font-weight:650;font-size:15px;padding:12px 20px;border-radius:12px;cursor:pointer;">Upload my certificates</button>
+    </section>
+
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content gp-reveal gp-reveal-3">
       <!-- Read-only review of an already-completed step (see STEP_REVIEW_ONLY) -->
@@ -2609,6 +2625,37 @@
         document.body.style.overflow = "";
       }
     });
+  </script>
+  <script>
+  // Certificate gateway: ask the server whether this doctor still owes the
+  // certificates deferred at onboarding. Fail-open on any error — a network
+  // blip must never lock a doctor out of their own registration page.
+  (function () {
+    'use strict';
+    fetch('/api/registration/qual-docs-status', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.ok || !d.gated) return;
+        var gate = document.getElementById('qualDocsGate');
+        var list = document.getElementById('qualDocsGateList');
+        var content = document.querySelector('.reg-content');
+        if (!gate || !list) return;
+        list.textContent = '';
+        (d.missing || []).forEach(function (doc) {
+          if (!doc || !doc.label) return;
+          var li = document.createElement('li');
+          li.textContent = doc.label;
+          list.appendChild(li);
+        });
+        gate.hidden = false;
+        if (content) content.style.display = 'none';
+        var btn = document.getElementById('qualDocsGateBtn');
+        if (btn) btn.addEventListener('click', function () {
+          window.location.href = '/pages/onboarding?docs=1';
+        });
+      })
+      .catch(function () { /* fail-open */ });
+  })();
   </script>
 </body>
 </html>

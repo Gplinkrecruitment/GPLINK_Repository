@@ -920,7 +920,7 @@ describe('cache buster + dead CSS pruned', () => {
     // new rules without a bump, which is exactly how that happened. The guard
     // for it lives in ats-endpoints.test.js ("never lets the CSS cache key
     // fall behind the JS one").
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260829a');
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260831a');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805d');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805c');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805b');

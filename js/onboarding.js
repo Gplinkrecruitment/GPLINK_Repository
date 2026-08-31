@@ -129,6 +129,32 @@
     ],
   };
 
+  // Docs-only mode (?docs=1): an ONBOARDED doctor is sent back here by the
+  // MyIntealth gateway to upload the certificates onboarding no longer asks
+  // for (owner decision 2026-08-31 — the wizard now takes their medical
+  // register number instead, and the documents are collected when their
+  // Australian registration actually starts). In this mode the wizard is
+  // pinned to the documents step and renders the ORIGINAL upload slots.
+  var DOCS_ONLY_MODE = false;
+  try { DOCS_ONLY_MODE = new URLSearchParams(window.location.search).get("docs") === "1"; } catch (e) {}
+
+  // Client mirror of lib/register-verification.js (kept in sync by
+  // tests/register-onboarding-sync.test.js — change BOTH together).
+  var REGISTER_BODIES_CLIENT = {
+    GB: { label: "GMC", pattern: /^\d{7}$/, hint: "Your 7-digit GMC reference number" },
+    IE: { label: "IMC", pattern: /^\d{4,6}$/, hint: "Your Medical Council registration number" },
+    NZ: { label: "MCNZ", pattern: /^\d{4,6}$/, hint: "Your MCNZ registration number" },
+  };
+
+  function validateRegisterNumberClient(country, value) {
+    var meta = REGISTER_BODIES_CLIENT[country];
+    if (!meta) return { ok: false, message: "Please select your country of qualification first." };
+    var n = String(value == null ? "" : value).replace(/[\s-]+/g, "").replace(/[^0-9]/g, "");
+    if (!n) return { ok: false, message: "Please enter your " + meta.label + " registration number." };
+    if (!meta.pattern.test(n)) return { ok: false, message: "That does not look like a valid " + meta.label + " number. " + meta.hint + "." };
+    return { ok: true, number: n };
+  }
+
   // ── State ──────────────────────────────────
   let state = loadState();
 
@@ -153,6 +179,7 @@
       _version: 2,
       currentStep: 0,
       country: "",
+      registerNumber: "",   // medical-register number (GMC/IMC/MCNZ) — replaces the qual-doc uploads at onboarding
       qualDocs: {},         // { [docKey]: { fileName, status, scanResult, retryCount, nameMatch } }
       accountReviewFlag: false,
       targetDate: "",
@@ -684,7 +711,42 @@
     return !!(window.BYPASS_LOCK_EMAILS && window.BYPASS_LOCK_EMAILS[email]);
   }
 
+  // Normal onboarding no longer uploads certificates — it takes the doctor's
+  // public medical-register number instead (verified by staff against the
+  // live register; the ID step still proves who they are). The document slots
+  // below survive untouched for DOCS_ONLY_MODE, where the MyIntealth gateway
+  // collects the deferred certificates with the same scan machinery.
+  function renderRegisterField() {
+    if (!qualDocsContainer) return;
+    var explainer = document.getElementById("qualDocsExplainer");
+    var meta = REGISTER_BODIES_CLIENT[state.country];
+    if (!meta) {
+      qualDocsContainer.innerHTML = '<p style="color:var(--muted);font-size:14px;">Select a country first.</p>';
+      if (explainer) explainer.style.display = "none";
+      return;
+    }
+    if (explainer) {
+      explainer.textContent = "No certificates needed today. Enter your " + meta.label + " number and we confirm you on the public register. Certificates come later, when your Australian registration begins.";
+      explainer.style.display = "block";
+    }
+    qualDocsContainer.innerHTML =
+      '<div class="register-number-field">' +
+        '<label class="field-label" for="registerNumberInput">' + meta.label + ' registration number</label>' +
+        '<input type="text" class="country-search-input" id="registerNumberInput" inputmode="numeric" autocomplete="off" placeholder="' + escHtml(meta.hint) + '" value="' + escHtml(state.registerNumber || "") + '" />' +
+        '<div style="font-size:13px;color:var(--light);margin-top:8px;">We check this against the public ' + meta.label + ' register. Your ID upload at the last step confirms it is really you.</div>' +
+      '</div>';
+    var regInput = document.getElementById("registerNumberInput");
+    if (regInput) {
+      regInput.addEventListener("input", function () {
+        state.registerNumber = regInput.value;
+        saveState();
+        hideError("qualDocsError");
+      });
+    }
+  }
+
   function renderQualDocSlots() {
+    if (!DOCS_ONLY_MODE) { renderRegisterField(); return; }
     if (!qualDocsContainer) return;
     const docs = COUNTRY_DOCS[state.country] || [];
     qualDocsContainer.innerHTML = "";
@@ -1999,7 +2061,7 @@
         if (!state.whoMoving) { showError("whoError"); ok = false; }
         else hideError("whoError");
         return ok;
-      case 2: // country + trained-where + qualification docs
+      case 2: // country + register number (normal) / the deferred documents (docs-only mode)
         if (!state.country) { showError("countryError"); return false; }
         if (!COUNTRY_DOCS[state.country]) {
           const hint = document.getElementById("countryHint");
@@ -2007,6 +2069,14 @@
           return false;
         }
         hideError("countryError");
+        if (!DOCS_ONLY_MODE) {
+          var regCheck = validateRegisterNumberClient(state.country, state.registerNumber);
+          if (!regCheck.ok) { showError("qualDocsError", regCheck.message); return false; }
+          state.registerNumber = regCheck.number;
+          saveState();
+          hideError("qualDocsError");
+          return true;
+        }
         if (!allDocsComplete()) {
           showError("qualDocsError", "Please verify all required documents before continuing.");
           return false;
@@ -2036,22 +2106,16 @@
     const list = document.getElementById("reviewList");
     const countryName = (COUNTRIES.find((c) => c.code === state.country) || {}).name || "Not set";
 
-    // Qual docs summary
-    const docs = COUNTRY_DOCS[state.country] || [];
-    const qualRows = docs.map((doc) => {
-      const d = state.qualDocs[doc.key];
-      let value = "Not uploaded", cls = "status-missing";
-      if (d) {
-        if (d.status === "verified") { value = "Verified"; cls = "status-verified"; }
-        else if (d.status === "approved") { value = "Approved"; cls = "status-verified"; }
-        else if (d.status === "manual_review") { value = "Under Review"; cls = "status-pending"; }
-        else if (d.status === "under_review") { value = "Under Review"; cls = "status-pending"; }
-        else if (d.status === "rejected") { value = "Needs re-upload"; cls = "status-missing"; }
-        else if (d.status === "storage_failed") { value = "Not saved — please upload again"; cls = "status-missing"; }
-        else { value = "Not verified"; cls = "status-missing"; }
-      }
-      return { label: doc.label, value, cls };
-    });
+    // Register summary — onboarding no longer uploads certificates, so the
+    // review shows the number we will verify on the public register instead.
+    const regMeta = REGISTER_BODIES_CLIENT[state.country];
+    const qualRows = [{
+      label: (regMeta ? regMeta.label : "Register") + " number",
+      value: state.registerNumber
+        ? state.registerNumber + " (we verify this on the public register)"
+        : "Not provided",
+      cls: state.registerNumber ? "status-verified" : "status-missing"
+    }];
 
     const whoLabels = {
       just_me: "Just me",
@@ -2214,6 +2278,14 @@
     // Button label — crossfade while morphing, instant swap otherwise
     var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
     var isSubmit = step === TOTAL_STEPS - 1;
+    // Docs-only mode is pinned to the documents step: no dots, no back, and
+    // the one button saves and returns to MyIntealth.
+    if (DOCS_ONLY_MODE) {
+      newLabel = "SAVE & RETURN";
+      isSubmit = true;
+      backBtn.classList.remove("visible");
+      if (dotsEl) dotsEl.style.display = "none";
+    }
     setNextBtnLabel(newLabel, isSubmit, needsFlip);
 
     if (step === 3) {
@@ -2230,21 +2302,23 @@
   nextBtn.addEventListener("click", () => {
     if (navInProgress) return;
     triggerButtonHaptic(14);
+    // Docs-only mode: the wizard is pinned to the documents step — the button
+    // finishes when every deferred certificate is verified and returns the
+    // doctor to MyIntealth, where the gateway lifts on its own (it reads the
+    // stored documents, not a flag).
+    if (DOCS_ONLY_MODE) {
+      if (!validateStep(2)) return;
+      window.location.href = "/pages/myinthealth";
+      return;
+    }
     if (!validateStep(currentStep)) return;
     if (currentStep === TOTAL_STEPS - 1) {
-      // Final gate: a GP resumed past the documents step (saved currentStep or
-      // ?step deep link) may be missing a document added since (e.g. UK CCT) —
-      // validateStep only checks the CURRENT step, so re-check the docs here.
-      if (!canBypassOnboardingValidation() && !allDocsComplete()) {
-        const docs = COUNTRY_DOCS[state.country] || [];
-        // Same status allow-list as allDocsComplete.
-        const firstIncomplete = docs.find((doc) => {
-          const d = state.qualDocs && state.qualDocs[doc.key];
-          return !(d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested" || d.status === "approved" || d.status === "under_review"));
-        });
+      // Final gate: a GP resumed past the register step (saved currentStep or
+      // ?step deep link) may never have entered their number — validateStep
+      // only checks the CURRENT step, so re-check it here.
+      if (!canBypassOnboardingValidation() && !validateRegisterNumberClient(state.country, state.registerNumber).ok) {
         goToStep(2);
-        showError("qualDocsError", "Please upload and verify all required documents before finishing setup.");
-        if (firstIncomplete) highlightQualSlot(firstIncomplete.key);
+        showError("qualDocsError", "Please add your medical register number before finishing setup.");
         return;
       }
       submitOnboarding();
@@ -2406,6 +2480,18 @@
           var reuploadRaw = params.get("reupload") || "";
           var reuploadKey = reuploadRaw && state.country ? resolveReuploadParamKey(reuploadRaw, state.country) : null;
           if (reuploadKey) currentStep = 2;
+          // Docs-only mode (MyIntealth gateway): pin the wizard to the
+          // documents step and retitle it — the doctor has already onboarded.
+          if (DOCS_ONLY_MODE) {
+            currentStep = 2;
+            var docsSlide = document.querySelector('.slide[data-slide="2"] .slide-content');
+            if (docsSlide) {
+              var h1 = docsSlide.querySelector("h1");
+              var lede = docsSlide.querySelector("p");
+              if (h1) h1.textContent = "Upload your certificates";
+              if (lede) lede.textContent = "Before MyIntealth begins we need the certificates you skipped at sign-up. Upload them once and the whole registration runs on them.";
+            }
+          }
           saveState();
           goToStep(currentStep);
           initRendered = true;

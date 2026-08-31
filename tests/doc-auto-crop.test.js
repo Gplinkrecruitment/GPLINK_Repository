@@ -556,7 +556,7 @@ describe('the module is actually on the pages that need it', () => {
   });
 
   it('bumps the busters of the two scripts whose code changed', () => {
-    expect(onboardingHtml).toContain('onboarding.js?v=20260824a');
+    expect(onboardingHtml).toContain('onboarding.js?v=20260831a');
     expect(myDocumentsHtml).toContain('qualification-scan.js?v=' + CROP_BUSTER);
     expect(onboardingHtml).not.toContain('onboarding.js?v=20260801c');
   });
