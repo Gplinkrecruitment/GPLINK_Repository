@@ -31339,12 +31339,13 @@ async function pushPbsNotificationToOwner(appId, notification) {
 //   key. This wiped Dr Deepika Ganesh's whole user_state on 2026-08-31 when
 //   a career notification's state read transiently failed; restored from the
 //   weekly backup.)
-// - there is no user_state row (a PATCH would match nothing anyway)
 // - the stored state is an unparseable string (writing over it would destroy
 //   whatever it held)
-// A row whose state is null/empty parses to {} — nothing to lose, safe base.
-// Callers MUST skip their write when this returns null: no bell entry, doc
-// chip or push token is ever worth risking the whole blob.
+// A read that SUCCEEDS but finds no row (or a null/empty state) returns {} —
+// there is nothing to lose, so an upsert caller may create the row (a
+// doctor's first bell alert can arrive before they ever sync state) and a
+// PATCH caller just no-ops. Callers MUST skip their write when this returns
+// null: no bell entry, doc chip or push token is ever worth risking the blob.
 async function readUserStateForMerge(userId, label) {
   const r = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
   if (!r || !r.ok || !Array.isArray(r.data)) {
@@ -31352,7 +31353,7 @@ async function readUserStateForMerge(userId, label) {
     return null;
   }
   const row = r.data[0];
-  if (!row) return null;
+  if (!row) return {};
   let st = row.state;
   if (typeof st === 'string') {
     try { st = JSON.parse(st); } catch {
