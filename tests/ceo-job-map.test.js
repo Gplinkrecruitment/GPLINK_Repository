@@ -242,10 +242,13 @@ describe('Jobs tab map (client)', () => {
     expect(JOBS_JS).not.toContain('/api/ats/practice-map');
   });
 
-  it('is keyless — Leaflet + CARTO, never the Google Maps key', () => {
+  it('is keyless — Leaflet + Esri, never the Google Maps key', () => {
     expect(JOBS_JS).toContain('cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/');
     expect(JOBS_JS).toContain('cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/');
-    expect(JOBS_JS).toContain('basemaps.cartocdn.com');
+    // CARTO started stamping "API KEY REQUIRED" over keyless requests
+    // (2026-09-01), so the basemap moved to Esri's keyless raster tiles.
+    expect(JOBS_JS).toContain('server.arcgisonline.com');
+    expect(JOBS_JS).not.toContain('basemaps.cartocdn.com');
     expect(JOBS_JS).not.toContain('maps.googleapis.com');
     expect(JOBS_JS).not.toContain('google.maps');
   });
@@ -342,8 +345,8 @@ describe('Jobs map styling', () => {
 
 describe('cache busting', () => {
   it('bumps every asset that changed, or browsers keep the old ones for an hour', () => {
-    expect(CEO_HTML).toContain('/js/ceo-ats-jobs.js?v=20260805c');   // map added here
-    expect(CEO_HTML).not.toContain('/js/ceo-ats-jobs.js?v=20260729a');
+    expect(CEO_HTML).toContain('/js/ceo-ats-jobs.js?v=20260901a');   // Esri tile swap here
+    expect(CEO_HTML).not.toContain('/js/ceo-ats-jobs.js?v=20260805c');
     expect(CEO_HTML).toContain('/js/ceo-ats-practices.js?v=20260810c'); // map removed here
     expect(CEO_HTML).not.toContain('/js/ceo-ats-practices.js?v=20260809a');
     expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20260901a');

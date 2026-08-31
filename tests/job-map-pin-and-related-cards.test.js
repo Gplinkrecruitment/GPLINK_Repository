@@ -42,7 +42,10 @@ describe('area map: keyless Leaflet, interactive, pin locked to the suburb', () 
     expect(siteJob).toMatch(/leaflet@1\.9\.4\/dist\/leaflet\.js/);
     expect(siteJob).toMatch(/L\.map\(/);
     expect(siteJob).toMatch(/L\.divIcon\(/);
-    expect(siteJob).toMatch(/basemaps\.cartocdn\.com/);
+    // CARTO started stamping "API KEY REQUIRED" over keyless requests
+    // (2026-09-01), so every map's basemap moved to Esri's keyless tiles.
+    expect(siteJob).toMatch(/server\.arcgisonline\.com/);
+    expect(siteJob).not.toMatch(/basemaps\.cartocdn\.com/);
     // Coordinates from OUR keyless endpoint; never Google Maps JS / Geocoder.
     expect(siteJob).toMatch(/\/api\/public\/suburb-geo/);
     expect(siteJob).not.toMatch(/maps\.googleapis\.com\/maps\/api\/js/);
@@ -54,11 +57,12 @@ describe('area map: keyless Leaflet, interactive, pin locked to the suburb', () 
     expect(siteJob).toMatch(/showSuburbMapFallback/);
   });
 
-  it('in-app advert (job.html) uses keyless Leaflet + CARTO tiles, not Google Maps', () => {
+  it('in-app advert (job.html) uses keyless Leaflet + Esri tiles, not Google Maps', () => {
     expect(appJob).toMatch(/leaflet@1\.9\.4\/dist\/leaflet\.js/);
     expect(appJob).toMatch(/L\.map\(/);
     expect(appJob).toMatch(/L\.divIcon\(/);
-    expect(appJob).toMatch(/basemaps\.cartocdn\.com/);
+    expect(appJob).toMatch(/server\.arcgisonline\.com/);
+    expect(appJob).not.toMatch(/basemaps\.cartocdn\.com/);
     expect(appJob).toMatch(/\/api\/public\/suburb-geo/);
     expect(appJob).not.toMatch(/maps\.googleapis\.com\/maps\/api\/js/);
     expect(appJob).not.toMatch(/new maps\.Map\(/);
@@ -77,7 +81,7 @@ describe('area map: keyless Leaflet, interactive, pin locked to the suburb', () 
     expect(server).toMatch(/resolveCareerSuburbCoordinates\(\{\s*suburb,\s*state,\s*country\s*\}\)/);
     // CSP must permit the Leaflet CDN (style) and the raster tiles (img).
     expect(server).toMatch(/KEYLESS_MAP_CSP_STYLE_SOURCES/);
-    expect(server).toMatch(/basemaps\.cartocdn\.com/);
+    expect(server).toMatch(/server\.arcgisonline\.com/);
   });
 });
 
@@ -94,7 +98,8 @@ describe('/jobs Australia practice map section', () => {
     expect(siteJobs).toMatch(/\/api\/public\/practice-map/);
     expect(siteJobs).toMatch(/leaflet@1\.9\.4\/dist\//);
     expect(siteJobs).toMatch(/leaflet\.markercluster@1\.5\.3/);
-    expect(siteJobs).toMatch(/basemaps\.cartocdn\.com/);
+    expect(siteJobs).toMatch(/server\.arcgisonline\.com/);
+    expect(siteJobs).not.toMatch(/basemaps\.cartocdn\.com/);
     expect(siteJobs).toMatch(/markerClusterGroup/);
     // Opens on all of Australia.
     expect(siteJobs).toMatch(/center:\s*\[-2[0-9](\.\d+)?\s*,\s*13[0-9](\.\d+)?\]/);

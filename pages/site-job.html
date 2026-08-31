@@ -95,6 +95,8 @@
   .job-profile-map .leaflet-control-attribution{font-size:10px;line-height:1.3;background:rgba(255,255,255,.5);
     box-shadow:none;color:rgba(30,60,90,.5);padding:1px 6px;border-radius:5px 0 0 0;}
   .job-profile-map .leaflet-control-attribution a{color:rgba(30,60,90,.6);}
+  .map-zoom-hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(15,23,42,.78);color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;pointer-events:none;opacity:0;transition:opacity .25s ease;z-index:1100;white-space:nowrap;}
+  .map-zoom-hint.show{opacity:1;}
   /* Fallback only (Leaflet/coords failed): the raw Google embed, which carries
      its own suburb pin and is itself pan/zoomable. */
   .job-profile-map iframe{width:100%;height:220px;border:0;display:block;}
@@ -618,20 +620,61 @@ fbq('track', 'PageView');
         // framed whatever the container size. Zoom 13 used to be hardcoded and
         // would now cut a 20km-wide circle off on every side.
         zoom: 11,
+        // zoomSnap:0 lets a pinch land on fractional zooms so it feels
+        // continuous; zoomDelta keeps the +/- buttons on whole steps.
+        zoomSnap: 0,
+        zoomDelta: 1,
         scrollWheelZoom: false,
+        touchZoom: true,
         zoomControl: true,
         attributionControl: true
       });
       suburbMapInstance = map;
       // Drop the "Leaflet" prefix + flag, same as the /jobs board map. The
-      // OSM/CARTO credit itself stays — the tile licences require it — just
+      // OSM/Esri credit itself stays — the tile licences require it — just
       // small and subtle (see .leaflet-control-attribution above).
       map.attributionControl.setPrefix(false);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd',
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'
+        maxNativeZoom: 17,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, Esri'
       }).addTo(map);
+      // Pinch/scroll zoom: a trackpad pinch arrives as ctrl+wheel, which
+      // Leaflet only honours when scrollWheelZoom is on — and that would
+      // hijack page scrolling. Plain scroll moves the page (with a short
+      // hint), pinch or Ctrl/Cmd+scroll zooms, touchscreens pinch natively.
+      // The canvas element PERSISTS across map rebuilds (the instance above is
+      // removed and re-created), so bind ONE listener and point it at the
+      // current map via __zoomMap — a second bind would stack listeners on a
+      // dead map.
+      profileMapCanvasEl.__zoomMap = map;
+      if (!profileMapCanvasEl.__zoomBound) {
+        profileMapCanvasEl.__zoomBound = true;
+        (function bindMapPinchZoom(container) {
+          var hint = null, hintTimer = null;
+          container.addEventListener('wheel', function (e) {
+            var m = container.__zoomMap;
+            if (!m) return;
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              var around = m.containerPointToLatLng(m.mouseEventToContainerPoint(e));
+              var next = m.getZoom() - e.deltaY * 0.012;
+              m.setZoomAround(around, Math.max(m.getMinZoom(), Math.min(m.getMaxZoom(), next)), { animate: false });
+              return;
+            }
+            if (!hint || !hint.isConnected) {
+              hint = document.createElement('div');
+              hint.className = 'map-zoom-hint';
+              hint.textContent = /Mac|iPhone|iPad/.test(navigator.platform || '') ? 'Use ⌘ + scroll to zoom' : 'Use Ctrl + scroll to zoom';
+              container.appendChild(hint);
+            }
+            hint.classList.add('show');
+            if (hintTimer) clearTimeout(hintTimer);
+            hintTimer = setTimeout(function () { hint.classList.remove('show'); }, 1400);
+          }, { passive: false });
+        })(profileMapCanvasEl);
+      }
+      if (L && L.Browser && L.Browser.touch && map.touchZoom) map.touchZoom.enable();
       // A REAL circle: radius is metres on the ground, so Leaflet redraws it at
       // the correct size on every zoom. The old CSS ring was a fixed pixel disc
       // and therefore meant a different distance at every zoom level.

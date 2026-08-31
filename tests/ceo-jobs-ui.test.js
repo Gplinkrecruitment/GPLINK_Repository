@@ -120,6 +120,6 @@ describe('CEO Jobs tab UI (Phase 3 Task 4)', () => {
   });
 
   it('ceo-dashboard.html loads the bumped script', () => {
-    expect(ceo).toContain('/js/ceo-ats-jobs.js?v=20260805c');
+    expect(ceo).toContain('/js/ceo-ats-jobs.js?v=20260901a');
   });
 });

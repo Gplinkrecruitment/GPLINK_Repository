@@ -14000,7 +14000,7 @@ const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://*.googleapis.com https://*.gstat
 // isn't authorized for Geocoding. Leaflet CSS/JS load from jsdelivr (already in
 // script-src); the raster tiles are plain <img> requests to CARTO/OSM.
 const KEYLESS_MAP_CSP_STYLE_SOURCES = ' https://cdn.jsdelivr.net';
-const KEYLESS_MAP_CSP_IMAGE_SOURCES = ' https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org';
+const KEYLESS_MAP_CSP_IMAGE_SOURCES = ' https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://server.arcgisonline.com';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',

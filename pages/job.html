@@ -546,6 +546,13 @@
       box-shadow: none; color: rgba(30, 60, 90, .5); padding: 1px 6px; border-radius: 5px 0 0 0;
     }
     .at-map .leaflet-control-attribution a { color: rgba(30, 60, 90, .6); }
+    .map-zoom-hint {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      background: rgba(15, 23, 42, .78); color: #fff; font-size: 13px; font-weight: 600;
+      padding: 8px 14px; border-radius: 999px; pointer-events: none; opacity: 0;
+      transition: opacity .25s ease; z-index: 1100; white-space: nowrap;
+    }
+    .map-zoom-hint.show { opacity: 1; }
     /* Fallback only (Leaflet/coords failed): the raw Google embed, which carries
        its own pin and is itself pan/zoomable. */
     .at-map-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
@@ -2264,20 +2271,51 @@
         var map = L.map(canvas, {
           center: [coords.lat, coords.lng],
           zoom: zoom,
+          // zoomSnap:0 lets a pinch land on fractional zooms so it feels
+          // continuous; zoomDelta keeps the +/- buttons on whole steps.
+          zoomSnap: 0,
+          zoomDelta: 1,
           scrollWheelZoom: false,
+          touchZoom: true,
           zoomControl: true,
           attributionControl: true
         });
         atMapInstances.push(map);
         // Drop the "Leaflet" prefix + flag, same as the /jobs board map. The
-        // OSM/CARTO credit itself stays — the tile licences require it — just
+        // OSM/Esri credit itself stays — the tile licences require it — just
         // small and subtle (see .leaflet-control-attribution above).
         map.attributionControl.setPrefix(false);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          subdomains: 'abcd',
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
           maxZoom: 19,
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'
+          maxNativeZoom: 17,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, Esri'
         }).addTo(map);
+        // Pinch/scroll zoom: a trackpad pinch arrives as ctrl+wheel, which
+        // Leaflet only honours when scrollWheelZoom is on — and that would
+        // hijack page scrolling. Plain scroll moves the page (with a short
+        // hint), pinch or Ctrl/Cmd+scroll zooms, touchscreens pinch natively.
+        (function bindMapPinchZoom(container) {
+          var hint = null, hintTimer = null;
+          container.addEventListener('wheel', function (e) {
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              var around = map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+              var next = map.getZoom() - e.deltaY * 0.012;
+              map.setZoomAround(around, Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), next)), { animate: false });
+              return;
+            }
+            if (!hint) {
+              hint = document.createElement('div');
+              hint.className = 'map-zoom-hint';
+              hint.textContent = /Mac|iPhone|iPad/.test(navigator.platform || '') ? 'Use ⌘ + scroll to zoom' : 'Use Ctrl + scroll to zoom';
+              container.appendChild(hint);
+            }
+            hint.classList.add('show');
+            if (hintTimer) clearTimeout(hintTimer);
+            hintTimer = setTimeout(function () { hint.classList.remove('show'); }, 1400);
+          }, { passive: false });
+          if (L && L.Browser && L.Browser.touch && map.touchZoom) map.touchZoom.enable();
+        })(canvas);
         // Real circle: radius in metres, so it holds the same ground distance
         // at every zoom. This branch is suburb-level only — a revealed (exact
         // address) role never reaches here, it uses the embed above, and must

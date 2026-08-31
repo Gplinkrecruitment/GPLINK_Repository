@@ -395,11 +395,18 @@
         attributionControl: true, worldCopyJump: true
       });
       jmapMap.attributionControl.setPrefix(false);
-      // Dark CARTO basemap — the Command Centre is a dark UI; the light Voyager
-      // tiles the public site uses would glare against it.
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd', maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'
+      // Dark Esri basemap — the Command Centre is a dark UI; the light Topo
+      // tiles the public site uses would glare against it. (CARTO started
+      // stamping "API KEY REQUIRED" over keyless tile requests, 2026-09-01.)
+      // Dark Gray ships as two layers: the base drawing and a separate
+      // reference layer carrying the place labels — add both, labels on top.
+      // Native tiles stop at 16, so let 17 upscale instead of going gray.
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 17, maxNativeZoom: 16,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, Esri'
+      }).addTo(jmapMap);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 17, maxNativeZoom: 16
       }).addTo(jmapMap);
       jmapMap.on('click', jmapCloseDetail);
       jmapBindPinchZoom(container, jmapMap, L);

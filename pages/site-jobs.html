@@ -99,6 +99,8 @@
   .pmap-pin .pd svg{display:block;width:30px;height:40px;}
   .pmap-pin.on .pd{transform:translateY(-3px) scale(1.18);filter:drop-shadow(0 8px 12px rgba(17,109,255,.5));}
   .pmap-cluster{background:none!important;}
+  .map-zoom-hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(15,23,42,.78);color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;pointer-events:none;opacity:0;transition:opacity .25s ease;z-index:1100;white-space:nowrap;}
+  .map-zoom-hint.show{opacity:1;}
   .pmap-cluster > div{width:38px;height:38px;border-radius:50%;background:var(--teal);color:#fff;font-weight:800;font-size:13.5px;
     display:grid;place-items:center;border:3px solid #fff;box-shadow:0 7px 18px -6px rgba(17,109,255,.75);}
   .pmap-cluster.lg > div{width:46px;height:46px;font-size:15px;}
@@ -1181,13 +1183,42 @@ fbq('track', 'PageView');
     loadLibs().then(function(L){
       if(!L||!L.markerClusterGroup){if(!booted)fail();return;}
       if(!mapObj){
-        mapObj=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,scrollWheelZoom:true,zoomControl:true,attributionControl:true,worldCopyJump:true});
-        // Drop the prominent "Leaflet" prefix + flag; keep only the small OSM/CARTO
+        // scrollWheelZoom stays OFF so two-finger scrolling keeps moving the
+        // page; zoom comes from pinch (touchZoom / ctrl+wheel below), the +/-
+        // buttons, or Ctrl/Cmd+scroll. zoomSnap:0 makes a pinch feel
+        // continuous; zoomDelta keeps the buttons on whole steps.
+        mapObj=L.map(mapEl,{center:[-27.8,134.0],zoom:4,minZoom:3,maxZoom:16,zoomSnap:0,zoomDelta:1,scrollWheelZoom:false,touchZoom:true,zoomControl:true,attributionControl:true,worldCopyJump:true});
+        // Drop the prominent "Leaflet" prefix + flag; keep only the small OSM/Esri
         // credit the tile licences require (styled tiny + subtle in CSS).
         mapObj.attributionControl.setPrefix(false);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19,
-          attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, CARTO'}).addTo(mapObj);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:17,
+          attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, Esri'}).addTo(mapObj);
         mapObj.on('click',closeDetail);
+        // Pinch/scroll zoom: a trackpad pinch arrives as ctrl+wheel, which
+        // Leaflet only honours when scrollWheelZoom is on. Plain scroll moves
+        // the page (with a short hint), pinch or Ctrl/Cmd+scroll zooms.
+        (function bindMapPinchZoom(container,map){
+          var hint=null,hintTimer=null;
+          container.addEventListener('wheel',function(e){
+            if(e.ctrlKey||e.metaKey){
+              e.preventDefault();
+              var around=map.containerPointToLatLng(map.mouseEventToContainerPoint(e));
+              var next=map.getZoom()-e.deltaY*0.012;
+              map.setZoomAround(around,Math.max(map.getMinZoom(),Math.min(map.getMaxZoom(),next)),{animate:false});
+              return;
+            }
+            if(!hint){
+              hint=document.createElement('div');
+              hint.className='map-zoom-hint';
+              hint.textContent=/Mac|iPhone|iPad/.test(navigator.platform||'')?'Use ⌘ + scroll to zoom':'Use Ctrl + scroll to zoom';
+              container.appendChild(hint);
+            }
+            hint.classList.add('show');
+            if(hintTimer)clearTimeout(hintTimer);
+            hintTimer=setTimeout(function(){hint.classList.remove('show');},1400);
+          },{passive:false});
+          if(L&&L.Browser&&L.Browser.touch&&map.touchZoom)map.touchZoom.enable();
+        })(mapEl,mapObj);
       }
       shell.style.display='';
       // The open pin may not be in the new result set — close it rather than
