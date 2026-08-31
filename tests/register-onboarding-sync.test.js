@@ -81,6 +81,11 @@ describe('page pins', () => {
     expect(jobHtml).toContain('"onboarding_specialist_qualification"');
     // The upload goes through the SAME endpoint the onboarding wizard uses.
     expect(jobHtml).toContain('"/api/onboarding-documents"');
+    // …and the careers page has the inline modal for match-accepts.
+    const careerHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'career.html'), 'utf8');
+    expect(careerHtml).toContain('openCareerCertModal');
+    expect(careerHtml).toContain('requiresSpecialistCert');
+    expect(careerHtml).toContain('"onboarding_specialist_qualification"');
   });
 
   it('CEO drawer register row + verify endpoint wiring', () => {

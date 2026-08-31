@@ -368,6 +368,21 @@ describe('apply gate requires career_cv', () => {
   });
 });
 
+describe('match-accept requires the specialist certificate too (owner 2026-09-01)', () => {
+  it('403 requiresSpecialistCert when a UK doctor accepts a match without the certificate', async () => {
+    db.user_profiles.push({ user_id: 'u-gate-match', email: 'gate-match@example.com', registration_country: 'uk' });
+    db.user_state.push({ user_id: 'u-gate-match', state: { gp_onboarding_complete: true } });
+    db.gp_applications.push({ id: 'app-gate-match', user_id: 'u-gate-match', ats_stage: 'shortlisted', match_expires_at: new Date(Date.now() + 86400000).toISOString(), career_role_id: 'role-gate-cv' });
+    const res = await httpReq('POST', '/api/career/match/respond', { cookie: userCookie('gate-match@example.com', 'u-gate-match'), body: { applicationId: 'app-gate-match', action: 'accept' } });
+    expect(res.status).toBe(403);
+    expect(res.body.requiresSpecialistCert).toBe(true);
+    expect(res.body.certLabel).toBe('MRCGP certificate');
+    // Declining is NEVER gated — it reduces commitments, not grows them.
+    const dec = await httpReq('POST', '/api/career/match/respond', { cookie: userCookie('gate-match@example.com', 'u-gate-match'), body: { applicationId: 'app-gate-match', action: 'decline' } });
+    expect(dec.body && dec.body.requiresSpecialistCert).not.toBe(true);
+  });
+});
+
 describe('career_cv approved status is not excluded from the gate', () => {
   it('a GP whose career_cv was reviewed and approved (status=approved, not uploaded) still has cv non-null and gateRequired:false', async () => {
     // Review/delivery flows PATCH user_documents.status to 'approved' after

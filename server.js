@@ -50680,6 +50680,35 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Specialist-certificate gate (owner 2026-09-01): ACCEPTING a match makes
+    // the doctor an applicant, so the same MRCGP / MICGP / FRNZCGP requirement
+    // that guards /api/career/apply applies here — same 403 shape, and
+    // career.html opens its inline certificate modal. Deliberately AFTER the
+    // ownership, expiry and already-responded guards: a match that is not
+    // theirs, has lapsed or is already settled answers with ITS truth, never
+    // with a demand for paperwork. Decline/enquire are never gated.
+    if (mrAction === 'accept') {
+      const mrCertProfRes = await supabaseDbRequest('user_profiles', `select=qualification_country,registration_country&user_id=eq.${encodeURIComponent(mrUserId)}&limit=1`);
+      const mrCertProf = (mrCertProfRes.ok && Array.isArray(mrCertProfRes.data) && mrCertProfRes.data[0]) ? mrCertProfRes.data[0] : {};
+      const mrCertCode = registerVerification.qualCountryCode(mrCertProf.qualification_country || mrCertProf.registration_country);
+      if (mrCertCode) {
+        const mrCertLabels = { GB: 'MRCGP certificate', IE: 'MICGP certificate', NZ: 'FRNZCGP certificate' };
+        const mrCertDocCountry = { GB: 'uk', IE: 'ie', NZ: 'nz' }[mrCertCode];
+        const mrCertRow = await getOnboardingDocumentRow(mrUserId, mrCertDocCountry, 'onboarding_specialist_qualification');
+        const mrCertProvided = !!(mrCertRow && String(mrCertRow.storage_path || mrCertRow.file_url || '').trim() && String(mrCertRow.status || '') !== 'rejected');
+        if (!mrCertProvided) {
+          sendJson(res, 403, {
+            ok: false,
+            requiresSpecialistCert: true,
+            certLabel: mrCertLabels[mrCertCode],
+            certCountry: mrCertDocCountry,
+            message: 'Please upload your ' + mrCertLabels[mrCertCode] + ' to accept this match.'
+          });
+          return;
+        }
+      }
+    }
+
     const mrJob = mrRow.career_role_id ? await atsGetJobRow(mrRow.career_role_id) : null;
     const mrNowIso = new Date().toISOString();
 

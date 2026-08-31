@@ -13042,6 +13042,14 @@
           showApplicationCapNotice(data.error === "monthly_cap" ? "monthly" : "active", data, { context: "match" });
           return;
         }
+        // Specialist-certificate gate (owner 2026-09-01): accepting a match
+        // makes the doctor an applicant, so the MRCGP / MICGP / FRNZCGP is
+        // required here too — collected in an inline modal, then the accept
+        // retries itself.
+        if (res.status === 403 && data && data.requiresSpecialistCert) {
+          openCareerCertModal({ label: data.certLabel || "specialist GP certificate", country: data.certCountry || "", applicationId });
+          return;
+        }
         if (!res.ok || !data || !data.ok) {
           showToast((data && data.message) || "Could not accept this match — please try again.");
           return;
@@ -13052,6 +13060,76 @@
       } catch (e) {
         showToast("Network error — please try again.");
       }
+    }
+
+    /* Inline specialist-certificate modal (owner 2026-09-01): shown when
+       accepting a match is refused with requiresSpecialistCert. Uploads
+       through the SAME endpoint and canonical key as onboarding and the job
+       page (onboarding_specialist_qualification), then retries the accept.
+       Built dynamically like the match confirm sheet, reusing its styles. */
+    function openCareerCertModal(ctx) {
+      const existing = document.getElementById("careerCertModal");
+      if (existing) existing.remove();
+      const overlay = document.createElement("div");
+      overlay.id = "careerCertModal";
+      overlay.className = "at-match-confirm-overlay";
+      overlay.innerHTML = `
+        <div class="at-match-confirm-card">
+          <h3>Upload your ${escapeHtml(ctx.label)}</h3>
+          <p>Practices need to see your specialist GP qualification before an application goes out. Upload a photo, PDF or scan, under 10 MB. Our team checks it, so one clear copy is all you need.</p>
+          <input type="file" id="careerCertFile" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:block;width:100%;margin:10px 0 4px;font-size:14px;" />
+          <p id="careerCertStatus" style="min-height:18px;font-size:13px;color:#dc2626;margin:6px 0 0;"></p>
+          <div class="at-match-confirm-actions">
+            <button type="button" class="at-match-confirm-cancel" data-cert-cancel>Cancel</button>
+            <button type="button" class="at-match-accept shiny" data-cert-upload disabled>Upload &amp; Accept</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const fileInput = overlay.querySelector("#careerCertFile");
+      const statusEl = overlay.querySelector("#careerCertStatus");
+      const uploadBtn = overlay.querySelector("[data-cert-upload]");
+      overlay.querySelector("[data-cert-cancel]").addEventListener("click", () => overlay.remove());
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files && fileInput.files[0];
+        statusEl.textContent = "";
+        if (!file) { uploadBtn.disabled = true; return; }
+        if (!/\.(pdf|jpe?g|png|webp)$/i.test(file.name || "")) { statusEl.textContent = "Please select a PDF or photo (JPG, PNG)."; fileInput.value = ""; uploadBtn.disabled = true; return; }
+        if (file.size > 10 * 1024 * 1024) { statusEl.textContent = "File too large. Maximum 10 MB."; fileInput.value = ""; uploadBtn.disabled = true; return; }
+        uploadBtn.disabled = false;
+      });
+      uploadBtn.addEventListener("click", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file || !ctx.country) return;
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Uploading…";
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error("read failed"));
+            reader.readAsDataURL(file);
+          });
+          const up = await fetch("/api/onboarding-documents", {
+            method: "PUT", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ country: ctx.country, key: "onboarding_specialist_qualification", fileName: file.name, mimeType: file.type, fileSize: file.size, fileDataUrl: dataUrl })
+          });
+          const upData = await up.json().catch(() => null);
+          if (!(up.status === 200 && upData && upData.ok)) {
+            statusEl.textContent = (upData && upData.message) || "Upload failed. Try again.";
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = "Upload & Accept";
+            return;
+          }
+          overlay.remove();
+          await submitMatchAccept(ctx.applicationId);
+        } catch (e) {
+          statusEl.textContent = "Network error. Please try again.";
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = "Upload & Accept";
+        }
+      });
     }
 
     async function submitMatchDecline(applicationId, reason) {

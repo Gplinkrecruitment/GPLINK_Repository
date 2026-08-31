@@ -110,7 +110,12 @@ const db = {
       : { gp_onboarding_complete: true },
     updated_at: iso(NOW)
   })),
-  user_documents: [],
+  user_documents: [
+    // Owner 2026-09-01: accepting a match now requires the specialist GP
+    // certificate — give the accepting fixture doctor an MRCGP on file so the
+    // accept-path tests keep testing the accept machinery itself.
+    { id: 'doc-cert-accept', user_id: ACCEPT_GP.userId, document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/accept/mrcgp.pdf', country_code: 'uk' }
+  ],
   user_roles: [],
   registration_cases: [],
   registration_tasks: [],
