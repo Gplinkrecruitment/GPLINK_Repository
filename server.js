@@ -2527,26 +2527,28 @@ async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
       }
     }
 
-    // Update gp_prepared_docs state so MyDocuments shows "Preparing" for alt CVs
-    var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-    var fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
-    if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch (e) { fullState = {}; }
-    var prepState = fullState.gp_prepared_docs;
-    if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch (e) { prepState = {}; }
-    if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
-    if (!prepState.docs) prepState.docs = {};
-    for (var j = 0; j < altSupervisorNames.length; j++) {
-      var dk = 'alt_supervisor_cv_' + (j + 1);
-      if (!prepState.docs[dk] || !prepState.docs[dk].ready) {
-        prepState.docs[dk] = { url: '', fileName: altSupervisorNames[j] + ' — CV', ready: false, supervisorName: altSupervisorNames[j] };
+    // Update gp_prepared_docs state so MyDocuments shows "Preparing" for alt CVs.
+    // A failed base read skips ONLY this chip write (the placeholder document
+    // rows above are already created) — never merge onto a {} base.
+    var fullState = await readUserStateForMerge(userId, 'alt supervisor CV placeholders');
+    if (fullState) {
+      var prepState = fullState.gp_prepared_docs;
+      if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch (e) { prepState = {}; }
+      if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
+      if (!prepState.docs) prepState.docs = {};
+      for (var j = 0; j < altSupervisorNames.length; j++) {
+        var dk = 'alt_supervisor_cv_' + (j + 1);
+        if (!prepState.docs[dk] || !prepState.docs[dk].ready) {
+          prepState.docs[dk] = { url: '', fileName: altSupervisorNames[j] + ' — CV', ready: false, supervisorName: altSupervisorNames[j] };
+        }
       }
+      prepState.updatedAt = new Date().toISOString();
+      fullState.gp_prepared_docs = JSON.stringify(prepState);
+      await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
+        method: 'PATCH', body: { state: fullState, updated_at: new Date().toISOString() }
+      });
+      console.log('[SPPA] Created alt supervisor CV placeholders for', altSupervisorNames.length, 'supervisor(s)');
     }
-    prepState.updatedAt = new Date().toISOString();
-    fullState.gp_prepared_docs = JSON.stringify(prepState);
-    await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
-      method: 'PATCH', body: { state: fullState, updated_at: new Date().toISOString() }
-    });
-    console.log('[SPPA] Created alt supervisor CV placeholders for', altSupervisorNames.length, 'supervisor(s)');
   } catch (err) {
     console.error('[SPPA] Alt supervisor CV placeholder creation error:', err.message);
   }
@@ -2849,9 +2851,8 @@ async function _deliverAltSupervisorCvMatch(caseId, sppaTaskId, matchedCvs, emai
 // Helper: update gp_prepared_docs state so My Documents shows a GP LINK doc as "Ready"
 async function _updatePreparedDocsState(userId, docKey, driveFileId, fileName) {
   const driveUrl = driveFileId ? 'https://drive.google.com/file/d/' + driveFileId + '/view' : '';
-  const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-  let fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
-  if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch { fullState = {}; }
+  const fullState = await readUserStateForMerge(userId, 'prepared-doc ready chip');
+  if (!fullState) return;
   let prepState = fullState.gp_prepared_docs;
   if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch { prepState = {}; }
   if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
@@ -31303,10 +31304,9 @@ async function pushVisaNotificationToOwner(caseId, notification) {
     if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) return;
     const userId = caseRes.data[0].user_id;
     if (!userId) return;
-    const stateRes = await supabaseDbRequest('user_state', `select=state,updated_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-    const row = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0 ? stateRes.data[0] : null;
-    const state = (row && row.state && typeof row.state === 'object') ? { ...row.state } : {};
-    const updates = Array.isArray(state.gp_link_updates) ? [...state.gp_link_updates] : [];
+    const state = await readUserStateForMerge(userId, 'visa notification');
+    if (!state) return;
+    const updates = parseGpLinkUpdatesList(state.gp_link_updates);
     updates.unshift({ type: notification.type || 'info', title: notification.title || 'Visa update', detail: notification.detail || '', ts: Date.now() });
     if (updates.length > 50) updates.length = 50;
     state.gp_link_updates = updates;
@@ -31321,10 +31321,9 @@ async function pushPbsNotificationToOwner(appId, notification) {
     if (!appRes.ok || !Array.isArray(appRes.data) || appRes.data.length === 0) return;
     const userId = appRes.data[0].user_id;
     if (!userId) return;
-    const stateRes = await supabaseDbRequest('user_state', `select=state,updated_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-    const row = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0 ? stateRes.data[0] : null;
-    const state = (row && row.state && typeof row.state === 'object') ? { ...row.state } : {};
-    const updates = Array.isArray(state.gp_link_updates) ? [...state.gp_link_updates] : [];
+    const state = await readUserStateForMerge(userId, 'PBS notification');
+    if (!state) return;
+    const updates = parseGpLinkUpdatesList(state.gp_link_updates);
     updates.unshift({ type: notification.type || 'info', title: notification.title || 'PBS & Medicare', detail: notification.detail || '', ts: Date.now() });
     if (updates.length > 50) updates.length = 50;
     state.gp_link_updates = updates;
@@ -31332,14 +31331,54 @@ async function pushPbsNotificationToOwner(appId, notification) {
   } catch (_) { /* non-critical */ }
 }
 
+// Read a user's state blob as the BASE of a read-modify-write. Returns the
+// state OBJECT to merge onto, or null when writing back would be UNSAFE:
+// - the read itself failed (supabaseDbRequest NEVER throws — an ok:false
+//   result used to quietly become an empty {} base, and the follow-up PATCH
+//   then REPLACED the doctor's entire journey state with only the caller's
+//   key. This wiped Dr Deepika Ganesh's whole user_state on 2026-08-31 when
+//   a career notification's state read transiently failed; restored from the
+//   weekly backup.)
+// - there is no user_state row (a PATCH would match nothing anyway)
+// - the stored state is an unparseable string (writing over it would destroy
+//   whatever it held)
+// A row whose state is null/empty parses to {} — nothing to lose, safe base.
+// Callers MUST skip their write when this returns null: no bell entry, doc
+// chip or push token is ever worth risking the whole blob.
+async function readUserStateForMerge(userId, label) {
+  const r = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  if (!r || !r.ok || !Array.isArray(r.data)) {
+    console.warn('[user-state] read failed — ' + (label || 'merge') + ' write skipped for user ' + userId);
+    return null;
+  }
+  const row = r.data[0];
+  if (!row) return null;
+  let st = row.state;
+  if (typeof st === 'string') {
+    try { st = JSON.parse(st); } catch {
+      console.warn('[user-state] unparseable state — ' + (label || 'merge') + ' write skipped for user ' + userId);
+      return null;
+    }
+  }
+  if (!st || typeof st !== 'object' || Array.isArray(st)) return {};
+  return st;
+}
+
+// The bell list is written by BOTH the client sync (which stores it
+// JSON-stringified) and these server-side pushes (as a real array) — accept
+// either so a server push never resets a client-written history to [].
+function parseGpLinkUpdatesList(value) {
+  let list = value;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch { list = []; } }
+  return Array.isArray(list) ? list : [];
+}
+
 async function pushCareerNotificationToUser(userId, notification) {
   if (!isSupabaseDbConfigured() || !userId) return;
   try {
-    const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
-      ? stateResult.data[0].state
-      : {};
-    const updates = Array.isArray(currentState.gp_link_updates) ? currentState.gp_link_updates : [];
+    const currentState = await readUserStateForMerge(userId, 'career notification');
+    if (!currentState) return;
+    const updates = parseGpLinkUpdatesList(currentState.gp_link_updates);
     const entry = {
       id: 'career_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
       type: notification.type || 'info',
@@ -31361,11 +31400,9 @@ async function pushCareerNotificationToUser(userId, notification) {
 async function pushDocumentNotificationToUser(userId, notification) {
   if (!isSupabaseDbConfigured() || !userId) return;
   try {
-    const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
-      ? stateResult.data[0].state
-      : {};
-    const updates = Array.isArray(currentState.gp_link_updates) ? currentState.gp_link_updates : [];
+    const currentState = await readUserStateForMerge(userId, 'document notification');
+    if (!currentState) return;
+    const updates = parseGpLinkUpdatesList(currentState.gp_link_updates);
     const item = {
       type: notification.type || 'info',
       title: notification.title || 'Document update',
@@ -37837,9 +37874,8 @@ async function countApplicationsInLast24h(userId) {
 }
 async function flagApplicationVelocity(userId, count) {
   try {
-    var stateRes = await supabaseDbRequest('user_state', 'select=state,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-    var row = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0) ? stateRes.data[0] : null;
-    var state = (row && row.state && typeof row.state === 'object') ? Object.assign({}, row.state) : {};
+    var state = await readUserStateForMerge(userId, 'application velocity flag');
+    if (!state) return;
     state.application_velocity_flag = { count: count, at: new Date().toISOString() };
     await upsertSupabaseUserState(userId, state, new Date().toISOString());
   } catch (velocityStateErr) {
@@ -38813,11 +38849,13 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
     console.error('[placement] placement payload failed for app', targetApp.id, ':', e && e.message);
   }
 
-  // (4) gp_career_state — EXACTLY the Zoho reverse-sync shape.
-  if (isSupabaseDbConfigured()) {
-    var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-    var currentState = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && typeof stateRes.data[0].state === 'object'
-      ? stateRes.data[0].state : {};
+  // (4) gp_career_state — EXACTLY the Zoho reverse-sync shape. A failed base
+  // read skips the write AND the automation pass (which diffs prev vs next
+  // state) — the career-secured block replays on later requests and its side
+  // effects are marker-guarded, so a skipped pass self-heals; a {} base here
+  // would wipe the doctor's whole state instead.
+  var currentState = isSupabaseDbConfigured() ? await readUserStateForMerge(userId, 'placement career-state') : null;
+  if (currentState) {
     var prevState = JSON.parse(JSON.stringify(currentState));
     var careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
     var stateApps = Array.isArray(careerState.applications) ? careerState.applications : [];
@@ -52677,10 +52715,11 @@ async function handleApi(req, res, pathname) {
     if (!token) { sendJson(res, 400, { ok: false, message: 'Missing push token.' }); return; }
 
     try {
-      const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-      const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
-        ? stateResult.data[0].state
-        : {};
+      const currentState = await readUserStateForMerge(userId, 'push token registration');
+      if (!currentState) {
+        sendJson(res, 503, { ok: false, message: 'Could not save the push token right now. Please try again.' });
+        return;
+      }
 
       // Store push tokens (allow multiple devices)
       const pushTokens = Array.isArray(currentState.gp_push_tokens) ? currentState.gp_push_tokens : [];
@@ -78797,6 +78836,8 @@ module.exports.__testUtils = {
   sendConsultNudgeEmail,
   sendConsultWhatsAppTemplate,
   ensureDoubleTickContactName,
+  readUserStateForMerge,
+  parseGpLinkUpdatesList,
   maybeSendConsultWa,
   markConsultWaOnboardingResolved,
   getConsultLeadAccountState,
