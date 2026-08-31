@@ -129,15 +129,41 @@ describe('the "Start here" pointer retires once the doctor has a match', () => {
   });
 });
 
+describe('the tour survives losing the boot race to the match check (owner report 2026-09-01)', () => {
+  // A fresh sign-in hydrates /api/state from the auth pre-warm cache, so the
+  // walkthrough's arming events routinely fire while /api/career/matches is
+  // still in flight — and pending used to read as an ordinary guard that
+  // silently dropped the tour for the visit. The FIRST login is exactly the
+  // boot a new doctor is owed the tour on.
+  const js = read('js/gp-walkthrough-shell.js');
+
+  it('runTour waits out a pending match check instead of dropping the one shot', () => {
+    const fn = js.slice(js.indexOf('function runTour'), js.indexOf('function tryAuto'));
+    expect(fn).toContain('window.gpMatchCheck && window.gpMatchCheck.pending === true');
+    expect(fn).toContain("window.addEventListener('gp-match-check-done', go)");
+    expect(fn).toContain("window.removeEventListener('gp-match-check-done', go)");
+    expect(fn).toContain('setTimeout(go, 4000)');
+    // the wait must come BEFORE the guarded() bail, or pending still eats it
+    expect(fn.indexOf('gpMatchCheck.pending')).toBeLessThan(fn.indexOf('if (guarded()) return;'));
+    // a hung request must not loop the wait forever
+    expect(fn).toContain('tourWaitedForMatch');
+  });
+
+  it('a settled check re-asks tryAuto — hydrate and home-load are once-only', () => {
+    const tail = js.slice(js.indexOf('function tryAuto'), js.indexOf('window.gpWalkthroughShell'));
+    expect(tail).toMatch(/addEventListener\('gp-match-check-done', function \(\) \{ tryAuto\(\); \}\)/);
+  });
+});
+
 describe('cache busters for the two changed scripts', () => {
   const shell = read('pages/app-shell.html');
   it('app-shell.html pins the bumped match-popup + walkthrough-shell builds', () => {
     expect(shell).toContain('/js/match-popup.js?v=20260829a');
-    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260829a');
+    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260901a');
     expect(shell).not.toContain('/js/match-popup.js?v=20260729a');
-    expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260724a');
+    expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260901b"');
+    expect(read('sw.js')).toContain('var VERSION = "20260901c"');
   });
 });

@@ -9,7 +9,7 @@
   var KEY = 'gp_walkthrough_state';
   var S = window.gpWalkthroughState, C = window.gpCoach;
   var homeLoaded = false, hydrated = false, ranAuto = false;
-  var ranPointer = false, pointerPending = false;
+  var ranPointer = false, pointerPending = false, tourWaitedForMatch = false;
 
   var TABS = [
     { area: 'home', title: 'Home', body: 'Your dashboard — see how far along your registration is, anytime.' },
@@ -237,6 +237,28 @@
 
   function runTour() {
     if (!C || !S || C.isActive()) return;
+    // js/match-popup.js is still asking whether this doctor has a match. On a
+    // fresh sign-in /api/state answers from the auth pre-warm cache, so the
+    // hydrate that arms this tour routinely beats the slower matches call —
+    // and guarded() reads pending as a block, silently spending the one shot
+    // (ranAuto is already true). That boot IS the first login, the one a new
+    // doctor is owed the tour on (owner report 2026-09-01). Wait for the
+    // answer like scheduleNextStepPointer does, ceiling included, then
+    // re-check every guard at the real fire time.
+    if (window.gpMatchCheck && window.gpMatchCheck.pending === true) {
+      if (tourWaitedForMatch) return; // hung check — give up unmarked, the tour re-arms next boot
+      tourWaitedForMatch = true;
+      var settled = false;
+      var go = function () {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('gp-match-check-done', go);
+        runTour();
+      };
+      window.addEventListener('gp-match-check-done', go);
+      setTimeout(go, 4000);
+      return;
+    }
     // tryAuto arms this via setTimeout — the screen can be taken over inside
     // that window (e.g. the frame redirects to the onboarding gateway), so
     // re-check the guards at fire time, not just at decision time.
@@ -270,6 +292,12 @@
   window.addEventListener('gp-shell-frame-loaded', function (e) {
     if (e && e.detail && e.detail.route === '/pages/index') { homeLoaded = true; tryAuto(); }
   });
+  // The match check settling is the one boot-time guard that clears by itself,
+  // and hydrate/home-load are {once:true} — if both fired while it was still
+  // pending, nothing ever asked again and a brand-new doctor's tour was
+  // silently lost for the visit. Ask again when it answers; ranAuto keeps
+  // this idempotent, and guarded() is false now the check has settled.
+  window.addEventListener('gp-match-check-done', function () { tryAuto(); });
 
   window.gpWalkthroughShell = { runTour: runTour, runNextStepPointer: runNextStepPointer };
   tryAuto();
