@@ -58,19 +58,20 @@
     return { label: 'Never screened', mod: 'purple' };
   }
 
-  // Format a UTC datetime string in Sydney local time (matches ceo-ats-meetings.js).
-  var sydFmt = null;
-  function sydneyTime(iso) {
+  // Format a UTC datetime string in the viewer's own local time — the device's
+  // current timezone, so it follows the owner wherever they travel (matches
+  // ceo-ats-meetings.js).
+  var localFmt = null;
+  function localTime(iso) {
     if (!iso) return '—';
     try {
-      if (!sydFmt) {
-        sydFmt = new Intl.DateTimeFormat('en-GB', {
-          timeZone: 'Australia/Sydney',
+      if (!localFmt) {
+        localFmt = new Intl.DateTimeFormat('en-GB', {
           day: '2-digit', month: 'short', year: 'numeric',
           hour: '2-digit', minute: '2-digit', hour12: true
         });
       }
-      return sydFmt.format(new Date(iso));
+      return localFmt.format(new Date(iso));
     } catch (e) {
       return String(iso);
     }
@@ -209,7 +210,7 @@
     if (l.phone) contact += ' <span class="lead-sep">·</span> ' + ATS.esc(l.phone);
 
     var bookedHtml = l.call_booked && l.call_booked_at
-      ? '<span class="lead-fact">Call booked ' + ATS.esc(sydneyTime(l.call_booked_at)) + '</span>'
+      ? '<span class="lead-fact">Call booked ' + ATS.esc(localTime(l.call_booked_at)) + '</span>'
       : '';
 
     // Chase emails: count + when the last one went, then why they stopped.
@@ -218,7 +219,7 @@
       nudgeText = 'No chase emails sent';
     } else {
       nudgeText = l.nudges_sent + ' chase email' + (l.nudges_sent === 1 ? '' : 's') + ' sent';
-      if (l.last_nudge_at) nudgeText += ' — last ' + sydneyTime(l.last_nudge_at);
+      if (l.last_nudge_at) nudgeText += ' — last ' + localTime(l.last_nudge_at);
     }
     if (l.stopped) nudgeText += ' (' + (STOPPED_LABELS[l.stopped] || 'stopped') + ')';
 
@@ -234,7 +235,7 @@
         '<div class="lead-meta">' +
           '<span class="lead-source">' + ATS.esc(sourceLabel(l.source)) + '</span>' +
           (l.country ? '<span class="lead-fact">' + ATS.countryLabel(l.country) + '</span>' : '') +
-          '<span class="lead-fact">Arrived ' + ATS.esc(sydneyTime(l.created_at)) + '</span>' +
+          '<span class="lead-fact">Arrived ' + ATS.esc(localTime(l.created_at)) + '</span>' +
           bookedHtml +
         '</div>' +
         '<div class="lead-nudges">' + ATS.esc(nudgeText) + '</div>' +

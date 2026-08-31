@@ -47,16 +47,17 @@
     calendly_direct: 'Booked direct, never screened'
   };
 
-  // Format a UTC datetime string in Sydney local time.
-  var sydFmt = null;
-  var sydTzFmt = null;
-  function sydneyTime(iso) {
+  // Format a UTC datetime string in the viewer's own local time (the device's
+  // current timezone, so it follows the owner wherever they travel), with the
+  // zone name shown so it's always obvious which clock the time belongs to.
+  var localFmt = null;
+  var localTzFmt = null;
+  function localTime(iso) {
     if (!iso) return '—';
     try {
       var d = new Date(iso);
-      if (!sydFmt) {
-        sydFmt = new Intl.DateTimeFormat('en-GB', {
-          timeZone: 'Australia/Sydney',
+      if (!localFmt) {
+        localFmt = new Intl.DateTimeFormat('en-GB', {
           day:      '2-digit',
           month:    'short',
           year:     'numeric',
@@ -65,15 +66,14 @@
           hour12:   true
         });
       }
-      if (!sydTzFmt) {
-        sydTzFmt = new Intl.DateTimeFormat('en-AU', {
-          timeZone: 'Australia/Sydney',
+      if (!localTzFmt) {
+        localTzFmt = new Intl.DateTimeFormat('en-AU', {
           timeZoneName: 'short'
         });
       }
-      var tzParts = sydTzFmt.formatToParts(d);
-      var tzName = (tzParts.find(function (p) { return p.type === 'timeZoneName'; }) || {}).value || 'AEST';
-      return sydFmt.format(d) + ' ' + tzName;
+      var tzParts = localTzFmt.formatToParts(d);
+      var tzName = (tzParts.find(function (p) { return p.type === 'timeZoneName'; }) || {}).value || '';
+      return localFmt.format(d) + (tzName ? ' ' + tzName : '');
     } catch (e) {
       return String(iso);
     }
@@ -312,7 +312,7 @@
         '<div class="mtg-meta">' +
           '<span class="ats-pill ' + kindMod + '">' + ATS.esc(kindLabel) + '</span>' +
           practiceHtml +
-          '<span class="mtg-time">' + ATS.esc(sydneyTime(m.scheduled_at)) + '</span>' +
+          '<span class="mtg-time">' + ATS.esc(localTime(m.scheduled_at)) + '</span>' +
         '</div>' +
       '</div>' +
       '<div class="mtg-row-right">' +
