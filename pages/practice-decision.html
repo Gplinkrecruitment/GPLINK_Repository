@@ -129,6 +129,35 @@
     padding-top:16px;border-top:1px solid var(--gp-border);
   }
   .pd-help-line a{color:var(--gp-blue-ink);}
+
+  .pd-candidate{
+    padding:16px;margin:14px 0 18px;border:1px solid var(--gp-border);
+    border-radius:var(--gp-r-lg);background:var(--gp-surface-sunken);
+  }
+  .pd-cand-heading{
+    font-size:12px;font-weight:700;color:var(--gp-blue-ink);
+    letter-spacing:.05em;text-transform:uppercase;margin:0 0 8px;
+  }
+  .pd-cand-paragraph{margin:0 0 10px;}
+  .pd-cand-paragraph:empty{display:none;}
+  .pd-cand-facts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:2px;}
+  .pd-cand-facts:empty{display:none;}
+  .pd-cand-chip{
+    font-size:13px;font-weight:600;color:var(--gp-ink);
+    padding:5px 11px;border:1px solid var(--gp-border);border-radius:999px;background:#fff;
+  }
+  .pd-cand-rec{
+    margin:12px 0 0;padding:10px 14px;border-left:3px solid var(--gp-blue);
+    background:#fff;border-radius:0 var(--gp-r-sm) var(--gp-r-sm) 0;
+  }
+  .pd-cand-rec-title{display:block;font-size:12px;font-weight:700;color:var(--gp-blue-ink);margin-bottom:4px;}
+  .pd-cand-rec p{margin:0;font-style:italic;color:var(--gp-muted);}
+  .pd-cv-link{
+    display:inline-block;margin-top:12px;font-size:14px;font-weight:650;
+    color:var(--gp-blue-ink);text-decoration:none;padding:8px 14px;
+    border:1px solid var(--gp-border-strong);border-radius:var(--gp-r-sm);background:#fff;
+  }
+  .pd-cv-link:hover{border-color:var(--gp-blue);}
 </style>
 </head>
 <body>
@@ -147,6 +176,21 @@
     <section id="pdApprove" hidden>
       <h1>Approve <span data-pd="gpName"></span>?</h1>
       <p>For your <b data-pd="roleTitle"></b> position. Approving lets you choose interview times right away.</p>
+      <!-- Candidate summary (owner request 2026-08-31): everything the
+           introduction email says, on the page itself, so a practice arriving
+           from the WhatsApp button can decide without opening their inbox.
+           Filled by renderCandidate() from decision-context's candidate
+           object; stays hidden when the server has nothing to show. -->
+      <div id="pdCandidate" class="pd-candidate" hidden>
+        <h2 class="pd-cand-heading">About <span data-pd="gpName"></span></h2>
+        <p id="pdCandParagraph" class="pd-cand-paragraph"></p>
+        <div id="pdCandFacts" class="pd-cand-facts"></div>
+        <blockquote id="pdCandRec" class="pd-cand-rec" hidden>
+          <span class="pd-cand-rec-title">Why we recommend <span data-pd="gpName"></span></span>
+          <p id="pdCandRecText"></p>
+        </blockquote>
+        <a id="pdCvLink" class="pd-cv-link" target="_blank" rel="noopener" hidden>&#128196; View CV</a>
+      </div>
       <button id="pdApproveBtn" class="pd-btn pd-btn-green">Approve &amp; choose interview times</button>
       <p id="pdApproveMsg" class="pd-msg" hidden aria-live="polite"></p>
       <!-- Both email links now land here, so turning down has to be reachable
@@ -482,6 +526,41 @@
     enterApprove();
   }
 
+  // Candidate summary card on the approve view — everything is set via
+  // textContent (never innerHTML): the paragraph and recommendation carry
+  // server-built sentences around profile-sourced values.
+  function renderCandidate(cand) {
+    var box = document.getElementById('pdCandidate');
+    if (!box) return;
+    var c = cand || {};
+    var para = String(c.paragraph || '').trim();
+    var rec = String(c.recommendation || '').trim();
+    var facts = Array.isArray(c.facts) ? c.facts : [];
+    if (!para && !rec && facts.length === 0 && !c.hasCv) { box.hidden = true; return; }
+    document.getElementById('pdCandParagraph').textContent = para;
+    var factsEl = document.getElementById('pdCandFacts');
+    factsEl.textContent = '';
+    facts.forEach(function (f) {
+      var label = f && f.label ? String(f.label).trim() : '';
+      if (!label) return;
+      var chip = document.createElement('span');
+      chip.className = 'pd-cand-chip';
+      chip.textContent = ((f.icon ? f.icon + ' ' : '') + label).trim();
+      factsEl.appendChild(chip);
+    });
+    var recEl = document.getElementById('pdCandRec');
+    document.getElementById('pdCandRecText').textContent = rec;
+    recEl.hidden = !rec;
+    var cvEl = document.getElementById('pdCvLink');
+    if (c.hasCv) {
+      cvEl.href = '/api/practice/application/cv?token=' + encodeURIComponent(token);
+      cvEl.hidden = false;
+    } else {
+      cvEl.hidden = true;
+    }
+    box.hidden = false;
+  }
+
   function loadContext() {
     if (!token) { showError('invalid'); return; }
     show(el.loading);
@@ -498,6 +577,7 @@
         if (ctx.withdrawn) { showError('withdrawn', ctx.withdrawnMessage); return; }
         setAllText(gpNameEls, ctx.gpName || 'the candidate');
         setAllText(roleTitleEls, ctx.roleTitle || 'this role');
+        renderCandidate(ctx.candidate);
         route();
       })
       .catch(function () { showError('retry'); });

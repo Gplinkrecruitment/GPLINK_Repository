@@ -9314,6 +9314,26 @@ async function getCareerProfileDocument(userId, key) {
   return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
 }
 
+// The CV a practice may see for a candidate — SAME source order as the
+// submit-to-practice email attachment: the AI-identity-checked careers CV
+// (document_key 'career_cv') first, legacy cv_signed_dated only while
+// uploaded/approved. Returns null unless the row points at a storage object
+// we can sign a URL for (an http(s) file_url has no object to sign).
+async function findPracticeFacingCvRow(userId) {
+  let row = await getCareerProfileDocument(userId, 'career_cv');
+  if (!row) {
+    const r = await supabaseDbRequest(
+      'user_documents',
+      'select=*&user_id=eq.' + encodeURIComponent(userId) +
+        '&document_key=eq.cv_signed_dated&status=in.(uploaded,approved)&order=updated_at.desc&limit=1'
+    );
+    row = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  }
+  const objectPath = row ? String(row.storage_path || row.file_url || '').trim() : '';
+  if (!objectPath || /^https?:/i.test(objectPath)) return null;
+  return row;
+}
+
 function now() {
   return Date.now();
 }
@@ -45849,11 +45869,46 @@ async function handleApi(req, res, pathname) {
     const decision = appRow.practice_decision === 'approved' ? 'approved'
       : (appRow.practice_decision === 'turned_down' ? 'turned_down' : null);
 
+    // Candidate details for the page ITSELF (owner request 2026-08-31: the
+    // practice should be able to decide from this page without opening the
+    // email). Same pure intro builder the email + WhatsApp use, plus the
+    // recommendation stored on the row at submit time. Best-effort — any
+    // failed read just renders the page without the card, exactly as before.
+    let dcIntro = null;
+    let dcHasCv = false;
+    try {
+      const dcProfRes = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+      const dcProf = (dcProfRes && dcProfRes.ok && Array.isArray(dcProfRes.data) && dcProfRes.data[0]) ? dcProfRes.data[0] : {};
+      let dcStateVal = {};
+      try {
+        const dcStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`);
+        dcStateVal = (dcStateRes && dcStateRes.ok && Array.isArray(dcStateRes.data) && dcStateRes.data[0] && dcStateRes.data[0].state)
+          ? dcStateRes.data[0].state : {};
+      } catch (dcStateErr) { dcStateVal = {}; }
+      const dcOb = _parseStateVal(dcStateVal.gp_onboarding);
+      dcIntro = careerIntro.buildCandidateIntro({
+        gpName: (ctx && ctx.gpName) || '',
+        countryCode: dcProf.registration_country || dcOb.country,
+        accountStatus: dcProf.account_status || dcStateVal.account_status,
+        specialty: atsSpecialtyFromOnboarding(dcOb),
+        targetDate: dcProf.target_arrival_date || dcOb.targetDate,
+        practiceName: (ctx && ctx.practiceName) || '',
+        roleTitle: roleTitle || ''
+      });
+      dcHasCv = !!(await findPracticeFacingCvRow(appRow.user_id));
+    } catch (dcErr) { dcIntro = null; }
+
     sendJson(res, 200, {
       ok: true,
       gpName: (ctx && ctx.gpName) || '',
       roleTitle: roleTitle || '',
       practiceName: (ctx && ctx.practiceName) || '',
+      candidate: {
+        paragraph: dcIntro ? dcIntro.paragraph : '',
+        facts: dcIntro && Array.isArray(dcIntro.facts) ? dcIntro.facts : [],
+        recommendation: String(appRow.ai_recommendation || '').trim(),
+        hasCv: dcHasCv
+      },
       decision: decision,
       // Read-only endpoint, so it still answers 200 — but it now says plainly
       // that the doctor pulled out, so the page can explain rather than
@@ -45863,6 +45918,34 @@ async function handleApi(req, res, pathname) {
       availabilitySubmitted: !!(interviewRow && interviewRow.practice_availability_status === 'received'),
       interviewBooked: !!(interviewRow && interviewRow.status === 'booked')
     });
+    return;
+  }
+
+  // GET /api/practice/application/cv — token-authed CV download for the
+  // decision page's "View CV" link. Read-only: validates the same
+  // practice_action_token the page itself runs on, finds the SAME document
+  // the introduction email attaches (findPracticeFacingCvRow), and 302s to a
+  // short-lived Supabase-storage signed URL. Shares the decision page's
+  // rate-limit bucket so a scripted crawl of tokens burns the page's own
+  // budget, not a fresh one.
+  if (pathname === '/api/practice/application/cv' && req.method === 'GET') {
+    const cvIp = getClientIp(req);
+    const cvAllowed = await checkRateLimitWindow('practice-decision-ip:' + cvIp, 30, 60 * 60 * 1000);
+    if (!cvAllowed) { sendJson(res, 429, { ok: false, message: 'Too many requests' }); return; }
+    const cvToken = String(url.searchParams.get('token') || '').trim();
+    const cvAppRow = await findApplicationByActionToken(cvToken);
+    if (!cvAppRow) { sendJson(res, 404, { ok: false, code: 'not_found' }); return; }
+    const cvRow = await findPracticeFacingCvRow(cvAppRow.user_id);
+    const cvSigned = cvRow
+      ? await supabaseStorageCreateSignedUrl(
+          cvRow.storage_bucket || SUPABASE_DOCUMENT_BUCKET,
+          String(cvRow.storage_path || cvRow.file_url || '').trim(),
+          cvRow.file_name || 'Candidate-CV.pdf'
+        )
+      : '';
+    if (!cvSigned) { sendJson(res, 404, { ok: false, code: 'no_cv' }); return; }
+    res.writeHead(302, { Location: cvSigned, 'Cache-Control': 'no-store' });
+    res.end();
     return;
   }
 

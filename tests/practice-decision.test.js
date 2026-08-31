@@ -56,7 +56,7 @@ const db = {
     { id: 'role-1', provider: 'internal_ats', provider_role_id: 'r1', title: 'General Practitioner (VR)', practice_name: 'SOP Medical Centre', is_active: true, job_status: 'open', updated_at: NOW }
   ],
   gp_applications: [
-    { id: 'app-tok-1', user_id: 'u-gate-1', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-abc123', applied_at: NOW },
+    { id: 'app-tok-1', user_id: 'u-gate-1', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-abc123', applied_at: NOW, ai_recommendation: 'A calm, thorough clinician the whole team rated.' },
     { id: 'app-tok-2', user_id: 'u-ryan-2', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-def456', applied_at: NOW },
     { id: 'app-tok-3', user_id: 'u-notyet-3', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-ghi789', applied_at: NOW },
     { id: 'app-tok-4', user_id: 'u-resil-4', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-resil999', applied_at: NOW },
@@ -281,6 +281,17 @@ describe('GET /api/practice/application/decision-context', () => {
     expect(res.body.decision).toBeNull();
     expect(res.body.availabilitySubmitted).toBe(false);
     expect(res.body.interviewBooked).toBe(false);
+    // Owner request 2026-08-31: the page itself carries enough to decide on —
+    // the same intro the email + WhatsApp use, the recommendation stored on
+    // the row at submit time, and whether a CV download is available.
+    // Asserted HERE (not in a fresh test) so it spends no extra requests from
+    // the shared practice-decision-ip rate-limit budget this file counts on.
+    const cand = res.body.candidate;
+    expect(cand.paragraph).toContain('Gate Smith');
+    expect(cand.paragraph).toContain('United Kingdom');
+    expect(cand.facts.some((f) => /Trained in the UK/.test(f && f.label))).toBe(true);
+    expect(cand.recommendation).toBe('A calm, thorough clinician the whole team rated.');
+    expect(cand.hasCv).toBe(false);
     const row = db.gp_applications.find((a) => a.id === 'app-tok-1');
     expect(row.practice_decision).toBeUndefined();
     expect(db.scheduled_calls.length).toBe(0);
@@ -335,6 +346,28 @@ describe('GET /api/practice/application/decision-context', () => {
     const res = await httpReq('GET', '/api/practice/application/decision-context?token=tok-does-not-exist-at-all');
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ ok: false, code: 'not_found' });
+  });
+
+  // Owner request 2026-08-31: the CV download link on the decision page.
+  // Uses a DEDICATED client IP (x-real-ip, honored off-platform) so these
+  // two extra requests spend none of the shared practice-decision-ip budget
+  // the tests below this file were counted against.
+  it('the token-authed CV endpoint 404s an unknown token, and no_cv when nothing is on file', async () => {
+    const cvReq = (p) => new Promise((resolve, reject) => {
+      const r = http.request({ host: '127.0.0.1', port, path: p, method: 'GET', headers: { 'x-real-ip': '10.99.0.77' } }, (res) => {
+        const c = []; res.on('data', (x) => c.push(x));
+        res.on('end', () => {
+          let parsed = null; try { parsed = JSON.parse(Buffer.concat(c).toString('utf8')); } catch {}
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+      r.on('error', reject); r.end();
+    });
+    const bad = await cvReq('/api/practice/application/cv?token=not-a-real-token');
+    expect(bad.status).toBe(404);
+    const noCv = await cvReq('/api/practice/application/cv?token=tok-test-abc123');
+    expect(noCv.status).toBe(404);
+    expect(noCv.body.code).toBe('no_cv');
   });
 });
 
