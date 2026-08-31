@@ -60655,6 +60655,24 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // ── Staff "View as GP" must never mutate the doctor's account ──
+    // A preview loads the GP pages inside the ADMIN's browser, whose localStorage
+    // knows nothing about this doctor, so those pages sync their own defaults back
+    // and silently overwrite real progress. That is exactly how Dr Sana Ahsan's
+    // stage was rolled ahpra → myintealth on 2026-08-31: a blank gp_epic_progress
+    // arrived carrying a fresh updatedAt, beat the stale-client guard below (which
+    // only compares timestamps), and _deriveStageFromState then rewrote her case
+    // stage and return-overrides. Report the STORED state so the preview still
+    // renders normally, and write nothing — same shape as the match-seen no-op.
+    if (isImpersonatedSession(session)) {
+      const previewRemote = isSupabaseDbConfigured() ? await getSupabaseUserStateByEmail(email) : null;
+      const previewState = (previewRemote && previewRemote.state && typeof previewRemote.state === 'object')
+        ? previewRemote.state
+        : (dbState.userState[email] && typeof dbState.userState[email] === 'object' ? dbState.userState[email] : {});
+      sendJson(res, 200, { ok: true, updatedAt: previewState.updatedAt || null, impersonated: true });
+      return;
+    }
+
     const incoming = sanitizeUserStateInput(body);
 
     // ── AHPRA locking: block AHPRA progress unless career is secured ──
@@ -60805,6 +60823,32 @@ Return ONLY valid JSON with no markdown formatting:
         next.gp_ahpra_progress = _nextWasString ? JSON.stringify(_nextAhpra) : _nextAhpra;
       }
     } catch (e) { /* non-fatal: never block a state save over els preservation */ }
+
+    // ── A client sync must never move the doctor BACKWARDS ──
+    // The protected-key guard above trusts `updatedAt` as a proxy for "more
+    // advanced", but a freshly-stamped BLANK progress object always wins that
+    // comparison — so any client holding defaults can silently undo real progress.
+    // That is why stages have repeatedly flapped (myintealth↔amc on 2026-07-31,
+    // ahpra↔career on 2026-08-14, ahpra→myintealth on 2026-08-31). Compare the
+    // DERIVED stage instead and keep the stored progress whenever this write would
+    // regress it. Advancing is untouched. Admin stage changes do not come through
+    // here — they write gp_verified_stage via the admin endpoints.
+    // Restoring gp_career_state is safe: it is a MIRROR, gp_applications is the
+    // authoritative placement record.
+    try {
+      const STAGE_SEQUENCE = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+      const beforeIdx = STAGE_SEQUENCE.indexOf(_deriveStageFromState(current));
+      const afterIdx = STAGE_SEQUENCE.indexOf(_deriveStageFromState(next));
+      if (beforeIdx >= 0 && afterIdx >= 0 && afterIdx < beforeIdx) {
+        ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress', 'gp_career_state'].forEach(function (k) {
+          if (Object.prototype.hasOwnProperty.call(current, k)) next[k] = current[k];
+          else delete next[k];
+        });
+        console.warn('[state] blocked a stage regression for %s: %s -> %s (kept stored progress)',
+          email, STAGE_SEQUENCE[beforeIdx], STAGE_SEQUENCE[afterIdx]);
+      }
+    } catch (e) { /* never block a state save over the regression guard */ }
+
     next.updatedAt = new Date().toISOString();
 
     const updatedAt = next.updatedAt;
