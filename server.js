@@ -2072,8 +2072,20 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: docRecord });
     results.userDoc = existing.data[0].id;
   } else {
-    const ins = await supabaseDbRequest('user_documents', '', { method: 'POST', body: [docRecord] });
+    // `return=representation` matters: without it PostgREST answers 201 with an
+    // empty body, results.userDoc stays null, and the Drive write-back below
+    // silently has nothing to attach itself to.
+    const ins = await supabaseDbRequest('user_documents', '', {
+      method: 'POST', body: [docRecord], headers: { Prefer: 'return=representation' }
+    });
     if (ins.ok && Array.isArray(ins.data) && ins.data[0]) results.userDoc = ins.data[0].id;
+    if (!results.userDoc) {
+      // Insert succeeded but told us nothing — re-read so the write-back still lands.
+      const reRead = await supabaseDbRequest('user_documents',
+        'select=id&user_id=eq.' + encodeURIComponent(userId) +
+        '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+      if (reRead.ok && Array.isArray(reRead.data) && reRead.data[0]) results.userDoc = reRead.data[0].id;
+    }
   }
 
   // 2. Upload to Google Drive
@@ -2082,6 +2094,23 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     const driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, mimeType || 'application/pdf');
     if (driveFile) {
       results.driveFile = driveFile.id;
+      // Record WHERE the bytes actually are. The row above carries NO pointer of
+      // its own (no storage_path, no file_url), so without this write-back
+      // /api/gplink-docs-status walks its drive_file_id → file_url → hardcoded
+      // '/documents/section_g.pdf' chain and hands the doctor SECTION G in place
+      // of the document we just delivered. Hit live on Dr Sana Ahsan's SPPA-00
+      // (2026-08-31); Dr Smith Miller's June delivery had the same empty row.
+      if (results.userDoc) {
+        await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(results.userDoc), {
+          method: 'PATCH',
+          body: {
+            google_drive_file_id: driveFile.id,
+            mime_type: mimeType || 'application/pdf',
+            file_size: (buffer && buffer.length) || 0,
+            updated_at: new Date().toISOString()
+          }
+        });
+      }
       // File into its document-type subfolder (best-effort).
       fileDocOnDrive(caseId, docKey, driveFile.id).catch(function () {});
     }
@@ -19211,12 +19240,42 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       'select=id,related_document_key,status&case_id=eq.' + encodeURIComponent(caseId) +
       '&related_document_key=in.(supervisor_cv,offer_contract)&task_type=eq.practice_pack_child');
     var sibs = (sibRes.ok && Array.isArray(sibRes.data)) ? sibRes.data : [];
+    // The GP who owns this case — resolved once, lazily, so the user_documents
+    // fallback below can run without a second round-trip per key.
+    var _sppaOwnerUserId = null;
+    var _sppaOwnerResolved = false;
+    async function _resolveSppaOwnerUserId() {
+      if (_sppaOwnerResolved) return _sppaOwnerUserId;
+      _sppaOwnerResolved = true;
+      var r = await supabaseDbRequest('registration_cases',
+        'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      _sppaOwnerUserId = (r.ok && r.data && r.data[0]) ? r.data[0].user_id : null;
+      return _sppaOwnerUserId;
+    }
     async function _siblingHasDoc(key) {
       var t = sibs.find(function (s) { return s.related_document_key === key; });
-      if (!t) return false;
-      var dr = await supabaseDbRequest('task_documents',
-        'select=id&task_id=eq.' + encodeURIComponent(t.id) + '&is_current=eq.true&limit=1');
-      return !!(dr.ok && dr.data && dr.data[0]);
+      if (t) {
+        var dr = await supabaseDbRequest('task_documents',
+          'select=id&task_id=eq.' + encodeURIComponent(t.id) + '&is_current=eq.true&limit=1');
+        if (dr.ok && dr.data && dr.data[0]) return true;
+      }
+      // task_documents is NOT the only place a practice document can live. The
+      // direct-to-Storage uploaders (offer-contract/finalize, admin candidate
+      // upload) write user_documents + Storage and never create a task_documents
+      // row — so checking only the task made a document that IS on file report as
+      // missing, and the AI then blocked a legitimate submit. Dr Sana Ahsan hit
+      // exactly this: 0 task_documents on her offer_contract task while her
+      // user_documents row was approved with both a storage_path and a Drive id.
+      // Same fallback loadPracticeDocBuffer already does when it loads the bytes.
+      var ownerId = await _resolveSppaOwnerUserId();
+      if (!ownerId) return false;
+      var ud = await supabaseDbRequest('user_documents',
+        'select=storage_path,file_url,google_drive_file_id&user_id=eq.' + encodeURIComponent(ownerId) +
+        '&document_key=eq.' + encodeURIComponent(key) + '&status=in.(approved,uploaded,received)&limit=5');
+      var udRows = (ud.ok && Array.isArray(ud.data)) ? ud.data : [];
+      return udRows.some(function (r) {
+        return !!(r && (r.storage_path || r.file_url || r.google_drive_file_id));
+      });
     }
     var supCvPresent = await _siblingHasDoc('supervisor_cv');
     var offerPresent = await _siblingHasDoc('offer_contract');
@@ -59352,8 +59411,14 @@ Return ONLY valid JSON with no markdown formatting:
           var dlUrl = '';
           if (match.google_drive_file_id) dlUrl = 'https://drive.google.com/file/d/' + match.google_drive_file_id + '/view';
           else if (match.file_url && match.file_url.startsWith('http')) dlUrl = match.file_url;
-          else dlUrl = '/documents/section_g.pdf'; // fallback for section_g
-          result[key] = { ready: true, url: dlUrl, fileName: match.file_name || '' };
+          else if (key === 'section_g') dlUrl = '/documents/section_g.pdf'; // the one key that static copy IS
+          // This fallback used to apply to EVERY key, so any delivered document whose row
+          // carried no pointer (deliverToMyDocuments never wrote google_drive_file_id) opened
+          // Section G instead — a delivered SPPA-00 handed the doctor the wrong form. Report
+          // it not-ready rather than serving someone else's document; my-documents.html only
+          // merges entries whose `ready` is true, so the card stays in its pending state.
+          if (dlUrl) result[key] = { ready: true, url: dlUrl, fileName: match.file_name || '' };
+          else result[key] = { ready: false, url: '', fileName: match.file_name || '' };
         }
       });
       // Check for alt supervisor CVs (ready + pending)
@@ -65170,6 +65235,29 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ── Store returned SPPA-00 (from candidate or practice) ──
+  // ── Admin: upload a returned SPPA-00 DIRECT to Storage (step 1 of 2) ──────────
+  // The base64-in-JSON /sppa-store-returned below CANNOT carry a real scan: Vercel
+  // rejects request bodies over ~4.5 MB before the function runs, and a phone-scanned
+  // SPPA-00 is routinely 4-10 MB (Dr Sana Ahsan's was 3.8 MB = 5.1 MB base64 → 413;
+  // Dr Mercy Obanimoh's was 9.8 MB). So the "Upload Return" button failed on exactly
+  // the documents it exists for. Same two-step shape as
+  // /api/admin/offer-contract/sign-upload: sign → browser PUTs the raw file → store.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-sign-upload')) {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const ssuAdmin = requireAdminSession(req, res);
+    if (!ssuAdmin) return;
+    const ssuTaskId = pathname.split('/')[5];
+    const ssuTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id&id=eq.' + encodeURIComponent(ssuTaskId) + '&related_document_key=eq.sppa_00&limit=1');
+    if (!ssuTaskRes.ok || !ssuTaskRes.data || !ssuTaskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'task not found' }); return; }
+    const ssuPath = ['cases', sanitizeStoragePathSegment(ssuTaskRes.data[0].case_id, 80), 'sppa-returns',
+      sanitizeStoragePathSegment(ssuTaskId, 80) + '-' + Date.now()].join('/');
+    const ssuUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, ssuPath, { upsert: true });
+    if (!ssuUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
+    sendJson(res, 200, { ok: true, uploadUrl: ssuUrl, storagePath: ssuPath });
+    return;
+  }
+
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-store-returned')) {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
@@ -65177,10 +65265,26 @@ Return ONLY valid JSON with no markdown formatting:
     const body = await readJsonBody(req);
     var returnedFrom = String((body && body.from) || '').toLowerCase();
     var fileDataUrl = String((body && body.file_data_url) || '');
+    var storagePathIn = String((body && body.storage_path) || '');
     var fileName = String((body && body.file_name) || 'SPPA-00.pdf');
     var altSupervisorCvs = Array.isArray(body && body.alt_supervisor_cvs) ? body.alt_supervisor_cvs : [];
     if (returnedFrom !== 'candidate' && returnedFrom !== 'practice') { sendJson(res, 400, { error: 'from must be candidate or practice' }); return; }
-    if (!fileDataUrl) { sendJson(res, 400, { error: 'file_data_url required' }); return; }
+    if (!fileDataUrl && !storagePathIn) { sendJson(res, 400, { error: 'file_data_url or storage_path required' }); return; }
+    // Step 2 of the direct-to-Storage path: the browser has already PUT the raw PDF,
+    // so read it back here and carry on identically to the inline-base64 flow. The
+    // path must be one WE minted above — never let a caller name an arbitrary object.
+    if (!fileDataUrl && storagePathIn) {
+      if (!/^cases\/[A-Za-z0-9._-]+\/sppa-returns\/[A-Za-z0-9._-]+$/.test(storagePathIn)) {
+        sendJson(res, 400, { error: 'invalid storage_path' });
+        return;
+      }
+      var _ssrDl = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePathIn);
+      if (!_ssrDl || !_ssrDl.buffer || !_ssrDl.buffer.length) {
+        sendJson(res, 502, { error: 'could not read the uploaded file' });
+        return;
+      }
+      fileDataUrl = 'data:' + (_ssrDl.mimeType || 'application/pdf') + ';base64,' + _ssrDl.buffer.toString('base64');
+    }
 
     const taskRes = await supabaseDbRequest('registration_tasks',
       'select=id,case_id,metadata&id=eq.' + encodeURIComponent(taskId) + '&related_document_key=eq.sppa_00&limit=1');

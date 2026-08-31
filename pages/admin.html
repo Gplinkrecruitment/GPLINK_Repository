@@ -9500,20 +9500,32 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     input.onchange = async function () {
       var file = input.files[0];
       if (!file) return;
-      var reader = new FileReader();
-      reader.onload = async function () {
-        try {
-          var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-store-returned', {
-            method: 'POST', credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: from, file_data_url: reader.result, file_name: file.name })
-          });
-          var d = await r.json().catch(function () { return {}; });
-          if (d && d.ok) { toast('Returned SPPA stored (' + from + ')'); await loadAll(true); }
-          else { toast((d && d.error) || 'Failed to store', 'red'); }
-        } catch (err) { toast('Network error', 'red'); }
-      };
-      reader.readAsDataURL(file);
+      // Upload the raw file straight to Supabase Storage with a signed URL. Sending it
+      // as base64 in the JSON body means Vercel rejects anything over ~4.5 MB with a
+      // 413 before the function even runs — and a scanned SPPA-00 is routinely bigger
+      // than that, so this button used to fail on exactly the documents it exists for.
+      toast('Uploading returned SPPA…');
+      try {
+        var sr = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-sign-upload', {
+          method: 'POST', credentials: 'include'
+        });
+        var sd = await sr.json().catch(function () { return {}; });
+        if (!sd || !sd.ok || !sd.uploadUrl) { toast((sd && sd.message) || 'Could not prepare the upload', 'red'); return; }
+        var pr = await fetch(sd.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type || 'application/pdf', 'x-upsert': 'true' },
+          body: file
+        });
+        if (!pr.ok) { toast('Upload failed (' + pr.status + ')', 'red'); return; }
+        var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-store-returned', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: from, storage_path: sd.storagePath, file_name: file.name })
+        });
+        var d = await r.json().catch(function () { return {}; });
+        if (d && d.ok) { toast('Returned SPPA stored (' + from + ')'); await loadAll(true); }
+        else { toast((d && d.error) || 'Failed to store', 'red'); }
+      } catch (err) { toast('Network error', 'red'); }
     };
     input.click();
   }
