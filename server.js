@@ -9428,6 +9428,125 @@ async function scanPerformersCsvForNumbers(numbers, opts = {}) {
   }
 }
 
+// ── Daily NHS Performers List mirror (owner decision 2026-09-01) ────────────
+// One download a day into nhs_performers_mirror; every registration check is
+// then a local indexed lookup (milliseconds) instead of a fresh 17MB pull.
+// Medical rows only. Old rows are deleted ONLY after the new batch fully
+// lands, and a suspiciously small file refuses to replace good data. The
+// runtime_kv key below records the last successful sync; a mirror older than
+// MIRROR_FRESH_DAYS makes checks fall back to the live NHS download.
+const PERFORMERS_MIRROR_META_KEY = 'nhs_performers_mirror';
+const PERFORMERS_MIRROR_FRESH_DAYS = 3;
+// Env-tunable so tests can sync a tiny stub file; production default guards
+// against replacing a good mirror with a truncated download.
+const PERFORMERS_MIRROR_MIN_ROWS = Number(process.env.PERFORMERS_MIRROR_MIN_ROWS || 20000);
+
+async function runPerformersMirrorSync() {
+  const started = Date.now();
+  const deadline = started + 50 * 1000; // stay inside the serverless window
+  const batchId = new Date().toISOString();
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 48 * 1000);
+  let inserted = 0;
+  let chunk = [];
+  const flush = async () => {
+    if (!chunk.length) return true;
+    const body = chunk;
+    chunk = [];
+    const res = await supabaseDbRequest('nhs_performers_mirror', '', { method: 'POST', headers: { Prefer: 'return=minimal' }, body });
+    if (!res.ok) return false;
+    inserted += body.length;
+    return true;
+  };
+  const cleanupBatch = () => supabaseDbRequest('nhs_performers_mirror', `sync_batch=eq.${encodeURIComponent(batchId)}`, { method: 'DELETE' }).catch(() => {});
+  try {
+    const resp = await fetch(REGISTER_UK_PERFORMERS_URL, {
+      signal: controller.signal,
+      headers: { 'User-Agent': REGISTER_CHECK_USER_AGENT, Accept: 'text/csv,*/*' }
+    });
+    if (!resp.ok || !resp.body) return { ok: false, error: 'download failed with status ' + resp.status };
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    let firstLine = true;
+    const takeLine = async (line) => {
+      if (firstLine) { firstLine = false; return true; } // header
+      const row = registerLookup.parsePerformersRow(line);
+      if (!row || row.alignment !== 'Medical' || !row.number) return true;
+      chunk.push({
+        number: row.number, alignment: row.alignment, role: row.role,
+        fore_names: row.foreNames, surname: row.surname, status: row.status,
+        registered_date: row.registeredDate, first_on_list_date: row.firstOnListDate,
+        gp_register_date: row.gpRegisterDate, region: row.region,
+        probationary: row.probationary, sync_batch: batchId
+      });
+      if (chunk.length >= 2000) return flush();
+      return true;
+    };
+    for (;;) {
+      if (Date.now() > deadline) { controller.abort(); await cleanupBatch(); return { ok: false, error: 'time budget exceeded', inserted }; }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).replace(/\r$/, '');
+        buf = buf.slice(nl + 1);
+        if (!(await takeLine(line))) { await cleanupBatch(); return { ok: false, error: 'insert failed', inserted }; }
+      }
+    }
+    buf += decoder.decode();
+    if (buf.trim() && !(await takeLine(buf.replace(/\r$/, '')))) { await cleanupBatch(); return { ok: false, error: 'insert failed', inserted }; }
+    if (!(await flush())) { await cleanupBatch(); return { ok: false, error: 'insert failed', inserted }; }
+    if (inserted < PERFORMERS_MIRROR_MIN_ROWS) {
+      await cleanupBatch();
+      return { ok: false, error: 'file suspiciously small (' + inserted + ' medical rows) — kept the previous mirror', inserted };
+    }
+    // New batch fully landed — retire every older row, then stamp the meta.
+    const del = await supabaseDbRequest('nhs_performers_mirror', `sync_batch=neq.${encodeURIComponent(batchId)}`, { method: 'DELETE' });
+    if (!del.ok) console.warn('[performers-mirror] old-batch delete failed (mirror still valid):', del.status);
+    await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [{ key: PERFORMERS_MIRROR_META_KEY, value: { batch: batchId, synced_at: new Date().toISOString(), rows: inserted } }]
+    });
+    return { ok: true, inserted, batch: batchId, tookMs: Date.now() - started };
+  } catch (err) {
+    await cleanupBatch();
+    return { ok: false, error: err && err.name === 'AbortError' ? 'download timed out' : (err && err.message), inserted };
+  } finally {
+    clearTimeout(abortTimer);
+  }
+}
+
+// Local-mirror lookup: { ok, fresh, rows } — rows in the same shape
+// performersVerdict expects. fresh=false (stale or empty mirror) tells the
+// caller to fall back to the live NHS download.
+async function performersMirrorIsFresh() {
+  const metaRes = await supabaseDbRequest('runtime_kv', `key=eq.${encodeURIComponent(PERFORMERS_MIRROR_META_KEY)}&select=value`);
+  const meta = (metaRes.ok && Array.isArray(metaRes.data) && metaRes.data[0]) ? metaRes.data[0].value : null;
+  const syncedAt = Date.parse(meta && meta.synced_at || '');
+  return Number.isFinite(syncedAt) && (Date.now() - syncedAt) < PERFORMERS_MIRROR_FRESH_DAYS * 24 * 60 * 60 * 1000;
+}
+
+async function lookupPerformersMirror(number) {
+  const clean = String(number || '').replace(/\D+/g, '');
+  if (!clean) return { ok: false, fresh: false, rows: [] };
+  if (!(await performersMirrorIsFresh())) return { ok: true, fresh: false, rows: [] };
+  const rowsRes = await supabaseDbRequest('nhs_performers_mirror', `number=eq.${encodeURIComponent(clean)}&select=*`);
+  if (!rowsRes.ok || !Array.isArray(rowsRes.data)) return { ok: false, fresh: false, rows: [] };
+  return {
+    ok: true,
+    fresh: true,
+    rows: rowsRes.data.map((r) => ({
+      alignment: r.alignment || '', role: r.role || '', foreNames: r.fore_names || '',
+      surname: r.surname || '', number: r.number || '', registeredDate: r.registered_date || '',
+      status: r.status || '', firstOnListDate: r.first_on_list_date || '',
+      gpRegisterDate: r.gp_register_date || '', region: r.region || '', probationary: r.probationary || ''
+    }))
+  };
+}
+
 // Fetch MCNZ register-search result cards for a doctor. Tries "surname
 // firstname", then surname alone (the tighter query can miss when the
 // register holds extra given names in front).
@@ -9476,11 +9595,19 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
   let source = '';
   if (prof.register_body === 'gmc') {
     source = 'nhs-performers-list';
-    const scan = options.performersRows
-      ? { ok: true, rowsByNumber: { [doctor.number]: options.performersRows } }
-      : await scanPerformersCsvForNumbers([doctor.number], { timeoutMs: options.scanTimeoutMs });
-    if (!scan.ok) { await stampChecked(); return { outcome: 'error', evidence: 'Performers list check failed (' + scan.error + '). It will retry.' }; }
-    verdict = registerLookup.performersVerdict(scan.rowsByNumber[doctor.number] || [], doctor);
+    // Fast path: the daily local mirror answers in milliseconds. The live
+    // 17MB NHS download only runs when the mirror is stale or unavailable.
+    let performersRows = options.performersRows || null;
+    if (!performersRows) {
+      const mirror = await lookupPerformersMirror(doctor.number);
+      if (mirror.ok && mirror.fresh) performersRows = mirror.rows;
+    }
+    if (!performersRows) {
+      const scan = await scanPerformersCsvForNumbers([doctor.number], { timeoutMs: options.scanTimeoutMs });
+      if (!scan.ok) { await stampChecked(); return { outcome: 'error', evidence: 'Performers list check failed (' + scan.error + '). It will retry.' }; }
+      performersRows = scan.rowsByNumber[doctor.number] || [];
+    }
+    verdict = registerLookup.performersVerdict(performersRows, doctor);
   } else if (prof.register_body === 'mcnz') {
     source = 'mcnz-register';
     const cards = await fetchMcnzRegisterCards(doctor.firstName, doctor.lastName);
@@ -10127,6 +10254,10 @@ const CRON_SCHEDULES = {
   // is verified within the hour of finishing onboarding. Keep in sync with
   // vercel.json.
   'register-auto-verify': { schedule: '40 * * * *', cadenceMinutes: 60 },
+  // One 17MB NHS Performers List download a day into the local mirror table —
+  // registration checks then answer from the mirror in milliseconds. Keep in
+  // sync with vercel.json.
+  'performers-mirror-sync': { schedule: '10 5 * * *', cadenceMinutes: 1440 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -40655,6 +40786,20 @@ async function handleApi(req, res, pathname) {
   // (e.g. supervisor_cv/offer_contract completed via a path that didn't trigger it). Idempotent —
   // _maybeRunSppaConflictScan skips cases already scanned or whose prerequisites aren't both done.
   // Pass ?caseId=<id> to target one case, otherwise it sweeps all SPPA-00 tasks. Cron-secret authed.
+  // Daily: refresh the local NHS Performers List mirror (one 17MB download a
+  // day; every registration check then reads the local table in
+  // milliseconds). Failure keeps yesterday's mirror — checks stay correct,
+  // just via the stale-mirror fallback once it ages past 3 days.
+  if (pathname === '/api/cron/performers-mirror-sync') {
+    var pmsAuth = req.headers['authorization'] || '';
+    var pmsTok = pmsAuth.indexOf('Bearer ') === 0 ? pmsAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
+    if (!isValidCronSecret(pmsTok)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var pmsResult = await runPerformersMirrorSync();
+    sendJson(res, pmsResult.ok ? 200 : 502, Object.assign({ ok: pmsResult.ok }, pmsResult));
+    return;
+  }
+
   // Hourly sweep: automatically verify pending register numbers against the
   // open official sources (NHS England Performers List for GMC, the live MCNZ
   // register search for NZ). One CSV download serves the whole UK batch. A
@@ -40674,15 +40819,17 @@ async function handleApi(req, res, pathname) {
       var at = Date.parse(r.register_auto_checked_at || '');
       return !Number.isFinite(at) || at < ravRetryFloor;
     }).slice(0, 10);
-    // One performers-list download covers every due GMC doctor in the batch.
+    // With a fresh daily mirror every doctor is a millisecond lookup; only a
+    // STALE mirror falls back to one shared live download for the whole batch.
     var ravGmcNumbers = ravDue.filter(function (r) { return r.register_body === 'gmc'; })
       .map(function (r) { return String(r.register_number || '').replace(/\D+/g, ''); }).filter(Boolean);
-    var ravScan = ravGmcNumbers.length ? await scanPerformersCsvForNumbers(ravGmcNumbers) : { ok: true, rowsByNumber: {} };
+    var ravMirrorFresh = ravGmcNumbers.length ? await performersMirrorIsFresh() : true;
+    var ravScan = (ravGmcNumbers.length && !ravMirrorFresh) ? await scanPerformersCsvForNumbers(ravGmcNumbers) : null;
     var ravResults = [];
     for (var ravI = 0; ravI < ravDue.length; ravI++) {
       var ravRow = ravDue[ravI];
       var ravOpts = {};
-      if (ravRow.register_body === 'gmc') {
+      if (ravRow.register_body === 'gmc' && ravScan) {
         if (!ravScan.ok) { ravResults.push({ user_id: ravRow.user_id, outcome: 'error', evidence: 'performers list download failed: ' + ravScan.error }); continue; }
         ravOpts.performersRows = ravScan.rowsByNumber[String(ravRow.register_number || '').replace(/\D+/g, '')] || [];
       }
@@ -75206,6 +75353,19 @@ Return ONLY valid JSON with no markdown formatting:
   // (F5 bot defence) remain staff-checked.
 
   // ── (helpers defined at module level below the route table) ──────────────
+
+  // POST /api/ats/register-mirror/sync — refresh the NHS mirror NOW (same
+  // work as the daily cron; exists because CRON_SECRET is unreadable from
+  // this machine and the first sync after a deploy should not wait a day).
+  // CEO + consultants.
+  if (pathname === '/api/ats/register-mirror/sync' && req.method === 'POST') {
+    const rmsAdmin = requireAtsSession(req, res);
+    if (!rmsAdmin) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    const rmsResult = await runPerformersMirrorSync();
+    sendJson(res, rmsResult.ok ? 200 : 502, Object.assign({ ok: rmsResult.ok }, rmsResult));
+    return;
+  }
 
   // POST /api/ats/candidate/register-verification — staff record the outcome
   // of their one-click check against the LIVE public register, or run the

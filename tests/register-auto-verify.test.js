@@ -154,8 +154,23 @@ function startSupabaseEmulator() {
       if (req.method === 'POST') {
         const body = await readBody(req);
         const incoming = Array.isArray(body) ? body : (body ? [body] : []);
-        const saved = incoming.map((r) => { const row = { id: crypto.randomUUID(), ...r }; rows.push(row); return row; });
+        const conflictCols = (u.searchParams.get('on_conflict') || '').split(',').map((s) => s.trim()).filter(Boolean);
+        const saved = incoming.map((r) => {
+          if (conflictCols.length) {
+            const existing = rows.find((row) => row && conflictCols.every((c) => String(row[c]) === String(r[c])));
+            if (existing) { Object.assign(existing, r); return existing; }
+          }
+          const row = { id: crypto.randomUUID(), ...r };
+          rows.push(row);
+          return row;
+        });
         send(201, saved); return;
+      }
+      if (req.method === 'DELETE') {
+        const keep = rows.filter((row) => !matches(row));
+        rows.length = 0;
+        keep.forEach((row) => rows.push(row));
+        send(200, []); return;
       }
       if (req.method === 'PATCH') {
         const patch = await readBody(req);
@@ -195,8 +210,10 @@ function httpReq(method, p, { cookie, body, bearer } = {}) {
   });
 }
 
+let ukHits = 0;
 beforeAll(async () => {
   ukServer = http.createServer((req, res) => {
+    ukHits++;
     res.writeHead(200, { 'Content-Type': 'text/csv' });
     res.end(PERFORMERS_CSV);
   });
@@ -223,6 +240,8 @@ beforeAll(async () => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
   process.env.REGISTER_UK_PERFORMERS_URL = `http://127.0.0.1:${ukServer.address().port}/performers.csv`;
   process.env.REGISTER_MCNZ_BASE_URL = `http://127.0.0.1:${nzServer.address().port}`;
+  // The stub CSV holds 2 medical rows — drop the truncated-file floor.
+  process.env.PERFORMERS_MIRROR_MIN_ROWS = '1';
   const mod = await import('../server.js');
   server = mod.createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));
@@ -260,6 +279,55 @@ describe('GET /api/cron/register-auto-verify', () => {
     const res = await httpReq('GET', '/api/cron/register-auto-verify', { bearer: 'test-cron-secret' });
     expect(res.status).toBe(200);
     expect(res.body.attempted).toBe(0);
+  });
+});
+
+describe('the daily NHS mirror (owner 2026-09-01: keep the list, replace it daily)', () => {
+  it('the on-demand sync fills the mirror table with Medical rows only and stamps the meta', async () => {
+    const res = await httpReq('POST', '/api/ats/register-mirror/sync', { cookie: adminCookie('ceo@gplink-test.local') });
+    expect(res.status).toBe(200);
+    expect(res.body.inserted).toBe(2); // the GP Performer + the GP Registrar; the Dental row is filtered
+    const mirror = tableOf('nhs_performers_mirror');
+    expect(mirror.length).toBe(2);
+    expect(mirror.every((r) => r.alignment === 'Medical')).toBe(true);
+    const meta = tableOf('runtime_kv').find((r) => r.key === 'nhs_performers_mirror');
+    expect(meta && meta.value.rows).toBe(2);
+  });
+
+  it('a fresh mirror answers checks WITHOUT touching the NHS download', async () => {
+    // Re-open a doctor for checking against the now-fresh mirror.
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-auto-uk');
+    Object.assign(prof, { register_status: 'pending_verification', register_verified_at: null, register_verified_by: null, register_auto_checked_at: null });
+    const before = ukHits;
+    const res = await httpReq('POST', '/api/ats/candidate/register-verification', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-auto-uk', action: 'auto' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.outcome).toBe('verified');
+    expect(prof.register_verified_by).toBe('system:nhs-performers-list');
+    expect(ukHits).toBe(before); // mirror served it — zero NHS downloads
+  });
+
+  it('a STALE mirror falls back to the live NHS download', async () => {
+    const meta = tableOf('runtime_kv').find((r) => r.key === 'nhs_performers_mirror');
+    meta.value = { ...meta.value, synced_at: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString() };
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-auto-uk');
+    Object.assign(prof, { register_status: 'pending_verification', register_verified_at: null, register_verified_by: null, register_auto_checked_at: null });
+    const before = ukHits;
+    const res = await httpReq('POST', '/api/ats/candidate/register-verification', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-auto-uk', action: 'auto' }
+    });
+    expect(res.body.outcome).toBe('verified');
+    expect(ukHits).toBe(before + 1); // live download used
+    // Restore a fresh meta for any later tests.
+    meta.value = { ...meta.value, synced_at: new Date().toISOString() };
+  });
+
+  it('the sync cron route requires the cron secret', async () => {
+    const res = await httpReq('GET', '/api/cron/performers-mirror-sync');
+    expect(res.status).toBe(401);
   });
 });
 
