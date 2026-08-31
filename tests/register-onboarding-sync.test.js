@@ -67,7 +67,7 @@ describe('wizard ↔ lib register rules stay in sync', () => {
 describe('page pins', () => {
   it('onboarding.html buster + myinthealth gateway wiring', () => {
     const onbHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'onboarding.html'), 'utf8');
-    expect(onbHtml).toContain('onboarding.js?v=20260831a');
+    expect(onbHtml).toContain('onboarding.js?v=20260901a');
     const miHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'myinthealth.html'), 'utf8');
     expect(miHtml).toContain('id="qualDocsGate"');
     expect(miHtml).toContain('/api/registration/qual-docs-status');

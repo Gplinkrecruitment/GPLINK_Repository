@@ -155,6 +155,11 @@ beforeAll(async () => {
   process.env.SUPABASE_URL = `http://127.0.0.1:${sbServer.address().port}`;
   process.env.SUPABASE_PUBLISHABLE_KEY = 'test-anon';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  // The completion endpoint now runs an inline register lookup — point BOTH
+  // official sources at a dead local port so tests never touch the network
+  // (the attempt fails fast and the outcome is simply 'error'/pending).
+  process.env.REGISTER_UK_PERFORMERS_URL = 'http://127.0.0.1:9/performers.csv';
+  process.env.REGISTER_MCNZ_BASE_URL = 'http://127.0.0.1:9';
   const mod = await import('../server.js');
   server = mod.createServer();
   await new Promise((r) => server.listen(0, '127.0.0.1', () => { port = server.address().port; r(); }));

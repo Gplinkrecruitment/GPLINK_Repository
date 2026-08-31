@@ -9378,13 +9378,13 @@ const REGISTER_CHECK_USER_AGENT = 'GPLinkRegisterCheck/1.0 (+https://www.mygplin
 // Stream the NHS England Performers List CSV and collect every row whose
 // registration number is in `numbers`. One ~17MB download serves a whole
 // batch. Returns { ok, rowsByNumber } or { ok:false, error }.
-async function scanPerformersCsvForNumbers(numbers) {
+async function scanPerformersCsvForNumbers(numbers, opts = {}) {
   const wanted = new Set((numbers || []).map((n) => String(n).replace(/\D+/g, '')).filter(Boolean));
   const rowsByNumber = {};
   wanted.forEach((n) => { rowsByNumber[n] = []; });
   if (!wanted.size) return { ok: true, rowsByNumber };
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 50000);
+  const timeout = setTimeout(() => controller.abort(), Math.max(5000, Number(opts.timeoutMs) || 50000));
   try {
     const resp = await fetch(REGISTER_UK_PERFORMERS_URL, {
       signal: controller.signal,
@@ -9478,7 +9478,7 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
     source = 'nhs-performers-list';
     const scan = options.performersRows
       ? { ok: true, rowsByNumber: { [doctor.number]: options.performersRows } }
-      : await scanPerformersCsvForNumbers([doctor.number]);
+      : await scanPerformersCsvForNumbers([doctor.number], { timeoutMs: options.scanTimeoutMs });
     if (!scan.ok) { await stampChecked(); return { outcome: 'error', evidence: 'Performers list check failed (' + scan.error + '). It will retry.' }; }
     verdict = registerLookup.performersVerdict(scan.rowsByNumber[doctor.number] || [], doctor);
   } else if (prof.register_body === 'mcnz') {
@@ -56137,9 +56137,19 @@ async function handleApi(req, res, pathname) {
           const obRegBody = registerVerification.registerBodyForCountry(body.country);
           const obRegCheck = registerVerification.validateRegisterDetails(obRegBody, body.registerNumber);
           if (obRegCheck.ok) {
-            profileUpdate.register_body = obRegCheck.body;
-            profileUpdate.register_number = obRegCheck.number;
-            profileUpdate.register_status = 'pending_verification';
+            // NEVER downgrade a settled verification: the wizard's precheck
+            // usually verified this number minutes ago (instant verification),
+            // and unconditionally re-stamping pending here made completion
+            // re-run the whole 40s scan (caught on the 2026-09-01 localhost
+            // timing test). Only stamp when the number changed or nothing is
+            // recorded yet.
+            const obCurRes = await supabaseDbRequest('user_profiles', `select=register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+            const obCur = (obCurRes.ok && Array.isArray(obCurRes.data) && obCurRes.data[0]) ? obCurRes.data[0] : {};
+            if (obCur.register_number !== obRegCheck.number || !obCur.register_status) {
+              profileUpdate.register_body = obRegCheck.body;
+              profileUpdate.register_number = obRegCheck.number;
+              profileUpdate.register_status = 'pending_verification';
+            }
           } else {
             console.warn('[Onboarding] register number not stamped (invalid):', obRegBody, String(body.registerNumber).slice(0, 20));
           }
@@ -56208,7 +56218,36 @@ async function handleApi(req, res, pathname) {
     // Zoho Recruit decommissioned — no external candidate creation or
     // offer-contract signature check runs at onboarding.
 
-    sendJson(res, 200, { ok: true, message: 'Onboarding complete.' });
+    // INSTANT verification (owner 2026-09-01): the wizard's precheck usually
+    // finished the register lookup while the doctor did the ID step, so this
+    // read is normally just picking up the stored verdict. If it is still
+    // pending (precheck fetch died, or the doctor raced straight through),
+    // run one awaited attempt NOW so the success screen can answer — the
+    // loading overlay is already on screen. Best-effort: any failure leaves
+    // the pending status for the hourly cron + staff one-click.
+    let obRegisterOutcome = null;
+    if (isSupabaseDbConfigured() && userId) {
+      try {
+        const obRegRes = await supabaseDbRequest('user_profiles', `select=register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+        const obRegStatus = (obRegRes.ok && Array.isArray(obRegRes.data) && obRegRes.data[0]) ? obRegRes.data[0].register_status : null;
+        if (obRegStatus === 'verified') {
+          obRegisterOutcome = 'verified';
+        } else if (obRegStatus === 'pending_verification') {
+          // Budgeted: the precheck normally already answered; this inline pass
+          // only covers a doctor who raced through the ID step, and it must
+          // not hold the success screen for a slow NHS download (the full
+          // scan measured ~40s from a home connection). Missing the budget
+          // simply leaves the pending status for the precheck still running
+          // in the background, the hourly cron and the staff one-click.
+          const obAttempt = await attemptAutomaticRegisterVerification(userId, { scanTimeoutMs: 20000 });
+          obRegisterOutcome = obAttempt.outcome;
+        }
+      } catch (obRegErr) {
+        console.warn('[Onboarding] inline register check failed (tolerated):', obRegErr && obRegErr.message);
+      }
+    }
+
+    sendJson(res, 200, { ok: true, message: 'Onboarding complete.', registerVerification: obRegisterOutcome });
     return;
   }
 
@@ -59708,6 +59747,52 @@ Return ONLY valid JSON with no markdown formatting:
       return !(d && qdOkStatuses.indexOf(String(d.status || '')) !== -1);
     });
     sendJson(res, 200, { ok: true, gated: qdMissing.length > 0, missing: qdMissing });
+    return;
+  }
+
+  // POST /api/onboarding/register-precheck — INSTANT verification (owner
+  // 2026-09-01: "with a uk gp the check has to be instant during onboarding").
+  // The wizard fires this the moment the doctor leaves the register-number
+  // step, so the NHS performers-list scan runs server-side WHILE they do the
+  // ID step; by the success screen the verdict is already on their profile.
+  // Stores the number pending_verification first, so even a mid-scan crash
+  // leaves the doctor in the normal staff-check lane. Best-effort by design:
+  // any failure here is invisible to the doctor and the completion-time
+  // attempt + hourly cron + staff one-click remain behind it.
+  if (pathname === '/api/onboarding/register-precheck' && req.method === 'POST') {
+    const rpSession = requireSession(req, res);
+    if (!rpSession) return;
+    const rpEmail = getSessionEmail(rpSession);
+    if (!rpEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, outcome: 'skipped' }); return; }
+    let rpBody;
+    try { rpBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const rpUserId = getSessionSupabaseUserId(rpSession) || await getSupabaseUserIdByEmail(rpEmail);
+    if (!rpUserId) { sendJson(res, 200, { ok: true, outcome: 'skipped' }); return; }
+    // A scan costs a real 17MB download — cap how often one doctor can start one.
+    const rpAllowed = await checkRateLimitWindow('register-precheck:' + rpUserId, 6, 60 * 60 * 1000);
+    if (!rpAllowed) { sendJson(res, 429, { ok: false, message: 'Too many checks. Please continue; our team will verify you shortly.' }); return; }
+    const rpRegBody = registerVerification.registerBodyForCountry(rpBody && rpBody.country);
+    const rpCheck = registerVerification.validateRegisterDetails(rpRegBody, rpBody && rpBody.registerNumber);
+    if (!rpCheck.ok) { sendJson(res, 422, { ok: false, message: rpCheck.message }); return; }
+    // Never let a precheck overwrite an already-settled verification (a
+    // re-entered wizard, or staff already clicked) — only stamp when the
+    // number actually changed or nothing is recorded yet.
+    const rpProfRes = await supabaseDbRequest('user_profiles', `select=register_number,register_status&user_id=eq.${encodeURIComponent(rpUserId)}&limit=1`);
+    const rpProf = (rpProfRes.ok && Array.isArray(rpProfRes.data) && rpProfRes.data[0]) ? rpProfRes.data[0] : null;
+    if (!rpProf) { sendJson(res, 200, { ok: true, outcome: 'skipped' }); return; }
+    if (rpProf.register_number !== rpCheck.number || !rpProf.register_status) {
+      const rpStamp = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(rpUserId)}`, {
+        method: 'PATCH',
+        body: { register_body: rpCheck.body, register_number: rpCheck.number, register_status: 'pending_verification', register_verified_at: null, register_verified_by: null, register_name: null, register_auto_checked_at: null }
+      });
+      if (!rpStamp.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the registration number.' }); return; }
+    } else if (rpProf.register_status === 'verified') {
+      sendJson(res, 200, { ok: true, outcome: 'verified' });
+      return;
+    }
+    const rpOut = await attemptAutomaticRegisterVerification(rpUserId);
+    sendJson(res, 200, { ok: true, outcome: rpOut.outcome, evidence: rpOut.evidence });
     return;
   }
 

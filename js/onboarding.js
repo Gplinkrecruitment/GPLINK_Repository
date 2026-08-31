@@ -2312,6 +2312,22 @@
       return;
     }
     if (!validateStep(currentStep)) return;
+    // Instant verification: the moment the doctor leaves the register-number
+    // step, start the server-side check (fire and continue; the browser keeps
+    // the request alive while they do the ID step, and the server stores the
+    // verdict). Failures are invisible here on purpose — completion runs its
+    // own attempt and staff remain behind it.
+    if (currentStep === 2 && state.country && state.registerNumber) {
+      try {
+        fetch("/api/onboarding/register-precheck", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ country: state.country, registerNumber: state.registerNumber }),
+          keepalive: true,
+        }).catch(function () { /* best effort */ });
+      } catch (e) { /* best effort */ }
+    }
     if (currentStep === TOTAL_STEPS - 1) {
       // Final gate: a GP resumed past the register step (saved currentStep or
       // ?step deep link) may never have entered their number — validateStep
@@ -2363,12 +2379,23 @@
     }
 
     try {
-      await fetch("/api/onboarding/complete", {
+      const completeResp = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify(state),
       });
+      // Instant verification: when the register check already came back
+      // verified (usually while they did the ID step), say so on the
+      // success screen. Anything else stays silent; verification simply
+      // continues in the background.
+      try {
+        const completeData = await completeResp.json();
+        if (completeData && completeData.registerVerification === "verified") {
+          const regLine = document.getElementById("successRegisterLine");
+          if (regLine) regLine.hidden = false;
+        }
+      } catch (e) { /* silent */ }
     } catch (e) { /* continue */ }
 
     try {

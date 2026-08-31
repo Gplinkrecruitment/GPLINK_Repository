@@ -327,7 +327,7 @@ describe('onboarding wizard changes (static)', () => {
     // form silently expired at the end of July 2026 and had to be widened for an
     // unrelated change. An exact pin still fails if onboarding.js is edited
     // without a bump, which is what this assertion is actually guarding.
-    expect(pageHtml).toMatch(/onboarding\.js\?v=20260831a/);
+    expect(pageHtml).toMatch(/onboarding\.js\?v=20260901a/);
   });
 
   it('the CEO dashboard has the "How GPs Found Us" card wired in', () => {

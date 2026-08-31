@@ -101,9 +101,12 @@ const db = {
   user_profiles: [
     { user_id: 'u-auto-uk', email: 'auto-uk@example.com', first_name: 'Zubair', last_name: 'Mushtaq', register_body: 'gmc', register_number: '7708579', register_status: 'pending_verification', updated_at: '2026-09-01T00:00:00Z' },
     { user_id: 'u-auto-nz', email: 'auto-nz@example.com', first_name: 'Deepika', last_name: 'Ganesh', register_body: 'mcnz', register_number: '54321', register_status: 'pending_verification', updated_at: '2026-09-01T00:00:00Z' },
-    { user_id: 'u-auto-miss', email: 'auto-miss@example.com', first_name: 'Nina', last_name: 'Notfound', register_body: 'gmc', register_number: '9999999', register_status: 'pending_verification', updated_at: '2026-09-01T00:00:00Z' }
+    { user_id: 'u-auto-miss', email: 'auto-miss@example.com', first_name: 'Nina', last_name: 'Notfound', register_body: 'gmc', register_number: '9999999', register_status: 'pending_verification', updated_at: '2026-09-01T00:00:00Z' },
+    // Wizard-flow doctor: no register fields yet — the precheck endpoint
+    // stamps AND verifies them mid-onboarding (instant verification).
+    { user_id: 'u-wiz-uk', email: 'wiz-uk@example.com', first_name: 'Zubair', last_name: 'Mushtaq', updated_at: '2026-09-01T00:00:00Z' }
   ],
-  user_state: [], registration_cases: [], registration_events: [], user_documents: []
+  user_state: [{ user_id: 'u-wiz-uk', state: {} }], registration_cases: [], registration_events: [], user_documents: []
 };
 function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
 const FILTER_OPS = ['eq', 'neq', 'in', 'is', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike'];
@@ -171,6 +174,11 @@ function adminCookie(email) {
   const payload = b64url(JSON.stringify({ userProfile: { email, adminRole: 'super_admin' }, expiresAt: Date.now() + 3600000 }));
   const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
   return 'gp_admin_session=' + encodeURIComponent(payload + '.' + sig);
+}
+function userCookie(email, userId) {
+  const payload = b64url(JSON.stringify({ userProfile: { email, supabaseUserId: userId }, expiresAt: Date.now() + 3600000 }));
+  const sig = crypto.createHmac('sha512', process.env.AUTH_SECRET).update(payload).digest('hex');
+  return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
 }
 function httpReq(method, p, { cookie, body, bearer } = {}) {
   return new Promise((resolve, reject) => {
@@ -252,6 +260,65 @@ describe('GET /api/cron/register-auto-verify', () => {
     const res = await httpReq('GET', '/api/cron/register-auto-verify', { bearer: 'test-cron-secret' });
     expect(res.status).toBe(200);
     expect(res.body.attempted).toBe(0);
+  });
+});
+
+describe('POST /api/onboarding/register-precheck (instant verification mid-wizard)', () => {
+  it('stamps the number and verifies it in one call while the doctor does the ID step', async () => {
+    const res = await httpReq('POST', '/api/onboarding/register-precheck', {
+      cookie: userCookie('wiz-uk@example.com', 'u-wiz-uk'),
+      body: { country: 'GB', registerNumber: 'GMC 770 8579' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.outcome).toBe('verified');
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-wiz-uk');
+    expect(prof.register_number).toBe('7708579');
+    expect(prof.register_status).toBe('verified');
+    expect(prof.register_verified_by).toBe('system:nhs-performers-list');
+  });
+
+  it('completion reports the already-verified outcome instantly and NEVER downgrades it', async () => {
+    const res = await httpReq('POST', '/api/onboarding/complete', {
+      cookie: userCookie('wiz-uk@example.com', 'u-wiz-uk'),
+      body: { country: 'GB', registerNumber: '7708579', targetDate: '2027-03' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.registerVerification).toBe('verified');
+    // Regression (2026-09-01 localhost timing test): completion used to
+    // re-stamp pending over the precheck's verified and re-run the whole
+    // ~40s scan. Same number + settled status must stay untouched.
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-wiz-uk');
+    expect(prof.register_status).toBe('verified');
+    expect(prof.register_verified_by).toBe('system:nhs-performers-list');
+  });
+
+  it('a CHANGED number at completion goes back to pending for a fresh check', async () => {
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-wiz-uk');
+    const res = await httpReq('POST', '/api/onboarding/complete', {
+      cookie: userCookie('wiz-uk@example.com', 'u-wiz-uk'),
+      body: { country: 'GB', registerNumber: '9999999' }
+    });
+    expect(res.status).toBe(200);
+    expect(prof.register_number).toBe('9999999');
+    expect(['pending_verification']).toContain(prof.register_status);
+    // Put the fixture back for any later assertions.
+    Object.assign(prof, { register_number: '7708579', register_status: 'verified', register_verified_by: 'system:nhs-performers-list' });
+  });
+
+  it('refuses a malformed number with a plain-words message and never touches the profile', async () => {
+    const before = JSON.stringify(db.user_profiles.find((p) => p.user_id === 'u-wiz-uk'));
+    const res = await httpReq('POST', '/api/onboarding/register-precheck', {
+      cookie: userCookie('wiz-uk@example.com', 'u-wiz-uk'),
+      body: { country: 'GB', registerNumber: '12' }
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.message).toContain('GMC');
+    expect(JSON.stringify(db.user_profiles.find((p) => p.user_id === 'u-wiz-uk'))).toBe(before);
+  });
+
+  it('requires a signed-in doctor', async () => {
+    const res = await httpReq('POST', '/api/onboarding/register-precheck', { body: { country: 'GB', registerNumber: '7708579' } });
+    expect(res.status).toBe(401);
   });
 });
 
