@@ -6349,9 +6349,8 @@
       }
       if (sppaState === 'gp_returned') h += ceoGpSectionBanner();
 
-      // AI completeness verdict (practice_returned): the CEO must SEE this before Submit. Port of
-      // admin renderSppaCompletenessPanel(meta) (admin.html ~5181), dark-converted.
-      if (sppaState === 'practice_returned') h += ceoRenderSppaCompletenessPanel(meta);
+      // (The AI completeness verdict for practice_returned renders further down, beside the
+      // document list — owner 2026-09-01: the verdict belongs with the document it judges.)
 
       // Corrections-requested states: human-readable status + the corrections note so the CEO can
       // act on a failing case (admin gp_corrections_requested / corrections_requested branches).
@@ -6394,6 +6393,10 @@
         if (days >= 7) h += '<div class="ops-nudge-indicator">⏰ ' + days + ' days since sent — consider a follow-up</div>';
       }
       h += ceoOpsRenderThread(msgs);
+      // AI completeness verdict (practice_returned): the CEO must SEE this before Submit. Port of
+      // admin renderSppaCompletenessPanel(meta), dark-converted — rendered with the document it
+      // judges (admin parity, owner 2026-09-01).
+      if (sppaState === 'practice_returned') h += ceoRenderSppaCompletenessPanel(meta);
       if (currentDocs.length) h += ceoOpsRenderDocs(currentDocs);
       var cs = (gpDetailCache && gpDetailCache.case) || {};
       var gpEmail = cs.gp_email || '';

@@ -5558,17 +5558,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     // ── PRACTICE RETURNED: VA final review ──
+    // Owner 2026-09-01: no "returned by practice" pill here \u2014 the card's guided line already
+    // says review-and-submit, so the pill was pure stacking. The AI completeness verdict sits
+    // under the SPPA-00 Document heading, next to the document it judges.
     if (sppaState === 'practice_returned') {
       h += '<div class="ops-expand-section">';
-      h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-      h += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
-      h += '</div>';
-      h += renderSppaCompletenessPanel(meta);
       h += opsRenderThread(msgs);
       // Split docs into SPPA and alt supervisor CVs
       var sppaDocs = (docs||[]).filter(function(d) { return d.category !== 'alt_supervisor_cv'; });
       var altCvDocs = (docs||[]).filter(function(d) { return d.category === 'alt_supervisor_cv'; });
       h += '<div style="font-weight:700;font-size:12px;margin:8px 0 4px">SPPA-00 Document</div>';
+      h += renderSppaCompletenessPanel(meta);
       h += opsRenderDocs(sppaDocs);
       if (altCvDocs.length > 0) {
         h += '<div style="font-weight:700;font-size:12px;margin:12px 0 4px">Alternate Supervisor CVs</div>';
@@ -9402,10 +9402,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     if (sppaState === 'practice_returned') {
-      html += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
-      html += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
-      html += '</div>';
-      html += renderSppaCompletenessPanel(meta);
+      // Owner 2026-09-01: the AI verdict panel carries the state on its own \u2014 stacking the blue
+      // pill on top of it was noise. Keep the pill ONLY when no completeness check has run yet,
+      // because it is then this card's only state signal.
+      var ccPanel = renderSppaCompletenessPanel(meta);
+      if (!ccPanel) {
+        html += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
+        html += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
+        html += '</div>';
+      }
+      html += ccPanel;
       html += '<div class="sppa-actions">';
       html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review SPPA</button>';
       html += '<button class="btn-action review" onclick="runSppaCompletenessCheck(\'' + escAttr(task.id) + '\')">Re-check with AI</button>';
