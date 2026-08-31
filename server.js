@@ -242,6 +242,7 @@ var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 // to avoid any const-ordering hazard. See docs/superpowers/specs/2026-07-14-meta-ads-gp-funnel-design.md §7.
 const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
 const careerIntro = require('./lib/career-intro.js');
+const practiceSubmissionWa = require('./lib/practice-submission-whatsapp.js');
 const { identityRetentionDue } = require('./lib/identity-retention.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -20306,6 +20307,12 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
   const phone = normalizePhone(toPhone);
   if (!phone || !message || !message.templateName) return { ok: false, skipped: true, reason: 'bad_input' };
   const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+  // Optional dynamic-button parameters (e.g. the practice-submission
+  // template's decision-link token). Omitted entirely for the button-less
+  // consult/reg templates — DoubleTick rejects a buttons key the template
+  // doesn't declare.
+  const templateData = { body: { placeholders: message.placeholders || [] } };
+  if (Array.isArray(message.buttons) && message.buttons.length) templateData.buttons = message.buttons;
   const reqBody = JSON.stringify({
     messages: [{
       to: phone,
@@ -20313,7 +20320,7 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
       content: {
         templateName: message.templateName,
         language: message.language || 'en',
-        templateData: { body: { placeholders: message.placeholders || [] } }
+        templateData: templateData
       }
     }]
   });
@@ -54189,6 +54196,34 @@ async function handleApi(req, res, pathname) {
       body: `Your profile has been submitted to ${inAppPracticeLabel} for review.`,
       data: { type: 'career', action: 'submitted_to_practice', url: '/pages/career.html#applications' }
     }).catch(() => {});
+
+    // WhatsApp the practice's PRIMARY contact the same introduction, with the
+    // decision link as the template's URL button (gp_link_practice_candidate_intro
+    // — same practice_action_token as the email links, so both channels open
+    // the same decision page). Fail-soft on purpose: a missing phone, a
+    // template still pending WhatsApp approval, or a DoubleTick outage never
+    // fails the submission — the email above is the send of record. Awaited,
+    // not fire-and-forget: @vercel/node freezes the function at sendJson, so
+    // an unawaited send would silently never happen.
+    try {
+      const inAppPracticePhone = inAppPractice ? String(inAppPractice.contact_phone || '').trim() : '';
+      const inAppWaMsg = practiceSubmissionWa.buildPracticeSubmissionWaMessage({
+        contactName: inAppContactName,
+        practiceName: inAppPracticeLabel,
+        introParagraph: inAppIntro.paragraph,
+        actionToken: inAppActionToken
+      });
+      if (inAppPracticePhone && inAppWaMsg) {
+        await ensureDoubleTickContactName(inAppPracticePhone, inAppContactName || inAppPracticeLabel);
+        const inAppWaSent = await sendConsultWhatsAppTemplate(inAppPracticePhone, inAppWaMsg);
+        if (!inAppWaSent || !inAppWaSent.ok) {
+          console.warn('[admin career applications] practice submission WhatsApp not sent (tolerated):',
+            inAppWaSent && (inAppWaSent.reason || inAppWaSent.status || inAppWaSent.error));
+        }
+      }
+    } catch (waErr) {
+      console.error('[admin career applications] practice submission WhatsApp error (tolerated):', waErr && waErr.message);
+    }
 
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, application: inAppUpdatedApp, submission_mode: 'in_app_email' });
