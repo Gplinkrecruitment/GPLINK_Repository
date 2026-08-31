@@ -28850,6 +28850,92 @@ function derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName) {
   return selected;
 }
 
+// ── Contract-term extraction, re-pointed at Supabase Storage ─────────────────
+// The AI contract scan (split %, relocation package, contract length) used to run
+// from `resolveCareerContractTerms`, which pulled the contract out of a ZOHO
+// attachment. That orchestrator was deleted with the rest of the Zoho machinery on
+// 2026-07-06 (3f96a6f, "remove all Zoho Recruit API machinery") — but the extraction
+// itself survived the cut, orphaned: extractStructuredContractText,
+// heuristicExtractCareerContractTerms, shouldAttemptAiContractExtraction,
+// extractCareerContractTermsWithAi, mergeCareerContractTerms and
+// finalizeCareerContractTerms were all left with ZERO call sites, and the read side
+// kept looking in a `career_contract_extract:` cache that nothing writes any more.
+// Only the supply line broke, so every GP placed after that date shows "Pending"
+// for ever (Dr Sana Ahsan's contract was filed 2026-07-09, three days later).
+// Feed the SAME extractors from where contracts actually live now: the GP's
+// offer_contract in Supabase Storage.
+async function resolveCareerContractTermsFromStorage(userId, applicationId, options) {
+  const appId = String(applicationId || '').trim();
+  if (!userId || !appId || !isSupabaseDbConfigured()) return null;
+  const contractCacheTtlMs = 30 * 24 * 60 * 60 * 1000;
+  const skipCache = !!(options && options.skipCache);
+  const cacheKey = buildCareerContractCacheKey(appId);
+
+  const contractRow = await getOfferDocumentRow(userId, 'offer_contract').catch(() => null);
+  const storagePath = contractRow ? (contractRow.storage_path || contractRow.file_url || '') : '';
+  // Signature so a REPLACED contract re-extracts instead of serving stale terms.
+  const signature = contractRow
+    ? [storagePath, contractRow.file_name || '', contractRow.updated_at || ''].join('|')
+    : '';
+
+  const cached = skipCache ? null : await getRuntimeKv(cacheKey).catch(() => null);
+  const cachedValue = cached && cached.value && typeof cached.value === 'object' ? cached.value : null;
+  if (cachedValue && cachedValue.status === 'ready') {
+    if (cachedValue.attachmentSignature === signature) return cachedValue;
+    // Terms extracted while Zoho was live carry a signature we can never match
+    // again, but they ARE the real agreed figures. Only re-read when the stored
+    // contract is genuinely newer than the extraction we already hold.
+    const cachedAt = Date.parse(cachedValue.extractedAt || '') || 0;
+    const docAt = Date.parse((contractRow && contractRow.updated_at) || '') || 0;
+    if (!storagePath || !docAt || docAt <= cachedAt) return cachedValue;
+  } else if (cachedValue && cachedValue.status === 'unavailable' && cachedValue.attachmentSignature === signature) {
+    return null;
+  }
+
+  if (!storagePath) {
+    await setRuntimeKv(cacheKey, { status: 'unavailable', reason: 'no_contract_document', attachmentSignature: signature }, Date.now() + contractCacheTtlMs).catch(() => {});
+    return null;
+  }
+
+  const downloaded = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath).catch(() => null);
+  if (!downloaded || !downloaded.buffer || !downloaded.buffer.length) {
+    await setRuntimeKv(cacheKey, { status: 'unavailable', reason: 'download_failed', attachmentSignature: signature }, Date.now() + contractCacheTtlMs).catch(() => {});
+    return null;
+  }
+
+  const fileName = (contractRow && contractRow.file_name) || 'contract.pdf';
+  const mimeType = downloaded.mimeType || (contractRow && contractRow.mime_type) || 'application/pdf';
+  const extractedText = extractStructuredContractText(fileName, downloaded.buffer, mimeType);
+  const heuristic = extractedText ? heuristicExtractCareerContractTerms(extractedText) : null;
+  let aiExtracted = null;
+  if (shouldAttemptAiContractExtraction(fileName, mimeType, extractedText, heuristic)) {
+    aiExtracted = await extractCareerContractTermsWithAi(fileName, downloaded.buffer, mimeType, extractedText).catch(() => null);
+  }
+  const extracted = finalizeCareerContractTerms(mergeCareerContractTerms(heuristic, aiExtracted), extractedText);
+
+  if (!extracted || (!extracted.splitDisplay && !extracted.relocationPackageDisplay && !extracted.contractLengthDisplay)) {
+    await setRuntimeKv(cacheKey, {
+      status: 'unavailable',
+      reason: extractedText ? 'extract_failed' : 'unsupported_document_format',
+      attachmentSignature: signature
+    }, Date.now() + contractCacheTtlMs).catch(() => {});
+    return null;
+  }
+
+  const value = {
+    status: 'ready',
+    attachmentSignature: signature,
+    fileName,
+    splitDisplay: extracted.splitDisplay || '',
+    relocationPackageDisplay: extracted.relocationPackageDisplay || '',
+    contractLengthDisplay: extracted.contractLengthDisplay || '',
+    notes: extracted.notes || '',
+    extractedAt: new Date().toISOString()
+  };
+  await setRuntimeKv(cacheKey, value, Date.now() + contractCacheTtlMs).catch(() => {});
+  return value;
+}
+
 function extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow, applicationRecord) {
   const roleRaw = getCareerRoleRawPayload(roleRow);
   const sourceText = [
@@ -31170,10 +31256,12 @@ async function buildCareerPlacementPayload({
   // path — they build their payload via buildInAppPlacementPayload.)
   let contractTerms = null;
   if (appId) {
-    const contractCached = await getRuntimeKv(buildCareerContractCacheKey(appId)).catch(() => null);
-    if (contractCached && contractCached.value && typeof contractCached.value === 'object') {
-      contractTerms = contractCached.value;
-    }
+    // Reads the cache first and only re-extracts when the stored contract is newer,
+    // so Zoho-era figures are preserved and a GP placed since keeps their real terms
+    // instead of a permanent "Pending". Fail-open: any error just leaves them unset.
+    contractTerms = await resolveCareerContractTermsFromStorage(
+      (profile && profile.user_id) || '', appId, { skipCache: !!skipContractCache }
+    ).catch(() => null);
   }
   const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow, applicationRecord);
   const billingLabel = normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
@@ -79402,6 +79490,7 @@ module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
   _createRegTask,
+  resolveCareerContractTermsFromStorage,
   parseEmailListWithNames,
   isOurOwnAddress,
   buildSppaTrustedReturnSenders,
