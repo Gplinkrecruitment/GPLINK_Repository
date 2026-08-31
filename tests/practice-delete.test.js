@@ -443,7 +443,7 @@ describe('CEO Practices tab — delete + restore', () => {
   it('ships the danger button style and a bumped cache buster', () => {
     expect(atsCss).toContain('.ats-btn-danger');
     expect(ceoHtml).toContain('/js/ceo-ats-practices.js?v=20260810c');
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260831a');
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260901a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-practices.js?v=20260810b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-practices.js?v=20260809b');
   });

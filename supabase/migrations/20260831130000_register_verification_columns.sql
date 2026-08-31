@@ -9,3 +9,8 @@ alter table public.user_profiles
   add column if not exists register_status text,
   add column if not exists register_verified_at timestamptz,
   add column if not exists register_verified_by text;
+
+-- 2026-09-01: automated verification retry marker (hourly cron stamps every
+-- attempt so a doctor the sources cannot settle is retried weekly, not hourly).
+alter table public.user_profiles
+  add column if not exists register_auto_checked_at timestamptz;

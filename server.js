@@ -244,6 +244,7 @@ const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_B
 const careerIntro = require('./lib/career-intro.js');
 const practiceSubmissionWa = require('./lib/practice-submission-whatsapp.js');
 const registerVerification = require('./lib/register-verification.js');
+const registerLookup = require('./lib/register-lookup.js');
 const { identityRetentionDue } = require('./lib/identity-retention.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -9365,6 +9366,154 @@ async function findPracticeFacingCvRow(userId) {
   return row;
 }
 
+// ── Automated medical-register verification ─────────────────────────────────
+// Sources and verdicts: lib/register-lookup.js (see its header for the
+// empirical findings). Env overrides exist so tests can point both sources at
+// stub servers.
+const REGISTER_UK_PERFORMERS_URL = process.env.REGISTER_UK_PERFORMERS_URL
+  || 'https://secure.pcse.england.nhs.uk/PerformersLists/Home/DownloadPerformers';
+const REGISTER_MCNZ_BASE_URL = process.env.REGISTER_MCNZ_BASE_URL || 'https://www.mcnz.org.nz';
+const REGISTER_CHECK_USER_AGENT = 'GPLinkRegisterCheck/1.0 (+https://www.mygplink.com.au; hello@mygplink.com.au)';
+
+// Stream the NHS England Performers List CSV and collect every row whose
+// registration number is in `numbers`. One ~17MB download serves a whole
+// batch. Returns { ok, rowsByNumber } or { ok:false, error }.
+async function scanPerformersCsvForNumbers(numbers) {
+  const wanted = new Set((numbers || []).map((n) => String(n).replace(/\D+/g, '')).filter(Boolean));
+  const rowsByNumber = {};
+  wanted.forEach((n) => { rowsByNumber[n] = []; });
+  if (!wanted.size) return { ok: true, rowsByNumber };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 50000);
+  try {
+    const resp = await fetch(REGISTER_UK_PERFORMERS_URL, {
+      signal: controller.signal,
+      headers: { 'User-Agent': REGISTER_CHECK_USER_AGENT, Accept: 'text/csv,*/*' }
+    });
+    if (!resp.ok || !resp.body) return { ok: false, error: 'download failed with status ' + resp.status };
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    let bytes = 0;
+    const handleLine = (line) => {
+      // Cheap prefilter before the real CSV parse: the padded number must
+      // appear somewhere in the raw line.
+      for (const n of wanted) {
+        if (line.indexOf(n) !== -1) {
+          const row = registerLookup.parsePerformersRow(line);
+          if (row && rowsByNumber[row.number]) rowsByNumber[row.number].push(row);
+          break;
+        }
+      }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.length;
+      if (bytes > 80 * 1024 * 1024) { controller.abort(); return { ok: false, error: 'file larger than expected' }; }
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        handleLine(buf.slice(0, nl).replace(/\r$/, ''));
+        buf = buf.slice(nl + 1);
+      }
+    }
+    buf += decoder.decode();
+    if (buf) handleLine(buf.replace(/\r$/, ''));
+    return { ok: true, rowsByNumber };
+  } catch (err) {
+    return { ok: false, error: err && err.name === 'AbortError' ? 'download timed out' : (err && err.message) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Fetch MCNZ register-search result cards for a doctor. Tries "surname
+// firstname", then surname alone (the tighter query can miss when the
+// register holds extra given names in front).
+async function fetchMcnzRegisterCards(firstName, lastName) {
+  const tryKeyword = async (kw) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const resp = await fetch(REGISTER_MCNZ_BASE_URL + '/registration/register-of-doctors/?keyword=' + encodeURIComponent(kw), {
+        signal: controller.signal,
+        headers: { 'User-Agent': REGISTER_CHECK_USER_AGENT, Accept: 'text/html,*/*' }
+      });
+      if (!resp.ok) return null;
+      return registerLookup.parseMcnzCards(await resp.text());
+    } catch { return null; }
+    finally { clearTimeout(timeout); }
+  };
+  const both = await tryKeyword((lastName + ' ' + firstName).trim());
+  if (both && both.length) return both;
+  return tryKeyword(String(lastName || '').trim());
+}
+
+// Run the automated check for ONE doctor whose register_status is
+// pending_verification. Stamps register_auto_checked_at on every attempt,
+// and on a verified outcome writes the same fields the staff buttons write
+// (register_verified_by names the SOURCE, not a person). Returns
+// { outcome: 'verified' | 'pending' | 'error' | 'manual_only' | 'skipped', evidence }.
+async function attemptAutomaticRegisterVerification(userId, options = {}) {
+  const profRes = await supabaseDbRequest('user_profiles',
+    `select=user_id,first_name,last_name,register_body,register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+  const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+  if (!prof) return { outcome: 'error', evidence: 'Doctor not found.' };
+  if (prof.register_status !== 'pending_verification') {
+    return { outcome: 'skipped', evidence: 'Register status is ' + (prof.register_status || 'not set') + ', nothing to check.' };
+  }
+  const doctor = {
+    number: String(prof.register_number || '').replace(/\D+/g, ''),
+    firstName: prof.first_name || '',
+    lastName: prof.last_name || ''
+  };
+  const stampChecked = () => supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+    method: 'PATCH', body: { register_auto_checked_at: new Date().toISOString() }
+  }).catch(() => {});
+
+  let verdict = null;
+  let source = '';
+  if (prof.register_body === 'gmc') {
+    source = 'nhs-performers-list';
+    const scan = options.performersRows
+      ? { ok: true, rowsByNumber: { [doctor.number]: options.performersRows } }
+      : await scanPerformersCsvForNumbers([doctor.number]);
+    if (!scan.ok) { await stampChecked(); return { outcome: 'error', evidence: 'Performers list check failed (' + scan.error + '). It will retry.' }; }
+    verdict = registerLookup.performersVerdict(scan.rowsByNumber[doctor.number] || [], doctor);
+  } else if (prof.register_body === 'mcnz') {
+    source = 'mcnz-register';
+    const cards = await fetchMcnzRegisterCards(doctor.firstName, doctor.lastName);
+    if (cards === null) { await stampChecked(); return { outcome: 'error', evidence: 'MCNZ register search failed. It will retry.' }; }
+    verdict = registerLookup.mcnzVerdict(cards, doctor);
+  } else {
+    await stampChecked();
+    return { outcome: 'manual_only', evidence: 'No automated source for this register. Use the one-click staff check.' };
+  }
+
+  await stampChecked();
+  if (verdict.outcome !== 'verified') return { outcome: 'pending', evidence: verdict.evidence };
+
+  const nowIso = new Date().toISOString();
+  const patch = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: {
+      register_status: 'verified',
+      register_verified_at: nowIso,
+      register_verified_by: 'system:' + source,
+      register_name: verdict.matchedName || null
+    }
+  });
+  if (!patch.ok) return { outcome: 'error', evidence: 'Verification found but could not be saved. It will retry.' };
+  try {
+    const regCase = await _ensureRegCase(userId);
+    if (regCase) {
+      await _logCaseEvent(regCase.id, null, 'system', 'Medical register verified automatically', verdict.evidence, 'system');
+    }
+  } catch { /* best-effort audit trail */ }
+  return { outcome: 'verified', evidence: verdict.evidence };
+}
+
 function now() {
   return Date.now();
 }
@@ -9973,6 +10122,11 @@ const CRON_SCHEDULES = {
   // the scan inside the request, and skips cases already scanned or not yet eligible.
   // Keep in sync with vercel.json.
   'sppa-backfill-scan': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
+  // Automated register verification against the open official sources (NHS
+  // England Performers List / MCNZ register search) — hourly so a new signup
+  // is verified within the hour of finishing onboarding. Keep in sync with
+  // vercel.json.
+  'register-auto-verify': { schedule: '40 * * * *', cadenceMinutes: 60 },
   'renew-gmail-watch': { schedule: '0 6 * * *', cadenceMinutes: 1440 },
   'reconcile-followups': { schedule: '0 20 * * *', cadenceMinutes: 1440 },
   'interview-reminders': { schedule: '0 * * * *', cadenceMinutes: 60 },
@@ -40501,6 +40655,54 @@ async function handleApi(req, res, pathname) {
   // (e.g. supervisor_cv/offer_contract completed via a path that didn't trigger it). Idempotent —
   // _maybeRunSppaConflictScan skips cases already scanned or whose prerequisites aren't both done.
   // Pass ?caseId=<id> to target one case, otherwise it sweeps all SPPA-00 tasks. Cron-secret authed.
+  // Hourly sweep: automatically verify pending register numbers against the
+  // open official sources (NHS England Performers List for GMC, the live MCNZ
+  // register search for NZ). One CSV download serves the whole UK batch. A
+  // doctor the sources cannot settle is retried after 7 days (the
+  // register_auto_checked_at stamp), and stays visible in the CEO drawer for
+  // the one-click staff check the whole time. See lib/register-lookup.js.
+  if (pathname === '/api/cron/register-auto-verify') {
+    var ravAuth = req.headers['authorization'] || '';
+    var ravTok = ravAuth.indexOf('Bearer ') === 0 ? ravAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
+    if (!isValidCronSecret(ravTok)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ravRes = await supabaseDbRequest('user_profiles',
+      'select=user_id,first_name,last_name,register_body,register_number,register_auto_checked_at&register_status=eq.pending_verification&order=updated_at.desc&limit=25');
+    var ravRows = (ravRes.ok && Array.isArray(ravRes.data)) ? ravRes.data : [];
+    var ravRetryFloor = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    var ravDue = ravRows.filter(function (r) {
+      var at = Date.parse(r.register_auto_checked_at || '');
+      return !Number.isFinite(at) || at < ravRetryFloor;
+    }).slice(0, 10);
+    // One performers-list download covers every due GMC doctor in the batch.
+    var ravGmcNumbers = ravDue.filter(function (r) { return r.register_body === 'gmc'; })
+      .map(function (r) { return String(r.register_number || '').replace(/\D+/g, ''); }).filter(Boolean);
+    var ravScan = ravGmcNumbers.length ? await scanPerformersCsvForNumbers(ravGmcNumbers) : { ok: true, rowsByNumber: {} };
+    var ravResults = [];
+    for (var ravI = 0; ravI < ravDue.length; ravI++) {
+      var ravRow = ravDue[ravI];
+      var ravOpts = {};
+      if (ravRow.register_body === 'gmc') {
+        if (!ravScan.ok) { ravResults.push({ user_id: ravRow.user_id, outcome: 'error', evidence: 'performers list download failed: ' + ravScan.error }); continue; }
+        ravOpts.performersRows = ravScan.rowsByNumber[String(ravRow.register_number || '').replace(/\D+/g, '')] || [];
+      }
+      try {
+        var ravOut = await attemptAutomaticRegisterVerification(ravRow.user_id, ravOpts);
+        ravResults.push({ user_id: ravRow.user_id, outcome: ravOut.outcome });
+      } catch (ravErr) {
+        ravResults.push({ user_id: ravRow.user_id, outcome: 'error', evidence: ravErr && ravErr.message });
+      }
+    }
+    sendJson(res, 200, {
+      ok: true,
+      pending: ravRows.length,
+      attempted: ravResults.length,
+      verified: ravResults.filter(function (r) { return r.outcome === 'verified'; }).length,
+      results: ravResults
+    });
+    return;
+  }
+
   if (pathname === '/api/cron/sppa-backfill-scan') {
     var sbAuth = req.headers['authorization'] || '';
     var sbTok = sbAuth.indexOf('Bearer ') === 0 ? sbAuth.slice(7) : (req.headers['x-cron-secret'] || url.searchParams.get('secret') || '');
@@ -74907,12 +75109,25 @@ Return ONLY valid JSON with no markdown formatting:
   //
   // `/api/ats/candidate/career-cv` is kept as an alias so a browser holding
   // the previously-shipped script keeps working.
+  // ── Automated register verification (owner request 2026-09-01) ────────────
+  // UK: the GMC register blocks all automation (Cloudflare rejects plain HTTP
+  // and real headless Chrome alike), but NHS England's Performers List is an
+  // OPEN datestamped CSV carrying GMC number + name + Included status + Date
+  // in GP Register — streamed and scanned here. NZ: MCNZ's register search is
+  // server-rendered with no bot wall — fetched and parsed directly. Both
+  // verdicts come from lib/register-lookup.js and are conservative: automation
+  // only ever VERIFIES or leaves the doctor pending for the staff one-click
+  // check; a mismatch stays a human judgement. Ireland (reCAPTCHA) and Ahpra
+  // (F5 bot defence) remain staff-checked.
+
+  // ── (helpers defined at module level below the route table) ──────────────
+
   // POST /api/ats/candidate/register-verification — staff record the outcome
-  // of their one-click check against the LIVE public register (the register
-  // websites are the up-to-date source; automated lookups were rejected —
-  // gmc-uk.org 403s non-browser traffic). Body { userId, action } where
-  // action is 'verified' or 'mismatch'. CEO + consultants (the same audience
-  // that sees the drawer).
+  // of their one-click check against the LIVE public register, or run the
+  // automated check on demand. Body { userId, action } where action is
+  // 'verified', 'mismatch' (manual stamps) or 'auto' (run the automated
+  // lookup now and report what it concluded). CEO + consultants (the same
+  // audience that sees the drawer).
   if (pathname === '/api/ats/candidate/register-verification' && req.method === 'POST') {
     const rvAdmin = requireAtsSession(req, res);
     if (!rvAdmin) return;
@@ -74921,8 +75136,13 @@ Return ONLY valid JSON with no markdown formatting:
     try { rvBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const rvUserId = String(rvBody && rvBody.userId || '').trim();
     const rvAction = String(rvBody && rvBody.action || '').trim();
-    if (!rvUserId || (rvAction !== 'verified' && rvAction !== 'mismatch')) {
-      sendJson(res, 400, { ok: false, message: 'userId and action (verified | mismatch) are required.' });
+    if (!rvUserId || (rvAction !== 'verified' && rvAction !== 'mismatch' && rvAction !== 'auto')) {
+      sendJson(res, 400, { ok: false, message: 'userId and action (verified | mismatch | auto) are required.' });
+      return;
+    }
+    if (rvAction === 'auto') {
+      const rvAuto = await attemptAutomaticRegisterVerification(rvUserId);
+      sendJson(res, 200, { ok: true, auto: true, outcome: rvAuto.outcome, evidence: rvAuto.evidence, register_status: rvAuto.outcome === 'verified' ? 'verified' : undefined });
       return;
     }
     const rvProfRes = await supabaseDbRequest('user_profiles', `select=register_body,register_number,first_name,last_name&user_id=eq.${encodeURIComponent(rvUserId)}&limit=1`);

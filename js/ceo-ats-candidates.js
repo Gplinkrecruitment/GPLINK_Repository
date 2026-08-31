@@ -1667,23 +1667,33 @@
     var userId = btn.getAttribute('data-user-id');
     if (!action || !userId) return;
     btn.disabled = true;
+    if (action === 'auto') btn.textContent = 'Checking…';
     ATS.api('/api/ats/candidate/register-verification', { method: 'POST', body: { userId: userId, action: action } }).then(function (res) {
       if (res && res.ok) {
-        if (c.onboarding) c.onboarding.registerStatus = res.register_status;
+        if (res.register_status && c.onboarding) c.onboarding.registerStatus = res.register_status;
         var row = document.getElementById('ats-register-row');
-        if (row) {
+        if (row && res.register_status) {
           var wrap = document.createElement('div');
           wrap.innerHTML = registerRowInner(c);
           row.replaceWith(wrap.firstChild);
         }
-        ATS.toast(action === 'verified' ? 'Register verified.' : 'Marked as a mismatch — follow up with the doctor.');
+        if (action === 'auto') {
+          // The evidence line says exactly what the official source answered —
+          // verified, or why it needs the human click after all.
+          ATS.toast(res.evidence || (res.outcome === 'verified' ? 'Verified against the official register.' : 'Automatic check was inconclusive.'));
+          if (res.outcome !== 'verified') { btn.disabled = false; btn.innerHTML = '&#9889; Auto-check'; }
+        } else {
+          ATS.toast(action === 'verified' ? 'Register verified.' : 'Marked as a mismatch — follow up with the doctor.');
+        }
       } else {
         btn.disabled = false;
+        if (action === 'auto') btn.innerHTML = '&#9889; Auto-check';
         ATS.toast((res && (res.error || res.message)) || 'Could not save the verification.');
       }
     }).catch(function () {
       btn.disabled = false;
-      ATS.toast('Could not save the verification.');
+      if (action === 'auto') btn.innerHTML = '&#9889; Auto-check';
+      ATS.toast('Could not run the check.');
     });
   }
 
@@ -1701,6 +1711,7 @@
     var actions = '';
     if (status !== 'verified') {
       actions =
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="auto"' + uid + ' title="Check the official sources automatically (NHS England performers list / MCNZ register)">&#9889; Auto-check</button>' +
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="verified"' + uid + '>&#10003; Verified</button>' +
         (status === 'mismatch' ? '' : '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="mismatch"' + uid + '>Mismatch</button>');
     }
