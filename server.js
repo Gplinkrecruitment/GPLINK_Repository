@@ -49827,6 +49827,34 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Specialist-certificate gate (owner 2026-09-01): applying ALSO requires
+    // the doctor's specialist GP qualification certificate — MRCGP (UK),
+    // MICGP (Ireland) or FRNZCGP (NZ) — asked for AT APPLY TIME via job.html's
+    // certificate modal, deliberately NOT on the careers-page CV gate.
+    // Doctors who uploaded it at onboarding (old wizard) or the MyIntealth
+    // gateway pass silently (same canonical user_documents key); a rejected
+    // upload must be replaced. Countries outside GB/IE/NZ have no defined
+    // certificate and skip this gate.
+    const certProfRes = await supabaseDbRequest('user_profiles', `select=qualification_country,registration_country&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const certProf = (certProfRes.ok && Array.isArray(certProfRes.data) && certProfRes.data[0]) ? certProfRes.data[0] : {};
+    const certCode = registerVerification.qualCountryCode(certProf.qualification_country || certProf.registration_country);
+    if (certCode) {
+      const certLabels = { GB: 'MRCGP certificate', IE: 'MICGP certificate', NZ: 'FRNZCGP certificate' };
+      const certDocCountry = { GB: 'uk', IE: 'ie', NZ: 'nz' }[certCode];
+      const certRow = await getOnboardingDocumentRow(userId, certDocCountry, 'onboarding_specialist_qualification');
+      const certProvided = !!(certRow && String(certRow.storage_path || certRow.file_url || '').trim() && String(certRow.status || '') !== 'rejected');
+      if (!certProvided) {
+        sendJson(res, 403, {
+          ok: false,
+          requiresSpecialistCert: true,
+          certLabel: certLabels[certCode],
+          certCountry: certDocCountry,
+          message: 'Please upload your ' + certLabels[certCode] + ' to apply. Open the job and tap Apply to add it in a few seconds.'
+        });
+        return;
+      }
+    }
+
     // Already-placed guard: a GP whose placement is secured can't start new
     // applications — their recruitment officer manages any change from here.
     const priorAppsResult = await supabaseDbRequest(

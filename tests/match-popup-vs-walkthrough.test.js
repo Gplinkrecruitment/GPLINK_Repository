@@ -138,6 +138,6 @@ describe('cache busters for the two changed scripts', () => {
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260724a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260831a"');
+    expect(read('sw.js')).toContain('var VERSION = "20260901a"');
   });
 });

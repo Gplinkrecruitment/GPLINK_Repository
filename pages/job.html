@@ -1436,6 +1436,38 @@
     </div>
   </div>
 
+  <!-- Specialist-certificate modal (owner 2026-09-01): applying also requires
+       the MRCGP / MICGP / FRNZCGP certificate, collected HERE at apply time —
+       deliberately not on the careers-page CV gate. Reuses the CV modal's
+       styling; the title and copy are set per country by openCertModal(). -->
+  <div class="cv-modal-backdrop" id="certModal" hidden>
+    <div class="cv-modal">
+      <div class="cv-modal-header">
+        <h3 class="cv-modal-title" id="certModalTitle">Upload your certificate</h3>
+        <button class="cv-modal-close" id="certModalClose" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="cv-modal-desc" id="certModalDesc">Practices need to see your specialist GP qualification before an application goes out. Upload a photo, PDF or scan, under 10 MB. Our team checks it, so one clear copy is all you need.</p>
+
+      <div class="cv-upload-area" id="certUploadArea">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
+        <span class="cv-upload-label">Tap to select file or drag &amp; drop</span>
+        <input class="cv-upload-input" id="certFileInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" />
+      </div>
+
+      <div class="cv-file-preview" id="certFilePreview" hidden>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="cv-file-name" id="certFileName"></span>
+        <button class="cv-file-remove" id="certFileRemove" type="button">&times;</button>
+      </div>
+
+      <div class="cv-modal-actions">
+        <button class="cv-btn-upload" id="certUploadBtn" type="button" disabled>Upload &amp; Apply</button>
+      </div>
+
+      <p class="cv-modal-status" id="certUploadStatus"></p>
+    </div>
+  </div>
+
   <!-- Interview booking confirm sheet (offer mode) -->
   <div class="at-sheet-overlay" id="bookOverlay" hidden>
     <div class="at-sheet">
@@ -3573,6 +3605,15 @@
       if (!opts.afterCvUpload) openCvModal();
       return "cv_required";
     }
+    if (data && data.requiresSpecialistCert) {
+      // Missing MRCGP / MICGP / FRNZCGP → the in-page certificate modal
+      // (owner 2026-09-01: asked for at apply time, not on the careers gate).
+      applyState = "idle";
+      paintApply();
+      certContext = { label: data.certLabel || "specialist GP certificate", country: data.certCountry || "" };
+      if (!opts.afterCertUpload) openCertModal();
+      return "cert_required";
+    }
     if (data && data.code === "previously_withdrawn") {
       // Owner rule: a role this GP already withdrew from can never be
       // re-applied to. Task 1 hides these from Roles/Saved, so reaching here
@@ -4055,11 +4096,12 @@
         var applyData = await applyRes.json().catch(function () { return null; });
         var outcome = handleApplyOutcome(applyRes.status, applyData, { afterCvUpload: true });
 
-        if (outcome === "success" || outcome === "duplicate" || outcome === "previously_withdrawn") {
+        if (outcome === "success" || outcome === "duplicate" || outcome === "previously_withdrawn" || outcome === "cert_required") {
           // previously_withdrawn: retrying can never succeed — the explanatory
           // popup handleApplyOutcome already opened is the answer, so close
           // the CV modal underneath it rather than leaving a stale "failed
-          // after upload" status behind it.
+          // after upload" status behind it. cert_required: the certificate
+          // modal just opened on top — close the CV modal underneath it.
           closeCvModal();
         } else {
           cvUploadStatus.textContent = (applyData && applyData.message) || "Application failed after upload.";
@@ -4070,6 +4112,136 @@
         cvUploadStatus.textContent = "Network error. Please try again.";
         cvUploadBtn.disabled = false;
         cvUploadBtn.textContent = "Upload & Apply";
+      }
+    });
+  }
+
+  /* ── Specialist-certificate modal (owner 2026-09-01) ──────────────────────
+     Applying also requires the MRCGP / MICGP / FRNZCGP certificate, collected
+     right here at apply time. Uploads through the SAME endpoint and canonical
+     document key the onboarding wizard uses (onboarding_specialist_qualification),
+     so the MyIntealth gateway, staff review and this gate all see one record.
+     Our team reviews the copy; the apply proceeds as soon as it is stored. */
+  var certModal = document.getElementById("certModal");
+  var certModalTitle = document.getElementById("certModalTitle");
+  var certFileInput = document.getElementById("certFileInput");
+  var certUploadArea = document.getElementById("certUploadArea");
+  var certFilePreview = document.getElementById("certFilePreview");
+  var certFileName = document.getElementById("certFileName");
+  var certFileRemove = document.getElementById("certFileRemove");
+  var certUploadBtn = document.getElementById("certUploadBtn");
+  var certUploadStatus = document.getElementById("certUploadStatus");
+  var certModalClose = document.getElementById("certModalClose");
+  var selectedCertFile = null;
+  var certContext = { label: "specialist GP certificate", country: "" };
+
+  function openCertModal() {
+    if (certModalTitle) certModalTitle.textContent = "Upload your " + (certContext.label || "specialist GP certificate");
+    if (certModal) certModal.hidden = false;
+  }
+
+  function closeCertModal() {
+    if (certModal) certModal.hidden = true;
+    selectedCertFile = null;
+    if (certFileInput) certFileInput.value = "";
+    if (certUploadArea) certUploadArea.hidden = false;
+    if (certFilePreview) certFilePreview.hidden = true;
+    if (certUploadBtn) { certUploadBtn.disabled = true; certUploadBtn.textContent = "Upload & Apply"; }
+    if (certUploadStatus) certUploadStatus.textContent = "";
+  }
+
+  if (certModalClose) certModalClose.addEventListener("click", closeCertModal);
+  if (certModal) certModal.addEventListener("click", function (e) { if (e.target === certModal) closeCertModal(); });
+
+  if (certFileInput) {
+    certFileInput.addEventListener("change", function () {
+      var file = certFileInput.files && certFileInput.files[0];
+      if (!file) return;
+      var certAllowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+      var certAllowedExt = /\.(pdf|jpe?g|png|webp)$/i;
+      if (certAllowedTypes.indexOf(file.type) === -1 && !certAllowedExt.test(file.name || "")) {
+        certUploadStatus.textContent = "Please select a PDF or photo (JPG, PNG).";
+        certFileInput.value = "";
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        certUploadStatus.textContent = "File too large. Maximum 10 MB.";
+        certFileInput.value = "";
+        return;
+      }
+      selectedCertFile = file;
+      certFileName.textContent = file.name;
+      certUploadArea.hidden = true;
+      certFilePreview.hidden = false;
+      certUploadBtn.disabled = false;
+      certUploadStatus.textContent = "";
+    });
+  }
+
+  if (certFileRemove) {
+    certFileRemove.addEventListener("click", function () {
+      selectedCertFile = null;
+      certFileInput.value = "";
+      certUploadArea.hidden = false;
+      certFilePreview.hidden = true;
+      certUploadBtn.disabled = true;
+      certUploadStatus.textContent = "";
+    });
+  }
+
+  if (certUploadBtn) {
+    certUploadBtn.addEventListener("click", async function () {
+      if (!selectedCertFile || !certContext.country) return;
+      certUploadBtn.disabled = true;
+      certUploadBtn.textContent = "Uploading…";
+      certUploadStatus.textContent = "";
+      try {
+        var certDataUrl = await new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () { resolve(reader.result); };
+          reader.onerror = function () { reject(new Error("Failed to read file")); };
+          reader.readAsDataURL(selectedCertFile);
+        });
+        var certUploadRes = await fetch("/api/onboarding-documents", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            country: certContext.country,
+            key: "onboarding_specialist_qualification",
+            fileName: selectedCertFile.name,
+            mimeType: selectedCertFile.type,
+            fileSize: selectedCertFile.size,
+            fileDataUrl: certDataUrl
+          })
+        });
+        var certUploadData = await certUploadRes.json().catch(function () { return null; });
+        if (!(certUploadRes.status === 200 && certUploadData && certUploadData.ok)) {
+          certUploadStatus.textContent = (certUploadData && certUploadData.message) || "Upload failed. Try again.";
+          certUploadBtn.disabled = false;
+          certUploadBtn.textContent = "Upload & Apply";
+          return;
+        }
+        certUploadBtn.textContent = "Applying...";
+        var certApplyRes = await fetch("/api/career/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ roleId: currentRole.id })
+        });
+        var certApplyData = await certApplyRes.json().catch(function () { return null; });
+        var certOutcome = handleApplyOutcome(certApplyRes.status, certApplyData, { afterCertUpload: true });
+        if (certOutcome === "success" || certOutcome === "duplicate" || certOutcome === "previously_withdrawn") {
+          closeCertModal();
+        } else {
+          certUploadStatus.textContent = (certApplyData && certApplyData.message) || "Application failed after upload.";
+          certUploadBtn.disabled = false;
+          certUploadBtn.textContent = "Upload & Apply";
+        }
+      } catch (err) {
+        certUploadStatus.textContent = "Network error. Please try again.";
+        certUploadBtn.disabled = false;
+        certUploadBtn.textContent = "Upload & Apply";
       }
     });
   }

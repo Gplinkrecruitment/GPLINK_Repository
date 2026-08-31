@@ -343,11 +343,28 @@ describe('apply gate requires career_cv', () => {
     expect(res.status).toBe(403);
     expect(res.body.requiresCv).toBe(true);
   });
-  it('apply succeeds once career_cv is uploaded', async () => {
+  it('after the CV, apply asks for the specialist certificate (owner 2026-09-01)', async () => {
     aiMode = 'genuine_cv';
     await httpReq('POST', '/api/career/profile/cv', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { fileName: 'cv.pdf', fileBase64: PDF_B64, mimeType: 'application/pdf', fileSize: 900 } });
     const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
+    expect(res.status).toBe(403);
+    expect(res.body.requiresSpecialistCert).toBe(true);
+    expect(res.body.certLabel).toBe('MRCGP certificate');
+    expect(res.body.certCountry).toBe('uk');
+  });
+  it('apply succeeds once the specialist certificate is on file, and re-gates if it is rejected', async () => {
+    const certRow = { id: 'doc-cert-gate2', user_id: 'u-gate-2', document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/u-gate-2/mrcgp.pdf', country_code: 'uk', file_name: 'mrcgp.pdf', updated_at: '2026-09-01T00:00:00Z' };
+    db.user_documents.push(certRow);
+    const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
     expect(res.status).toBe(200);
+    // A certificate the review team REJECTED no longer satisfies the gate.
+    certRow.status = 'rejected';
+    const again = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
+    expect(again.status === 403 && again.body.requiresSpecialistCert === true
+      // (a 409 duplicate would mean the gate was skipped — the cert check
+      // runs BEFORE the duplicate check, so 403 is the required answer)
+    ).toBe(true);
+    certRow.status = 'pending';
   });
 });
 

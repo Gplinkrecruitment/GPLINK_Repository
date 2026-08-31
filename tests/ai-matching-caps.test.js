@@ -139,7 +139,7 @@ describe('AI Matching Task 7 — source wiring', () => {
 
   it('the self-apply-as-accept comment no longer claims the cap is skipped', () => {
     const applyIdx = serverSrc.indexOf("pathname === '/api/career/apply'");
-    const fnSrc = serverSrc.slice(applyIdx, applyIdx + 12000);
+    const fnSrc = serverSrc.slice(applyIdx, applyIdx + 14500);
     expect(fnSrc).not.toContain('NOT a new application — no active-application');
     expect(fnSrc).toContain('The application caps DO bind here');
   });
@@ -168,7 +168,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     // Window widened from 9000 (career-withdraw-flow's previously_withdrawn
     // guard, added ahead of this content in the same handler, pushed it
     // further from idx) — same anchor, just more room.
-    const fnSrc = serverSrc.slice(idx, idx + 10000);
+    const fnSrc = serverSrc.slice(idx, idx + 12500);
     expect(fnSrc).toContain('matchIsExpired');
     expect(fnSrc).toMatch(/sendJson\(res, 410, \{\s*ok: false, expired: true,/);
   });

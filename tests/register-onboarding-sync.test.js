@@ -74,6 +74,15 @@ describe('page pins', () => {
     expect(miHtml).toContain('/pages/onboarding?docs=1');
   });
 
+  it('job page certificate modal wiring (owner 2026-09-01: cert asked at apply time)', () => {
+    const jobHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'job.html'), 'utf8');
+    expect(jobHtml).toContain('id="certModal"');
+    expect(jobHtml).toContain('requiresSpecialistCert');
+    expect(jobHtml).toContain('"onboarding_specialist_qualification"');
+    // The upload goes through the SAME endpoint the onboarding wizard uses.
+    expect(jobHtml).toContain('"/api/onboarding-documents"');
+  });
+
   it('CEO drawer register row + verify endpoint wiring', () => {
     const ceoJs = fs.readFileSync(path.join(__dirnameTest, '..', 'js', 'ceo-ats-candidates.js'), 'utf8');
     expect(ceoJs).toContain('registerRowInner');
