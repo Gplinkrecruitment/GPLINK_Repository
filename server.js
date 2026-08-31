@@ -4412,8 +4412,18 @@ async function _applySppaPracticeReturn(caseId, taskId, gmailThreadId, fm, store
       }
     } catch (exErr) { console.error(tag, 'alt supervisor name extraction error:', exErr.message); }
   }
+  // The chase is over, so the chase's deadline and escalation must not outlive it. The old
+  // due date tracked getting the form BACK from the practice; left in the past, the weekly
+  // overdue sweep re-escalated the task 3 days after this very transition reset it, and the
+  // stale 'escalated' then leaked into the GP-list task count and the AI case summary
+  // (Dr Mercy Obanimoh, 2026-09-01). The new work item is OUR final review — give it a
+  // fresh 2-day deadline and stand the escalation down.
   await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId),
-    { method: 'PATCH', body: { status: 'in_progress', metadata: fm, updated_at: new Date().toISOString() } });
+    { method: 'PATCH', body: {
+      status: 'in_progress', metadata: fm,
+      due_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
+      escalated_reason: null, escalated_at: null,
+      updated_at: new Date().toISOString() } });
   if (fm.alt_supervisor_names && fm.alt_supervisor_names.length) {
     _ensureAltSupervisorCvRequest(caseId, { id: taskId, case_id: caseId, metadata: fm, gmail_thread_id: gmailThreadId }, fm.alt_supervisor_names)
       .catch(function (e) { console.error(tag, 'alt CV request error:', e.message); });
@@ -61308,8 +61318,11 @@ Return ONLY valid JSON with no markdown formatting:
       const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
-    // Get open task counts per case
-    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
+    // Get open task counts per case. 'escalated' belongs in this list: it is the MOST
+    // attention-worthy live status, and leaving it out showed "0 tasks" in the GP list for a
+    // case whose only live task was escalated (Dr Mercy Obanimoh, 2026-09-01) while the Tasks
+    // tab counted 1. The /api/admin/gps copy of this count already includes it.
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
     const tasksByCase = {};
     if (tasksRes.ok && Array.isArray(tasksRes.data)) {
       tasksRes.data.forEach(function (t) {
@@ -61557,9 +61570,33 @@ Return ONLY valid JSON with no markdown formatting:
       prompt += 'REGISTERED: ' + (regCase.created_at || '') + ' | LAST ACTIVITY: ' + (regCase.last_gp_activity_at || regCase.updated_at || '') + '\n';
       prompt += 'BLOCKER: ' + (regCase.blocker_reason || 'None') + '\n\n';
 
+      // The SPPA-00's truth lives in its state machine (metadata), not its raw status. Fed only
+      // '[escalated] SPPA-00', the model told the RSO the form "does not appear to be on file"
+      // while the signed form sat stored and completeness-checked — the escalation was a relic
+      // of the chase (Dr Mercy Obanimoh, 2026-09-01). Spell the state out on the task line so
+      // the story cannot be mis-told from status alone.
+      function sppaStateFacts(tm) {
+        if (typeof tm === 'string') { try { tm = JSON.parse(tm); } catch (e) { tm = null; } }
+        if (!tm || !tm.sppa_state) return '';
+        var f = ' — SPPA STATE: ' + tm.sppa_state;
+        if (tm.sppa_state === 'practice_returned' || tm.sppa_state === 'completed') {
+          f += ' (completed signed form ON FILE' + (tm.practice_returned_at ? ' since ' + String(tm.practice_returned_at).split('T')[0] : '') + ')';
+        }
+        var ccv = tm.completeness_check;
+        if (typeof ccv === 'string') { try { ccv = JSON.parse(ccv); } catch (e) { ccv = null; } }
+        if (ccv && !ccv.error) {
+          if (ccv.is_sppa_form === false) f += ' — AI form-identity: the stored document is NOT the SPPA-00';
+          else if (ccv.is_complete) f += ' — AI completeness check PASSED, ready to submit' + (ccv.checked_at ? ' (checked ' + String(ccv.checked_at).split('T')[0] + ')' : '');
+          else f += ' — AI completeness check: not ready yet';
+        }
+        return f;
+      }
+      var sppaFactsLine = '';
       prompt += '--- TASKS (' + tasks.length + ') ---\n';
       tasks.forEach(function(t) {
-        prompt += '[' + (t.status || 'open') + '] ' + (t.title || t.task_type || '') + ' (' + (t.priority || 'normal') + ')' + (t.due_date ? ' — due: ' + t.due_date : '') + '\n';
+        var facts = sppaStateFacts(t.metadata);
+        if (facts && !sppaFactsLine) sppaFactsLine = facts;
+        prompt += '[' + (t.status || 'open') + '] ' + (t.title || t.task_type || '') + ' (' + (t.priority || 'normal') + ')' + (t.due_date ? ' — due: ' + t.due_date : '') + facts + '\n';
       });
 
       prompt += '\n--- EMAILS FROM GMAIL (' + emails.length + ') ---\n';
@@ -61597,7 +61634,13 @@ Return ONLY valid JSON with no markdown formatting:
       prompt += '\n--- PRACTICE DOCUMENTS (ops status) ---\n';
       if (docOps.length > 0) {
         docOps.forEach(function(d) {
-          prompt += '[' + (d.ops_status || 'unknown') + '] ' + (d.document_key || '') + (d.drive_file_name ? ' — file: ' + d.drive_file_name : '') + '\n';
+          var dLine = '[' + (d.ops_status || 'unknown') + '] ' + (d.document_key || '') + (d.drive_file_name ? ' — file: ' + d.drive_file_name : '');
+          // The sppa_00 ops chip sits at 'under_review' from the practice return until final
+          // submission — read alone, the model took it as "not on file". Tie it to the state line.
+          if (d.document_key === 'sppa_00' && d.ops_status === 'under_review' && sppaFactsLine.indexOf('ON FILE') > -1) {
+            dLine += ' (the returned form IS on file — under_review here means awaiting the RSO\'s final review and submission, not missing)';
+          }
+          prompt += dLine + '\n';
         });
       } else {
         prompt += 'No practice document records yet.\n';
@@ -61641,7 +61684,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       // 4. Call Claude
-      var summarySystemPrompt = 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
+      var summarySystemPrompt = 'You are a registration support assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. Your audience is the RSO (Registration Support Officer) — the person who manages day-to-day candidate progress. Write in a practical, operational tone.\n\nIMPORTANT RULES:\n- ONLY report facts that are explicitly present in the data provided. NEVER infer, assume, or fabricate information.\n- If a document ops_status is "completed", it IS complete — do not question it.\n- If a document ops_status is "deferred", it is handled automatically by the system — treat it as done and do not list it as outstanding.\n- If a task status is "completed" or "complete", that task IS done.\n- A task line may carry "SPPA STATE" facts read from the SPPA-00 state machine. These are authoritative and OUTRANK the task\'s raw status, email claims, reminder notes, previous summaries, and older timeline events. When the state says practice_returned or completed with the form ON FILE, the form IS in our possession — never report it as missing, unreceived, or still being chased; frame it as awaiting the RSO\'s final review and submission. Timeline notes about form issues (for example Q12, Q17, presentation) dated between the practice return and a PASSED completeness check are corrections that were applied to the form, not open defects.\n- All GPs are assigned to Hazel as their VA — do not flag VA assignment as an outstanding item.\n- Use the candidate name shown in the CANDIDATE field. Do not flag name issues unless the name literally says "Unknown".\n- Do not list qualifications (MRCGP, CCT, Primary Medical Degree, etc.) as outstanding requirements — those are tracked separately under the QUALIFICATIONS section and the RSO manages them through the qualification verification flow, not here.\n- Focus outstanding_requirements on registration journey steps and practice documents only.\n\nGiven a candidate\'s data, produce a structured JSON summary with these fields:\n\n- overview: 3-5 sentence summary. Lead with who they are, current stage, and what needs attention right now. Then add what matters for MATCHING them to a practice — preferred location, family circumstances, qualifications/country of training, visa/regional considerations, and how engaged/responsive they have been. Be specific — name the practice, name the document.\n- action_items: Array of strings. Concrete next steps the RSO should take. Most urgent first. Include context (e.g. "no reply in 3 days"). Only include items the RSO can actually act on.\n- concerns: Array of strings. Real problems visible in the data — delays, unresponsive parties, overdue tasks. Empty array if none. NEVER fabricate concerns not supported by the data.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and practice documents only. Mark as done:true if ops_status is "completed" or "deferred", or if the task is completed. Do NOT include qualification certificates here.\n- key_history: A condensed paragraph of significant events from the candidate\'s journey, carried forward across summaries. Preserve important context from previous handovers.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation.';
 
       var summaryController = new AbortController();
       var summaryTimeout = setTimeout(function() { summaryController.abort(); }, 90000);
