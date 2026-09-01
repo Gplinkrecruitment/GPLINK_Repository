@@ -39,16 +39,29 @@ describe('"Book meeting" header button on the marketing site', () => {
     expect(html.split(BOOK_LINK).length - 1).toBe(2);
   });
 
-  it.each(GP_FACING_PAGES)('%s puts it immediately before the primary account CTA', (page) => {
+  // Owner ask 2026-09-02 (second screenshot): "move sign in to the right of
+  // book meeting". Desktop bar reads Book meeting · Sign in · Create free
+  // account. The ☰ panel deliberately keeps the original order — it is a
+  // vertical list, so "right of" has no meaning there, and links → Sign in →
+  // the two buttons keeps the plain text row out from between two buttons.
+  it.each(GP_FACING_PAGES)('%s orders the desktop bar book → sign-in → account CTA', (page) => {
     const html = read(page);
     const header = html.slice(html.indexOf('<header class="site-header"'), html.indexOf('</header>'));
-    // The solid "Create free account" stays the rightmost/last CTA in both
-    // copies; "Book meeting" is the outlined secondary directly ahead of it.
-    for (const indent of ['      ', '    ']) {
-      expect(header).toContain(
-        `\n${indent}${BOOK_LINK}\n${indent}<a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>\n`,
-      );
-    }
+    expect(header).toContain(
+      '\n      ' + BOOK_LINK +
+      '\n      <a class="nav-signin" href="/pages/signin">Sign in</a>' +
+      '\n      <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>\n',
+    );
+  });
+
+  it.each(GP_FACING_PAGES)('%s keeps the ☰ panel as sign-in → book → account CTA', (page) => {
+    const html = read(page);
+    const header = html.slice(html.indexOf('<header class="site-header"'), html.indexOf('</header>'));
+    expect(header).toContain(
+      '\n    <a class="nav-signin" href="/pages/signin">Sign in</a>' +
+      '\n    ' + BOOK_LINK +
+      '\n    <a class="nav-cta" href="/pages/signin?signup=1">Create free account</a>\n',
+    );
   });
 
   it('points at the Calendly booking section that /start actually renders', () => {
@@ -83,6 +96,6 @@ describe('"Book meeting" header button on the marketing site', () => {
     // Marketing navigations are served stale-while-revalidate from the
     // VERSION-keyed PAGE_CACHE for anyone who has used the app, so the new
     // header only lands on the first navigation if sw.js moved too.
-    expect(read('sw.js')).toContain('var VERSION = "20260902b"');
+    expect(read('sw.js')).toContain('var VERSION = "20260902c"');
   });
 });

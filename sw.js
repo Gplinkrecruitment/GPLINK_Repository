@@ -73,7 +73,11 @@
   // A further letter is required because 20260902a already shipped (the
   // position-first registration deploy took it), so anyone who cached that
   // generation would otherwise never be served this header.
-  var VERSION = "20260902b";
+  // 20260902c: header order swapped to Book meeting -> Sign in -> Create
+  // free account, per the owner. Markup-only change to the same site-*.html,
+  // so the css buster does not move and this bump is the only thing that
+  // stops the old order being served one navigation late.
+  var VERSION = "20260902c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
