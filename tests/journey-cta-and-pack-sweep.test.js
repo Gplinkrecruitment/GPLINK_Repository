@@ -82,8 +82,11 @@ describe('dashboard journey list — the Continue CTA must survive background re
     expect(indexHtml).toMatch(/: defaultOpen;/);
   });
 
-  it('never leaves a locked row open (locked rows render no body/CTA)', () => {
-    expect(indexHtml).toMatch(/const isOpen = step\.locked \? false/);
+  it('never leaves a plain locked row open (position-locked rows DO open — their body carries the careers CTA)', () => {
+    // 2026-09-01 position-first rule: rows locked because no position is
+    // secured yet stay openable so the "Secure your position first" call to
+    // action is reachable; every other locked row still renders closed.
+    expect(indexHtml).toMatch(/const isOpen = \(step\.locked && !step\.positionLocked\) \? false/);
   });
 
   it('the AHPRA row still links to /pages/ahpra through the shell bridge', () => {

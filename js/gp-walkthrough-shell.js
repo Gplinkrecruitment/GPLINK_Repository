@@ -11,13 +11,20 @@
   var homeLoaded = false, hydrated = false, ranAuto = false;
   var ranPointer = false, pointerPending = false, tourWaitedForMatch = false;
 
+  // The info pass deliberately EXCLUDES My Practice — the tour now ends on a
+  // final interactive step that spotlights the My Practice tab and requires the
+  // doctor to actually tap it (owner rule, 2026-09-01): securing a position is
+  // the first move, so the tour's last act IS opening the positions page.
   var TABS = [
     { area: 'home', title: 'Home', body: 'Your dashboard — see how far along your registration is, anytime.' },
-    { area: 'practice', title: 'My Practice', body: 'Browse GP roles matched to you and accept the one you want.' },
     { area: 'scan', title: 'Scan', body: 'Snap a photo of a document and we verify it for you.' },
     { area: 'support', title: 'Support', body: 'Message our team — replies land right here.' },
     { area: 'account', title: 'Account', body: 'Your profile, details and notification settings.' }
   ];
+  var PRACTICE_FINALE = {
+    title: 'My Practice',
+    body: 'Tap My Practice to start looking at open GP positions. Securing your position is step one. Every registration step unlocks from there.'
+  };
   var MOBILE = {
     home: '.mobile-nav [data-route="/pages/index"]',
     practice: '.mobile-nav [data-route="/pages/career"]',
@@ -86,6 +93,20 @@
     return !!(window.gpMatchCheck && window.gpMatchCheck.pending === false && window.gpMatchCheck.hasLiveMatch === true);
   }
   function readState() { try { return S.parseState(localStorage.getItem(KEY)); } catch (e) { return S.defaultState(); } }
+  // Staff "View as GP" must never be trapped in the mandatory first-run tour
+  // (and its walkthrough writes never persist for the doctor anyway — the
+  // server drops state writes from impersonated sessions). The session profile
+  // carries _impersonatedBy; auth-guard caches it in sessionStorage, which the
+  // shell and its frames share, so read both. Fail toward NOT impersonated —
+  // a real doctor must never get a skippable "mandatory" tour by accident.
+  function isImpersonated() {
+    try { if (window.gpSessionProfile && window.gpSessionProfile._impersonatedBy) return true; } catch (e) {}
+    try {
+      var raw = sessionStorage.getItem('gp_session_profile_cache');
+      if (raw && JSON.parse(raw)._impersonatedBy) return true;
+    } catch (e) {}
+    return false;
+  }
   function markDone() {
     try {
       localStorage.setItem(KEY, S.serializeState(S.withTourDone(readState())));
@@ -265,14 +286,53 @@
     if (guarded()) return;
     var steps = buildSteps();
     if (!steps.length) return;
+    // First real run is MANDATORY (owner rule, 2026-09-01): no Skip, no Escape.
+    // Replays (Account → "Replay the app tour") and staff "View as GP" stay
+    // skippable. gpCoach's cancel/lost teardowns still apply and mark nothing,
+    // so a genuine screen takeover re-arms the tour instead of trapping anyone.
+    var mandatory = S.shouldRunTour(readState()) && !isImpersonated();
     broadcastCoachActive(true);
     var after = function () { markDone(); scheduleNextStepPointer(600); };
-    C.run(steps, { label: function (i, n) { return 'Step ' + (i + 1) + ' of ' + n; }, onDone: after, onSkip: after })
-      .then(function () {
+    C.run(steps, {
+      label: function (i, n) { return 'Step ' + (i + 1) + ' of ' + (n + 1); }, // +1 = the My Practice finale
+      mandatory: mandatory,
+      doneLabel: 'Next', // the My Practice finale follows — this pass never ends the tour
+      onSkip: after // only reachable when not mandatory
+    }).then(function (reason) {
+        if (reason === 'done') { runPracticeFinale(mandatory); return; }
         // If the pointer is about to run, the shell still owns the screen — keep
         // the flag up so a page tip can't slip in between tour and pointer.
         if (!pointerPending) broadcastCoachActive(false);
       });
+  }
+  // Final interactive step: spotlight the My Practice tab and require the tap.
+  // The click both completes the tour AND navigates to the careers page (the
+  // coach never preventDefaults, so the nav item's own data-route handling
+  // runs). Completing this way also retires the post-tour "start here" pointer
+  // — its guidance (go to My Practice) was just followed for real.
+  function runPracticeFinale(mandatory) {
+    var el = navEl('practice');
+    if (!el) {
+      // Nav chrome vanished mid-tour (gateway takeover etc.) — never trap the
+      // doctor. Leave the tour UNMARKED so it re-arms on the next boot.
+      if (!pointerPending) broadcastCoachActive(false);
+      return;
+    }
+    C.run([{
+      target: el,
+      title: PRACTICE_FINALE.title,
+      body: PRACTICE_FINALE.body
+    }], {
+      pointer: true,
+      mandatory: mandatory,
+      label: function () { return 'Last step'; },
+      onTargetClick: function () { markDone(); markNextStepDone(); },
+      // Replay / "View as" dismissal (never reachable when mandatory): count the
+      // tour as done and fall back to the old post-tour pointer behaviour.
+      onSkip: function () { markDone(); scheduleNextStepPointer(600); }
+    }).then(function () {
+      if (!pointerPending) broadcastCoachActive(false);
+    });
   }
   function tryAuto() {
     if (ranAuto || !homeLoaded || !hydrated) return;

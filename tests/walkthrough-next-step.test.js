@@ -84,10 +84,18 @@ describe('shell broadcasts coach activity and runs the pointer (Tasks 2+3)', () 
     const fn = js.slice(js.indexOf('function broadcastCoachActive'), js.indexOf('function activeFrameArea'));
     expect(fn).toContain('postMessage');
   });
-  it('runTour broadcasts around the run and schedules the pointer on Done AND Skip', () => {
+  it('runTour broadcasts around the run, chains the My Practice finale, and keeps Skip → pointer', () => {
     const fn = js.slice(js.indexOf('function runTour'), js.indexOf('function tryAuto'));
     expect(fn).toContain('broadcastCoachActive(true)');
-    expect(fn).toMatch(/onDone: after, onSkip: after/);
+    // Owner rule 2026-09-01: the info pass never ends the tour — completing it
+    // chains into the interactive My Practice finale, whose CLICK marks the
+    // tour done (and retires the start-here pointer, since it was just obeyed).
+    expect(fn).toMatch(/onSkip: after/);
+    expect(fn).toMatch(/runPracticeFinale\(mandatory\)/);
+    expect(fn).toMatch(/onTargetClick: function \(\) \{ markDone\(\); markNextStepDone\(\); \}/);
+    // First real run is mandatory (no Skip/Escape); replays and staff
+    // "View as GP" sessions stay skippable.
+    expect(fn).toMatch(/var mandatory = S\.shouldRunTour\(readState\(\)\) && !isImpersonated\(\)/);
     expect(fn).toContain('scheduleNextStepPointer');
   });
   it('pointer branches: placed → message to the home frame; not placed → My Practice nav', () => {

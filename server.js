@@ -16772,35 +16772,92 @@ const PAGE_STAGE_MAP = {
 // intact — vaulting only affects the GP-facing journey.)
 const VAULTED_STAGES = new Set(['commencement']);
 
-// Pure stage-gate decision (testable). Visa, AHPRA and Career are ALWAYS accessible:
-// visa = the always-on 482→186 info page (docs/deferred-visa-application.md); AHPRA
-// renders its own prerequisite gateway; Career is placement context. Every other stage
-// honours gp_registration_return_overrides — a stage absent from the overrides (or no
+// ── Position-first registration lock (owner rule, 2026-09-01) ──
+// No registration step can be STARTED until a position is secured: MyIntealth,
+// AMC, AHPRA, Visa and PBS all bounce an unplaced GP to the careers page.
+// A step the GP already finished stays reachable (the step pages render it
+// read-only via STEP_REVIEW_ONLY), and bypass emails skip this lock like every
+// other gateway. This deliberately retires the old "visa/ahpra are always
+// accessible" force-allows for UNPLACED doctors — once a position is secured
+// they are force-allowed exactly as before.
+const POSITION_GATED_STAGES = new Set(['myintealth', 'amc', 'ahpra', 'visa', 'pbs']);
+// Mirrors _deriveStageFromState's ladder: a stage strictly below the derived
+// current stage is complete (the derive function only advances past a gate
+// once that gate's completion signal is true).
+const POSITION_GATE_STAGE_ORDER = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs'];
+
+// Computes the position-gate context for one stage from the user_state blob.
+// Returns null for stages the position rule doesn't touch (career, commencement).
+function positionGateFor(stage, userState) {
+  if (!POSITION_GATED_STAGES.has(stage)) return null;
+  var state = userState && typeof userState === 'object' ? userState : {};
+  var career = _parseStateVal(state.gp_career_state);
+  var careerSecured = career.career_secured === true || career.secured === true;
+  if (!careerSecured && Array.isArray(career.applications)) {
+    for (var i = 0; i < career.applications.length; i++) {
+      var a = career.applications[i];
+      if (!a || typeof a !== 'object') continue;
+      // Union of every "secured" spelling the app accepts: the shared ATS set
+      // plus the two extra keys the /api/registration/can-proceed AHPRA gate
+      // honours — this lock must never be STRICTER than the AHPRA gate.
+      var aKey = String(a.rawStatus || a.status || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      if (a.isPlacementSecured === true || isCareerPlacementSecuredStatus(a.rawStatus || a.status)
+          || aKey === 'practice_secured' || aKey === 'offer_accepted') {
+        careerSecured = true;
+        break;
+      }
+    }
+  }
+  var stageCompleted = false;
+  if (!careerSecured) {
+    try {
+      var derived = _deriveStageFromState(state);
+      var di = POSITION_GATE_STAGE_ORDER.indexOf(derived);
+      var si = POSITION_GATE_STAGE_ORDER.indexOf(stage);
+      stageCompleted = di >= 0 && si >= 0 && si < di;
+    } catch (e) { /* fail toward locked — completed steps only */ }
+  }
+  return { careerSecured: careerSecured, stageCompleted: stageCompleted };
+}
+
+// Pure stage-gate decision (testable). Career is ALWAYS accessible (it is the
+// placement context the lock points at). AHPRA and Visa are force-allowed only
+// once the position gate passes — for a secured GP the behaviour is identical
+// to the old always-allowed rule (ahpra renders its own prerequisite gateway;
+// visa is the 482→186 info page). Every other stage honours
+// gp_registration_return_overrides — a stage absent from the overrides (or no
 // overrides at all) follows natural progression and is allowed.
-function stageGateDecision(stage, overrides, isBypass) {
+// `positionGate` is optional ({careerSecured, stageCompleted} from
+// positionGateFor); omitted (legacy callers/tests) means "don't apply it".
+function stageGateDecision(stage, overrides, isBypass, positionGate) {
   if (!stage) return true;
   if (VAULTED_STAGES.has(stage)) return false; // vaulted — blocked for everyone, incl. bypass
-  if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;
+  if (stage === 'career') return true;
   if (isBypass) return true;
+  if (positionGate && positionGate.careerSecured !== true
+      && POSITION_GATED_STAGES.has(stage) && positionGate.stageCompleted !== true) {
+    return false; // position-first: registration steps wait for a secured position
+  }
+  if (stage === 'ahpra' || stage === 'visa') return true;
   if (!overrides || typeof overrides !== 'object') return true;
   if (!(stage in overrides)) return true;
   return overrides[stage] === true;
 }
 
+// Returns { allowed, positionLocked, stage } so the caller can bounce a
+// position-locked page to the careers page instead of the dashboard.
 async function isStageAccessAllowed(email, pathname) {
   var stage = PAGE_STAGE_MAP[pathname];
-  if (!stage) return true; // Not a gated page
+  if (!stage) return { allowed: true, positionLocked: false, stage: null }; // Not a gated page
   // Vaulted stages are blocked for EVERYONE (incl. bypass emails) — this sits
   // before the always-allowed / bypass short-circuits below so /pages/commencement
   // bounces to the dashboard while the stage is shelved. See VAULTED_STAGES above.
-  if (VAULTED_STAGES.has(stage)) return false;
-  // Always-accessible stages — short-circuit before any DB read. visa MUST be here:
-  // stage-advance writes overrides.visa=false for every GP before the visa stage
-  // (visa is STAGE_ORDER index 5), yet the journey's Visa card is always unlocked, so
-  // without this the card dead-ends on /pages/index via the shell-iframe redirect.
-  if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;
+  if (VAULTED_STAGES.has(stage)) return { allowed: false, positionLocked: false, stage: stage };
+  // Career is the one always-accessible stage — it is where the position lock
+  // sends people, so it can never itself be locked.
+  if (stage === 'career') return { allowed: true, positionLocked: false, stage: stage };
 
-  if (isBypassLockEmail(email)) return true;
+  if (isBypassLockEmail(email)) return { allowed: true, positionLocked: false, stage: stage };
 
   var userState = null;
   if (isSupabaseDbConfigured()) {
@@ -16810,12 +16867,23 @@ async function isStageAccessAllowed(email, pathname) {
     userState = dbState.userState[email] || null;
   }
 
-  if (!userState) return true; // New user, no state yet
+  var positionGate = positionGateFor(stage, userState);
+  if (!userState) {
+    // New user, no state yet: they cannot have a secured position, so
+    // registration stages are position-locked and everything else is open.
+    var newUserAllowed = stageGateDecision(stage, null, false, positionGate);
+    return { allowed: newUserAllowed, positionLocked: !newUserAllowed && !!positionGate, stage: stage };
+  }
 
   var overrides = userState.gp_registration_return_overrides;
   if (typeof overrides === 'string') try { overrides = JSON.parse(overrides); } catch(e) { overrides = null; }
 
-  return stageGateDecision(stage, overrides, false);
+  var allowed = stageGateDecision(stage, overrides, false, positionGate);
+  // The deny is position-driven exactly when dropping the position gate would
+  // have allowed it — that's the case the careers redirect explains.
+  var positionLocked = !allowed && !!positionGate
+    && stageGateDecision(stage, overrides, false, null) === true;
+  return { allowed: allowed, positionLocked: positionLocked, stage: stage };
 }
 
 function isAppShellSupportedPath(pathname) {
@@ -78589,14 +78657,18 @@ async function handleRequestInner(req, res) {
     var gateEmail = getSessionEmail(session);
     if (gateEmail) {
       try {
-        var stageAllowed = await isStageAccessAllowed(gateEmail, pathname);
-        if (!stageAllowed) {
-          console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname, '(stage locked)');
-          // Carry the locked stage so the journey page can explain the lock
-          // (e.g. "Commencement unlocks once PBS & Medicare is complete")
+        var stageGate = await isStageAccessAllowed(gateEmail, pathname);
+        if (!stageGate.allowed) {
+          console.log('[Stage Gate] Blocked', gateEmail, 'from', pathname,
+            stageGate.positionLocked ? '(position not secured)' : '(stage locked)');
+          // Carry the locked stage so the landing page can explain the lock
           // instead of a silent bounce. Display-only — the deny stands.
-          var lockedStage = PAGE_STAGE_MAP[pathname] || '';
-          res.writeHead(302, { Location: '/pages/index' + (lockedStage ? '?locked=' + encodeURIComponent(lockedStage) : '') });
+          // Position-first rule: a registration step locked because no position
+          // is secured yet bounces to the CAREERS page (that is the action the
+          // doctor must take), everything else to the dashboard as before.
+          var lockedStage = stageGate.stage || PAGE_STAGE_MAP[pathname] || '';
+          var lockedTarget = stageGate.positionLocked ? '/pages/career' : '/pages/index';
+          res.writeHead(302, { Location: lockedTarget + (lockedStage ? '?locked=' + encodeURIComponent(lockedStage) : '') });
           res.end();
           return;
         }
@@ -79783,6 +79855,7 @@ module.exports.__testUtils = {
   mapPreparedDocumentRow,
   toStatusLabel,
   stageGateDecision,
+  positionGateFor,
   pickVisaGpFields,
   VISA_GP_APPLICATION_FIELDS,
   VISA_GP_UPDATE_FIELDS,

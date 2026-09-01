@@ -27,11 +27,11 @@
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/bypass-config.js?v=20260724c"></script>
-  <script src="../js/journey-stages.js?v=20260722c"></script>
+  <script src="../js/journey-stages.js?v=20260902a"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
-  <script src="/js/gp-coach.js?v=20260724a" defer></script>
+  <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
@@ -1317,6 +1317,7 @@
 
     function buildRegistrationRow(stepKey, config) {
       const locked = !!config.locked;
+      const positionLocked = !!config.positionLocked;
       const done = !!config.done;
       const returnable = done && isRegistrationReturnAllowed(stepKey);
       return {
@@ -1326,11 +1327,14 @@
         mobileStatus: config.mobileStatus,
         status: locked ? "Locked" : done ? "Done" : "Current",
         locked,
+        positionLocked,
         done,
         current: !locked && !done,
         returnable,
-        href: !locked && (!done || returnable) ? config.href : "#",
-        cta: locked ? "Locked" : done ? "Completed" : "Continue"
+        // Position-locked rows keep an ACTIVE href routing to the careers page
+        // (owner rule, 2026-09-01) instead of the dead "#" a plain lock gets.
+        href: positionLocked ? "career" : (!locked && (!done || returnable) ? config.href : "#"),
+        cta: positionLocked ? "Secure position first" : locked ? "Locked" : done ? "Completed" : "Continue"
       };
     }
 
@@ -1695,16 +1699,18 @@
       let currentRoute = "myinthealth";
       let currentTitle = "MyIntealth Account";
       let currentSub = epicCurrentLabel;
-      if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
-      // This branch is reached precisely BECAUSE there is no placement yet, so it
-      // must not offer to show one.
-      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "Browse open positions and secure your placement"; }
-      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
-      else if (epicDone && amcDone && careerSecured && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
+      // Position-first (owner rule, 2026-09-01): until a position is secured the
+      // next action is ALWAYS securing one — every registration step is locked
+      // and its CTA routes to the careers page (js/journey-stages.js lockedMap +
+      // the server page gate both enforce the same rule).
+      if (!careerSecured) { currentRoute = "career"; currentTitle = "Secure Placement"; currentSub = "Browse open positions and secure your placement"; }
+      else if (epicDone && !amcDone) { currentRoute = "amc"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
+      else if (epicDone && amcDone && !ahpraDone) { currentRoute = "ahpra"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
+      else if (epicDone && amcDone && ahpraDone && !pbsDone) { currentRoute = "pbs"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
       // Commencement is vaulted (js/journey-stages.js) — PBS & Medicare is the
       // final visible stage, so once it's done the journey is complete. Point the
       // CTA at the practice view instead of the shelved commencement page.
-      else if (epicDone && amcDone && careerSecured && ahpraDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete — view your practice details."; }
+      else if (epicDone && amcDone && ahpraDone && pbsDone) { currentRoute = "career"; currentTitle = "You're all set"; currentSub = "Your registration steps are complete — view your practice details."; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1814,7 +1820,7 @@
       const renderSig = JSON.stringify([
         bypassAll,
         currentIdx,
-        stages.map(s => [s.key, s.title, s.description, s.num, s.done, s.locked, s.lockReason,
+        stages.map(s => [s.key, s.title, s.description, s.num, s.done, s.locked, s.positionLocked, s.lockReason,
           liveSubText[s.key] || s.lockReason || s.description])
       ]);
       if (listEl.dataset.journeySig === renderSig && listEl.children.length === stages.length) return;
@@ -1846,12 +1852,19 @@
         const stateClass = step.done ? "done" : step.locked ? "locked" : isActive ? "active" : "";
         const defaultOpen = isActive || (bypassAll && idx === currentIdx) || (stepReturnable && idx === currentIdx);
         // On a re-render, honour what the doctor had open rather than snapping back
-        // to the default row (locked rows have no body, so they never re-open).
-        const isOpen = step.locked ? false
+        // to the default row (plain locked rows have no body, so they never
+        // re-open — position-locked rows DO open, their body carries the
+        // "secure your position" call to action).
+        const isOpen = (step.locked && !step.positionLocked) ? false
           : honourUserOpen ? userOpenedKeys.has(step.key)
           : defaultOpen;
         // Locked rows explain WHY they're locked instead of a silent grey row.
-        const subText = liveSubText[step.key] || step.lockReason || step.description;
+        // Position-locked rows always lead with the position message — their
+        // live sub-text (e.g. the MyIntealth stage label) would wrongly invite
+        // the doctor to continue a step the gate bounces.
+        const subText = step.positionLocked
+          ? step.lockReason
+          : (liveSubText[step.key] || step.lockReason || step.description);
 
         const el = document.createElement("div");
         el.className = `journey-step ${stateClass} ${isOpen ? "open" : ""}`.trim();
@@ -1872,6 +1885,10 @@
           // looking back can never rewrite the stage they are actually on. The
           // header pill still says "Done", so nothing is lost by dropping the chip.
           bodyHtml += `<a class="journey-body-cta done-cta" href="/pages/${step.page}" data-route="/pages/${step.page}">${quickViewSvg} Quick view</a>`;
+        } else if (step.positionLocked) {
+          // Owner rule (2026-09-01): a registration step's call to action routes
+          // to the careers page until a position is secured.
+          bodyHtml += `<a class="journey-body-cta" href="/pages/career" data-route="/pages/career">Secure your position first <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
         } else if (!step.locked) {
           bodyHtml += `<a class="journey-body-cta" href="/pages/${step.page}" data-route="/pages/${step.page}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
         }
@@ -1884,12 +1901,12 @@
               <div class="journey-subtitle">${subText}</div>
             </div>
             <span class="journey-pill ${pillClass}">${pillText}</span>
-            ${step.locked ? '' : '<span class="journey-caret"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>'}
+            ${(step.locked && !step.positionLocked) ? '' : '<span class="journey-caret"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>'}
           </button>
           <div class="journey-body">${bodyHtml}</div>
         `;
 
-        if (!step.locked) {
+        if (!step.locked || step.positionLocked) {
           const headBtn = el.querySelector(".journey-head");
           headBtn.addEventListener("click", () => {
             const wasOpen = el.classList.contains("open");
@@ -1996,6 +2013,7 @@
           mobileDetail: extra.mobileDetail || stage.description,
           mobileStatus: stage.locked ? (stage.lockReason || extra.mobileStatus) : extra.mobileStatus,
           locked: stage.locked,
+          positionLocked: stage.positionLocked,
           done: stage.done,
           href: stage.page
         });
@@ -2009,7 +2027,9 @@
       rows.forEach((row) => {
         const effectiveDone = row.done && !row.returnable;
         const statusClass = effectiveDone ? "done" : row.locked ? "locked" : "";
-        const actionDisabled = row.locked || (row.done && !row.returnable);
+        // Position-locked rows keep a live action button routing to the careers
+        // page — only plain locks and non-returnable done rows are inert.
+        const actionDisabled = (row.locked && !row.positionLocked) || (row.done && !row.returnable);
         const rowEl = document.createElement("div");
         rowEl.className = `reg-row ${effectiveDone ? "done" : ""}`.trim();
         rowEl.innerHTML = `
@@ -2020,7 +2040,7 @@
           <span class="reg-pill ${statusClass}">${row.returnable ? "Ready" : row.status}</span>
         `;
         const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
-        actionEl.className = `reg-btn ${statusClass}`.trim();
+        actionEl.className = `reg-btn ${row.positionLocked ? "" : statusClass}`.trim();
         actionEl.textContent = row.cta;
         if (actionDisabled) {
           actionEl.type = "button";
@@ -2044,7 +2064,7 @@
 
       rows.forEach((row, idx) => {
         const isCurrent = row.current;
-        const actionDisabled = row.locked || (row.done && !row.returnable);
+        const actionDisabled = (row.locked && !row.positionLocked) || (row.done && !row.returnable);
         const cardEl = document.createElement("div");
         cardEl.className = `mobile-step-card ${row.locked ? "locked" : "unlocked"} ${isCurrent ? "current open" : ""}`;
         const bodyId = `mobileStepBody${idx}`;
@@ -2069,7 +2089,7 @@
         const headBtn = cardEl.querySelector(".mobile-step-head");
         const bodyEl = cardEl.querySelector(".mobile-step-body");
         const actionEl2 = actionDisabled ? document.createElement("button") : document.createElement("a");
-        actionEl2.className = `reg-btn ${(row.done && !row.returnable) ? "done" : row.locked ? "locked" : ""}`.trim();
+        actionEl2.className = `reg-btn ${(row.done && !row.returnable) ? "done" : (row.locked && !row.positionLocked) ? "locked" : ""}`.trim();
         actionEl2.textContent = row.cta;
         if (actionDisabled) {
           actionEl2.type = "button";

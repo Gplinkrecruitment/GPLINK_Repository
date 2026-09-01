@@ -213,12 +213,17 @@ describe('pages/app-shell.html — script wiring', () => {
 });
 
 describe('server.js — stage-gate bounce explains itself (display only)', () => {
-  it('redirects blocked stage pages with ?locked=<stage>', () => {
-    expect(serverJs).toMatch(/\/pages\/index'\s*\+\s*\(lockedStage\s*\?\s*'\?locked='/);
+  it('redirects blocked stage pages with ?locked=<stage>, position locks to the careers page', () => {
+    // Position-first rule (owner, 2026-09-01): a registration step locked
+    // because no position is secured bounces to /pages/career; every other
+    // deny keeps the old /pages/index landing.
+    expect(serverJs).toMatch(/positionLocked \? '\/pages\/career' : '\/pages\/index'/);
+    expect(serverJs).toMatch(/lockedTarget\s*\+\s*\(lockedStage\s*\?\s*'\?locked='/);
   });
 
-  it('keeps the access gates untouched (visa/ahpra/career force-allowed)', () => {
-    expect(serverJs).toContain("if (stage === 'career' || stage === 'ahpra' || stage === 'visa') return true;");
+  it('career stays force-allowed; ahpra/visa force-allow only past the position gate', () => {
+    expect(serverJs).toContain("if (stage === 'career') return true;");
+    expect(serverJs).toContain("if (stage === 'ahpra' || stage === 'visa') return true;");
     expect(serverJs).toMatch(/commencement:\s*\{\s*accessible:\s*bypassAll\s*\|\|\s*pbsApproved/);
   });
 

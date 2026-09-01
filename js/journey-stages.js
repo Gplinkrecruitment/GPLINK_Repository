@@ -64,6 +64,13 @@
     commencement: "Unlocks once PBS & Medicare is complete"
   };
 
+  // ── Position-first lock (owner rule, 2026-09-01) ──
+  // Until a position is secured, every registration step is locked and points
+  // the doctor at the careers page. Server twin: POSITION_GATED_STAGES +
+  // positionGateFor in server.js (the page gate 302s these to /pages/career).
+  var POSITION_GATED = { myinthealth: true, amc: true, ahpra: true, visa: true, pbs: true };
+  var POSITION_LOCK_COPY = "Unlocks after you secure your position";
+
   // ── Vaulted stages (temporarily removed from the GP journey) ──
   // Stages listed here keep their definition above (so they can be restored by
   // simply deleting the key below) but are excluded from everything the GP sees:
@@ -89,22 +96,39 @@
       pbs: !!s.pbsDone,
       commencement: false
     };
+    // Position-first: an unsecured position locks every registration step
+    // (myinthealth/amc/ahpra/visa/pbs). The old prerequisite locks still apply
+    // once the position gate is open.
+    var positionOpen = !!s.careerSecured;
     var lockedMap = {
-      amc: !bypass && !s.epicDone,
-      pbs: !bypass && !s.ahpraDone,
+      myinthealth: !bypass && !positionOpen,
+      amc: !bypass && (!positionOpen || !s.epicDone),
+      ahpra: !bypass && !positionOpen,
+      visa: !bypass && !positionOpen,
+      pbs: !bypass && (!positionOpen || !s.ahpraDone),
       commencement: !bypass && !s.pbsDone
     };
     return VISIBLE_STAGES.map(function (stage, index) {
-      var locked = lockedMap[stage.key] === true;
+      var done = doneMap[stage.key] === true;
+      // A completed step is never shown locked — it stays revisitable
+      // (read-only review mode on the step pages, same as the server gate).
+      var locked = !done && lockedMap[stage.key] === true;
+      var positionLocked = locked && !positionOpen && POSITION_GATED[stage.key] === true && !bypass;
       return {
         key: stage.key,
         title: stage.title,
         page: stage.page,
         description: stage.description,
         num: index + 1,
-        done: doneMap[stage.key] === true,
+        done: done,
         locked: locked,
-        lockReason: locked ? (LOCK_COPY[stage.key] || "Complete the previous step to unlock this.") : null
+        // positionLocked rows render an ACTIVE call to action that routes to the
+        // careers page (owner rule: registration CTAs redirect there until a
+        // position is secured) instead of the plain inert locked row.
+        positionLocked: positionLocked,
+        lockReason: locked
+          ? (positionLocked ? POSITION_LOCK_COPY : (LOCK_COPY[stage.key] || "Complete the previous step to unlock this."))
+          : null
       };
     });
   }

@@ -159,11 +159,11 @@ describe('cache busters for the two changed scripts', () => {
   const shell = read('pages/app-shell.html');
   it('app-shell.html pins the bumped match-popup + walkthrough-shell builds', () => {
     expect(shell).toContain('/js/match-popup.js?v=20260829a');
-    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260901a');
+    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260902a');
     expect(shell).not.toContain('/js/match-popup.js?v=20260729a');
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260901d"');
+    expect(read('sw.js')).toContain('var VERSION = "20260902a"');
   });
 });

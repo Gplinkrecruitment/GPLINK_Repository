@@ -91,6 +91,12 @@
     ensureStyles();
     var opts = options || {};
     var pointerMode = opts.pointer === true;
+    // Mandatory mode (owner rule, 2026-09-01): the first-run tour cannot be
+    // skipped — no Skip/"Got it" button and Escape is ignored. Only the caller
+    // decides when a run is mandatory (first run, real doctor session); cancel()
+    // and the lost-target teardown still work as safety valves, and they mark
+    // nothing so the tour re-arms on the next boot.
+    var mandatoryMode = opts.mandatory === true;
     var reduced = false;
     try { reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
 
@@ -136,7 +142,11 @@
         resolve(reason);
       }
       function done() { if (opts.onDone) { try { opts.onDone(); } catch (e) {} } cleanup('done'); }
-      function skip() { if (opts.onSkip) { try { opts.onSkip(); } catch (e) {} } cleanup('skip'); }
+      function skip() {
+        if (mandatoryMode) return; // mandatory runs cannot be skipped or escaped
+        if (opts.onSkip) { try { opts.onSkip(); } catch (e) {} }
+        cleanup('skip');
+      }
       function next() { if (idx >= total - 1) done(); else { idx++; render(); } }
       function onTargetClick() {
         // Never preventDefault — let the click fully proceed (navigation, row toggle),
@@ -213,19 +223,25 @@
         actsEl.innerHTML = '';
         if (pointerMode) {
           // Pointer mode: no Next — the real "next" is clicking the highlighted
-          // target itself. Just a subtle dismiss (leaves the pointer pending).
+          // target itself. Just a subtle dismiss (leaves the pointer pending) —
+          // unless the run is mandatory, where the only way out IS that click.
+          if (mandatoryMode) return;
           var g = d.createElement('button'); g.type = 'button'; g.className = 'gp-coach-skip'; g.textContent = 'Got it';
           g.addEventListener('click', skip); actsEl.appendChild(g);
           return;
         }
-        var s = d.createElement('button'); s.type = 'button'; s.className = 'gp-coach-skip'; s.textContent = 'Skip';
-        s.addEventListener('click', skip); actsEl.appendChild(s);
+        if (!mandatoryMode) {
+          var s = d.createElement('button'); s.type = 'button'; s.className = 'gp-coach-skip'; s.textContent = 'Skip';
+          s.addEventListener('click', skip); actsEl.appendChild(s);
+        }
         if (idx > 0) {
           var b = d.createElement('button'); b.type = 'button'; b.className = 'gp-coach-back'; b.textContent = 'Back';
           b.addEventListener('click', function () { idx = Math.max(0, idx - 1); render(); }); actsEl.appendChild(b);
         }
         var n = d.createElement('button'); n.type = 'button'; n.className = 'gp-coach-next';
-        n.textContent = idx === total - 1 ? 'Done' : 'Next';
+        // doneLabel lets a caller chain a follow-up run (the shell tour ends on
+        // an interactive My Practice step, so its last info card says "Next").
+        n.textContent = idx === total - 1 ? (opts.doneLabel || 'Done') : 'Next';
         n.addEventListener('click', next); actsEl.appendChild(n);
       }
       function render() {
@@ -247,7 +263,10 @@
             // the keydown listener's document can hear Escape (focus may
             // otherwise sit in another frame). Pointer only renders at boot /
             // timeline moments, so this never steals focus mid-typing.
+            // Mandatory pointer mode renders NO buttons at all — focus the tip
+            // itself so keyboard events still land in this document.
             var f = actsEl.querySelector(pointerMode ? '.gp-coach-skip' : '.gp-coach-next');
+            if (!f && mandatoryMode) { tip.setAttribute('tabindex', '-1'); f = tip; }
             if (f) { try { f.focus(); } catch (e) {} }
           });
         });

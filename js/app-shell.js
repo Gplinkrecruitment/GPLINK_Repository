@@ -576,6 +576,7 @@
 
   function buildRegistrationRow(stepKey, config) {
     var locked = !!config.locked;
+    var positionLocked = !!config.positionLocked;
     var done = !!config.done;
     // Completed steps are always returnable — users should be able to revisit any step
     var returnable = done;
@@ -587,11 +588,14 @@
       mobileStatus: config.mobileStatus,
       status: locked ? "Locked" : done ? "Done" : "Current",
       locked: locked,
+      positionLocked: positionLocked,
       done: done,
       current: !locked && !done,
       returnable: returnable,
-      href: !locked ? config.href : "#",
-      cta: locked ? "Locked" : done ? "Completed" : "Continue"
+      // Position-locked rows keep an ACTIVE link routing to the careers page
+      // (owner rule, 2026-09-01) — in step with pages/index.html's copy.
+      href: positionLocked ? "/pages/career" : (!locked ? config.href : "#"),
+      cta: positionLocked ? "Secure position first" : locked ? "Locked" : done ? "Completed" : "Continue"
     };
   }
 
@@ -749,6 +753,7 @@
         mobileDetail: extra.mobileDetail || stage.description,
         mobileStatus: stage.locked ? (stage.lockReason || extra.mobileStatus) : extra.mobileStatus,
         locked: stage.locked,
+        positionLocked: stage.positionLocked,
         done: stage.done,
         href: extra.href || ("/pages/" + stage.page)
       });
@@ -756,9 +761,10 @@
   }
 
   function buildRegistrationAction(row) {
-    var actionDisabled = row.locked || (row.done && !row.returnable);
+    // Position-locked rows keep a live action routing to the careers page.
+    var actionDisabled = (row.locked && !row.positionLocked) || (row.done && !row.returnable);
     var actionEl = document.createElement(actionDisabled ? "button" : "a");
-    actionEl.className = ("reg-btn " + (row.done ? "done" : row.locked ? "locked" : "")).trim();
+    actionEl.className = ("reg-btn " + (row.done ? "done" : (row.locked && !row.positionLocked) ? "locked" : "")).trim();
     actionEl.textContent = row.cta;
     if (actionDisabled) {
       actionEl.type = "button";
