@@ -40,6 +40,23 @@ describe('docAiReviewDecision — the verdict matrix', () => {
     expect(looksLikeWrongDocument(scan)).toBe(false);
     expect(docAiReviewDecision(scan).action).toBe('manual');
   });
+  it('knows the slot synonyms — an MRCGP in the Specialist Qualification slot is never "wrong" (caught live 2026-09-01)', () => {
+    const mrcgp = { verified: false, legible: true, nameMatch: 'unknown', documentType: 'MRCGP Certificate', expectedLabel: 'Specialist Qualification' };
+    expect(looksLikeWrongDocument(mrcgp)).toBe(false);
+    expect(docAiReviewDecision(mrcgp).action).toBe('manual'); // person decides, never auto-bounced
+    const fellowship = { ...mrcgp, documentType: 'Membership of the Royal College of General Practitioners' };
+    expect(looksLikeWrongDocument(fellowship)).toBe(false);
+    const cctLetter = { verified: false, legible: true, nameMatch: 'unknown', documentType: 'Certificate of Completion of Training', expectedLabel: 'CCT Certificate' };
+    expect(looksLikeWrongDocument(cctLetter)).toBe(false);
+    const mbbs = { verified: false, legible: true, nameMatch: 'unknown', documentType: 'MBBS Certificate', expectedLabel: 'Primary Medical Degree' };
+    expect(looksLikeWrongDocument(mbbs)).toBe(false);
+    // a genuinely different document still rejects
+    const bank = { ...mrcgp, documentType: 'Bank statement' };
+    expect(looksLikeWrongDocument(bank)).toBe(true);
+    // the GMC register-entry certificate is still NOT a specialist qualification
+    const gmcEntry = { ...mrcgp, documentType: 'Certificate of proof of entry on the register (GMC registration certificate)' };
+    expect(looksLikeWrongDocument(gmcEntry)).toBe(true);
+  });
   it('an unverified scan with nothing decisive goes to a person', () => {
     expect(docAiReviewDecision({ ...CLEAN, verified: false, documentType: '' }))
       .toEqual({ action: 'manual', reason: 'not_verified' });
