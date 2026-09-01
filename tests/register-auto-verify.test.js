@@ -390,6 +390,26 @@ describe('POST /api/onboarding/register-precheck (instant verification mid-wizar
   });
 });
 
+describe('ID-check bypass for the test account (owner 2026-09-02) — NARROW by design', () => {
+  it('the test email passes the identity scan instantly, even with AI unconfigured', async () => {
+    const res = await httpReq('POST', '/api/ai/verify-identity', {
+      cookie: userCookie('smithmiller1234@gmail.com', 'u-smith-test'),
+      body: { imageBase64: 'aGk=', mimeType: 'image/png' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.bypass).toBe(true);
+    expect(res.body.verification.verified).toBe(true);
+  });
+
+  it('every other doctor still hits the real scan pipeline (503 here: AI unconfigured in this harness)', async () => {
+    const res = await httpReq('POST', '/api/ai/verify-identity', {
+      cookie: userCookie('real-doctor@example.com', 'u-real-doc'),
+      body: { imageBase64: 'aGk=', mimeType: 'image/png' }
+    });
+    expect(res.status).toBe(503);
+  });
+});
+
 describe('POST /api/ats/candidate/register-verification action=auto', () => {
   it('runs the check on demand and reports the evidence for an inconclusive doctor', async () => {
     const res = await httpReq('POST', '/api/ats/candidate/register-verification', {

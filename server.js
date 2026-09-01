@@ -57996,6 +57996,30 @@ Return ONLY valid JSON, no markdown:
     const session = requireSession(req, res);
     if (!session) return;
 
+    // ID-check bypass for the recreated TEST account only (owner 2026-09-02:
+    // "let smithmiller1234@gmail.com bypass id"). Deliberately NARROW — the
+    // identity SCAN alone is short-circuited (any picked photo passes
+    // instantly); the position-first stage gateways, the mandatory
+    // walkthrough, register verification and every other validation stay
+    // fully real for this account (the old whole-app bypass is gone). Sits
+    // ABOVE the AI availability, budget and daily-limit checks so repeated
+    // test onboardings never jam. Env ID_CHECK_BYPASS_EMAILS overrides; set
+    // it empty to turn off without a deploy.
+    const idBypassEmails = String(process.env.ID_CHECK_BYPASS_EMAILS == null
+      ? 'smithmiller1234@gmail.com'
+      : process.env.ID_CHECK_BYPASS_EMAILS)
+      .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const idBypassEmail = getSessionEmail(session);
+    if (idBypassEmail && idBypassEmails.includes(idBypassEmail)) {
+      const idBypassName = await resolveVerificationProfileName(session, null).catch(() => '');
+      sendJson(res, 200, {
+        ok: true,
+        bypass: true,
+        verification: { verified: true, documentType: 'passport', nameFound: idBypassName || '', expired: false, legible: true, issues: [] }
+      });
+      return;
+    }
+
     if (!ANTHROPIC_API_KEY) {
       sendJson(res, 503, { ok: false, message: 'AI verification service not configured.' });
       return;
