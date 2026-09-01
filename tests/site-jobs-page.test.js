@@ -84,7 +84,7 @@ describe('GET /jobs (Task 8 job board page)', () => {
 
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs');
-    expect(res.raw).toContain('/css/site.css?v=20260717a');
+    expect(res.raw).toContain('/css/site.css?v=20260902a');
     expect(res.raw).toContain('/js/site.js?v=20260729b');
   });
 
@@ -438,7 +438,7 @@ describe('GET /jobs/view (Task 9 job detail page)', () => {
 
   it('links the shared site chrome css/js', async () => {
     const res = await get('/jobs/view?id=anything');
-    expect(res.raw).toContain('/css/site.css?v=20260717a');
+    expect(res.raw).toContain('/css/site.css?v=20260902a');
     expect(res.raw).toContain('/js/site.js?v=20260729b');
   });
 

@@ -66,7 +66,14 @@
   // served stale-while-revalidate from PAGE_CACHE, so without this bump the
   // pixel lands a navigation late for exactly the returning visitors it should
   // be measuring.
-  var VERSION = "20260902a";
+  // 20260902b: "Book meeting" button added to the header of every site-*.html
+  // (and css/site.css gained .nav-book). Same reason as 20260822a — marketing
+  // navigations are served stale-while-revalidate from PAGE_CACHE for anyone who
+  // has used the app, so without this bump the new nav lands a navigation late.
+  // A further letter is required because 20260902a already shipped (the
+  // position-first registration deploy took it), so anyone who cached that
+  // generation would otherwise never be served this header.
+  var VERSION = "20260902b";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

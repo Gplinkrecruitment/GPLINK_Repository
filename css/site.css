@@ -139,6 +139,29 @@ img { max-width: 100%; display: block; }
   box-shadow: 0 8px 20px -10px rgba(17, 109, 255, .7);
 }
 .nav-cta:hover { background: #0d5ee0; transform: translateY(-1px); box-shadow: 0 12px 24px -10px rgba(17, 109, 255, .8); }
+/* secondary header CTA: books a call with the team (/start#book).
+   Outlined so it reads as a real action without competing with the solid
+   "Create free account" primary beside it. */
+.nav-book {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13.5px;
+  font-weight: 660;
+  color: var(--teal);
+  background: #fff;
+  border: 1px solid rgba(17, 109, 255, .38);
+  padding: 10px 15px;
+  border-radius: 10px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .2s, border-color .2s, color .2s, transform .2s, box-shadow .2s;
+}
+.nav-book:hover {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -14px rgba(17, 109, 255, .9);
+}
 
 /* mobile menu button (hidden on desktop) */
 .site-menu-btn {
@@ -183,9 +206,34 @@ img { max-width: 100%; display: block; }
 }
 .site-mobile-menu a:last-child { border-bottom: 0; }
 .site-mobile-menu a:hover { color: var(--teal); }
+.site-mobile-menu .nav-book {
+  justify-content: center;
+  text-align: center;
+  margin-top: 10px;
+  padding: 12px 15px;
+  color: var(--teal);
+  border: 1px solid rgba(17, 109, 255, .38);
+}
 .site-mobile-menu .nav-cta { text-align: center; margin-top: 10px; }
 .site-mobile-menu .nav-signin { text-align: center; }
 
+/* Mid widths: below ~1150px the 7 link labels plus the CTAs no longer fit the
+   container, and .nav-right is `flex: 0 0 auto` — so the row overflows into
+   `html{overflow-x:clip}` and the rightmost CTA is silently sliced off rather
+   than wrapping. Reclaim ~70px of link chrome first, then drop the secondary
+   Book-meeting button below 940px (verified: 941px is the narrowest width that
+   still renders "Create free account" whole). It stays reachable in the footer
+   and, under 860px, in the ☰ menu. NB "For GPs"/"The app" still wrap to two
+   lines under ~1050px — that predates this button and is left as-is. */
+@media (max-width: 1120px) {
+  .nav-in { gap: 14px; }
+  .nav-links { gap: 0; }
+  .nav-links a { padding: 8px 9px; }
+  .nav-links a::after { left: 9px; right: 9px; }
+}
+@media (max-width: 940px) {
+  .nav-right > .nav-book { display: none; }
+}
 @media (max-width: 860px) {
   .nav-links { display: none; }
   .nav-right > .nav-signin { display: none; }
