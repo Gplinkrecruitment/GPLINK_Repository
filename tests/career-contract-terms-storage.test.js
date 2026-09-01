@@ -167,7 +167,9 @@ describe('contract terms are extracted from the contract in Supabase Storage', (
       'The Doctor receives 70% of billings. Relocation assistance of $15,000 is payable. Term: 2 years.', 'utf8'));
     const row = db.user_documents[0];
     row.file_name = 'Contract v2.txt';
-    row.updated_at = '2026-09-01T00:00:00.000Z'; // newer than the extraction
+    // Must be genuinely newer than the extraction cached moments ago in this run —
+    // a hardcoded date here went stale on 2026-09-01 and flipped the test red.
+    row.updated_at = new Date(Date.now() + 5 * 60 * 1000).toISOString();
     const terms = await resolveTerms(UID, APP_ID);
     expect(terms.splitDisplay).toBe('70%');
     expect(terms.relocationPackageDisplay).toBe('$15,000');
