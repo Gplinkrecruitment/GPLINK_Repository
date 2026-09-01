@@ -138,6 +138,56 @@ describe('completeness prompt: Mercy false-positive rules', () => {
   });
 });
 
+// ── Q7 conflict cross-check (owner 2026-09-01, Dr Mercy Obanimoh) ───────────────────────────
+// The conflict scan had already found the supervisor IS the practice owner (is_conflict=true),
+// yet the practice's returned scan showed Q7 crossed NO (their printed copy had lost the
+// pre-filled YES + details) and the completeness check reported "ready to submit". The AI now
+// reports a neutral q7_observed and deterministic server code compares it against is_conflict.
+const { q7ConflictMismatchIssue } = require('../lib/sppa-completeness-check.js');
+
+describe('Q7 conflict cross-check', () => {
+  const base = { is_complete: true, confidence: 'high', missing_fields: [], missing_signatures: [], missing_documents: [], issues: [], summary: 'ok' };
+
+  it('the prompt asks for the neutral q7_observed observation', () => {
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('"q7_observed": "yes" | "no" | "blank" | "unclear"');
+    expect(COMPLETENESS_SYSTEM_PROMPT).toContain('q7_observed is likewise a neutral OBSERVATION');
+  });
+
+  it('q7_observed parses, defaulting to unclear', () => {
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q7_observed: 'yes' })).q7_observed).toBe('yes');
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q7_observed: 'no' })).q7_observed).toBe('no');
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q7_observed: 'blank' })).q7_observed).toBe('blank');
+    expect(parseCompletenessResponse(JSON.stringify({ ...base, q7_observed: 'maybe' })).q7_observed).toBe('unclear');
+    expect(parseCompletenessResponse(JSON.stringify(base)).q7_observed).toBe('unclear');
+  });
+
+  it('flags a NO or blank Q7 when the conflict scan said the supervisor is the owner', () => {
+    expect(q7ConflictMismatchIssue(true, 'no')).toMatch(/marked NO/);
+    expect(q7ConflictMismatchIssue(true, 'no')).toMatch(/practice\s+owner/);
+    expect(q7ConflictMismatchIssue(true, 'blank')).toMatch(/unanswered/);
+  });
+
+  it('never flags when there is no conflict, no verdict, or Q7 already reads YES', () => {
+    expect(q7ConflictMismatchIssue(true, 'yes')).toBe(null);
+    expect(q7ConflictMismatchIssue(true, 'unclear')).toBe(null); // a bad scan is not a contradiction
+    expect(q7ConflictMismatchIssue(false, 'no')).toBe(null);
+    expect(q7ConflictMismatchIssue(undefined, 'no')).toBe(null); // legacy tasks with no scan verdict
+    expect(q7ConflictMismatchIssue('true', 'no')).toBe(null);    // only strict true arms it
+  });
+
+  it('server wires the cross-check into the completeness verdict', () => {
+    const fs = require('fs');
+    const { fileURLToPath } = require('url');
+    const server = fs.readFileSync(fileURLToPath(new URL('../server.js', import.meta.url)), 'utf8');
+    expect(server).toContain('q7ConflictMismatchIssue(meta.is_conflict, verdict.q7_observed)');
+    expect(server).toContain('q7_conflict_mismatch: !!_q7Issue');
+    // the mismatch must force is_complete=false before the verdict is stored
+    const idx = server.indexOf('q7ConflictMismatchIssue(meta.is_conflict');
+    const after = server.slice(idx, idx + 900);
+    expect(after).toContain('verdict.is_complete = false');
+  });
+});
+
 describe('parseIdentifyResponse', () => {
   it('maps verdicts back by position', () => {
     const out = parseIdentifyResponse(JSON.stringify({

@@ -157,7 +157,7 @@ function isValidCronSecret(token) {
 }
 const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
 const { scanGpSections } = require('./lib/sppa-gp-section-scan.js');
-const { checkSppaCompleteness, isOnlyAltCvOutstanding, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
+const { checkSppaCompleteness, isOnlyAltCvOutstanding, q7ConflictMismatchIssue, identifySppaDocuments } = require('./lib/sppa-completeness-check.js');
 const { fillSppaQ7, extractAltSupervisorNames, amendSppaField, amendSppaFields, extractSppaFormFields, autofillSppaStartDate, stampSppaQ12OnScan } = require('./lib/sppa-pdf-fill.js');
 const altCvRecover = require('./lib/alt-supervisor-cv-recover.js');
 const driveDocFolders = require('./lib/drive-doc-folders.js');
@@ -19658,6 +19658,21 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       } catch (stampErr) { console.error('[SPPA] start-date scan stamp error:', stampErr.message); }
     }
 
+    // ── Q7 conflict cross-check (deterministic) ─────────────────────────────────────────
+    // The conflict scan's verdict lives on this task (metadata.is_conflict). A returned form
+    // whose Q7 contradicts it must never go green: the practice answers off a PRINTED copy,
+    // which can lose the pre-filled YES + details (Dr Mercy Obanimoh, 2026-08 — the practice
+    // crossed NO and the check reported "ready to submit").
+    var _q7Issue = (!verdict._error && verdict.is_sppa_form !== false)
+      ? q7ConflictMismatchIssue(meta.is_conflict, verdict.q7_observed) : null;
+    if (_q7Issue) {
+      if (verdict.is_complete) {
+        verdict.summary = "The form is filled in, but Q7 contradicts GP Link's conflict-of-interest scan — the supervisor is the practice owner, so Q7 must be YES with details.";
+      }
+      verdict.is_complete = false;
+      verdict.issues = (Array.isArray(verdict.issues) ? verdict.issues : []).concat(_q7Issue);
+    }
+
     var stored = {
       // null = judged before the identity check existed; only an explicit false is "wrong form".
       is_sppa_form: (verdict.is_sppa_form === true || verdict.is_sppa_form === false) ? verdict.is_sppa_form : null,
@@ -19671,6 +19686,8 @@ async function _runSppaCompletenessCheck(caseId, sppaTaskId) {
       summary: verdict.summary,
       alternate_supervisors_on_form: verdict.alternate_supervisors_on_form,
       q12_start_date_observed: verdict.q12_start_date_observed || 'unclear',
+      q7_observed: verdict.q7_observed || 'unclear',
+      q7_conflict_mismatch: !!_q7Issue,
       // True when the form is otherwise complete/signed and the ONLY gap is an alternate-supervisor
       // CV — that has its own task, so the UI reframes it as a reminder and the submit gate allows it.
       only_alt_cv_outstanding: isOnlyAltCvOutstanding(verdict),
