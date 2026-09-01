@@ -66598,6 +66598,66 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Re-push the CURRENT stored SPPA-00 to Google Drive (replace + de-dup) ──
+  // A scan corrected by direct DB write (e.g. the Q7 conflict repair) leaves the GP's Drive
+  // folder holding the pre-repair copy, and because filed docs get MOVED into the sppa_00
+  // subfolder, a plain re-upload can also strand a stale copy there. This re-uploads the
+  // current document and trashes every other SPPA-00 file in the case folder and the
+  // sppa_00 subfolder, so exactly one (current) copy remains.
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-drive-refresh')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const taskRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) { sendJson(res, 404, { error: 'task not found' }); return; }
+    const task = taskRes.data[0];
+    var refSppaRes = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(task.case_id) + '&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child&limit=1');
+    var refSppaTaskId = (refSppaRes.ok && refSppaRes.data && refSppaRes.data[0]) ? refSppaRes.data[0].id : null;
+    if (!refSppaTaskId) { sendJson(res, 404, { error: 'SPPA-00 task not found' }); return; }
+    var refDocRes = await supabaseDbRequest('task_documents',
+      'select=id,attachment_url&task_id=eq.' + encodeURIComponent(refSppaTaskId) +
+      '&is_current=eq.true&category=not.in.(alt_supervisor_cv,other)&order=created_at.desc&limit=1');
+    var refDoc = (refDocRes.ok && refDocRes.data && refDocRes.data[0]) ? refDocRes.data[0] : null;
+    if (!refDoc || !refDoc.attachment_url) { sendJson(res, 404, { error: 'no current SPPA-00 document' }); return; }
+    var refComma = refDoc.attachment_url.indexOf(',');
+    var refB64 = refDoc.attachment_url.substring(refComma + 1).replace(/-/g, '+').replace(/_/g, '/');
+    while (refB64.length % 4 !== 0) refB64 += '=';
+    var refBuffer = Buffer.from(refB64, 'base64');
+    var uploaded = await _uploadSppaDocToDrive(task.case_id, refDoc.id, refBuffer, 'SPPA-00 (Completed).pdf');
+    if (!uploaded || !uploaded.id) { sendJson(res, 502, { error: 'Drive upload failed or Drive not configured' }); return; }
+    // Trash every OTHER SPPA-00 file in the case folder and the sppa_00 subfolder.
+    var trashedNames = [];
+    try {
+      var refDrive = await getGoogleDriveClient();
+      var refFolderId = await ensureGPDriveFolder(task.case_id, null, null);
+      var refParents = refFolderId ? [refFolderId] : [];
+      try {
+        var refSubId = await ensureDocTypeSubfolder(refFolderId, driveDocFolders.folderNameForDoc('sppa_00'), null);
+        if (refSubId && refParents.indexOf(refSubId) < 0) refParents.push(refSubId);
+      } catch (subErr) { /* best-effort — the case folder alone still gets deduped */ }
+      for (var rpi = 0; rpi < refParents.length; rpi++) {
+        var refList = await refDrive.files.list({
+          q: "'" + refParents[rpi] + "' in parents and name contains 'SPPA-00' and mimeType != 'application/vnd.google-apps.folder' and trashed = false",
+          fields: 'files(id,name)', pageSize: 20
+        });
+        var refFiles = (refList.data && refList.data.files) || [];
+        for (var rfi = 0; rfi < refFiles.length; rfi++) {
+          if (refFiles[rfi].id === uploaded.id) continue;
+          await refDrive.files.update({ fileId: refFiles[rfi].id, requestBody: { trashed: true } });
+          trashedNames.push(refFiles[rfi].name);
+        }
+      }
+    } catch (dedupErr) { console.error('[SPPA Drive refresh] dedup error:', dedupErr.message); }
+    await _logCaseEvent(task.case_id, refSppaTaskId, 'system',
+      'SPPA-00 Drive copy refreshed to the current document' +
+      (trashedNames.length ? ' (' + trashedNames.length + ' old cop' + (trashedNames.length === 1 ? 'y' : 'ies') + ' trashed)' : ''),
+      null, admin.email).catch(function () {});
+    sendJson(res, 200, { ok: true, drive: uploaded, trashed: trashedNames });
+    return;
+  }
+
   // ── Amend RSO-owned SPPA field programmatically ──
   if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/sppa-amend-field')) {
     const admin = requireAdminSession(req, res);
