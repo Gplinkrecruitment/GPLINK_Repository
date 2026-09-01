@@ -340,7 +340,10 @@ const DOUBLETICK_USE_DIRECT_TEXT = false; // templates are approved
 const DOUBLETICK_STAGE_TEMPLATES = {
   myintealth: { templateName: 'gp_link_app_myintealth_introductiory_message_', language: 'en' },
   amc: { templateName: 'gp_link_app_amc_introductiory_message_', language: 'en' },
-  ahpra: { templateName: 'gp_link_app_ahpra_introductiory_message', language: 'en' }
+  ahpra: { templateName: 'gp_link_app_ahpra_introductiory_message', language: 'en' },
+  // All three AHPRA document groups complete → "begin AHPRA now" with the CTA link
+  // carried as body variable {{2}} (a body-embedded dynamic URL passes WhatsApp review).
+  ahpra_docs_complete: { templateName: 'gp_link_ahpra_docs_complete', language: 'en' }
   // career and visa templates not yet created in DoubleTick
 };
 // One-time "you're now connected with your RSO" welcome. Sent by the app the first
@@ -362,6 +365,7 @@ const DOUBLETICK_STAGE_MESSAGES = {
   amc: 'Hi {{name}}, you\'ve moved on to the AMC step! 🎉 You\'ll need to create your AMC portfolio and upload your credentials. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
   career: 'Hi {{name}}, your AMC step is complete — now it\'s time for the Career & Documents stage! 🎉 We\'ll help you find and secure a placement. If you need any help, just reply to this message.',
   ahpra: 'Hi {{name}}, great progress — you\'ve unlocked the AHPRA step! 🎉 This involves registering with the Australian Health Practitioner Regulation Agency. If you need any help, just reply to this message.',
+  ahpra_docs_complete: 'Hi {{name}}, fantastic news — every document needed for your AHPRA registration is now complete! ✅ The AHPRA step is unlocked, please begin as soon as possible at https://www.mygplink.com.au/pages/ahpra.html — if you need any help, just reply to this message.',
   visa: 'Hi {{name}}, you\'re onto the Visa stage! 🎉 We\'ll guide you through the visa application process. If you need any help, just reply to this message.',
   support_ticket_received: 'Hi {{name}}, we\'ve received your support request. One of our registration support agents will be in touch shortly via email or WhatsApp to help resolve this for you.'
 };
@@ -20571,9 +20575,10 @@ async function ensureRsoWelcomeSent(opts) {
  * @param {string} toPhone - GP phone number (will be normalised to E.164)
  * @param {string} stage - Registration stage key (e.g. 'amc', 'visa')
  * @param {string} gpFirstName - GP first name for template personalisation
+ * @param {string[]} [extraPlaceholders] - Values for {{2}}+ body variables (e.g. a CTA link)
  * @returns {Promise<{ok:boolean, messageId?:string}>}
  */
-async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
+async function sendDoubleTickTemplate(toPhone, stage, gpFirstName, extraPlaceholders) {
   console.log('[doubletick] sendDoubleTickTemplate called:', { toPhone, stage, gpFirstName, hasApiKey: !!DOUBLETICK_API_KEY, baseUrl: DOUBLETICK_BASE_URL });
   if (!DOUBLETICK_API_KEY) {
     console.warn('[doubletick] DOUBLETICK_API_KEY not set — skipping send');
@@ -20622,7 +20627,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
           language: tpl.language || 'en',
           templateData: {
             body: {
-              placeholders: [gpFirstName || 'there']
+              placeholders: [gpFirstName || 'there'].concat(Array.isArray(extraPlaceholders) ? extraPlaceholders : [])
             }
           }
         }
@@ -22078,6 +22083,12 @@ async function _finalisePracticeDocCompletion(opts) {
   if (driveFileId && caseId && docKey) {
     fileDocOnDrive(caseId, docKey, driveFileId).catch(function () {});
   }
+
+  // 8. This completion may have been the LAST outstanding AHPRA document —
+  //    idempotent, sentinel-guarded, fire-and-forget.
+  if (caseId) {
+    _maybeNotifyAhpraDocsReady(caseId).catch(function (e) { console.error('[AhpraDocsReady] finalise trigger error:', e.message); });
+  }
 }
 
 // Ensure practice_doc_ops records exist for a case
@@ -22094,6 +22105,128 @@ async function _ensurePracticeDocOps(caseId) {
   }
   const all = await supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.asc');
   return all.ok && Array.isArray(all.data) ? all.data : [];
+}
+
+// ── "All AHPRA documents complete" notification ────────────────────────────────────────
+// The moment every document across the GP file's three groups — Direct to AHPRA,
+// Prepared by Candidate, Prepared by GP LINK (alternate-supervisor CVs included) — is
+// complete/accepted, tell the GP by email + WhatsApp that the AHPRA step is unlocked and
+// to begin ASAP, with a CTA into the AHPRA page. Mirrors /api/admin/gp-documents' grouping
+// rules DB-only (Drive is never consulted here). Idempotent via its own timeline sentinels.
+// Deliberately INDEPENDENT of the "AHPRA stage" transition message: that one fires when the
+// GP's journey stage flips (often while documents are still being finalised — Mercy was in
+// the AHPRA stage with her SPPA still under review), whereas this fires at the later,
+// distinct moment every document is complete/accepted.
+const AHPRA_DOCS_COMPLETE_EMAIL_MARKER = 'AHPRA docs complete — email sent';
+
+async function _maybeNotifyAhpraDocsReady(caseId) {
+  try {
+    if (!isSupabaseDbConfigured() || !caseId) return { notified: false, reason: 'not_configured' };
+    const emailSent = await _hasCaseSystemEvent(caseId, AHPRA_DOCS_COMPLETE_EMAIL_MARKER);
+    const waSent = await _hasDoubleTickBeenSent(caseId, 'AHPRA docs complete');
+    if (emailSent && waSent) return { notified: false, reason: 'already_notified' };
+
+    const caseRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,status&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    const gpCase = (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0]) ? caseRes.data[0] : null;
+    if (!gpCase || !gpCase.user_id) return { notified: false, reason: 'no_case' };
+    if (gpCase.status && gpCase.status !== 'active') return { notified: false, reason: 'case_' + gpCase.status };
+    const userId = gpCase.user_id;
+
+    const [adrStateRes, adrProfRes, adrDocsRes, adrOpsRows, adrAltReqRes] = await Promise.all([
+      supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+      supabaseDbRequest('user_profiles', 'select=first_name,registration_country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1'),
+      supabaseDbRequest('user_documents', 'select=document_key,status,country_code&user_id=eq.' + encodeURIComponent(userId)),
+      _ensurePracticeDocOps(caseId),
+      supabaseDbRequest('registration_tasks', 'select=status&case_id=eq.' + encodeURIComponent(caseId) + '&task_type=eq.alt_supervisor_cv_request&order=created_at.desc&limit=1')
+        .catch(function () { return null; })
+    ]);
+    const adrState = (adrStateRes.ok && Array.isArray(adrStateRes.data) && adrStateRes.data[0] && typeof adrStateRes.data[0].state === 'object') ? adrStateRes.data[0].state : {};
+    const adrProf = (adrProfRes.ok && Array.isArray(adrProfRes.data) && adrProfRes.data[0]) ? adrProfRes.data[0] : {};
+    const adrCountry = resolveGpDocumentCountry(adrProf.registration_country, adrState.gp_selected_country);
+    const adrAllDocs = (adrDocsRes.ok && Array.isArray(adrDocsRes.data)) ? adrDocsRes.data : [];
+    const adrDocsByKey = {};
+    adrAllDocs.forEach(function (d) { if (d && d.document_key && d.country_code === adrCountry) adrDocsByKey[d.document_key] = d; });
+
+    var adrPrepRaw = adrState.gp_documents_prep || adrState.gp_prepared_docs || {};
+    if (typeof adrPrepRaw === 'string') { try { adrPrepRaw = JSON.parse(adrPrepRaw); } catch (e) { adrPrepRaw = {}; } }
+    const adrPrepDocs = adrPrepRaw.docs || adrPrepRaw || {};
+
+    // Same status resolution as /api/admin/gp-documents; a rejected document never counts.
+    function adrDocDone(key) {
+      var status = 'pending';
+      var ud = adrDocsByKey[key];
+      var sd = adrPrepDocs[key];
+      if (ud) status = ud.status || 'uploaded';
+      else if (sd) status = sd.status || (sd.uploaded ? 'uploaded' : (sd.requested ? 'requested' : 'pending'));
+      return status !== 'pending' && status !== 'rejected';
+    }
+    const adrMeta = (GP_DOCUMENT_META.shared || []).concat(GP_DOCUMENT_META[adrCountry] || []);
+    const adrPendingInstitution = adrMeta.filter(function (m) { return m.source === 'institution_docs' && !adrDocDone(m.key); });
+    const adrPendingCandidate = adrMeta.filter(function (m) { return m.source === 'prepared_by_you' && !adrDocDone(m.key); });
+
+    const adrOpsByKey = {};
+    (Array.isArray(adrOpsRows) ? adrOpsRows : []).forEach(function (r) { if (r && r.document_key) adrOpsByKey[r.document_key] = r; });
+    const adrPendingGplink = PRACTICE_DOC_KEYS.filter(function (k) {
+      var s = (adrOpsByKey[k] && adrOpsByKey[k].ops_status) || 'not_requested';
+      return s !== 'completed' && s !== 'ready_for_gp';
+    });
+    // Alternate-supervisor CVs render inside "Prepared by GP LINK" — an outstanding one
+    // holds the notification exactly as it holds the on-screen group count.
+    const adrAltReqStatus = (adrAltReqRes && adrAltReqRes.ok && Array.isArray(adrAltReqRes.data) && adrAltReqRes.data[0]) ? (adrAltReqRes.data[0].status || '') : '';
+    const adrAltStatus = require('./lib/sppa-alt-supervisor-request.js').altCvCardStatus;
+    const adrAltOutstanding = adrAllDocs.filter(function (d) {
+      return d && /^alt_supervisor_cv_/.test(d.document_key || '') && adrAltStatus(d.status, adrAltReqStatus) !== 'completed';
+    }).length;
+
+    if (adrPendingInstitution.length || adrPendingCandidate.length || adrPendingGplink.length || adrAltOutstanding) {
+      return {
+        notified: false, reason: 'pending',
+        pending: {
+          institution: adrPendingInstitution.map(function (m) { return m.key; }),
+          candidate: adrPendingCandidate.map(function (m) { return m.key; }),
+          gplink: adrPendingGplink, altCvs: adrAltOutstanding
+        }
+      };
+    }
+
+    const adrFirstName = String(adrProf.first_name || '').trim();
+    let notifiedEmail = false;
+    let notifiedWa = false;
+    if (!emailSent) {
+      // Marker BEFORE the fire-and-forget send so a concurrent replay can't double-send.
+      await _logCaseEvent(caseId, null, 'system', AHPRA_DOCS_COMPLETE_EMAIL_MARKER, null, 'system');
+      sendAhpraDocsCompleteEmail(userId).catch(function (err) { console.error('[Email] AHPRA docs complete failed:', err.message); });
+      notifiedEmail = true;
+    }
+    if (!waSent) {
+      const adrPhone = await getGpWhatsAppPhone(userId);
+      if (adrPhone) {
+        let wa = await sendDoubleTickTemplate(adrPhone, 'ahpra_docs_complete', adrFirstName, [APP_BASE_URL + '/pages/ahpra.html']);
+        if (!wa || !wa.ok) {
+          // The CTA template may still be pending WhatsApp approval — the approved AHPRA
+          // stage template carries the same "step unlocked" message (without the link).
+          wa = await sendDoubleTickTemplate(adrPhone, 'ahpra', adrFirstName);
+        }
+        if (wa && wa.ok) {
+          await _logCaseEvent(caseId, null, 'system', 'AHPRA docs complete started — WhatsApp template sent', null, 'system');
+          notifiedWa = true;
+        }
+      }
+    }
+    if (notifiedEmail || notifiedWa) {
+      await _logCaseEvent(caseId, null, 'system',
+        'All AHPRA registration documents complete — GP notified to begin AHPRA',
+        'Direct to AHPRA, Prepared by Candidate and Prepared by GP LINK are all complete/accepted. ' +
+        (notifiedEmail ? 'Email sent. ' : '') +
+        (notifiedWa ? 'WhatsApp sent.' : 'WhatsApp not sent (no phone on file or send failed).'),
+        'system');
+    }
+    return { notified: notifiedEmail || notifiedWa, email: notifiedEmail, whatsapp: notifiedWa };
+  } catch (err) {
+    console.error('[AhpraDocsReady] error:', err.message);
+    return { notified: false, reason: 'error' };
+  }
 }
 
 // Signing requirement spelled out for each practice pack document. Keep in sync with the
@@ -35191,6 +35324,19 @@ async function sendAhpraUnlockedEmail(userId) {
   );
 }
 
+// Sent the moment ALL THREE document groups on the GP file — Direct to AHPRA,
+// Prepared by Candidate, Prepared by GP LINK — are complete/accepted.
+async function sendAhpraDocsCompleteEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'All AHPRA Documents Complete, GP Link',
+    'All your AHPRA documents are ready, {{name}}!',
+    'Fantastic news — every document needed for your AHPRA registration is now complete and accepted: the items AHPRA receives directly, the documents you prepared, and the documents GP Link prepared for you.\n\nYour AHPRA registration step is now unlocked. Please begin as soon as possible — starting promptly keeps your registration timeline on track, and GP Link will guide you through every part of the application.',
+    'Begin AHPRA Registration',
+    APP_BASE_URL + '/pages/ahpra.html',
+    'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
+  );
+}
+
 // 10. Interview Reminder — 24h before scheduled interview
 async function sendInterviewReminderEmail(userId, opts) {
   opts = opts || {};
@@ -41670,6 +41816,31 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, message: 'Not configured', scanned: 0, created: 0 });
       return;
     }
+    // AHPRA docs-complete catch-all: any case whose five GP-Link pack chips are all done
+    // gets the full three-group check (idempotent, sentinel-guarded). Covers completion
+    // paths with no direct hook — manual chip flips, GP state writes, doc approvals —
+    // so "the moment" is never later than this hourly sweep. Isolated + fire-safe.
+    try {
+      var _adcOps = await supabaseDbRequest('practice_doc_ops',
+        'select=case_id,document_key,ops_status&document_key=in.(' + PRACTICE_DOC_KEYS.join(',') + ')');
+      if (_adcOps.ok && Array.isArray(_adcOps.data)) {
+        var _adcByCase = {};
+        for (var _adci = 0; _adci < _adcOps.data.length; _adci++) {
+          var _adcRow = _adcOps.data[_adci];
+          if (!_adcRow || !_adcRow.case_id) continue;
+          (_adcByCase[_adcRow.case_id] = _adcByCase[_adcRow.case_id] || []).push(_adcRow);
+        }
+        var _adcCandidates = Object.keys(_adcByCase).filter(function (cid) {
+          var rows = _adcByCase[cid];
+          if (rows.length < PRACTICE_DOC_KEYS.length) return false;
+          return rows.every(function (r) { return r.ops_status === 'completed' || r.ops_status === 'ready_for_gp'; });
+        }).slice(0, 20);
+        for (var _adcj = 0; _adcj < _adcCandidates.length; _adcj++) {
+          try { await _maybeNotifyAhpraDocsReady(_adcCandidates[_adcj]); }
+          catch (e) { console.error('[AhpraDocsReady] cron check error:', e.message); }
+        }
+      }
+    } catch (adcErr) { console.error('[AhpraDocsReady] cron sweep error:', adcErr.message); }
     try {
       var RDT_CAP = 200;
       // Two fetches (PostgREST can't cleanly OR status + flag_reason). Under-review
@@ -63236,6 +63407,17 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
 
+      // Viewing a fully-green file is a natural moment to fire the AHPRA docs-complete
+      // notification (idempotent; also covers the Drive-only auto-completes above).
+      try {
+        var _gdAhpraDone = gdDirectToAhpra.every(function (d) { return d.status !== 'pending' && d.status !== 'rejected'; });
+        var _gdCandDone = gdPreparedByCandidate.every(function (d) { return d.status !== 'pending' && d.status !== 'rejected'; });
+        var _gdPackDone = gdPreparedByGpLink.every(function (d) { return d.ops_status === 'completed' || d.ops_status === 'ready_for_gp'; });
+        if (_gdAhpraDone && _gdCandDone && _gdPackDone && gdDirectToAhpra.length && gdPreparedByCandidate.length) {
+          _maybeNotifyAhpraDocsReady(gdCaseId).catch(function (e) { console.error('[AhpraDocsReady] view trigger error:', e.message); });
+        }
+      } catch (e) { /* never block the documents payload */ }
+
       sendJson(res, 200, {
         ok: true,
         country: gdCountry,
@@ -66725,6 +66907,10 @@ Return ONLY valid JSON with no markdown formatting:
       { method: 'PATCH', body: { status: 'completed', completed_by: admin.email, completed_at: new Date().toISOString(), metadata: taskMeta, updated_at: new Date().toISOString() } });
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 approved and delivered to GP MyDocuments', null, admin.email);
+
+    // The SPPA-00 is usually the last pack document to finish — check whether every
+    // AHPRA document group is now complete and tell the GP to begin (idempotent).
+    _maybeNotifyAhpraDocsReady(task.case_id).catch(function (e) { console.error('[AhpraDocsReady] sppa-submit trigger error:', e.message); });
 
     // Check if all practice pack tasks are now complete → update AHPRA progress
     try {
