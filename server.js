@@ -16691,7 +16691,10 @@ function isImpersonatedSession(session) {
 const TEMPORARY_BYPASS_LOCK_EMAILS = {
   // Khaleed's "crypto" test GP account bypass removed 2026-07-24 now that he is past
   // onboarding — he navigates the app as a real GP with all registration gateways enforced.
-  'smithmiller1234@gmail.com': '2026-09-30T23:59:59.000Z'
+  // Smith Miller's bypass removed 2026-09-02 (owner): the recreated test account
+  // must live the REAL new-GP experience — position-first stage locks, the
+  // mandatory walkthrough, ID verification, all of it. A future test bypass,
+  // if ever needed, goes here with an expiry (never commit hello+ aliases).
 };
 
 function isBypassLockEmail(email) {

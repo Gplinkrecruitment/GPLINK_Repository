@@ -77,7 +77,7 @@
   // free account, per the owner. Markup-only change to the same site-*.html,
   // so the css buster does not move and this bump is the only thing that
   // stops the old order being served one navigation late.
-  var VERSION = "20260902c";
+  var VERSION = "20260902d";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -114,7 +114,7 @@
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
     "/js/state-sync.js?v=20260806a",
-    "/js/bypass-config.js?v=20260724c",
+    "/js/bypass-config.js?v=20260902a",
     "/js/updates-sync.js?v=20260730a",
     "/js/qualification-scan.js?v=20260813a",
     "/js/qualification-camera.js?v=20260801d",
@@ -130,7 +130,7 @@
     "/js/gp-coach.js?v=20260902a",
     "/js/gp-walkthrough-state.js?v=20260722c",
     "/js/gp-walkthrough.js?v=20260722d",
-    "/js/gp-walkthrough-shell.js?v=20260902a",
+    "/js/gp-walkthrough-shell.js?v=20260902b",
     "/js/document-prep.js?v=20260614a",
     "/js/career-home-card.js?v=20260709a"
   ];

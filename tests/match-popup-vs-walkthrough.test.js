@@ -83,7 +83,7 @@ describe('match-popup publishes its check for the walkthrough', () => {
 
 describe('the walkthrough never paints over the match popup', () => {
   const js = read('js/gp-walkthrough-shell.js');
-  const guarded = js.slice(js.indexOf('function guarded()'), js.indexOf('function hasLiveMatch'));
+  const guarded = js.slice(js.indexOf('function guarded('), js.indexOf('function hasLiveMatch'));
 
   it('guarded() blocks while the popup is open', () => {
     expect(guarded).toContain("classList.contains('gpmp-open')");
@@ -93,6 +93,8 @@ describe('the walkthrough never paints over the match popup', () => {
     // Without this the coach can win the race and be on screen before the
     // popup mounts — the overlap the owner screenshotted.
     expect(guarded).toContain('window.gpMatchCheck && window.gpMatchCheck.pending === true');
+    // The pending block is skippable ONLY via the explicit post-ceiling flag.
+    expect(guarded).toContain('!ignorePendingMatchCheck &&');
   });
 
   it('the popup class it watches is the one match-popup actually sets', () => {
@@ -144,7 +146,7 @@ describe('the tour survives losing the boot race to the match check (owner repor
     expect(fn).toContain("window.removeEventListener('gp-match-check-done', go)");
     expect(fn).toContain('setTimeout(go, 4000)');
     // the wait must come BEFORE the guarded() bail, or pending still eats it
-    expect(fn.indexOf('gpMatchCheck.pending')).toBeLessThan(fn.indexOf('if (guarded()) return;'));
+    expect(fn.indexOf('gpMatchCheck.pending')).toBeLessThan(fn.indexOf('if (guarded(afterMatchWait === true)) return;'));
     // a hung request must not loop the wait forever
     expect(fn).toContain('tourWaitedForMatch');
   });
@@ -159,11 +161,36 @@ describe('cache busters for the two changed scripts', () => {
   const shell = read('pages/app-shell.html');
   it('app-shell.html pins the bumped match-popup + walkthrough-shell builds', () => {
     expect(shell).toContain('/js/match-popup.js?v=20260829a');
-    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260902a');
+    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260902b');
     expect(shell).not.toContain('/js/match-popup.js?v=20260729a');
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260902c"');
+    expect(read('sw.js')).toContain('var VERSION = "20260902d"');
+  });
+
+  it('the mandatory tour can NEVER be lost to a single visit (owner 2026-09-02)', () => {
+    const shellJs = read('js/gp-walkthrough-shell.js');
+    // After the match-wait ceiling the tour PROCEEDS (treating the check as
+    // settled) instead of giving up to a "next boot" a new doctor may never
+    // make…
+    expect(shellJs).toContain('runTour(true)');
+    expect(shellJs).not.toContain('give up unmarked');
+    // …and two watchdogs retry the same visit: one after the armed attempt,
+    // one covering a lost arming race entirely.
+    expect(shellJs).toContain('Same-visit watchdog');
+    expect(shellJs).toContain('Boot watchdog');
+    // guarded() still blocks a match popup actually on screen.
+    expect(shellJs).toContain("classList.contains('gpmp-open')");
+  });
+
+  it('no temporary tester bypass digests ship to clients (owner 2026-09-02)', () => {
+    const bypassJs = read('js/bypass-config.js');
+    expect(bypassJs).toContain('var TEMPORARY_BYPASS_LOCK_DIGESTS = {}');
+    expect(bypassJs).not.toContain('f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e');
+    // Server side mirrors it: the temporary bypass map holds no entries.
+    const serverSrc = read('server.js');
+    const tempBlock = serverSrc.slice(serverSrc.indexOf('const TEMPORARY_BYPASS_LOCK_EMAILS'), serverSrc.indexOf('function isBypassLockEmail'));
+    expect(tempBlock).not.toContain('@gmail.com\':');
   });
 });

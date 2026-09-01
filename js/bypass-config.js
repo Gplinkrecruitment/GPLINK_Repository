@@ -14,14 +14,12 @@ var BYPASS_LOCK_EMAILS = {
 };
 
 (function () {
-  // One temporary tester digest is currently active (expires 2026-09-30).
-  // Khaleed's "crypto" tester digests were removed 2026-07-24 now that he is past
-  // onboarding — his client-side gateway bypass is gone (mirrors the server-side
-  // TEMPORARY_BYPASS_LOCK_EMAILS removal), so he navigates as a real GP.
+  // No temporary tester digests are active. Khaleed's "crypto" digests were
+  // removed 2026-07-24; the Smith Miller tester digest was removed 2026-09-02
+  // (owner): the recreated test account must live the REAL new-GP experience —
+  // position-first stage locks, the mandatory walkthrough, ID verification.
   // { "<sha256 hex of lowercase email>": "<expiry ISO timestamp>" }
-  var TEMPORARY_BYPASS_LOCK_DIGESTS = {
-    "f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59.000Z"
-  };
+  var TEMPORARY_BYPASS_LOCK_DIGESTS = {};
   var DIGEST_MATCH_CACHE_KEY = "gp_bypass_digest_match";
 
   function getCurrentBypassEmail() {

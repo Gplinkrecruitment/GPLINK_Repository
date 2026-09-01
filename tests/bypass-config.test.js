@@ -14,9 +14,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_PATH = path.join(__dirname, '..', 'js', 'bypass-config.js');
 const source = readFileSync(SOURCE_PATH, 'utf8');
 
-const BYPASS_EMAIL = 'smithmiller1234@gmail.com';
-const EXPECTED_DIGEST = 'f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e';
-const EXPIRY = '2026-09-30T23:59:59.000Z';
+// The SHIPPED digest map is empty (owner 2026-09-02: the test account lives
+// the real new-GP experience, gateways included). The machinery still has to
+// work for any FUTURE temporary bypass, so these tests inject a synthetic
+// fixture entry into the source before running it.
+const BYPASS_EMAIL = 'bypass-machinery-fixture@example.com';
+const EXPECTED_DIGEST = createHash('sha256').update(BYPASS_EMAIL).digest('hex');
+const EXPIRY = '2027-01-31T23:59:59.000Z';
+const EMPTY_MAP = 'var TEMPORARY_BYPASS_LOCK_DIGESTS = {}';
+const fixtureSource = source.replace(
+  EMPTY_MAP,
+  'var TEMPORARY_BYPASS_LOCK_DIGESTS = { "' + EXPECTED_DIGEST + '": "' + EXPIRY + '" }'
+);
 
 function sha256Hex(text) {
   return createHash('sha256').update(text).digest('hex');
@@ -49,7 +58,7 @@ function runBypassConfig({ email, nowIso, localStorageSeed = {} } = {}) {
   sandbox.window.crypto = globalThis.crypto; // Node 20 WebCrypto (crypto.subtle)
   if (email) sandbox.window.gpSessionProfile = { email };
   vm.createContext(sandbox);
-  vm.runInContext(source, sandbox, { filename: 'bypass-config.js' });
+  vm.runInContext(fixtureSource, sandbox, { filename: 'bypass-config.js' });
   return { sandbox, localStorage };
 }
 
@@ -63,9 +72,11 @@ async function waitFor(predicate, timeoutMs = 2000) {
 }
 
 describe('bypass-config hashed allowlist', () => {
-  it('contains no plaintext personal email, and the embedded digest equals sha256 of it', () => {
-    expect(source).not.toContain(BYPASS_EMAIL);
-    expect(source).toContain(EXPECTED_DIGEST);
+  it('ships an EMPTY temporary digest map and no plaintext personal email', () => {
+    expect(source).toContain(EMPTY_MAP);
+    expect(source).not.toContain('@gmail.com');
+    // The machinery tests below run on an injected fixture entry:
+    expect(fixtureSource).toContain(EXPECTED_DIGEST);
     expect(sha256Hex(BYPASS_EMAIL)).toBe(EXPECTED_DIGEST);
   });
 
@@ -82,7 +93,7 @@ describe('bypass-config hashed allowlist', () => {
   });
 
   it('reports the bypass as inactive after the expiry date', async () => {
-    const { sandbox } = runBypassConfig({ email: BYPASS_EMAIL, nowIso: '2026-10-01T00:00:00.000Z' });
+    const { sandbox } = runBypassConfig({ email: BYPASS_EMAIL, nowIso: '2027-02-01T00:00:00.000Z' });
     const defined = await waitFor(() => Object.prototype.hasOwnProperty.call(sandbox.BYPASS_LOCK_EMAILS, BYPASS_EMAIL));
     expect(defined).toBe(true);
     expect(sandbox.BYPASS_LOCK_EMAILS[BYPASS_EMAIL]).toBe(false);

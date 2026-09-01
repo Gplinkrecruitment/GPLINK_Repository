@@ -65,7 +65,7 @@
     return out;
   }
 
-  function guarded() {
+  function guarded(ignorePendingMatchCheck) {
     // Onboarding gateway owns the screen (nav chrome is hidden and the index
     // frame is about to redirect to /pages/onboarding) — never tour over it.
     try { if (localStorage.getItem('gp_onboarding_complete') !== 'true') return true; } catch (e) {}
@@ -83,7 +83,12 @@
     // block while it is still PENDING too — otherwise the coach can win the
     // race and be on screen before the popup mounts.
     if (document.documentElement.classList.contains('gpmp-open')) return true;
-    if (window.gpMatchCheck && window.gpMatchCheck.pending === true) return true;
+    // ignorePendingMatchCheck: after runTour's wait ceiling the check is
+    // TREATED as settled-no-match rather than allowed to eat the mandatory
+    // tour (owner report 2026-09-02: a brand-new doctor's first visit lost
+    // the tour entirely). A popup actually ON SCREEN still blocks via the
+    // gpmp-open class above.
+    if (!ignorePendingMatchCheck && window.gpMatchCheck && window.gpMatchCheck.pending === true) return true;
     if (C && C.isActive && C.isActive()) return true;
     return false;
   }
@@ -256,7 +261,7 @@
     }, delay || 600);
   }
 
-  function runTour() {
+  function runTour(afterMatchWait) {
     if (!C || !S || C.isActive()) return;
     // js/match-popup.js is still asking whether this doctor has a match. On a
     // fresh sign-in /api/state answers from the auth pre-warm cache, so the
@@ -266,15 +271,21 @@
     // doctor is owed the tour on (owner report 2026-09-01). Wait for the
     // answer like scheduleNextStepPointer does, ceiling included, then
     // re-check every guard at the real fire time.
-    if (window.gpMatchCheck && window.gpMatchCheck.pending === true) {
-      if (tourWaitedForMatch) return; // hung check — give up unmarked, the tour re-arms next boot
+    if (!afterMatchWait && window.gpMatchCheck && window.gpMatchCheck.pending === true) {
+      if (tourWaitedForMatch) return; // a second waiter is already queued
       tourWaitedForMatch = true;
       var settled = false;
       var go = function () {
         if (settled) return;
         settled = true;
         window.removeEventListener('gp-match-check-done', go);
-        runTour();
+        // Owner 2026-09-02: the old path gave up here when the check was
+        // still pending, and a brand-new doctor's first visit lost the
+        // MANDATORY tour entirely ("re-arms next boot" is worthless on the
+        // one visit that matters). After the ceiling the check is treated
+        // as settled-no-match; an actual popup on screen still blocks via
+        // gpmp-open inside guarded().
+        runTour(true);
       };
       window.addEventListener('gp-match-check-done', go);
       setTimeout(go, 4000);
@@ -283,7 +294,7 @@
     // tryAuto arms this via setTimeout — the screen can be taken over inside
     // that window (e.g. the frame redirects to the onboarding gateway), so
     // re-check the guards at fire time, not just at decision time.
-    if (guarded()) return;
+    if (guarded(afterMatchWait === true)) return;
     var steps = buildSteps();
     if (!steps.length) return;
     // First real run is MANDATORY (owner rule, 2026-09-01): no Skip, no Escape.
@@ -338,7 +349,19 @@
     if (ranAuto || !homeLoaded || !hydrated) return;
     if (guarded()) return;
     ranAuto = true; // decide exactly once (transient guards no longer consume the one shot)
-    if (S.shouldRunTour(readState())) { setTimeout(runTour, 350); return; } // new users only
+    if (S.shouldRunTour(readState())) {
+      setTimeout(runTour, 350);
+      // Same-visit watchdog (owner 2026-09-02): if ANY transient state ate
+      // the attempt above, the mandatory tour tries once more THIS visit —
+      // never deferred to a next boot a new doctor may not make. runTour
+      // re-checks every real guard; C.isActive() makes this a no-op when the
+      // tour (or its finale) is already on screen, and shouldRunTour makes it
+      // a no-op once done.
+      setTimeout(function () {
+        if (S.shouldRunTour(readState()) && C && !C.isActive()) runTour(true);
+      }, 8000);
+      return;
+    } // new users only
     // Tour finished on an earlier boot but the "start here" pointer is still
     // pending (Escape/Skip last time) — run it once this boot.
     scheduleNextStepPointer(600);
@@ -361,4 +384,17 @@
 
   window.gpWalkthroughShell = { runTour: runTour, runNextStepPointer: runNextStepPointer };
   tryAuto();
+  // Boot watchdog (owner 2026-09-02): the arming events (state hydrate, home
+  // frame load) are {once:true} — if this script lost the race to their
+  // dispatch, nothing would ever arm and a brand-new doctor's first visit
+  // silently lost the mandatory tour. Force one evaluation; guarded() still
+  // vetoes the onboarding gateway, restricted mode and a live match popup,
+  // and ranAuto keeps this a no-op when the normal path already ran.
+  setTimeout(function () {
+    if (!ranAuto && S && S.shouldRunTour(readState())) {
+      homeLoaded = true;
+      hydrated = true;
+      tryAuto();
+    }
+  }, 7000);
 })();
