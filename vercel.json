@@ -128,6 +128,14 @@
     {
       "path": "/api/cron/performers-mirror-sync",
       "schedule": "10 5 * * *"
+    },
+    {
+      "path": "/api/cron/dropoff-nudge",
+      "schedule": "40 * * * *"
+    },
+    {
+      "path": "/api/cron/doc-ai-review",
+      "schedule": "*/10 * * * *"
     }
   ],
   "builds": [

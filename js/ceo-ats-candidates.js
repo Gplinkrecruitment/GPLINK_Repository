@@ -651,6 +651,11 @@
       '<div class="ats-doc-chips">' +
         '<span class="ats-doc-chip ' + (docs.cv ? 'yes' : '') + '">CV ' + (docs.cv ? '✓' : '✗') + '</span>' +
         '<span class="ats-doc-chip ' + (docs.coverLetter ? 'yes' : '') + '">Cover ' + (docs.coverLetter ? '✓' : '✗') + '</span>' +
+        // Owner rule 2026-09-01: a doctor whose documents the AI could not
+        // decide must be visibly flagged on their profile row.
+        (c.doc_reviews_pending > 0
+          ? '<span class="ats-pill red" title="Documents waiting on a manual review">Docs · ' + c.doc_reviews_pending + ' to review</span>'
+          : '') +
       '</div>' +
       '</div>' +
       strips +

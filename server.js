@@ -232,6 +232,8 @@ aiTextSafety.installAnthropicRequestGuard(globalThis);
 const agreementVariants = require('./lib/agreement-variants.js');
 const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
 const onboardingNudge = require('./lib/onboarding-nudge.js');
+const dropoffNudges = require('./lib/dropoff-nudges.js');
+const docAiReview = require('./lib/doc-ai-review.js');
 var consultLead = require('./lib/consult-lead.js');
 var consultWhatsapp = require('./lib/consult-whatsapp.js');
 var matchWhatsapp = require('./lib/match-whatsapp.js');
@@ -10287,6 +10289,11 @@ const CRON_SCHEDULES = {
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'consult-nudge': { schedule: '20 * * * *', cadenceMinutes: 60 },
+  // Post-onboarding drop-off chase (career_start / career_cv), both channels.
+  'dropoff-nudge': { schedule: '40 * * * *', cadenceMinutes: 60 },
+  // Automatic AI document review — decides uploaded qualification docs,
+  // routes only no-verdict cases to a person (CEO dashboard alert).
+  'doc-ai-review': { schedule: '*/10 * * * *', cadenceMinutes: 10 },
   'reconcile-doc-tasks': { schedule: '30 * * * *', cadenceMinutes: 60 },
   'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
@@ -20856,6 +20863,86 @@ async function maybeSendConsultWa(row, kind, extra) {
 
 // Stamp a terminal onboarding-pass marker (completed / window_passed / …) so the
 // cron never re-examines this lead. Distinct from a sent marker: value records why.
+// ── Drop-off nudge ledger + WhatsApp leg (owner rules, 2026-09-01) ──
+// One nudge per drop-off point per GP per channel, forever. The ledger is the
+// gp_nudge_log table (unique on user_id + nudge_key + channel), so a manual
+// send, the onboarding cron's WhatsApp leg and the dropoff-nudge cron can never
+// double-message the same doctor about the same point.
+async function hasDropoffNudge(userId, nudgeKey, channel) {
+  const r = await supabaseDbRequest('gp_nudge_log',
+    'select=id&user_id=eq.' + encodeURIComponent(userId)
+    + '&nudge_key=eq.' + encodeURIComponent(nudgeKey)
+    + '&channel=eq.' + encodeURIComponent(channel) + '&limit=1');
+  return !!(r.ok && Array.isArray(r.data) && r.data.length);
+}
+
+async function logDropoffNudge(userId, nudgeKey, channel) {
+  try {
+    await supabaseDbRequest('gp_nudge_log', '', {
+      method: 'POST',
+      body: { user_id: userId, nudge_key: nudgeKey, channel: channel }
+    });
+  } catch (e) { /* unique-index dupes are fine — the send already happened */ }
+}
+
+// Sends the approved WhatsApp template for a drop-off point, once ever.
+// Fail-soft like every DoubleTick sender: an unapproved template, missing
+// phone or DT outage skips quietly and the point stays eligible next run.
+async function maybeSendDropoffWa(userId, fullName, nudgeKey) {
+  try {
+    const tpl = dropoffNudges.WA_TEMPLATES[nudgeKey];
+    if (!tpl || !userId) return { ok: false, skipped: 'no_template' };
+    if (await hasDropoffNudge(userId, nudgeKey, 'whatsapp')) return { ok: false, skipped: 'already_sent' };
+    const phone = await getGpWhatsAppPhone(userId);
+    if (!phone) return { ok: false, skipped: 'no_phone' };
+    const cleanName = String(fullName || '').trim();
+    const first = cleanName.split(/\s+/)[0] || 'Doctor';
+    // Only set the DoubleTick contact name with a FULL name — the API
+    // overwrites unconditionally and must never downgrade a named contact.
+    if (cleanName.indexOf(' ') > 0) { try { await ensureDoubleTickContactName(phone, cleanName); } catch (e) {} }
+    const sendRes = await sendConsultWhatsAppTemplate(phone, { templateName: tpl, placeholders: [first] });
+    if (sendRes && sendRes.ok) {
+      await logDropoffNudge(userId, nudgeKey, 'whatsapp');
+      return { ok: true };
+    }
+    return { ok: false, skipped: (sendRes && sendRes.reason) || 'send_failed' };
+  } catch (e) {
+    console.error('[DropoffNudge] WA send error:', e && e.message);
+    return { ok: false, skipped: 'error' };
+  }
+}
+
+// Email counterpart for the careers-side drop-off points. Marketing category
+// on purpose: suppression-list filtering + an automatic one-click unsubscribe
+// header, exactly like the consult funnel emails. Also honours the GP's own
+// in-app "email nudges" preference.
+async function maybeSendDropoffEmail(userId, email, firstName, nudgeKey) {
+  try {
+    if (!userId || !email) return { ok: false, skipped: 'no_email' };
+    if (await hasDropoffNudge(userId, nudgeKey, 'email')) return { ok: false, skipped: 'already_sent' };
+    const pref = await allowsNonCriticalNotification(email, 'emailNudges');
+    if (pref && pref.optedOut) return { ok: false, skipped: 'opted_out' };
+    const mail = dropoffNudges.buildDropoffEmail(nudgeKey, { firstName: firstName, appBaseUrl: APP_BASE_URL });
+    if (!mail) return { ok: false, skipped: 'no_copy' };
+    const sendRes = await sendEmail({
+      to: email,
+      subject: mail.subject,
+      html: buildCareerEmailHtml({ title: mail.title, body: mail.body, ctaText: mail.ctaText, ctaUrl: mail.ctaUrl, footer: '' }),
+      text: mail.subject + '\n\n' + mail.body + '\n\n' + mail.ctaText + ': ' + mail.ctaUrl,
+      category: 'marketing'
+    });
+    if (sendRes && (sendRes.ok || sendRes.id)) {
+      await logDropoffNudge(userId, nudgeKey, 'email');
+      return { ok: true };
+    }
+    if (sendRes && sendRes.suppressed) return { ok: false, skipped: 'suppressed' };
+    return { ok: false, skipped: 'send_failed' };
+  } catch (e) {
+    console.error('[DropoffNudge] email send error:', e && e.message);
+    return { ok: false, skipped: 'error' };
+  }
+}
+
 async function markConsultWaOnboardingResolved(row, value) {
   try {
     const consult = row.metadata.consult;
@@ -33018,8 +33105,16 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
 
     var storagePath = doc.storage_path || doc.file_url || '';
     if (!storagePath) return;
-    var fileBuffer = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
-    if (!fileBuffer) return;
+    // supabaseStorageDownloadObject returns a {buffer, mimeType} WRAPPER, not the
+    // raw bytes. Passing the wrapper on made buildQualContentBlock base64 the
+    // string "[object Object]" and classifyDocumentWithAI fail its
+    // Buffer.isBuffer branch — every automatic decision died as a technicalError
+    // and everything fell to manual review. Unwrap once here and prefer the
+    // storage content-type, exactly like the reliable ai-scan endpoint does.
+    var dlObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
+    if (!dlObj || !dlObj.buffer) return;
+    var fileBuffer = dlObj.buffer;
+    mimeType = dlObj.mimeType || mimeType || doc.mime_type || '';
 
     if (QUALIFICATION_DOC_KEYS.has(documentKey)) {
       var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
@@ -42580,6 +42675,7 @@ async function handleApi(req, res, pathname) {
       var ONB_CRON_TIME_BUDGET_MS = 45000;
       var onbPartial = false;
       var onbScanned = 0, onbCreated = 0, onbSent = 0, onbReset = 0, onbStopped = 0, onbSkipped = 0;
+      var onbWaSent = 0; // WhatsApp leg (owner 2026-09-01): capped like consult-nudge's WA pass
 
       // 1) Candidate GPs: incomplete onboarding, active account, not staff.
       //    { userId, email, name, country, lastActiveMs, lastStep, completed }
@@ -42643,6 +42739,15 @@ async function handleApi(req, res, pathname) {
               last_sent_at: new Date().toISOString()
             });
             onbSent++;
+            // WhatsApp leg (owner 2026-09-01): the email drip already covers the
+            // email channel; this adds ONE WhatsApp per drop-off point (start /
+            // plan-your-move / identity), only after 24h+ away, deduped forever
+            // via gp_nudge_log. Fail-soft: no phone or DT outage skips quietly.
+            if (onbWaSent < 15 && onbInactivity >= dropoffNudges.ONBOARDING_WA_AFTER_MS) {
+              var onbWaKey = dropoffNudges.onboardingStepNudgeKey(onbG.lastStep);
+              var onbWaRes = await maybeSendDropoffWa(onbG.userId, onbG.name || '', onbWaKey);
+              if (onbWaRes && onbWaRes.ok) onbWaSent++;
+            }
           } else if (onbSendRes && onbSendRes.optedOut) {
             // GP turned nudge emails off in account preferences — a silent,
             // expected skip (not an error). Leave steps_sent untouched so the
@@ -42660,11 +42765,280 @@ async function handleApi(req, res, pathname) {
         }
       }
 
-      console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', reset ' + onbReset + ', stopped ' + onbStopped + (onbPartial ? ', PARTIAL (time-boxed)' : ''));
-      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned });
+      console.log('[OnbNudge/Cron] scanned ' + onbScanned + ', created ' + onbCreated + ', sent ' + onbSent + ', wa ' + onbWaSent + ', reset ' + onbReset + ', stopped ' + onbStopped + (onbPartial ? ', PARTIAL (time-boxed)' : ''));
+      sendJson(res, 200, { ok: true, scanned: onbScanned, created: onbCreated, sent: onbSent, wa_sent: onbWaSent, reset: onbReset, stopped: onbStopped, skipped: onbSkipped, partial: onbPartial, processed: onbScanned });
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
       await respondServerError(res, onbErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // ── Post-onboarding drop-off nudges (owner rules, 2026-09-01) ──
+  // The onboarding drip above stops the moment onboarding completes; nothing
+  // used to chase a doctor who finished onboarding and then never looked at
+  // positions or never uploaded a CV. This cron closes that gap with BOTH
+  // channels (email + approved WhatsApp template), once per drop-off point per
+  // GP forever (gp_nudge_log). Placed doctors and doctors with any application
+  // are never nudged; staff, test bypass accounts and archived accounts are
+  // excluded.
+  if (req.method === 'GET' && pathname === '/api/cron/dropoff-nudge') {
+    var dnSecret = String(process.env.CRON_SECRET || '').trim();
+    var dnAuth = req.headers['authorization'] || '';
+    if (!dnSecret || dnAuth !== 'Bearer ' + dnSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var dnStart = Date.now();
+      var DN_TIME_BUDGET_MS = 45000;
+      var DN_SEND_CAP = 15; // per channel per run — the rest catch up next hour
+      var dnScanned = 0, dnEmailSent = 0, dnWaSent = 0, dnSkipped = 0, dnPartial = false;
+
+      var dnProfRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,email,first_name,last_name,onboarding_completed_at,account_status'
+        + '&onboarding_completed_at=not.is.null&account_status=eq.active&limit=5000');
+      var dnProfiles = (dnProfRes.ok && Array.isArray(dnProfRes.data)) ? dnProfRes.data : [];
+      var dnAdmins = await getAdminUserIdSet();
+      dnProfiles = dnProfiles.filter(function (p) {
+        if (!p.user_id || !p.email) return false;
+        if (dnAdmins.has(String(p.user_id))) return false;
+        if (isBypassLockEmail(p.email)) return false; // test accounts never get nudges
+        return true;
+      });
+
+      var dnUids = dnProfiles.map(function (p) { return p.user_id; });
+      var dnHasApp = {}, dnPlaced = {}, dnHasCv = {}, dnSentKeys = {};
+      for (var dni = 0; dni < dnUids.length; dni += 200) {
+        var dnChunk = dnUids.slice(dni, dni + 200);
+        var dnList = dnChunk.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+        var dnAppsRes = await supabaseDbRequest('gp_applications',
+          'select=user_id,status,ats_stage&user_id=in.(' + encodeURIComponent(dnList) + ')&limit=2000');
+        ((dnAppsRes.ok && dnAppsRes.data) || []).forEach(function (a) {
+          dnHasApp[a.user_id] = true;
+          if (isCareerPlacementSecuredStatus(a.status) || String(a.ats_stage || '').toLowerCase() === 'hired') dnPlaced[a.user_id] = true;
+        });
+        var dnCvRes = await supabaseDbRequest('user_documents',
+          'select=user_id,document_key&document_key=in.(career_cv,cv_signed_dated)&user_id=in.(' + encodeURIComponent(dnList) + ')&limit=2000');
+        ((dnCvRes.ok && dnCvRes.data) || []).forEach(function (d) { dnHasCv[d.user_id] = true; });
+        var dnLogRes = await supabaseDbRequest('gp_nudge_log',
+          'select=user_id,nudge_key,channel&user_id=in.(' + encodeURIComponent(dnList) + ')&limit=4000');
+        ((dnLogRes.ok && dnLogRes.data) || []).forEach(function (l) {
+          var m = dnSentKeys[l.user_id] || (dnSentKeys[l.user_id] = {});
+          m[l.nudge_key + ':' + l.channel] = true;
+        });
+      }
+
+      var dnNow = Date.now();
+      for (var dnpi = 0; dnpi < dnProfiles.length; dnpi++) {
+        if (Date.now() - dnStart > DN_TIME_BUDGET_MS) { dnPartial = true; break; }
+        if (dnEmailSent >= DN_SEND_CAP && dnWaSent >= DN_SEND_CAP) break;
+        var dnP = dnProfiles[dnpi];
+        dnScanned++;
+        var dnSentMap = dnSentKeys[dnP.user_id] || {};
+        var dnKey = dropoffNudges.postOnboardingNudgeDecision({
+          onboardingCompletedAtMs: dnP.onboarding_completed_at ? new Date(dnP.onboarding_completed_at).getTime() : 0,
+          hasApplication: !!dnHasApp[dnP.user_id],
+          hasCv: !!dnHasCv[dnP.user_id],
+          placed: !!dnPlaced[dnP.user_id],
+          nowMs: dnNow,
+          sent: {
+            career_start: !!(dnSentMap['career_start:email'] || dnSentMap['career_start:whatsapp']),
+            career_cv: !!(dnSentMap['career_cv:email'] || dnSentMap['career_cv:whatsapp'])
+          }
+        });
+        if (!dnKey) { continue; }
+        var dnFirst = String(dnP.first_name || '').trim();
+        var dnFull = [dnP.first_name, dnP.last_name].filter(Boolean).join(' ').trim();
+        if (dnEmailSent < DN_SEND_CAP && !dnSentMap[dnKey + ':email']) {
+          var dnEmailRes = await maybeSendDropoffEmail(dnP.user_id, dnP.email, dnFirst, dnKey);
+          if (dnEmailRes && dnEmailRes.ok) dnEmailSent++; else dnSkipped++;
+        }
+        if (dnWaSent < DN_SEND_CAP && !dnSentMap[dnKey + ':whatsapp']) {
+          var dnWaRes = await maybeSendDropoffWa(dnP.user_id, dnFull, dnKey);
+          if (dnWaRes && dnWaRes.ok) dnWaSent++;
+        }
+      }
+
+      console.log('[DropoffNudge/Cron] scanned ' + dnScanned + ', email ' + dnEmailSent + ', wa ' + dnWaSent + ', skipped ' + dnSkipped + (dnPartial ? ', PARTIAL' : ''));
+      sendJson(res, 200, { ok: true, scanned: dnScanned, email_sent: dnEmailSent, wa_sent: dnWaSent, skipped: dnSkipped, partial: dnPartial });
+    } catch (dnErr) {
+      console.error('[Cron] dropoff-nudge failed:', dnErr);
+      await respondServerError(res, dnErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // ── Automatic AI document review (owner rule, 2026-09-01) ──
+  // The AI decides every uploaded qualification document unless it cannot come
+  // to a verdict; only no-verdict cases stay with a person, and those light up
+  // the CEO dashboard (tab dot + per-doctor chip counting open doc_review /
+  // flagged_doc tasks). Runs every 10 minutes, deciding a few documents per
+  // run inside a strict time box — the upload path's own fire-and-forget scan
+  // rarely survives serverless, so this sweep is the reliable decider. One
+  // automatic attempt per document (ai_review_state marks the outcome); staff
+  // can always re-run the scan from the review modal.
+  if (req.method === 'GET' && pathname === '/api/cron/doc-ai-review') {
+    var darSecret = String(process.env.CRON_SECRET || '').trim();
+    var darAuth = req.headers['authorization'] || '';
+    if (!darSecret || darAuth !== 'Bearer ' + darSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (String(process.env.DOC_AI_REVIEW_DISABLED || '').trim().toLowerCase() === 'true') {
+      sendJson(res, 200, { ok: true, disabled: true }); return;
+    }
+    try {
+      var darStart = Date.now();
+      var DAR_TIME_BUDGET_MS = 50000;
+      var DAR_CAP = 4; // AI calls per run — 10-min schedule clears backlogs fast enough
+      var darApproved = 0, darRejected = 0, darManual = 0, darErrors = 0, darScanned = 0;
+
+      var darRowsRes = await supabaseDbRequest('user_documents',
+        'select=id,user_id,document_key,country_code,status,mime_type,storage_path,file_url,created_at'
+        + '&status=in.(uploaded,under_review)&ai_review_state=is.null&reviewed_by=is.null'
+        + '&order=created_at.asc&limit=60');
+      var darRows = ((darRowsRes.ok && darRowsRes.data) || []).filter(function (d) {
+        return d && d.document_key && isQualificationDocKey(d.document_key);
+      });
+      var darAdmins = await getAdminUserIdSet();
+      var darCountryMap = { uk: 'GB', gb: 'GB', ie: 'IE', nz: 'NZ' };
+
+      for (var dari = 0; dari < darRows.length; dari++) {
+        if (Date.now() - darStart > DAR_TIME_BUDGET_MS) break;
+        if (darScanned >= DAR_CAP) break;
+        var darDoc = darRows[dari];
+        var darUid = darDoc.user_id;
+        var darSetState = async function (state) {
+          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
+            method: 'PATCH', body: { ai_review_state: state, updated_at: new Date().toISOString() }
+          });
+        };
+        if (!darUid || darAdmins.has(String(darUid))) { await darSetState('skipped_staff'); continue; }
+
+        var darLabel = getDocumentLabelForKey(canonicalQualKey(darDoc.document_key)) || getDocumentLabelForKey(darDoc.document_key) || darDoc.document_key;
+        var darStage = String(darDoc.document_key).indexOf('onboarding_') === 0 ? 'onboarding' : '';
+        var darPath = darDoc.storage_path || darDoc.file_url || '';
+        if (!darPath) {
+          await darSetState('no_file');
+          await ensureDocReviewOnUpload(darUid, darDoc.document_key, darLabel, darStage);
+          darManual++;
+          continue;
+        }
+        darScanned++;
+
+        var darDl = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, darPath);
+        if (!darDl || !darDl.buffer) {
+          await darSetState('error_download');
+          await ensureDocReviewOnUpload(darUid, darDoc.document_key, darLabel, darStage);
+          darErrors++;
+          continue;
+        }
+
+        var darProfRes = await supabaseDbRequest('user_profiles',
+          'select=first_name,last_name&user_id=eq.' + encodeURIComponent(darUid) + '&limit=1');
+        var darProf = (darProfRes.ok && Array.isArray(darProfRes.data) && darProfRes.data[0]) ? darProfRes.data[0] : {};
+        var darProfileName = [darProf.first_name, darProf.last_name].filter(Boolean).join(' ').trim();
+        var darCc = String(darDoc.country_code || '').toLowerCase();
+        var darExpectedCountry = darCountryMap[darCc] || (darCc ? darCc.toUpperCase() : 'any');
+        var darRequireCert = isCertificationRequiredDocKey(darDoc.document_key) && !isOnboardingCollectedDoc(darDoc.document_key, darStage);
+
+        var darBlock = buildQualContentBlock(darDl.buffer, darDl.mimeType || darDoc.mime_type || '');
+        var darVres = await verifyQualificationDocument({
+          contentBlock: darBlock,
+          documentType: darLabel,
+          expectedCountry: darExpectedCountry,
+          profileName: darProfileName,
+          verifiedNames: [],
+          requireCertification: darRequireCert
+        }).catch(function (e) { return { ok: false, message: e && e.message }; });
+
+        var darScan;
+        if (darVres && darVres.ok && darVres.verification) {
+          var darV = darVres.verification;
+          darScan = {
+            verified: darV.verified === true,
+            legible: darV.legible !== false,
+            nameMatch: darV.nameMatch,
+            nameChange: darV.nameChange === true,
+            requiresCertification: darRequireCert,
+            certified: darRequireCert ? (darV.certified === true) : null,
+            documentType: darV.documentType || '',
+            expectedLabel: darLabel,
+            technicalError: false
+          };
+          // A recognised NAME CHANGE is never a mismatch — record it on the
+          // profile (mirrors processDocumentUpload) and let the verdict stand.
+          if (darScan.nameChange) {
+            darScan.nameMatch = 'match';
+            await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(darUid), {
+              method: 'PATCH',
+              body: { name_change_detected: true, name_change_note: 'Document name: ' + (darV.nameFound || ''), updated_at: new Date().toISOString() }
+            }).catch(function () {});
+          }
+        } else {
+          darScan = { technicalError: true, expectedLabel: darLabel };
+        }
+
+        var darDecision = docAiReview.docAiReviewDecision(darScan);
+        var darNowIso = new Date().toISOString();
+
+        if (darDecision.action === 'approve') {
+          var darDriveId = '';
+          try { darDriveId = await uploadDocumentToDrive(darUid, darDoc, darDl.buffer, darDl.mimeType || darDoc.mime_type) || ''; } catch (e) {}
+          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
+            method: 'PATCH',
+            body: {
+              status: 'approved', reviewed_by: 'ai_auto', reviewed_at: darNowIso,
+              google_drive_file_id: darDriveId, rejection_reason: '',
+              ai_classification_result: darScan.documentType || '',
+              ai_review_state: 'auto_approved', updated_at: darNowIso
+            }
+          });
+          await autoCloseDocReviewTask(darUid, darDoc.document_key);
+          try { await sendDocumentApprovedEmail(darUid, darLabel); } catch (e) {}
+          await pushDocumentNotificationToUser(darUid, {
+            type: 'success', title: darLabel + ' approved',
+            detail: 'Your ' + darLabel + ' has been checked and approved.'
+          });
+          darApproved++;
+        } else if (darDecision.action === 'reject') {
+          var darReason = docAiReview.rejectionMessageFor(darDecision.reason, darLabel, darScan.documentType);
+          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
+            method: 'PATCH',
+            body: {
+              status: 'rejected', reviewed_by: 'ai_auto', reviewed_at: darNowIso,
+              rejection_reason: darReason,
+              ai_classification_result: darScan.documentType || '',
+              ai_review_state: 'auto_rejected', updated_at: darNowIso
+            }
+          });
+          await autoCloseDocReviewTask(darUid, darDoc.document_key);
+          // Onboarding-origin documents re-upload in the WIZARD, not My
+          // Documents (same routing as the human reject path).
+          var darTarget = (darStage === 'onboarding' ? '/pages/onboarding.html' : '/pages/my-documents.html')
+            + '?reupload=' + encodeURIComponent(canonicalQualKey(darDoc.document_key));
+          await pushDocumentNotificationToUser(darUid, {
+            type: 'action', title: darLabel + ' needs attention',
+            detail: darReason, target: darTarget
+          });
+          try {
+            await sendGpNotificationEmail(darUid,
+              'Action needed: re-upload your ' + darLabel + ', GP Link',
+              'Please re-upload your ' + darLabel + ', {{name}}',
+              darReason + '\n\nUpload a corrected copy and we will check it again straight away.',
+              'Re-upload Document', APP_BASE_URL + darTarget, '');
+          } catch (e) {}
+          darRejected++;
+        } else {
+          // No verdict — a person decides. ensureDocReviewOnUpload flips the
+          // document to under_review and creates the queue task (idempotent),
+          // which is exactly what the CEO dashboard's alert dot counts.
+          await darSetState('manual_required');
+          await ensureDocReviewOnUpload(darUid, darDoc.document_key, darLabel, darStage);
+          darManual++;
+        }
+      }
+
+      console.log('[DocAiReview/Cron] scanned ' + darScanned + ', approved ' + darApproved + ', rejected ' + darRejected + ', manual ' + darManual + ', errors ' + darErrors);
+      sendJson(res, 200, { ok: true, scanned: darScanned, approved: darApproved, rejected: darRejected, manual: darManual, errors: darErrors });
+    } catch (darErr) {
+      console.error('[Cron] doc-ai-review failed:', darErr);
+      await respondServerError(res, darErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -72546,6 +72920,13 @@ Return ONLY valid JSON with no markdown formatting:
     // Open tasks scoped to active cases (#6)
     var filteredTasks = tasks.filter(function(t) { return activeCaseIds.has(t.case_id); });
 
+    // CEO alert (owner 2026-09-01): documents waiting on a HUMAN review —
+    // the AI review cron decides everything it can; these are the leftovers.
+    // Zero extra queries: the open-tasks fetch above already carries them.
+    var docReviewsPending = filteredTasks.filter(function(t) {
+      return t.task_type === 'doc_review' || t.task_type === 'flagged_doc';
+    }).length;
+
     // KPIs — computed entirely by lib so card == drilldown (#1,#8,#15,#42)
     var kpi = ceoMetrics.computeKpis({
       cases: cases, allCases: allCasesRaw, tasks: filteredTasks, apps: apps,
@@ -72760,7 +73141,7 @@ Return ONLY valid JSON with no markdown formatting:
       // Live hiring funnel (ATS): all gp_applications counted by ats_stage —
       // rendered under the registration funnel on the CEO Overview.
       ats_funnel: atsPracticeUtil.countAtsStages(apps),
-      blockers: blockers, task_health: taskHealth,
+      blockers: blockers, task_health: taskHealth, doc_reviews_pending: docReviewsPending,
       rso_workload: rsoWorkload, va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
       tickets: ticketStats, completions: completions
     });
@@ -77534,6 +77915,20 @@ Return ONLY valid JSON with no markdown formatting:
       } else if (typeof r.career_locked !== 'boolean') {
         r.career_locked = false;
       }
+    });
+    // CEO alert (owner 2026-09-01): per-GP count of documents sitting with a
+    // human reviewer (open doc_review / flagged_doc tasks). Small global read
+    // (open doc tasks number in the dozens), merged by case_id — same "batch +
+    // merge after the fact" pattern as the velocity/lock merges above. Degrades
+    // to zero when Supabase is absent (local mode) or a row has no case_id.
+    var drTasksRes = await supabaseDbRequest('registration_tasks',
+      'select=case_id&task_type=in.(doc_review,flagged_doc)&status=in.(open,in_progress,waiting)&limit=2000');
+    var drByCase = {};
+    ((drTasksRes.ok && drTasksRes.data) || []).forEach(function (t) {
+      if (t && t.case_id) drByCase[t.case_id] = (drByCase[t.case_id] || 0) + 1;
+    });
+    rows.forEach(function (r) {
+      r.doc_reviews_pending = (r.case_id && drByCase[r.case_id]) || 0;
     });
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
     // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.
