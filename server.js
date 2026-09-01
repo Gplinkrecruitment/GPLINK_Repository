@@ -33230,14 +33230,17 @@ async function processDocumentUpload(userId, documentKey, expectedLabel, country
 
     if (action === 'auto_approve') {
       var driveFileId = await uploadDocumentToDrive(userId, doc, fileBuffer, mimeType || doc.mime_type);
+      // 🧨 reviewed_by is a UUID column — the string 'ai_auto' 22P02s the whole
+      // patch silently. AI attribution lives in ai_review_state / the task's
+      // completed_by instead.
       await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
         method: 'PATCH',
         body: {
           status: 'approved',
-          reviewed_by: 'ai_auto',
           reviewed_at: new Date().toISOString(),
           google_drive_file_id: driveFileId || '',
           rejection_reason: '',
+          ai_review_state: 'auto_approved',
           updated_at: new Date().toISOString()
         }
       });
@@ -42980,15 +42983,30 @@ async function handleApi(req, res, pathname) {
         if (darDecision.action === 'approve') {
           var darDriveId = '';
           try { darDriveId = await uploadDocumentToDrive(darUid, darDoc, darDl.buffer, darDl.mimeType || darDoc.mime_type) || ''; } catch (e) {}
-          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
+          // 🧨 user_documents.reviewed_by is a UUID column — writing the string
+          // 'ai_auto' 22P02s the WHOLE patch silently (bit the very first prod
+          // sweep: tasks closed + doctor emailed, doc left under_review, loop
+          // every 10 min). AI attribution lives in ai_review_state + the task's
+          // completed_by; never put a non-UUID in reviewed_by.
+          var darApprovePatch = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
             method: 'PATCH',
             body: {
-              status: 'approved', reviewed_by: 'ai_auto', reviewed_at: darNowIso,
+              status: 'approved', reviewed_at: darNowIso,
               google_drive_file_id: darDriveId, rejection_reason: '',
               ai_classification_result: darScan.documentType || '',
               ai_review_state: 'auto_approved', updated_at: darNowIso
             }
           });
+          if (!darApprovePatch.ok) {
+            // Never let a failed write loop the sweep (re-scan + re-email every
+            // tick). Stamp the state (a write shape that is known-good) and
+            // route to a person instead.
+            console.error('[DocAiReview/Cron] approve patch FAILED for doc ' + darDoc.id + ' — routing to manual');
+            await darSetState('error_patch');
+            await ensureDocReviewOnUpload(darUid, darDoc.document_key, darLabel, darStage);
+            darErrors++;
+            continue;
+          }
           await autoCloseDocReviewTask(darUid, darDoc.document_key);
           try { await sendDocumentApprovedEmail(darUid, darLabel); } catch (e) {}
           await pushDocumentNotificationToUser(darUid, {
@@ -42998,15 +43016,23 @@ async function handleApi(req, res, pathname) {
           darApproved++;
         } else if (darDecision.action === 'reject') {
           var darReason = docAiReview.rejectionMessageFor(darDecision.reason, darLabel, darScan.documentType);
-          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
+          // reviewed_by deliberately absent — UUID column, see the approve branch.
+          var darRejectPatch = await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(darDoc.id), {
             method: 'PATCH',
             body: {
-              status: 'rejected', reviewed_by: 'ai_auto', reviewed_at: darNowIso,
+              status: 'rejected', reviewed_at: darNowIso,
               rejection_reason: darReason,
               ai_classification_result: darScan.documentType || '',
               ai_review_state: 'auto_rejected', updated_at: darNowIso
             }
           });
+          if (!darRejectPatch.ok) {
+            console.error('[DocAiReview/Cron] reject patch FAILED for doc ' + darDoc.id + ' — routing to manual');
+            await darSetState('error_patch');
+            await ensureDocReviewOnUpload(darUid, darDoc.document_key, darLabel, darStage);
+            darErrors++;
+            continue;
+          }
           await autoCloseDocReviewTask(darUid, darDoc.document_key);
           // Onboarding-origin documents re-upload in the WIZARD, not My
           // Documents (same routing as the human reject path).

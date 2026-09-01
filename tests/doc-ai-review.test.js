@@ -82,9 +82,14 @@ describe('server wiring (source pins)', () => {
   });
   it('no-verdict documents get a review task (the CEO alert counts those tasks)', () => {
     const cron = serverJs.slice(serverJs.indexOf("pathname === '/api/cron/doc-ai-review'"));
-    const block = cron.slice(0, cron.indexOf('[DocAiReview/Cron]'));
+    const block = cron.slice(0, cron.indexOf('[DocAiReview/Cron] scanned '));
     expect(block).toContain("darSetState('manual_required')");
     expect(block).toContain('ensureDocReviewOnUpload(darUid');
+  });
+  it('never writes a non-UUID into user_documents.reviewed_by (the 22P02 that looped the first sweep)', () => {
+    expect(serverJs).not.toContain("reviewed_by: 'ai_auto'");
+    // and a failed decision patch can never loop: it stamps and routes to manual
+    expect(serverJs).toContain("darSetState('error_patch')");
   });
   it('auto-reject routes onboarding documents back to the WIZARD, others to My Documents', () => {
     expect(serverJs).toMatch(/darStage === 'onboarding' \? '\/pages\/onboarding\.html' : '\/pages\/my-documents\.html'/);
