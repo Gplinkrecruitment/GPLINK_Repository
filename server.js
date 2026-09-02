@@ -2063,69 +2063,113 @@ async function getRecordedWebhookEvent(provider, eventId) {
 }
 // ── End Zoom Call Scheduling helpers ──────────────────────
 
+// Deliver a document GP LINK produced into the doctor's My Documents, and mirror it
+// to the case's Google Drive folder (which is what the admin/RSO "Prepared by GP LINK"
+// pack renders its thumbnail, size and Replace button from).
+//
+// Order matters, and it used to be wrong. This wrote the user_documents row FIRST --
+// status 'approved', no storage_path, no file_url, no drive id -- and only attached a
+// pointer afterwards, IF the Drive upload succeeded. uploadToGoogleDrive THROWS on
+// failure and had no try/catch here, so any Drive hiccup escaped this function having
+// already left an "approved" row with no bytes anywhere, and the doctor was emailed
+// about a document that did not exist. Nothing ever retried. That is why Section G had
+// never once been delivered (0 of 2 eligible cases as of 2026-09-02) and why Dr Sana
+// Ahsan's row sat approved-but-empty from 2026-07-08: file_url '', storage_path null,
+// file_size 0, google_drive_file_id ''.
+//
+// Now: the bytes land in Supabase Storage FIRST (a home that does not depend on Google),
+// Drive is a best-effort mirror that can no longer abort the delivery, the row is only
+// written once at least one real pointer exists, and the caller is told via `stored`
+// whether a file actually landed so it can decide whether to mark anything complete.
 async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType, opts) {
-  const results = { userDoc: null, driveFile: null };
+  const results = { userDoc: null, driveFile: null, storagePath: null, stored: false };
+  const _mime = mimeType || 'application/pdf';
+  const _size = (buffer && buffer.length) || 0;
 
-  // 1. Upsert into user_documents
-  const existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
-  const docRecord = {
-    user_id: userId,
-    document_key: docKey,
-    file_name: fileName,
-    status: 'approved',
-    reviewed_at: new Date().toISOString()
-  };
-  if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
-    await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: docRecord });
-    results.userDoc = existing.data[0].id;
-  } else {
-    // `return=representation` matters: without it PostgREST answers 201 with an
-    // empty body, results.userDoc stays null, and the Drive write-back below
-    // silently has nothing to attach itself to.
-    const ins = await supabaseDbRequest('user_documents', '', {
-      method: 'POST', body: [docRecord], headers: { Prefer: 'return=representation' }
-    });
-    if (ins.ok && Array.isArray(ins.data) && ins.data[0]) results.userDoc = ins.data[0].id;
-    if (!results.userDoc) {
-      // Insert succeeded but told us nothing — re-read so the write-back still lands.
-      const reRead = await supabaseDbRequest('user_documents',
-        'select=id&user_id=eq.' + encodeURIComponent(userId) +
-        '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
-      if (reRead.ok && Array.isArray(reRead.data) && reRead.data[0]) results.userDoc = reRead.data[0].id;
-    }
-  }
-
-  // 2. Upload to Google Drive
-  const folderId = await ensureGPDriveFolder(caseId, null, null);
-  if (folderId && buffer) {
-    const driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, mimeType || 'application/pdf');
-    if (driveFile) {
-      results.driveFile = driveFile.id;
-      // Record WHERE the bytes actually are. The row above carries NO pointer of
-      // its own (no storage_path, no file_url), so without this write-back
-      // /api/gplink-docs-status walks its drive_file_id → file_url → hardcoded
-      // '/documents/section_g.pdf' chain and hands the doctor SECTION G in place
-      // of the document we just delivered. Hit live on Dr Sana Ahsan's SPPA-00
-      // (2026-08-31); Dr Smith Miller's June delivery had the same empty row.
-      if (results.userDoc) {
-        await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(results.userDoc), {
-          method: 'PATCH',
-          body: {
-            google_drive_file_id: driveFile.id,
-            mime_type: mimeType || 'application/pdf',
-            file_size: (buffer && buffer.length) || 0,
-            updated_at: new Date().toISOString()
-          }
-        });
+  // 1. Durable copy first.
+  let storagePath = null;
+  if (_size && isSupabaseDbConfigured()) {
+    const _candidate = buildDeliveredDocumentStoragePath(userId, docKey);
+    try {
+      if (await supabaseStorageUploadBuffer(SUPABASE_DOCUMENT_BUCKET, _candidate, buffer, _mime)) {
+        storagePath = _candidate;
       }
-      // File into its document-type subfolder (best-effort).
-      fileDocOnDrive(caseId, docKey, driveFile.id).catch(function () {});
+    } catch (storageErr) {
+      console.error('[deliverToMyDocuments] storage upload failed for ' + docKey + ':', storageErr && storageErr.message);
     }
   }
+  results.storagePath = storagePath;
 
-  // Notify the GP by email that a document was delivered to their account (best-effort,
-  // deep-linked). Callers can opt out with opts.notifyGp === false.
-  if (!opts || opts.notifyGp !== false) {
+  // 2. Drive mirror -- best effort. uploadToGoogleDrive throws, so it is contained here;
+  //    a Drive outage must not cost the doctor the document itself.
+  let driveFileId = null;
+  if (_size) {
+    try {
+      const folderId = await ensureGPDriveFolder(caseId, null, null);
+      if (folderId) {
+        const driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, _mime);
+        if (driveFile && driveFile.id) {
+          driveFileId = driveFile.id;
+          // File into its document-type subfolder (best-effort).
+          fileDocOnDrive(caseId, docKey, driveFile.id).catch(function () {});
+        }
+      }
+    } catch (driveErr) {
+      console.error('[deliverToMyDocuments] Drive upload failed for ' + docKey + ':', driveErr && driveErr.message);
+    }
+  }
+  results.driveFile = driveFileId;
+  results.stored = !!(storagePath || driveFileId);
+
+  // 3. Write the row ONCE, with whatever pointers actually landed. If nothing landed we
+  //    deliberately do not create a row and do not touch an existing one's status --
+  //    an "approved" row with nothing behind it is the exact bug this function had.
+  if (results.stored) {
+    const docRecord = {
+      user_id: userId,
+      document_key: docKey,
+      file_name: fileName,
+      status: 'approved',
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      mime_type: _mime
+    };
+    if (_size) docRecord.file_size = _size;
+    if (storagePath) {
+      // Readers are split between storage_path and file_url (some check one, some the
+      // other), so both carry the path -- same convention as upsertPreparedDocumentRow.
+      docRecord.storage_path = storagePath;
+      docRecord.storage_bucket = SUPABASE_DOCUMENT_BUCKET;
+      docRecord.file_url = storagePath;
+    }
+    if (driveFileId) docRecord.google_drive_file_id = driveFileId;
+
+    const existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+    if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: docRecord });
+      results.userDoc = existing.data[0].id;
+    } else {
+      // `return=representation` matters: without it PostgREST answers 201 with an
+      // empty body and results.userDoc stays null.
+      const ins = await supabaseDbRequest('user_documents', '', {
+        method: 'POST', body: [docRecord], headers: { Prefer: 'return=representation' }
+      });
+      if (ins.ok && Array.isArray(ins.data) && ins.data[0]) results.userDoc = ins.data[0].id;
+      if (!results.userDoc) {
+        const reRead = await supabaseDbRequest('user_documents',
+          'select=id&user_id=eq.' + encodeURIComponent(userId) +
+          '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+        if (reRead.ok && Array.isArray(reRead.data) && reRead.data[0]) results.userDoc = reRead.data[0].id;
+      }
+    }
+  } else {
+    console.error('[deliverToMyDocuments] NOTHING STORED for ' + docKey + ' (user ' + userId + ') -- no row written, delivery reported as failed.');
+  }
+
+  // 4. Notify the GP -- only when a document actually exists to look at. This used to
+  //    fire unconditionally, which is how doctors were emailed "Section G added to your
+  //    documents" about a document that was never delivered.
+  if (results.stored && (!opts || opts.notifyGp !== false)) {
     notifyGpDocumentDelivered(userId, docKey, fileName).catch(function () {});
   }
   return results;
@@ -8612,13 +8656,18 @@ function sanitizeAccountCareerDocumentPayload(body) {
   };
 }
 
-async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType) {
+// Raw-buffer upload. Split out of supabaseStorageUploadObject so callers that
+// already hold the bytes (deliverToMyDocuments, which is handed a Buffer) do not
+// have to base64 them into a data URL just to have it parsed straight back.
+// The timeout is deliberately longer than the data-URL path's 10s: these are
+// multi-MB prepared documents (a scanned SPPA-00 runs to ~4MB), and a timeout
+// here is exactly what used to leave a user_documents row with no bytes behind it.
+async function supabaseStorageUploadBuffer(bucket, objectPath, buffer, mimeType) {
   if (!isSupabaseDbConfigured()) return false;
-  const parsed = parseDataUrlPayload(dataUrl);
-  if (!parsed) return false;
+  if (!buffer || !buffer.length) return false;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
       method: 'POST',
@@ -8626,16 +8675,35 @@ async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        'Content-Type': mimeType || parsed.mimeType || 'application/octet-stream',
+        'Content-Type': mimeType || 'application/octet-stream',
         'x-upsert': 'true'
       },
-      body: parsed.buffer
+      body: buffer
     }).catch(() => null);
 
     return !!(response && response.ok);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType) {
+  if (!isSupabaseDbConfigured()) return false;
+  const parsed = parseDataUrlPayload(dataUrl);
+  if (!parsed) return false;
+  return supabaseStorageUploadBuffer(bucket, objectPath, parsed.buffer, mimeType || parsed.mimeType);
+}
+
+// Where a document GP LINK *delivers* to a doctor lives, as opposed to one she
+// uploads herself (those are keyed by country under prepared-documents/).
+function buildDeliveredDocumentStoragePath(userId, docKey) {
+  return [
+    'users',
+    sanitizeStoragePathSegment(userId, 80),
+    'gplink-delivered',
+    sanitizeStoragePathSegment(docKey, 120),
+    'current'
+  ].join('/');
 }
 
 // Mint a short-lived signed upload URL so the BROWSER can PUT a file straight to
@@ -20243,6 +20311,107 @@ async function _hasCaseSystemEvent(caseId, title) {
 const PRACTICE_PACK_EMAIL_MARKER = 'Practice pack email sent to GP';
 const SECTION_G_DELIVERED_MARKER = 'Section G auto-delivered to MyDocuments and Google Drive';
 
+// ── Section G delivery: shared completion tail + hourly repair ───────────────
+// Section G is the one pack document GP LINK hands over rather than collects, so it
+// has no detail panel and no human owner in the RSO UI — if the automatic delivery
+// misses, nothing and nobody picks it up.
+
+// Complete the pack task, mirror the state My Documents reads, mark practice_doc_ops
+// completed and write the once-only marker. Called from the career-secured transition
+// AND from the sweep below, so the two paths cannot drift (same reasoning as
+// _finalisePracticeDocCompletion). Only ever call this when a file actually landed —
+// the marker is what stops the sweep retrying forever.
+async function finaliseSectionGDelivery(caseId, userId, delivery) {
+  if (!caseId || !userId || !delivery || !delivery.stored) return false;
+  const sgTask = await supabaseDbRequest('registration_tasks',
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) +
+    '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting,deferred)&limit=1');
+  if (sgTask.ok && Array.isArray(sgTask.data) && sgTask.data[0]) {
+    await _completeRegTask(sgTask.data[0].id, caseId, 'system');
+  }
+  // The doctor's My Documents "Ready" chip. Passed even without a Drive id: the bytes
+  // are in Storage either way, and /api/gplink-docs-status has its own section_g link.
+  try { await _updatePreparedDocsState(userId, 'section_g', delivery.driveFile || null, 'Section G.pdf'); }
+  catch (e) { console.error('[SectionG] gp_prepared_docs update error:', e && e.message); }
+  try {
+    await _ensurePracticeDocOps(caseId);
+    await supabaseDbRequest('practice_doc_ops',
+      'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.section_g',
+      { method: 'PATCH', body: { ops_status: 'completed' } });
+  } catch (e) { console.error('[SectionG] practice_doc_ops update error:', e && e.message); }
+  await _logCaseEvent(caseId, null, 'system', SECTION_G_DELIVERED_MARKER, null, 'system');
+  return true;
+}
+
+// Re-deliver Section G to every case that should have it but does not actually hold the
+// bytes. The auto-delivery fires on exactly ONE event — the instant a placement first
+// flips to secured — so before this existed, a failure in that window was permanent:
+// `prevSecured` is true forever afterwards and no cron covered it (the practice-pack
+// Gmail backstop explicitly excludes section_g). Measured 2026-09-02: 0 of 2 eligible
+// cases had ever received it, and the marker had never been written for anyone.
+//
+// Eligibility is the presence of a section_g pack task, which only career_secured
+// creates — so this can never hand Section G to a doctor with no placement.
+// A row counts as delivered only if it points at real bytes; an 'approved' row with no
+// storage_path and no drive id is exactly the corruption being repaired.
+async function sweepUndeliveredSectionG(limit) {
+  const out = { scanned: 0, repaired: 0, failed: 0 };
+  if (!isSupabaseDbConfigured()) return out;
+  const cap = Number(limit) > 0 ? Number(limit) : 25;
+
+  const sgPath = require('path').join(__dirname, 'documents', 'section_g.pdf');
+  if (!require('fs').existsSync(sgPath)) {
+    console.error('[SectionG] sweep: documents/section_g.pdf missing from the deploy — cannot deliver.');
+    return out;
+  }
+  const sgBuffer = require('fs').readFileSync(sgPath);
+
+  const taskRes = await supabaseDbRequest('registration_tasks',
+    'select=case_id&related_document_key=eq.section_g&limit=500');
+  if (!taskRes.ok || !Array.isArray(taskRes.data)) return out;
+
+  const seen = {};
+  const caseIds = [];
+  for (const t of taskRes.data) {
+    if (!t || !t.case_id || seen[t.case_id]) continue;
+    seen[t.case_id] = true;
+    caseIds.push(t.case_id);
+  }
+
+  for (const caseId of caseIds) {
+    if (out.repaired + out.failed >= cap) break;
+    try {
+      const cRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const c = cRes.ok && Array.isArray(cRes.data) && cRes.data[0] ? cRes.data[0] : null;
+      if (!c || !c.user_id) continue;
+      out.scanned++;
+
+      const dRes = await supabaseDbRequest('user_documents',
+        'select=id,storage_path,google_drive_file_id,file_url&user_id=eq.' + encodeURIComponent(c.user_id) +
+        '&document_key=eq.section_g&limit=1');
+      const d = dRes.ok && Array.isArray(dRes.data) && dRes.data[0] ? dRes.data[0] : null;
+      const hasBytes = !!(d && ((d.storage_path && String(d.storage_path).trim()) ||
+        (d.google_drive_file_id && String(d.google_drive_file_id).trim())));
+      if (hasBytes) continue;
+
+      const delivery = await deliverToMyDocuments(c.user_id, caseId, 'section_g', 'Section G.pdf', sgBuffer, 'application/pdf');
+      if (delivery && delivery.stored) {
+        await finaliseSectionGDelivery(caseId, c.user_id, delivery);
+        out.repaired++;
+        console.log('[SectionG] sweep repaired case ' + caseId);
+      } else {
+        out.failed++;
+        console.error('[SectionG] sweep could not store Section G for case ' + caseId);
+      }
+    } catch (e) {
+      out.failed++;
+      console.error('[SectionG] sweep error on case ' + caseId + ':', e && e.message);
+    }
+  }
+  return out;
+}
+
 async function _hasOpenTaskForDoc(caseId, docKey) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
@@ -21399,17 +21568,17 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (!_sectionGAlreadyDelivered && _fs.existsSync(sectionGPath)) {
             const sectionGBuffer = _fs.readFileSync(sectionGPath);
             const sgDelivery = await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', sectionGBuffer, 'application/pdf');
-            const sgTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting,deferred)&limit=1');
-            if (sgTask.ok && Array.isArray(sgTask.data) && sgTask.data[0]) {
-              await _completeRegTask(sgTask.data[0].id, caseId, 'system');
+            // Everything below is gated on a file having ACTUALLY landed. It used to run
+            // unconditionally: the task was completed and practice_doc_ops set to
+            // 'completed' even when the delivery had stored nothing, which is why the RSO
+            // pack rendered Section G as COMPLETED next to a bare "+ Upload" button with
+            // no thumbnail, size or date. A failed delivery must stay visibly incomplete
+            // so finaliseSectionGDelivery (hourly) picks it up and retries.
+            if (sgDelivery && sgDelivery.stored) {
+              await finaliseSectionGDelivery(caseId, userId, sgDelivery);
+            } else {
+              console.error('[PracticePack] Section G delivery stored nothing for case ' + caseId + ' — left incomplete for the hourly sweep.');
             }
-            // Update gp_prepared_docs so My Documents shows Section G as "Ready"
-            if (sgDelivery && sgDelivery.driveFile) {
-              try { await _updatePreparedDocsState(userId, 'section_g', sgDelivery.driveFile, 'Section G.pdf'); } catch (e) { console.error('[PracticePack] gp_prepared_docs update error:', e.message); }
-            }
-            // Mark practice_doc_ops as completed
-            try { await _ensurePracticeDocOps(caseId); await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.section_g', { method: 'PATCH', body: { ops_status: 'completed' } }); } catch (e) {}
-            await _logCaseEvent(caseId, null, 'system', SECTION_G_DELIVERED_MARKER, null, 'system');
           }
         } catch (sgErr) {
           console.error('[PracticePack] Section G auto-delivery error:', sgErr.message);
@@ -41931,7 +42100,23 @@ async function handleApi(req, res, pathname) {
       }
       if (rdtCapped) console.log('[reconcile-doc-tasks] batch capped at ' + RDT_CAP + ' documents');
       console.log('[reconcile-doc-tasks] scanned=' + rdtScanned + ' created=' + rdtCreated);
-      sendJson(res, 200, { ok: true, scanned: rdtScanned, created: rdtCreated, capped: rdtCapped });
+
+      // Section G is delivered by GP LINK, not collected from anyone, so a missed
+      // delivery has no human owner and no other cron watching it. Re-deliver to any
+      // eligible case that does not actually hold the bytes. Idempotent: a case with a
+      // real storage_path or drive id is skipped, so a healthy estate costs one query.
+      var rdtSectionG = { scanned: 0, repaired: 0, failed: 0 };
+      try {
+        rdtSectionG = await sweepUndeliveredSectionG(25);
+        if (rdtSectionG.repaired || rdtSectionG.failed) {
+          console.log('[reconcile-doc-tasks] section_g swept=' + rdtSectionG.scanned +
+            ' repaired=' + rdtSectionG.repaired + ' failed=' + rdtSectionG.failed);
+        }
+      } catch (sgSweepErr) {
+        console.error('[reconcile-doc-tasks] section_g sweep failed:', sgSweepErr && sgSweepErr.message);
+      }
+
+      sendJson(res, 200, { ok: true, scanned: rdtScanned, created: rdtCreated, capped: rdtCapped, sectionG: rdtSectionG });
     } catch (err) {
       console.error('[Cron] Reconcile doc tasks failed:', err);
       await respondServerError(res, err, { route: pathname, method: req.method });
@@ -63472,25 +63657,20 @@ Return ONLY valid JSON with no markdown formatting:
       if (!require('fs').existsSync(sgPath)) { sendJson(res, 404, { ok: false, message: 'Section G PDF not found on server.' }); return; }
       var sgBuffer = require('fs').readFileSync(sgPath);
 
-      // 1. Deliver to user_documents + Drive
+      // Deliver, then run the SAME completion tail the automatic path uses. This used
+      // to duplicate those steps inline and run them unconditionally, so a delivery that
+      // stored nothing still reported ok:true and still marked the pack completed —
+      // the manual remedy reproduced the very bug it was there to repair.
       var sgResult = await deliverToMyDocuments(sgCase.user_id, sgCaseId, 'section_g', 'Section G.pdf', sgBuffer, 'application/pdf');
-
-      // 2. Update gp_prepared_docs state
-      var sgDriveId = sgResult && sgResult.driveFile ? sgResult.driveFile : null;
-      await _updatePreparedDocsState(sgCase.user_id, 'section_g', sgDriveId, 'Section G.pdf');
-
-      // 3. Update practice_doc_ops
-      try {
-        await _ensurePracticeDocOps(sgCaseId);
-        await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(sgCaseId) + '&document_key=eq.section_g', {
-          method: 'PATCH', body: { ops_status: 'completed' }
-        });
-      } catch (e) {}
-
-      // 4. Log
+      if (!sgResult || !sgResult.stored) {
+        sendJson(res, 502, { ok: false, message: 'Section G could not be stored — nothing was changed. Check Supabase Storage and Google Drive.' });
+        return;
+      }
+      var sgDriveId = sgResult.driveFile || null;
+      await finaliseSectionGDelivery(sgCaseId, sgCase.user_id, sgResult);
       await _logCaseEvent(sgCaseId, null, 'system', 'Section G re-delivered by admin (' + sgAdminCtx.email + ')', null, sgAdminCtx.email);
 
-      sendJson(res, 200, { ok: true, driveFileId: sgDriveId, userDocId: sgResult ? sgResult.userDoc : null });
+      sendJson(res, 200, { ok: true, driveFileId: sgDriveId, storagePath: sgResult.storagePath, userDocId: sgResult.userDoc });
     } catch (sgErr) {
       console.error('[RedeliverSectionG] Error:', sgErr.message);
       await respondServerError(res, sgErr, { route: pathname, method: req.method, safeMessage: 'Re-delivery failed.' });

@@ -27,6 +27,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+const deliveredStorage = new Map();
+
 const RUN_ID = crypto.randomBytes(4).toString('hex');
 const DB_FILE = path.join('/tmp', `gplink-ats-offer-${RUN_ID}.json`);
 let server, port;          // app under test
@@ -137,6 +139,19 @@ function startSupabaseEmulator() {
         res.writeHead(status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(payload));
       };
+      // Raw Storage object upload. deliverToMyDocuments now puts the bytes in Supabase
+      // Storage BEFORE writing the user_documents row (Google Drive used to be their only
+      // home, and a Drive throw left an 'approved' row pointing at nothing). Without this
+      // branch the double 404s that PUT, the delivery correctly reports "nothing stored",
+      // and no row is written — so model it.
+      const _objUp = u.pathname.match(/^\/storage\/v1\/object\/(.+)$/);
+      if (_objUp && req.method === 'POST') {
+        const _c = []; req.on('data', (x) => _c.push(x));
+        await new Promise((r) => req.on('end', r));
+        deliveredStorage.set(decodeURIComponent(_objUp[1]).split('/').map(decodeURIComponent).join('/'), Buffer.concat(_c));
+        send(200, { Key: _objUp[1] });
+        return;
+      }
       const m = u.pathname.match(/^\/rest\/v1\/([^/]+)$/);
       if (!m) { send(404, { message: 'not found' }); return; }
       const table = decodeURIComponent(m[1]);

@@ -105,6 +105,19 @@ function startEmulator() {
         sendJson(200, { Key: key });
         return;
       }
+      // Raw object upload: POST /storage/v1/object/<bucket>/<path>. deliverToMyDocuments
+      // now puts the bytes in Storage BEFORE writing the user_documents row — Drive used
+      // to be their only home, and because uploadToGoogleDrive throws, a Drive failure
+      // left an 'approved' row pointing at nothing (bug 1 below, and the reason Section G
+      // was never delivered at all). Without this branch the double 404s that upload and
+      // the delivery correctly reports storing nothing.
+      const om = u.pathname.match(/^\/storage\/v1\/object\/(.+)$/);
+      if (om && req.method === 'POST') {
+        const key = decodeURIComponent(om[1]).split('/').map(decodeURIComponent).join('/');
+        storage.set(key, await readBody());
+        sendJson(200, { Key: key });
+        return;
+      }
       // Storage reads: GET /storage/v1/object/<bucket>/<path>
       const sm = u.pathname.match(/^\/storage\/v1\/object\/(.+)$/);
       if (sm && req.method === 'GET') {

@@ -68,6 +68,13 @@ function startEmulator() {
         if (mm && req.method === 'POST') { sendJson(200, { url: '/object/upload/sign/' + mm[1] + '?token=test-token' }); return; }
         // PUT bytes via signed upload URL
         if (mm && req.method === 'PUT') { storage.set(decodeURIComponent(mm[1]), await readBody()); sendJson(200, { Key: mm[1] }); return; }
+        // POST raw object (server-side upload). deliverToMyDocuments now writes the bytes
+        // to Storage BEFORE the user_documents row: Drive used to be their only home, and
+        // uploadToGoogleDrive throws, so a Drive failure left an 'approved' row pointing
+        // at nothing. Without this branch the double 404s that upload and the delivery
+        // correctly reports storing nothing.
+        mm = u.pathname.match(/^\/storage\/v1\/object\/(?!upload|sign|public)(.+)$/);
+        if (mm && req.method === 'POST') { storage.set(decodeURIComponent(mm[1]), await readBody()); sendJson(200, { Key: mm[1] }); return; }
         // GET raw object (server-side download)
         mm = u.pathname.match(/^\/storage\/v1\/object\/(?!upload|sign|public)(.+)$/);
         if (mm && req.method === 'GET') {

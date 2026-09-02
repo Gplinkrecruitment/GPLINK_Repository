@@ -71,10 +71,24 @@ describe('Section G is auto-delivered once', () => {
     expect(securedBlock).toMatch(/if \(!_sectionGAlreadyDelivered && _fs\.existsSync\(sectionGPath\)\)/);
   });
 
-  it('logs the SAME constant it guards on', () => {
-    expect(securedBlock).toContain("_logCaseEvent(caseId, null, 'system', SECTION_G_DELIVERED_MARKER");
+  // 2026-09-02: the completion steps moved out of this block into
+  // finaliseSectionGDelivery so the career-secured path, the hourly repair sweep and
+  // the admin re-deliver endpoint all leave the same trail. The marker must still be
+  // written from the same constant this block guards on — that is what this covers.
+  it('logs the SAME constant it guards on, via the shared completion tail', () => {
+    expect(securedBlock).toContain('await finaliseSectionGDelivery(caseId, userId, sgDelivery)');
+    const tailStart = serverJs.indexOf('async function finaliseSectionGDelivery(');
+    expect(tailStart, 'finaliseSectionGDelivery not found').toBeGreaterThan(-1);
+    const tail = serverJs.slice(tailStart, serverJs.indexOf('\n}', tailStart));
+    expect(tail).toContain("_logCaseEvent(caseId, null, 'system', SECTION_G_DELIVERED_MARKER");
     // The old literal must be gone from the log call, or the guard would never match.
-    expect(securedBlock).not.toContain("'system', 'Section G auto-delivered to MyDocuments and Google Drive'");
+    expect(tail).not.toContain("'system', 'Section G auto-delivered to MyDocuments and Google Drive'");
+  });
+
+  // The defect the owner reported on 2026-09-02: the pack read COMPLETED with a bare
+  // "+ Upload" behind it, because these steps ran whether or not a file had landed.
+  it('only runs the completion tail when the delivery actually stored a file', () => {
+    expect(securedBlock).toMatch(/if \(sgDelivery && sgDelivery\.stored\)/);
   });
 });
 
