@@ -1,15 +1,30 @@
-// Shell controller: runs in app-shell.html (the parent). Owns the bottom-nav spotlight
-// tour, the tourDone flag, and the one-off post-tour "start here" pointer
+// Shell controller: runs in app-shell.html (the parent). Owns the guided
+// slideshows (js/gp-intro-slides.js — the welcome deck after onboarding and the
+// registration deck once a position is secured), the bottom-nav spotlight tour,
+// the tourDone flag, and the one-off post-tour "start here" pointer
 // (nextStepDone). Renders in the shell so it can highlight the nav bars, and
 // broadcasts `gp-shell-coach-active` to the content frames so page tips never
 // stack under/over a shell overlay (separate documents, separate gpCoach).
+//
+// Phase rule (owner brief 2026-09-03, js/gp-doctor-phase.js):
+//   position     → the welcome slideshow, once. No tab tour, no pointer — there
+//                  are only two tabs and the doctor is already on My Practice.
+//   registration → the registration slideshow, once, when the placement lands
+//                  (it also counts the tab tour as done, and hands over to the
+//                  existing "Start your journey here" pointer on Home).
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
   var KEY = 'gp_walkthrough_state';
+  var CAREER_INTRO_SEEN_KEY = 'gp_career_intro_seen';
   var S = window.gpWalkthroughState, C = window.gpCoach;
-  var homeLoaded = false, hydrated = false, ranAuto = false;
+  var homeLoaded = false, frameLoaded = false, hydrated = false, ranAuto = false;
   var ranPointer = false, pointerPending = false, tourWaitedForMatch = false;
+  function slides() { return window.gpIntroSlides || null; }
+  function phase() {
+    try { if (window.gpShellPhase && window.gpShellPhase.get) return window.gpShellPhase.get(); } catch (e) {}
+    return 'registration';
+  }
 
   // The info pass deliberately EXCLUDES My Practice — the tour now ends on a
   // final interactive step that spotlights the My Practice tab and requires the
@@ -90,6 +105,8 @@
     // gpmp-open class above.
     if (!ignorePendingMatchCheck && window.gpMatchCheck && window.gpMatchCheck.pending === true) return true;
     if (C && C.isActive && C.isActive()) return true;
+    var I = slides();
+    if (I && I.isActive && I.isActive()) return true;
     return false;
   }
   // A doctor already holding a live match has passed the moment the pointer
@@ -123,6 +140,41 @@
       localStorage.setItem(KEY, S.serializeState(S.withNextStepDone(readState())));
       if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
     } catch (e) {}
+  }
+  function markIntroSeen() {
+    try {
+      localStorage.setItem(KEY, S.serializeState(S.withIntroSeen(readState())));
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+  }
+  function markRegistrationIntroSeen() {
+    try {
+      localStorage.setItem(KEY, S.serializeState(S.withRegistrationIntroSeen(readState())));
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+  }
+  // The welcome deck carries the careers explainer's content (the four steps
+  // and the application rules), so a doctor who just read the slides is not
+  // shown pages/career.html's full-screen "How careers works" straight after.
+  // Same key + same truthy convention that page uses; still on demand from
+  // Account → "How careers works" (?intro=1 ignores the flag).
+  function markCareerIntroSeen() {
+    try {
+      if (!localStorage.getItem(CAREER_INTRO_SEEN_KEY)) localStorage.setItem(CAREER_INTRO_SEEN_KEY, new Date().toISOString());
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+  }
+  function tellFrames(type, extra) {
+    var list = frames();
+    for (var i = 0; i < list.length; i++) {
+      try {
+        if (list[i].contentWindow) {
+          var msg = { type: type };
+          if (extra) for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) msg[k] = extra[k];
+          list[i].contentWindow.postMessage(msg, location.origin);
+        }
+      } catch (e) {}
+    }
   }
 
   // ---- Cross-document coordination ----
@@ -261,6 +313,137 @@
     }, delay || 600);
   }
 
+  // ---- Slide context (name, secured practice, live stage list) ----
+  function readProfileName() {
+    var out = { firstName: '', lastName: '' };
+    try {
+      var raw = sessionStorage.getItem('gp_profile_cache'); // pages/account.html's /api/profile cache
+      if (raw) { var p = JSON.parse(raw); out.firstName = p.firstName || ''; out.lastName = p.lastName || ''; }
+    } catch (e) {}
+    return out;
+  }
+  function fetchProfileName() {
+    var cached = readProfileName();
+    if (cached.lastName || cached.firstName) return Promise.resolve(cached);
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 1500) : null;
+    return fetch('/api/profile', { credentials: 'same-origin', signal: controller ? controller.signal : undefined })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (timer) clearTimeout(timer);
+        var p = d && d.profile ? d.profile : {};
+        try { sessionStorage.setItem('gp_profile_cache', JSON.stringify(p)); } catch (e) {}
+        return { firstName: p.firstName || '', lastName: p.lastName || '' };
+      })
+      .catch(function () { if (timer) clearTimeout(timer); return cached; });
+  }
+  function readSecuredPracticeName() {
+    try {
+      var raw = localStorage.getItem('gp_career_state');
+      if (!raw) return '';
+      var st = JSON.parse(raw);
+      var apps = Array.isArray(st.applications) ? st.applications : [];
+      for (var i = 0; i < apps.length; i++) {
+        var a = apps[i];
+        if (!a || a.isPlacementSecured !== true) continue;
+        var n = (a.placement && a.placement.practiceName) || (a.revealed ? a.practiceName : '') || '';
+        n = String(n || '').trim();
+        if (n && !/^practice$/i.test(n)) return n;
+      }
+    } catch (e) {}
+    return '';
+  }
+  function slideContext() {
+    return fetchProfileName().then(function (name) {
+      var J = window.GPJourneyStages;
+      return {
+        firstName: name.firstName,
+        lastName: name.lastName,
+        practiceName: readSecuredPracticeName(),
+        stages: J && J.STAGES ? J.STAGES : []
+      };
+    });
+  }
+  function afterFrame(route, fn, ceiling) {
+    var done = false;
+    var go = function () { if (done) return; done = true; window.removeEventListener('gp-shell-frame-loaded', onLoad); fn(); };
+    var onLoad = function (e) { if (e && e.detail && e.detail.route === route) go(); };
+    window.addEventListener('gp-shell-frame-loaded', onLoad);
+    setTimeout(go, ceiling || 5000);
+  }
+
+  // ---- Welcome deck: "How GP Link works" (position phase, once) ----
+  function runWelcomeSlides(replay) {
+    var I = slides();
+    if (!I || !S || I.isActive() || (C && C.isActive())) return;
+    if (!replay && guarded(true)) return; // re-check at fire time (screen takeovers)
+    var first = !replay && S.shouldRunIntro(readState());
+    // First real run is MANDATORY (owner rule 2026-09-01 for first-run guidance):
+    // no close, Escape ignored. Replays and staff "View as GP" stay skippable.
+    var mandatory = first && !isImpersonated();
+    broadcastCoachActive(true);
+    slideContext().then(function (ctx) {
+      if (I.isActive() || (C && C.isActive())) { broadcastCoachActive(false); return; }
+      I.run(I.buildWelcomeSlides(ctx), {
+        mandatory: mandatory,
+        onDone: function () {
+          if (!replay) { markIntroSeen(); markCareerIntroSeen(); }
+        },
+        onSkip: function () { if (!replay) markIntroSeen(); }
+      }).then(function (reason) {
+        broadcastCoachActive(false);
+        if (reason !== 'done' || replay) return;
+        // The careers page may already have its explainer open underneath —
+        // close it so the CV gate (its next screen) can take over.
+        tellFrames('gp-shell-intro-done', { deck: 'welcome' });
+        try { if (window.gpShellNavigate) window.gpShellNavigate('/pages/career', { replace: true }); } catch (e) {}
+      });
+    });
+  }
+
+  // ---- Registration deck: "Your position is secured" (registration phase, once) ----
+  function runRegistrationSlides(replay) {
+    var I = slides();
+    if (!I || !S || I.isActive() || (C && C.isActive())) return;
+    if (!replay && guarded(true)) return;
+    var first = !replay && S.shouldRunRegistrationIntro(readState());
+    var mandatory = first && !isImpersonated();
+    broadcastCoachActive(true);
+    slideContext().then(function (ctx) {
+      if (I.isActive() || (C && C.isActive())) { broadcastCoachActive(false); return; }
+      I.run(I.buildRegistrationSlides(ctx), {
+        mandatory: mandatory,
+        onDone: function () {
+          if (replay) return;
+          markRegistrationIntroSeen();
+          markIntroSeen();
+          // The deck explains the tabs that just appeared, so the spotlight
+          // tab tour is redundant now: count it done. The "start here" pointer
+          // (nextStepDone) stays pending — Home's MyIntealth row picks it up.
+          markDone();
+        },
+        onSkip: function () { if (!replay) markRegistrationIntroSeen(); }
+      }).then(function (reason) {
+        if (reason !== 'done' || replay) { broadcastCoachActive(false); return; }
+        // "Start my registration" → Home, then the existing placed-branch
+        // pointer spotlights the MyIntealth journey row once Home has loaded.
+        pointerPending = true;
+        try { if (window.gpShellNavigate) window.gpShellNavigate('/pages/index', { replace: true }); } catch (e) {}
+        afterFrame('/pages/index', function () {
+          pointerPending = false;
+          ranPointer = false; // allow one pointer decision for this hand-off
+          scheduleNextStepPointer(700);
+        }, 6000);
+      });
+    });
+  }
+
+  // Account → "Replay the welcome guide": the deck for the doctor's phase.
+  function replay() {
+    if (phase() === 'registration') runRegistrationSlides(true);
+    else runWelcomeSlides(true);
+  }
+
   function runTour(afterMatchWait) {
     if (!C || !S || C.isActive()) return;
     // js/match-popup.js is still asking whether this doctor has a match. On a
@@ -346,8 +529,40 @@
     });
   }
   function tryAuto() {
-    if (ranAuto || !homeLoaded || !hydrated) return;
+    if (ranAuto || !frameLoaded || !hydrated) return;
     if (guarded()) return;
+    var ph = phase();
+    if (ph === 'position') {
+      // Two tabs, doctor already on My Practice: the welcome deck is the whole
+      // lesson. No tab tour, no pointer (nothing to point at yet).
+      ranAuto = true;
+      if (S.shouldRunIntro(readState())) {
+        setTimeout(function () { runWelcomeSlides(false); }, 350);
+        // Same-visit watchdog (mirrors the tour's): if a transient takeover
+        // (match popup, scan sheet) ate the first attempt, try once more.
+        setTimeout(function () {
+          if (S.shouldRunIntro(readState())) runWelcomeSlides(false);
+        }, 8000);
+      }
+      return;
+    }
+    if (ph !== 'registration') return; // onboarding / restricted: nothing to teach (not consumed)
+    var stNow = readState();
+    if (S.shouldRunRegistrationIntro(stNow)) {
+      if (readEpicDone()) {
+        // Already registering (MyIntealth done): the "your position is secured,
+        // start with MyIntealth" moment has passed — retire the deck silently.
+        markRegistrationIntroSeen();
+      } else {
+        ranAuto = true;
+        setTimeout(function () { runRegistrationSlides(false); }, 350);
+        setTimeout(function () {
+          if (S.shouldRunRegistrationIntro(readState()) && !readEpicDone()) runRegistrationSlides(false);
+        }, 8000);
+        return;
+      }
+    }
+    if (!homeLoaded) return; // the tab tour + pointer anchor to Home — wait for it (not consumed)
     ranAuto = true; // decide exactly once (transient guards no longer consume the one shot)
     if (S.shouldRunTour(readState())) {
       setTimeout(runTour, 350);
@@ -373,8 +588,13 @@
     window.addEventListener('gp-data-ready', function () { hydrated = true; tryAuto(); }, { once: true });
   }
   window.addEventListener('gp-shell-frame-loaded', function (e) {
-    if (e && e.detail && e.detail.route === '/pages/index') { homeLoaded = true; tryAuto(); }
+    frameLoaded = true;
+    if (e && e.detail && e.detail.route === '/pages/index') homeLoaded = true;
+    tryAuto();
   });
+  // The phase can change mid-session (a contract signed on this visit expands
+  // the nav): re-open the one-shot so the registration deck fires right then.
+  window.addEventListener('gp-shell-phase-changed', function () { ranAuto = false; tryAuto(); });
   // The match check settling is the one boot-time guard that clears by itself,
   // and hydrate/home-load are {once:true} — if both fired while it was still
   // pending, nothing ever asked again and a brand-new doctor's tour was
@@ -382,7 +602,13 @@
   // this idempotent, and guarded() is false now the check has settled.
   window.addEventListener('gp-match-check-done', function () { tryAuto(); });
 
-  window.gpWalkthroughShell = { runTour: runTour, runNextStepPointer: runNextStepPointer };
+  window.gpWalkthroughShell = {
+    runTour: runTour,
+    runNextStepPointer: runNextStepPointer,
+    runWelcomeSlides: runWelcomeSlides,
+    runRegistrationSlides: runRegistrationSlides,
+    replay: replay
+  };
   tryAuto();
   // Boot watchdog (owner 2026-09-02): the arming events (state hydrate, home
   // frame load) are {once:true} — if this script lost the race to their
@@ -391,7 +617,10 @@
   // vetoes the onboarding gateway, restricted mode and a live match popup,
   // and ranAuto keeps this a no-op when the normal path already ran.
   setTimeout(function () {
-    if (!ranAuto && S && S.shouldRunTour(readState())) {
+    if (ranAuto || !S) return;
+    var st = readState();
+    if (S.shouldRunTour(st) || S.shouldRunIntro(st) || S.shouldRunRegistrationIntro(st)) {
+      frameLoaded = true;
       homeLoaded = true;
       hydrated = true;
       tryAuto();

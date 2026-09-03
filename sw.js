@@ -77,7 +77,10 @@
   // free account, per the owner. Markup-only change to the same site-*.html,
   // so the css buster does not move and this bump is the only thing that
   // stops the old order being served one navigation late.
-  var VERSION = "20260902d";
+  // 20260903a: doctor-guided flow — phase-driven nav (two tabs until a
+  // position is secured), welcome + registration slideshows, careers step
+  // strip, Account team card. Shell + career + account + index markup moved.
+  var VERSION = "20260903a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -109,7 +112,7 @@
     "/pages/my-documents?gp_shell=embedded&gp_shell_static=1",
     "/pages/registration-intro?gp_shell=embedded&gp_shell_static=1",
     "/pages/signin",
-    "/js/app-shell.js?v=20260902a",
+    "/js/app-shell.js?v=20260903a",
     "/js/nav-shell-bridge.js?v=20260709a",
     "/js/api-dedupe.js?v=20260729a",
     "/js/auth-guard.js?v=20260810a",
@@ -128,9 +131,12 @@
     "/js/native-bridge.js?v=20260707a",
     "/js/match-popup.js?v=20260829a",
     "/js/gp-coach.js?v=20260902a",
-    "/js/gp-walkthrough-state.js?v=20260722c",
+    "/js/gp-walkthrough-state.js?v=20260903a",
     "/js/gp-walkthrough.js?v=20260722d",
-    "/js/gp-walkthrough-shell.js?v=20260902b",
+    "/js/gp-walkthrough-shell.js?v=20260903a",
+    "/js/gp-doctor-phase.js?v=20260903a",
+    "/js/gp-intro-slides.js?v=20260903a",
+    "/js/career-step-strip.js?v=20260903a",
     "/js/document-prep.js?v=20260614a",
     "/js/career-home-card.js?v=20260709a"
   ];

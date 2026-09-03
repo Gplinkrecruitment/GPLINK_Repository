@@ -1286,6 +1286,125 @@
     }
   } catch (e) { /* localStorage unavailable — leave chrome visible */ }
 
+  // ── Doctor phase (js/gp-doctor-phase.js) ──────────────────────────────
+  // Owner brief 2026-09-03: doctors "did not know what to do". Until a
+  // position is secured the shell shows ONLY My Practice and Account, and Home
+  // (plus every registration route) lands on the careers page. Once the
+  // placement lands the full nav returns live — no reload needed.
+  //
+  // Inputs are the same synced localStorage keys the pages use, so the phase
+  // is identical in every frame. state-sync hydrates them on every boot; a
+  // fresh device therefore keeps the nav hidden until hydration (or a short
+  // ceiling) so a placed doctor never sees the two-tab nav flash first.
+  var PHASE_CLASS_PREFIX = "gp-phase-";
+  var PHASE_STORAGE_KEYS = {
+    "gp_career_state": true,
+    "gp_onboarding_complete": true,
+    "gp_account_under_review": true,
+    "gp_account_pep_waitlist": true
+  };
+  var currentPhase = "";
+  var phaseSettled = false;
+  var phaseWaiters = [];
+
+  function computePhase() {
+    var P = window.gpDoctorPhase;
+    if (!P) return "registration"; // module missing → fail open to the full nav
+    var J = window.GPJourneyStages;
+    var store = null;
+    try { store = window.localStorage; } catch (e) { store = null; }
+    return P.derivePhaseFromStorage(store, J && J.hasCareerSecured ? J.hasCareerSecured : null);
+  }
+
+  function mobileTabNavKey(tab) {
+    if (tab.hasAttribute("data-qual-scan-trigger")) return "scan";
+    var resolved = toRouteUrl(getLinkRouteTarget(tab));
+    var group = resolved ? NAV_GROUPS[normalizePath(resolved.pathname)] : null;
+    return group ? group.desktop : "";
+  }
+
+  function applyNavVisibility(phase) {
+    var P = window.gpDoctorPhase;
+    if (!P) return;
+    var vis = P.navVisibility(phase);
+    getDesktopItems().forEach(function (item) {
+      var key = item.getAttribute("data-nav");
+      item.classList.toggle("gp-nav-hidden", !!key && vis[key] === false);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".mobile-nav .mobile-tab"), function (tab) {
+      var key = mobileTabNavKey(tab);
+      tab.classList.toggle("gp-nav-hidden", !!key && vis[key] === false);
+    });
+    var root = document.documentElement;
+    P.PHASES.forEach(function (name) { root.classList.remove(PHASE_CLASS_PREFIX + name); });
+    root.classList.add(PHASE_CLASS_PREFIX + phase);
+  }
+
+  function refreshPhase(reason) {
+    var next = computePhase();
+    var previous = currentPhase;
+    if (next === previous) return next;
+    currentPhase = next;
+    applyNavVisibility(next);
+    try {
+      window.dispatchEvent(new CustomEvent("gp-shell-phase-changed", { detail: { phase: next, previous: previous, reason: reason || "" } }));
+    } catch (e) {}
+    // The page on screen may not exist in the new phase (Home before a
+    // position is secured): send the doctor to the phase's landing page. The
+    // boot pass skips this — resolveInitialRoute already picked the route.
+    var P = window.gpDoctorPhase;
+    if (previous && P && currentRoute && P.isRouteHiddenInPhase(next, currentRoute)) {
+      navigateTo(P.landingRoute(next), { historyMode: "replace", animate: false });
+    }
+    updateFrameOffsets();
+    if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
+    if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
+    return next;
+  }
+
+  function settlePhase(reason) {
+    if (phaseSettled) return;
+    phaseSettled = true;
+    refreshPhase(reason);
+    var waiters = phaseWaiters.slice();
+    phaseWaiters = [];
+    waiters.forEach(function (fn) { try { fn(); } catch (e) {} });
+  }
+
+  // Runs fn once the synced state has hydrated (or the wait ceiling passed) —
+  // used to reveal the nav chrome only when the phase is trustworthy.
+  function whenPhaseReady(fn) {
+    if (phaseSettled) { fn(); return; }
+    phaseWaiters.push(fn);
+  }
+
+  function bootPhase() {
+    refreshPhase("boot");
+    var alreadyHydrated = false;
+    try {
+      alreadyHydrated = !!(window.gpLinkStateSync && window.gpLinkStateSync.isHydrated && window.gpLinkStateSync.isHydrated());
+    } catch (e) {}
+    if (alreadyHydrated) { settlePhase("hydrated"); }
+    else {
+      window.addEventListener("gp-state-hydrated", function () { settlePhase("hydrated"); }, { once: true });
+      window.setTimeout(function () { settlePhase("timeout"); }, 3500);
+    }
+    // Re-evaluate whenever a frame (or the shell's own hydrate) moves one of
+    // the inputs: the careers page persisting a secured placement is what
+    // expands the nav the moment a contract is signed.
+    window.addEventListener("storage", function (event) {
+      if (!event || event.key === null || PHASE_STORAGE_KEYS[event.key]) refreshPhase("storage");
+    });
+    window.addEventListener("gp-state-hydrated", function () { refreshPhase("hydrated"); });
+  }
+
+  window.gpShellPhase = {
+    get: function () { return currentPhase || computePhase(); },
+    compute: computePhase,
+    refresh: refreshPhase,
+    whenReady: whenPhaseReady
+  };
+
   function navigateTo(input, options) {
     var routeUrl = resolveRouteUrlForNavigation(input);
     var opts = options || {};
@@ -1302,6 +1421,15 @@
     closeMobileRegistrationSheet();
 
     var route = routeFromUrl(routeUrl);
+
+    // Phase rewrite: Home and the registration routes do not exist before a
+    // position is secured — every path to them (logo, back button, bookmark,
+    // stale deep link) lands on the careers page instead.
+    var phaseModule = window.gpDoctorPhase;
+    if (phaseModule && currentPhase && phaseModule.isRouteHiddenInPhase(currentPhase, route)) {
+      routeUrl = toRouteUrl(phaseModule.landingRoute(currentPhase));
+      route = routeFromUrl(routeUrl);
+    }
 
     // Hide chrome completely for onboarding — it takes over the full screen
     var isOnboarding = route && route.indexOf("/pages/onboarding") === 0;
@@ -1751,7 +1879,18 @@
     if (!event.data || !event.data.type) return;
 
     if (event.data.type === "gp-shell-run-tour") {
+      // Account → "Replay the welcome guide": the phase's slideshow (welcome
+      // deck before a position, registration deck after), always skippable.
+      var W = window.gpWalkthroughShell;
+      if (W && W.replay) W.replay(); else if (W && W.runTour) W.runTour();
+      return;
+    }
+    if (event.data.type === "gp-shell-run-nav-tour") {
       if (window.gpWalkthroughShell && window.gpWalkthroughShell.runTour) window.gpWalkthroughShell.runTour();
+      return;
+    }
+    if (event.data.type === "gp-shell-phase-refresh") {
+      refreshPhase("frame");
       return;
     }
 
@@ -1768,10 +1907,18 @@
       return;
     }
     if (event.data.type === "gp-shell-show-chrome") {
-      chromeHidden = false;
-      chromePreemptiveHide = false;
-      if (mobileNavEl) mobileNavEl.style.display = "";
-      if (desktopHostEl) desktopHostEl.style.display = "";
+      // index.html confirmed onboarding is complete. Reveal the nav only once
+      // the phase is trustworthy (synced state hydrated, or the ceiling
+      // passed) so a placed doctor on a fresh device never sees the two-tab
+      // nav flash before it expands.
+      whenPhaseReady(function () {
+        refreshPhase("show-chrome");
+        chromeHidden = false;
+        chromePreemptiveHide = false;
+        if (mobileNavEl) mobileNavEl.style.display = "";
+        if (desktopHostEl) desktopHostEl.style.display = "";
+        updateFrameOffsets();
+      });
       return;
     }
 
@@ -1856,11 +2003,19 @@
     var routed = currentUrl.searchParams.get("route");
     if (!routed && isSupportedPath(currentUrl.pathname)) {
       currentUrl.searchParams.delete(EMBED_PARAM);
-      return routeFromUrl(currentUrl);
+      var direct = routeFromUrl(currentUrl);
+      var PM = window.gpDoctorPhase;
+      if (PM && currentPhase && PM.isRouteHiddenInPhase(currentPhase, direct)) return PM.landingRoute(currentPhase);
+      return direct;
     }
     var initialRoute = routed || DEFAULT_ROUTE;
     var routeUrl = toRouteUrl(initialRoute);
-    return routeUrl ? routeFromUrl(routeUrl) : DEFAULT_ROUTE;
+    var resolved = routeUrl ? routeFromUrl(routeUrl) : DEFAULT_ROUTE;
+    // Before a position is secured the landing page is the careers page, and
+    // Home/registration deep links open there too (see gp-doctor-phase.js).
+    var P = window.gpDoctorPhase;
+    if (P && currentPhase && P.isRouteHiddenInPhase(currentPhase, resolved)) return P.landingRoute(currentPhase);
+    return resolved;
   }
 
   function init() {
@@ -1915,6 +2070,7 @@
     handleDesktopHoverEvents();
     activateFrame(activeFrameEl);
 
+    bootPhase();
     var initialRoute = resolveInitialRoute();
     navigateTo(initialRoute, { historyMode: "replace", animate: false });
     prefetchSupportedRoutes();

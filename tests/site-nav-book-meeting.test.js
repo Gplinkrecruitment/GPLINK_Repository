@@ -96,6 +96,6 @@ describe('"Book meeting" header button on the marketing site', () => {
     // Marketing navigations are served stale-while-revalidate from the
     // VERSION-keyed PAGE_CACHE for anyone who has used the app, so the new
     // header only lands on the first navigation if sw.js moved too.
-    expect(read('sw.js')).toContain('var VERSION = "20260902d"');
+    expect(read('sw.js')).toContain('var VERSION = "20260903a"');
   });
 });

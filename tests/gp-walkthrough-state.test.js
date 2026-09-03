@@ -12,6 +12,8 @@ describe('gp-walkthrough-state', () => {
     expect(S.defaultState()).toEqual({
       tourDone: false,
       nextStepDone: false,
+      introSeen: false,
+      registrationIntroSeen: false,
       tips: { home: false, practice: false, support: false, account: false, scan: false }
     });
   });
@@ -35,7 +37,33 @@ describe('gp-walkthrough-state', () => {
     const a = S.allSeenState();
     expect(a.tourDone).toBe(true);
     expect(a.nextStepDone).toBe(true);
+    expect(a.introSeen).toBe(true);
+    expect(a.registrationIntroSeen).toBe(true);
     expect(Object.values(a.tips).every(Boolean)).toBe(true);
+  });
+
+  it('introSeen / registrationIntroSeen: default false, immutable setters, legacy blobs normalize', () => {
+    const base = S.defaultState();
+    const i = S.withIntroSeen(base);
+    expect(base.introSeen).toBe(false);
+    expect(i.introSeen).toBe(true);
+    const r = S.withRegistrationIntroSeen(base);
+    expect(base.registrationIntroSeen).toBe(false);
+    expect(r.registrationIntroSeen).toBe(true);
+    expect(S.parseState(S.serializeState(i))).toEqual(i);
+    // pre-slideshow blobs (tour-era) read as "slides not yet seen"
+    const legacy = S.parseState('{"tourDone":true,"nextStepDone":true,"tips":{}}');
+    expect(legacy.introSeen).toBe(false);
+    expect(legacy.registrationIntroSeen).toBe(false);
+  });
+
+  it('shouldRunIntro / shouldRunRegistrationIntro: only while unseen, independent of the tour', () => {
+    expect(S.shouldRunIntro(S.defaultState())).toBe(true);
+    expect(S.shouldRunIntro(S.withIntroSeen(S.defaultState()))).toBe(false);
+    // an existing doctor backfilled as tour-done still gets the welcome slides once
+    expect(S.shouldRunIntro({ tourDone: true, nextStepDone: true, tips: {} })).toBe(true);
+    expect(S.shouldRunRegistrationIntro(S.defaultState())).toBe(true);
+    expect(S.shouldRunRegistrationIntro(S.withRegistrationIntroSeen(S.defaultState()))).toBe(false);
   });
 
   it('withTourDone / withTipSeen are immutable', () => {

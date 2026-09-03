@@ -62,6 +62,7 @@
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
+  <script src="/js/career-step-strip.js?v=20260903a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
        overlay and the apply path can both need it during first paint. -->
@@ -7390,6 +7391,25 @@
     }
     .at-sub { color: #c2dbff; font-size: 14px; margin: 8px 0 0; max-width: 44ch; }
 
+    /* ── Step strip (careers page "where am I") ── */
+    .at-steps { margin-top: 18px; }
+    .at-steps[hidden] { display: none !important; }
+    .at-steps-row { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .at-steps-row li { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: rgba(255, 255, 255, .5); }
+    .at-steps-row li::before { content: ""; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .16); }
+    .at-steps-row li.done { color: rgba(194, 219, 255, .92); }
+    .at-steps-row li.done::before { background: var(--at-sky); }
+    .at-steps-row li.on { color: #fff; }
+    .at-steps-row li.on::before { background: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, .16); }
+    .at-steps-row li span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .at-steps-now { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13.5px; line-height: 1.45; color: #e8f0ff; }
+    .at-steps-now-k { flex: none; font-size: 10.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #0b1322; background: #fff; border-radius: 999px; padding: 3px 8px; }
+    .at-steps-hint { flex: 1 1 220px; min-width: 0; }
+    .at-steps-cta { flex: none; font-size: 12.5px; font-weight: 700; color: #fff; text-decoration: none; border: 1px solid rgba(255, 255, 255, .5); border-radius: 999px; padding: 6px 12px; transition: background var(--gp-dur, .18s) var(--gp-ease, ease); }
+    .at-steps-cta:hover { background: rgba(255, 255, 255, .14); }
+    .at-steps-cta[hidden] { display: none !important; }
+    body.career-mode-secured .at-steps { display: none !important; }
+
     /* ── Search dock (overlaps the masthead) + tabs + dropdown filters ── */
     .at-dock { position: relative; z-index: 10; margin-top: -24px; max-width: 720px; margin-left: auto; margin-right: auto; padding: 0 6px; }
     .at-search {
@@ -8382,6 +8402,18 @@
             <div class="at-eyeb">Career</div>
             <h1 class="at-headline">Your next practice,<br>matched to you.</h1>
             <p class="at-sub">Confidential GP roles across Australia &mdash; every one checked against your eligibility, with your Registration Support Officer negotiating for you.</p>
+            <!-- "Where am I" strip (owner brief 2026-09-03): the four steps before
+                 registration with the current one lit and ONE line of what to do
+                 now. Driven by js/career-step-strip.js from careerState.applications
+                 (re-rendered on every gp-career-updated). Hidden once secured. -->
+            <div class="at-steps" id="careerStepStrip" hidden aria-label="Where you are up to">
+              <ol class="at-steps-row" id="careerStepRow"></ol>
+              <div class="at-steps-now">
+                <span class="at-steps-now-k">Now</span>
+                <span class="at-steps-hint" id="careerStepHint"></span>
+                <a class="at-steps-cta" id="careerStepCta" href="#" hidden></a>
+              </div>
+            </div>
           </div>
         </header>
         <div class="at-dock">
@@ -10033,6 +10065,36 @@
       localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(careerState));
       window.dispatchEvent(new Event("gp-career-updated"));
     }
+
+    // "Where am I" strip in the masthead — pure derivation in
+    // js/career-step-strip.js, painted here from the same applications the
+    // cards use, so the two can never disagree. Secured (step 4) hides it: the
+    // full nav and the Home journey take over from there.
+    function renderCareerStepStrip() {
+      var host = document.getElementById("careerStepStrip");
+      var helper = window.gpCareerStepStrip;
+      if (!host || !helper || typeof helper.deriveCareerStep !== "function") return;
+      var apps = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
+      var r = helper.deriveCareerStep(apps);
+      if (!r || r.step >= 4) { host.hidden = true; return; }
+      var row = document.getElementById("careerStepRow");
+      var hint = document.getElementById("careerStepHint");
+      var cta = document.getElementById("careerStepCta");
+      if (row) {
+        row.innerHTML = r.steps.map(function (st) {
+          var cls = st.num < r.step ? "done" : (st.num === r.step ? "on" : "");
+          return '<li class="' + cls + '"' + (st.num === r.step ? ' aria-current="step"' : "") + '><span>' + st.num + ". " + escapeHtml(st.label) + "</span></li>";
+        }).join("");
+      }
+      if (hint) hint.textContent = r.hint || "";
+      if (cta) {
+        if (r.href && r.ctaLabel) { cta.textContent = r.ctaLabel; cta.setAttribute("href", r.href); cta.hidden = false; }
+        else cta.hidden = true;
+      }
+      host.hidden = false;
+    }
+    window.addEventListener("gp-career-updated", renderCareerStepStrip);
+    document.addEventListener("DOMContentLoaded", renderCareerStepStrip);
 
     function showToast(message) {
       if (!toastEl) return;
@@ -14730,6 +14792,17 @@
       try { window.dispatchEvent(new CustomEvent("gp-career-intro-closed")); } catch (e) {}
       if (careerIntroPending) { const done = careerIntroPending; careerIntroPending = null; done(); }
     }
+
+    // The shell's welcome slideshow (js/gp-intro-slides.js) carries this
+    // explainer's content, so when it finishes it marks gp_career_intro_seen
+    // and tells us: close the explainer if it opened underneath, which lets
+    // the CV gate take its turn exactly as a manual Continue would.
+    window.addEventListener("message", function (event) {
+      if (event.origin !== window.location.origin) return;
+      if (!event.data || event.data.type !== "gp-shell-intro-done") return;
+      const el = document.getElementById("careerIntro");
+      if (el && el.classList.contains("is-open")) closeCareerIntro();
+    });
 
     // Resolves when it is safe to run the CV gate: immediately if the explainer
     // is not needed, otherwise when the doctor presses Continue.
