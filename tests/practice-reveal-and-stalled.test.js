@@ -65,7 +65,14 @@ describe('doctor pages: named tier rendering', () => {
     expect(mast).toMatch(/const locText = revealed\n?\s*\?/);
     expect(mast).toContain('(revealed ? "Identity unlocked" : "Eligible for you")');
     const hero = between(html, 'function renderHeroImage(role) {', 'dphotoEl.innerHTML');
-    expect(hero).toContain('exact address shared after your interview');
+    expect(hero).toContain('exact address shared once the practice accepts you');
+    // The collapsible identity box must not contradict the named masthead:
+    // three states — unlocked (identity), named (address still to come), masked.
+    const box = between(html, 'function buildPracticeIdentityHtml(role) {', '/* ── Detail body ── */');
+    expect(box).toContain('const named = !!(role && role.nameRevealed && role.realPracticeName);');
+    expect(box).toContain('ADDRESS &amp; CONTACT &middot; SHARED ON ACCEPTANCE');
+    expect(box).toContain('REVEALED ON ACCEPTANCE'); // masked state stays for doctors without a CV
+    expect(box.indexOf('if (revealed) {')).toBeLessThan(box.indexOf('if (named) {'));
   });
   it('career.html cards show the name + website, keep the masked headline for suburb/search, and the link does not open the role', () => {
     const html = read('pages/career.html');

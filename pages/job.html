@@ -2018,7 +2018,7 @@
     const caption = revealed
       ? AT_CHECK_SVG.replace('viewBox', 'width="11" height="11" viewBox') + 'Identity unlocked · ' + escapeHtml(suburb)
       : (named
-        ? AT_LOCK_SVG + escapeHtml(suburb) + ' · exact address shared after your interview'
+        ? AT_LOCK_SVG + escapeHtml(suburb) + ' · exact address shared once the practice accepts you'
         : AT_LOCK_SVG + 'Confidential listing · area preview');
     const media = imageUrl
       ? '<img class="at-dphoto-img" src="' + escapeHtml(imageUrl) + '" alt="Landscape view near ' + escapeHtml(suburb) + '" onerror="this.remove()" />' +
@@ -2412,6 +2412,24 @@
         (role.practiceAddress
           ? '<div class="at-noa-body">' + AT_PIN_SVG + ' <b>' + escapeHtml(role.practiceAddress) + '</b></div>'
           : "") +
+      '</details>';
+    }
+    // Named tier (owner 2026-09-04): the masthead already names the practice
+    // and links its website, so a "revealed on acceptance" bar here would
+    // contradict it. Say what is STILL to come instead: the street address
+    // and the team's contact details, once the practice accepts them.
+    const named = !!(role && role.nameRevealed && role.realPracticeName);
+    if (named) {
+      return '<details class="at-noa at-noa--named at-rv">' +
+        '<summary>' +
+          '<span class="at-noa-lock">' + AT_NOA_LOCK_SVG + '</span>' +
+          '<span class="at-noa-lines">' +
+            '<div class="at-noa-tag">ADDRESS &amp; CONTACT &middot; SHARED ON ACCEPTANCE</div>' +
+            '<div class="at-noa-name">' + escapeHtml(role.realPracticeName) + '</div>' +
+          '</span>' +
+          '<span class="at-noa-chev">' + AT_NOA_CHEV_SVG + '</span>' +
+        '</summary>' +
+        '<div class="at-noa-body">You can see who the practice is and visit their website before you apply. The <b>street address and the team’s contact details</b> are shared once the practice accepts you. Your Registration Support Officer reviews your application before the practice sees it.</div>' +
       '</details>';
     }
     // Pre-reveal: masked bar only (never real text under a blur) — expands
