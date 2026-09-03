@@ -7,8 +7,6 @@
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
-  <script src="/js/journey-stages.js?v=20260902a"></script>
-  <script src="/js/gp-doctor-phase.js?v=20260903a"></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
@@ -197,22 +195,6 @@
 
     /* ─── OVERVIEW / QUICK LINKS LISTS ─── */
     .overview { display:flex; flex-direction:column; }
-    .ov-row[hidden], .section-card[hidden] { display: none !important; }
-    .ov-unread {
-      display: inline-flex;
-      align-items: center;
-      margin-left: 6px;
-      padding: 1px 7px;
-      border-radius: 999px;
-      background: var(--gp-red, #dc2626);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-      vertical-align: middle;
-    }
-    .ov-unread[hidden] { display: none !important; }
     .ov-row {
       display:flex; align-items:center; gap:13px; padding:13px 2px;
       border-bottom:1px solid rgba(148,163,184,.18);
@@ -544,31 +526,6 @@
 
       <!-- HOME -->
       <div class="tab-panel is-active" id="panel-home" role="tabpanel">
-        <!-- Position phase (js/gp-doctor-phase.js): until a position is secured
-             the nav shows only My Practice and Account, so Support and Documents
-             live here. Hidden again once the full nav returns. -->
-        <section class="section-card" id="phaseTeamCard" hidden>
-          <div class="section-header">
-            <svg class="section-ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <div class="section-header-left">
-              <h3 class="section-title">Your GP Link team</h3>
-              <p class="section-subtitle">Messages and documents while you find your practice.</p>
-            </div>
-          </div>
-          <div class="overview">
-            <a class="ov-row" href="messages" data-phase-messages>
-              <svg class="ov-ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <span class="ov-label"><b>Messages <span class="ov-unread" data-inbox-alert hidden aria-hidden="true">New</span></b><small>Talk to your Registration Support Officer &mdash; replies land here</small></span>
-              <svg class="ov-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
-            </a>
-            <a class="ov-row" href="my-documents">
-              <svg class="ov-ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-              <span class="ov-label"><b>My documents</b><small>Everything you uploaded, and anything we need again</small></span>
-              <svg class="ov-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
-            </a>
-          </div>
-        </section>
-
         <section class="section-card">
           <div class="section-header">
             <svg class="section-ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
@@ -637,12 +594,7 @@
             </a>
             <button class="ov-row" type="button" data-walkthrough-replay>
               <svg class="ov-ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
-              <span class="ov-label"><b>Replay the welcome guide</b><small>The steps, from finding a practice to registration</small></span>
-              <svg class="ov-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-            <button class="ov-row" type="button" data-walkthrough-nav-tour id="navTourRow" hidden>
-              <svg class="ov-ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16h18M8 20v-4M12 20v-4M16 20v-4"/></svg>
-              <span class="ov-label"><b>Show me around the tabs</b><small>Spotlight each tab in the menu</small></span>
+              <span class="ov-label"><b>Replay the app tour</b><small>See the quick walkthrough again</small></span>
               <svg class="ov-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
             </button>
           </div>
@@ -2144,38 +2096,6 @@
     window.addEventListener("storage", function(event) {
       if (event.key === CAREER_STATE_KEY) renderSavedJobs();
     });
-
-    // Doctor phase (js/gp-doctor-phase.js — same inputs as the shell): before a
-    // position is secured the Support and Documents tabs are hidden, so this
-    // page carries them; after, the tab-tour replay row appears instead.
-    (function () {
-      var P = window.gpDoctorPhase, J = window.GPJourneyStages;
-      function currentPhase() {
-        if (!P) return "registration";
-        var store = null;
-        try { store = window.localStorage; } catch (e) { store = null; }
-        return P.derivePhaseFromStorage(store, J && J.hasCareerSecured ? J.hasCareerSecured : null);
-      }
-      function applyPhase() {
-        var ph = currentPhase();
-        document.documentElement.classList.toggle("gp-phase-position", ph === "position");
-        var team = document.getElementById("phaseTeamCard");
-        if (team) team.hidden = ph !== "position";
-        var navTour = document.getElementById("navTourRow");
-        if (navTour) navTour.hidden = ph !== "registration";
-      }
-      applyPhase();
-      window.addEventListener("gp-state-hydrated", applyPhase);
-      window.addEventListener("storage", function (event) {
-        if (!event || event.key === null || event.key === CAREER_STATE_KEY || event.key === "gp_onboarding_complete") applyPhase();
-      });
-      document.addEventListener("click", function (event) {
-        var el = event.target && event.target.closest ? event.target.closest("[data-walkthrough-nav-tour]") : null;
-        if (!el) return;
-        event.preventDefault();
-        try { window.parent.postMessage({ type: "gp-shell-run-nav-tour" }, window.location.origin); } catch (err) {}
-      });
-    })();
   </script>
 </body>
 </html>

@@ -161,12 +161,12 @@ describe('cache busters for the two changed scripts', () => {
   const shell = read('pages/app-shell.html');
   it('app-shell.html pins the bumped match-popup + walkthrough-shell builds', () => {
     expect(shell).toContain('/js/match-popup.js?v=20260829a');
-    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260903a');
+    expect(shell).toContain('/js/gp-walkthrough-shell.js?v=20260902b');
     expect(shell).not.toContain('/js/match-popup.js?v=20260729a');
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260903a"');
+    expect(read('sw.js')).toContain('var VERSION = "20260902d"');
   });
 
   it('the mandatory tour can NEVER be lost to a single visit (owner 2026-09-02)', () => {

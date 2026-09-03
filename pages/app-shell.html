@@ -20,14 +20,12 @@
   <script src="/js/perf-cache.js?v=20260902a" defer></script>
   <script src="/js/bypass-config.js?v=20260902a"></script>
   <script src="/js/journey-stages.js?v=20260902a"></script>
-  <script src="/js/gp-doctor-phase.js?v=20260903a"></script>
-  <script src="/js/app-shell.js?v=20260903a" defer></script>
+  <script src="/js/app-shell.js?v=20260902a" defer></script>
   <script src="/js/match-popup.js?v=20260829a" defer></script>
   <script src="/js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
-  <script src="/js/gp-walkthrough-state.js?v=20260903a" defer></script>
-  <script src="/js/gp-intro-slides.js?v=20260903a" defer></script>
-  <script src="/js/gp-walkthrough-shell.js?v=20260903a" defer></script>
+  <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
+  <script src="/js/gp-walkthrough-shell.js?v=20260902b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -597,27 +595,6 @@
       }
     }
 
-    /* ── Doctor phase nav (js/gp-doctor-phase.js + app-shell.js applyNavVisibility) ──
-       Until a position is secured the doctor sees ONLY My Practice and Account
-       (owner brief 2026-09-03). Hidden items keep their markup so the tour,
-       glass highlight and route groups need no special cases. */
-    .nav-item.gp-nav-hidden,
-    .mobile-tab.gp-nav-hidden {
-      display: none !important;
-    }
-    html.gp-phase-position .mobile-nav {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      padding-left: 28px;
-      padding-right: 28px;
-    }
-    html.gp-phase-position .mobile-tab-label {
-      display: block;
-    }
-    /* Support lives behind Account while the Support tab is hidden — mirror
-       the unread dot onto the Account item so a reply is never missed. */
-    .gp-account-alert { display: none; }
-    html.gp-phase-position .gp-account-alert:not([hidden]) { display: inline-flex; }
-
     @media (max-width: 859px) {
       .app-shell-desktop {
         display: none;
@@ -741,7 +718,7 @@
               <span>My Practice</span>
             </a>
             <a class="account-pill nav-item" href="/pages/account" data-route="/pages/account" data-nav="account">
-              <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg><span class="nav-alert gp-account-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+              <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
               <span>Account</span>
             </a>
           </nav>
@@ -774,7 +751,7 @@
       <span class="mobile-tab-label">Support</span>
     </a>
     <a class="mobile-tab" href="/pages/account" data-route="/pages/account">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg><span class="mobile-tab-alert gp-account-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
       <span class="mobile-tab-label">Account</span>
     </a>
   </nav>
