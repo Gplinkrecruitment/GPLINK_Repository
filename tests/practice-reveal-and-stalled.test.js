@@ -173,3 +173,39 @@ describe('careers tabs + apply cache (owner 2026-09-04)', () => {
     expect(cache).toContain('isApplied(roleId)) return null;');
   });
 });
+
+describe('match notification + matched-role presentation (owner 2026-09-04)', () => {
+  const srv = read('server.js');
+  const board = read('js/ceo-ats-matching.js');
+  const job = read('pages/job.html');
+  it('shortlist results carry the notification outcome, and a resend endpoint exists for live matches', () => {
+    expect(srv).toContain('function matchNotifySummary(ann)');
+    expect(srv.match(/notified: matchNotifySummary\(/g).length).toBe(2); // insert + reopen branches
+    const resend = between(srv, "pathname === '/api/ats/matching/resend' && req.method === 'POST'", "pathname === '/api/ats/matching/shortlist'");
+    expect(resend).toContain("mrRow.ats_stage !== 'shortlisted'");
+    expect(resend).toContain('announceShortlistToGp(mrRow)');
+    expect(resend).toContain('notified: mrSummary');
+  });
+  it('the CEO is told when the match email did not go out, and can re-send from the row', () => {
+    expect(board).toContain('email_not_configured');
+    expect(board).toContain('match email NOT sent');
+    expect(board).toContain("A.api('/api/ats/matching/resend'");
+    expect(board).toContain('data-mb-resend="');
+    expect(board).toContain("closest('[data-mb-resend]')");
+  });
+  it('a pending match is never painted as an application; the bar and banner say it was matched by the team', () => {
+    expect(job).toContain('function isPendingMatchRow(app)');
+    const applied = between(job, 'function isApplied(roleId) {', 'function getPendingLocalMatch');
+    expect(applied).toContain('!isPendingMatchRow(app)');
+    expect(job).toContain('? "match_pending" : "idle"');
+    expect(job).toContain('match_pending: { cls: "at-bapply", html: "✦ Matched to you by the GP Link team');
+    expect(job).toContain('getPendingLocalMatch(role.id)) ? buildMatchPendingHtml() : ""');
+    const banner = between(job, 'function buildMatchBannerHtml(role) {', 'function buildMatchPendingHtml()');
+    expect(banner).toContain('Matched to you by the GP Link team.');
+    expect(banner).toContain('strong chance of securing this position');
+  });
+  it('the popup and the careers card carry the same message', () => {
+    expect(read('js/match-popup.js')).toContain('The GP Link team picked <b>');
+    expect(read('pages/career.html')).toContain('The GP Link team matched you to this practice directly');
+  });
+});

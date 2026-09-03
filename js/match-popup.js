@@ -206,7 +206,7 @@
       '<div class="gpmp-confetti-host"></div>' +
       '<div class="gpmp-badge">✦ Matched by your team</div>' +
       '<h1 class="gpmp-h gpmp-serif">You’ve been<br>matched, ' + greet + '</h1>' +
-      '<p class="gpmp-sub">Matched to <b>' + escapeHtml(match.practiceName || "this practice") + '</b> based on your preferences, your experience, and what the practice is looking for.</p>' +
+      '<p class="gpmp-sub">The GP Link team picked <b>' + escapeHtml(match.practiceName || "this practice") + '</b> for you directly \u2014 it fits what you told us you\u2019re looking for, and we believe you have a strong chance of securing this position.</p>' +
       '<div class="gpmp-job">' + photoHtml +
         '<div class="gpmp-job-inner">' +
           '<div class="gpmp-pn">' + escapeHtml(match.practiceName || "") + '</div>' +

@@ -598,7 +598,10 @@ describe('POST /api/ats/matching/shortlist', () => {
 
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-insert', career_role_id: 'role-2' }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([{ user_id: 'gp-insert', career_role_id: 'role-2', ok: true }]);
+    expect(r.body.results).toMatchObject([{ user_id: 'gp-insert', career_role_id: 'role-2', ok: true }]);
+    // 2026-09-04: the CEO is told whether the match notification went out.
+    expect(r.body.results[0].application_id).toBeTruthy();
+    expect(r.body.results[0].notified).toMatchObject({ email: { ok: expect.any(Boolean) }, whatsapp: { ok: expect.any(Boolean) } });
 
     const created = db.gp_applications.find((a) => a.user_id === 'gp-insert' && String(a.career_role_id) === 'role-2');
     expect(created).toBeTruthy();
@@ -616,7 +619,7 @@ describe('POST /api/ats/matching/shortlist', () => {
 
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-live', career_role_id: 'role-2' }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([{ user_id: 'gp-live', career_role_id: 'role-2', ok: false, skipped: 'live_application' }]);
+    expect(r.body.results).toMatchObject([{ user_id: 'gp-live', career_role_id: 'role-2', ok: false, skipped: 'live_application' }]);
 
     const row = db.gp_applications.find((a) => a.id === 'app-live');
     expect(row.ats_stage).toBe('interview'); // untouched
@@ -631,7 +634,7 @@ describe('POST /api/ats/matching/shortlist', () => {
 
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-reopen', career_role_id: 'role-2' }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([{ user_id: 'gp-reopen', career_role_id: 'role-2', ok: true, reopened: true }]);
+    expect(r.body.results).toMatchObject([{ user_id: 'gp-reopen', career_role_id: 'role-2', ok: true, reopened: true }]);
 
     const row = db.gp_applications.find((a) => a.id === 'app-reopen');
     expect(row.ats_stage).toBe('shortlisted');
@@ -645,7 +648,7 @@ describe('POST /api/ats/matching/shortlist', () => {
     const countBefore = db.gp_applications.length;
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-dpa', career_role_id: 'role-3' }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([
+    expect(r.body.results).toMatchObject([
       { user_id: 'gp-dpa', career_role_id: 'role-3', ok: false, skipped: 'ineligible', blocks: ['dpa_ineligible'] }
     ]);
     expect(db.gp_applications.length).toBe(countBefore); // nothing written
@@ -657,7 +660,7 @@ describe('POST /api/ats/matching/shortlist', () => {
     const countBefore = db.gp_applications.length;
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-gated', career_role_id: 'role-2' }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([
+    expect(r.body.results).toMatchObject([
       { user_id: 'gp-gated', career_role_id: 'role-2', ok: false, skipped: 'ineligible', blocks: ['account_gated'] }
     ]);
     expect(db.gp_applications.length).toBe(countBefore); // nothing written
@@ -668,7 +671,7 @@ describe('POST /api/ats/matching/shortlist', () => {
     const countBefore = db.gp_applications.length;
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: 'gp-nobody', career_role_id: 'role-2' }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([
+    expect(r.body.results).toMatchObject([
       { user_id: 'gp-nobody', career_role_id: 'role-2', ok: false, error: 'candidate_not_found' }
     ]);
     expect(db.gp_applications.length).toBe(countBefore);
@@ -682,7 +685,7 @@ describe('POST /api/ats/matching/shortlist', () => {
       ]
     });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([
+    expect(r.body.results).toMatchObject([
       { user_id: '', career_role_id: 'role-2', ok: false, error: 'missing_fields' },
       { user_id: 'gp-ghost', career_role_id: 'role-does-not-exist', ok: false, error: 'job_not_found' }
     ]);

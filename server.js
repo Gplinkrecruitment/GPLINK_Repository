@@ -37712,6 +37712,15 @@ async function announceShortlistToGp(appRow) {
   return { ok: true, email: results[0], inApp: results[1], push: results[2], whatsapp: results[3] };
 }
 
+// What the CEO gets told about a shortlist notification (owner report
+// 2026-09-04: a match "sent" from a server with no email key reported success
+// while the doctor received nothing). Never throws; shapes are stable.
+function matchNotifySummary(ann) {
+  var a = ann && typeof ann === 'object' ? ann : {};
+  var pick = function (r) { return { ok: !!(r && r.ok), error: (r && !r.ok && r.error) ? String(r.error) : '' }; };
+  return { email: pick(a.email), whatsapp: pick(a.whatsapp), inApp: !!(a.inApp && a.inApp.ok), push: !!(a.push && a.push.ok) };
+}
+
 // Turn an existing pipeline row into a live shortlist invitation: the match
 // stamps the doctor-facing surfaces read, plus `revealed` so they can see which
 // practice it is (a match they cannot identify is useless to them).
@@ -76118,6 +76127,28 @@ Return ONLY valid JSON with no markdown formatting:
   // declined / expired / position_filled), else INSERT a fresh 'shortlisted'
   // row. Reasons/score come from the job-side match_cache entry for that pair
   // if present — this endpoint never calls the AI itself.
+  // Re-send the match notification (email + WhatsApp + in-app + push) for a
+  // live shortlisted row — the fix path when the first send failed (no email
+  // key, provider outage) or the doctor says it never arrived.
+  if (pathname === '/api/ats/matching/resend' && req.method === 'POST') {
+    var ctxMR = requireAtsSession(req, res); if (!ctxMR) return;
+    var bodyMR; try { bodyMR = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var mrId = String((bodyMR && (bodyMR.applicationId || bodyMR.id)) || '').trim();
+    if (!mrId) { sendJson(res, 400, { ok: false, message: 'applicationId is required.' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Database not configured.' }); return; }
+    var mrRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(mrId) + '&limit=1');
+    var mrRow = (mrRes.ok && Array.isArray(mrRes.data) && mrRes.data[0]) || null;
+    if (!mrRow) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    if (mrRow.ats_stage !== 'shortlisted') { sendJson(res, 409, { ok: false, message: 'Only a live match (shortlisted, awaiting the doctor) can be re-sent.' }); return; }
+    var mrExp = mrRow.match_expires_at ? new Date(mrRow.match_expires_at).getTime() : 0;
+    if (mrExp && mrExp <= Date.now()) { sendJson(res, 409, { ok: false, message: 'This match has expired — extend it first, then re-send.' }); return; }
+    var mrAnn = await announceShortlistToGp(mrRow);
+    var mrSummary = matchNotifySummary(mrAnn);
+    try { await logAdminAction(req, ctxMR, 'match_resend', { detail: { application_id: mrId, email: mrSummary.email, whatsapp: mrSummary.whatsapp } }); } catch (e) {}
+    sendJson(res, 200, { ok: true, application_id: mrId, notified: mrSummary });
+    return;
+  }
+
   if (pathname === '/api/ats/matching/shortlist' && req.method === 'POST') {
     var ctxMS = requireAtsSession(req, res); if (!ctxMS) return;
     var bodyMS; try { bodyMS = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
@@ -76225,8 +76256,8 @@ Return ONLY valid JSON with no markdown formatting:
         var msReopenedRow = (msUpd.ok && Array.isArray(msUpd.data) && msUpd.data[0]) ? msUpd.data[0] : null;
         if (!msReopenedRow) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'reopen_failed' }); continue; }
         await atsRecordStageEvent(msReopenedRow.id, msStage, 'shortlisted', ctxMS.email || '');
-        await announceShortlistToGp(msReopenedRow);
-        msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true, reopened: true });
+        var msReopenAnn = await announceShortlistToGp(msReopenedRow);
+        msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true, reopened: true, application_id: msReopenedRow.id, notified: matchNotifySummary(msReopenAnn) });
         continue;
       }
 
@@ -76258,8 +76289,8 @@ Return ONLY valid JSON with no markdown formatting:
       var msCreated = await atsInsertApplicationRow(msInsertRow);
       if (!msCreated) { msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: false, error: 'insert_failed' }); continue; }
       await atsRecordStageEvent(msCreated.id, '', 'shortlisted', ctxMS.email || '');
-      await announceShortlistToGp(msCreated);
-      msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true });
+      var msAnn = await announceShortlistToGp(msCreated);
+      msResults.push({ user_id: msUserId, career_role_id: msJobId, ok: true, application_id: msCreated.id, notified: matchNotifySummary(msAnn) });
     }
 
     sendJson(res, 200, { ok: true, results: msResults });

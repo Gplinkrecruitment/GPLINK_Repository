@@ -1668,11 +1668,24 @@
     });
   }
 
+  // A live match awaiting the doctor's answer sits in the same list with
+  // status 'shortlisted'. It is NOT an application — treating it as one
+  // painted "Application received" for a beat before the detail (with the
+  // match block) arrived (owner report 2026-09-04).
+  function isPendingMatchRow(app) {
+    const key = String((app && (app.rawStatus || app.status)) || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    return key === "shortlisted";
+  }
   function isApplied(roleId) {
     const state = getCareerState();
     return Array.isArray(state.applications) && state.applications.some(
-      (app) => app && (app.roleId === roleId || app.id === roleId)
+      (app) => app && (app.roleId === roleId || app.id === roleId) && !isPendingMatchRow(app)
     );
+  }
+  function getPendingLocalMatch(roleId) {
+    const state = getCareerState();
+    if (!Array.isArray(state.applications)) return null;
+    return state.applications.find((app) => app && (app.roleId === roleId || app.id === roleId) && isPendingMatchRow(app)) || null;
   }
 
   function recordApplication(role) {
@@ -2357,8 +2370,17 @@
   function buildMatchBannerHtml(role) {
     const match = getActiveMatch(role);
     if (!match) return "";
-    return '<div class="at-matchbanner"><span class="at-matchbanner-ico">💙</span>' +
-      '<span>Your team matched you here for a reason — this page normally hides the practice name, but your match unlocks the full picture.</span></div>';
+    // Owner 2026-09-04: say plainly that the GP Link team picked this practice
+    // for them, why, and that we rate their chances of securing it highly.
+    return '<div class="at-matchbanner"><span class="at-matchbanner-ico">✦</span>' +
+      '<span><b>Matched to you by the GP Link team.</b> We picked this practice for you directly: it fits what you told us you\u2019re looking for, and we believe you have a strong chance of securing this position. Fast-track below and we put you in front of them for an interview.</span></div>';
+  }
+
+  // Preview paint of a matched role before the detail (reasons, expiry) has
+  // loaded: the same message, minus the parts we don't have yet.
+  function buildMatchPendingHtml() {
+    return '<div class="at-matchbanner"><span class="at-matchbanner-ico">✦</span>' +
+      '<span><b>Matched to you by the GP Link team.</b> We picked this practice for you directly because it fits what you\u2019re looking for. Loading your match\u2026</span></div>';
   }
 
   function buildMatchWhyHtml(role) {
@@ -3363,7 +3385,9 @@
       // isApplied()'s localStorage, and it then described the wrong stage.
       (role.matchAccepted
         ? buildFastTrackedHtml(role)
-        : ((role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role) ? buildApplicationProgressHtml(role) : "")) +
+        : ((role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role)
+          ? buildApplicationProgressHtml(role)
+          : ((!getActiveMatch(role) && !role.match && getPendingLocalMatch(role.id)) ? buildMatchPendingHtml() : ""))) +
       buildPracticeIdentityHtml(role) +
       buildUrgencyHtml(role) +
       buildPackageCellsHtml(role) +
@@ -3426,7 +3450,12 @@
         ? "matched_accepted"
         : ((barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))
           ? "app_progress"
-          : (((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle"));
+          : (((role.applied || isApplied(role.id)) && !getActiveMatch(role))
+            ? "applied"
+            // Preview paint of a matched role (the list entry carries no match
+            // block yet): hold a "matched" bar instead of an Apply bar until
+            // the detail arrives — never the applied bar.
+            : ((!getActiveMatch(role) && !role.match && !role.applied && !role.applicationStatus && getPendingLocalMatch(role.id)) ? "match_pending" : "idle")));
     }
     paintApply();
     updateSaveButton();
@@ -3474,6 +3503,7 @@
             disabled: false
           },
       applying: { cls: "at-bapply", html: "Applying…", disabled: true },
+      match_pending: { cls: "at-bapply", html: "✦ Matched to you by the GP Link team<small>Loading your match…</small>", disabled: true },
       applied: {
         cls: "at-bapply at-bapply--done",
         html: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",

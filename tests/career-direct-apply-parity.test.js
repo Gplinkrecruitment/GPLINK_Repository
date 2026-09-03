@@ -139,8 +139,14 @@ describe('job.html — the direct applicant sees the same shape of answer', () =
   it('the applied banner and bar come from the SERVER, not just this browser', () => {
     // isApplied() reads localStorage, so the doctor who applied on a laptop was
     // shown the Apply button again on their phone.
-    expect(jobHtml).toContain('(role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role) ? buildApplicationProgressHtml(role)');
-    expect(jobHtml).toContain('((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle"');
+    // 2026-09-04: the same server-first condition, now with a third branch for
+    // a pending match (never painted as an application) — pin the condition
+    // and its consequent rather than the exact ternary layout.
+    expect(jobHtml).toContain('(role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role)');
+    expect(jobHtml).toContain('? buildApplicationProgressHtml(role)');
+    expect(jobHtml).toContain('((role.applied || isApplied(role.id)) && !getActiveMatch(role))');
+    expect(jobHtml).toContain('? "applied"');
+    expect(jobHtml).toContain('? "match_pending" : "idle"');
   });
 
   it('the role cache refuses a payload carrying `applied` — it goes stale like match state', () => {

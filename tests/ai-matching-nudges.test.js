@@ -554,7 +554,7 @@ describe('POST /api/ats/matching/shortlist — REOPEN clears stale nudge stamps 
       body: { items: [{ user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1' }] }
     });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([{ user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1', ok: true, reopened: true }]);
+    expect(r.body.results).toMatchObject([{ user_id: REOPEN_NUDGE_GP.userId, career_role_id: 'job-1', ok: true, reopened: true }]);
 
     const after = db.gp_applications.find((a) => a.id === 'app-reopen-nudge-1');
     expect(after.ats_stage).toBe('shortlisted');

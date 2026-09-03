@@ -699,6 +699,11 @@
     var extendBtn = showExtend
       ? ('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-mb-extend="' + A.escAttr(entry.application_id) + '">Extend 5 days</button>')
       : '';
+    // Live match: let the CEO re-send the notification (first send failed, or
+    // the doctor says nothing arrived).
+    var resendBtn = (entry.ats_stage === 'shortlisted' && entry.application_id)
+      ? ('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-mb-resend="' + A.escAttr(entry.application_id) + '">Resend email</button>')
+      : '';
     return (
       '<div class="ats-mb-exrow">' +
         '<div class="ats-mb-exgav" style="background:' + color + '">' + A.esc(initials) + '</div>' +
@@ -706,7 +711,7 @@
           '<div class="ats-mb-exname">' + A.esc(name) + scorePill + ' <span class="ats-pill muted">' + A.esc(stageLabel) + '</span>' + mbGroupPillHtml(disp) + '</div>' +
           '<div class="ats-mb-exsub">' + A.esc(subInfo) + '</div>' +
         '</div>' +
-        '<div class="ats-mb-exactions">' + extendBtn + openBtn + '</div>' +
+        '<div class="ats-mb-exactions">' + resendBtn + extendBtn + openBtn + '</div>' +
       '</div>'
     );
   }
@@ -1045,13 +1050,45 @@
     return mbPracticeDisplay(s).heading;
   }
 
+  var MB_NOTIFY_REASONS = {
+    email_not_configured: 'this server has no email key',
+    gp_not_found: 'no email on the doctor\u2019s profile',
+    job_not_found: 'job not found',
+    no_sender: 'no email sender available'
+  };
+  function mbNotifyReason(code) {
+    var c = String(code || '').trim();
+    return MB_NOTIFY_REASONS[c] || (c ? c.replace(/_/g, ' ') : 'send failed');
+  }
+  // Says exactly what happened, not just "shortlisted": a shortlist whose
+  // match email did NOT go out reads as a failure to the CEO (owner report
+  // 2026-09-04 — the doctor "was not sent an email for the match").
   function mbShortlistToast(results) {
-    var ok = 0, skipped = 0, failed = 0;
-    (results || []).forEach(function (r) { if (r.ok) ok++; else if (r.skipped) skipped++; else failed++; });
+    var ok = 0, skipped = 0, failed = 0, emailFailed = [];
+    (results || []).forEach(function (r) {
+      if (r.ok) {
+        ok++;
+        if (r.notified && r.notified.email && r.notified.email.ok === false) emailFailed.push(mbNotifyReason(r.notified.email.error));
+      } else if (r.skipped) skipped++;
+      else failed++;
+    });
     var msg = ok + ' shortlisted';
     if (skipped) msg += ', ' + skipped + ' skipped';
     if (failed) msg += ', ' + failed + ' failed';
+    if (emailFailed.length) msg += ' \u2014 \u26a0 match email NOT sent (' + emailFailed[0] + '). Use \u201cResend email\u201d on the row once fixed.';
     return msg;
+  }
+
+  function onResend(applicationId, btn) {
+    if (!applicationId) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+    A.api('/api/ats/matching/resend', { method: 'POST', body: { applicationId: String(applicationId) } }).then(function (d) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Resend email'; }
+      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not re-send the match.'); return; }
+      var n = d.notified || {};
+      if (n.email && n.email.ok) A.toast('Match email re-sent' + (n.whatsapp && n.whatsapp.ok ? ' (+ WhatsApp)' : '') + '.');
+      else A.toast('\u26a0 Match email NOT sent (' + mbNotifyReason(n.email && n.email.error) + ').');
+    });
   }
 
   function onRowToggle(id) {
@@ -1247,6 +1284,7 @@
     var closest = (t && t.closest) ? t.closest.bind(t) : function () { return null; };
     var m;
     if ((m = closest('[data-mb-extend]'))) { onExtend(m.getAttribute('data-mb-extend')); return; }
+    if ((m = closest('[data-mb-resend]'))) { e.preventDefault(); onResend(m.getAttribute('data-mb-resend'), m); return; }
     if ((m = closest('[data-mb-cb]'))) { onToggleCheckbox(m.getAttribute('data-mb-cb'), m.checked); return; }
     if ((m = closest('[data-mb-shortlist-one]'))) { onShortlistOne(m.getAttribute('data-mb-shortlist-one')); return; }
     if ((m = closest('[data-mb-bulk-shortlist]'))) { onBulkShortlist(); return; }

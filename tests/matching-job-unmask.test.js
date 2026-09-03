@@ -85,7 +85,10 @@ describe('AI Matching Task 7 — source wiring', () => {
   });
 
   it('job.html has the verbatim job-page banner + "Why this matches you" ticks, gated by getActiveMatch', () => {
-    expect(jobHtml).toContain("Your team matched you here for a reason — this page normally hides the practice name, but your match unlocks the full picture.");
+    // Copy reworded 2026-09-04 (owner): say the GP Link team picked this
+    // practice for them, why, and that we rate their chances highly.
+    expect(jobHtml).toContain("Matched to you by the GP Link team.");
+    expect(jobHtml).toContain("strong chance of securing this position");
     expect(jobHtml).toContain('function buildMatchBannerHtml(role)');
     expect(jobHtml).toContain('function buildMatchWhyHtml(role)');
     expect(jobHtml).toContain('Why this matches you');
@@ -127,9 +130,17 @@ describe('AI Matching Task 7 — source wiring', () => {
     // sources, so a stage past "applied" stops being invisible to this page) —
     // the getActiveMatch veto still sits outside every one of them, on BOTH
     // the banner slot and each sticky-bar branch, which is what this guards.
-    expect(jobHtml).toContain('(role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role) ? buildApplicationProgressHtml(role) : ""');
+    // 2026-09-04: a third branch paints a PENDING local match (shortlisted
+    // row in this browser) as "matched, loading" — never as applied — and it
+    // is vetoed by getActiveMatch just like the other two.
+    expect(jobHtml).toContain('(role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role)');
+    expect(jobHtml).toContain('? buildApplicationProgressHtml(role)');
+    expect(jobHtml).toContain('(!getActiveMatch(role) && !role.match && getPendingLocalMatch(role.id)) ? buildMatchPendingHtml() : ""');
     expect(jobHtml).toContain('(barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))');
-    expect(jobHtml).toContain('(((role.applied || isApplied(role.id)) && !getActiveMatch(role)) ? "applied" : "idle")');
+    expect(jobHtml).toContain('(((role.applied || isApplied(role.id)) && !getActiveMatch(role))');
+    expect(jobHtml).toContain('? "match_pending" : "idle"');
+    // and isApplied() itself never counts a shortlisted (unanswered match) row
+    expect(jobHtml).toContain('&& !isPendingMatchRow(app)');
   });
 
   it('a live match offers enquire + decline next to accept, via match/respond', () => {
@@ -652,7 +663,7 @@ describe('POST /api/ats/matching/shortlist — reopen sets revealed:true', () =>
 
     const r = await atsPost('/api/ats/matching/shortlist', { items: [{ user_id: REOPEN_GP.userId, career_role_id: ROLE_A.id }] });
     expect(r.status).toBe(200);
-    expect(r.body.results).toEqual([{ user_id: REOPEN_GP.userId, career_role_id: ROLE_A.id, ok: true, reopened: true }]);
+    expect(r.body.results).toMatchObject([{ user_id: REOPEN_GP.userId, career_role_id: ROLE_A.id, ok: true, reopened: true }]);
 
     const row = db.gp_applications.find((a) => a.id === 'app-reopen-1');
     expect(row.ats_stage).toBe('shortlisted');
