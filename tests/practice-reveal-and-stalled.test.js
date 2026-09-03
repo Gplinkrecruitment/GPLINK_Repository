@@ -200,6 +200,8 @@ describe('match notification + matched-role presentation (owner 2026-09-04)', ()
     expect(job).toContain('? "match_pending" : "idle"');
     expect(job).toContain('match_pending: { cls: "at-bapply", html: "✦ Matched to you by the GP Link team');
     expect(job).toContain('getPendingLocalMatch(role.id)) ? buildMatchPendingHtml() : ""');
+    const cache = between(job, 'function readCachedRoleDetail(roleId) {', 'function writeCachedRoleDetail');
+    expect(cache).toContain('getPendingLocalMatch(roleId)) return null;');
     const banner = between(job, 'function buildMatchBannerHtml(role) {', 'function buildMatchPendingHtml()');
     expect(banner).toContain('Matched to you by the GP Link team.');
     expect(banner).toContain('strong chance of securing this position');

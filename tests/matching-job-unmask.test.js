@@ -133,11 +133,12 @@ describe('AI Matching Task 7 — source wiring', () => {
     // 2026-09-04: a third branch paints a PENDING local match (shortlisted
     // row in this browser) as "matched, loading" — never as applied — and it
     // is vetoed by getActiveMatch just like the other two.
-    expect(jobHtml).toContain('(role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role)');
+    expect(jobHtml).toContain('(hasServerApplication(role) || isApplied(role.id)) && !getActiveMatch(role)');
     expect(jobHtml).toContain('? buildApplicationProgressHtml(role)');
     expect(jobHtml).toContain('(!getActiveMatch(role) && !role.match && getPendingLocalMatch(role.id)) ? buildMatchPendingHtml() : ""');
     expect(jobHtml).toContain('(barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))');
-    expect(jobHtml).toContain('(((role.applied || isApplied(role.id)) && !getActiveMatch(role))');
+    expect(jobHtml).toContain('(((hasServerApplication(role) || isApplied(role.id)) && !getActiveMatch(role))');
+    expect(jobHtml).toContain('return key === "shortlisted" || key === "matched";');
     expect(jobHtml).toContain('? "match_pending" : "idle"');
     // and isApplied() itself never counts a shortlisted (unanswered match) row
     expect(jobHtml).toContain('&& !isPendingMatchRow(app)');

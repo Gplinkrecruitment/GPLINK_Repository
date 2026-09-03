@@ -1587,6 +1587,10 @@
       // written the moment the apply succeeds, so a cached copy from before it
       // is stale by definition — go to the network for the real state.
       try { if (typeof isApplied === "function" && isApplied(roleId)) return null; } catch (err) {}
+      // A pending match in this browser's careers state means the cached copy
+      // predates the match: serving it would paint the page without the match
+      // block for the whole 10-minute window (owner report 2026-09-04).
+      try { if (typeof getPendingLocalMatch === "function" && getPendingLocalMatch(roleId)) return null; } catch (err) {}
       return Date.now() - fetchedAt <= ROLE_CACHE_TTL_MS ? parsed.role : null;
     } catch (err) {
       return null;
@@ -1673,8 +1677,18 @@
   // painted "Application received" for a beat before the detail (with the
   // match block) arrived (owner report 2026-09-04).
   function isPendingMatchRow(app) {
+    // The API presents a shortlisted row as status 'matched' ("Matched to you —
+    // accept or decline"); the raw stage is 'shortlisted'. Either spelling.
     const key = String((app && (app.rawStatus || app.status)) || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
-    return key === "shortlisted";
+    return key === "shortlisted" || key === "matched";
+  }
+  // The server's own answer, minus a pending match: applicationStatus 'matched'
+  // is an invitation the doctor has not answered, not an application.
+  function hasServerApplication(role) {
+    if (!role) return false;
+    if (role.applied) return true;
+    const st = role.applicationStatus && typeof role.applicationStatus === "object" ? String(role.applicationStatus.status || "").toLowerCase() : "";
+    return !!role.applicationStatus && st !== "matched";
   }
   function isApplied(roleId) {
     const state = getCareerState();
@@ -3385,7 +3399,7 @@
       // isApplied()'s localStorage, and it then described the wrong stage.
       (role.matchAccepted
         ? buildFastTrackedHtml(role)
-        : ((role.applied || role.applicationStatus || isApplied(role.id)) && !getActiveMatch(role)
+        : ((hasServerApplication(role) || isApplied(role.id)) && !getActiveMatch(role)
           ? buildApplicationProgressHtml(role)
           : ((!getActiveMatch(role) && !role.match && getPendingLocalMatch(role.id)) ? buildMatchPendingHtml() : ""))) +
       buildPracticeIdentityHtml(role) +
@@ -3450,12 +3464,12 @@
         ? "matched_accepted"
         : ((barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))
           ? "app_progress"
-          : (((role.applied || isApplied(role.id)) && !getActiveMatch(role))
+          : (((hasServerApplication(role) || isApplied(role.id)) && !getActiveMatch(role))
             ? "applied"
             // Preview paint of a matched role (the list entry carries no match
             // block yet): hold a "matched" bar instead of an Apply bar until
             // the detail arrives — never the applied bar.
-            : ((!getActiveMatch(role) && !role.match && !role.applied && !role.applicationStatus && getPendingLocalMatch(role.id)) ? "match_pending" : "idle")));
+            : ((!getActiveMatch(role) && !role.match && !hasServerApplication(role) && getPendingLocalMatch(role.id)) ? "match_pending" : "idle")));
     }
     paintApply();
     updateSaveButton();
