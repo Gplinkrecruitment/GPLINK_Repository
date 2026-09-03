@@ -63,7 +63,9 @@ describe('career Offers — applying is Under Review, not an offer', () => {
   it('the Offers badge counts live opportunities (offer/interview/accepted), not every application', () => {
     const shortcuts = careerHtml.slice(
       careerHtml.indexOf('function renderHeroShortcuts'),
-      careerHtml.indexOf('function renderHeroShortcuts') + 1400
+      // 2026-09-04: the Applications badge block now sits between the function
+      // head and the Offers badge — widen the window to the whole function.
+      careerHtml.indexOf('function renderHeroShortcuts') + 3000
     );
     // Counts the shared opportunity predicate, not the raw application total.
     // (Owner report: a practice-accepted interview-stage application IS an

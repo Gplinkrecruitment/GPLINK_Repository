@@ -43,7 +43,13 @@ describe('career placement view — only shown to an actually-placed GP', () => 
     expect(merge).toContain('careerState.activeView = "secured";');
     // …and DOWNGRADES off a stale secured view when it does not.
     expect(merge).toMatch(/else if \(careerState\.activeView === "secured" && !shouldLockCareerToSecuredView\(\)\)/);
-    expect(merge).toContain('careerState.activeView = careerState.applications.length ? "applications" : "browse";');
+    // 2026-09-04: the tab bar split Applications from Offers, so the downgrade
+    // lands on whichever of the two fits (defaultApplicationsView) — and on
+    // "browse" when the server has no applications at all.
+    expect(merge).toContain('careerState.activeView = defaultApplicationsView();');
+    const helper = careerHtml.slice(careerHtml.indexOf('function defaultApplicationsView()'), careerHtml.indexOf('function defaultApplicationsView()') + 400);
+    expect(helper).toContain('if (!apps.length) return "browse";');
+    expect(helper).toContain('return apps.every(isCareerOpportunity) ? "offers" : "applications";');
     // The correction is persisted, so the cached view is right next load too.
     expect(merge).toContain('persistCareerState();');
   });

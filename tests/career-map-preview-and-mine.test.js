@@ -113,11 +113,15 @@ describe('career map: your matches & applications under the map', () => {
     expect(career).toMatch(/function syncCareerMapMine\(applications\)/);
     expect(career).toMatch(/window\.__careerMineApplications = list/);
     expect(career).toMatch(/window\.__careerMapMine = function\(list\)|window\.__careerMapMine=function\(list\)/);
-    // Published before renderApplications' empty-list early return, so the strip
-    // clears itself when the last application goes away.
+    // Published unconditionally, BEFORE either grid is painted, so the strip
+    // clears itself when the last application goes away. (2026-09-04: the
+    // renderer no longer early-returns on an empty list — it paints the
+    // Applications and Offers empty states instead — so the ordering guard is
+    // now "before the first grid write".)
     const fn = (career.match(/function renderApplications\(\)\s*\{[\s\S]*?\n    \}/) || [''])[0];
     expect(fn.indexOf('syncCareerMapMine(applications)')).toBeGreaterThan(-1);
-    expect(fn.indexOf('syncCareerMapMine(applications)')).toBeLessThan(fn.indexOf('if (!applications.length) return;'));
+    expect(fn).not.toContain('if (!applications.length) return;');
+    expect(fn.indexOf('syncCareerMapMine(applications)')).toBeLessThan(fn.indexOf('applicationsGridEl.innerHTML = others.map('));
   });
 
   it('marks the doctor\'s own practices on the map with a distinct pin', () => {

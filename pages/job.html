@@ -1583,6 +1583,10 @@
       // stale the same way — a cached copy would still say "with your
       // Registration Support Officer" after the practice had moved them on.
       if (parsed.role.match || parsed.role.matchAccepted || parsed.role.applied) return null;
+      // Belt and braces for the same report: the local application record is
+      // written the moment the apply succeeds, so a cached copy from before it
+      // is stale by definition — go to the network for the real state.
+      try { if (typeof isApplied === "function" && isApplied(roleId)) return null; } catch (err) {}
       return Date.now() - fetchedAt <= ROLE_CACHE_TTL_MS ? parsed.role : null;
     } catch (err) {
       return null;
@@ -3620,9 +3624,26 @@
   }
 
   /* ── Apply outcome handling — one explicit branch per server guard ── */
+  // Owner report 2026-09-04: Smith Miller applied, reloaded, and the Apply
+  // button came straight back. Nothing was lost server-side — the page was
+  // answering from caches taken BEFORE the apply: this page's own role-detail
+  // cache (read before any network call, 10-minute window) and the shared
+  // gp-cache copy of /api/career/applications the careers page and the shell
+  // warm (10 minutes fresh, no network). Drop all of them the moment an apply
+  // succeeds, and raise the same dirty flag the careers page already honours
+  // after a withdrawal on application-detail.
+  function invalidateApplicationCaches(roleId) {
+    try { if (roleId) localStorage.removeItem(ROLE_DETAIL_CACHE_PREFIX + roleId); } catch (err) {}
+    [window, window.parent].forEach((w) => {
+      try { if (w && w.gpCache && typeof w.gpCache.invalidate === "function") w.gpCache.invalidate("/api/career/applications"); } catch (err) {}
+    });
+    try { sessionStorage.setItem("gp_career_apps_dirty", "1"); } catch (err) {}
+  }
+
   function markAppliedLocally(wasMatchAccept) {
     if (!currentRole) return;
     recordApplication(currentRole);
+    invalidateApplicationCaches(currentRole.id);
     if (wasMatchAccept) {
       // The match has been ANSWERED. Drop it exactly as declineActiveMatch
       // does, or getActiveMatch() keeps returning it and every later render

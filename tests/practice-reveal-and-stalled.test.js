@@ -137,3 +137,39 @@ describe('CEO board: gone-quiet tile and tracker', () => {
     expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-candidates.js?v=20260904a');
   });
 });
+
+describe('careers tabs + apply cache (owner 2026-09-04)', () => {
+  const career = read('pages/career.html');
+  const job = read('pages/job.html');
+  it('tab bar order is Roles, Applications, Offers, Saved', () => {
+    const tabs = between(career, '<nav class="at-tabs" id="careerTabs"', '</nav>');
+    const order = [...tabs.matchAll(/data-career-tab="([a-z]+)"/g)].map((m) => m[1]);
+    expect(order).toEqual(['browse', 'applications', 'offers', 'saved']);
+    expect(tabs).toContain('>Applications<span class="at-badge" id="appsTabBadge"');
+    expect(tabs).toContain('>Offers<span class="at-badge" id="offersTabBadge"');
+  });
+  it('offers is a real view: panel, allowed view lists, hash deep link, default landing', () => {
+    expect(career).toContain('data-view-panel="offers"');
+    expect(career.match(/\["browse", "applications", "offers", "saved", "secured"\]\.includes\(view\)/g).length).toBe(2);
+    expect(career).toContain('["browse", "applications", "offers", "saved"].includes(hashView)');
+    expect(career).toContain('careerState.activeView = defaultApplicationsView();');
+    expect(career).not.toContain('careerState.activeView = careerState.applications.length ? "applications" : "browse";');
+  });
+  it('the list is split by the same rule the Offers badge counts', () => {
+    const fn = between(career, 'function renderApplications() {', 'function defaultApplicationsView()');
+    expect(fn).toContain('const offers = applications.filter(isCareerOpportunity);');
+    expect(fn).toContain('offersGridEl.innerHTML = offers.map(');
+    expect(fn).toContain('applicationsGridEl.innerHTML = others.map(');
+    expect(fn).not.toContain('at-grouplbl');
+  });
+  it('a successful apply clears every cache that could replay the pre-apply state on reload', () => {
+    const fn = between(job, 'function invalidateApplicationCaches(roleId) {', 'function markAppliedLocally');
+    expect(fn).toContain('localStorage.removeItem(ROLE_DETAIL_CACHE_PREFIX + roleId)');
+    expect(fn).toContain('w.gpCache.invalidate("/api/career/applications")');
+    expect(fn).toContain('sessionStorage.setItem("gp_career_apps_dirty", "1")');
+    const mark = between(job, 'function markAppliedLocally(wasMatchAccept) {', 'function handleApplyOutcome');
+    expect(mark).toContain('invalidateApplicationCaches(currentRole.id);');
+    const cache = between(job, 'function readCachedRoleDetail(roleId) {', 'function writeCachedRoleDetail');
+    expect(cache).toContain('isApplied(roleId)) return null;');
+  });
+});

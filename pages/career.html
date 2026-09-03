@@ -706,6 +706,7 @@
 
     html[data-career-initial-view="secured"] [data-view-panel="browse"],
     html[data-career-initial-view="secured"] [data-view-panel="applications"],
+    html[data-career-initial-view="secured"] [data-view-panel="offers"],
     html[data-career-initial-view="secured"] [data-view-panel="saved"] {
       display: none !important;
     }
@@ -7553,6 +7554,7 @@
     .at-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 11px; max-width: 720px; margin: 0 auto; width: 100%; }
     .view-panel[data-view-panel="browse"],
     .view-panel[data-view-panel="saved"],
+    .view-panel[data-view-panel="offers"],
     .view-panel[data-view-panel="applications"] { max-width: 720px; margin: 0 auto; width: 100%; }
     .at-row {
       display: flex;
@@ -8432,8 +8434,9 @@
           </label>
           <nav class="at-tabs" id="careerTabs" aria-label="Career sections">
             <button type="button" data-career-tab="browse" class="on">Roles</button>
+            <button type="button" data-career-tab="applications">Applications<span class="at-badge" id="appsTabBadge" hidden></span></button>
+            <button type="button" data-career-tab="offers">Offers<span class="at-badge" id="offersTabBadge" hidden></span></button>
             <button type="button" data-career-tab="saved">Saved<span class="at-badge" id="savedTabBadge" hidden></span></button>
-            <button type="button" data-career-tab="applications">Offers<span class="at-badge" id="offersTabBadge" hidden></span></button>
           </nav>
           <div class="at-filters" id="careerFilters">
             <div class="at-sel"><select id="heroBillingSelect" aria-label="Filter by billing type"></select></div>
@@ -8493,6 +8496,15 @@
       <section class="view-panel" data-view-panel="applications">
         <div class="at-list" id="applicationsGrid"></div>
         <div class="at-empty-host" id="applicationsEmptyState"></div>
+      </section>
+
+      <!-- Offers (owner 2026-09-04): the practice has come back to you —
+           accepted your application, invited you to interview, or made an
+           offer (isCareerOpportunity). Everything still in review stays under
+           Applications. -->
+      <section class="view-panel" data-view-panel="offers">
+        <div class="at-list" id="offersGrid"></div>
+        <div class="at-empty-host" id="offersEmptyState"></div>
       </section>
 
       <section class="view-panel" data-view-panel="saved">
@@ -9862,7 +9874,7 @@
     function replaceCareerUrlState(view, roleId) {
       const nextView = shouldLockCareerToSecuredView()
         ? "secured"
-        : (["browse", "applications", "saved", "secured"].includes(view) ? view : "browse");
+        : (["browse", "applications", "offers", "saved", "secured"].includes(view) ? view : "browse");
       const url = new URL(window.location.href);
       if (roleId && !shouldLockCareerToSecuredView()) {
         url.searchParams.set("role", roleId);
@@ -9891,6 +9903,9 @@
     const careerFiltersEl = document.getElementById("careerFilters");
     const savedTabBadgeEl = document.getElementById("savedTabBadge");
     const offersTabBadgeEl = document.getElementById("offersTabBadge");
+    const appsTabBadgeEl = document.getElementById("appsTabBadge");
+    const offersGridEl = document.getElementById("offersGrid");
+    const offersEmptyStateEl = document.getElementById("offersEmptyState");
     const recommendedRolesEl = document.getElementById("recommendedRoles");
     const rolesEmptyStateEl = document.getElementById("rolesEmptyState");
     const applicationsGridEl = document.getElementById("applicationsGrid");
@@ -10350,7 +10365,7 @@
       // a GP without a placement belongs on the job-browse view, not the empty
       // placement view. The locked case is already handled by the early return above.
       const hashView = window.location.hash.replace("#", "");
-      if (["browse", "applications", "saved"].includes(hashView)) {
+      if (["browse", "applications", "offers", "saved"].includes(hashView)) {
         careerState.activeView = hashView;
       }
     }
@@ -12330,11 +12345,11 @@
       if (heroSearchClearEl) heroSearchClearEl.hidden = !careerState.filterSearch;
     }
 
-    // Atlas tab bar: Roles / Saved / Offers. Badges show the GP's OWN saved
-    // and application counts (never role-inventory counts).
+    // Atlas tab bar: Roles / Applications / Offers / Saved (owner order
+    // 2026-09-04). Badges show the GP's OWN counts (never role-inventory counts).
     function renderHeroShortcuts() {
       if (careerTabsEl) {
-        const activeTab = ["browse", "saved", "applications"].includes(careerState.activeView)
+        const activeTab = ["browse", "applications", "offers", "saved"].includes(careerState.activeView)
           ? careerState.activeView
           : "browse";
         [...careerTabsEl.querySelectorAll("[data-career-tab]")].forEach((btn) => {
@@ -12345,6 +12360,15 @@
         const visibleSavedCount = careerState.savedJobs.filter((job) => job && !isWithdrawnRole(job.id)).length;
         savedTabBadgeEl.hidden = visibleSavedCount === 0;
         savedTabBadgeEl.textContent = String(visibleSavedCount);
+      }
+      if (appsTabBadgeEl) {
+        // "Applications" counts what is still in review (applied / submitted /
+        // reviewing) — anything the practice has come back on lives under
+        // Offers, and a closed application (withdrawn / not proceeding) is
+        // listed but never counted.
+        const appsCount = careerState.applications.filter((application) => application && !isCareerOpportunity(application) && isActiveApplication(application) && !application.isPlacementSecured).length;
+        appsTabBadgeEl.hidden = appsCount === 0;
+        appsTabBadgeEl.textContent = String(appsCount);
       }
       if (offersTabBadgeEl) {
         // The "Offers" badge counts genuine OFFERS only — not every application.
@@ -12688,7 +12712,7 @@
         // placement page (with its "finalising the details" note and interview
         // card). Downgrade to their real stage view and persist it, so the
         // cached view is correct on the next cold load too, not just this one.
-        careerState.activeView = careerState.applications.length ? "applications" : "browse";
+        careerState.activeView = defaultApplicationsView();
       }
       persistCareerState();
       if (shouldRender) renderPage();
@@ -12756,8 +12780,11 @@
       if (kind === "saved") {
         return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div><b>No saved roles yet</b><small>Tap the bookmark on any role to keep it here while you decide.</small></div>`;
       }
+      if (kind === "applications") {
+        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><b>No applications yet</b><small>Browse the roles and apply to the ones you like \u2014 your review progress shows here, and your Registration Support Officer champions every application.</small></div>`;
+      }
       if (kind === "offers") {
-        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><b>No offers yet</b><small>When you apply, your review progress and any practice offers show here \u2014 your Registration Support Officer champions every application.</small></div>`;
+        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><b>No offers yet</b><small>When a practice accepts your application, invites you to interview or makes an offer, it shows here.</small></div>`;
       }
       return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg></div><b>No roles match those filters</b><small>Widen your billing or location \u2014 or ask your Registration Support Officer for a private shortlist.</small></div>`;
     }
@@ -13937,29 +13964,38 @@
     }
     window.__careerIvBoot = careerIvBootAll;
 
+    // Two tabs, one list (owner 2026-09-04): "Applications" holds everything
+    // still in review (plus closed ones, marked), "Offers" holds every
+    // application the practice has come back on — accepted, interview, offer
+    // (isCareerOpportunity, the same rule the Offers badge counts).
     function renderApplications() {
       applicationsGridEl.innerHTML = "";
+      if (offersGridEl) offersGridEl.innerHTML = "";
       const applications = careerState.applications.filter(Boolean);
       // Publish BEFORE the early return so the under-map strip clears itself
       // when the last application goes away.
       syncCareerMapMine(applications);
-      applicationsEmptyStateEl.innerHTML = buildAtlasEmptyHtml("offers");
-      applicationsEmptyStateEl.classList.toggle("is-visible", applications.length === 0);
-      if (!applications.length) return;
       const offers = applications.filter(isCareerOpportunity);
       const others = applications.filter((application) => !isCareerOpportunity(application));
-      let html = "";
-      if (offers.length) {
-        html += '<p class="at-grouplbl">Offers</p>' + offers.map((application) => buildApplicationRowHtml(application)).join("");
+      applicationsEmptyStateEl.innerHTML = buildAtlasEmptyHtml("applications");
+      applicationsEmptyStateEl.classList.toggle("is-visible", others.length === 0);
+      if (offersEmptyStateEl) {
+        offersEmptyStateEl.innerHTML = buildAtlasEmptyHtml("offers");
+        offersEmptyStateEl.classList.toggle("is-visible", offers.length === 0);
       }
-      if (offers.length && others.length) {
-        html += '<p class="at-grouplbl">Your applications</p>';
-      }
-      html += others.map((application) => buildApplicationRowHtml(application)).join("");
-      applicationsGridEl.innerHTML = html;
+      applicationsGridEl.innerHTML = others.map((application) => buildApplicationRowHtml(application)).join("");
+      if (offersGridEl) offersGridEl.innerHTML = offers.map((application) => buildApplicationRowHtml(application)).join("");
       // Any interview card that just appeared needs its times. Cheap to call on
       // every render — careerIvLoad only fetches once per application.
       careerIvBootAll();
+    }
+
+    // Where "you have applications" should land: Offers when every live
+    // application is already an opportunity, otherwise Applications.
+    function defaultApplicationsView() {
+      const apps = careerState.applications.filter(Boolean);
+      if (!apps.length) return "browse";
+      return apps.every(isCareerOpportunity) ? "offers" : "applications";
     }
 
     // G2: only ever surface an https Zoom link.
@@ -14205,7 +14241,7 @@
     function setView(view) {
       const nextView = shouldLockCareerToSecuredView()
         ? "secured"
-        : (["browse", "applications", "saved", "secured"].includes(view) ? view : "browse");
+        : (["browse", "applications", "offers", "saved", "secured"].includes(view) ? view : "browse");
       careerState.activeView = nextView;
       if (nextView === "secured") careerState.showSavedOnly = false;
       syncActiveViewUi();
@@ -14237,7 +14273,7 @@
     function renderPage() {
       const isLockedToSecured = enforceLockedCareerView();
       if (careerState.activeView === "secured" && !hasSecuredPlacement() && !isLockedToSecured) {
-        careerState.activeView = careerState.applications.length ? "applications" : "browse";
+        careerState.activeView = defaultApplicationsView();
       }
       if (isLockedToSecured) {
         replaceCareerUrlState("secured", null);
