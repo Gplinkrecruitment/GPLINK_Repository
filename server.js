@@ -35861,6 +35861,42 @@ var ATS_REG_RAIL = [
 ];
 var ATS_REG_STAGE_MAX = 6; // 'complete' = fully done (DB_STAGE_ORDER.complete)
 
+// CEO alert (owner 2026-09-01 / 2026-09-04): documents the AI could not decide
+// wait on a HUMAN as open doc_review / flagged_doc tasks. The candidates list
+// counts them ("Docs · N to review") and the candidate profile LISTS the same
+// rows with a Review button — one filter string shared by both reads so the
+// chip can never point at a profile with nothing to review.
+var ATS_DOC_REVIEW_OPEN_FILTER = 'task_type=in.(doc_review,flagged_doc)&status=in.(open,in_progress,waiting)';
+var ATS_DOC_REVIEW_STAGE_LABELS = { onboarding: 'Onboarding' };
+async function atsCandidateDocReviews(caseId) {
+  if (!caseId || !isSupabaseDbConfigured()) return [];
+  var res = await supabaseDbRequest('registration_tasks',
+    'select=id,title,task_type,status,related_document_key,related_stage,priority,description,ai_match_reasoning,created_at' +
+    '&case_id=eq.' + encodeURIComponent(caseId) + '&' + ATS_DOC_REVIEW_OPEN_FILTER + '&order=created_at.asc&limit=100');
+  var rows = (res.ok && Array.isArray(res.data)) ? res.data.slice() : [];
+  // Re-sort in JS: emulators (and chunked reads) ignore order=.
+  rows.sort(function (a, b) { return String(a.created_at || '').localeCompare(String(b.created_at || '')); });
+  return rows.filter(Boolean).map(function (t) {
+    var key = String(t.related_document_key || '');
+    var stage = String(t.related_stage || '').trim().toLowerCase();
+    var railLabel = atsRailLabel(stage);
+    return {
+      id: t.id, title: t.title || '', task_type: t.task_type || '', status: t.status || '',
+      related_document_key: key,
+      document_label: (key && getDocumentLabelForKey(key)) || '',
+      related_stage: stage,
+      // atsRailLabel echoes an unknown stage back verbatim — humanise that case.
+      stage_label: ATS_DOC_REVIEW_STAGE_LABELS[stage] || ((railLabel && railLabel !== '—' && railLabel !== stage) ? railLabel : stage.replace(/_/g, ' ')),
+      // Same precedence the review modal uses: flagged_doc keeps the flag in
+      // description, doc_review keeps the AI note in ai_match_reasoning.
+      description: t.description || '', ai_match_reasoning: t.ai_match_reasoning || '',
+      reason: t.description || t.ai_match_reasoning || '',
+      priority: t.priority || 'normal',
+      created_at: t.created_at || null
+    };
+  });
+}
+
 function atsNowIso() { return new Date().toISOString(); }
 function atsLocalId(prefix) {
   return (prefix || '') + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
@@ -78341,7 +78377,7 @@ Return ONLY valid JSON with no markdown formatting:
     // merge after the fact" pattern as the velocity/lock merges above. Degrades
     // to zero when Supabase is absent (local mode) or a row has no case_id.
     var drTasksRes = await supabaseDbRequest('registration_tasks',
-      'select=case_id&task_type=in.(doc_review,flagged_doc)&status=in.(open,in_progress,waiting)&limit=2000');
+      'select=case_id&' + ATS_DOC_REVIEW_OPEN_FILTER + '&limit=2000');
     var drByCase = {};
     ((drTasksRes.ok && drTasksRes.data) || []).forEach(function (t) {
       if (t && t.case_id) drByCase[t.case_id] = (drByCase[t.case_id] || 0) + 1;
@@ -78712,6 +78748,10 @@ Return ONLY valid JSON with no markdown formatting:
     var candidateIsCareerLocked = isCareerLocked(facts.careerLock);
     if (isSupabaseDbConfigured() && !candidateIsCareerLocked) atsStoreIntentForCase(facts.case_id, intent, facts);
     var displayIntentScore = (candidateIsCareerLocked && storedIntentScore != null) ? storedIntentScore : intent.score;
+    // Owner 2026-09-04: the "Docs · N to review" chip on the candidates list
+    // led to a profile with nowhere to review. The profile now carries the
+    // same open review tasks the chip counts (one Review button each).
+    var docReviews = await atsCandidateDocReviews(facts.case_id);
     var railIdx = atsRegStageIndex(facts.regStage);
     var rail = ATS_REG_RAIL.map(function (s, i) {
       var dbIdx = ceoMetrics.DB_STAGE_ORDER[s.key];
@@ -78725,6 +78765,7 @@ Return ONLY valid JSON with no markdown formatting:
         intent: { score: displayIntentScore, band: intent.bandLabel, signals: intent.signals },
         reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage), blocked: facts.blockedDays > 0, blocked_days: facts.blockedDays,
         rail: rail, onboarding: facts.ob, docs: facts.docs, comms: facts.comms, calls: facts.calls, apps: facts.apps, ai_handover: facts.aiHandover,
+        doc_reviews: docReviews, doc_reviews_pending: docReviews.length,
         // AI Matching (Task 8): "Interviews & strikes" panel data — null when
         // this GP has never been career-locked.
         career_lock: buildCareerLockAdminView(facts.careerLock)

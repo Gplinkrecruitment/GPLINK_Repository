@@ -1467,7 +1467,7 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
   </style>
   <!-- ATS styles load after the inline <style> so the master-bar sticky override wins -->
-  <link rel="stylesheet" href="/css/ceo-ats.css?v=20260902a" />
+  <link rel="stylesheet" href="/css/ceo-ats.css?v=20260904a" />
   <link rel="stylesheet" href="/css/ceo-social.css?v=20260818b" />
 </head>
 <body>
@@ -7733,6 +7733,10 @@
     var _ceoReviewDocObjUrl = null;
     var _ceoReviewDocBlob = null; // the loaded image, for the crop sheet
     var _ceoReviewSuggested = ''; // the AI-derived note pre-filled into the box (for the reject-confirm check)
+    // { task, onDone } handed in by a candidate-PROFILE caller (js/ceo-ats-candidates.js):
+    // the profile has no gpDetailCache, so it passes the task row itself, and onDone
+    // reloads the profile after a decision so its card + row chip + tab dot all move.
+    var _ceoReviewOpts = null;
 
     /* Crop a document already on file. Mirrors cropReviewDocImage() in admin.html:
      * same shared crop sheet (force mode — staff can see background the detector may
@@ -7789,8 +7793,9 @@
       var s = String(text || '').trim();
       return !!s && CEO_TECHNICAL_SCAN_REASON_RE.test(s);
     }
-    function ceoReviewFlaggedDoc(taskId) {
-      var t = findCeoTask(taskId) || {};
+    function ceoReviewFlaggedDoc(taskId, opts) {
+      _ceoReviewOpts = (opts && typeof opts === 'object') ? opts : null;
+      var t = (_ceoReviewOpts && _ceoReviewOpts.task) || findCeoTask(taskId) || {};
       // doc_review tasks store the AI note in ai_match_reasoning; flagged_doc tasks use description.
       var ceoRawReason = t.description || t.ai_match_reasoning || '';
       var ceoReasonIsTechnical = ceoIsTechnicalReviewReason(ceoRawReason);
@@ -7868,6 +7873,13 @@
         closeModal();
         showToast(d.message || (decision === 'approve' ? 'Document approved' : 'Re-upload requested'), 'success');
         refreshGpDetailTasks();
+        // A decision changes the "Docs · N to review" chip + the Candidates-tab dot —
+        // refresh the dashboard counts (same as every other mutation above) and let a
+        // candidate-profile caller reload its own view.
+        var reviewDone = _ceoReviewOpts && typeof _ceoReviewOpts.onDone === 'function' ? _ceoReviewOpts.onDone : null;
+        _ceoReviewOpts = null;
+        try { refreshDashboard(); } catch (rdErr) { /* ignore — periodic refresh catches up */ }
+        if (reviewDone) { try { reviewDone(); } catch (cbErr) { console.warn('[ceo] review onDone failed', cbErr); } }
       }).catch(function(e) { if (err) { err.textContent = 'Network error: ' + e.message; err.style.display = 'block'; } if (ap) ap.disabled = false; if (rj) rj.disabled = false; });
     }
 
@@ -8837,7 +8849,7 @@
        panel the old switcher never un-hid: a blank tab with no error anywhere. -->
   <script src="/js/ceo-ats-shared.js?v=20260816a"></script>
   <script src="/js/ats-job-view-links.js?v=20260711a"></script>
-  <script src="/js/ceo-ats-candidates.js?v=20260902a"></script>
+  <script src="/js/ceo-ats-candidates.js?v=20260904a"></script>
   <script src="/js/ceo-ats-jobs.js?v=20260901a"></script>
   <script src="/js/ceo-ats-practices.js?v=20260810c"></script>
   <script src="/js/ceo-ats-meetings.js?v=20260901a"></script>

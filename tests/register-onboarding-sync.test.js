@@ -93,6 +93,6 @@ describe('page pins', () => {
     expect(ceoJs).toContain('registerRowInner');
     expect(ceoJs).toContain('/api/ats/candidate/register-verification');
     const ceoHtml = fs.readFileSync(path.join(__dirnameTest, '..', 'pages', 'ceo-dashboard.html'), 'utf8');
-    expect(ceoHtml).toContain('ceo-ats-candidates.js?v=20260902a');
+    expect(ceoHtml).toContain('ceo-ats-candidates.js?v=20260904a');
   });
 });

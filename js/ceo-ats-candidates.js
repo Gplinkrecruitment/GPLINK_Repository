@@ -654,7 +654,7 @@
         // Owner rule 2026-09-01: a doctor whose documents the AI could not
         // decide must be visibly flagged on their profile row.
         (c.doc_reviews_pending > 0
-          ? '<span class="ats-pill red" title="Documents waiting on a manual review">Docs · ' + c.doc_reviews_pending + ' to review</span>'
+          ? '<span class="ats-pill red" title="Documents waiting on a manual review — open this doctor to review them">Docs · ' + c.doc_reviews_pending + ' to review</span>'
           : '') +
       '</div>' +
       '</div>' +
@@ -728,6 +728,7 @@
           '<div class="ats-card" style="margin-bottom:16px">' + pipelineCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + applicationsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + onboardingCardInner(c) + '</div>' +
+          docReviewsCardHtml(c) +
           '<div class="ats-card" style="margin-bottom:16px">' + docsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px" id="ats-cand-comms">' + commsCardInner(c) + '</div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + callsCardInner(c) + '</div>' +
@@ -1730,6 +1731,76 @@
     '</div>';
   }
 
+  /* Owner 2026-09-01 / 2026-09-04: the row chip says "Docs · N to review", so
+   * the profile must be where the review happens. This card lists the SAME
+   * open doc_review / flagged_doc tasks the chip counts (served on the
+   * candidate as c.doc_reviews) and opens the dashboard's review modal
+   * (preview, crop, approve / reject — the doctor is emailed) for each.
+   * Consultants cannot decide (the review routes are admin-session only), so
+   * they see the list without the button. Nothing renders when the list is
+   * empty — no empty card. */
+  var DOC_REVIEW_STAGE_LABELS = { onboarding: 'Onboarding', myintealth: 'MyIntealth', amc: 'AMC', career: 'Secure Placement', ahpra: 'AHPRA', pbs: 'PBS & Medicare', commencement: 'Commencement' };
+  function docReviewLabel(r) {
+    if (r.document_label) return r.document_label;
+    // "Review uploaded CCT Certificate for Dr X" → "CCT Certificate"
+    var m = /^Review (?:uploaded |flagged )?(.+?) for Dr /i.exec(r.title || '');
+    if (m) return m[1];
+    return r.title || String(r.related_document_key || 'Document').replace(/_/g, ' ');
+  }
+  function docReviewWhen(iso) {
+    if (!iso) return '';
+    var t = new Date(iso).getTime();
+    if (isNaN(t)) return '';
+    try { return new Date(t).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }
+    catch (e) { return String(iso).slice(0, 10); }
+  }
+  function docReviewsCardHtml(c) {
+    var list = (c && Array.isArray(c.doc_reviews)) ? c.doc_reviews.filter(Boolean) : [];
+    if (!list.length) return '';
+    return '<div class="ats-card" style="margin-bottom:16px" id="ats-cand-doc-reviews">' + docReviewsCardInner(c, list) + '</div>';
+  }
+  function docReviewsCardInner(c, list) {
+    var canDecide = !(ATS.isConsultant && ATS.isConsultant());
+    var rows = list.map(function (r) {
+      var stageKey = String(r.related_stage || '').toLowerCase();
+      var stage = r.stage_label || DOC_REVIEW_STAGE_LABELS[stageKey] || (stageKey ? stageKey.replace(/_/g, ' ') : '');
+      var reason = String(r.reason || r.description || r.ai_match_reasoning || '').trim();
+      var when = docReviewWhen(r.created_at);
+      var action = canDecide
+        ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-doc-review" data-task-id="' + ATS.escAttr(String(r.id || '')) + '">Review</button>'
+        : '<span class="ats-pill amber" title="Approve / reject is done by a GP Link admin">Admin review</span>';
+      return '<div class="ats-doc-line ats-doc-review-line" data-task-id="' + ATS.escAttr(String(r.id || '')) + '">' +
+        '<div class="ats-doc-ico" style="background:var(--ats-red-dim);color:var(--ats-red);font-weight:700">!</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="dl-name">' + ATS.esc(docReviewLabel(r)) + (stage ? ' <span class="ats-pill muted">' + ATS.esc(stage) + '</span>' : '') + '</div>' +
+          (reason ? '<div class="dl-sub" style="white-space:normal;line-height:1.45;margin-top:2px">' + ATS.esc(reason) + '</div>' : '') +
+          (when ? '<div class="dl-sub" style="margin-top:2px">Received ' + ATS.esc(when) + '</div>' : '') +
+        '</div>' +
+        action +
+      '</div>';
+    }).join('');
+    return '<div class="ats-card-title"><span class="ats-dot" style="background:var(--ats-red)"></span> Documents to review <span class="ats-pill red" style="margin-left:6px">' + list.length + '</span></div>' +
+      rows +
+      '<div style="font-size:11.5px;color:var(--ats-dim);margin-top:10px">The automatic check could not decide these. Review opens the file — Approve files it; Reject emails the doctor your note and asks for a re-upload.</div>';
+  }
+
+  // Opens the dashboard's flagged-document review modal (ceoReviewFlaggedDoc in
+  // pages/ceo-dashboard.html — preview, crop, approve / reject) for one of this
+  // candidate's open review tasks, then reloads the profile so the card, the
+  // row chip and the Candidates-tab dot all move together.
+  function openDocReview(taskId, c) {
+    if (!taskId) return;
+    var task = ((c && c.doc_reviews) || []).filter(function (r) { return r && String(r.id) === String(taskId); })[0] || null;
+    if (typeof window.ceoReviewFlaggedDoc !== 'function') {
+      ATS.toast('The review tool is not loaded on this page — open the Registration tab to review this document.');
+      return;
+    }
+    window.ceoReviewFlaggedDoc(taskId, {
+      task: task,
+      onDone: function () { if (c && c.case_id) window.atsOpenCandidate(c.case_id); }
+    });
+  }
+
   function docsCardInner(c) {
     var docs = c.docs || {};
     var docDef = [
@@ -2026,6 +2097,8 @@
       if (!e.target.closest) return;
       if (e.target.closest('#ats-comms-scan')) { runCommsScan(c.case_id); return; }
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
+      var reviewBtn = e.target.closest('.ats-doc-review');
+      if (reviewBtn) { openDocReview(reviewBtn.getAttribute('data-task-id'), c); return; }
       var submitPracticeBtn = e.target.closest('.ats-submit-practice');
       if (submitPracticeBtn) { submitToPractice(submitPracticeBtn.getAttribute('data-app-id'), c, submitPracticeBtn); return; }
       // Per-application actions (2026-07-30): one sleek dropdown rather than a

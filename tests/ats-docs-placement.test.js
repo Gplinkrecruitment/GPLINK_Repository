@@ -538,6 +538,6 @@ describe('UI static pins', () => {
   });
 
   it('cache-buster on the candidates script is bumped', () => {
-    expect(dashHtml).toContain('ceo-ats-candidates.js?v=20260902a');
+    expect(dashHtml).toContain('ceo-ats-candidates.js?v=20260904a');
   });
 });
