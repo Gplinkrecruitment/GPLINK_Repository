@@ -39207,7 +39207,13 @@ async function atsListCandidateUserIds() {
 }
 
 function _atsInList(ids) {
-  return ids.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+  // A null/undefined id can never match a row, but stringified into the list
+  // ("null") it makes PostgREST reject the WHOLE query for a bigint column
+  // (22P02) — one legacy application with no career_role_id blanked every
+  // practice name on the Matching board (owner report 2026-09-04). Drop them.
+  return (ids || [])
+    .filter(function (id) { return id !== null && id !== undefined && String(id).trim() !== '' && String(id) !== 'null' && String(id) !== 'undefined'; })
+    .map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
 }
 
 // Maximum ids to put in a single PostgREST `in.(...)` filter.
@@ -75826,20 +75832,32 @@ Return ONLY valid JSON with no markdown formatting:
       for (var mbGai = 0; mbGai < mbEligibleIds.length; mbGai += 200) {
         var mbGaChunk = mbEligibleIds.slice(mbGai, mbGai + 200);
         var mbGpAppsRes = await supabaseDbRequest('gp_applications',
-          'select=id,user_id,career_role_id,ats_stage,ats_stage_updated_at,match_score,matched_at,match_expires_at,match_seen_at,match_outcome,match_reminder_sent_at,match_final_reminder_sent_at,match_more_time_requested_at' +
+          'select=id,user_id,career_role_id,provider_role_id,ats_stage,ats_stage_updated_at,match_score,matched_at,match_expires_at,match_seen_at,match_outcome,match_reminder_sent_at,match_final_reminder_sent_at,match_more_time_requested_at' +
           '&user_id=in.(' + encodeURIComponent(_atsInList(mbGaChunk)) + ')&limit=5000');
         ((mbGpAppsRes.ok && mbGpAppsRes.data) || []).forEach(function (a) { (mbGpAppsByUser[a.user_id] = mbGpAppsByUser[a.user_id] || []).push(a); });
       }
 
-      var mbLiveJobIds = Array.from(new Set(Object.keys(mbGpAppsByUser).reduce(function (acc, uid) {
-        mbGpAppsByUser[uid].forEach(function (a) { if (MATCHING_BOARD_PIPELINE_STAGES.indexOf(a.ats_stage) !== -1) acc.push(String(a.career_role_id)); });
-        return acc;
-      }, [])));
-      var mbLiveJobsById = {};
+      // Live job lookup. Legacy (Zoho-era) applications carry only a
+      // provider_role_id, so resolve those by that key — and never let a null
+      // career_role_id into the id list (see _atsInList).
+      var mbLiveJobIds = [], mbLiveProviderIds = [];
+      Object.keys(mbGpAppsByUser).forEach(function (uid) {
+        mbGpAppsByUser[uid].forEach(function (a) {
+          if (MATCHING_BOARD_PIPELINE_STAGES.indexOf(a.ats_stage) === -1) return;
+          if (a.career_role_id !== null && a.career_role_id !== undefined) { if (mbLiveJobIds.indexOf(String(a.career_role_id)) === -1) mbLiveJobIds.push(String(a.career_role_id)); }
+          else if (a.provider_role_id && mbLiveProviderIds.indexOf(String(a.provider_role_id)) === -1) mbLiveProviderIds.push(String(a.provider_role_id));
+        });
+      });
+      var mbLiveJobsById = {}, mbLiveJobsByProviderId = {};
       for (var mbLji = 0; mbLji < mbLiveJobIds.length; mbLji += 200) {
         var mbLjChunk = mbLiveJobIds.slice(mbLji, mbLji + 200);
-        var mbLiveJobsRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name&id=in.(' + encodeURIComponent(_atsInList(mbLjChunk)) + ')&limit=500');
+        var mbLiveJobsRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,provider_role_id&id=in.(' + encodeURIComponent(_atsInList(mbLjChunk)) + ')&limit=500');
         ((mbLiveJobsRes.ok && mbLiveJobsRes.data) || []).forEach(function (j) { mbLiveJobsById[String(j.id)] = j; });
+      }
+      for (var mbLpi = 0; mbLpi < mbLiveProviderIds.length; mbLpi += 200) {
+        var mbLpChunk = mbLiveProviderIds.slice(mbLpi, mbLpi + 200);
+        var mbLiveProvRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,provider_role_id&provider_role_id=in.(' + encodeURIComponent(_atsInList(mbLpChunk)) + ')&limit=500');
+        ((mbLiveProvRes.ok && mbLiveProvRes.data) || []).forEach(function (j) { mbLiveJobsByProviderId[String(j.provider_role_id)] = j; });
       }
 
       var mbGpCacheByUser = {};
@@ -75860,7 +75878,8 @@ Return ONLY valid JSON with no markdown formatting:
           .sort(function (a, b) { return matchingBoardStageRank(a.ats_stage) - matchingBoardStageRank(b.ats_stage); })
           .map(function (a) {
             liveJobIdSet[String(a.career_role_id)] = true;
-            var j = mbLiveJobsById[String(a.career_role_id)] || {};
+            var j = mbLiveJobsById[String(a.career_role_id)]
+              || (a.provider_role_id ? mbLiveJobsByProviderId[String(a.provider_role_id)] : null) || {};
             return {
               application_id: a.id, career_role_id: a.career_role_id,
               title: j.title || '', practice_name: j.practice_name || '',

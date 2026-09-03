@@ -211,6 +211,23 @@ describe('empty state and the 6-node cap', () => {
     expect(html).not.toContain('ats-mb-gnode');
   });
 
+  it('pipeline but no cached ranking -> the run button is STILL offered, inline (owner 2026-09-04)', () => {
+    const html = MB.mbTrackHtml(row({ pipeline: [{ user_id: 'u1', name: 'Dr X', ats_stage: 'applied', stage_updated_at: hoursAgo(5), match: null }] }), NOW);
+    expect(html).toContain('ats-mb-gnode');
+    expect(html).toContain('data-mb-run="job-1"');
+    expect(html).toContain('ats-mb-runbtn--inline');
+    expect(html).not.toContain('data-mb-refresh');
+  });
+
+  it('GP with a live application but no ranking -> still offered "⚡ Run AI ranking"', () => {
+    const r = { gp: { user_id: 'gp1', name: 'Dr Sana Mirza', email: 'sana@test.local', days_on_books: 5 }, suggestions: [], ranking: null,
+      live: [{ application_id: 'a1', career_role_id: 93109, title: 'DPA - Terrigal - Mixed Billing', practice_name: 'GP Link Sandbox Practice', ats_stage: 'applied', stage_updated_at: hoursAgo(2), match: null }] };
+    const html = MB.mbGpTrackHtml(r, NOW);
+    expect(html).toContain('GP Link Sandbox Practice');
+    expect(html).toContain('data-mb-run="gp1"');
+    expect(html).toContain('⚡ Run AI ranking');
+  });
+
   it('caps the line at 6 nodes total (pipeline + suggestions), then "+n ▸"', () => {
     const pipeline = [1, 2, 3, 4].map((i) => ({ user_id: 'p' + i, name: 'Dr P' + i, ats_stage: 'applied', stage_updated_at: hoursAgo(1), match: null }));
     const suggestions = [1, 2, 3, 4].map((i) => ({ user_id: 's' + i, name: 'Dr S' + i, score: 70, reasons: [], chips: [] }));
@@ -904,7 +921,7 @@ describe('cache buster + dead CSS pruned', () => {
     // deployed fine without this, but browsers keep serving the copy they
     // cached under the OLD query string, so the fix was invisible in the UI
     // until the URL changed — the version token IS the delivery mechanism.
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260829a');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260904a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260727a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');
@@ -920,7 +937,7 @@ describe('cache buster + dead CSS pruned', () => {
     // new rules without a bump, which is exactly how that happened. The guard
     // for it lives in ats-endpoints.test.js ("never lets the CSS cache key
     // fall behind the JS one").
-    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260904a');
+    expect(ceoHtml).toContain('/css/ceo-ats.css?v=20260904b');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805d');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805c');
     expect(ceoHtml).not.toContain('/css/ceo-ats.css?v=20260805b');

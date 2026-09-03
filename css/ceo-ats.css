@@ -893,3 +893,7 @@ textarea.ats-modal-input { resize:vertical; }
   .cr-strip-btns { margin-left:0; width:100%; }
   .cr-strip-job { max-width:100%; }
 }
+
+/* Matching board: "Run AI ranking" offered inline next to live pipeline nodes
+   (a GP/position with something in flight but no ranking yet). */
+.ats-mb-runbtn--inline { align-self: center; margin-left: 8px; white-space: nowrap; }

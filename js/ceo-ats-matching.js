@@ -268,7 +268,12 @@
     suggestions.forEach(function (s) { if (budget <= 0) return; suggHtml += mbNodeHtml(mbSuggestionNode(s)); budget--; });
     var hidden = (pipeline.length + suggestions.length) - (6 - budget);
     var moreHtml = hidden > 0 ? ('<div class="ats-mb-more">+' + hidden + ' ▸</div>') : '';
-    var ageHtml = mbAgeChipHtml(ranking, job.id);
+    // Something in the pipeline but never ranked: still offer the run — a
+    // position with one applicant is exactly the one that needs more matches
+    // (owner report 2026-09-04: no way to rank/shortlist once anything was live).
+    var ageHtml = ranking
+      ? mbAgeChipHtml(ranking, job.id)
+      : '<button type="button" class="ats-mb-runbtn ats-mb-runbtn--inline" data-mb-run="' + A.escAttr(job.id) + '">⚡ Run AI ranking</button>';
     return (
       (pipeHtml ? '<div class="ats-mb-pipezone">' + pipeHtml + '</div>' : '') +
       ((suggHtml || moreHtml || ageHtml) ? ('<div class="ats-mb-suggzone">' + suggHtml + moreHtml + ageHtml + '</div>') : '')
@@ -333,7 +338,13 @@
     suggestions.forEach(function (s) { if (budget <= 0) return; suggHtml += mbNodeHtml(mbGpSuggestionNode(s)); budget--; });
     var hidden = (live.length + suggestions.length) - (6 - budget);
     var moreHtml = hidden > 0 ? ('<div class="ats-mb-more">+' + hidden + ' ▸</div>') : '';
-    var ageHtml = mbAgeChipHtml(ranking, gp.user_id);
+    // A doctor with an application in flight can still be matched elsewhere
+    // (two live applications are allowed; the shortlist endpoint only skips
+    // the job they already applied to) — so keep offering the ranking run
+    // until one exists (owner report 2026-09-04).
+    var ageHtml = ranking
+      ? mbAgeChipHtml(ranking, gp.user_id)
+      : '<button type="button" class="ats-mb-runbtn ats-mb-runbtn--inline" data-mb-run="' + A.escAttr(gp.user_id) + '">⚡ Run AI ranking</button>';
     return (
       (liveHtml ? '<div class="ats-mb-pipezone">' + liveHtml + '</div>' : '') +
       ((suggHtml || moreHtml || ageHtml) ? ('<div class="ats-mb-suggzone">' + suggHtml + moreHtml + ageHtml + '</div>') : '')
