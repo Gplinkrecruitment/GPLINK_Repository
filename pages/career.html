@@ -7391,6 +7391,14 @@
     }
     .at-sub { color: #c2dbff; font-size: 14px; margin: 8px 0 0; max-width: 44ch; }
 
+    /* ── Named tier: practice name on the card (owner 2026-09-04) ── */
+    .at-rpractice { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 2px 0 4px; font-size: 12.5px; color: var(--gp-muted); }
+    .at-rpractice svg { flex: none; color: var(--at-sky, #2563eb); }
+    .at-rweb { color: var(--gp-blue-deep, #1d4ed8); font-weight: 600; text-decoration: none; }
+    .at-rweb:hover { text-decoration: underline; }
+    .at-mini--named { color: var(--gp-green, #15803d); }
+    .at-mini--named svg { width: 11px; height: 11px; }
+
     /* ── Step strip (careers page "where am I") ── */
     .at-steps { margin-top: 18px; }
     .at-steps[hidden] { display: none !important; }
@@ -12415,6 +12423,14 @@
     }
 
     const AT_LOCK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+    const AT_PIN_SVG_SM = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>';
+    // http(s)-only gate for the named-tier website link on a card — same rule
+    // as job.html's matchSafeUrl: anything else renders nothing.
+    function cardSafeUrl(value) {
+      const raw = String(value || "").trim();
+      if (!/^https?:\/\/[^\s"'<>]+$/i.test(raw)) return "";
+      return raw;
+    }
     const AT_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
     // Task 11: a non-qualifying role (server-side DPA gate) arrives already
@@ -12444,6 +12460,12 @@
       const locationLabel = String(role.locationLine || role.location || "");
       const earnings = String(role.earnings || "");
       const band = getApplicantBand(role);
+      // Named tier (owner 2026-09-04): with a verified CV on file the server
+      // adds realPracticeName + website to every qualifying role. The masked
+      // headline in role.practiceName is left alone (suburb label + search).
+      const named = !!(role.nameRevealed && role.realPracticeName);
+      const website = named ? cardSafeUrl(role.website) : "";
+      const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
       return `<article class="at-row" data-open-role="${escapeHtml(role.id)}">
         ${applied ? '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>' : ""}
         ${buildRoleThumbHtml(role)}
@@ -12452,11 +12474,12 @@
             <span class="at-pill">${AT_CHECK_SVG}Eligible for you</span>
             <span class="at-demand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>${band} applied</span>
           </div>
-          <h2 class="at-rtitle">General Practice · ${escapeHtml(suburb)}</h2>
+          <h2 class="at-rtitle">${named ? escapeHtml(role.realPracticeName) : `General Practice · ${escapeHtml(suburb)}`}</h2>
+          ${named ? `<p class="at-rpractice">${AT_PIN_SVG_SM}${escapeHtml(suburb)}${website ? `<span class="at-dot">·</span><a class="at-rweb" href="${escapeHtml(website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(websiteLabel)} ↗</a>` : ""}</p>` : ""}
           <p class="at-rmeta">${escapeHtml(billingLabel)}<span class="at-dot">·</span>${escapeHtml(roleTypeLabel)}${locationLabel ? `<span class="at-dot">·</span>${escapeHtml(locationLabel)}` : ""}</p>
           ${earnings ? `<p class="at-rearn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4a1.5 1.5 0 0 1 0 3h-2a1.5 1.5 0 0 0 0 3h4" stroke-linecap="round"/></svg>${escapeHtml(earnings)}</p>` : ""}
           <div class="at-rfoot">
-            <span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>
+            ${named ? `<span class="at-mini at-mini--named">${AT_CHECK_SVG}PRACTICE NAMED</span>` : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`}
             <button class="at-rsave${saved ? " on" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="${saved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
             </button>
@@ -12531,7 +12554,7 @@
           // Never a raw title or the real practice name (which never reaches
           // the client anyway — belt and braces).
           const searchFields = [
-            role.practiceName, role.displayLabel, role.location, role.locationLine,
+            role.practiceName, role.realPracticeName, role.displayLabel, role.location, role.locationLine,
             role.nearest_city, role.mapLabel, role.majorCity, role.state,
             role.billing, role.summary
           ].filter(Boolean).join(" ").toLowerCase();
@@ -14559,6 +14582,9 @@
         return;
       }
 
+      // The named-tier website link lives inside the clickable card — let it
+      // open the practice site in its own tab without also opening the role.
+      if (event.target.closest && event.target.closest("a.at-rweb")) return;
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
         // Task 11: a blurred (non-qualifying) filler card must never open a

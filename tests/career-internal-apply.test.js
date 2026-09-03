@@ -23,6 +23,8 @@ const GP = { userId: 'u-gp-1', email: 'gp@gplink-test.local' };
 const PLACED = { userId: 'u-placed-1', email: 'placed@gplink-test.local' };
 // Holds a live AI match they have NOT answered yet — see the applied_at suite.
 const MATCHED = { userId: 'u-matched-1', email: 'matched@gplink-test.local' };
+// No careers CV → masked tier (owner 2026-09-04 named-tier rule).
+const NO_CV = { userId: 'u-nocv-1', email: 'nocv@gplink-test.local' };
 const NOW = new Date().toISOString();
 
 // ── In-memory PostgREST emulator ────────────────────────────────────────────
@@ -35,12 +37,14 @@ const db = {
     // visibility/apply mechanics, not the DPA gate.
     { user_id: GP.userId, email: GP.email, first_name: 'Test', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' },
     { user_id: PLACED.userId, email: PLACED.email, first_name: 'Placed', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' },
-    { user_id: MATCHED.userId, email: MATCHED.email, first_name: 'Matched', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' }
+    { user_id: MATCHED.userId, email: MATCHED.email, first_name: 'Matched', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' },
+    { user_id: NO_CV.userId, email: NO_CV.email, first_name: 'NoCv', last_name: 'Doctor', zoho_candidate_id: null, registration_country: 'australia' }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: PLACED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: MATCHED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    { user_id: MATCHED.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+    { user_id: NO_CV.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   user_documents: [
     // Task 4: /api/career/apply's CV gate now requires the verified careers
@@ -341,20 +345,37 @@ describe('POST /api/career/apply — Zoho path unchanged', () => {
 // ACCEPTED offer for the internal application must then reveal that entry
 // (and only that entry).
 describe('GET /api/career/applications — identity reveal gate', () => {
-  it("a non-revealed application's entry never carries the real practice name anywhere in the response", async () => {
+  it("a non-revealed application names its practice on the NAMED tier (CV on file) but never claims the identity reveal", async () => {
+    // Owner 2026-09-04: this doctor has a verified careers CV ('doc-cv-gp'),
+    // so the practice NAME shows before any reveal. `revealed` (address, exact
+    // map, contact) still waits for approval / an accepted offer.
     const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(GP.email, GP.userId) });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     const entry = res.body.applications.find((a) => a.role && a.role.id === 'internal_ats:ats_open1');
     expect(entry).toBeTruthy();
-    // Masked value (no masked_title on this role → the serializer's generic
-    // masked fallback, e.g. 'Australian GP practice' / 'Confidential GP
-    // practice') — the exact copy doesn't matter, the real name must be gone.
+    expect(entry.role.practiceName).toBe('Greenslopes Family Medical');
+    expect(entry.role.nameRevealed).toBe(true);
+    expect(entry.role.revealed).toBeUndefined();
+    expect(entry.role.practiceAddress).toBeUndefined();
+  });
+
+  it("a doctor with NO careers CV still sees only the masked practice on a non-revealed application", async () => {
+    tableOf('gp_applications').push({
+      id: 'app-nocv-1', user_id: NO_CV.userId, career_role_id: 'role-int-open', provider_role_id: 'ats_open1',
+      status: 'applied', ats_stage: 'applied', origin: 'gp_applied', applied_at: NOW
+    });
+    const res = await httpReq('GET', '/api/career/applications', { cookie: userCookie(NO_CV.email, NO_CV.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const entry = res.body.applications.find((a) => a.role && a.role.id === 'internal_ats:ats_open1');
+    expect(entry).toBeTruthy();
     expect(entry.role.practiceName).toBeTruthy();
     expect(entry.role.practiceName).not.toContain('Greenslopes');
+    expect(entry.role.nameRevealed).toBeUndefined();
     expect(entry.role.revealed).toBeUndefined();
     expect(res.raw).not.toContain('Greenslopes Family Medical');
-    expect(res.raw).not.toContain('Zoho Practice');
+    db.gp_applications = db.gp_applications.filter((a) => a.id !== 'app-nocv-1');
   });
 
   it('an accepted-offer application DOES reveal the real practice name — and only that one', async () => {
@@ -372,11 +393,14 @@ describe('GET /api/career/applications — identity reveal gate', () => {
     expect(revealedEntry.role.practiceName).toBe('Greenslopes Family Medical');
     expect(revealedEntry.role.revealed).toBe(true);
 
-    // The GP's OTHER application (no offer) stays masked in the same response.
-    const maskedEntry = res.body.applications.find((a) => a.role && a.role.id === 'zoho_recruit:z_123');
-    expect(maskedEntry).toBeTruthy();
-    expect(maskedEntry.role.practiceName).not.toBe('Zoho Practice');
-    expect(res.raw).not.toContain('Zoho Practice');
+    // The GP's OTHER application (no offer) is NAMED (CV on file) but never
+    // gets the identity reveal in the same response — `revealed` is the
+    // accepted-offer entry's alone.
+    const namedEntry = res.body.applications.find((a) => a.role && a.role.id === 'zoho_recruit:z_123');
+    expect(namedEntry).toBeTruthy();
+    expect(namedEntry.role.revealed).toBeUndefined();
+    expect(namedEntry.role.nameRevealed).toBe(true);
+    expect(res.body.applications.filter((a) => a.role && a.role.revealed === true).map((a) => a.role.id)).toEqual(['internal_ats:ats_open1']);
   });
 });
 

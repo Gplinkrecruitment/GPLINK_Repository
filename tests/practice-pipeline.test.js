@@ -8,6 +8,7 @@ import {
   resolveNearestMajorCity,
   normalizeAuStateCode,
   canRevealPracticeIdentityCore,
+  practiceRevealTier,
   gpQualifiesForRole,
   rankRolesForGp,
   buildRedactedRoleStub,
@@ -632,5 +633,23 @@ describe('facebook lead - the three new qualifiers', () => {
   });
   it('survives a lead with none of the new fields', () => {
     expect(() => normalizeFacebookLeadPayload({ practice_name: 'Old Lead' })).not.toThrow();
+  });
+});
+
+describe('practiceRevealTier (name + website before applying, owner 2026-09-04)', () => {
+  it('identity wins whenever the core rule passes, CV or not', () => {
+    expect(practiceRevealTier({ application: { revealed: true }, offer: null, cvVerified: false })).toBe('identity');
+    expect(practiceRevealTier({ application: { origin: 'admin_applied' }, offer: null })).toBe('identity');
+    expect(practiceRevealTier({ application: { id: 1 }, offer: { status: 'accepted' }, cvVerified: true })).toBe('identity');
+  });
+  it('a verified careers CV earns the named tier with no application at all', () => {
+    expect(practiceRevealTier({ application: null, offer: null, cvVerified: true })).toBe('named');
+    expect(practiceRevealTier({ application: { id: 1, revealed: false }, offer: { status: 'sent' }, cvVerified: true })).toBe('named');
+  });
+  it('everything else stays masked (no CV, anonymous, truthy-but-not-true flags)', () => {
+    expect(practiceRevealTier({})).toBe('masked');
+    expect(practiceRevealTier({ application: { id: 1 }, offer: null, cvVerified: false })).toBe('masked');
+    expect(practiceRevealTier({ cvVerified: 'yes' })).toBe('masked');
+    expect(practiceRevealTier({ cvVerified: 1 })).toBe('masked');
   });
 });

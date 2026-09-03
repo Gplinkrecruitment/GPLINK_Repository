@@ -17,7 +17,7 @@
   function panel() { return document.getElementById(PANEL_ID); }
 
   // ---- list filter / sort / search state (kept in module scope) ----
-  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '', fresh_applied: false, waiting: false };
+  var state = { q: '', stage: '', band: '', account_status: '', sort: 'intent', ats_bucket: '', fresh_applied: false, waiting: false, stalled: false };
   var searchTimer = null;
   var currentCandidate = null;
   var pipelineSummary = null; // last fetched /api/ceo/pipeline-summary payload
@@ -225,10 +225,10 @@
     if (widget) widget.addEventListener('click', function (e) {
       if (!e.target.closest) return;
       if (e.target.closest('.ats-pw-clear')) {
-        if (!state.ats_bucket && !state.fresh_applied && !state.waiting) return;
+        if (!state.ats_bucket && !state.fresh_applied && !state.waiting && !state.stalled) return;
         state.ats_bucket = '';
         state.fresh_applied = false;
-        state.waiting = false;
+        state.waiting = false; state.stalled = false;
         renderPipelineWidget();
         renderList();
         return;
@@ -238,7 +238,7 @@
       var bucket = seg.getAttribute('data-bucket') || '';
       state.ats_bucket = (state.ats_bucket === bucket) ? '' : bucket;
       state.fresh_applied = false;
-      state.waiting = false;
+      state.waiting = false; state.stalled = false;
       renderPipelineWidget();
       renderList();
     });
@@ -255,16 +255,22 @@
         // already advanced on another role is hidden by the furthest-stage
         // bucket filter, so use the fresh-apply filter that matches the count.
         state.fresh_applied = true;
-        state.waiting = false;
+        state.waiting = false; state.stalled = false;
         state.ats_bucket = '';
       } else if (bucket === 'waiting') {
         // "Waiting on practice" opens the decision tracker, not a bucket filter.
         state.waiting = true;
+        state.stalled = false;
+        state.fresh_applied = false;
+        state.ats_bucket = '';
+      } else if (bucket === 'stalled') {
+        // "Gone quiet" opens the stalled-applications tracker (owner 2026-09-04).
+        state.waiting = false; state.stalled = true;
         state.fresh_applied = false;
         state.ats_bucket = '';
       } else {
         state.fresh_applied = false;
-        state.waiting = false;
+        state.waiting = false; state.stalled = false;
         state.ats_bucket = bucket;
       }
       renderPipelineWidget();
@@ -289,6 +295,8 @@
       if (wDecline) { e.stopPropagation(); closeWaitingApp(wDecline.getAttribute('data-app-id'), 'Marked declined'); return; }
       var wWithdraw = e.target.closest('.ats-wait-withdraw');
       if (wWithdraw) { e.stopPropagation(); closeWaitingApp(wWithdraw.getAttribute('data-app-id'), 'Closed'); return; }
+      var sClose = e.target.closest('.ats-stalled-close');
+      if (sClose) { e.stopPropagation(); closeStalledApp(sClose.getAttribute('data-app-id')); return; }
       var wRow = e.target.closest('.ats-wait-row');
       if (wRow) { var wcid = wRow.getAttribute('data-case-id'); if (wcid) window.atsOpenCandidate(wcid); return; }
       // Strip buttons live INSIDE the card — handle them before the row-open
@@ -329,7 +337,8 @@
   // fresh application, with inline Submit/Withdraw); every other filter shows
   // the normal per-GP candidate list.
   function renderList() {
-    if (state.waiting) fetchAndRenderWaitingOnPractice();
+    if (state.stalled) fetchAndRenderStalled();
+    else if (state.waiting) fetchAndRenderWaitingOnPractice();
     else if (state.fresh_applied) fetchAndRenderNewApplications();
     else fetchAndRenderRows();
   }
@@ -479,6 +488,75 @@
     fetchAndRenderWaitingOnPractice();
   }
 
+  /* ---- "Gone quiet" tracker (owner 2026-09-04) ----
+     Introduced applications (practice approved / interview / offer) with no
+     movement for the server's threshold. A prompt to look — a check-in call,
+     and a check that the doctor has not gone around us — never a finding.
+     Row click opens the candidate (same .ats-wait-row handler); the only
+     inline action closes the application as not proceeding. */
+  function stalledRowHtml(a) {
+    var appId = ATS.escAttr(String(a.id));
+    var practice = a.practice_name || a.role_title || 'the practice';
+    var meta = [];
+    meta.push('<span style="color:var(--ats-amber);font-weight:600">' + (a.days_quiet || 0) + 'd without movement</span>');
+    if (a.last_movement_at) {
+      var d = new Date(a.last_movement_at);
+      if (!isNaN(d.getTime())) meta.push('last moved ' + ATS.esc(d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })));
+    }
+    if (a.role_location) meta.push(ATS.esc(a.role_location));
+    if (a.alerted_at) meta.push('owner emailed');
+    var stageLabel = (ATS.stageLabel && ATS.stageLabel(a.ats_stage)) || String(a.ats_stage || '').replace(/_/g, ' ');
+    var rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(245,158,11,0.30);' +
+      'border-radius:10px;margin-bottom:8px;cursor:pointer;background:rgba(245,158,11,0.07)';
+    return '<div class="ats-wait-row ats-stalled-row" data-case-id="' + ATS.escAttr(String(a.case_id || '')) + '" data-app-id="' + appId + '" style="' + rowStyle + '">' +
+      '<div style="min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-weight:600;color:var(--ats-text)">' + ATS.esc(a.gp_name) + '</span>' +
+          '<span style="color:var(--ats-dim)">→</span>' +
+          '<span style="color:var(--ats-text)">' + ATS.esc(practice) + '</span>' +
+          '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(245,158,11,0.16);color:var(--ats-amber)">' + ATS.esc(stageLabel) + '</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--ats-dim);margin-top:2px">' + meta.join(' · ') + ' · tap to open</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-stalled-close" data-app-id="' + appId + '">Not proceeding</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function fetchAndRenderStalled() {
+    var t0 = document.getElementById('ats-cand-table');
+    if (t0) t0.innerHTML = ATS.loadingHtml('Loading applications that have gone quiet…');
+    ATS.swr('/api/ats/stalled-applications', function (d) {
+      var t = document.getElementById('ats-cand-table');
+      if (!t) return;
+      if (!d || !d.ok) { t.innerHTML = ATS.emptyHtml('Could not load the gone-quiet list.'); return; }
+      var list = d.applications || [];
+      if (!list.length) { t.innerHTML = ATS.emptyHtml('No introduced application has gone quiet for ' + (d.threshold_days || 60) + '+ days.'); return; }
+      t.innerHTML = '<div style="font-size:12px;color:var(--ats-dim);margin:0 0 10px">Introduced doctors with no movement for ' + (d.threshold_days || 60) +
+        '+ days. Worth a check-in call, and worth checking they have not gone around us. Tap a row to open the candidate.</div>' +
+        list.map(stalledRowHtml).join('');
+    });
+  }
+
+  function afterStalledAction() {
+    if (window.refreshPipelineWidget) window.refreshPipelineWidget();
+    fetchAttention();
+    fetchAndRenderStalled();
+  }
+
+  function closeStalledApp(appId) {
+    if (!appId) return;
+    openWithdrawReasonPrompt(function (reason) {
+      var body = { stage: 'not_proceeding' };
+      if (reason) body.reason = reason;
+      ATS.api('/api/ats/application?id=' + encodeURIComponent(appId), { method: 'PATCH', body: body }).then(function (res) {
+        if (res && res.ok) { ATS.toast('Closed — removed from the gone-quiet list.'); afterStalledAction(); }
+        else { ATS.toast((res && (res.error || res.message)) || 'Could not update the application.'); }
+      });
+    }, function () { /* cancelled */ });
+  }
+
   function nudgePractice(appId, btn) {
     if (!appId) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
@@ -507,7 +585,8 @@
     var items = [
       { key: 'applied', label: 'New applications', hint: 'last 7 days', count: attentionSummary.new_applications || 0 },
       { key: 'offer', label: 'Declined offers', hint: 'awaiting action', count: attentionSummary.declined_offers || 0 },
-      { key: 'interview', label: 'Interviews awaiting availability', hint: 'practice not replied', count: attentionSummary.interviews_awaiting || 0 }
+      { key: 'interview', label: 'Interviews awaiting availability', hint: 'practice not replied', count: attentionSummary.interviews_awaiting || 0 },
+      { key: 'stalled', label: 'Gone quiet', hint: (attentionSummary.stalled_threshold_days || 60) + '+ days, introduced', count: attentionSummary.stalled_applications || 0 }
     ];
     var total = items.reduce(function (s, it) { return s + it.count; }, 0);
     var title = total > 0
@@ -572,7 +651,10 @@
       '</button>';
     }).join('');
     var showing = '';
-    if (state.waiting) {
+    if (state.stalled) {
+      showing = '<span class="ats-pw-showing">Showing: <b>Gone quiet</b>' +
+        ' · <button type="button" class="ats-pw-clear">Clear</button></span>';
+    } else if (state.waiting) {
       showing = '<span class="ats-pw-showing">Showing: <b>Waiting on practice</b>' +
         ' · <button type="button" class="ats-pw-clear">Clear</button></span>';
     } else if (state.fresh_applied) {

@@ -24,6 +24,9 @@ let sbServer, sbPort;
 
 const OVERSEAS_GP = { userId: 'u-overseas-1', email: 'overseas-gp@gplink-test.local' };
 const AU_TRAINED_GP = { userId: 'u-au-trained-1', email: 'au-trained-gp@gplink-test.local' };
+// No careers CV on file → stays on the MASKED tier (owner 2026-09-04: the
+// practice name + website are only shown once the CV gate is passed).
+const NO_CV_GP = { userId: 'u-no-cv-1', email: 'no-cv-gp@gplink-test.local' };
 const NOW = new Date().toISOString();
 
 const db = {
@@ -37,11 +40,17 @@ const db = {
       user_id: AU_TRAINED_GP.userId, email: AU_TRAINED_GP.email,
       first_name: 'AuTrained', last_name: 'Doctor', zoho_candidate_id: null,
       registration_country: 'australia', preferred_city: ''
+    },
+    {
+      user_id: NO_CV_GP.userId, email: NO_CV_GP.email,
+      first_name: 'NoCv', last_name: 'Doctor', zoho_candidate_id: null,
+      registration_country: 'australia', preferred_city: ''
     }
   ],
   user_state: [
     { user_id: OVERSEAS_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: AU_TRAINED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    { user_id: AU_TRAINED_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+    { user_id: NO_CV_GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   user_documents: [
     // Task 4: /api/career/apply's CV gate now requires the verified careers
@@ -236,8 +245,16 @@ describe('GET /api/career/roles — DPA gate for an overseas-trained GP', () => 
     expect(dpaEntry).toBeTruthy();
     expect(dpaEntry.blurred).toBeFalsy();
     expect(dpaEntry.qualifies).toBe(true);
-    // Crisp = shows the (Task 10) masked identity, never the real practice name.
+    // Crisp = the (Task 10) masked headline stays as practiceName (the client
+    // derives suburb labels + search from it)…
     expect(dpaEntry.practiceName).toBe('DPA - Toowoomba');
+    // …and, because this doctor has a verified careers CV on file, the NAMED
+    // tier (owner 2026-09-04) adds the real name alongside it. Name + website
+    // only: no address, no identity reveal.
+    expect(dpaEntry.nameRevealed).toBe(true);
+    expect(dpaEntry.realPracticeName).toBe('ULTRA SECRET Toowoomba Bush Medical');
+    expect(dpaEntry.revealed).toBeUndefined();
+    expect(dpaEntry.practiceAddress).toBeUndefined();
 
     const nonDpaEntry = res.body.roles.find((r) => r.id === 'internal_ats:ats_nondpa1');
     expect(nonDpaEntry).toBeTruthy();
@@ -246,11 +263,12 @@ describe('GET /api/career/roles — DPA gate for an overseas-trained GP', () => 
     expect(nonDpaEntry.practiceName).toBe('Confidential practice');
     expect(nonDpaEntry.dpa).toBeUndefined();
     expect(nonDpaEntry.nearest_city).toBeUndefined();
+    expect(nonDpaEntry.nameRevealed).toBeUndefined();
+    expect(nonDpaEntry.realPracticeName).toBeUndefined();
 
-    // The real practice name and suburb must never appear anywhere in the raw response.
-    expect(res.raw).not.toContain('ULTRA SECRET');
-    expect(res.raw).not.toContain('Bush Medical');
+    // A BLURRED role's real name and suburb must never appear anywhere in the raw response.
     expect(res.raw).not.toContain('Melbourne Family Clinic');
+    expect(JSON.stringify(nonDpaEntry)).not.toContain('ULTRA SECRET');
 
     // Qualifying roles come first, blurred fillers appended after.
     const ids = res.body.roles.map((r) => r.id || null);
@@ -273,7 +291,24 @@ describe('GET /api/career/roles — an Australia-trained GP sees everything cris
     // Still masked (Task 10's identity reveal gate is independent of the DPA
     // gate) — the real practice name never leaks regardless of qualification.
     expect(nonDpaEntry.practiceName).toBe('Non-DPA - Melbourne');
+    // Named tier (verified CV on file): both qualifying roles carry the real
+    // name + website fields, never the identity reveal.
+    expect(res.body.roles.map((r) => r.realPracticeName)).toEqual(['ULTRA SECRET Toowoomba Bush Medical', 'ULTRA SECRET Melbourne Family Clinic']);
+    expect(res.body.roles.every((r) => r.nameRevealed === true && r.revealed === undefined && r.practiceAddress === undefined)).toBe(true);
+  });
+});
+
+describe('GET /api/career/roles — no careers CV on file stays on the masked tier', () => {
+  it('never carries a real practice name, website or nameRevealed flag', async () => {
+    const res = await httpReq('GET', '/api/career/roles', { cookie: userCookie(NO_CV_GP.email, NO_CV_GP.userId) });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.roles.length).toBeGreaterThan(0);
+    expect(res.body.roles.some((r) => r.blurred)).toBe(false); // Australia-trained: qualifies for both
+    expect(res.body.roles.every((r) => r.nameRevealed === undefined && r.realPracticeName === undefined && r.website === undefined)).toBe(true);
     expect(res.raw).not.toContain('ULTRA SECRET');
+    expect(res.raw).not.toContain('Bush Medical');
+    expect(res.raw).not.toContain('Melbourne Family Clinic');
   });
 });
 

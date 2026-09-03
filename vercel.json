@@ -82,6 +82,10 @@
       "schedule": "30 20 * * *"
     },
     {
+      "path": "/api/cron/stalled-applications",
+      "schedule": "20 21 * * *"
+    },
+    {
       "path": "/api/cron/chase-nonresponders",
       "schedule": "0 21 * * *"
     },

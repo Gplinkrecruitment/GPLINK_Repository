@@ -382,7 +382,10 @@ describe('AI Matching Task 7 — source wiring', () => {
     // Owner call 2026-07-29: post-reveal it read as a second, competing title
     // beside the practice name. Pre-reveal it must stay — it is the only thing
     // describing the role while the practice is masked.
-    expect(jobHtml).toContain('(revealed ? "" : \'<span class="at-dmeta">\'');
+    // 2026-09-04: the named tier (practice named on a verified CV, pre-reveal)
+    // drops it too — the practice name is on screen either way.
+    expect(jobHtml).toContain('(named ? "" : \'<span class="at-dmeta">\'');
+    expect(jobHtml).toContain('const named = revealed || !!(role && role.nameRevealed && role.realPracticeName);');
   });
 
   it('the website link sits directly under the practice name, above the address', () => {

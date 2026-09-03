@@ -1966,11 +1966,17 @@
   /* ── Masthead ── */
   function renderMast(role) {
     const revealed = !!(role && role.revealed && role.realPracticeName);
+    // Named tier (owner 2026-09-04): a doctor with a verified CV sees the
+    // practice name + website BEFORE applying (server sets nameRevealed).
+    // The address, exact map and "Identity unlocked" pill still key on
+    // `revealed`, which only the identity reveal sets.
+    const named = revealed || !!(role && role.nameRevealed && role.realPracticeName);
     dmastEl.classList.toggle("at-dmast--revealed", revealed);
+    dmastEl.classList.toggle("at-dmast--named", named && !revealed);
     const suburb = getRoleSuburbLabel(role);
     const billing = String(role.billing || "Billing on request");
     const roleType = String(role.roleType || "Permanent");
-    const headline = revealed ? role.realPracticeName : ("General Practice in " + suburb);
+    const headline = named ? role.realPracticeName : ("General Practice in " + suburb);
     const locText = revealed
       ? String(role.practiceAddress || role.locationLine || role.location || "")
       : String(role.locationLine || role.location || "Australia");
@@ -1980,17 +1986,17 @@
     // AI Matching (Task 7): revealed practice website, http(s)-only —
     // rendered right under the location line, same spot the approved
     // mockup (round6-clicky-card.html screen 2) puts it under the title.
-    const website = revealed ? matchSafeUrl(role.website) : "";
+    const website = named ? matchSafeUrl(role.website) : "";
     const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
     dheadEl.innerHTML =
       '<div class="at-dhtags">' +
         '<span class="at-dpill">' + AT_CHECK_SVG + pillText + '</span>' +
-        // Once identity is unlocked this meta line is pure duplication — the
+        // Once the practice is named this meta line is pure duplication — the
         // billing/role detail is already in the chips and the body below, and
         // it read as a second, competing title next to the practice name
         // (owner call 2026-07-29). Masked view still needs it: pre-reveal it
         // is the only thing describing the role.
-        (revealed ? "" : '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>') +
+        (named ? "" : '<span class="at-dmeta">' + escapeHtml(billing) + ' · ' + escapeHtml(roleType) + '</span>') +
       '</div>' +
       '<h1 class="at-dtitle">' + escapeHtml(headline) + '</h1>' +
       // Website sits directly under the practice name (owner call 2026-07-29):
@@ -2007,10 +2013,13 @@
     // scenery photo — it's a real photo of the actual location.
     const imageUrl = String(role && (role.headerImageUrl || role.heroImageUrl) ? (role.headerImageUrl || role.heroImageUrl) : "").trim();
     const revealed = !!(role && role.revealed && role.realPracticeName);
+    const named = !revealed && !!(role && role.nameRevealed && role.realPracticeName);
     const suburb = getRoleSuburbLabel(role);
     const caption = revealed
       ? AT_CHECK_SVG.replace('viewBox', 'width="11" height="11" viewBox') + 'Identity unlocked · ' + escapeHtml(suburb)
-      : AT_LOCK_SVG + 'Confidential listing · area preview';
+      : (named
+        ? AT_LOCK_SVG + escapeHtml(suburb) + ' · exact address shared after your interview'
+        : AT_LOCK_SVG + 'Confidential listing · area preview');
     const media = imageUrl
       ? '<img class="at-dphoto-img" src="' + escapeHtml(imageUrl) + '" alt="Landscape view near ' + escapeHtml(suburb) + '" onerror="this.remove()" />' +
         buildRoleSceneHtml(role, { large: true, hideLabel: true }).replace('class="at-scene"', 'class="at-scene" style="z-index:-1"')

@@ -315,7 +315,7 @@ describe('GP search (client)', () => {
   it('bumps the assets it changed', () => {
     expect(CEO_HTML).toContain('/js/ceo-ats-jobs.js?v=20260901a');
     expect(CEO_HTML).not.toContain('/js/ceo-ats-jobs.js?v=20260805b');
-    expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20260902a');
+    expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20260904a');
     expect(CEO_HTML).not.toContain('/css/ceo-ats.css?v=20260805g');
   });
 });

@@ -168,6 +168,7 @@ const { validateFileUpload, detectMimeFromMagic } = require('./lib/file-sanitise
 const documentRequirements = require('./lib/document-requirements.js');
 const { selectStaleSummaryCases, DEFAULT_FLOOR_MS: SUMMARY_REFRESH_DEFAULT_FLOOR_MS } = require('./lib/summary-refresh.js');
 const practiceContactLib = require('./lib/practice-contact.js');
+const stalledApplications = require('./lib/stalled-applications.js');
 const {
   classifyConfidenceAction,
   buildRejectionMessage,
@@ -542,6 +543,10 @@ const CONSULTANT_EMAILS = new Set(
     .filter(Boolean)
 );
 const CEO_EMAIL = String(process.env.CEO_EMAIL || '').trim().toLowerCase();
+// "Gone quiet" applications (owner decision 2026-09-04, lib/stalled-applications.js):
+// an introduced application with no movement for this many days is surfaced
+// on the CEO candidates board and emailed to the owner once per quiet stretch.
+const STALLED_APPLICATION_DAYS = Math.max(7, Number(process.env.STALLED_APPLICATION_DAYS) || stalledApplications.DEFAULT_THRESHOLD_DAYS);
 const RSO_TEAM = [
   { name: 'Khaleed Mahmoud', email: 'khaleedmahmoud1211@gmail.com', phone: '+61406281243', user_id: '2f94f870-7ab2-4f71-98ad-bf3756ed88db' },
   { name: 'Hazel', email: 'hazel@mygplink.com.au', phone: '', user_id: '7bed5eb8-f03d-40d6-b090-eb006cd02be7' },
@@ -5114,6 +5119,152 @@ async function _rolesHiddenByPracticeTurnDown(userId) {
   }
 }
 
+// ── "Gone quiet" applications (owner decision 2026-09-04) ─────────────────
+// Narrow detector: only introduced pairs (lib/stalled-applications.js) with no
+// movement for STALLED_APPLICATION_DAYS. Surfaced as a "please review" list on
+// the CEO candidates board and emailed to the owner once per quiet stretch.
+async function listStalledApplicationsEnriched(nowIso) {
+  var rows = await atsListApplicationRows({});
+  var stalled = stalledApplications.findStalledApplications(rows, { now: nowIso, thresholdDays: STALLED_APPLICATION_DAYS });
+  var userIds = [], roleIds = [];
+  stalled.forEach(function (a) {
+    if (a.user_id && userIds.indexOf(a.user_id) === -1) userIds.push(a.user_id);
+    if (a.career_role_id != null && roleIds.indexOf(String(a.career_role_id)) === -1) roleIds.push(String(a.career_role_id));
+  });
+  var prof = {}, role = {}, caseByUser = {}, practiceById = {};
+  if (isSupabaseDbConfigured()) {
+    if (userIds.length) {
+      var inU = userIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+      var pr = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + encodeURIComponent(inU) + ')&limit=500');
+      ((pr.ok && pr.data) || []).forEach(function (p) { prof[p.user_id] = p; });
+      var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id&user_id=in.(' + encodeURIComponent(inU) + ')&limit=500');
+      ((cr.ok && cr.data) || []).forEach(function (c) { if (!caseByUser[c.user_id]) caseByUser[c.user_id] = c.id; });
+    }
+    if (roleIds.length) {
+      var inR = roleIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+      var rr = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,practice_id,location_city,location_state&id=in.(' + encodeURIComponent(inR) + ')&limit=500');
+      ((rr.ok && rr.data) || []).forEach(function (r) { role[String(r.id)] = r; });
+      var pIds = [];
+      Object.keys(role).forEach(function (k) { var pid = role[k].practice_id; if (pid != null && pIds.indexOf(String(pid)) === -1) pIds.push(String(pid)); });
+      if (pIds.length) {
+        var inP = pIds.map(function (id) { return '"' + id.replace(/"/g, '') + '"'; }).join(',');
+        var ppr = await supabaseDbRequest('practices', 'select=id,name,contact_name,contact_email&id=in.(' + encodeURIComponent(inP) + ')&limit=500');
+        ((ppr.ok && ppr.data) || []).forEach(function (p) { practiceById[String(p.id)] = p; });
+      }
+    }
+  } else {
+    (dbState.atsCandidates || []).forEach(function (c) { if (c && c.user_id) { prof[c.user_id] = { first_name: c.first_name, last_name: c.last_name, email: c.email }; if (c.case_id) caseByUser[c.user_id] = c.case_id; } });
+    (dbState.atsJobs || []).forEach(function (r) { if (r && r.id != null) role[String(r.id)] = r; });
+    (dbState.atsPractices || []).forEach(function (p) { if (p && p.id != null) practiceById[String(p.id)] = p; });
+  }
+  return stalled.map(function (a) {
+    var p = prof[a.user_id] || {};
+    var r = role[String(a.career_role_id)] || {};
+    var practiceRow = r.practice_id != null ? (practiceById[String(r.practice_id)] || null) : null;
+    var names = atsJobDisplayNames(r, practiceRow);
+    return {
+      id: a.id,
+      user_id: a.user_id,
+      case_id: caseByUser[a.user_id] || null,
+      gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || p.email || 'Candidate',
+      gp_email: p.email || '',
+      practice_name: names.practice || r.practice_name || '',
+      role_title: names.role || r.title || 'General Practitioner',
+      role_location: [r.location_city, r.location_state].filter(Boolean).join(', '),
+      ats_stage: a.ats_stage,
+      status: a.status,
+      revealed: a.revealed,
+      last_movement_at: a.last_movement_at,
+      days_quiet: a.days_quiet
+    };
+  });
+}
+
+async function readStalledAlertSentinel() {
+  if (!isSupabaseDbConfigured()) return {};
+  var kv = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.stalled_application_alerts&limit=1');
+  var value = (kv.ok && Array.isArray(kv.data) && kv.data[0]) ? kv.data[0].value : null;
+  return (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+}
+
+function buildStalledApplicationsEmailHtml(items, thresholdDays) {
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
+  var rowsHtml = items.map(function (it) {
+    var when = it.last_movement_at ? new Date(it.last_movement_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : 'unknown';
+    return '<tr>'
+      + '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:14px;color:#0f172a"><strong>' + esc(it.gp_name) + '</strong>'
+      + (it.gp_email ? '<br><span style="font-size:12px;color:#64748b">' + esc(it.gp_email) + '</span>' : '') + '</td>'
+      + '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:14px;color:#334155">' + esc(it.practice_name || it.role_title)
+      + (it.role_location ? '<br><span style="font-size:12px;color:#64748b">' + esc(it.role_location) + '</span>' : '') + '</td>'
+      + '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:14px;color:#334155">' + esc(it.ats_stage) + '</td>'
+      + '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-size:14px;color:#b45309;white-space:nowrap"><strong>' + esc(it.days_quiet) + ' days</strong><br><span style="font-size:12px;color:#64748b">last moved ' + esc(when) + '</span></td>'
+      + '</tr>';
+  }).join('');
+  return '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 16px">'
+    + (items.length === 1 ? 'One introduced doctor has' : items.length + ' introduced doctors have')
+    + ' had no movement on an application for <strong>' + esc(thresholdDays) + '+ days</strong>. '
+    + 'The practice met them or approved them, then it went quiet. Worth a check-in call, and worth checking whether they have gone around us.</p>'
+    + '<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:0 0 18px">'
+    + '<thead><tr>'
+    + '<th align="left" style="padding:6px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Doctor</th>'
+    + '<th align="left" style="padding:6px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Practice</th>'
+    + '<th align="left" style="padding:6px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Stage</th>'
+    + '<th align="left" style="padding:6px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Quiet for</th>'
+    + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>'
+    + '<p style="font-size:13px;color:#64748b;line-height:1.5;margin:0">This is a prompt to look, not a finding. Each application is listed once per quiet stretch; if it moves and stalls again you will hear about it again.</p>';
+}
+
+// Daily sweep: find every stalled introduced application, email the owner
+// about the ones not yet alerted for their current quiet stretch, note it on
+// the doctor's case timeline, and store the sentinel in runtime_kv.
+async function runStalledApplicationSweep() {
+  var nowIso = new Date().toISOString();
+  var items = await listStalledApplicationsEnriched(nowIso);
+  var sentinel = await readStalledAlertSentinel();
+  var fresh = stalledApplications.selectFreshStalls(items, sentinel);
+  var emailed = false;
+  if (fresh.length) {
+    var subject = fresh.length === 1
+      ? 'Gone quiet: ' + fresh[0].gp_name + ' at ' + (fresh[0].practice_name || fresh[0].role_title) + ' (' + fresh[0].days_quiet + ' days)'
+      : 'Gone quiet: ' + fresh.length + ' introduced applications with no movement';
+    var sendRes = await sendEmail({
+      to: GP_OWNER_EMAIL,
+      subject: subject,
+      html: buildCareerEmailHtml({
+        title: fresh.length === 1 ? 'An application has gone quiet' : fresh.length + ' applications have gone quiet',
+        bodyHtml: buildStalledApplicationsEmailHtml(fresh, STALLED_APPLICATION_DAYS),
+        ctaText: 'Open the candidates board',
+        ctaUrl: getSuperAdminBaseUrl() + '/pages/ceo-dashboard',
+        footer: 'Sent by the daily gone-quiet sweep. Threshold: ' + STALLED_APPLICATION_DAYS + ' days without movement after an introduction.'
+      }),
+      text: fresh.map(function (it) { return it.gp_name + ' -> ' + (it.practice_name || it.role_title) + ' (' + it.ats_stage + ', ' + it.days_quiet + ' days quiet)'; }).join('\n'),
+      category: 'owner_alert'
+    });
+    emailed = !!(sendRes && sendRes.ok !== false);
+    for (var i = 0; i < fresh.length; i++) {
+      var it = fresh[i];
+      if (!it.case_id) continue;
+      try {
+        await _logCaseEvent(it.case_id, null, 'stalled_application_alert',
+          'Application gone quiet',
+          it.days_quiet + ' days without movement at ' + (it.practice_name || it.role_title) + ' (stage: ' + it.ats_stage + '). Owner alerted.',
+          'system:stalled-sweep',
+          { application_id: it.id, days_quiet: it.days_quiet, last_movement_at: it.last_movement_at });
+      } catch (e) { /* timeline is best-effort */ }
+    }
+  }
+  if (isSupabaseDbConfigured()) {
+    try {
+      await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: [{ key: 'stalled_application_alerts', value: stalledApplications.nextSentinel(items, sentinel, nowIso) }]
+      });
+    } catch (e) { console.error('[stalled-sweep] sentinel write failed (ignored):', e && e.message); }
+  }
+  return { checked: items.length, stalled: items.length, alerted: fresh.length, emailed: emailed };
+}
+
 async function _applyGpRoleVisibilityGate(clientRoles, userId, email) {
   var list = Array.isArray(clientRoles) ? clientRoles : [];
   try {
@@ -9430,6 +9581,81 @@ async function getCareerProfileDocument(userId, key) {
   return (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
 }
 
+// "Has this doctor passed the CV gate?" — the same document set the matching
+// board and POST /api/career/apply accept: the AI-checked careers CV
+// ('career_cv') or the legacy signed CV ('cv_signed_dated'), uploaded or
+// approved. This is what earns the NAMED practice reveal tier
+// (practicePipeline.practiceRevealTier): name + website before applying.
+async function gpHasVerifiedCareerCv(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return false;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('user_documents',
+      'select=id&user_id=eq.' + encodeURIComponent(uid) + '&document_key=in.(career_cv,cv_signed_dated)&status=in.(uploaded,approved)&limit=1');
+    return !!(r.ok && Array.isArray(r.data) && r.data.length);
+  }
+  const docs = Array.isArray(dbState.userDocuments) ? dbState.userDocuments : [];
+  return docs.some((d) => d && String(d.user_id) === uid
+    && (d.document_key === 'career_cv' || d.document_key === 'cv_signed_dated')
+    && (d.status === 'uploaded' || d.status === 'approved'));
+}
+
+// The clinic's own website first (career_roles.source_payload — per-clinic even
+// under a corporate group), then the practices row (the OWNER's site). http(s)
+// only, or '' — the client renders nothing for ''.
+function resolveNamedPracticeWebsite(roleRow, practiceRow) {
+  return resolveCareerRoleWebsiteUrl(roleRow)
+    || sanitizeHttpUrl(practiceRow && practiceRow.website)
+    || '';
+}
+
+// Named reveal tier for the roles LIST (owner decision 2026-09-04): once a
+// signed-in doctor has a verified careers CV on file, every qualifying role
+// card carries the practice's real name and website. Adds NEW fields
+// (realPracticeName / website / nameRevealed) and leaves the masked
+// `practiceName` headline untouched — the client derives suburb labels and
+// search text from it. Blurred (non-qualifying) stubs are never enriched.
+// Only the authenticated /api/career/roles path calls this; the public jobs
+// payload stays on mapCareerRoleRowToClient's masked base.
+async function attachNamedPracticeToClientRoles(clientRoles, rowsByClientId, userId) {
+  const list = Array.isArray(clientRoles) ? clientRoles : [];
+  if (!list.length || !userId) return list;
+  let named = false;
+  try { named = await gpHasVerifiedCareerCv(userId); } catch (e) { named = false; }
+  if (!named) return list;
+  const rows = rowsByClientId && typeof rowsByClientId === 'object' ? rowsByClientId : {};
+  const practiceIds = [];
+  list.forEach((r) => {
+    const row = r && rows[String(r.id)];
+    if (row && row.practice_id != null && practiceIds.indexOf(String(row.practice_id)) === -1) practiceIds.push(String(row.practice_id));
+  });
+  const practiceById = {};
+  try {
+    if (practiceIds.length && isSupabaseDbConfigured()) {
+      for (let i = 0; i < practiceIds.length; i += 100) {
+        const chunk = practiceIds.slice(i, i + 100).map((id) => '"' + id.replace(/"/g, '') + '"').join(',');
+        const pr = await supabaseDbRequest('practices', 'select=id,name,website&id=in.(' + encodeURIComponent(chunk) + ')&limit=200');
+        ((pr.ok && pr.data) || []).forEach((p) => { practiceById[String(p.id)] = p; });
+      }
+    } else if (practiceIds.length) {
+      (dbState.atsPractices || []).forEach((p) => { if (p && p.id != null) practiceById[String(p.id)] = p; });
+    }
+  } catch (e) { /* names still resolve from the role row */ }
+  return list.map((r) => {
+    if (!r || r.blurred || r.qualifies === false) return r;
+    const row = rows[String(r.id)];
+    if (!row) return r;
+    const practiceRow = row.practice_id != null ? (practiceById[String(row.practice_id)] || null) : null;
+    const name = resolveCareerRolePracticeName(row, practiceRow);
+    if (!name) return r;
+    return Object.assign({}, r, {
+      nameRevealed: true,
+      realPracticeName: name,
+      website: resolveNamedPracticeWebsite(row, practiceRow)
+    });
+  });
+}
+
 // The CV a practice may see for a candidate — SAME source order as the
 // submit-to-practice email attachment: the AI-identity-checked careers CV
 // (document_key 'career_cv') first, legacy cv_signed_dated only while
@@ -10369,6 +10595,7 @@ const CRON_SCHEDULES = {
   'reconcile-doc-tasks': { schedule: '30 * * * *', cadenceMinutes: 60 },
   'match-lifecycle': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'sla-sweep': { schedule: '30 20 * * *', cadenceMinutes: 1440 },
+  'stalled-applications': { schedule: '20 21 * * *', cadenceMinutes: 1440 },
   'chase-nonresponders': { schedule: '0 21 * * *', cadenceMinutes: 1440 },
   // Daily 21:50 UTC ≈ 7:50am AEST — after the nightly sweeps, chases practices
   // sitting on a submitted candidate (day 3/5 auto-nudge, day 7 owner chase flag).
@@ -43994,6 +44221,23 @@ async function handleApi(req, res, pathname) {
   // runtime_kv ('sla_sweep_last_results') so the admin "Stuck cases" tab can
   // show when the sweep last ran. Heartbeat is recorded automatically by the
   // /api dispatcher (CRON_SCHEDULES['sla-sweep']).
+  // Cron: daily "gone quiet" sweep (owner decision 2026-09-04). Introduced
+  // applications with no movement for STALLED_APPLICATION_DAYS → owner email
+  // once per quiet stretch + case timeline note. Sentinel in runtime_kv.
+  if (req.method === 'GET' && pathname === '/api/cron/stalled-applications') {
+    if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', checked: 0, stalled: 0, alerted: 0 }); return; }
+    try {
+      var stalledResult = await runStalledApplicationSweep();
+      try { res.gpCronDetail = 'stalled ' + stalledResult.stalled + ', alerted ' + stalledResult.alerted; } catch (e) {}
+      sendJson(res, 200, Object.assign({ ok: true }, stalledResult));
+    } catch (stalledErr) {
+      console.error('[Cron] stalled-applications sweep failed:', stalledErr);
+      await respondServerError(res, stalledErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/cron/sla-sweep') {
     if (!isValidCronSecret(getBearerToken(req))) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, message: 'Not configured', checked: 0, created: 0 }); return; }
@@ -49689,20 +49933,28 @@ async function handleApi(req, res, pathname) {
       // badge) — so hide any non-open role from GPs regardless of provider. The
       // open-check (is_active + approved + job_status==='open') is provider-agnostic.
       const visibleRows = rows.filter((row) => row && isInternalAtsRoleOpenForGp(row));
+      const visibleRowsByClientId = {};
+      visibleRows.forEach((row) => { visibleRowsByClientId[makeCareerRoleId(row.provider, row.provider_role_id)] = row; });
+      const gatedRoles = await _applyGpRoleVisibilityGate(visibleRows.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail);
       sendJson(res, 200, {
         ok: true,
         source: visibleRows.length ? 'supabase' : 'fallback',
-        roles: await _applyGpRoleVisibilityGate(visibleRows.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail)
+        // Named tier: name + website on every qualifying card once the doctor
+        // has a verified CV (practiceRevealTier 'named').
+        roles: await attachNamedPracticeToClientRoles(gatedRoles, visibleRowsByClientId, _gpRolesUserId)
       }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
     // Local-JSON dev mode: still surface CEO-created in-app ATS jobs.
     const localInternalRoles = await listGpVisibleInternalAtsRoles();
+    const localRowsByClientId = {};
+    localInternalRoles.forEach((row) => { if (row) localRowsByClientId[makeCareerRoleId(row.provider, row.provider_role_id)] = row; });
+    const localGatedRoles = await _applyGpRoleVisibilityGate(localInternalRoles.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail);
     sendJson(res, 200, {
       ok: true,
       source: 'fallback',
-      roles: await _applyGpRoleVisibilityGate(localInternalRoles.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail)
+      roles: await attachNamedPracticeToClientRoles(localGatedRoles, localRowsByClientId, _gpRolesUserId)
     }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
@@ -49791,6 +50043,24 @@ async function handleApi(req, res, pathname) {
       ? await resolveCareerRoleRevealContext(roleDetailUserId, finalRoleRow.id)
       : { application: null, offer: null, revealed: false };
     const revealed = roleRevealCtx.revealed;
+    // Named tier (owner decision 2026-09-04): a signed-in doctor with a
+    // verified careers CV sees the practice NAME and WEBSITE before applying.
+    // Address, exact map and contact stay behind the identity reveal below
+    // (`revealed` is deliberately NOT set here — job.html keys the map and
+    // "Identity unlocked" pill on it). Admin preview has no doctor → masked.
+    if (!revealed && roleDetailUserId && await gpHasVerifiedCareerCv(roleDetailUserId)) {
+      let namedPracticeRow = null;
+      if (finalRoleRow.practice_id) {
+        try { namedPracticeRow = await atsGetPracticeRow(finalRoleRow.practice_id); } catch (e) { namedPracticeRow = null; }
+      }
+      const namedPracticeName = resolveCareerRolePracticeName(finalRoleRow, namedPracticeRow);
+      if (namedPracticeName) {
+        roleClientPayload.nameRevealed = true;
+        roleClientPayload.realPracticeName = namedPracticeName;
+        const namedWebsite = resolveNamedPracticeWebsite(finalRoleRow, namedPracticeRow);
+        if (namedWebsite) roleClientPayload.website = namedWebsite;
+      }
+    }
     if (revealed) {
       let practiceAddress = '';
       let practiceRow = null;
@@ -52254,6 +52524,11 @@ async function handleApi(req, res, pathname) {
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
     const forceRefresh = url.searchParams.get('refresh') === '1';
+    // Named reveal tier (owner 2026-09-04): with a verified CV on file every
+    // application row names its practice (+ website) even before the
+    // identity reveal. One lookup per request, applied per row below.
+    let appsNamedTier = false;
+    try { appsNamedTier = await gpHasVerifiedCareerCv(userId); } catch (e) { appsNamedTier = false; }
 
     const [profile, result] = await Promise.all([
       isSupabaseDbConfigured()
@@ -52471,6 +52746,29 @@ async function handleApi(req, res, pathname) {
           || '';
         if (revealName) roleClient.practiceName = String(revealName);
         roleClient.revealed = true;
+        // Owner 2026-09-04: names AND websites — the identity-revealed row
+        // carries the practice website too (same clinic-first resolution as
+        // the named tier), so the applications list never lags the job page.
+        if (roleRow) {
+          let revealedPractice = null;
+          if (roleRow.practice_id) {
+            try { revealedPractice = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { revealedPractice = null; }
+          }
+          const revealedWebsite = resolveNamedPracticeWebsite(roleRow, revealedPractice);
+          if (revealedWebsite) roleClient.website = revealedWebsite;
+        }
+      } else if (appsNamedTier && roleRow) {
+        let namedAppPractice = null;
+        if (roleRow.practice_id) {
+          try { namedAppPractice = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { namedAppPractice = null; }
+        }
+        const namedAppName = resolveCareerRolePracticeName(roleRow, namedAppPractice);
+        if (namedAppName) {
+          roleClient.practiceName = namedAppName;
+          roleClient.nameRevealed = true;
+          const namedAppWebsite = resolveNamedPracticeWebsite(roleRow, namedAppPractice);
+          if (namedAppWebsite) roleClient.website = namedAppWebsite;
+        }
       }
       let placement = null;
       if (isCareerPlacementSecuredStatus(effectiveStatus) && (liveRecord || localApp)) {
@@ -78501,14 +78799,34 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (atErr) {
       console.error('[ats attention] count failed:', atErr && atErr.message);
     }
+    var atStalled = 0;
+    try { atStalled = stalledApplications.findStalledApplications(atApps, { thresholdDays: STALLED_APPLICATION_DAYS }).length; } catch (e) { atStalled = 0; }
     sendJson(res, 200, {
       ok: true,
       new_applications: atNewApps,
       declined_offers: atDeclined,
       interviews_awaiting: atAwaiting,
       waiting_on_practice: atWaiting,
-      waiting_chase: atChase
+      waiting_chase: atChase,
+      stalled_applications: atStalled,
+      stalled_threshold_days: STALLED_APPLICATION_DAYS
     });
+    return;
+  }
+
+  // "Gone quiet" tracker behind the attention tile: introduced applications
+  // with no movement for STALLED_APPLICATION_DAYS (lib/stalled-applications.js).
+  if (pathname === '/api/ats/stalled-applications' && req.method === 'GET') {
+    var ctxSQ = requireAtsSession(req, res); if (!ctxSQ) return;
+    try {
+      var sqItems = await listStalledApplicationsEnriched(new Date().toISOString());
+      var sqSentinel = await readStalledAlertSentinel();
+      sqItems.forEach(function (it) { var s = sqSentinel[it.id]; it.alerted_at = (s && s.alerted_at) || null; });
+      sendJson(res, 200, { ok: true, applications: sqItems, total: sqItems.length, threshold_days: STALLED_APPLICATION_DAYS });
+    } catch (sqErr) {
+      console.error('[ats stalled] list failed:', sqErr && sqErr.message);
+      sendJson(res, 200, { ok: true, applications: [], total: 0, threshold_days: STALLED_APPLICATION_DAYS, degraded: true });
+    }
     return;
   }
 
