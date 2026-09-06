@@ -78,3 +78,22 @@ describe('career step strip — which step, what to do now', () => {
     expect(deriveCareerStep([null, 5, 'x']).step).toBe(1);
   });
 });
+
+// Owner 2026-09-07: an accepted match "becomes an application for the GP view"
+// — but the strip must say they accepted and we are arranging the interview,
+// never "your application is with…".
+describe('accepted match (fast_tracked)', () => {
+  it('reads as an accepted match being arranged and opens the timeline', () => {
+    const r = deriveCareerStep([app({ id: 'f', rawStatus: 'fast_tracked', practiceName: 'Sandbox Coastal Medical Centre' })]);
+    expect(r.step).toBe(1);
+    expect(r.key).toBe('fast_tracked');
+    expect(r.hint).toContain('You accepted the match with Sandbox Coastal Medical Centre');
+    expect(r.hint).not.toContain('Your application is with');
+    expect(r.href).toContain('application-detail?id=f');
+    expect(r.ctaLabel).toBe('See my application');
+  });
+  it('outranks a plain applied row', () => {
+    const r = deriveCareerStep([app({ id: 'p', rawStatus: 'applied', practiceName: 'A' }), app({ id: 'f', roleId: 'r2', rawStatus: 'fast_tracked', practiceName: 'B' })]);
+    expect(r.key).toBe('fast_tracked');
+  });
+});

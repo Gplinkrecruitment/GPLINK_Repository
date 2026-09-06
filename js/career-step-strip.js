@@ -110,6 +110,14 @@
     // 1 — applied and waiting (skip match rows — handled above)
     var appliedRows = live.filter(function (l) { return l.key !== 'matched' && l.key !== 'shortlisted'; });
     if (appliedRows.length) {
+      // An accepted match outranks a plain application: the doctor said yes
+      // and we owe them an interview (owner 2026-09-07).
+      for (var f = 0; f < appliedRows.length; f++) {
+        if (appliedRows[f].key === 'fast_tracked') {
+          var fa = appliedRows[f].app;
+          return result(1, 'fast_tracked', 'You accepted the match with ' + practiceLabel(fa) + '. We are arranging your interview now and will send you times to choose from.', detailHref(fa), 'See my application');
+        }
+      }
       var la = appliedRows[0].app;
       return result(1, 'applied', 'Your application is with ' + practiceLabel(la) + '. We will message you when they reply. You can keep browsing meanwhile.', detailHref(la), 'See my application');
     }

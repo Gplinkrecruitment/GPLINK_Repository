@@ -78,8 +78,9 @@ describe('server.js — every message send goes through the guard', () => {
   it('routes Resend and every DoubleTick message call through it — no raw sends remain', () => {
     expect(server).toContain("guardedNotifyFetch('email', RESEND_API_URL, {");
     expect(server.split("guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template', {").length - 1).toBe(3);
-    expect(server.split("guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {").length - 1).toBe(7);
+    expect(server.split("guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(").length - 1).toBe(7);
     expect(server).toContain("guardedNotifyFetch('whatsapp', fullUrl, {");
+    expect(server).toContain("guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + path, init)"); // match-accepted sender
     expect(server).not.toMatch(/[^a-zA-Z]fetch\(DOUBLETICK_BASE_URL \+ '\/whatsapp\/message/);
     expect(server).not.toMatch(/[^a-zA-Z]fetch\(RESEND_API_URL/);
   });

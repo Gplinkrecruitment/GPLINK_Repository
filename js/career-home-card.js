@@ -45,6 +45,12 @@
       return card('Matched to you — accept or decline', 'success', 'Match',
         'job?id=' + enc(roleId) + '&match=' + enc(app.id), ts);
     }
+    // 2c. An accepted match -> it is an application now; say so plainly
+    //     (owner 2026-09-07) and open its timeline.
+    if (status === 'fast_tracked') {
+      return card('Match accepted — interview being arranged', 'info', 'Fast-tracked',
+        'application-detail?id=' + enc(app.id) + '&role=' + enc(roleId), ts);
+    }
     // 3. Interview stage -> application-detail (shows the inline confirm-time control).
     if (INTERVIEW.indexOf(status) !== -1) {
       return card('Interview offered — confirm your time', 'info', 'Interview',

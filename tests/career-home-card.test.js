@@ -70,3 +70,13 @@ describe('deriveCareerHomeCard — pending match (owner 2026-09-07)', () => {
     expect(c.title).not.toContain('Interview offered');
   });
 });
+
+// Owner 2026-09-07: an accepted match is an application now — say so.
+describe('accepted match (fast_tracked)', () => {
+  it('titles the card as an accepted match and opens the timeline', () => {
+    const c = deriveCareerHomeCard({ id: 'f1', status: 'fast_tracked', statusLabel: 'Fast-tracked — we’re arranging your interview', role: { id: 'internal_ats:x' } });
+    expect(c.title).toBe('Match accepted — interview being arranged');
+    expect(c.badgeLabel).toBe('Fast-tracked');
+    expect(c.href).toContain('application-detail?id=f1');
+  });
+});

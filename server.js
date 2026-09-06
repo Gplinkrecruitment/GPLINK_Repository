@@ -21097,12 +21097,7 @@ async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, booking
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
   const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
   try {
-    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: toPhone, body: messageText }),
-      signal: AbortSignal.timeout(10000)
-    });
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(toPhone, messageText, AbortSignal.timeout(10000)));
     const data = await resp.json().catch(() => ({}));
     return { ok: resp.ok, messageId: data.messageId || data.id || null };
   } catch (e) {
@@ -21138,18 +21133,7 @@ async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, custom
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const apiResponse = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', Authorization: DOUBLETICK_API_KEY },
-      body: JSON.stringify({
-        messages: [{
-          to: phone,
-          from: fromNumber,
-          content: { text: textMessage }
-        }]
-      })
-    });
+    const apiResponse = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(phone, textMessage, controller.signal));
     const data = await apiResponse.json().catch(() => ({}));
     console.log('[DoubleTick nudge] sent to', phone, ':', apiResponse.ok ? 'success' : 'failed');
     if (apiResponse.ok) return { ok: true, messageId: data && data.messageId };
@@ -26013,12 +25997,7 @@ async function captureCalendlyDirectBookerLead(d) {
 async function sendWhatsappText(toPhone, body) {
   if (!process.env.DOUBLETICK_API_KEY || !toPhone || !body) return { ok: false, error: 'not configured' };
   try {
-    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: toPhone, body: body }),
-      signal: AbortSignal.timeout(10000)
-    });
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(toPhone, body, AbortSignal.timeout(10000)));
     const data = await resp.json().catch(() => ({}));
     return { ok: resp.ok, messageId: data.messageId || data.id || null };
   } catch (e) { return { ok: false, error: e.message }; }
@@ -37688,11 +37667,12 @@ async function sendMatchWhatsAppToGp(appRow) {
           }]
         })
       });
-      if (!resp.ok) {
-        var t = await resp.text().catch(function () { return ''; });
-        console.warn('[match-whatsapp] send failed', resp.status, String(t).slice(0, 200),
+      var t = await resp.text().catch(function () { return ''; });
+      var outcome = doubleTickBatchOutcome(resp.ok, t);
+      if (!outcome.ok) {
+        console.warn('[match-whatsapp] send failed', resp.status, outcome.error,
           '(template may be pending WhatsApp approval)');
-        return { ok: false, status: resp.status };
+        return { ok: false, status: resp.status, error: outcome.error };
       }
       console.log('[match-whatsapp] sent to', maskPhone(toPhone), 'application:', row.id);
       return { ok: true };
@@ -37756,6 +37736,117 @@ async function announceShortlistToGp(appRow) {
 // What the CEO gets told about a shortlist notification (owner report
 // 2026-09-04: a match "sent" from a server with no email key reported success
 // while the doctor received nothing). Never throws; shapes are stable.
+// Confirmation WhatsApp the moment the doctor ACCEPTS a match (owner
+// 2026-09-07: "no whatsapp message was sent to the dr when they accepted the
+// match for an interview"). Email + in-app already fire on accept; this adds
+// the WhatsApp. A business can only OPEN a WhatsApp conversation with an
+// approved template, so the gp_link_app_match_accepted template goes first;
+// if DoubleTick rejects it (not created / not yet approved) the same words go
+// as plain text, which WhatsApp delivers only inside the 24-hour window after
+// the doctor last messaged us. Both outcomes are logged, never thrown.
+var MATCH_ACCEPTED_WA_TEMPLATE = { templateName: 'gp_link_app_match_accepted', language: 'en' };
+// DoubleTick answers HTTP 200 even when nothing was sent (unknown template,
+// bad number…) and reports it per message: {"messages":[{"status":"FAILED",
+// "errorMessage":"Template with given name and language …"}]}. Read that,
+// or a "sent" log lies (verified against the live API 2026-09-07).
+// DoubleTick's plain-text endpoint takes a FLAT body — { to, from, content:
+// { text } } — not the { messages: [...] } batch shape the template endpoint
+// uses, and not { to, body }. Every other shape is rejected 400 ("content
+// should not be empty" / "nested property content must be either object or
+// array"), which is why no plain-text WhatsApp from this server ever went
+// out before 2026-09-07 (verified against the live API). Outside the 24-hour
+// customer window the API answers 422 "Chat window is closed" — only an
+// approved template can open a conversation, so callers must treat a text
+// send as best-effort. Auth is the raw key, never "Bearer".
+function doubleTickTextRequest(toPhone, text, signal) {
+  return {
+    method: 'POST',
+    signal: signal,
+    headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to: String(toPhone || ''),
+      from: '+' + String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, ''),
+      content: { text: String(text || '') }
+    })
+  };
+}
+function doubleTickBatchOutcome(httpOk, bodyText) {
+  var out = { ok: !!httpOk, error: '' };
+  if (!httpOk) { out.error = String(bodyText || '').slice(0, 200); return out; }
+  var parsed = null;
+  try { parsed = JSON.parse(String(bodyText || '')); } catch (e) { parsed = null; }
+  var msgs = parsed && Array.isArray(parsed.messages) ? parsed.messages : null;
+  if (!msgs || !msgs.length) return out;
+  var failed = msgs.filter(function (m) { return m && /^(failed|rejected|error)$/i.test(String(m.status || '')); });
+  if (failed.length === msgs.length) {
+    out.ok = false;
+    out.error = String((failed[0] && (failed[0].errorMessage || failed[0].error)) || 'FAILED').slice(0, 200);
+  }
+  return out;
+}
+function buildMatchAcceptedWhatsAppText(firstName, practiceName) {
+  var name = String(firstName || '').trim() || 'there';
+  var practice = String(practiceName || '').trim() || 'the practice';
+  return 'Hi ' + name + ', thanks for accepting your match with ' + practice
+    + '. Your Registration Support Officer is now arranging your interview — we’ll send you interview times to choose from, usually within a couple of business days. Reply here if you have any questions.';
+}
+async function sendMatchAcceptedWhatsAppToGp(appRow) {
+  var row = appRow || {};
+  if (!row.id || !row.user_id) return { ok: false, error: 'missing_application' };
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'no_api_key' };
+  try {
+    var job = row.career_role_id ? await atsGetJobRow(row.career_role_id) : null;
+    var practice = (job && job.practice_id) ? await atsGetPracticeRow(job.practice_id) : null;
+    var practiceName = job ? (atsJobDisplayNames(job, practice).practice || '') : '';
+    var profRes = await supabaseDbRequest('user_profiles',
+      'select=first_name,phone,country_dial,phone_number&user_id=eq.' + encodeURIComponent(row.user_id) + '&limit=1');
+    var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+    if (!prof) return { ok: false, error: 'gp_not_found' };
+    var rawPhone = prof.phone || [prof.country_dial, prof.phone_number].filter(Boolean).join(' ').trim() || '';
+    var toPhone = normalizePhone(rawPhone);
+    if (!toPhone) return { ok: false, skipped: 'no_phone' };
+    var firstName = String(prof.first_name || '').trim() || 'there';
+    var fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+    var send = async function (path, init) {
+      var resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + path, init);
+      var text = await resp.text().catch(function () { return ''; });
+      var outcome = doubleTickBatchOutcome(resp.ok, text);
+      return { ok: outcome.ok, status: resp.status, text: outcome.error || String(text).slice(0, 200) };
+    };
+    var tpl = await send('/whatsapp/message/template', {
+      method: 'POST',
+      signal: AbortSignal.timeout(15000),
+      headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ to: toPhone, from: fromNumber, content: {
+        templateName: MATCH_ACCEPTED_WA_TEMPLATE.templateName,
+        language: MATCH_ACCEPTED_WA_TEMPLATE.language,
+        templateData: { body: { placeholders: [firstName, practiceName || 'the practice'] } }
+      } }] })
+    });
+    if (tpl.ok) {
+      console.log('[match-accepted-whatsapp] template sent to', maskPhone(toPhone), 'application:', row.id);
+      return { ok: true, via: 'template' };
+    }
+    console.warn('[match-accepted-whatsapp] template send failed', tpl.status, tpl.text,
+      '— falling back to plain text (delivered only inside the 24h WhatsApp window)');
+    var txt = await send('/whatsapp/message/text', doubleTickTextRequest(toPhone, buildMatchAcceptedWhatsAppText(firstName, practiceName), AbortSignal.timeout(15000)));
+    if (txt.ok) {
+      console.log('[match-accepted-whatsapp] text sent to', maskPhone(toPhone), 'application:', row.id);
+      return { ok: true, via: 'text' };
+    }
+    if (txt.status === 422) {
+      console.warn('[match-accepted-whatsapp] WhatsApp window closed for', maskPhone(toPhone),
+        '— only an approved template can reach them now. Create template "' + MATCH_ACCEPTED_WA_TEMPLATE.templateName + '" in DoubleTick.');
+    } else {
+      console.warn('[match-accepted-whatsapp] text send failed', txt.status, txt.text);
+    }
+    return { ok: false, status: txt.status, templateStatus: tpl.status };
+  } catch (e) {
+    console.error('[match-accepted-whatsapp] error:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+
 function matchNotifySummary(ann) {
   var a = ann && typeof ann === 'object' ? ann : {};
   var pick = function (r) { return { ok: !!(r && r.ok), error: (r && !r.ok && r.error) ? String(r.error) : '' }; };
@@ -39958,12 +40049,7 @@ async function maybeSendInterviewBookingInvite(applicationId) {
           var waFirst = waRow.first_name || 'there';
           var waSecureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(id);
           var waMsg = 'Hi ' + waFirst + ', your interview times are ready to choose — pick a slot here: ' + waSecureUrl;
-          guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to: dtPhone, body: waMsg }),
-            signal: AbortSignal.timeout(10000)
-          }).catch(function (e) { console.warn('[booking-invite] GP WA notify failed (ignored):', e && e.message); });
+          guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(dtPhone, waMsg, AbortSignal.timeout(10000))).catch(function (e) { console.warn('[booking-invite] GP WA notify failed (ignored):', e && e.message); });
         }
       }
     }
@@ -45247,12 +45333,7 @@ async function handleApi(req, res, pathname) {
         if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
           const waText = 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' ' + call.zoom_join_url : '');
           try {
-            await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: rsoPhone, body: waText }),
-              signal: AbortSignal.timeout(10000)
-            });
+            await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(rsoPhone, waText, AbortSignal.timeout(10000)));
           } catch (waErr) {
             console.error('[call-reminders] WhatsApp send failed for call ' + call.id + ':', waErr.message);
           }
@@ -52075,6 +52156,8 @@ async function handleApi(req, res, pathname) {
     const mrAccept = await acceptShortlistedMatchRow(mrRow, mrUserId, mrEmail, mrProfile);
     sendJson(res, 200, { ok: true, action: 'accept', application: { id: mrAccept.updatedRow.id, ats_stage: 'applied', match_outcome: 'accepted' } });
     notifyGpApplicationSubmitted(mrUserId, mrEmail, mrAccept.job || {}, mrAccept.caseId, mrGpDisplayName, { matched: true });
+    // Owner 2026-09-07: the doctor also gets a WhatsApp confirming the accept.
+    sendMatchAcceptedWhatsAppToGp(mrAccept.updatedRow).catch(function (e) { console.error('[match-accepted-whatsapp] error:', e && e.message); });
     if (isEmailConfigured()) {
       const mrAcceptJobTitle = String((mrAccept.job && mrAccept.job.title) || mrRow.job_title || 'a role').trim();
       sendEmail({
@@ -55380,18 +55463,7 @@ async function handleApi(req, res, pathname) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
-      const dtResp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', Authorization: DOUBLETICK_API_KEY },
-        body: JSON.stringify({
-          messages: [{
-            to: normalizedPhone,
-            from: fromNumber,
-            content: { text: message }
-          }]
-        })
-      });
+      const dtResp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(normalizedPhone, message, controller.signal));
       clearTimeout(timeout);
       const dtData = await dtResp.json().catch(() => ({}));
 
@@ -80762,12 +80834,7 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           var dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
-            guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
-              signal: AbortSignal.timeout(10000)
-            }).catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
+            guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(dtPhone, notifyMsg, AbortSignal.timeout(10000))).catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
           }
         }
         if (isEmailConfigured()) {

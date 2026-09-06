@@ -62,7 +62,7 @@
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
-  <script src="/js/career-step-strip.js?v=20260907a" defer></script>
+  <script src="/js/career-step-strip.js?v=20260907b" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
        overlay and the apply path can both need it during first paint. -->
@@ -13583,6 +13583,16 @@
         return S({
           label: "With practice", ribbon: "WITH PRACTICE", tone: "blue", rowTone: "applied",
           blurb: "The practice is reviewing your profile now — we'll update you as soon as they respond."
+        });
+      }
+      // An accepted match (owner 2026-09-07: "once the gp accepts the match
+      // then it becomes an application for the GP view"): it now sits with
+      // the applications, but the words must say what actually happened —
+      // they accepted, and we are arranging the interview.
+      if (key === "fast_tracked") {
+        return S({
+          label: "Fast-tracked", ribbon: "FAST-TRACKED", tone: "green", rowTone: "applied",
+          blurb: "You accepted this match. Your Registration Support Officer is putting you forward now and will send you interview times to choose from \u2014 usually within a couple of business days."
         });
       }
       return S({ blurb: "Your Registration Support Officer is reviewing your application before it reaches the practice." });
