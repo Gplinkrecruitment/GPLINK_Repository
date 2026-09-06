@@ -454,6 +454,33 @@ const CAREER_PROFILE_ALLOWED_MIME_TYPES = new Set([
 ]);
 // Resend endpoint — env-overridable so tests can capture outbound email.
 const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
+
+// ── Test-recipient allowlist (owner 2026-09-07) ──────────────────────────────
+// Localhost runs against the production database with production sending
+// keys, so every notification it triggers is real. NOTIFY_TEST_RECIPIENTS
+// (comma-separated emails + phone numbers) confines outbound email (Resend)
+// and WhatsApp (DoubleTick) to the listed recipients; anyone else is skipped
+// and logged. Unset in production = no restriction. Every message-sending
+// fetch in this file goes through guardedNotifyFetch, and it resolves the
+// global fetch at call time so test stubs keep working.
+const notifyAllowlist = require('./lib/notify-allowlist.js').createNotifyAllowlist(process.env.NOTIFY_TEST_RECIPIENTS);
+if (notifyAllowlist.active) {
+  console.warn('[notify-allowlist] ACTIVE — outbound email + WhatsApp limited to ' + notifyAllowlist.describe() + '. Everyone else is skipped and logged.');
+} else if (!process.env.VERCEL && process.env.NODE_ENV !== 'production' && (process.env.RESEND_API_KEY || process.env.DOUBLETICK_API_KEY)) {
+  console.warn('[notify-allowlist] inactive — this non-production server can email/WhatsApp ANY real recipient. Set NOTIFY_TEST_RECIPIENTS to confine sends.');
+}
+async function guardedNotifyFetch(kind, url, init) {
+  if (!notifyAllowlist.active) return fetch(url, init);
+  const verdict = notifyAllowlist.filterBody(kind, init && init.body);
+  if (verdict.blocked.length) {
+    console.warn('[notify-allowlist] blocked ' + kind + ' to ' + verdict.blocked.map(notifyAllowlist.mask).join(', ') + ' (not in NOTIFY_TEST_RECIPIENTS)');
+  }
+  if (!verdict.body) {
+    return new Response(JSON.stringify({ ok: false, error: 'blocked_by_test_allowlist', blocked: verdict.blocked.map(notifyAllowlist.mask) }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } });
+  }
+  return fetch(url, Object.assign({}, init, { body: verdict.body }));
+}
 // Whitelist of document types accepted by the AI qualification verification endpoint.
 // Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
 // and COUNTRY_DOCS in js/onboarding.js.
@@ -20941,7 +20968,7 @@ async function ensureRsoWelcomeSent(opts) {
     const controller = new AbortController();
     const timeout = setTimeout(function () { controller.abort(); }, 15000);
     try {
-      const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+      const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
@@ -21036,7 +21063,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName, extraPlacehol
   try {
     const fullUrl = DOUBLETICK_BASE_URL + apiPath;
     console.log('[doubletick] POST', fullUrl, 'body:', reqBody.slice(0, 500));
-    const resp = await fetch(fullUrl, {
+    const resp = await guardedNotifyFetch('whatsapp', fullUrl, {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -21070,7 +21097,7 @@ async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, booking
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
   const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
   try {
-    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ to: toPhone, body: messageText }),
@@ -21111,7 +21138,7 @@ async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, custom
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const apiResponse = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+    const apiResponse = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
       method: 'POST',
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', Authorization: DOUBLETICK_API_KEY },
@@ -21204,7 +21231,7 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
   const controller = new AbortController();
   const timeout = setTimeout(function () { controller.abort(); }, 15000);
   try {
-    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
       method: 'POST',
       signal: controller.signal,
       headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
@@ -25986,7 +26013,7 @@ async function captureCalendlyDirectBookerLead(d) {
 async function sendWhatsappText(toPhone, body) {
   if (!process.env.DOUBLETICK_API_KEY || !toPhone || !body) return { ok: false, error: 'not configured' };
   try {
-    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ to: toPhone, body: body }),
@@ -35129,7 +35156,7 @@ async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachmen
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
-        const res = await fetch(RESEND_API_URL, {
+        const res = await guardedNotifyFetch('email', RESEND_API_URL, {
           method: 'POST',
           signal: controller.signal,
           headers: {
@@ -37645,7 +37672,7 @@ async function sendMatchWhatsAppToGp(appRow) {
     var controller = new AbortController();
     var timeout = setTimeout(function () { controller.abort(); }, 15000);
     try {
-      var resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+      var resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
@@ -39931,7 +39958,7 @@ async function maybeSendInterviewBookingInvite(applicationId) {
           var waFirst = waRow.first_name || 'there';
           var waSecureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(id);
           var waMsg = 'Hi ' + waFirst + ', your interview times are ready to choose — pick a slot here: ' + waSecureUrl;
-          fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+          guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
             method: 'POST',
             headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
             body: JSON.stringify({ to: dtPhone, body: waMsg }),
@@ -45220,7 +45247,7 @@ async function handleApi(req, res, pathname) {
         if (rsoPhone && process.env.DOUBLETICK_API_KEY) {
           const waText = 'Reminder: You have a Zoom call with ' + gpName + ' in 10 minutes for ' + stageDisplay + ' registration assistance.' + (call.zoom_join_url ? ' ' + call.zoom_join_url : '');
           try {
-            await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+            await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
               body: JSON.stringify({ to: rsoPhone, body: waText }),
@@ -55353,7 +55380,7 @@ async function handleApi(req, res, pathname) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
-      const dtResp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+      const dtResp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json', Authorization: DOUBLETICK_API_KEY },
@@ -80735,7 +80762,7 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           var dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
-            fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+            guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
               body: JSON.stringify({ to: dtPhone, body: notifyMsg }),
