@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const __dirnameTest = path.dirname(fileURLToPath(import.meta.url));
 
 const RUN_ID = crypto.randomBytes(4).toString('hex');
-let server, port, sbServer, sbPort, resendServer, resendPort;
+let server, port, sbServer, sbPort, resendServer, resendPort, dtServer, dtPort;
 
 const NOW = new Date().toISOString();
 
@@ -48,7 +48,8 @@ const db = {
     { user_id: 'u-e2e-7', email: 'e2e.booker@example.com', first_name: 'Endto', last_name: 'End', registration_country: 'uk' },
     { user_id: 'u-secured-8', email: 'secured.eight@example.com', first_name: 'Secured', last_name: 'Eight', registration_country: 'uk' },
     { user_id: 'u-forward-9', email: 'forward.nine@example.com', first_name: 'Forward', last_name: 'Nine', registration_country: 'uk' },
-    { user_id: 'u-congrats-10', email: 'congrats.ten@example.com', first_name: 'Congrats', last_name: 'Ten', registration_country: 'uk' },
+    // phone drives the "your interview times are ready" WhatsApp template.
+    { user_id: 'u-congrats-10', email: 'congrats.ten@example.com', first_name: 'Congrats', last_name: 'Ten', registration_country: 'uk', phone: '+447700900010' },
     { user_id: 'u-nowin-11', email: 'nowin.eleven@example.com', first_name: 'Nowin', last_name: 'Eleven', registration_country: 'uk' }
   ],
   user_state: [],
@@ -205,6 +206,27 @@ function startResendCaptureServer() {
   });
 }
 
+// Outbound DoubleTick WhatsApp sends. DOUBLETICK_BASE_URL is env-driven, so
+// pointing it at a local server captures the real request the server builds —
+// including the auth header, which is where the old free-text send went wrong.
+const doubletickCaptured = [];
+function startDoubletickCaptureServer() {
+  return new Promise((resolve) => {
+    dtServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        let parsed = null;
+        try { parsed = JSON.parse(body || 'null'); } catch { parsed = null; }
+        doubletickCaptured.push({ path: req.url, authorization: req.headers.authorization || '', body: parsed });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ messages: [{ id: 'wa-' + doubletickCaptured.length }] }));
+      });
+    });
+    dtServer.listen(0, '127.0.0.1', () => { dtPort = dtServer.address().port; resolve(); });
+  });
+}
+
 // GP session cookie — built exactly the way tests/career-profile-gate.test.js
 // builds userCookie (b64url(JSON payload) + HMAC-SHA512 over AUTH_SECRET).
 function b64url(s) { return Buffer.from(String(s), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
@@ -235,6 +257,7 @@ function httpReq(method, p, { body, cookie } = {}) {
 beforeAll(async () => {
   await startSupabaseEmulator();
   await startResendCaptureServer();
+  await startDoubletickCaptureServer();
 
   process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
@@ -252,7 +275,9 @@ beforeAll(async () => {
   process.env.ZOHO_RECRUIT_CLIENT_SECRET = '';
   process.env.OPENAI_API_KEY = '';
   process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = '';
-  process.env.DOUBLETICK_API_KEY = '';
+  process.env.DOUBLETICK_API_KEY = 'test-doubletick-key';
+  process.env.DOUBLETICK_BASE_URL = `http://127.0.0.1:${dtPort}`;
+  process.env.HAZEL_WHATSAPP_NUMBER = '+61494391968';
   process.env.SUPER_ADMIN_EMAILS = '';
   process.env.ADMIN_EMAILS = '';
 
@@ -265,6 +290,7 @@ afterAll(async () => {
   if (server) await new Promise((r) => server.close(r));
   if (sbServer) await new Promise((r) => sbServer.close(r));
   if (resendServer) await new Promise((r) => resendServer.close(r));
+  if (dtServer) await new Promise((r) => dtServer.close(r));
 });
 
 describe('GET /api/practice/application/decision-context', () => {
@@ -470,6 +496,28 @@ describe('POST /api/practice/application/decision — approve sends the GP congr
     const interview = db.scheduled_calls.find((r) => r.meeting_kind === 'interview' && r.application_id === 'app-tok-10');
     expect(interview.practice_availability_windows).toHaveLength(2);
     expect(interview.practice_availability_status).toBe('received');
+
+    // …and the SAME moment sends the doctor a WhatsApp with a one-tap CTA.
+    // This used to be a hand-rolled free-text send with `Bearer <key>` and a
+    // flat {to, body}: DoubleTick answered 403 every time and it failed soft,
+    // so no doctor has ever received it (owner report 2026-09-06).
+    // Scoped to THIS application — other approvals in this file legitimately
+    // fire the same template for their own doctors.
+    const waSends = doubletickCaptured.filter((c) => String(c.path).includes('/whatsapp/message/template'));
+    const timesReady = waSends.find((c) => c.body && c.body.messages && c.body.messages[0]
+      && c.body.messages[0].content.templateName === 'gp_link_interview_times_ready'
+      && String(c.body.messages[0].to).includes('447700900010'));
+    expect(timesReady).toBeTruthy();
+    // RAW api key — a 'Bearer ' prefix is the exact thing that 403'd.
+    expect(timesReady.authorization).toBe('test-doubletick-key');
+    expect(timesReady.authorization).not.toMatch(/^Bearer /);
+    // Addressed to the doctor, naming the practice.
+    expect(timesReady.body.messages[0].to).toContain('447700900010');
+    expect(timesReady.body.messages[0].content.templateData.body.placeholders[0]).toBe('Congrats');
+    // The CTA button carries the application id, so the link opens their picker.
+    expect(timesReady.body.messages[0].content.templateData.buttons).toEqual([
+      { type: 'URL', parameter: 'app-tok-10' }
+    ]);
   });
 
   it('repeat approve click on the same token does not send a second congrats email (idempotent short-circuit, no windows needed)', async () => {

@@ -346,6 +346,22 @@ const DOUBLETICK_STAGE_TEMPLATES = {
   ahpra_docs_complete: { templateName: 'gp_link_ahpra_docs_complete', language: 'en' }
   // career and visa templates not yet created in DoubleTick
 };
+// Interview WhatsApp templates (created in DoubleTick 2026-09-06, category
+// UTILITY). WhatsApp only allows FREE-TEXT inside a 24-hour session window, and
+// neither of these moments is reliably inside one — a doctor who has not
+// messaged us today would simply never receive it. Both must therefore be
+// approved templates, which is also why the old free-text nudge here could
+// never have worked even with the right request shape.
+//   times_ready        {{1}} GP first name, {{2}} practice name
+//                      + URL button variable = the application id
+//   confirmed_gp       {{1}} GP first name, {{2}} practice, {{3}} when, {{4}} join link
+//   confirmed_practice {{1}} contact name, {{2}} doctor name, {{3}} when, {{4}} join link
+// Sends fail soft while a template is still PENDING Meta review.
+const INTERVIEW_WHATSAPP_TEMPLATES = {
+  times_ready: { templateName: 'gp_link_interview_times_ready', language: 'en' },
+  confirmed_gp: { templateName: 'gp_link_interview_confirmed_gp', language: 'en' },
+  confirmed_practice: { templateName: 'gp_link_interview_confirmed_practice', language: 'en' }
+};
 // One-time "you're now connected with your RSO" welcome. Sent by the app the first
 // time a GP is assigned to an RSO, to MATERIALIZE their DoubleTick conversation so
 // it shows up in that RSO's assigned inbox (a first-contact message to a GP who has
@@ -20837,6 +20853,64 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName, extraPlacehol
   }
 }
 
+// Send one of the INTERVIEW_WHATSAPP_TEMPLATES.
+//
+// Deliberately built on the SAME request shape as sendDoubleTickTemplate above,
+// which is the one that demonstrably works: the RAW api key (no 'Bearer '
+// prefix) and a `messages: [...]` envelope. The interview code used to send
+// free text with `Authorization: Bearer <key>` and a flat `{to, body}` — two
+// independent mistakes that make DoubleTick answer 403 every single time. It
+// failed soft, so the "your interview times are ready" WhatsApp has never
+// reached a single doctor since it was written.
+//
+// buttonUrlParam fills the dynamic SUFFIX of a URL button (the template stores
+// the fixed prefix), and is omitted for templates without a button.
+// Never throws: returns { ok:false } so a WhatsApp problem can never break a
+// booking or an email.
+async function sendInterviewWhatsappTemplate(toPhone, templateKey, placeholders, buttonUrlParam) {
+  const tpl = INTERVIEW_WHATSAPP_TEMPLATES[templateKey];
+  if (!tpl) { console.warn('[interview-wa] unknown template key:', templateKey); return { ok: false }; }
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'not_configured' };
+  const to = normalizePhone(toPhone);
+  if (!to) return { ok: false, skipped: 'no_phone' };
+
+  const templateData = {
+    body: { placeholders: (placeholders || []).map(function (p) { return String(p == null ? '' : p); }) }
+  };
+  if (buttonUrlParam) {
+    templateData.buttons = [{ type: 'URL', parameter: String(buttonUrlParam) }];
+  }
+
+  try {
+    const resp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+      method: 'POST',
+      headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{
+          to: to,
+          from: String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, ''),
+          content: { templateName: tpl.templateName, language: tpl.language || 'en', templateData: templateData }
+        }]
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+    const raw = await resp.text();
+    if (!resp.ok) {
+      // Loud on purpose. The whole class of bug this replaces was a silent
+      // 403 nobody could see; a PENDING template also lands here.
+      console.error('[interview-wa]', tpl.templateName, 'send failed:', resp.status, raw.slice(0, 200));
+      return { ok: false, status: resp.status };
+    }
+    let data = {}; try { data = JSON.parse(raw); } catch (_) { /* non-JSON success */ }
+    const messageId = data && data.messages && data.messages[0] && data.messages[0].id;
+    console.log('[interview-wa]', tpl.templateName, 'sent to', maskPhone(to), 'msgId:', messageId || 'n/a');
+    return { ok: true, messageId: messageId || null };
+  } catch (e) {
+    console.error('[interview-wa]', tpl.templateName, 'send error:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+
 // Send a Zoom call invite via DoubleTick WhatsApp — direct text message with booking URL
 async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
   if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
@@ -39698,30 +39772,25 @@ async function maybeSendInterviewBookingInvite(applicationId) {
     return { ok: false, skipped: 'send_failed' };
   }
 
-  // WhatsApp nudge — moved here from the availability handler so it fires
-  // exactly once (alongside the email), and is best-effort: a failure never
-  // rolls back the stamp (the email is the primary channel). Same build as the
-  // old availability block: phone from user_profiles + a one-tap slot deep link.
+  // WhatsApp nudge — fires exactly once (alongside the email) and is
+  // best-effort: a failure never rolls back the stamp, because the email is the
+  // primary channel.
+  //
+  // This used to be a hand-rolled free-text fetch with `Bearer <key>` and a flat
+  // {to, body}. Both were wrong, so DoubleTick answered 403 every time and the
+  // nudge has never actually reached a doctor. Free text was the wrong tool
+  // regardless: WhatsApp only permits it inside a 24-hour session window, and a
+  // doctor who hasn't messaged us today is not in one. It is now the approved
+  // gp_link_interview_times_ready template, whose URL button carries the
+  // application id so the doctor lands straight on their slot picker.
   try {
-    var waUserId = ctx && ctx.userId;
-    if (waUserId && isSupabaseDbConfigured() && process.env.DOUBLETICK_API_KEY) {
-      var waRes = await supabaseDbRequest('user_profiles', 'select=phone,first_name&user_id=eq.' + encodeURIComponent(waUserId) + '&limit=1');
-      var waRow = (waRes.ok && Array.isArray(waRes.data) && waRes.data[0]) ? waRes.data[0] : null;
-      if (waRow && waRow.phone) {
-        var dtPhone = normalizePhone(waRow.phone);
-        if (dtPhone) {
-          var waFirst = waRow.first_name || 'there';
-          var waSecureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(id);
-          var waMsg = 'Hi ' + waFirst + ', your interview times are ready to choose — pick a slot here: ' + waSecureUrl;
-          fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + process.env.DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to: dtPhone, body: waMsg }),
-            signal: AbortSignal.timeout(10000)
-          }).catch(function (e) { console.warn('[booking-invite] GP WA notify failed (ignored):', e && e.message); });
-        }
-      }
-    }
+    var waFirst = (ctx && ctx.gpFirstName) || String((ctx && ctx.gpName) || '').trim().split(/\s+/)[0] || 'there';
+    await sendInterviewWhatsappTemplate(
+      ctx && ctx.gpPhone,
+      'times_ready',
+      [waFirst, practiceName || 'the practice'],
+      id
+    );
   } catch (waErr) { console.warn('[booking-invite] WA nudge error (ignored):', waErr && waErr.message); }
 
   return { ok: true };
@@ -40199,18 +40268,23 @@ async function atsGetApplicationContext(appId) {
     // registration_cases has NO gp_name/gp_email/country columns (see commit 9f4c6df) — select
     // only real columns. The case id (when one exists) is the real registration_cases.id; name,
     // email and country are resolved from user_profiles (same pattern the rest of server.js uses).
-    var caseId = null, gpName = '', gpEmail = '', gpCountry = '';
+    // gpFirstName/gpPhone exist for the WhatsApp sends — a template greets by
+    // first name and needs an E.164 number, neither of which is derivable from
+    // the joined display name.
+    var caseId = null, gpName = '', gpFirstName = '', gpEmail = '', gpPhone = '', gpCountry = '';
     if (app.user_id) {
       var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
       var caseRow = (cr.ok && cr.data && cr.data[0]) ? cr.data[0] : null;
       if (caseRow) {
         caseId = caseRow.id || null;
       }
-      var upr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      var upr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
       var up = (upr.ok && upr.data && upr.data[0]) ? upr.data[0] : null;
       if (up) {
         gpName = [String(up.first_name || '').trim(), String(up.last_name || '').trim()].filter(Boolean).join(' ');
+        gpFirstName = String(up.first_name || '').trim();
         gpEmail = String(up.email || '').trim();
+        gpPhone = String(up.phone || '').trim();
         if (!gpCountry) gpCountry = String(up.registration_country || '').trim();
       }
       // Country fallback mirrors _resolveGpCountry: user_profiles.registration_country → user_state.gp_selected_country.
@@ -40221,14 +40295,22 @@ async function atsGetApplicationContext(appId) {
       }
     }
     var practiceEmail = '', practiceRowState = '', practiceRowCity = '';
+    // The practice's primary contact — the person the application was actually
+    // submitted to. Name + phone are here for the interview WhatsApp templates.
+    var practiceContactName = '', practicePhone = '';
     if (job && job.practice_id) {
-      var pr = await supabaseDbRequest('practices', 'select=contact_email,location_state,location_city&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
+      var pr = await supabaseDbRequest('practices', 'select=contact_email,contact_name,contact_phone,location_state,location_city&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
       if (pr.ok && pr.data && pr.data[0]) {
         practiceEmail = String(pr.data[0].contact_email || '').trim();
+        practiceContactName = String(pr.data[0].contact_name || '').trim();
+        practicePhone = String(pr.data[0].contact_phone || '').trim();
         practiceRowState = String(pr.data[0].location_state || '').trim();
         practiceRowCity = String(pr.data[0].location_city || '').trim();
       }
     }
+    // The per-application contact (set when staff submitted this candidate) is
+    // the more specific person, so it wins over the practice-wide default.
+    practiceContactName = String(app.practice_contact_name || '').trim() || practiceContactName;
     return {
       app: app,
       userId: app.user_id || null,
@@ -40240,9 +40322,13 @@ async function atsGetApplicationContext(appId) {
       practiceState: String((job && job.location_state) || '').trim() || practiceRowState,
       practiceCity: String((job && job.location_city) || '').trim() || practiceRowCity,
       gpName: gpName || app.candidate_name || app.name || 'Dr',
+      gpFirstName: gpFirstName,
       gpEmail: gpEmail || (app && app.email) || '',
+      gpPhone: gpPhone,
       gpCountry: gpCountry || '',
-      practiceEmail: practiceEmail
+      practiceEmail: practiceEmail,
+      practiceContactName: practiceContactName,
+      practicePhone: practicePhone
     };
   }
   // Local mode — resolve from in-memory seed collections.
@@ -40272,9 +40358,15 @@ async function atsGetApplicationContext(appId) {
     practiceState: String((job && job.location_state) || (practice && practice.location_state) || '').trim(),
     practiceCity: String((job && job.location_city) || (practice && practice.location_city) || '').trim(),
     gpName: (candidate && candidate.name) || app.name || 'Dr',
+    // Same shape as the Supabase branch above, so the WhatsApp sends behave
+    // identically in local mode instead of silently seeing undefined.
+    gpFirstName: String(((candidate && candidate.name) || app.name || '')).trim().split(/\s+/)[0] || '',
     gpEmail: (candidate && candidate.email) || app.email || '',
+    gpPhone: (candidate && candidate.phone) || app.phone || '',
     gpCountry: (candidate && candidate.country) || app.country || '',
-    practiceEmail: (practice && practice.contact_email) || ''
+    practiceEmail: (practice && practice.contact_email) || '',
+    practiceContactName: String(app.practice_contact_name || (practice && practice.contact_name) || '').trim(),
+    practicePhone: String((practice && practice.contact_phone) || '').trim()
   };
 }
 
@@ -80278,6 +80370,32 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         }
       } catch (opsErr) {
         console.warn('[interview] book ops notify error (ignored):', opsErr && opsErr.message);
+      }
+
+      // WhatsApp confirmations — the doctor AND the practice's primary contact,
+      // each carrying the join link and the time in THEIR OWN zone (the same
+      // labels the emails use, so the two channels can never disagree).
+      //
+      // Email alone was not enough here: a practice contact who does not open
+      // their inbox before the call has no link, and the doctor's confirmation
+      // is the message they will actually reach for on the day. Both are
+      // approved templates because neither party is reliably inside WhatsApp's
+      // 24-hour free-text window. Sent in parallel, each already fail-soft, and
+      // awaited so the serverless GP booking path cannot be frozen mid-send.
+      try {
+        var waGpFirst = appCtx.gpFirstName || String(appCtx.gpName || '').trim().split(/\s+/)[0] || 'there';
+        var waPractice = appCtx.practiceName || 'the practice';
+        var waJoin = joinUrl || (APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || '')));
+        await Promise.all([
+          sendInterviewWhatsappTemplate(appCtx.gpPhone, 'confirmed_gp', [waGpFirst, waPractice, gpWhen, waJoin]),
+          sendInterviewWhatsappTemplate(
+            appCtx.practicePhone,
+            'confirmed_practice',
+            [appCtx.practiceContactName || 'there', appCtx.gpName || 'your candidate', practiceWhen, waJoin]
+          )
+        ]);
+      } catch (waErr) {
+        console.warn('[interview] book WhatsApp confirmations error (ignored):', waErr && waErr.message);
       }
     } catch (notifyErr) {
       console.warn('[interview] book notify error (ignored):', notifyErr && notifyErr.message);

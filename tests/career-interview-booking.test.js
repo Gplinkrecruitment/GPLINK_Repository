@@ -37,10 +37,13 @@ const SUPER_EMAIL = 'super@gplink-test.local';
 const NOW = new Date().toISOString();
 
 const resendCalls = [];
+// Outbound DoubleTick WhatsApp sends, captured by the fetch mock below.
+const doubletickCalls = [];
 
 const db = {
   user_profiles: [
-    { user_id: GP.userId, email: GP.email, first_name: 'Interview', last_name: 'Doctor', registration_country: 'uk' },
+    // phone drives the interview WhatsApp confirmations (gp_link_interview_confirmed_gp).
+    { user_id: GP.userId, email: GP.email, first_name: 'Interview', last_name: 'Doctor', registration_country: 'uk', phone: '+447700900001' },
     { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
     { user_id: GP_OFF.userId, email: GP_OFF.email, first_name: 'Offer', last_name: 'Doctor', registration_country: 'uk' }
   ],
@@ -50,7 +53,8 @@ const db = {
     { id: 'case-int-off', user_id: GP_OFF.userId, status: 'active', assigned_rso: null, assigned_va: null }
   ],
   practices: [
-    { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', is_active: true, created_at: NOW },
+    // contact_phone drives the practice-side WhatsApp confirmation.
+    { id: 'p-int-1', name: 'Greenslopes Family Medical', source: 'internal_ats', contact_name: 'Anna Manager', contact_email: 'anna@greenslopes-test.local', contact_phone: '+61400111222', is_active: true, created_at: NOW },
     // Task 8: WA practice whose NAME contains no city/state keyword — the stored
     // location_state must drive the timezone (Perth), not name sniffing (Sydney).
     { id: 'p-int-wa', name: 'Sunrise Family Medical', source: 'internal_ats', contact_name: 'Wes Manager', contact_email: 'reception@sunrise-wa-test.local', location_city: 'Karratha', location_state: 'WA', is_active: true, created_at: NOW },
@@ -283,10 +287,18 @@ beforeAll(async () => {
   process.env.SUPER_ADMIN_EMAILS = 'super@gplink-test.local';
   process.env.ADMIN_EMAILS = '';
   process.env.RESEND_API_KEY = 'test-resend-key';
+  // WhatsApp confirmations are captured, never actually sent.
+  process.env.DOUBLETICK_API_KEY = 'test-doubletick-key';
+  process.env.HAZEL_WHATSAPP_NUMBER = '+61494391968';
 
   realFetch = globalThis.fetch;
   globalThis.fetch = (url, opts) => {
     const u = String(url && url.url ? url.url : url);
+    if (u.startsWith('https://public.doubletick.io/')) {
+      let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
+      doubletickCalls.push({ url: u, headers: (opts && opts.headers) || {}, body: parsed });
+      return Promise.resolve(new Response(JSON.stringify({ messages: [{ id: 'wa-' + doubletickCalls.length }] }), { status: 200 }));
+    }
     if (u.startsWith('https://api.resend.com/')) {
       let parsed = null; try { parsed = JSON.parse(opts && opts.body || 'null'); } catch {}
       resendCalls.push({ url: u, body: parsed });
@@ -426,6 +438,41 @@ describe('POST /api/career/interview/book', () => {
     const opsSend = sends.find((c) => toOf(c).includes('hello@mygplink.com.au'));
     expect(opsSend).toBeTruthy();
     expect(opsSend.body.attachments).toBeUndefined();
+
+    // WhatsApp confirmations to BOTH the doctor and the practice's primary
+    // contact, each carrying the join link. Email alone left a practice contact
+    // who hadn't opened their inbox with no way into the call.
+    const waSends = doubletickCalls.filter((c) => c.url.includes('/whatsapp/message/template'));
+    const waFor = (name) => waSends.find((c) => c.body
+      && c.body.messages && c.body.messages[0]
+      && c.body.messages[0].content.templateName === name);
+
+    const waGp = waFor('gp_link_interview_confirmed_gp');
+    const waPractice = waFor('gp_link_interview_confirmed_practice');
+    expect(waGp).toBeTruthy();
+    expect(waPractice).toBeTruthy();
+
+    // Right recipients.
+    expect(waGp.body.messages[0].to).toContain('447700900001');
+    expect(waPractice.body.messages[0].to).toContain('61400111222');
+
+    // Both carry the SAME join link the emails and the row carry.
+    const gpPlaceholders = waGp.body.messages[0].content.templateData.body.placeholders;
+    const prPlaceholders = waPractice.body.messages[0].content.templateData.body.placeholders;
+    expect(gpPlaceholders).toHaveLength(4);
+    expect(prPlaceholders).toHaveLength(4);
+    expect(gpPlaceholders[3]).toBe(row.zoom_join_url);
+    expect(prPlaceholders[3]).toBe(row.zoom_join_url);
+    // Addressed by name, and naming the other party.
+    expect(gpPlaceholders[0]).toBe('Interview');
+    expect(gpPlaceholders[1]).toBe('Greenslopes Family Medical');
+    expect(prPlaceholders[0]).toBe('Anna Manager');
+    expect(prPlaceholders[1]).toContain('Interview Doctor');
+
+    // The auth header must be the RAW key. A 'Bearer ' prefix is what made
+    // every interview WhatsApp 403 silently before this (2026-09-06).
+    expect(waGp.headers.Authorization).toBe('test-doubletick-key');
+    expect(String(waGp.headers.Authorization)).not.toMatch(/^Bearer /);
 
     // In Supabase mode with NO calendar connected, nothing is written to the
     // local fakeCalendar stand-in either. That store exists so local/dev runs
