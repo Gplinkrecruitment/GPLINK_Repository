@@ -1640,7 +1640,8 @@
     const tags = Array.isArray(role.tags) ? role.tags.filter(Boolean) : [];
     return {
       id: role.id,
-      practiceName: role.practiceName,
+      practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,
+      nameRevealed: !!(role.nameRevealed && role.realPracticeName),
       location: role.location,
       billing: role.billing,
       earnings: role.earnings,
@@ -1652,7 +1653,10 @@
   function createApplicationSnapshot(role) {
     return {
       roleId: role.id,
-      practiceName: role.practiceName,
+      // Named tier (owner 2026-09-07): the local row is titled with the real
+      // practice name the moment it exists, never the masked headline.
+      practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,
+      nameRevealed: !!(role.nameRevealed && role.realPracticeName),
       location: role.location,
       status: "Under Review",
       tone: "review",

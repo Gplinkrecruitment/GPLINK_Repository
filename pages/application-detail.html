@@ -919,7 +919,11 @@
         // practice, get their availability — which is review work. It advances
         // to Interview when the times reach the doctor. Mapped explicitly
         // rather than relying on the unknown-key fallback, so it can't drift.
-        applied: 0, review: 0, fast_tracked: 1,
+        // A direct application sits at UNDER REVIEW too (owner call
+        // 2026-09-07): applying is done the moment the request lands, and
+        // what is outstanding is the Registration Support Officer's review
+        // before we submit to the practice. "Applied" shows as completed.
+        applied: 1, review: 1, fast_tracked: 1,
         under_review: 1, submitted: 1, reviewing: 1,
         interview: 2, interview_scheduled: 2, shortlisted: 2, interview_completed: 2,
         offer: 3, offer_pending: 3, offered: 3,
@@ -1029,6 +1033,43 @@
         finalising_placement: "Offer Accepted",
         withdrawn: "Withdrawn", not_proceeding: "Not Proceeding"
       };
+
+      // Named tier (owner 2026-09-07): practice names are no longer hidden
+      // from a doctor with a verified CV, so the page heads itself with the
+      // REAL name whenever one is known — never the masked, suburb-derived
+      // "DPA - Terrigal - Mixed Billing" headline. The API's role.practiceName
+      // is the real name on the named/revealed tiers; the cached preview may
+      // still hold a masked copy, so every candidate is checked in turn and
+      // the first non-masked one wins. A fully masked application (no CV on
+      // file) still renders exactly as before.
+      var MASKED_HEADLINE_RE = /^\s*(?:non[\s-]*)?dpa\s*[-\u2013\u2014]/i;
+      function isMaskedHeadline(value) { return MASKED_HEADLINE_RE.test(String(value || "")); }
+      function firstNonMasked(candidates, fallback) {
+        var firstAny = "";
+        for (var i = 0; i < candidates.length; i++) {
+          var c = String(candidates[i] || "").trim();
+          if (!c) continue;
+          if (!firstAny) firstAny = c;
+          if (!isMaskedHeadline(c)) return c;
+        }
+        return firstAny || fallback;
+      }
+      function resolvePracticeHeadline(app, role) {
+        app = app || {}; role = role || {};
+        return firstNonMasked([
+          role.realPracticeName, app.realPracticeName,
+          (role.nameRevealed || role.revealed) ? role.practiceName : "",
+          (app.nameRevealed || app.revealed) ? app.practiceName : "",
+          app.practiceName, role.practiceName
+        ], "Medical Centre");
+      }
+      // The role preview never repeats the masked headline as a "title": an
+      // intake job's roleType IS that headline, so it falls back to the role.
+      function resolveRoleTitle(app, role) {
+        app = app || {}; role = role || {};
+        var picked = firstNonMasked([app.roleTitle, role.roleType], "");
+        return (picked && !isMaskedHeadline(picked)) ? picked : "General Practitioner";
+      }
 
       function labelForStatus(app) {
         if (app.statusLabel) return app.statusLabel;
@@ -1327,7 +1368,7 @@
         // preview keeps them at the top level. Support both so internal (ATS)
         // apps never render placeholder text after the fresh fetch lands.
         var role = app.role || {};
-        var practiceName = app.practiceName || role.practiceName || "Medical Centre";
+        var practiceName = resolvePracticeHeadline(app, role);
         var locationText = String(app.location || role.location || "").replace(/^[\s,]+/, "");
         document.getElementById("practiceName").textContent = practiceName;
         document.getElementById("appLocation").textContent = locationText;
@@ -1455,7 +1496,7 @@
         }).join("");
 
         // Role preview
-        document.getElementById("roleTitle").textContent = app.roleTitle || role.roleType || "General Practitioner";
+        document.getElementById("roleTitle").textContent = resolveRoleTitle(app, role);
         document.getElementById("roleLocation").textContent = locationText;
 
         // Action links — "View Practice" must open THIS role's page (practice

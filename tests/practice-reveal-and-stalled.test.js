@@ -283,3 +283,84 @@ describe('matches are matches — not applications, not offers (owner 2026-09-07
     expect(srv).not.toContain("statusLabel: 'Application received — we’re putting you forward'");
   });
 });
+
+// Owner 2026-09-07: "we are not hiding practice names anymore so we can use
+// the actual practice name" — the application page, the careers rows and the
+// local rows written on apply all head themselves with the REAL name whenever
+// one is known, never the masked, suburb-derived "DPA - Terrigal - …" headline.
+// And a fresh direct application sits at Under Review on the tracker: the
+// Registration Support Officer reviews before we submit to the practice.
+describe('named headline everywhere + Under Review after applying', () => {
+  const detail = read('pages/application-detail.html');
+  const career = read('pages/career.html');
+  const job = read('pages/job.html');
+  const server = read('server.js');
+
+  // Pull the helper trio out of the page and run it for real.
+  function loadHelpers() {
+    const start = detail.indexOf('var MASKED_HEADLINE_RE');
+    const end = detail.indexOf('function labelForStatus');
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    return new Function(detail.slice(start, end) + '; return { isMaskedHeadline, resolvePracticeHeadline, resolveRoleTitle };')();
+  }
+
+  it('application page heads itself with the real name over a stale masked preview', () => {
+    const h = loadHelpers();
+    expect(h.resolvePracticeHeadline({ practiceName: 'DPA - Terrigal - Mixed Billing' }, { practiceName: 'GP Link Sandbox Practice', nameRevealed: true })).toBe('GP Link Sandbox Practice');
+    expect(h.resolvePracticeHeadline({ practiceName: 'Non-DPA - Erina (Central Coast) - Bulk Billing' }, { realPracticeName: 'Erina Family Practice' })).toBe('Erina Family Practice');
+    expect(h.resolvePracticeHeadline({ practiceName: 'Sandbox Coastal Medical Centre', revealed: true }, { practiceName: 'DPA - Merewether - Bulk Billing' })).toBe('Sandbox Coastal Medical Centre');
+    // fully masked (no CV on file) renders exactly as before
+    expect(h.resolvePracticeHeadline({ practiceName: 'DPA - Terrigal - Mixed Billing' }, { practiceName: 'DPA - Terrigal - Mixed Billing' })).toBe('DPA - Terrigal - Mixed Billing');
+    expect(h.resolvePracticeHeadline({}, {})).toBe('Medical Centre');
+    expect(h.resolvePracticeHeadline({ practiceName: 'Confidential practice' }, {})).toBe('Confidential practice');
+    expect(h.isMaskedHeadline('DPA – Terrigal – Mixed Billing')).toBe(true);
+    expect(h.isMaskedHeadline('Terrigal Medical Centre')).toBe(false);
+  });
+
+  it('role preview never repeats the masked headline as the role title', () => {
+    const h = loadHelpers();
+    expect(h.resolveRoleTitle({}, { roleType: 'DPA - Terrigal - Mixed Billing' })).toBe('General Practitioner');
+    expect(h.resolveRoleTitle({ roleTitle: 'General Practitioner (VR)' }, { roleType: 'DPA - X - Y' })).toBe('General Practitioner (VR)');
+    expect(h.resolveRoleTitle({}, {})).toBe('General Practitioner');
+  });
+
+  it('wires the helpers into the header, back bar and role preview', () => {
+    expect(detail).toContain('var practiceName = resolvePracticeHeadline(app, role);');
+    expect(detail).toContain('document.getElementById("backBarTitle").textContent = practiceName;');
+    expect(detail).toContain('document.getElementById("roleTitle").textContent = resolveRoleTitle(app, role);');
+    expect(detail).not.toContain('app.practiceName || role.practiceName || "Medical Centre"');
+  });
+
+  it('timeline: a fresh direct application sits at Under Review with Applied ticked', () => {
+    expect(detail).toMatch(/applied: 1, review: 1, fast_tracked: 1,/);
+    expect(detail).not.toMatch(/applied: 0/);
+    // The renderer ticks every step below the active index — Applied gets its check.
+    expect(detail).toContain('i < statusIdx ? "step-completed" : i === statusIdx ? "step-active" : "step-pending"');
+  });
+
+  it('careers page carries nameRevealed through the normaliser and the roles-list merge', () => {
+    expect(career).toContain('nameRevealed: source.nameRevealed === true,');
+    expect(career).toContain('nameRevealed: !!(app.role && app.role.nameRevealed === true),');
+    expect(career).toContain('const liveNamedName = (liveRole.nameRevealed && liveRole.realPracticeName) ? String(liveRole.realPracticeName) : "";');
+    expect(career).toContain('nameRevealed: job.nameRevealed === true || !!liveNamedName,');
+    expect(career).toContain('const revealedName = ((app.revealed === true || app.nameRevealed === true)');
+    expect(career).toContain(': namedRoleName;');
+    // Named ≠ identity unlocked: the chip says PRACTICE NAMED until acceptance.
+    expect(career).toContain('const identityUnlocked = app.revealed === true && !!revealedName;');
+    expect(career).toContain('PRACTICE NAMED');
+    expect(career).toContain('NAME ON ACCEPTANCE');
+  });
+
+  it('local rows created on apply/save are titled with the real name when known', () => {
+    const line = 'practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,';
+    expect(career.split(line).length - 1).toBe(2);
+    expect(job.split(line).length - 1).toBe(2);
+    expect(job).toContain('nameRevealed: !!(role.nameRevealed && role.realPracticeName),');
+  });
+
+  it('server: named application rows and the detail carry realPracticeName too', () => {
+    expect(server).toContain('roleClient.realPracticeName = namedAppName;');
+    expect(server).toContain('roleClient.realPracticeName = detailNamedName;');
+  });
+});

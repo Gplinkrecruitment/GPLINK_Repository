@@ -9623,6 +9623,12 @@
         roleId: source.roleId || "",
         practiceName: source.practiceName || "",
         revealed: source.revealed === true,
+        // Named tier (owner 2026-09-07): practice names are no longer hidden
+        // from a doctor with a verified CV, so an application carries the REAL
+        // name before any reveal. Server-decided (role.nameRevealed), never
+        // inferred here.
+        nameRevealed: source.nameRevealed === true,
+        website: typeof source.website === "string" ? source.website : "",
         location: source.location || "",
         rawStatus: source.rawStatus || source.status || meta.label,
         // In-app (standalone ATS) applications carry a server-built friendly
@@ -9709,7 +9715,8 @@
     function createSavedSnapshot(role) {
       return {
         id: role.id,
-        practiceName: role.practiceName,
+        practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,
+        nameRevealed: !!(role.nameRevealed && role.realPracticeName),
         location: role.location,
         billing: role.billing,
         earnings: role.earnings,
@@ -9723,7 +9730,8 @@
       if (!role) return null;
       return normalizeCareerApplication({
         roleId: role.id,
-        practiceName: role.practiceName,
+        practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,
+        nameRevealed: !!(role.nameRevealed && role.realPracticeName),
         location: role.location,
         rawStatus: status && (status.key || status.label),
         meta: meta
@@ -9842,10 +9850,16 @@
               // replaced the real name with the masked one while the card kept
               // showing "IDENTITY UNLOCKED" beside it (owner report
               // 2026-07-27). Location is safe either way; the name is not.
-              const keepRevealedName = job.revealed === true && job.practiceName;
+              // Named tier (owner 2026-09-07): the roles list also carries
+              // realPracticeName for a CV-verified doctor, and the application
+              // row itself may already be named (nameRevealed). Either way the
+              // masked headline must never win over a known real name.
+              const liveNamedName = (liveRole.nameRevealed && liveRole.realPracticeName) ? String(liveRole.realPracticeName) : "";
+              const keepRevealedName = (job.revealed === true || job.nameRevealed === true) && job.practiceName;
               return normalizeCareerApplication({
                 ...job,
-                practiceName: keepRevealedName ? job.practiceName : liveRole.practiceName,
+                practiceName: keepRevealedName ? job.practiceName : (liveNamedName || liveRole.practiceName),
+                nameRevealed: job.nameRevealed === true || !!liveNamedName,
                 location: liveRole.location
               });
             })
@@ -12682,6 +12696,8 @@
         // Server-decided ONLY: true just when THIS application passed the
         // reveal rule and practiceName is the real practice name.
         revealed: !!(app.role && app.role.revealed === true),
+        nameRevealed: !!(app.role && app.role.nameRevealed === true),
+        website: app.role && typeof app.role.website === "string" ? app.role.website : "",
         location: app.role && app.role.location ? app.role.location : "",
         rawStatus: app.status,
         statusLabel: app.statusLabel || "",
@@ -13597,7 +13613,9 @@
               roleId: a.roleId == null ? "" : String(a.roleId),
               suburb: getRoleSuburbLabel(source),
               state: getRoleStateCode(source),
-              role: String((role && (role.maskedTitle || role.practiceName)) || a.practiceName || ""),
+              role: String((role && role.nameRevealed && role.realPracticeName)
+                || ((a.revealed === true || a.nameRevealed === true) && a.practiceName)
+                || (role && (role.maskedTitle || role.practiceName)) || a.practiceName || ""),
               status: careerMineStatusLabel(a),
               tone: careerMineTone(a),
               // The whole application, so the map script can hand it straight
@@ -13651,11 +13669,15 @@
       // Identity reveal: only when the SERVER marked this application revealed
       // does the card show the real practice name; otherwise the locked
       // NAME ON ACCEPTANCE treatment, exactly as the old row did.
-      const revealedName = (app.revealed === true
+      // Named tier (owner 2026-09-07): a CV-verified doctor sees the real
+      // practice name on every application (nameRevealed) — the masked
+      // "DPA - Terrigal - …" headline is no longer what the card is titled.
+      const namedRoleName = (role && role.nameRevealed && role.realPracticeName) ? String(role.realPracticeName) : "";
+      const revealedName = ((app.revealed === true || app.nameRevealed === true)
         && app.practiceName
         && !isConfidentialText(app.practiceName))
         ? String(app.practiceName)
-        : "";
+        : namedRoleName;
       const title = revealedName || locationLine || "General Practice";
       const subtitle = revealedName
         ? locationLine
@@ -13680,9 +13702,16 @@
         ? `<span class="at-match-cd at-match-cd--calm">Applied ${escapeHtml(appliedValue)}</span>`
         : "";
 
-      const identityChip = revealedName
+      // Three states, mirroring the job page's identity box: the full
+      // identity (address + contact) only unlocks on acceptance; a NAMED row
+      // just knows the practice's name (owner 2026-09-07 — names are no
+      // longer hidden from a CV-verified doctor); otherwise still locked.
+      const identityUnlocked = app.revealed === true && !!revealedName;
+      const identityChip = identityUnlocked
         ? '<span class="at-mini at-mini--unlocked">✓ IDENTITY UNLOCKED</span>'
-        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
+        : revealedName
+          ? '<span class="at-mini at-mini--unlocked">✓ PRACTICE NAMED</span>'
+          : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
       const metaBits = [billingValue].filter(Boolean).map((b) => escapeHtml(b)).join(" · ");
 
       // A secured placement opens the placement view, an unanswered match opens

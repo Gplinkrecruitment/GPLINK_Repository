@@ -52794,6 +52794,7 @@ async function handleApi(req, res, pathname) {
         const namedAppName = resolveCareerRolePracticeName(roleRow, namedAppPractice);
         if (namedAppName) {
           roleClient.practiceName = namedAppName;
+          roleClient.realPracticeName = namedAppName;
           roleClient.nameRevealed = true;
           const namedAppWebsite = resolveNamedPracticeWebsite(roleRow, namedAppPractice);
           if (namedAppWebsite) roleClient.website = namedAppWebsite;
@@ -53746,6 +53747,7 @@ async function handleApi(req, res, pathname) {
         const detailNamedName = resolveCareerRolePracticeName(roleRow, detailPractice);
         if (detailNamedName) {
           roleClient.practiceName = detailNamedName;
+          roleClient.realPracticeName = detailNamedName;
           roleClient.nameRevealed = true;
           const detailNamedWebsite = resolveNamedPracticeWebsite(roleRow, detailPractice);
           if (detailNamedWebsite) roleClient.website = detailNamedWebsite;

@@ -338,8 +338,8 @@ describe('careers page keeps a revealed practice name', () => {
   const careerHtml = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
 
   it('does not overwrite a revealed application name with the masked roles-list one', () => {
-    expect(careerHtml).toContain('const keepRevealedName = job.revealed === true && job.practiceName');
-    expect(careerHtml).toContain('practiceName: keepRevealedName ? job.practiceName : liveRole.practiceName');
+    expect(careerHtml).toContain('const keepRevealedName = (job.revealed === true || job.nameRevealed === true) && job.practiceName');
+    expect(careerHtml).toContain('practiceName: keepRevealedName ? job.practiceName : (liveNamedName || liveRole.practiceName)');
     // The unconditional clobber must be gone.
     expect(careerHtml).not.toContain('{ ...job, practiceName: liveRole.practiceName, location: liveRole.location }');
   });
