@@ -65,6 +65,7 @@ describe('the practice page tells the doctor where their application really is',
     expect(html).toContain('You&#39;ve met the practice');
     // The two things Khaleed was wrongly shown.
     expect(html).not.toContain('Application received');
+    expect(html).not.toContain('Interview request received');
     expect(html).not.toContain('There&#39;s nothing you need to do right now.<');
     expect(html).toContain('data-app-stage="interview_completed"');
   });
@@ -99,14 +100,14 @@ describe('the practice page tells the doctor where their application really is',
     expect(page.jobStageNote('some_stage_invented_next_year')).toBe(page.JOB_STAGE_NOTES.applied);
     // No server answer at all (a Zoho-era row) behaves exactly as before.
     const noView = page.buildApplicationProgressHtml({});
-    expect(noView).toContain('Application received');
+    expect(noView).toContain('Interview request received'); // owner 2026-09-07 wording
     expect(noView).toContain('id="appliedBanner"');
   });
 
   it('the sticky bar reports the real stage instead of "Submitted" forever', () => {
     expect(page.JOB_BAR_STAGES.interview_completed).toContain('Interview done');
     expect(page.JOB_BAR_STAGES.interview).toContain('Interview stage');
-    expect(page.JOB_BAR_STAGES.applied).toContain('Submitted');
+    expect(page.JOB_BAR_STAGES.applied).toContain('Interview request sent'); // owner 2026-09-07 wording
     // Withdrawn / not-proceeding are deliberately absent — the bar has its own
     // handling for those and must not be hijacked into a dead label.
     expect(page.JOB_BAR_STAGES.withdrawn).toBeUndefined();

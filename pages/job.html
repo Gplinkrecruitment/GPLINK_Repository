@@ -1506,12 +1506,12 @@
        drive-by click. -->
   <div class="at-sheet-overlay" id="applyConfirmOverlay" hidden>
     <div class="at-sheet">
-      <h2 id="applyConfirmTitle">Apply for this role?</h2>
+      <h2 id="applyConfirmTitle">Apply for an interview?</h2>
       <p id="applyConfirmIntro">You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.</p>
       <div class="at-sheet-time" id="applyConfirmMeter"></div>
       <div class="at-sheet-actions">
         <button class="at-sheet-secondary" id="applyConfirmCancelBtn" type="button">Not yet</button>
-        <button class="at-sheet-primary" id="applyConfirmBtn" type="button">Apply</button>
+        <button class="at-sheet-primary" id="applyConfirmBtn" type="button">Apply for interview</button>
       </div>
     </div>
   </div>
@@ -2657,8 +2657,8 @@
   function buildReceivedHtml() {
     return '<div class="at-received at-rv" id="appliedBanner">' +
       '<span class="at-received-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></span>' +
-      '<div><b>Application received</b>' +
-      '<p>Your Registration Support Officer checks every application before the practice sees it, then puts you forward. Once the practice confirms their availability, we\'ll email you interview times to choose from — you book the one that suits you. There\'s nothing you need to do right now.</p>' +
+      '<div><b>Interview request received</b>' +
+      '<p>Your Registration Support Officer checks every request before the practice sees it, then puts you forward. Once the practice confirms their availability, we\'ll email you interview times to choose from — you book the one that suits you. There\'s nothing you need to do right now.</p>' +
       '</div>' +
     '</div>';
   }
@@ -2729,7 +2729,7 @@
   // handling for those (previously_withdrawn, the match accept bar), and
   // hijacking it here would replace a working control with a dead label.
   const JOB_BAR_STAGES = {
-    applied: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",
+    applied: "✓ Interview request sent<small>Your Registration Support Officer is reviewing it</small>",
     fast_tracked: "✓ You're being fast-tracked<small>We're putting you forward to the practice</small>",
     submitted: "✓ With the practice<small>They have your profile — we'll come back to you</small>",
     reviewing: "✓ With the practice<small>They're reviewing your profile now</small>",
@@ -3513,14 +3513,16 @@
           }
         : {
             cls: "at-bapply",
-            html: "Apply for this role<small>Your Registration Support Officer reviews it before the practice does</small>",
+            // Owner 2026-09-07: "apply for interview" — the doctor is asking to
+            // meet the practice, not committing to a job.
+            html: "Apply for interview<small>Not a job application — you're asking to meet the practice. Your Registration Support Officer reviews it first</small>",
             disabled: false
           },
       applying: { cls: "at-bapply", html: "Applying…", disabled: true },
       match_pending: { cls: "at-bapply", html: "✦ Matched to you by the GP Link team<small>Loading your match…</small>", disabled: true },
       applied: {
         cls: "at-bapply at-bapply--done",
-        html: "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>",
+        html: "✓ Interview request sent<small>Your Registration Support Officer is reviewing it</small>",
         disabled: true
       },
       // The same bar, telling the truth about how far this application has got
@@ -3529,7 +3531,7 @@
       app_progress: {
         cls: "at-bapply at-bapply--done",
         html: (JOB_BAR_STAGES[jobStageKey(currentRole && currentRole.applicationStatus && currentRole.applicationStatus.status)]
-          || "✓ Submitted<small>Your Registration Support Officer is reviewing it</small>"),
+          || "✓ Interview request sent<small>Your Registration Support Officer is reviewing it</small>"),
         disabled: true
       },
       // Accepting a match is not the same as applying cold, so it must not
@@ -3866,12 +3868,12 @@
       const data = await res.json().catch(() => null);
       closeApplyConfirm();
       applyConfirmBtnEl.disabled = false;
-      applyConfirmBtnEl.textContent = "Apply";
+      applyConfirmBtnEl.textContent = "Apply for interview";
       handleApplyOutcome(res.status, data, {});
     } catch {
       closeApplyConfirm();
       applyConfirmBtnEl.disabled = false;
-      applyConfirmBtnEl.textContent = "Apply";
+      applyConfirmBtnEl.textContent = "Apply for interview";
       applyState = "idle";
       paintApply();
       showToast("Network error. Please try again.");

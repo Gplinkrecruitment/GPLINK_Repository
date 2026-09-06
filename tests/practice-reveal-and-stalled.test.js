@@ -244,3 +244,16 @@ describe('identity-step-optional tester flag (owner 2026-09-06)', () => {
     expect(verify).not.toContain('isLoopbackHostname');
   });
 });
+
+describe('job page CTA says "apply for interview" (owner 2026-09-07)', () => {
+  const job = read('pages/job.html');
+  it('idle bar, confirm sheet, sent state and received banner all speak of an interview request, not a job application', () => {
+    expect(job).toContain('html: "Apply for interview<small>Not a job application');
+    expect(job).toContain('<h2 id="applyConfirmTitle">Apply for an interview?</h2>');
+    expect(job).toContain('id="applyConfirmBtn" type="button">Apply for interview</button>');
+    expect(job).toContain('applied: "✓ Interview request sent<small>');
+    expect(job).toContain('<b>Interview request received</b>');
+    expect(job).not.toContain('Apply for this role<small>');
+    expect(job).not.toContain('<b>Application received</b>');
+  });
+});
