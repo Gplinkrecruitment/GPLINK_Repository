@@ -157,7 +157,7 @@ describe('careers tabs + apply cache (owner 2026-09-04)', () => {
   });
   it('the list is split by the same rule the Offers badge counts', () => {
     const fn = between(career, 'function renderApplications() {', 'function defaultApplicationsView()');
-    expect(fn).toContain('const offers = applications.filter(isCareerOpportunity);');
+    expect(fn).toContain('const offers = listed.filter(isCareerOpportunity);'); // pending matches filtered out first (2026-09-07)
     expect(fn).toContain('offersGridEl.innerHTML = offers.map(');
     expect(fn).toContain('applicationsGridEl.innerHTML = others.map(');
     expect(fn).not.toContain('at-grouplbl');
@@ -255,5 +255,31 @@ describe('job page CTA says "apply for interview" (owner 2026-09-07)', () => {
     expect(job).toContain('<b>Interview request received</b>');
     expect(job).not.toContain('Apply for this role<small>');
     expect(job).not.toContain('<b>Application received</b>');
+  });
+});
+
+describe('matches are matches — not applications, not offers (owner 2026-09-07)', () => {
+  const career = read('pages/career.html');
+  const srv = read('server.js');
+  it('the careers page keeps pending matches out of both tabs and both badges', () => {
+    expect(career).toContain('function isPendingMatchApplication(application)');
+    const opp = between(career, 'function isCareerOpportunity(application) {', 'function nextStepForApplication');
+    expect(opp).toContain('if (isPendingMatchApplication(application)) return false;');
+    const render = between(career, 'function renderApplications() {', 'function defaultApplicationsView()');
+    expect(render).toContain('const listed = applications.filter((application) => !isPendingMatchApplication(application));');
+    expect(career).toContain('&& !isPendingMatchApplication(application) && !isCareerOpportunity(application) && isActiveApplication(application)');
+    expect(career).toContain('if (key === "matched" || key === "shortlisted") return "Accept or decline your match";');
+  });
+  it('the application detail endpoint names the practice on the named tier, and every location is suburb-first', () => {
+    const detail = between(srv, "pathname === '/api/career/application' && req.method === 'GET'", '// Build placement payload if status warrants it');
+    expect(detail).toContain('gpHasVerifiedCareerCv(userId)');
+    expect(detail).toContain('roleClient.nameRevealed = true;');
+    expect(srv).toContain('buildLocationLabel([row.suburb || row.location_city, row.location_state])');
+    expect(srv).toContain("const suburbText = String(suburb || (row && row.suburb) || '').trim();");
+    expect(srv).toContain("location_city: intake.suburb || intake.nearest_city || ''");
+  });
+  it('the applied status reads as an interview request everywhere the server labels it', () => {
+    expect(srv).toContain("statusLabel: 'Interview request received — we’re putting you forward'");
+    expect(srv).not.toContain("statusLabel: 'Application received — we’re putting you forward'");
   });
 });

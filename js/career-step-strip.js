@@ -27,7 +27,8 @@
   var SECURED = ['hired', 'secured', 'placed', 'placement_secured', 'practice_secured', 'offer_accepted', 'contract_signed'];
   var CLOSED = ['withdrawn', 'not_proceeding', 'rejected', 'offer_declined', 'declined', 'unsuccessful'];
   var OFFER = ['offer', 'offer_pending', 'offered', 'finalising_placement'];
-  var INTERVIEW = ['interview', 'interview_scheduled', 'interview_confirmed', 'shortlisted', 'interview_completed'];
+  // 'shortlisted' is a pending MATCH (handled as match_pending below), never an interview.
+  var INTERVIEW = ['interview', 'interview_scheduled', 'interview_confirmed', 'interview_completed'];
   var LIVE_CONTRACT = ['sent_to_gp', 'changes_requested', 'practice_review'];
 
   function norm(s) {
@@ -97,9 +98,19 @@
         return result(2, 'interview_pick', practiceLabel(va).replace(/^the practice$/, 'The practice') + ' wants to meet you. Choose an interview time that suits you.', detailHref(va), 'Choose a time');
       }
     }
-    // 1 — applied and waiting
-    if (live.length) {
-      var la = live[0].app;
+    // 1 — a match awaiting the doctor's answer (time-limited, so it outranks a
+    // plain application). Never described as "your application is with…".
+    for (var m = 0; m < live.length; m++) {
+      var ma = live[m].app, mk = live[m].key;
+      if (mk === 'matched' || mk === 'shortlisted') {
+        return result(1, 'match_pending', 'The GP Link team matched you to ' + practiceLabel(ma) + '. Open it to fast-track to an interview, or decline, before it expires.',
+          'job?id=' + enc(ma.roleId) + '&match=' + enc(ma.id), 'View matched practice');
+      }
+    }
+    // 1 — applied and waiting (skip match rows — handled above)
+    var appliedRows = live.filter(function (l) { return l.key !== 'matched' && l.key !== 'shortlisted'; });
+    if (appliedRows.length) {
+      var la = appliedRows[0].app;
       return result(1, 'applied', 'Your application is with ' + practiceLabel(la) + '. We will message you when they reply. You can keep browsing meanwhile.', detailHref(la), 'See my application');
     }
     // 1 — nothing yet

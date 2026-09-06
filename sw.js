@@ -80,7 +80,7 @@
   // 20260903a: doctor-guided flow — phase-driven nav (two tabs until a
   // position is secured), welcome + registration slideshows, careers step
   // strip, Account team card. Shell + career + account + index markup moved.
-  var VERSION = "20260907b";
+  var VERSION = "20260907c";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -136,9 +136,9 @@
     "/js/gp-walkthrough-shell.js?v=20260903a",
     "/js/gp-doctor-phase.js?v=20260907a",
     "/js/gp-intro-slides.js?v=20260903a",
-    "/js/career-step-strip.js?v=20260903a",
+    "/js/career-step-strip.js?v=20260907a",
     "/js/document-prep.js?v=20260614a",
-    "/js/career-home-card.js?v=20260709a"
+    "/js/career-home-card.js?v=20260907a"
   ];
 
   function toUrl(value) {

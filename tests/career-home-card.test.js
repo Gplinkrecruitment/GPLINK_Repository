@@ -57,3 +57,16 @@ describe('deriveCareerHomeCard', () => {
     expect(derive({ id: 'placement-by-association', status: 'secured' }).href).toBe('career#secured');
   });
 });
+
+describe('deriveCareerHomeCard — pending match (owner 2026-09-07)', () => {
+  const deriveCareerHomeCard = require(require('path').join(__dirname, '..', 'js', 'career-home-card.js'));
+  it('routes a matched row to the practice page with the match param, never the timeline', () => {
+    const c = deriveCareerHomeCard({ id: 'm1', status: 'matched', statusLabel: 'Matched to you — accept or decline', role: { id: 'internal_ats:x' } });
+    expect(c.title).toBe('Matched to you — accept or decline');
+    expect(c.href).toBe('job?id=internal_ats%3Ax&match=m1');
+  });
+  it('a shortlisted row is no longer mistaken for an interview offer', () => {
+    const c = deriveCareerHomeCard({ id: 'm2', status: 'shortlisted', role: { id: 'internal_ats:y' } });
+    expect(c.title).not.toContain('Interview offered');
+  });
+});

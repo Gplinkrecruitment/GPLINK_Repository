@@ -50,6 +50,21 @@ describe('career step strip — which step, what to do now', () => {
     expect(deriveCareerStep([app({ contractStage: 'practice_review' })]).key).toBe('contract_review');
     expect(deriveCareerStep([app({ rawStatus: 'finalising_placement' })]).key).toBe('finalising');
   });
+  it('a pending match outranks a plain application and is never "your application is with…" (owner 2026-09-07)', () => {
+    const r = deriveCareerStep([app({ id: 'p', rawStatus: 'applied', practiceName: 'GP Link Sandbox Practice' }), app({ id: 'm', roleId: 'r2', rawStatus: 'matched', practiceName: 'Sandbox Coastal Medical Centre' })]);
+    expect(r.step).toBe(1);
+    expect(r.key).toBe('match_pending');
+    expect(r.hint).toContain('matched you to Sandbox Coastal Medical Centre');
+    expect(r.hint).not.toContain('application is with');
+    expect(r.href).toBe('job?id=r2&match=m');
+    expect(r.ctaLabel).toBe('View matched practice');
+    // shortlisted (raw stage spelling) reads the same way
+    expect(deriveCareerStep([app({ rawStatus: 'shortlisted' })]).key).toBe('match_pending');
+    // and a plain application alone still names its own practice
+    const only = deriveCareerStep([app({ rawStatus: 'applied', practiceName: 'GP Link Sandbox Practice' })]);
+    expect(only.key).toBe('applied');
+    expect(only.hint).toContain('with GP Link Sandbox Practice');
+  });
   it('secured → step 4', () => {
     expect(deriveCareerStep([app({ isPlacementSecured: true })]).step).toBe(4);
     expect(deriveCareerStep([app({ rawStatus: 'placement_secured' })]).step).toBe(4);

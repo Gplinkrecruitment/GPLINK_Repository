@@ -23997,7 +23997,9 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
   // only the words differ, because nobody matched them (owner request
   // 2026-07-30). The status key stays 'applied': every existing consumer,
   // ribbon and timeline index keys off it.
-  return { status: 'applied', statusLabel: 'Application received — we’re putting you forward', statusTone: 'review', offerPending: false };
+  // Owner 2026-09-07: applying asks the practice for an INTERVIEW — say so
+  // everywhere the status is shown (cards, job page banner, timeline).
+  return { status: 'applied', statusLabel: 'Interview request received — we’re putting you forward', statusTone: 'review', offerPending: false };
 }
 
 // The in-app offer record only affects the label at these points — skip the
@@ -24253,7 +24255,7 @@ function buildCareerLocationSummary(context = {}) {
 }
 
 function buildCareerPublicLocationLine(row, suburb = '') {
-  const suburbText = String(suburb || '').trim();
+  const suburbText = String(suburb || (row && row.suburb) || '').trim();
   const stateText = String(row && row.location_state ? row.location_state : '').trim();
   const cityText = String(row && row.location_city ? row.location_city : '').trim();
   return buildLocationLabel([
@@ -26987,7 +26989,9 @@ function mapCareerRoleRowToClient(row) {
   const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const location = buildLocationLabel([
     row && row.location_label,
-    !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
+    // Suburb first: for intake-created jobs location_city held the NEAREST CITY
+    // ("Sydney, NSW" over a Terrigal photo — owner report 2026-09-07).
+    !row || row.location_label ? '' : buildLocationLabel([row.suburb || row.location_city, row.location_state]),
     !row || row.location_label ? '' : row.location_country
   ]);
   const rawBilling = row && row.billing_model ? String(row.billing_model).trim() : '';
@@ -27299,7 +27303,9 @@ function mapCareerRoleRowToPublicJob(row) {
   const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const locationLabel = buildLocationLabel([
     row && row.location_label,
-    !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
+    // Suburb first: for intake-created jobs location_city held the NEAREST CITY
+    // ("Sydney, NSW" over a Terrigal photo — owner report 2026-09-07).
+    !row || row.location_label ? '' : buildLocationLabel([row.suburb || row.location_city, row.location_state]),
     !row || row.location_label ? '' : row.location_country
   ]);
   const publicJobPayload = {
@@ -36958,7 +36964,9 @@ async function createPendingJobFromIntake(practice, intake) {
     title: intake.role_title || practicePipeline.buildMaskedTitle(maskedTitleArgs),
     masked_title: practicePipeline.buildMaskedTitle(maskedTitleArgs),
     practice_name: practice.name, practice_id: practice.id,
-    location_city: intake.nearest_city || '', location_state: intake.state || '', location_country: 'Australia',
+    // location_city is the doctor-facing "city" on every card/page — the SUBURB.
+    // nearest_city keeps its own column for the "near Sydney" subtitle.
+    location_city: intake.suburb || intake.nearest_city || '', location_state: intake.state || '', location_country: 'Australia',
     suburb: intake.suburb || '', nearest_city: intake.nearest_city || '',
     billing_model: intake.billing_style || '', dpa: intake.dpa === true, mmm: intake.mmm || '',
     earnings_text: intake.earnings_text || '',
@@ -53718,6 +53726,25 @@ async function handleApi(req, res, pathname) {
         || '';
       if (detailRealName) roleClient.practiceName = String(detailRealName);
       roleClient.revealed = true;
+    } else if (roleRow) {
+      // Named tier (owner 2026-09-04) — same rule as the list endpoint: a doctor
+      // with a verified careers CV sees the practice NAME + website before any
+      // reveal. Without this the detail page still headed itself with the
+      // masked "DPA - Terrigal - Mixed Billing" while the list said the name
+      // (owner report 2026-09-07: "which practice is this application for?").
+      let detailNamed = false;
+      try { detailNamed = await gpHasVerifiedCareerCv(userId); } catch (e) { detailNamed = false; }
+      if (detailNamed) {
+        let detailPractice = null;
+        if (roleRow.practice_id) { try { detailPractice = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { detailPractice = null; } }
+        const detailNamedName = resolveCareerRolePracticeName(roleRow, detailPractice);
+        if (detailNamedName) {
+          roleClient.practiceName = detailNamedName;
+          roleClient.nameRevealed = true;
+          const detailNamedWebsite = resolveNamedPracticeWebsite(roleRow, detailPractice);
+          if (detailNamedWebsite) roleClient.website = detailNamedWebsite;
+        }
+      }
     }
 
     // Build placement payload if status warrants it

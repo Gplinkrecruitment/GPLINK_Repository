@@ -62,7 +62,7 @@
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
-  <script src="/js/career-step-strip.js?v=20260903a" defer></script>
+  <script src="/js/career-step-strip.js?v=20260907a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
        overlay and the apply path can both need it during first paint. -->
@@ -9562,9 +9562,21 @@
     // for BOTH the Offers badge count and the "Offers" group so they agree —
     // previously the badge counted offerPending only, so an interview-stage
     // application (practice accepted, interview being scheduled) showed 0.
+    // A live match the doctor has not answered (status 'matched' / stage
+    // 'shortlisted'). It is neither an application nor an offer: it lives in
+    // the pinned "Your team matches" card on Roles, never under Applications
+    // or Offers (owner report 2026-09-07: "why is a matched practice sitting
+    // under offers").
+    function isPendingMatchApplication(application) {
+      if (!application) return false;
+      const key = normalizeStatusKey(application.rawStatus || application.status);
+      return key === "matched" || key === "shortlisted";
+    }
+
     function isCareerOpportunity(application) {
       if (!application) return false;
       if (application.isPlacementSecured) return false;
+      if (isPendingMatchApplication(application)) return false;
       const key = normalizeStatusKey(application.rawStatus);
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return false;
       return application.offerPending === true
@@ -9579,6 +9591,7 @@
     function nextStepForApplication(status, interview) {
       const key = normalizeStatusKey(status);
       if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) return "Relocation handover";
+      if (key === "matched" || key === "shortlisted") return "Accept or decline your match";
       if (key === "finalising_placement") return "Finalising your placement";
       if (["offer", "offer_pending", "offered"].includes(key)) return "Review your offer";
       // The interview row is checked BEFORE the stage, because marking an interview done
@@ -12366,7 +12379,7 @@
         // reviewing) — anything the practice has come back on lives under
         // Offers, and a closed application (withdrawn / not proceeding) is
         // listed but never counted.
-        const appsCount = careerState.applications.filter((application) => application && !isCareerOpportunity(application) && isActiveApplication(application) && !application.isPlacementSecured).length;
+        const appsCount = careerState.applications.filter((application) => application && !isPendingMatchApplication(application) && !isCareerOpportunity(application) && isActiveApplication(application) && !application.isPlacementSecured).length;
         appsTabBadgeEl.hidden = appsCount === 0;
         appsTabBadgeEl.textContent = String(appsCount);
       }
@@ -13975,8 +13988,10 @@
       // Publish BEFORE the early return so the under-map strip clears itself
       // when the last application goes away.
       syncCareerMapMine(applications);
-      const offers = applications.filter(isCareerOpportunity);
-      const others = applications.filter((application) => !isCareerOpportunity(application));
+      // Pending matches are listed by the pinned "Your team matches" card, not here.
+      const listed = applications.filter((application) => !isPendingMatchApplication(application));
+      const offers = listed.filter(isCareerOpportunity);
+      const others = listed.filter((application) => !isCareerOpportunity(application));
       applicationsEmptyStateEl.innerHTML = buildAtlasEmptyHtml("applications");
       applicationsEmptyStateEl.classList.toggle("is-visible", others.length === 0);
       if (offersEmptyStateEl) {
@@ -13993,7 +14008,7 @@
     // Where "you have applications" should land: Offers when every live
     // application is already an opportunity, otherwise Applications.
     function defaultApplicationsView() {
-      const apps = careerState.applications.filter(Boolean);
+      const apps = careerState.applications.filter(Boolean).filter((application) => !isPendingMatchApplication(application));
       if (!apps.length) return "browse";
       return apps.every(isCareerOpportunity) ? "offers" : "applications";
     }

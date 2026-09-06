@@ -223,7 +223,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     // bare "Applied" timeline for a match the doctor had been fast-tracked on.
     // The mapper branch has to sit ABOVE the generic applied default, which is
     // where the row was landing.
-    const idxDefault = serverSrc.indexOf("statusLabel: 'Application received");
+    const idxDefault = serverSrc.indexOf("statusLabel: 'Interview request received"); // wording 2026-09-07
     const idxFast = serverSrc.indexOf("status: 'fast_tracked'");
     expect(idxFast).toBeGreaterThan(-1);
     expect(idxFast).toBeLessThan(idxDefault);

@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this), function () {
   var SECURED = ['hired', 'secured', 'placed', 'placement_secured', 'offer_accepted', 'contract_signed'];
   var CLOSED = ['withdrawn', 'not_proceeding', 'rejected', 'offer_declined'];
-  var INTERVIEW = ['interview', 'interview_scheduled', 'interview_confirmed', 'shortlisted'];
+  var INTERVIEW = ['interview', 'interview_scheduled', 'interview_confirmed'];
 
   function normalize(s) {
     return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -38,6 +38,12 @@
     if (status === 'finalising_placement') {
       return card('Offer accepted — finalising placement', 'success', 'Offer',
         'application-detail?id=' + enc(app.id) + '&role=' + enc(roleId), ts);
+    }
+    // 2b. A live match awaiting the doctor's answer -> the practice page (the
+    //     accept/decline actions live there; the timeline page would be untrue).
+    if (status === 'matched') {
+      return card('Matched to you — accept or decline', 'success', 'Match',
+        'job?id=' + enc(roleId) + '&match=' + enc(app.id), ts);
     }
     // 3. Interview stage -> application-detail (shows the inline confirm-time control).
     if (INTERVIEW.indexOf(status) !== -1) {
