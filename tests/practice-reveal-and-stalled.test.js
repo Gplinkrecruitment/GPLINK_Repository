@@ -232,4 +232,15 @@ describe('identity-step-optional tester flag (owner 2026-09-06)', () => {
     const bypass = between(onb, 'function canBypassOnboardingValidation() {', 'function validateStep');
     expect(bypass).not.toContain('gpIdentityStepOptional');
   });
+  it('on a loopback dev host the identity STEP is optional for any account (client-only; the server bypass stays narrow/smith-only)', () => {
+    const forTester = between(onb, 'function identityStepOptionalForTester() {', 'function canBypassOnboardingValidation()');
+    expect(forTester).toContain('localhost');
+    expect(forTester).toContain('127.0.0.1');
+    // The server-side ID scan bypass must NOT be widened to a dev host —
+    // tests/register-auto-verify.test.js pins that a real doctor still hits
+    // the pipeline. It stays keyed on the email allow-list only.
+    const srv = read('server.js');
+    const verify = between(srv, "pathname === '/api/ai/verify-identity' && req.method === 'POST'", "if (!ANTHROPIC_API_KEY)");
+    expect(verify).not.toContain('isLoopbackHostname');
+  });
 });

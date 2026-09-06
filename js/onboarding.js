@@ -700,6 +700,13 @@
   }
 
   function identityStepOptionalForTester() {
+    // Local dev host: optional for ANY account (owner 2026-09-06) — mirrors the
+    // server's loopback ID-scan bypass, so testing the journey never needs a
+    // real ID. Production (a real host) still requires the named tester digest.
+    try {
+      var h = String(location.hostname || "").toLowerCase();
+      if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]") return true;
+    } catch (e) {}
     try { return !!(window.gpIdentityStepOptional && window.gpIdentityStepOptional()); } catch (e) { return false; }
   }
 
@@ -1768,6 +1775,13 @@
     if (status === "scanning") {
       statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Confirming your identity...</div>';
       actionsEl.style.display = "none";
+    } else if (status !== "verified" && identityStepOptionalForTester()) {
+      // Local testing (owner 2026-09-06): the step is optional here, so don't
+      // show a red scan failure — say plainly it can be skipped and let Submit
+      // through. Still lets the tester upload if they want to exercise the scan.
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--gp-muted);">Identity verification is optional in local testing — press Submit to continue, or upload an ID to test the scan.</div>';
+      if (actionsEl) actionsEl.style.display = "";
+      hideError("docsError");
     } else if (status === "verified") {
       statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity confirmed. Your ID is stored securely.</div>';
       actionsEl.style.display = "none";
