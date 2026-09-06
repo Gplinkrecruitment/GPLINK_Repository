@@ -22,6 +22,29 @@ var BYPASS_LOCK_EMAILS = {
   var TEMPORARY_BYPASS_LOCK_DIGESTS = {};
   var DIGEST_MATCH_CACHE_KEY = "gp_bypass_digest_match";
 
+  // NARROWER tester flag (owner 2026-09-06): lets the onboarding "Confirm your
+  // identity" step submit WITHOUT a passport/licence for the listed tester,
+  // and nothing else — every other check (qualification documents, register
+  // number, position-first locks, the mandatory walkthrough) stays real. Keyed
+  // by SHA-256 digest of the lowercase email, with an expiry, like the list
+  // above. Smith Miller (recreated test account): expires 2026-09-30.
+  var TEMPORARY_IDENTITY_OPTIONAL_DIGESTS = {
+    "f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59Z"
+  };
+  var IDENTITY_OPTIONAL_CACHE_KEY = "gp_identity_optional_digest_match";
+  var identityOptionalEmail = "", identityOptionalExpiresAt = "";
+  function activateIdentityOptional(email, expiresAt) {
+    identityOptionalEmail = email;
+    identityOptionalExpiresAt = expiresAt;
+  }
+  // True only for the matched tester while the entry is unexpired.
+  function identityStepOptional() {
+    if (!identityOptionalEmail) return false;
+    if (getCurrentBypassEmail() !== identityOptionalEmail) return false;
+    return Date.now() < Date.parse(identityOptionalExpiresAt);
+  }
+  try { window.gpIdentityStepOptional = identityStepOptional; } catch (e) {}
+
   function getCurrentBypassEmail() {
     try { if (window.gpSessionProfile && window.gpSessionProfile.email) return String(window.gpSessionProfile.email).trim().toLowerCase(); } catch (e) {}
     try {
@@ -105,6 +128,23 @@ var BYPASS_LOCK_EMAILS = {
   function refreshBypassDigestMatch(emailOverride) {
     var currentEmail = String(emailOverride || "").trim().toLowerCase() || getCurrentBypassEmail();
     if (!currentEmail) return;
+
+    // Identity-optional tester flag: same digest mechanics, its own cache.
+    try {
+      var idCachedRaw = localStorage.getItem(IDENTITY_OPTIONAL_CACHE_KEY);
+      var idCached = idCachedRaw ? JSON.parse(idCachedRaw) : null;
+      if (idCached && idCached.email === currentEmail &&
+          Object.prototype.hasOwnProperty.call(TEMPORARY_IDENTITY_OPTIONAL_DIGESTS, idCached.digest)) {
+        activateIdentityOptional(currentEmail, TEMPORARY_IDENTITY_OPTIONAL_DIGESTS[idCached.digest]);
+      } else {
+        sha256Hex(currentEmail).then(function (digest) {
+          if (!digest || !Object.prototype.hasOwnProperty.call(TEMPORARY_IDENTITY_OPTIONAL_DIGESTS, digest)) return;
+          var idExpiresAt = TEMPORARY_IDENTITY_OPTIONAL_DIGESTS[digest];
+          try { localStorage.setItem(IDENTITY_OPTIONAL_CACHE_KEY, JSON.stringify({ email: currentEmail, digest: digest, expiresAt: idExpiresAt })); } catch (e) {}
+          activateIdentityOptional(currentEmail, idExpiresAt);
+        }).catch(function () {});
+      }
+    } catch (e) {}
 
     // Sync fast-path: a previous load on this device already matched the digest.
     try {

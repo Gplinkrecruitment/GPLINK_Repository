@@ -699,6 +699,10 @@
     return out;
   }
 
+  function identityStepOptionalForTester() {
+    try { return !!(window.gpIdentityStepOptional && window.gpIdentityStepOptional()); } catch (e) { return false; }
+  }
+
   function canBypassOnboardingValidation() {
     // Digest-gated temporary tester mechanism (js/bypass-config.js): tester
     // emails ship only as SHA-256 digests mapped to expiry timestamps; on a
@@ -2087,6 +2091,12 @@
       case 4: // identity check
         const idStatus = state.idVerification && state.idVerification.status;
         if (idStatus === "verified" || idStatus === "support_requested") {
+          hideError("docsError");
+          return true;
+        }
+        // Listed tester (js/bypass-config.js TEMPORARY_IDENTITY_OPTIONAL_DIGESTS):
+        // this one step may be submitted without an ID. Nothing else is skipped.
+        if (identityStepOptionalForTester()) {
           hideError("docsError");
           return true;
         }

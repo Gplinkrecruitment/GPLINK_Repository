@@ -166,7 +166,7 @@ describe('cache busters for the two changed scripts', () => {
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260904d"');
+    expect(read('sw.js')).toContain('var VERSION = "20260906a"');
   });
 
   it('the mandatory tour can NEVER be lost to a single visit (owner 2026-09-02)', () => {
@@ -187,7 +187,13 @@ describe('cache busters for the two changed scripts', () => {
   it('no temporary tester bypass digests ship to clients (owner 2026-09-02)', () => {
     const bypassJs = read('js/bypass-config.js');
     expect(bypassJs).toContain('var TEMPORARY_BYPASS_LOCK_DIGESTS = {}');
-    expect(bypassJs).not.toContain('f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e');
+    // Owner 2026-09-06: Smith Miller's digest is allowed back ONLY on the
+    // narrower identity-step-optional list (expiring), never on the blanket
+    // bypass map above — the blanket map must stay empty.
+    const blanket = bypassJs.slice(bypassJs.indexOf('var TEMPORARY_BYPASS_LOCK_DIGESTS'), bypassJs.indexOf('var DIGEST_MATCH_CACHE_KEY'));
+    expect(blanket).not.toContain('f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e');
+    const narrow = bypassJs.slice(bypassJs.indexOf('var TEMPORARY_IDENTITY_OPTIONAL_DIGESTS'), bypassJs.indexOf('var IDENTITY_OPTIONAL_CACHE_KEY'));
+    expect(narrow).toMatch(/"f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59Z"/);
     // Server side mirrors it: the temporary bypass map holds no entries.
     const serverSrc = read('server.js');
     const tempBlock = serverSrc.slice(serverSrc.indexOf('const TEMPORARY_BYPASS_LOCK_EMAILS'), serverSrc.indexOf('function isBypassLockEmail'));

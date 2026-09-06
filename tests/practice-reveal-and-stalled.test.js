@@ -211,3 +211,25 @@ describe('match notification + matched-role presentation (owner 2026-09-04)', ()
     expect(read('pages/career.html')).toContain('The GP Link team matched you to this practice directly');
   });
 });
+
+describe('identity-step-optional tester flag (owner 2026-09-06)', () => {
+  const cfg = read('js/bypass-config.js');
+  const onb = read('js/onboarding.js');
+  it('is a digest with an expiry, separate from the blanket bypass list (which stays empty)', () => {
+    expect(cfg).toContain('"f4c9faeba3c465a82adb51cebe3d80b8e94e86470b0aaa50d752b8c2a8ba8c6e": "2026-09-30T23:59:59Z"');
+    expect(cfg).toContain('var TEMPORARY_BYPASS_LOCK_DIGESTS = {};');
+    expect(cfg).not.toContain('smithmiller1234');
+    const srv = read('server.js');
+    const tempBlock = srv.slice(srv.indexOf('const TEMPORARY_BYPASS_LOCK_EMAILS'), srv.indexOf('function isBypassLockEmail'));
+    expect(tempBlock).not.toContain('@gmail.com\':'); // server blanket bypass map stays empty
+    expect(cfg).toContain('window.gpIdentityStepOptional = identityStepOptional');
+  });
+  it('only the identity step consults it; every other step keeps its checks', () => {
+    const step4 = between(onb, 'case 4: // identity check', 'default: return true;');
+    expect(step4).toContain('identityStepOptionalForTester()');
+    const step2 = between(onb, 'case 2: // country + register number', 'case 3: return true;');
+    expect(step2).not.toContain('identityStepOptionalForTester');
+    const bypass = between(onb, 'function canBypassOnboardingValidation() {', 'function validateStep');
+    expect(bypass).not.toContain('gpIdentityStepOptional');
+  });
+});
