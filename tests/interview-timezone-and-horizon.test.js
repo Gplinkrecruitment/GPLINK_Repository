@@ -133,8 +133,16 @@ describe('one bookable window, not three disagreeing ones', () => {
     const idx = serverSrc.indexOf('async function _interviewComputeSlots');
     const fnSrc = serverSrc.slice(idx, idx + 9000);
     expect(fnSrc).toContain('horizonDays: interviewMeetings.INTERVIEW_HORIZON_DAYS');
-    expect(fnSrc).toContain('leadHours: interviewMeetings.INTERVIEW_LEAD_HOURS');
     expect(fnSrc).toContain('interviewMeetings.INTERVIEW_HORIZON_DAYS * 24 * 60 * 60 * 1000');
+    // The notice period is read per-interview (interviewLeadHours falls back to
+    // INTERVIEW_LEAD_HOURS unless min_notice_hours waives it), and the LENGTH is
+    // read from the row too — it used to be a literal 45 while every row said 30.
+    expect(fnSrc).toContain('leadHours: interviewMeetings.interviewLeadHours(row)');
+    expect(fnSrc).toContain('durationMin: interviewMeetings.interviewDurationMinutes(row)');
+    // No bare scheduling numbers left in here for the constants to drift from.
+    expect(fnSrc).not.toMatch(/durationMin:\s*\d/);
+    expect(fnSrc).not.toMatch(/leadHours:\s*\d/);
+    expect(fnSrc).not.toMatch(/horizonDays:\s*\d/);
   });
 
   it('the practice’s date picker offers exactly that window', () => {
@@ -254,8 +262,8 @@ describe('staff and doctor see the same moment, correctly labelled', () => {
   });
 
   it('both changed assets are cache-busted, or the dashboard serves the old ones', () => {
-    expect(dashSrc).toContain('ceo-ats-candidates.js?v=20260904a');
-    expect(dashSrc).toContain('ceo-ats.css?v=20260904a');
+    expect(dashSrc).toContain('ceo-ats-candidates.js?v=20260906a');
+    expect(dashSrc).toContain('ceo-ats.css?v=20260906a');
     expect(dashSrc).not.toContain('ceo-ats.css?v=20260805d');
     expect(dashSrc).not.toContain('ceo-ats.css?v=20260805c');
     expect(dashSrc).not.toContain('ceo-ats.css?v=20260805b');

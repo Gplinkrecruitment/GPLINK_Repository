@@ -166,7 +166,7 @@ describe('cache busters for the two changed scripts', () => {
     expect(shell).not.toContain('/js/gp-walkthrough-shell.js?v=20260829a');
   });
   it('sw.js VERSION moved, or the shell is served from the old precache', () => {
-    expect(read('sw.js')).toContain('var VERSION = "20260902d"');
+    expect(read('sw.js')).toContain('var VERSION = "20260906a"');
   });
 
   it('the mandatory tour can NEVER be lost to a single visit (owner 2026-09-02)', () => {

@@ -1468,9 +1468,27 @@
             // offer the paste box rather than only the standard-times override.
             '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-paste-reply" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Paste practice reply</button>' +
             '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-use-default" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Use standard times</button>' +
+            // When the practice's times are fine and only OUR 48-hour notice
+            // rule is refusing them — they replied late, or the clock caught up
+            // with dates that were legal when they sent them.
+            '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-short-notice" data-app-id="' + ATS.escAttr(String(applicationId)) + '">Allow short notice</button>' +
           '</div>';
         var emptyPasteBtn = containerEl.querySelector('.ats-int-paste-reply');
         if (emptyPasteBtn) emptyPasteBtn.addEventListener('click', function () { atsPastePracticeReply(applicationId, containerEl, caseId); });
+        var emptySnBtn = containerEl.querySelector('.ats-int-short-notice');
+        if (emptySnBtn) emptySnBtn.addEventListener('click', function () {
+          if (!window.confirm('Ignore the 48-hour notice rule for this interview? The practice\'s times will be offered even if they are very soon.')) return;
+          emptySnBtn.disabled = true; emptySnBtn.textContent = 'Applying…';
+          ATS.api('/api/ats/interview/allow-short-notice', { method: 'POST', body: { applicationId: String(applicationId) } }).then(function (r) {
+            if (r && r.ok) {
+              ATS.toast('Short notice allowed — checking for times.');
+              window.atsRenderSlotPicker(applicationId, containerEl, caseId);
+            } else {
+              ATS.toast((r && (r.message || r.error)) || 'Could not allow short notice.');
+              emptySnBtn.disabled = false; emptySnBtn.textContent = 'Allow short notice';
+            }
+          });
+        });
         var emptyDefBtn = containerEl.querySelector('.ats-int-use-default');
         if (emptyDefBtn) emptyDefBtn.addEventListener('click', function () {
           emptyDefBtn.disabled = true; emptyDefBtn.textContent = 'Applying…';

@@ -21,7 +21,10 @@
 })(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this), function () {
   // How long an interview is assumed to run when the row does not say. Matches the 45 the
   // card already prints as its "Duration" default.
-  var DEFAULT_DURATION_MINUTES = 45;
+  // Interviews run 30 minutes (scheduled_calls.duration_minutes is NOT NULL
+  // DEFAULT 30). This was 45 and disagreed with every row in the database, so
+  // a card fell back to holding the Join button open 15 minutes too long.
+  var DEFAULT_DURATION_MINUTES = 30;
   // Interviews start late and run over. Keep the Join button alive this long past the
   // scheduled end so a doctor rejoining after a dropout is never locked out of their own
   // interview — the cost of being wrong in this direction is far higher than a button that

@@ -77,7 +77,7 @@
   // free account, per the owner. Markup-only change to the same site-*.html,
   // so the css buster does not move and this bump is the only thing that
   // stops the old order being served one navigation late.
-  var VERSION = "20260902d";
+  var VERSION = "20260906a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;

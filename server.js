@@ -34551,7 +34551,9 @@ function buildGoogleCalendarUrl(o) {
   }
   var start = new Date(o.startUtc);
   if (isNaN(start.getTime())) return '';
-  var end = new Date(start.getTime() + ((o.durationMin || 45) * 60000));
+  // Every caller passes the interview's stored length; this fallback only
+  // guards a caller that forgets, and must not reintroduce the old 45.
+  var end = new Date(start.getTime() + ((o.durationMin || interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES) * 60000));
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
     + '&text=' + encodeURIComponent(o.summary || 'GP Link Interview')
     + '&dates=' + fmt(start) + '/' + fmt(end)
@@ -44740,7 +44742,7 @@ async function handleApi(req, res, pathname) {
         const hasZoomMeetingId = call.zoom_meeting_id != null && String(call.zoom_meeting_id).trim() !== '';
         if (!hasZoomMeetingId) {
           const noZoomStartMs = Date.parse(call.scheduled_at);
-          const noZoomDueMs = noZoomStartMs + ((Number(call.duration_minutes) || 45) + 15) * 60000;
+          const noZoomDueMs = noZoomStartMs + ((Number(call.duration_minutes) || interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES) + 15) * 60000;
           if (!Number.isFinite(noZoomDueMs) || nowMs < noZoomDueMs) { skipped++; continue; } // not due yet (or unparseable scheduled_at) — retry next run
           const noZoomNowIso = new Date().toISOString();
           // No summary_status flip to 'pending': there is no Zoom recording to
@@ -50549,7 +50551,13 @@ async function handleApi(req, res, pathname) {
       console.warn('[interview] could not record the doctor timezone (ignored):', ciTzErr && ciTzErr.message);
     }
 
-    sendJson(res, 200, { ok: true, slots: ciSlotCtx.slots });
+    // The picker tells the doctor how long the interview runs, so it needs the
+    // real stored length rather than the 45 its copy used to hardcode.
+    sendJson(res, 200, {
+      ok: true,
+      slots: ciSlotCtx.slots,
+      durationMinutes: interviewMeetings.interviewDurationMinutes(ciSlotCtx.meetingRow)
+    });
     return;
   }
 
@@ -77225,6 +77233,52 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- Interview allow short notice (POST) ---------------------------------
+  // The 48-hour notice rule (INTERVIEW_LEAD_HOURS) is right by default, but it
+  // strands a real case: a practice offers times that everyone is happy with
+  // and our own rule is the only thing refusing them — either because they
+  // replied late, or because the times were legal when they sent them and the
+  // clock has since caught up (PKG Medical Centre, owner report 2026-09-06:
+  // windows submitted 3 Sep for the 7th and 8th, still perfectly workable on
+  // the 6th, and the picker was empty). Waives the notice period for THIS
+  // interview only; the standard rule is untouched for everyone else.
+  //
+  // Slots in the past are still impossible — computeInterviewSlots keeps its
+  // `t < earliest` test and with 0 notice "earliest" simply becomes now.
+  if (pathname === '/api/ats/interview/allow-short-notice' && req.method === 'POST') {
+    var ctxSN = requireAtsSession(req, res); if (!ctxSN) return;
+    var bodySN; try { bodySN = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var snAppId = (bodySN && (bodySN.applicationId != null ? bodySN.applicationId : bodySN.application_id) != null)
+      ? String(bodySN.applicationId != null ? bodySN.applicationId : bodySN.application_id) : '';
+    if (!snAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    // Optional: waive down to N hours rather than all the way to zero. Anything
+    // absent/invalid means a full waiver; anything at or above the standard
+    // rule is pointless, so it is refused rather than silently stored.
+    var snHours = 0;
+    if (bodySN && bodySN.hours != null && String(bodySN.hours) !== '') {
+      var snParsed = Number(bodySN.hours);
+      if (!Number.isFinite(snParsed) || snParsed < 0) { sendJson(res, 400, { ok: false, message: 'hours must be 0 or more.' }); return; }
+      if (snParsed >= interviewMeetings.INTERVIEW_LEAD_HOURS) {
+        sendJson(res, 400, { ok: false, message: 'That is the standard notice period already — nothing to waive.' });
+        return;
+      }
+      snHours = Math.floor(snParsed);
+    }
+    var snRef = await findInterviewForApplication(snAppId);
+    if (!snRef) { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(snRef.id)), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { min_notice_hours: snHours, updated_at: atsNowIso() }
+      });
+    } else {
+      var snRow = (dbState.scheduledCalls || []).find(function (r) { return String(r.id) === String(snRef.id); });
+      if (snRow) { snRow.min_notice_hours = snHours; snRow.updated_at = atsNowIso(); saveDbState(); }
+    }
+    sendJson(res, 200, { ok: true, min_notice_hours: snHours });
+    return;
+  }
+
   // ---- Interview cancel (POST) ---------------------------------------------
   // GAP A2: cancel a BOOKED interview from the ATS and leave it rebookable.
   // Design: the booked row is flipped to status='cancelled' (matches the
@@ -77325,7 +77379,9 @@ Return ONLY valid JSON with no markdown formatting:
             cxIcsAttachment = interviewIcs.icsAttachment({
               uid: _interviewIcsUid(cxRow.id),
               start: cxRow.scheduled_at,
-              durationMins: 45,
+              // Same stored length the REQUEST invite carried, so the cancellation
+              // describes the event it is cancelling.
+              durationMins: interviewMeetings.interviewDurationMinutes(cxRow),
               summary: 'Interview — ' + cxGpName + ' @ ' + cxPracticeName,
               description: 'This interview has been cancelled.' + cxReasonLine,
               organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
@@ -79821,11 +79877,12 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   }
   bookedMeetings.forEach(function (r) {
     if (!r || !r.scheduled_at) return;
-    // scheduled_calls.duration_minutes is NOT NULL DEFAULT 30 (consults); an
-    // interview runs 45. Trust the stored value, fall back per kind.
+    // scheduled_calls.duration_minutes is NOT NULL DEFAULT 30. Trust the stored
+    // value; the fallback is the same default for both kinds (an interview runs
+    // 30, not 45 — see INTERVIEW_DEFAULT_DURATION_MINUTES).
     var mins = Number(r.duration_minutes) > 0
       ? Number(r.duration_minutes)
-      : (r.meeting_kind === 'interview' ? 45 : 30);
+      : interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES;
     busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + mins * 60000).toISOString() });
   });
 
@@ -79833,7 +79890,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   // over, and a slot that starts the second another ends leaves no room to
   // prepare. See INTERVIEW_GAP_MINUTES (default 10, matching the Calendly
   // buffer). Applied by widening every busy block rather than by shortening the
-  // interview, so the interview itself stays a full 45 minutes.
+  // interview, so the interview itself keeps its full stored length.
   //
   // This pads BOTH sources: meetings booked in the app, and whatever
   // gcalReadBusy returned from Google Calendar. Note Calendly has its own,
@@ -79851,8 +79908,11 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   return interviewScheduler.computeInterviewSlots({
     now: now,
     horizonDays: interviewMeetings.INTERVIEW_HORIZON_DAYS,
-    durationMin: 45,
-    leadHours: interviewMeetings.INTERVIEW_LEAD_HOURS,
+    // The row's OWN length, never a literal — see interviewDurationMinutes.
+    durationMin: interviewMeetings.interviewDurationMinutes(row),
+    // Normally the 48-hour notice rule; an operator can waive it per-interview
+    // (min_notice_hours) when a practice's short-notice times are still on.
+    leadHours: interviewMeetings.interviewLeadHours(row),
     gridMin: 30,
     maxSlots: maxSlots,
     host: host,
@@ -79945,6 +80005,12 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   // the country-derived fallback everywhere below.
   var gpViewerTz = (bookOpts && bookOpts.gpViewerTz) || '';
 
+  // ONE length for this booking, read from the row, used by every side-effect
+  // below: the Zoom meeting, the Google Calendar event, the .ics invite and
+  // both "add to calendar" links. They were four independent literal 45s, so a
+  // 30-minute interview blocked 45 minutes in everyone's diary.
+  var bookDurationMin = interviewMeetings.interviewDurationMinutes(meetingRow);
+
   // MUST use the same GP tz the doctor's picker was built with, or this
   // re-check disagrees with what they were just shown and a legitimate pick
   // 409s as "slot taken". The GP book path passes their device tz; the admin
@@ -79963,7 +80029,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   var zoom = await createZoomInterviewMeeting({
     topic: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
     startUtc: slotStartUtc,
-    durationMin: 45
+    durationMin: bookDurationMin
   });
   // The join link stored on the row + returned to the app: a real per-interview
   // Zoom link when Zoom is configured, else the standing INTERVIEW_MEETING_URL
@@ -79972,7 +80038,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
 
   var gcal;
   try {
-    var slotEnd = new Date(new Date(slotStartUtc).getTime() + 45 * 60000).toISOString();
+    var slotEnd = new Date(new Date(slotStartUtc).getTime() + bookDurationMin * 60000).toISOString();
     gcal = await gcalCreateEvent({
       summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
       startUtc: slotStartUtc,
@@ -80114,8 +80180,8 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       var rsoFirst = String(bookRso.name || 'GP Link').split(' ')[0];
       // "Add to calendar" (Google render URL); the .ics below covers Apple/Outlook.
       var calDesc = 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.' + (joinUrl ? ' Join: ' + joinUrl : '');
-      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
-      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
+      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
+      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
       // D1a: attach a calendar invite (METHOD:REQUEST). UID is stable per interview
       // row so a later cancellation .ics (same UID, SEQUENCE 1) removes it again.
       // Built in its own try/catch — a bad date can never stop the confirmations.
@@ -80124,7 +80190,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         bookIcsAttachment = interviewIcs.icsAttachment({
           uid: _interviewIcsUid(meetingRow.id),
           start: slotStartUtc,
-          durationMins: 45,
+          durationMins: bookDurationMin,
           summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
           description: calDesc,
           location: joinUrl || '',
@@ -80190,7 +80256,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
             ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
             ctaUrl: joinUrl || (getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
             secondaryCtaText: 'Add to Calendar',
-            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
+            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
             footer: 'You’re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '’s Registration Support Officer.'
           }),
           text: appCtx.gpName + ' has an interview with ' + (appCtx.practiceName || 'the practice') + ' on ' + practiceWhen + '.' + (joinUrl ? ' Join: ' + joinUrl : ''),

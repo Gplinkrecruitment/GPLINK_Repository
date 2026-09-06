@@ -2850,7 +2850,8 @@
     return zoomUrl.indexOf("https://") === 0 ? zoomUrl : "";
   }
 
-  // Google Calendar template URL: scheduled_at + 45 minutes, Zoom link in the
+  // Google Calendar template URL: scheduled_at + the interview's own length
+  // (30 unless the row says otherwise; this was a hardcoded 45), Zoom link in the
   // details, and the title masked-or-real exactly as the reveal gate says.
   function formatCalendarStamp(date) {
     return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
@@ -2859,7 +2860,8 @@
   function buildCalendarUrl(booked) {
     const start = new Date(booked && booked.scheduled_at);
     if (Number.isNaN(start.getTime())) return "";
-    const end = new Date(start.getTime() + 45 * 60 * 1000);
+    const bookedMins = Number(booked && (booked.durationMinutes != null ? booked.durationMinutes : booked.duration_minutes));
+    const end = new Date(start.getTime() + ((isFinite(bookedMins) && bookedMins > 0 ? bookedMins : 30) * 60 * 1000));
     const revealed = !!(currentRole && currentRole.revealed && currentRole.realPracticeName);
     const title = revealed ? ("Interview — " + String(currentRole.realPracticeName)) : "GP Link practice interview";
     const zoomUrl = getSafeZoomUrl(booked);

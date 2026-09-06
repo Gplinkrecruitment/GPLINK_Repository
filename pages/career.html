@@ -56,7 +56,7 @@
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/bypass-config.js?v=20260902a"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
-  <script src="../js/interview-card-state.js?v=20260801a"></script>
+  <script src="../js/interview-card-state.js?v=20260906a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
@@ -13643,7 +13643,7 @@
     function buildInterviewPickerHtml(appId) {
       return `<div class="ivc" data-iv-app="${escapeHtml(appId)}">
         <div class="ivc-h"><span>\u{1F4C5}</span><b>Pick your interview time</b></div>
-        <p class="ivc-note">45 minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.</p>
+        <p class="ivc-note" data-iv-note>Your Registration Support Officer joins you, so you're never in the room alone.</p>
         <p class="ivc-status" data-iv-status>Loading available times…</p>
         <div class="ivc-days" data-iv-days></div>
         <button type="button" class="at-match-accept shiny shiny--green ivc-confirm" data-iv-confirm disabled>Confirm interview time</button>
@@ -13663,10 +13663,10 @@
       const join = (iv.zoomJoinUrl && ivState.showJoin)
         ? `<a class="ivc-join" href="${escapeHtml(iv.zoomJoinUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">Join</a>`
         : "";
-      // Duration comes from the booking; 45 is only the fallback when the row omits it
-      // (it was hardcoded, so a 30-minute interview still advertised 45).
+      // Duration comes from the booking; the fallback now matches the real
+      // default (it was 45, so a 30-minute interview still advertised 45).
       const mins = Number(iv.durationMinutes);
-      const durationLabel = (isFinite(mins) && mins > 0 ? mins : 45) + " min on Zoom";
+      const durationLabel = (isFinite(mins) && mins > 0 ? mins : 30) + " min on Zoom";
       return `<div class="ivc is-booked"><div class="ivc-when"><b>${escapeHtml(when)}</b><span>Interview confirmed · ${escapeHtml(durationLabel)}</span></div>${join}</div>`;
     }
 
@@ -13687,6 +13687,13 @@
       const daysEl = host.querySelector("[data-iv-days]");
       const confirmEl = host.querySelector("[data-iv-confirm]");
       if (!statusEl || !daysEl || !confirmEl) return;
+
+      // Say the real length once the server has told us. The note ships with no
+      // number at all rather than repeating the old hardcoded "45 minutes".
+      const noteEl = host.querySelector("[data-iv-note]");
+      if (noteEl && st.durationMinutes > 0) {
+        noteEl.textContent = st.durationMinutes + " minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.";
+      }
 
       if (st.loading) {
         statusEl.hidden = false;
@@ -13746,6 +13753,8 @@
           st.loading = false;
           st.loaded = true;
           st.slots = (res.data && Array.isArray(res.data.slots)) ? res.data.slots : [];
+          // How long this interview actually runs, straight from the row.
+          st.durationMinutes = Number(res.data && res.data.durationMinutes) || 0;
           if (res.status === 403) {
             // not_available: the practice hasn't accepted yet, so there is
             // genuinely nothing to book. Say that, don't show an error.
