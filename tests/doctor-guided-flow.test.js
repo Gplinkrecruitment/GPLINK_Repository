@@ -21,7 +21,7 @@ describe('shell: phase-driven nav', () => {
   });
   it('hides nav items via .gp-nav-hidden and collapses the mobile grid to two tabs in the position phase', () => {
     expect(html).toMatch(/\.mobile-tab\.gp-nav-hidden\s*\{[^}]*display:\s*none\s*!important/);
-    expect(html).toMatch(/html\.gp-phase-position \.mobile-nav\s*\{[^}]*repeat\(2,/);
+    expect(html).toMatch(/html\.gp-phase-position \.mobile-nav,\s*html\.gp-phase-onboarding \.mobile-nav\s*\{[^}]*repeat\(2,/);
   });
   it('mirrors the unread dot onto the Account tab only while Support is hidden', () => {
     expect(html.match(/gp-account-alert/g).length).toBe(4);
@@ -154,7 +154,7 @@ describe('cache: busters and service worker moved together', () => {
   it('sw.js VERSION moved and precaches the new scripts at the busters the shell ships', () => {
     const sw = read('sw.js');
     const shell = read('pages/app-shell.html');
-    expect(sw).toContain('var VERSION = "20260907e"');
+    expect(sw).toContain('var VERSION = "20260907f"');
     for (const f of ['app-shell.js', 'gp-walkthrough-state.js', 'gp-walkthrough-shell.js', 'gp-doctor-phase.js', 'gp-intro-slides.js']) {
       const m = shell.match(new RegExp('/js/' + f.replace('.', '\\.') + '\\?v=([0-9a-z]+)'));
       expect(m, f).not.toBeNull();

@@ -925,7 +925,7 @@
         // before we submit to the practice. "Applied" shows as completed.
         applied: 1, review: 1, fast_tracked: 1,
         under_review: 1, submitted: 1, reviewing: 1,
-        interview: 2, interview_scheduled: 2, shortlisted: 2, interview_completed: 2,
+        interview: 2, interview_scheduled: 2, interview_completed: 2,
         offer: 3, offer_pending: 3, offered: 3,
         hired: 4, secured: 4, placed: 4, placement_secured: 4, offer_accepted: 4, contract_signed: 4,
         finalising_placement: 4
@@ -1025,7 +1025,8 @@
       var STATUS_LABELS = {
         applied: "Applied", review: "Under Review", under_review: "Under Review",
         submitted: "Under Review", reviewing: "Under Review",
-        interview: "Interview Scheduled", interview_scheduled: "Interview Scheduled", shortlisted: "Interview Scheduled",
+        interview: "Interview Scheduled", interview_scheduled: "Interview Scheduled",
+        matched: "Matched to you — accept or decline", shortlisted: "Matched to you — accept or decline",
         interview_completed: "Interview complete",
         offer: "Offer Pending", offer_pending: "Offer Pending", offered: "Offer Pending",
         hired: "Practice Secured", secured: "Practice Secured", placed: "Practice Secured",
@@ -1350,7 +1351,8 @@
         // practice page where accept/decline actually live (owner report
         // 2026-07-28). Guard runs BEFORE anything is drawn, so the false
         // timeline never flashes up.
-        if (normalizeStatusKey(app && (app.rawStatus || app.status)) === "matched") {
+        var bounceKey = normalizeStatusKey(app && (app.rawStatus || app.status));
+        if (bounceKey === "matched" || bounceKey === "shortlisted") {
           var matchRoleId = (app && (app.roleId || (app.role && app.role.id))) || roleId || "";
           var matchTarget = "job?id=" + encodeURIComponent(matchRoleId) + "&match=" + encodeURIComponent(appId);
           if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
@@ -1404,7 +1406,7 @@
           } else if (isAwaitingSubmission) {
             document.getElementById("fastTrackNoteTitle").textContent = "What happens next";
             document.getElementById("fastTrackNoteBody").textContent =
-              "Your Registration Support Officer checks every application before the practice sees it, then puts you forward. "
+              "Your Registration Support Officer checks every interview request before the practice sees it, then puts you forward. "
               + "Once the practice confirms their availability, we'll email you interview times to choose from — you book the one that suits you.";
           }
         }

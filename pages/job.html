@@ -1640,7 +1640,12 @@
     const tags = Array.isArray(role.tags) ? role.tags.filter(Boolean) : [];
     return {
       id: role.id,
-      practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,
+      // Keep the masked headline in practiceName (the suburb label + search
+      // parse it) and carry the named-tier fields beside it, so a Saved card
+      // rendered from the snapshot alone still shows the real name + website.
+      practiceName: role.practiceName,
+      realPracticeName: role.realPracticeName || "",
+      website: role.website || "",
       nameRevealed: !!(role.nameRevealed && role.realPracticeName),
       location: role.location,
       billing: role.billing,
@@ -1688,11 +1693,27 @@
   }
   // The server's own answer, minus a pending match: applicationStatus 'matched'
   // is an invitation the doctor has not answered, not an application.
+  // A closed application is not one either: withdrawn / not proceeding /
+  // offer declined must never paint an "Interview request sent" bar over a
+  // banner that says the application is closed (review 2026-09-07).
+  const CLOSED_APPLICATION_KEYS = ["withdrawn", "not_proceeding", "offer_declined", "declined"];
+  function serverApplicationKey(role) {
+    return role && role.applicationStatus && typeof role.applicationStatus === "object" ? String(role.applicationStatus.status || "").toLowerCase() : "";
+  }
   function hasServerApplication(role) {
     if (!role) return false;
+    const st = serverApplicationKey(role);
+    if (CLOSED_APPLICATION_KEYS.includes(st)) return false;
     if (role.applied) return true;
-    const st = role.applicationStatus && typeof role.applicationStatus === "object" ? String(role.applicationStatus.status || "").toLowerCase() : "";
     return !!role.applicationStatus && st !== "matched";
+  }
+  // The bar stage for a server status: an offer the practice is still
+  // preparing (offerPending false) is not "waiting for you" yet.
+  function jobBarStageFor(role) {
+    const st = serverApplicationKey(role);
+    if (!st) return "";
+    if (st === "offer" && role.applicationStatus.offerPending === false) return "offer_preparing";
+    return jobStageKey(st);
   }
   function isApplied(roleId) {
     const state = getCareerState();
@@ -1761,6 +1782,9 @@
   // closed | not_qualified | onboarding. Disabled variants for outcomes where
   // re-tapping is pointless.
   let applyState = "idle";
+  // Set once the role detail has answered (or given up): the "Loading your
+  // match…" hold-bar is only for the preview paint before that.
+  let roleDetailLoaded = false;
   // Terminal guard outcomes must survive re-renders: when the enriched detail
   // render lands after a guard fired, the bar must NOT reset back to idle.
   // previously_withdrawn belongs here for the same reason as the rest: once
@@ -1772,7 +1796,7 @@
   // able to reset the bar back to "Fast-track to Interview" — which is exactly
   // what happened, leaving him looking at the same button with no sign his
   // click had done anything.
-  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn", "matched_accepted"];
+  const TERMINAL_APPLY_STATES = ["already_placed", "closed", "not_qualified", "onboarding", "previously_withdrawn", "closed_not_proceeding", "closed_offer_declined", "matched_accepted"];
   let heroImageLookupRequestId = 0;
 
   /* ── Offer-mode state (Phase 2 Task 4) ── */
@@ -2687,7 +2711,7 @@
      Anything not listed falls back to the applied copy — a new stage shows a
      true (if generic) headline rather than a blank panel. ── */
   const JOB_STAGE_NOTES = {
-    applied: "Your Registration Support Officer checks every application before the practice sees it, then puts you forward. Once the practice confirms their availability, we'll email you interview times to choose from — you book the one that suits you. There's nothing you need to do right now.",
+    applied: "Your Registration Support Officer checks every interview request before the practice sees it, then puts you forward. Once the practice confirms their availability, we'll email you interview times to choose from — you book the one that suits you. There's nothing you need to do right now.",
     fast_tracked: "Your Registration Support Officer is putting you forward now. They'll come back to you to arrange an interview time — usually within a couple of business days.",
     submitted: "Your Registration Support Officer has put you forward and the practice has your profile. We'll let you know the moment they respond — there's nothing you need to do right now.",
     reviewing: "The practice is going through your profile now. We'll let you know the moment they respond — there's nothing you need to do right now.",
@@ -2740,6 +2764,7 @@
     interview: "✓ Interview stage<small>Your time and joining link are on My Practice</small>",
     interview_completed: "✓ Interview done<small>The practice is making their decision</small>",
     offer: "🎉 Offer waiting for you<small>Open My Practice to read it and decide</small>",
+    offer_preparing: "✓ Offer on its way<small>The practice is preparing your offer — we'll message you the moment it lands</small>",
     finalising_placement: "✓ Offer accepted<small>We're finalising your placement</small>",
     placement_secured: "✓ This is your practice<small>Your placement details are on My Practice</small>"
   };
@@ -2747,7 +2772,7 @@
   function buildSupportHtml() {
     return '<div class="at-sech">In your corner</div>' +
       '<div class="at-support at-rv at-rv4"><span class="at-ava">GP</span>' +
-      '<p><b>Your Registration Support Officer reviews every application before the practice sees it</b> — and negotiates your terms. Apply to the roles that genuinely fit; focused applications get championed. Free for doctors, always.</p></div>';
+      '<p><b>Your Registration Support Officer reviews every interview request before the practice sees it</b> — and negotiates your terms. Apply to the roles that genuinely fit; focused requests get championed. Free for doctors, always.</p></div>';
   }
 
   /* ════════════════════════════════════════════════════════════════════
@@ -3461,10 +3486,15 @@
       // "✓ Submitted — your Registration Support Officer is reviewing it" for a
       // doctor who had already been interviewed, because isApplied() is a
       // permanent localStorage flag rather than a stage (owner 2026-08-05).
-      const barStage = role.applicationStatus
-        ? jobStageKey(role.applicationStatus.status)
-        : "";
-      applyState = role.matchAccepted
+      const barStage = jobBarStageFor(role);
+      const closedKey = serverApplicationKey(role);
+      applyState = (closedKey === "withdrawn")
+        ? "previously_withdrawn"
+        : (closedKey === "not_proceeding")
+          ? "closed_not_proceeding"
+          : (closedKey === "offer_declined" || closedKey === "declined")
+            ? "closed_offer_declined"
+            : role.matchAccepted
         ? "matched_accepted"
         : ((barStage && JOB_BAR_STAGES[barStage] && !getActiveMatch(role))
           ? "app_progress"
@@ -3472,8 +3502,10 @@
             ? "applied"
             // Preview paint of a matched role (the list entry carries no match
             // block yet): hold a "matched" bar instead of an Apply bar until
-            // the detail arrives — never the applied bar.
-            : ((!getActiveMatch(role) && !role.match && !hasServerApplication(role) && getPendingLocalMatch(role.id)) ? "match_pending" : "idle")));
+            // the detail arrives — never the applied bar. Once the detail has
+            // answered without a match, the hold ends (an expired match the
+            // sweep has not cleared yet would otherwise pin it for ever).
+            : ((!roleDetailLoaded && !getActiveMatch(role) && !role.match && !hasServerApplication(role) && getPendingLocalMatch(role.id)) ? "match_pending" : "idle")));
     }
     paintApply();
     updateSaveButton();
@@ -3534,7 +3566,7 @@
       // reaches here without an entry, so the bar is never blank.
       app_progress: {
         cls: "at-bapply at-bapply--done",
-        html: (JOB_BAR_STAGES[jobStageKey(currentRole && currentRole.applicationStatus && currentRole.applicationStatus.status)]
+        html: (JOB_BAR_STAGES[jobBarStageFor(currentRole)]
           || "✓ Interview request sent<small>Your Registration Support Officer is reviewing it</small>"),
         disabled: true
       },
@@ -3561,6 +3593,16 @@
       not_qualified: {
         cls: "at-bapply at-bapply--muted",
         html: "Not available for your pathway<small>This role needs a different eligibility profile</small>",
+        disabled: true
+      },
+      closed_not_proceeding: {
+        cls: "at-bapply at-bapply--muted",
+        html: "Not proceeding this time<small>Your Registration Support Officer can help you find the next fit</small>",
+        disabled: true
+      },
+      closed_offer_declined: {
+        cls: "at-bapply at-bapply--muted",
+        html: "You declined this offer<small>Message your Registration Support Officer if you'd like to revisit it</small>",
         disabled: true
       },
       previously_withdrawn: {
@@ -3721,7 +3763,7 @@
         ? "You're being fast-tracked — we're putting you forward."
         : (opts.afterCvUpload
           ? "CV uploaded & application sent ✓ Your Registration Support Officer will be in touch shortly"
-          : "Application sent ✓ Your Registration Support Officer will be in touch shortly"));
+          : "Interview request sent ✓ Your Registration Support Officer will be in touch shortly"));
       return "success";
     }
     if (data && data.expired) {
@@ -3833,13 +3875,13 @@
     // really an accept — server-side this is still just /api/career/apply,
     // merged into accepting the match on a live-shortlisted row.
     const activeMatch = getActiveMatch(currentRole);
-    applyConfirmTitleEl.textContent = activeMatch ? "Fast-track to interview?" : "Apply for this role?";
+    applyConfirmTitleEl.textContent = activeMatch ? "Fast-track to interview?" : "Apply for an interview?";
     applyConfirmIntroEl.textContent = activeMatch
       ? "This puts you in front of the practice for an interview. You can interview for up to 3 positions per month, so use it on the ones you're genuinely serious about."
       : "You can interview for up to 3 positions per month — so accept the roles you're genuinely serious about.";
     applyConfirmMeterEl.textContent = "";
     applyConfirmBtnEl.disabled = false;
-    applyConfirmBtnEl.textContent = activeMatch ? "Fast-track me" : "Apply";
+    applyConfirmBtnEl.textContent = activeMatch ? "Fast-track me" : "Apply for interview";
     applyConfirmOverlayEl.hidden = false;
     // Best-effort meter — graceful if the fetch fails: the cap note above
     // still shows, just without the "N of 3 used" line.
@@ -4432,6 +4474,7 @@
     }
 
     let enrichedRole = await detailPromise;
+    roleDetailLoaded = true;
     const offerData = await offerPromise;
 
     if (offerData && offerTargetsRole(offerData, roleId)) {

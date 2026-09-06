@@ -74,15 +74,16 @@
     });
   }
 
-  function toast(msg) {
-    if (typeof window.showToast === 'function') { try { window.showToast(msg); return; } catch (e) { /* fall through */ } }
+  // type 'error' keeps a failure notice on screen long enough to read.
+  function toast(msg, type) {
+    if (typeof window.showToast === 'function') { try { window.showToast(msg, type || undefined); return; } catch (e) { /* fall through */ } }
     var root = document.getElementById('atsOverlayRoot') || document.body;
     var t = document.createElement('div');
-    t.className = 'ats-toast';
+    t.className = 'ats-toast' + (type === 'error' ? ' ats-toast--error' : '');
     t.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg> ' + esc(msg);
     root.appendChild(t);
     requestAnimationFrame(function () { t.classList.add('show'); });
-    setTimeout(function () { t.classList.remove('show'); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300); }, 2600);
+    setTimeout(function () { t.classList.remove('show'); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300); }, type === 'error' ? 8000 : 2600);
   }
 
   // Overlay host (drawers / modals) rendered into #atsOverlayRoot.

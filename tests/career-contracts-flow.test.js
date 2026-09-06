@@ -3390,7 +3390,7 @@ describe('interview_completed — status plumbing (Task 15, source-assertion)', 
   });
 
   it('application-detail.html timeline maps carry interview_completed at the interview step (index 2) with its own label', () => {
-    expect(APP_DETAIL_SRC).toMatch(/interview:\s*2,\s*interview_scheduled:\s*2,\s*shortlisted:\s*2,\s*interview_completed:\s*2/);
+    expect(APP_DETAIL_SRC).toMatch(/interview:\s*2,\s*interview_scheduled:\s*2,\s*interview_completed:\s*2/);
     expect(APP_DETAIL_SRC).toContain('interview_completed: "Interview complete"');
   });
 });

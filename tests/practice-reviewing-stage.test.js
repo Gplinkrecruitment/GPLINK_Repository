@@ -61,7 +61,7 @@ describe('what the doctor sees once a card reaches Practice Reviewing', () => {
     // Must be reached before the catch-all fallback, or it never fires. The
     // fallback is the map's LAST statement — a bare `return S({ blurb: ... })`
     // with no key test, which inherits ribbon "UNDER REVIEW" from the defaults.
-    const fallbackIdx = chain.indexOf('return S({ blurb: "Your Registration Support Officer is reviewing your application');
+    const fallbackIdx = chain.indexOf('return S({ blurb: "Your Registration Support Officer is reviewing your interview request');
     expect(fallbackIdx).toBeGreaterThan(-1);
     expect(chain.indexOf('if (key === "reviewing")')).toBeLessThan(fallbackIdx);
   });

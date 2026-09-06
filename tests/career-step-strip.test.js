@@ -28,7 +28,7 @@ describe('career step strip — which step, what to do now', () => {
       const r = deriveCareerStep([app({ rawStatus: s })]);
       expect(r.step, s).toBe(1);
       expect(r.key).toBe('applied');
-      expect(r.hint).toMatch(/with the practice/);
+      expect(r.hint).toMatch(/the practice/);
       expect(r.href).toBe('application-detail?id=a1&role=r9');
     }
     expect(deriveCareerStep([app({ rawStatus: 'submitted', practiceName: 'SOP Erina' })]).hint).toContain('with SOP Erina');
@@ -63,7 +63,7 @@ describe('career step strip — which step, what to do now', () => {
     // and a plain application alone still names its own practice
     const only = deriveCareerStep([app({ rawStatus: 'applied', practiceName: 'GP Link Sandbox Practice' })]);
     expect(only.key).toBe('applied');
-    expect(only.hint).toContain('with GP Link Sandbox Practice');
+    expect(only.hint).toContain('put you forward to GP Link Sandbox Practice');
   });
   it('secured → step 4', () => {
     expect(deriveCareerStep([app({ isPlacementSecured: true })]).step).toBe(4);

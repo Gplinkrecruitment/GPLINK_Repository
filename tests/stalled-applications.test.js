@@ -31,11 +31,14 @@ describe('stalled applications — narrow detector', () => {
     const out = S.findStalledApplications([app({ ats_stage_updated_at: daysAgo(90), updated_at: daysAgo(1) })], { now: NOW });
     expect(out).toHaveLength(1);
   });
-  it('only introduced pairs count: revealed, interview/offer stage, interview held, practice approved, or staff-applied', () => {
+  it('only introduced pairs count: practice approved (client_approved), interview/offer stage, interview held, or staff-applied — never a bare revealed flag', () => {
     const quiet = { ats_stage_updated_at: daysAgo(90) };
     expect(S.findStalledApplications([app({ revealed: false, ats_stage: 'submitted', status: 'review', ...quiet })], { now: NOW })).toHaveLength(0);
     expect(S.findStalledApplications([app({ revealed: false, ats_stage: 'applied', status: 'applied', ...quiet })], { now: NOW })).toHaveLength(0);
-    expect(S.isIntroduced({ revealed: true })).toBe(true);
+    // `revealed` alone is NOT an introduction — match rows are written revealed
+    // at match time (review 2026-09-07); a practice approval is.
+    expect(S.isIntroduced({ revealed: true })).toBe(false);
+    expect(S.isIntroduced({ practice_submission_status: 'client_approved' })).toBe(true);
     expect(S.isIntroduced({ ats_stage: 'offer' })).toBe(true);
     expect(S.isIntroduced({ interview_completed_at: daysAgo(1) })).toBe(true);
     expect(S.isIntroduced({ practice_decision: 'approved' })).toBe(true);

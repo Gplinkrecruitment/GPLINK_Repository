@@ -55,12 +55,13 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(revealedSrc).toContain('score: (matchRow.match_score != null ? matchRow.match_score : null)');
   });
 
-  it('the website source mirrors Task 6: practices.website falling back to the role own website', () => {
+  it('the website source is the shared clinic-first resolver (same order as the named tier), still ending on practices.website', () => {
     const idx = serverSrc.indexOf('const revealedWebsite = ');
     expect(idx).toBeGreaterThan(-1);
     const src = serverSrc.slice(idx, idx + 250);
-    expect(src).toContain('practiceRow && practiceRow.website');
-    expect(src).toContain('resolveCareerRoleWebsiteUrl(finalRoleRow)');
+    expect(src).toContain('resolveNamedPracticeWebsite(finalRoleRow, practiceRow)');
+    const helper = serverSrc.slice(serverSrc.indexOf('function resolveNamedPracticeWebsite(roleRow, practiceRow) {'), serverSrc.indexOf('function resolveNamedPracticeWebsite(roleRow, practiceRow) {') + 300);
+    expect(helper.indexOf('resolveCareerRoleWebsiteUrl(roleRow)')).toBeLessThan(helper.indexOf('sanitizeHttpUrl(practiceRow && practiceRow.website)'));
   });
 
   // The role-level fallback moved into resolveCareerRoleWebsiteUrl so the match
@@ -192,7 +193,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     expect(fnSrc).toContain('currentRole.matchAccepted = true');
     expect(fnSrc).toContain('applyState = wasMatchAccept ? "matched_accepted"');
     // Terminal, so no later render can walk it back to the accept CTA.
-    expect(jobHtml).toContain('"previously_withdrawn", "matched_accepted"');
+    expect(jobHtml).toContain('"previously_withdrawn", "closed_not_proceeding", "closed_offer_declined", "matched_accepted"');
   });
 
   it('an accepted match gets its own confirmation, not the generic "Application received"', () => {
@@ -381,7 +382,7 @@ describe('AI Matching Task 7 — source wiring', () => {
     const idx = jobHtml.indexOf('function openApplyConfirm() {');
     const fnSrc = jobHtml.slice(idx, idx + 1300);
     expect(fnSrc).toContain('"Fast-track to interview?"');
-    expect(fnSrc).toContain('activeMatch ? "Fast-track me" : "Apply"');
+    expect(fnSrc).toContain('activeMatch ? "Fast-track me" : "Apply for interview"');
     // The sheet must say out loud that this does not tie them to the role
     // (owner call 2026-07-29) — that reassurance is the whole point.
     // Owner call 2026-07-29: the reassurance was pulled — it read as licence
@@ -740,7 +741,7 @@ describe('GET /api/career/role — website + match for a matched GP', () => {
     // `new URL(...).toString()`, which normalizes a bare-domain root path
     // to a trailing slash — same as every other extractCareerWebsiteUrl call
     // site in this file, not something Task 7 needs to special-case.
-    expect(role.website).toBe('https://fallbacksite.com.au/');
+    expect(role.website).toBe('https://fallbacksite.com.au');
   });
 
   // Owner report 2026-07-29: accept a match -> "You're being fast-tracked" ->

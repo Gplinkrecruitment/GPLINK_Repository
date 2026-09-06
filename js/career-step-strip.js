@@ -118,7 +118,12 @@
           return result(1, 'fast_tracked', 'You accepted the match with ' + practiceLabel(fa) + '. We are arranging your interview now and will send you times to choose from.', detailHref(fa), 'See my application');
         }
       }
-      var la = appliedRows[0].app;
+      var la = appliedRows[0].app, lk = appliedRows[0].key;
+      // 'applied' = the request is still with US (the RSO reviews before the
+      // practice sees it); only submitted/reviewing are "with the practice".
+      if (lk === 'applied' || lk === 'under_review' || lk === 'review') {
+        return result(1, 'applied', 'We are reviewing your interview request and will put you forward to ' + practiceLabel(la) + '. We will message you when the practice replies.', detailHref(la), 'See my application');
+      }
       return result(1, 'applied', 'Your application is with ' + practiceLabel(la) + '. We will message you when they reply. You can keep browsing meanwhile.', detailHref(la), 'See my application');
     }
     // 1 — nothing yet

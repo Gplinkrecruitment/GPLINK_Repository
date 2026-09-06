@@ -30,7 +30,7 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
   it('spells out Registration Support Officer (mockup reassurance copy)', () => {
     expect(html).toContain('Registration Support Officer');
     // The "In your corner" strip copy from the mockup is ported.
-    expect(html).toContain('reviews every application before the practice sees it');
+    expect(html).toContain('reviews every interview request before the practice sees it');
   });
 
   it('uses the deterministic applicantBand with the same djb2 fallback as career.html', () => {

@@ -1350,7 +1350,10 @@
     var next = computePhase();
     var previous = currentPhase;
     if (next === previous) return next;
-    if (reason !== "boot" && previous && next !== "restricted"
+    // "hydrated" is the shell's own state-sync finishing a full rewrite — as
+    // authoritative as boot, so a real downgrade (placement withdrawn while
+    // away, staff reset) is honoured instead of waiting for a reload.
+    if (reason !== "boot" && reason !== "hydrated" && previous && next !== "restricted"
         && PHASE_RANK[next] !== undefined && PHASE_RANK[previous] !== undefined
         && PHASE_RANK[next] < PHASE_RANK[previous]) {
       return previous;
@@ -1790,6 +1793,15 @@
     var routeUrl = toRouteUrl(input);
     var state = getFrameState(activeFrameEl);
     if (!routeUrl) return;
+    // A frame can navigate itself (onboarding's final "location.href =
+    // /pages/index") straight onto a route this phase hides. Adopting it
+    // would strand the doctor on Home with two tabs and none active — send
+    // them to the phase's landing page instead (review 2026-09-07).
+    var PH = window.gpDoctorPhase;
+    if (PH && currentPhase && PH.isRouteHiddenInPhase(currentPhase, routeFromUrl(routeUrl))) {
+      navigateTo(PH.landingRoute(currentPhase), { historyMode: "replace", animate: false });
+      return;
+    }
     currentRoute = routeFromUrl(routeUrl);
     if (state) {
       state.loadedRoute = currentRoute;

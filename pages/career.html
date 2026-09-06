@@ -54,15 +54,15 @@
   <script src="../js/native-bridge.js?v=20260707a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
-  <script src="../js/bypass-config.js?v=20260902a"></script>
+  <script src="../js/bypass-config.js?v=20260906a"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/interview-card-state.js?v=20260801a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
-  <script src="/js/gp-walkthrough-state.js?v=20260722c" defer></script>
+  <script src="/js/gp-walkthrough-state.js?v=20260903a" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
-  <script src="/js/career-step-strip.js?v=20260907b" defer></script>
+  <script src="/js/career-step-strip.js?v=20260907c" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
        overlay and the apply path can both need it during first paint. -->
@@ -9497,6 +9497,10 @@
       return String(value || "").trim().toLowerCase();
     }
 
+    function isMaskedHeadlineText(value) {
+      return /^\s*(?:non[\s-]*)?dpa\s*[-\u2013\u2014]/i.test(String(value || ""));
+    }
+
     function isConfidentialText(value) {
       return /confidential/i.test(String(value || ""));
     }
@@ -9510,7 +9514,12 @@
       if (["applied", "review", "under_review", "submitted"].includes(key)) {
         return { label: "Under Review", tone: "review", isPlacementSecured: false };
       }
-      if (["interview", "interview_scheduled", "shortlisted"].includes(key)) {
+      // A pending match (server 'matched'; legacy rows 'shortlisted') is an
+      // invitation the doctor has not answered — never an interview stage.
+      if (key === "matched" || key === "shortlisted") {
+        return { label: "Matched to you", tone: "review", isPlacementSecured: false };
+      }
+      if (["interview", "interview_scheduled"].includes(key)) {
         return { label: "Interview Scheduled", tone: "interview", isPlacementSecured: false };
       }
       // Task 15: the interview happened and the practice-decision email
@@ -9579,6 +9588,9 @@
       if (isPendingMatchApplication(application)) return false;
       const key = normalizeStatusKey(application.rawStatus);
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return false;
+      // An accepted match is an application: match rows are written revealed
+      // at match time, so `revealed` alone must not send it to Offers.
+      if (key === "fast_tracked") return false;
       return application.offerPending === true
         || application.revealed === true
         || ["offer", "offer_pending", "offered", "interview", "interview_scheduled", "shortlisted", "interview_completed", "finalising_placement"].includes(key);
@@ -9588,12 +9600,13 @@
     // cached preview meta. Was hard-coded to "GP Link screening" for everything
     // that wasn't a secured placement, so an interview-stage doctor wrongly saw
     // "GP Link screening" instead of "Confirm your interview time".
-    function nextStepForApplication(status, interview) {
+    function nextStepForApplication(status, interview, offerPending) {
       const key = normalizeStatusKey(status);
       if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) return "Relocation handover";
       if (key === "matched" || key === "shortlisted") return "Accept or decline your match";
+      if (key === "fast_tracked") return "Being put forward to the practice";
       if (key === "finalising_placement") return "Finalising your placement";
-      if (["offer", "offer_pending", "offered"].includes(key)) return "Review your offer";
+      if (["offer", "offer_pending", "offered"].includes(key)) return offerPending === false ? "Waiting for the practice's offer" : "Review your offer";
       // The interview row is checked BEFORE the stage, because marking an interview done
       // does not advance gp_applications — an interview held early (or swept by the
       // no-show cron) leaves the stage on "interview" forever, and this line then told a
@@ -9603,7 +9616,7 @@
         if (ivPhase === "done") return "Awaiting the practice's decision";
         if (ivPhase === "no_show") return "Contact GP Link to rebook";
       }
-      if (["interview", "interview_scheduled", "shortlisted"].includes(key)) return "Confirm your interview time";
+      if (["interview", "interview_scheduled"].includes(key)) return "Confirm your interview time";
       if (key === "interview_completed") return "Awaiting the practice's decision";
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return "—";
       // Once the profile has left us, "GP Link screening" is simply untrue —
@@ -9715,7 +9728,12 @@
     function createSavedSnapshot(role) {
       return {
         id: role.id,
-        practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,
+        // Keep the masked headline in practiceName (the suburb label + search
+        // parse it) and carry the named-tier fields beside it, so a Saved card
+        // rendered from the snapshot alone still shows the real name + website.
+        practiceName: role.practiceName,
+        realPracticeName: role.realPracticeName || "",
+        website: role.website || "",
         nameRevealed: !!(role.nameRevealed && role.realPracticeName),
         location: role.location,
         billing: role.billing,
@@ -9869,7 +9887,7 @@
         updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : fallback.updatedAt,
         activeView: hasLockedPlacement
           ? "secured"
-          : (["browse", "applications", "saved"].includes(source.activeView) ? source.activeView : "browse"),
+          : (["browse", "applications", "offers", "saved"].includes(source.activeView) ? source.activeView : "browse"),
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         // Named "fee type", not "billing": this only ever holds the job-list
         // dropdown (Bulk / Mixed / Private billing), never anyone's payment
@@ -12507,7 +12525,12 @@
       const applied = isApplied(role.id);
       const suburb = getRoleSuburbLabel(role);
       const billingLabel = String(role.billing || "Billing on request");
-      const roleTypeLabel = String(role.roleType || "Permanent");
+      // An intake job's roleType IS the masked suburb headline ("DPA - Terrigal
+      // - Mixed Billing"); repeating it under the real name, beside the billing
+      // it already states, is noise (owner 2026-09-07). Show the role instead.
+      const rawRoleType = String(role.roleType || "");
+      const roleTypeLabel = !rawRoleType ? "Permanent"
+        : (isMaskedHeadlineText(rawRoleType) || rawRoleType === String(role.practiceName || "")) ? "General Practitioner" : rawRoleType;
       const locationLabel = String(role.locationLine || role.location || "");
       const earnings = String(role.earnings || "");
       const band = getApplicantBand(role);
@@ -12552,7 +12575,9 @@
     }
 
     function isApplied(roleId) {
-      return careerState.applications.some((job) => job && job.roleId === roleId && isActiveApplication(job));
+      // A pending match is not an application: its Roles card must not wear
+      // the UNDER REVIEW chip under the "MATCHED TO YOU" card (review 2026-09-07).
+      return careerState.applications.some((job) => job && job.roleId === roleId && isActiveApplication(job) && !isPendingMatchApplication(job));
     }
 
     // A role the GP withdrew from must never resurface in Roles/Saved —
@@ -12712,7 +12737,7 @@
         meta: [
           { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
           { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
-          { label: "Next step", value: nextStepForApplication(app.status, app.interview) }
+          { label: "Next step", value: nextStepForApplication(app.status, app.interview, app.offerPending === true) }
         ]
       }));
       // The server is the source of truth for applications, so reconcile to
@@ -13426,7 +13451,7 @@
       // A live match the doctor has not answered yet. FIRST, because every
       // branch below describes something that has already happened to an
       // application and none of it is true here — the ball is in their court.
-      if (key === "matched") {
+      if (key === "matched" || key === "shortlisted") {
         return S({
           label: "Matched", ribbon: "MATCHED TO YOU", tone: "green", rowTone: "offer",
           blurb: "The GP Link team matched you to this practice directly: it fits what you\u2019re looking for, and we rate your chances of securing it highly. Open it to accept or decline before it expires.",
@@ -13517,8 +13542,15 @@
       if (app.offerPending === true) {
         return S({
           label: "Offer", ribbon: "OFFER", tone: "green", rowTone: "offer",
-          blurb: "The practice wants to interview you — confirm your interview time.",
-          ctaLabel: "Review invitation", ctaHref: offerHref
+          blurb: "The practice has made you an offer — open it to read the terms and respond.",
+          ctaLabel: "Review offer", ctaHref: offerHref
+        });
+      }
+      // The practice is preparing an offer that is not in the app yet.
+      if (key === "offer" || key === "offer_pending" || key === "offered") {
+        return S({
+          label: "Offer coming", ribbon: "OFFER ON ITS WAY", tone: "green", rowTone: "offer",
+          blurb: "The practice is preparing your offer — we'll message you the moment it lands in the app."
         });
       }
       // The interview already happened and the practice is deciding — a DISTINCT
@@ -13595,7 +13627,7 @@
           blurb: "You accepted this match. Your Registration Support Officer is putting you forward now and will send you interview times to choose from \u2014 usually within a couple of business days."
         });
       }
-      return S({ blurb: "Your Registration Support Officer is reviewing your application before it reaches the practice." });
+      return S({ blurb: "Your Registration Support Officer is reviewing your interview request before it reaches the practice." });
     }
 
     // Kept as named helpers because the map script and the tests both speak this

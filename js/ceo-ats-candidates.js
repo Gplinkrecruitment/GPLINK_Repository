@@ -505,7 +505,8 @@
     }
     if (a.role_location) meta.push(ATS.esc(a.role_location));
     if (a.alerted_at) meta.push('owner emailed');
-    var stageLabel = (ATS.stageLabel && ATS.stageLabel(a.ats_stage)) || String(a.ats_stage || '').replace(/_/g, ' ');
+    var STALLED_STAGE_LABELS = { applied: 'Applied', submitted: 'Submitted', reviewing: 'Practice reviewing', interview: 'Interview', interview_completed: 'Interview done', offer: 'Offer' };
+    var stageLabel = STALLED_STAGE_LABELS[String(a.ats_stage || '')] || String(a.ats_stage || '').replace(/_/g, ' ');
     var rowStyle = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(245,158,11,0.30);' +
       'border-radius:10px;margin-bottom:8px;cursor:pointer;background:rgba(245,158,11,0.07)';
     return '<div class="ats-wait-row ats-stalled-row" data-case-id="' + ATS.escAttr(String(a.case_id || '')) + '" data-app-id="' + appId + '" style="' + rowStyle + '">' +
@@ -516,7 +517,7 @@
           '<span style="color:var(--ats-text)">' + ATS.esc(practice) + '</span>' +
           '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(245,158,11,0.16);color:var(--ats-amber)">' + ATS.esc(stageLabel) + '</span>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--ats-dim);margin-top:2px">' + meta.join(' · ') + ' · tap to open</div>' +
+        '<div style="font-size:11px;color:var(--ats-dim);margin-top:2px">' + meta.join(' · ') + (a.case_id ? ' · tap to open' : '') + '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-stalled-close" data-app-id="' + appId + '">Not proceeding</button>' +

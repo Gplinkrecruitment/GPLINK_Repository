@@ -921,7 +921,7 @@ describe('cache buster + dead CSS pruned', () => {
     // deployed fine without this, but browsers keep serving the copy they
     // cached under the OLD query string, so the fix was invisible in the UI
     // until the URL changed — the version token IS the delivery mechanism.
-    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260904b');
+    expect(ceoHtml).toContain('/js/ceo-ats-matching.js?v=20260904c');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260727a');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260724b');
     expect(ceoHtml).not.toContain('/js/ceo-ats-matching.js?v=20260712a');

@@ -248,6 +248,6 @@ describe('next step respects a finished interview', () => {
   });
 
   it('the meta builder passes the interview through', () => {
-    expect(careerSrc2).toContain('nextStepForApplication(app.status, app.interview)');
+    expect(careerSrc2).toContain('nextStepForApplication(app.status, app.interview, app.offerPending === true)');
   });
 });

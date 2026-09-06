@@ -61,10 +61,10 @@ describe('careers page: an accepted match reads as an application', () => {
     expect(career).toContain('blurb: "You accepted this match. Your Registration Support Officer is putting you forward now');
   });
   it('bumps the strip/home-card busters with the service worker', () => {
-    expect(read('pages/career.html')).toContain('career-step-strip.js?v=20260907b');
+    expect(read('pages/career.html')).toContain('career-step-strip.js?v=20260907c');
     expect(read('pages/index.html')).toContain('career-home-card.js?v=20260907b');
     const sw = read('sw.js');
-    expect(sw).toContain('"/js/career-step-strip.js?v=20260907b"');
+    expect(sw).toContain('"/js/career-step-strip.js?v=20260907c"');
     expect(sw).toContain('"/js/career-home-card.js?v=20260907b"');
   });
 });

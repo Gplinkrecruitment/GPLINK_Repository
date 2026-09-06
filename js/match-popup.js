@@ -114,7 +114,14 @@
 
   function pickNewestUnseen(data) {
     if (!data || data.ok !== true || data.locked === true) return null;
-    var matches = Array.isArray(data.matches) ? data.matches.filter(function (m) { return m && !m.seenAt; }) : [];
+    var now = Date.now();
+    var matches = Array.isArray(data.matches) ? data.matches.filter(function (m) {
+      if (!m || m.seenAt) return false;
+      // An expired hold is not an offer to accept (career.html and job.html
+      // already hide it; the popup must agree).
+      var exp = m.expiresAt ? new Date(m.expiresAt).getTime() : NaN;
+      return !(isFinite(exp) && exp < now);
+    }) : [];
     if (!matches.length) return null;
     matches.sort(function (a, b) { return new Date(b.matchedAt || 0) - new Date(a.matchedAt || 0); });
     return matches[0];

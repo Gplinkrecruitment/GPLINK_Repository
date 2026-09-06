@@ -102,6 +102,6 @@ describe('career application card — submitted-to-practice stage reads correctl
     expect(careerHtml).toContain("Your profile has been submitted to the practice");
     expect(careerHtml).toContain("The practice is reviewing your profile now");
     // The pre-submission fallback copy is preserved for the truly-applied stage.
-    expect(careerHtml).toContain("reviewing your application before it reaches the practice");
+    expect(careerHtml).toContain("reviewing your interview request before it reaches the practice");
   });
 });

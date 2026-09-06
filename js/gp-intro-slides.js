@@ -241,7 +241,12 @@
       function back() { if (idx > 0) { idx--; render(); } }
       function onKey(e) {
         if (e.key === 'Escape') { e.preventDefault(); skip(); }
-        else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); next(); }
+        else if (e.key === 'ArrowRight' || e.key === 'Enter') {
+          // Enter on a focused Back/Close button must activate THAT button.
+          var ae = d.activeElement;
+          if (e.key === 'Enter' && ae && ae.tagName === 'BUTTON' && overlay.contains(ae) && ae.getAttribute('data-slide-next') !== '1') return;
+          e.preventDefault(); next();
+        }
         else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
         else if (e.key === 'Tab') {
           var f = overlay.querySelectorAll('button');

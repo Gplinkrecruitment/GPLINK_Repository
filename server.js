@@ -465,6 +465,7 @@ const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/ema
 // global fetch at call time so test stubs keep working.
 const notifyAllowlist = require('./lib/notify-allowlist.js').createNotifyAllowlist(process.env.NOTIFY_TEST_RECIPIENTS);
 if (notifyAllowlist.active) {
+  (notifyAllowlist.warnings || []).forEach(function (w) { console.warn('[notify-allowlist] ' + w); });
   console.warn('[notify-allowlist] ACTIVE — outbound email + WhatsApp limited to ' + notifyAllowlist.describe() + '. Everyone else is skipped and logged.');
 } else if (!process.env.VERCEL && process.env.NODE_ENV !== 'production' && (process.env.RESEND_API_KEY || process.env.DOUBLETICK_API_KEY)) {
   console.warn('[notify-allowlist] inactive — this non-production server can email/WhatsApp ANY real recipient. Set NOTIFY_TEST_RECIPIENTS to confine sends.');
@@ -5268,7 +5269,10 @@ async function runStalledApplicationSweep() {
       category: 'owner_alert'
     });
     emailed = !!(sendRes && sendRes.ok !== false);
-    for (var i = 0; i < fresh.length; i++) {
+    // Only an alert that actually went out counts as one: the timeline note
+    // and the sentinel are skipped for the fresh items otherwise, so the
+    // next sweep retries them (review 2026-09-07).
+    for (var i = 0; emailed && i < fresh.length; i++) {
       var it = fresh[i];
       if (!it.case_id) continue;
       try {
@@ -5285,7 +5289,7 @@ async function runStalledApplicationSweep() {
       await supabaseDbRequest('runtime_kv', 'on_conflict=key', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
-        body: [{ key: 'stalled_application_alerts', value: stalledApplications.nextSentinel(items, sentinel, nowIso) }]
+        body: [{ key: 'stalled_application_alerts', value: stalledApplications.nextSentinel(emailed ? items : items.filter(function (it) { return !fresh.some(function (f) { return f.id === it.id; }); }), sentinel, nowIso) }]
       });
     } catch (e) { console.error('[stalled-sweep] sentinel write failed (ignored):', e && e.message); }
   }
@@ -9631,9 +9635,12 @@ async function gpHasVerifiedCareerCv(userId) {
 // under a corporate group), then the practices row (the OWNER's site). http(s)
 // only, or '' — the client renders nothing for ''.
 function resolveNamedPracticeWebsite(roleRow, practiceRow) {
-  return resolveCareerRoleWebsiteUrl(roleRow)
+  const url = resolveCareerRoleWebsiteUrl(roleRow)
     || sanitizeHttpUrl(practiceRow && practiceRow.website)
     || '';
+  // A bare origin keeps the form it was entered in (no trailing slash added
+  // by URL parsing) — the identity tier has always returned it that way.
+  return String(url).replace(/^(https?:\/\/[^/?#]+)\/$/i, '$1');
 }
 
 // Named reveal tier for the roles LIST (owner decision 2026-09-04): once a
@@ -21096,8 +21103,10 @@ async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, booking
   if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
   const stageDisplay = { myintealth: 'MyIntealth', amc: 'AMC', ahpra: 'AHPRA' }[stage] || stage;
   const messageText = 'Hi ' + gpFirstName + ', your GP Link team thinks a quick Zoom call would be the best way to guide you through your ' + stageDisplay + ' stage. Please book a time that suits you:\n\n' + bookingUrl + '\n\nYou can choose from any available slot.';
+  const toNormalised = normalizePhone(toPhone);
+  if (!toNormalised) return { ok: false, error: 'invalid_phone' };
   try {
-    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(toPhone, messageText, AbortSignal.timeout(10000)));
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(toNormalised, messageText, AbortSignal.timeout(10000)));
     const data = await resp.json().catch(() => ({}));
     return { ok: resp.ok, messageId: data.messageId || data.id || null };
   } catch (e) {
@@ -21110,19 +21119,8 @@ async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, custom
   if (!DOUBLETICK_API_KEY) return { ok: false };
   const phone = normalizePhone(toPhone);
   if (!phone) return { ok: false };
-  const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
-
-  // Try template first — nudge templates follow naming: gp_link_nudge_{stage}
-  const nudgeTemplateMap = {
-    myintealth: { templateName: 'gp_link_nudge_myintealth', language: 'en' },
-    amc: { templateName: 'gp_link_nudge_amc', language: 'en' },
-    career: { templateName: 'gp_link_nudge_career', language: 'en' },
-    ahpra: { templateName: 'gp_link_nudge_ahpra', language: 'en' },
-    visa: { templateName: 'gp_link_nudge_visa', language: 'en' },
-    pbs: { templateName: 'gp_link_nudge_pbs', language: 'en' },
-    _default: { templateName: 'gp_link_nudge_checkin', language: 'en' }
-  };
-  const tpl = nudgeTemplateMap[stage] || nudgeTemplateMap._default;
+  // Plain text only: no gp_link_nudge_* template exists in the DoubleTick
+  // account (verified 2026-09-07), and text is what this always sent.
   const name = (gpFirstName || '').trim() || 'there';
 
   // Always try direct text mode for nudges since templates may not exist yet
@@ -23917,7 +23915,8 @@ function isInternalCareerApplication(appRow, roleRow) {
   // submitted-to-practice in-app application fell back to the generic "reviewing
   // before it reaches the practice" copy, wrong once the profile has been sent.
   const origin = String((appRow && appRow.origin) || '').trim();
-  if (origin === 'gp_applied' || origin === 'admin_applied') return true;
+  if (origin === 'gp_applied' || origin === 'admin_applied' || origin === 'ai_matched') return true;
+  if (appRow && appRow.matched_at) return true;
   if (appRow && String(appRow.zoho_application_id || '').trim()) return false;
   return String((appRow && appRow.provider_role_id) || '').trim().startsWith('ats_');
 }
@@ -23986,7 +23985,10 @@ function buildInternalCareerStatusPresentation(appRow, offerRow) {
   // application tracker's timeline (owner report 2026-07-28). Fixing the
   // stored status alone was not enough: this mapper re-derived the wrong
   // answer on the way out.
-  if (stage === 'shortlisted' && !row.match_outcome) {
+  // Only a match the doctor was TOLD about (matched_at stamped by the
+  // announce) is presented as one — /api/career/matches applies the same
+  // rule, so the cards, popup and practice page can never disagree.
+  if (stage === 'shortlisted' && !row.match_outcome && row.matched_at) {
     return { status: 'matched', statusLabel: 'Matched to you — accept or decline', statusTone: 'review', offerPending: false };
   }
   // A match the doctor ACCEPTED, waiting on us to put them in front of the
@@ -35178,6 +35180,11 @@ async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachmen
     }
 
     if (!delivered) {
+      // A test-allowlist block is a deliberate skip, not a delivery failure —
+      // never file it as "never contacted" in the production error log.
+      if (/blocked_by_test_allowlist/.test(String(lastFailure || ''))) {
+        return { ok: false, skipped: true, blocked: true, error: 'blocked_by_test_allowlist' };
+      }
       // Permanently failed: recorded into client_errors (route 'email-send')
       // with the recipient in user_email, so the daily digest can tell the
       // owner exactly who was never contacted.
@@ -37849,7 +37856,9 @@ async function sendMatchAcceptedWhatsAppToGp(appRow) {
 
 function matchNotifySummary(ann) {
   var a = ann && typeof ann === 'object' ? ann : {};
-  var pick = function (r) { return { ok: !!(r && r.ok), error: (r && !r.ok && r.error) ? String(r.error) : '' }; };
+  // A skipped leg (no phone, no key, no link) is as important to the CEO as
+  // a failed one — carry the reason either way.
+  var pick = function (r) { return { ok: !!(r && r.ok), error: (r && !r.ok) ? String(r.error || r.skipped || '') : '' }; };
   return { email: pick(a.email), whatsapp: pick(a.whatsapp), inApp: !!(a.inApp && a.inApp.ok), push: !!(a.push && a.push.ok) };
 }
 
@@ -38839,7 +38848,7 @@ function notifyGpApplicationSubmitted(userId, email, roleRow, caseId, gpDisplayN
           // still someone's judgement call.
           : ('Thanks for applying for the ' + locationLabel + ' role — it\'s with your Registration Support Officer now.'
              + '<br><br><b>What happens next</b><br>'
-             + '1. Your Registration Support Officer checks every application before the practice sees it, then puts you forward.<br>'
+             + '1. Your Registration Support Officer checks every interview request before the practice sees it, then puts you forward.<br>'
              + '2. Once the practice confirms their availability, we\'ll email you interview times to choose from — you book the one that suits you.<br>'
              + '3. You meet the practice. Your Registration Support Officer preps you beforehand and is on the call with you.'
              + '<br><br>There is nothing you need to do right now — just keep an eye on your email.'),
@@ -50226,9 +50235,9 @@ async function handleApi(req, res, pathname) {
       // job.html gates rendering to http(s)-only, same as career.html's
       // match card (matchSafeUrl), so a bare/garbage value simply renders
       // nothing rather than needing sanitizing on the way out.
-      const revealedWebsite = (practiceRow && practiceRow.website)
-        ? String(practiceRow.website)
-        : resolveCareerRoleWebsiteUrl(finalRoleRow);
+      // Clinic site first, then the practice record's — the same order the
+      // named tier uses, so the link does not change at reveal time.
+      const revealedWebsite = resolveNamedPracticeWebsite(finalRoleRow, practiceRow);
       if (revealedWebsite) roleClientPayload.website = revealedWebsite;
 
       // Task 7: a live shortlisted, non-expired AI match for THIS user+role.
@@ -50291,7 +50300,8 @@ async function handleApi(req, res, pathname) {
       roleClientPayload.applicationStatus = {
         status: roleStatusView.status,
         statusLabel: roleStatusView.statusLabel,
-        statusTone: roleStatusView.statusTone
+        statusTone: roleStatusView.statusTone,
+        offerPending: roleStatusView.offerPending === true
       };
     }
 
@@ -51246,6 +51256,9 @@ async function handleApi(req, res, pathname) {
           application: matchAccept.updatedRow
         });
         notifyGpApplicationSubmitted(userId, email, matchAccept.job || {}, matchAccept.caseId, applyGpDisplayName, { matched: true });
+        // Same confirmation WhatsApp as /api/career/match/respond — this is
+        // the job page's "Apply for interview" on a matched role (review 2026-09-07).
+        sendMatchAcceptedWhatsAppToGp(matchAccept.updatedRow).catch(function (e) { console.error('[match-accepted-whatsapp] error:', e && e.message); });
         if (isEmailConfigured()) {
           const matchJobTitle = String((matchAccept.job && matchAccept.job.title) || existingAppRow.job_title || 'a role').trim();
           sendEmail({
@@ -52880,7 +52893,13 @@ async function handleApi(req, res, pathname) {
       // once THIS application has earned the reveal, its list entry carries the
       // real practice name.
       if (appRevealed) {
-        const revealName = (roleRow && roleRow.practice_name)
+        let revealedPractice = null;
+        if (roleRow && roleRow.practice_id) {
+          try { revealedPractice = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { revealedPractice = null; }
+        }
+        // The same clinic-level name the named tier shows, so the headline
+        // never flips from the clinic to its owning corporation at reveal.
+        const revealName = (roleRow ? resolveCareerRolePracticeName(roleRow, revealedPractice) : '')
           || getZohoApplicationPracticeName(liveRecord)
           || '';
         if (revealName) roleClient.practiceName = String(revealName);
@@ -52889,10 +52908,6 @@ async function handleApi(req, res, pathname) {
         // carries the practice website too (same clinic-first resolution as
         // the named tier), so the applications list never lags the job page.
         if (roleRow) {
-          let revealedPractice = null;
-          if (roleRow.practice_id) {
-            try { revealedPractice = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { revealedPractice = null; }
-          }
           const revealedWebsite = resolveNamedPracticeWebsite(roleRow, revealedPractice);
           if (revealedWebsite) roleClient.website = revealedWebsite;
         }
@@ -53838,7 +53853,9 @@ async function handleApi(req, res, pathname) {
         || isCareerPlacementSecuredStatus(status);
     } catch (revealErr) { detailRevealed = false; }
     if (detailRevealed) {
-      const detailRealName = (roleRow && roleRow.practice_name)
+      let detailRevealPractice = null;
+      if (roleRow && roleRow.practice_id) { try { detailRevealPractice = await atsGetPracticeRow(roleRow.practice_id); } catch (e) { detailRevealPractice = null; } }
+      const detailRealName = (roleRow ? resolveCareerRolePracticeName(roleRow, detailRevealPractice) : '')
         || getZohoApplicationPracticeName(liveRecord)
         || '';
       if (detailRealName) roleClient.practiceName = String(detailRealName);
@@ -55457,7 +55474,6 @@ async function handleApi(req, res, pathname) {
     const normalizedPhone = normalizePhone(rawPhone);
     if (!normalizedPhone) { sendJson(res, 400, { ok: false, message: 'Invalid phone number.' }); return; }
 
-    const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
 
     // Send via DoubleTick text API
     try {

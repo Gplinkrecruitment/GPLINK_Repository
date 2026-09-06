@@ -21,12 +21,12 @@
   <script src="/js/bypass-config.js?v=20260906a"></script>
   <script src="/js/journey-stages.js?v=20260902a"></script>
   <script src="/js/gp-doctor-phase.js?v=20260907a"></script>
-  <script src="/js/app-shell.js?v=20260907a" defer></script>
-  <script src="/js/match-popup.js?v=20260904a" defer></script>
+  <script src="/js/app-shell.js?v=20260907c" defer></script>
+  <script src="/js/match-popup.js?v=20260904b" defer></script>
   <script src="/js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260903a" defer></script>
-  <script src="/js/gp-intro-slides.js?v=20260903a" defer></script>
+  <script src="/js/gp-intro-slides.js?v=20260903b" defer></script>
   <script src="/js/gp-walkthrough-shell.js?v=20260903a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -605,7 +605,8 @@
     .mobile-tab.gp-nav-hidden {
       display: none !important;
     }
-    html.gp-phase-position .mobile-nav {
+    html.gp-phase-position .mobile-nav,
+    html.gp-phase-onboarding .mobile-nav {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       padding-left: 28px;
       padding-right: 28px;

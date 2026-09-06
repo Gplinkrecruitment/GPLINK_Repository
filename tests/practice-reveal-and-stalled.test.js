@@ -113,7 +113,7 @@ describe('server: gone-quiet applications', () => {
     expect(sweep).toContain('to: GP_OWNER_EMAIL');
     expect(sweep).toContain("'stalled_application_alert'");
     expect(sweep).toContain("key: 'stalled_application_alerts'");
-    expect(sweep).toContain('stalledApplications.nextSentinel(items, sentinel, nowIso)');
+    expect(sweep).toContain("stalledApplications.nextSentinel(emailed ? items : items.filter(function (it) { return !fresh.some(function (f) { return f.id === it.id; }); }), sentinel, nowIso)");
     const email = between(server, 'function buildStalledApplicationsEmailHtml(items, thresholdDays)', 'async function runStalledApplicationSweep');
     expect(email).toContain('This is a prompt to look, not a finding.');
   });
@@ -134,7 +134,7 @@ describe('CEO board: gone-quiet tile and tracker', () => {
     expect(js.match(/state\.waiting = false; state\.stalled = (false|true);/g).length).toBe(resets);
   });
   it('the dashboard ships the bumped buster', () => {
-    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-candidates.js?v=20260904a');
+    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-candidates.js?v=20260904b');
   });
 });
 
@@ -354,8 +354,12 @@ describe('named headline everywhere + Under Review after applying', () => {
 
   it('local rows created on apply/save are titled with the real name when known', () => {
     const line = 'practiceName: (role.nameRevealed && role.realPracticeName) ? role.realPracticeName : role.practiceName,';
-    expect(career.split(line).length - 1).toBe(2);
-    expect(job.split(line).length - 1).toBe(2);
+    // the application rows (createDefaultApplication / createApplicationSnapshot)
+    expect(career.split(line).length - 1).toBe(1);
+    expect(job.split(line).length - 1).toBe(1);
+    // the Saved snapshots keep the masked headline and carry the real name beside it
+    expect(career).toContain('realPracticeName: role.realPracticeName || "",');
+    expect(job).toContain('realPracticeName: role.realPracticeName || "",');
     expect(job).toContain('nameRevealed: !!(role.nameRevealed && role.realPracticeName),');
   });
 

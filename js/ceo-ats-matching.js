@@ -342,9 +342,11 @@
     // (two live applications are allowed; the shortlist endpoint only skips
     // the job they already applied to) — so keep offering the ranking run
     // until one exists (owner report 2026-09-04).
+    // A blocked doctor (interview stage, placed, locked…) cannot be ranked
+    // for ANY job — offering the run would only write an empty ranking.
     var ageHtml = ranking
       ? mbAgeChipHtml(ranking, gp.user_id)
-      : '<button type="button" class="ats-mb-runbtn ats-mb-runbtn--inline" data-mb-run="' + A.escAttr(gp.user_id) + '">⚡ Run AI ranking</button>';
+      : ((gp && gp.blocked) ? '' : '<button type="button" class="ats-mb-runbtn ats-mb-runbtn--inline" data-mb-run="' + A.escAttr(gp.user_id) + '">⚡ Run AI ranking</button>');
     return (
       (liveHtml ? '<div class="ats-mb-pipezone">' + liveHtml + '</div>' : '') +
       ((suggHtml || moreHtml || ageHtml) ? ('<div class="ats-mb-suggzone">' + suggHtml + moreHtml + ageHtml + '</div>') : '')
@@ -701,7 +703,8 @@
       : '';
     // Live match: let the CEO re-send the notification (first send failed, or
     // the doctor says nothing arrived).
-    var resendBtn = (entry.ats_stage === 'shortlisted' && entry.application_id)
+    // …but not on an expired hold: the server refuses until it is extended.
+    var resendBtn = (entry.ats_stage === 'shortlisted' && entry.application_id && !mbShouldShowExtend(entry.match, nowMs))
       ? ('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm" data-mb-resend="' + A.escAttr(entry.application_id) + '">Resend email</button>')
       : '';
     return (
@@ -1064,20 +1067,24 @@
   // match email did NOT go out reads as a failure to the CEO (owner report
   // 2026-09-04 — the doctor "was not sent an email for the match").
   function mbShortlistToast(results) {
-    var ok = 0, skipped = 0, failed = 0, emailFailed = [];
+    var ok = 0, skipped = 0, failed = 0, emailFailed = [], waFailed = [];
     (results || []).forEach(function (r) {
       if (r.ok) {
         ok++;
         if (r.notified && r.notified.email && r.notified.email.ok === false) emailFailed.push(mbNotifyReason(r.notified.email.error));
+        if (r.notified && r.notified.whatsapp && r.notified.whatsapp.ok === false) waFailed.push(mbNotifyReason(r.notified.whatsapp.error));
       } else if (r.skipped) skipped++;
       else failed++;
     });
     var msg = ok + ' shortlisted';
     if (skipped) msg += ', ' + skipped + ' skipped';
     if (failed) msg += ', ' + failed + ' failed';
-    if (emailFailed.length) msg += ' \u2014 \u26a0 match email NOT sent (' + emailFailed[0] + '). Use \u201cResend email\u201d on the row once fixed.';
+    if (emailFailed.length) msg += ' \u2014 \u26a0 match email NOT sent (' + emailFailed[0] + ').';
+    if (waFailed.length) msg += ' \u2014 \u26a0 WhatsApp NOT sent (' + waFailed[0] + ').';
+    if (emailFailed.length || waFailed.length) msg += ' Use \u201cResend email\u201d on the row once fixed.';
     return msg;
   }
+  function mbToastType(msg) { return /NOT sent|failed|Could not/.test(String(msg || '')) ? 'error' : ''; }
 
   function onResend(applicationId, btn) {
     if (!applicationId) return;
@@ -1086,8 +1093,9 @@
       if (btn) { btn.disabled = false; btn.textContent = 'Resend email'; }
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not re-send the match.'); return; }
       var n = d.notified || {};
-      if (n.email && n.email.ok) A.toast('Match email re-sent' + (n.whatsapp && n.whatsapp.ok ? ' (+ WhatsApp)' : '') + '.');
-      else A.toast('\u26a0 Match email NOT sent (' + mbNotifyReason(n.email && n.email.error) + ').');
+      var waNote = (n.whatsapp && n.whatsapp.ok) ? ' (+ WhatsApp)' : (n.whatsapp && n.whatsapp.ok === false ? ' \u2014 \u26a0 WhatsApp NOT sent (' + mbNotifyReason(n.whatsapp.error) + ')' : '');
+      if (n.email && n.email.ok) A.toast('Match email re-sent' + waNote + '.', waNote.indexOf('NOT') !== -1 ? 'error' : '');
+      else A.toast('\u26a0 Match email NOT sent (' + mbNotifyReason(n.email && n.email.error) + ').' + waNote, 'error');
     });
   }
 
@@ -1192,7 +1200,7 @@
     if (!window.confirm('Send the match email and in-app notification to 1 GP for "' + title + '"?')) return;
     A.api('/api/ats/matching/shortlist', { method: 'POST', body: { items: items } }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not shortlist.'); return; }
-      A.toast(mbShortlistToast(d.results));
+      A.toast(mbShortlistToast(d.results), mbToastType(mbShortlistToast(d.results)));
       fetchBoard();
     });
   }
@@ -1212,7 +1220,7 @@
     if (!window.confirm(msg)) return;
     A.api('/api/ats/matching/shortlist', { method: 'POST', body: { items: items } }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not shortlist.'); return; }
-      A.toast(mbShortlistToast(d.results));
+      A.toast(mbShortlistToast(d.results), mbToastType(mbShortlistToast(d.results)));
       fetchBoard();
     });
   }
@@ -1247,10 +1255,14 @@
       // Surface a failed ranking instead of silently clearing the spinner and
       // re-rendering the board unchanged (matches shortlist/extend handlers).
       if (!d || !d.ok) {
-        A.toast((d && d.message) || 'Could not run the AI ranking. Please try again.');
+        A.toast((d && d.message) || 'Could not run the AI ranking. Please try again.', 'error');
         renderBoard();
         return;
       }
+      // The ranking call is a GET, so nothing purged the stale-while-revalidate
+      // cache: without this the pre-ranking board (and its "Run AI ranking"
+      // button) flashes back until the network answers.
+      if (window.__gpSwr) { try { window.__gpSwr.purge(); } catch (e) { /* ignore */ } }
       fetchBoard();
     });
   }

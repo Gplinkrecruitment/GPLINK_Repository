@@ -86,7 +86,8 @@ describe('the status the doctor reads', () => {
     // The two branches above the default must be untouched by the reword.
     const fast = buildInternalCareerStatusPresentation({ status: 'applied', ats_stage: 'applied', match_outcome: 'accepted' }, null);
     expect(fast.status).toBe('fast_tracked');
-    const pending = buildInternalCareerStatusPresentation({ status: 'shortlisted', ats_stage: 'shortlisted' }, null);
+    // matched_at = the announce stamped it; an unannounced shortlist is never presented as a match (review 2026-09-07)
+    const pending = buildInternalCareerStatusPresentation({ status: 'shortlisted', ats_stage: 'shortlisted', matched_at: '2026-09-01T00:00:00Z' }, null);
     expect(pending.status).toBe('matched');
   });
 });
@@ -205,7 +206,7 @@ describe('the cold-apply email and push', () => {
   it('tells the doctor the same three steps as the matched copy', () => {
     expect(idx).toBeGreaterThan(-1);
     expect(fnSrc).toContain('Application received — here\\\'s what happens next');
-    expect(fnSrc).toContain('checks every application before the practice sees it');
+    expect(fnSrc).toContain('checks every interview request before the practice sees it');
     expect(fnSrc).toContain('Track your application');
   });
 

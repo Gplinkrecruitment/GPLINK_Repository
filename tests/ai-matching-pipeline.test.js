@@ -37,7 +37,7 @@ describe('AI Matching Task 3 — client wiring (source regex)', () => {
   it('ceo-dashboard.html loads ceo-ats-matching.js with the current cache buster', () => {
     // Bumped by the Task 5 (2026-07-11) matching-board rewrite — see
     // tests/matching-board-ui.test.js for the full board-rewrite coverage.
-    expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260904b"><\/script>/);
+    expect(html).toMatch(/<script src="\/js\/ceo-ats-matching\.js\?v=20260904c"><\/script>/);
   });
 
   it("js/ceo-ats-shared.js MASTER_PANELS includes 'matching'", () => {
@@ -492,9 +492,9 @@ describe('a pending match presents as matched, not applied', () => {
       careerHtml.indexOf('function careerApplicationState(application) {'),
       careerHtml.indexOf('function careerMineStatusLabel')
     );
-    expect(stateMap).toContain('if (key === "matched")');
+    expect(stateMap).toContain('if (key === "matched" || key === "shortlisted")');
     expect(stateMap).toContain('ribbon: "MATCHED TO YOU"');
-    expect(stateMap.indexOf('if (key === "matched")')).toBeLessThan(stateMap.indexOf('if (key === "submitted")'));
+    expect(stateMap.indexOf('if (key === "matched" || key === "shortlisted")')).toBeLessThan(stateMap.indexOf('if (key === "submitted")'));
     expect(careerHtml).toContain('Open it to accept or decline before it expires');
   });
 
@@ -505,7 +505,7 @@ describe('a pending match presents as matched, not applied', () => {
 
   it('the tracker bounces a pending match before drawing a false timeline', () => {
     const idx = detailHtml.indexOf('function renderApplication(app) {');
-    const head = detailHtml.slice(idx, idx + 1400);
+    const head = detailHtml.slice(idx, idx + 1700);
     expect(head).toContain('=== "matched"');
     // Redirect must come BEFORE the content is unhidden, or the wrong timeline
     // flashes up first.

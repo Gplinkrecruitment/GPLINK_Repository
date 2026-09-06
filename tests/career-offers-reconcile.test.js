@@ -113,6 +113,6 @@ describe('career Offers — applying is Under Review, not an offer', () => {
     // grouped "Offers" list is driven by the same offerPending flag.
     expect(careerHtml).toContain('offerPending === true');
     expect(careerHtml).toContain('UNDER REVIEW');
-    expect(careerHtml).toContain("Your Registration Support Officer is reviewing your application before it reaches the practice.");
+    expect(careerHtml).toContain("Your Registration Support Officer is reviewing your interview request before it reaches the practice.");
   });
 });
