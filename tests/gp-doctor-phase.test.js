@@ -34,9 +34,11 @@ describe('gp-doctor-phase — nav visibility', () => {
   it('registration phase shows the full nav; unknown phases fail open to the full nav', () => {
     const all = { home: true, documents: true, support: true, career: true, account: true, scan: true };
     expect(P.navVisibility('registration')).toEqual(all);
-    expect(P.navVisibility('onboarding')).toEqual(all);
     expect(P.navVisibility('restricted')).toEqual(all);
     expect(P.navVisibility('bogus')).toEqual(all);
+  });
+  it('onboarding mirrors the two-tab row so a vanished flag can never leak five tabs (owner 2026-09-06)', () => {
+    expect(P.navVisibility('onboarding')).toEqual(P.navVisibility('position'));
   });
 });
 

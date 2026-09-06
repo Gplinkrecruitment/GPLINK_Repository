@@ -37,6 +37,13 @@ describe('shell: phase-driven nav', () => {
     const initial = between(js, 'function resolveInitialRoute() {', 'function init() {');
     expect(initial.match(/isRouteHiddenInPhase/g).length).toBe(2); // both the direct-path and ?route= branches
   });
+  it('mid-session phase changes never move backwards (storage/hydrate flaps), only on boot', () => {
+    const refresh = between(js, 'function refreshPhase(reason) {', 'function settlePhase');
+    expect(refresh).toContain('reason !== "boot"');
+    expect(refresh).toContain('PHASE_RANK[next] < PHASE_RANK[previous]');
+    expect(refresh).toContain('next !== "restricted"');
+    expect(js).toContain('var PHASE_RANK = { onboarding: 0, position: 1, registration: 2 };');
+  });
   it('phase changes re-evaluate on storage + hydration and bounce a now-hidden route to the landing page', () => {
     const boot = between(js, 'function bootPhase() {', 'window.gpShellPhase = {');
     expect(boot).toContain('addEventListener("storage"');
@@ -147,7 +154,7 @@ describe('cache: busters and service worker moved together', () => {
   it('sw.js VERSION moved and precaches the new scripts at the busters the shell ships', () => {
     const sw = read('sw.js');
     const shell = read('pages/app-shell.html');
-    expect(sw).toContain('var VERSION = "20260907a"');
+    expect(sw).toContain('var VERSION = "20260907b"');
     for (const f of ['app-shell.js', 'gp-walkthrough-state.js', 'gp-walkthrough-shell.js', 'gp-doctor-phase.js', 'gp-intro-slides.js']) {
       const m = shell.match(new RegExp('/js/' + f.replace('.', '\\.') + '\\?v=([0-9a-z]+)'));
       expect(m, f).not.toBeNull();

@@ -1340,10 +1340,21 @@
     root.classList.add(PHASE_CLASS_PREFIX + phase);
   }
 
+  // Phases only move forward mid-session. state-sync clears every synced key
+  // and rewrites it on each hydrate, and the shell hears each removal as a
+  // storage event — a doctor briefly reads as "not onboarded" or "not secured"
+  // and the nav flapped (owner screenshot 2026-09-06: five tabs on a two-tab
+  // account). Backward moves are honoured on boot only; restricted always wins.
+  var PHASE_RANK = { onboarding: 0, position: 1, registration: 2 };
   function refreshPhase(reason) {
     var next = computePhase();
     var previous = currentPhase;
     if (next === previous) return next;
+    if (reason !== "boot" && previous && next !== "restricted"
+        && PHASE_RANK[next] !== undefined && PHASE_RANK[previous] !== undefined
+        && PHASE_RANK[next] < PHASE_RANK[previous]) {
+      return previous;
+    }
     currentPhase = next;
     applyNavVisibility(next);
     try {

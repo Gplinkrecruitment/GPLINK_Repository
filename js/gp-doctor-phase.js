@@ -31,7 +31,12 @@
   var NAV_VISIBILITY = Object.freeze({
     position: Object.freeze({ home: false, documents: false, support: false, career: true, account: true, scan: false }),
     registration: Object.freeze({ home: true, documents: true, support: true, career: true, account: true, scan: true }),
-    onboarding: Object.freeze({ home: true, documents: true, support: true, career: true, account: true, scan: true }),
+    // Onboarding hides the chrome entirely, so this row is only ever seen if
+    // the onboarding flag vanishes mid-session (state-sync clears every synced
+    // key before rewriting it on hydrate). Owner screenshot 2026-09-06: all
+    // five tabs appeared on a two-tab account. Mirror the position row so a
+    // leak can never show more than My Practice + Account.
+    onboarding: Object.freeze({ home: false, documents: false, support: false, career: true, account: true, scan: false }),
     restricted: Object.freeze({ home: true, documents: true, support: true, career: true, account: true, scan: true })
   });
 
