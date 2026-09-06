@@ -27040,7 +27040,13 @@ function mapCareerRoleRowToClient(row) {
     nearest_city: (row && row.nearest_city) ? String(row.nearest_city) : '',
     qualifies: true,
     location: location || 'Australia',
-    locationLine: gpLinkMeta.publicLocationLine || buildCareerPublicLocationLine(row, gpLinkMeta.suburb),
+    // Suburb-first when the row knows its suburb (owner report 2026-09-07: the
+    // stored intake line said "Sydney, NSW" over a Terrigal photo).
+    // (The stored intake meta's `suburb` can itself be the nearest city, so
+    // the row's suburb COLUMN wins over it.)
+    locationLine: (row && row.suburb)
+      ? buildCareerPublicLocationLine(row, row.suburb)
+      : (gpLinkMeta.publicLocationLine || buildCareerPublicLocationLine(row, gpLinkMeta.suburb)),
     proximityNote: gpLinkMeta.publicLocationProximity || buildCareerPublicProximityNote(row, gpLinkMeta.suburb),
     // In-app ATS jobs: the "About the role" text the CEO/consultant writes IS
     // the doctor-facing copy — it wins over the derived anonymised intro.
@@ -27083,7 +27089,7 @@ function mapCareerRoleRowToClient(row) {
     heroImageSourceUrl: gpLinkMeta.heroImageSourceUrl || '',
     heroImageCredit: gpLinkMeta.heroImageCredit || '',
     mapQuery: gpLinkMeta.mapQuery || '',
-    mapLabel: gpLinkMeta.suburb || row.location_city || row.location_label || '',
+    mapLabel: (row && row.suburb) || gpLinkMeta.suburb || row.location_city || row.location_label || '',
     majorCity: mapToMajorCity(row && row.location_city, row && row.location_state),
     qualifyHint: (row && row.visa_pathway_aligned) ? 'Visa pathway' : (row && row.dpa) ? 'DPA eligible' : '',
     aiStatus: gpLinkMeta.aiStatus || 'fallback'
