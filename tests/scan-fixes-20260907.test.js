@@ -46,7 +46,8 @@ describe('job page — bars tell the truth about closed, offer-preparing and pen
 describe('careers page — an accepted match is an application; pending matches wear no chip', () => {
   const career = read('pages/career.html');
   it('fast_tracked never lands in Offers, whatever `revealed` says', () => {
-    expect(career).toContain('if (key === "fast_tracked") return false;\n      return application.offerPending === true');
+    expect(career).toContain('if (["sent_to_gp", "changes_requested", "practice_review", "signed"].includes(contractStage)) return true;');
+    expect(career).not.toContain('|| application.revealed === true');
   });
   it('a pending match is not "applied" on its Roles card', () => {
     expect(career).toContain('isActiveApplication(job) && !isPendingMatchApplication(job));');

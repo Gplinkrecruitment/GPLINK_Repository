@@ -63,3 +63,19 @@ describe('email recipients must be addresses', () => {
     expect(s).toContain("if (!to || to.indexOf('@') === -1 || !isEmailConfigured()) return;");
   });
 });
+
+describe('booking + admin re-send (owner 2026-09-08)', () => {
+  it('a booked interview is 45 minutes on the row, matching the slot engine and the picker', () => {
+    expect(s).toContain("      gcal_event_id: String(gcal.id || '') || null,\n      // An interview is 45 minutes");
+    expect(s).toContain('      duration_minutes: 45,\n      updated_at: nowTs');
+  });
+  it('POST /api/ats/interview/resend-invite clears the one-shot stamp and re-sends, refusing a booked interview', () => {
+    const a = s.indexOf("if (pathname === '/api/ats/interview/resend-invite' && req.method === 'POST') {");
+    expect(a).toBeGreaterThan(0);
+    const b = s.slice(a, a + 1600);
+    expect(b).toContain('requireAtsSession(req, res)');
+    expect(b).toContain("if (String(riRef.status || '') === 'booked') { sendJson(res, 409");
+    expect(b).toContain('await patchApplicationDecisionFields(riAppId, { booking_invite_sent_at: null });');
+    expect(b).toContain('await maybeSendInterviewBookingInvite(riAppId);');
+  });
+});

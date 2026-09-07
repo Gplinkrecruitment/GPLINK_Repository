@@ -9618,12 +9618,14 @@
       if (isPendingMatchApplication(application)) return false;
       const key = normalizeStatusKey(application.rawStatus);
       if (["not_proceeding", "withdrawn", "offer_declined"].includes(key)) return false;
-      // An accepted match is an application: match rows are written revealed
-      // at match time, so `revealed` alone must not send it to Offers.
-      if (key === "fast_tracked") return false;
+      // Offers = a contract on its way to (or signed by) the doctor — owner
+      // 2026-09-08: "offers are only for when we send the contract to the gp".
+      // Interviews, practice reviews, identity reveals and an accepted match
+      // all stay under Applications.
+      const contractStage = String(application.contractStage || "").toLowerCase();
+      if (["sent_to_gp", "changes_requested", "practice_review", "signed"].includes(contractStage)) return true;
       return application.offerPending === true
-        || application.revealed === true
-        || ["offer", "offer_pending", "offered", "interview", "interview_scheduled", "shortlisted", "interview_completed", "finalising_placement"].includes(key);
+        || ["finalising_placement", "offer_accepted"].includes(key);
     }
 
     // Human "Next step" line by status — the detail page reads this off the
@@ -12868,7 +12870,7 @@
         return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><b>No applications yet</b><small>Browse the roles and apply to the ones you like \u2014 your review progress shows here, and your Registration Support Officer champions every application.</small></div>`;
       }
       if (kind === "offers") {
-        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><b>No offers yet</b><small>When a practice accepts your application, invites you to interview or makes an offer, it shows here.</small></div>`;
+        return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><b>No offers yet</b><small>When a practice sends you a contract, it shows here. Interviews and practice reviews stay under Applications.</small></div>`;
       }
       return `<div class="at-empty"><div class="at-empty-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.4-3.4"/></svg></div><b>No roles match those filters</b><small>Widen your billing or location \u2014 or ask your Registration Support Officer for a private shortlist.</small></div>`;
     }

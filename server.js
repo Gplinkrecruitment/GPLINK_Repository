@@ -77882,6 +77882,25 @@ Return ONLY valid JSON with no markdown formatting:
   // We create a fresh row rather than reset the cancelled one because
   // _interviewSlotContext/findInterviewForApplication intentionally exclude
   // cancelled rows — so the cancelled row can never block a new booking.
+  // POST /api/ats/interview/resend-invite — re-send the "your interview
+  // times are ready" email + WhatsApp template for an unbooked interview
+  // (owner 2026-09-08, to test the template; also the CEO's "send it again"
+  // when a doctor says nothing arrived). Clears the one-shot stamp first.
+  if (pathname === '/api/ats/interview/resend-invite' && req.method === 'POST') {
+    const riSession = requireAtsSession(req, res);
+    if (!riSession) return;
+    let riBody; try { riBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const riAppId = String((riBody && (riBody.applicationId || riBody.id)) || '').trim();
+    if (!riAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    const riRef = await findInterviewForApplication(riAppId);
+    if (!riRef) { sendJson(res, 404, { ok: false, message: 'No interview for this application.' }); return; }
+    if (String(riRef.status || '') === 'booked') { sendJson(res, 409, { ok: false, message: 'This interview is already booked.' }); return; }
+    await patchApplicationDecisionFields(riAppId, { booking_invite_sent_at: null });
+    const riResult = await maybeSendInterviewBookingInvite(riAppId);
+    sendJson(res, riResult && riResult.ok ? 200 : 409, { ok: !!(riResult && riResult.ok), result: riResult });
+    return;
+  }
+
   if (pathname === '/api/ats/interview/cancel' && req.method === 'POST') {
     var ctxCX = requireAtsSession(req, res); if (!ctxCX) return;
     var bodyCX; try { bodyCX = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
@@ -80661,6 +80680,10 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       zoom_join_url: resolvedJoin,
       zoom_passcode: String(zoom.passcode || ''),
       gcal_event_id: String(gcal.id || '') || null,
+      // An interview is 45 minutes (the slot engine, the calendar event and
+      // the picker all say so); without this the row kept the 30-minute
+      // default and the card read "30 min on Zoom" (owner screenshot 2026-09-08).
+      duration_minutes: 45,
       updated_at: nowTs
     };
     // Persist the tz the GP actually booked in on the row's EXISTING timezone

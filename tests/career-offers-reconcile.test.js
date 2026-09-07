@@ -78,7 +78,7 @@ describe('career Offers — applying is Under Review, not an offer', () => {
     expect(shortcuts).toContain('offersTabBadgeEl.hidden = offerCount === 0;');
   });
 
-  it('isCareerOpportunity: apply/under-review does NOT count; offer/interview/revealed do; terminal + secured drop out', () => {
+  it('isCareerOpportunity: only a contract on its way to the doctor counts (owner 2026-09-08); interviews, reviews and reveals stay under Applications', () => {
     // Extract the predicate + its normaliser from the page and run it, so this
     // asserts real behaviour rather than a source string.
     const fnSrc = careerHtml.slice(
@@ -91,10 +91,17 @@ describe('career Offers — applying is Under Review, not an offer', () => {
     expect(isOpp({ rawStatus: 'under_review', offerPending: false, revealed: false })).toBe(false);
     expect(isOpp({ rawStatus: 'applied', offerPending: false, revealed: false })).toBe(false);
     expect(isOpp({ rawStatus: 'submitted', offerPending: false, revealed: false })).toBe(false);
-    // Practice moved forward → opportunity.
-    expect(isOpp({ rawStatus: 'interview', offerPending: false, revealed: true })).toBe(true);
+    // Interview / practice review / identity reveal → still an APPLICATION.
+    expect(isOpp({ rawStatus: 'interview', offerPending: false, revealed: true })).toBe(false);
+    expect(isOpp({ rawStatus: 'interview_completed', offerPending: false, revealed: true })).toBe(false);
+    expect(isOpp({ rawStatus: 'reviewing', offerPending: false, revealed: true })).toBe(false);
+    expect(isOpp({ rawStatus: 'fast_tracked', offerPending: false, revealed: true })).toBe(false);
+    expect(isOpp({ rawStatus: 'offer', offerPending: false, revealed: true })).toBe(false); // practice still preparing it
+    // A contract sent to the doctor → OFFER.
     expect(isOpp({ rawStatus: 'offer', offerPending: true, revealed: true })).toBe(true);
-    expect(isOpp({ rawStatus: 'reviewing', offerPending: false, revealed: true })).toBe(true); // accepted/revealed
+    expect(isOpp({ rawStatus: 'interview_completed', offerPending: false, revealed: true, contractStage: 'sent_to_gp' })).toBe(true);
+    expect(isOpp({ rawStatus: 'reviewing', offerPending: false, revealed: true, contractStage: 'changes_requested' })).toBe(true);
+    expect(isOpp({ rawStatus: 'finalising_placement', offerPending: false, revealed: true })).toBe(true);
     // Terminal + already-secured → drop out (secured has its own view).
     expect(isOpp({ rawStatus: 'not_proceeding', offerPending: false, revealed: true })).toBe(false);
     expect(isOpp({ rawStatus: 'withdrawn', offerPending: false, revealed: true })).toBe(false);
