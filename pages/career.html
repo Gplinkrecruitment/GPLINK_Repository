@@ -63,6 +63,7 @@
   <script src="/js/gp-walkthrough-state.js?v=20260903a" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260722d" defer></script>
   <script src="/js/career-step-strip.js?v=20260907c" defer></script>
+  <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
        overlay and the apply path can both need it during first paint. -->
@@ -13804,8 +13805,10 @@
         ? buildInterviewPickerHtml(st.appId)
         : (st.booked ? buildInterviewBookedHtml(app.interview) : "");
       const primaryClass = st.tone === "green" ? "at-match-accept shiny shiny--green" : "at-match-accept shiny";
+      // When the picker is on the card it IS the action: no second button
+      // under "Confirm interview time" (owner 2026-09-08).
       const actionHtml = st.bookable
-        ? `<button type="button" class="at-match-ghost" ${openAttrs}>${escapeHtml(st.ctaLabel)}</button>`
+        ? ""
         : `<button type="button" class="${primaryClass}" ${openAttrs}>${escapeHtml(st.ctaLabel)}</button>`;
 
       return `<article class="at-match-pin at-match-pin--app at-match-pin--${escapeHtml(st.tone)}" data-app-card="${escapeHtml(st.appId)}" data-app-state="${escapeHtml(st.key)}">
@@ -13967,12 +13970,28 @@
       confirmEl.textContent = st.booking ? "Confirming…" : "Confirm interview time";
     }
 
+    // sessionStorage cache shared with the full-page popup (js/interview-slots-cache.js,
+    // loaded here and by the shell): the slots call is slow, so paint the last
+    // answer instantly and refresh it quietly (owner 2026-09-08).
+    function careerIvCache() {
+      try { return window.gpInterviewSlotsCache || (window.parent && window.parent.gpInterviewSlotsCache) || null; } catch (e) { return null; }
+    }
+
     function careerIvLoad(appId) {
       if (!appId) return;
       const st = careerIvPickers[appId] || (careerIvPickers[appId] = { loading: false, loaded: false, slots: [], selected: "", error: "", booking: false });
       if (st.loaded || st.loading) { careerIvPaint(appId); return; }
-      st.loading = true;
-      careerIvPaint(appId);
+      const ivCache = careerIvCache();
+      const cached = ivCache ? ivCache.read(appId, careerDeviceTz) : null;
+      if (cached) {
+        st.loaded = true;
+        st.slots = cached.slots;
+        st.error = "";
+        careerIvPaint(appId);
+      } else {
+        st.loading = true;
+        careerIvPaint(appId);
+      }
       const url = "/api/career/interview/slots?applicationId=" + encodeURIComponent(appId)
         + (careerDeviceTz ? "&viewer_tz=" + encodeURIComponent(careerDeviceTz) : "");
       fetch(url, { credentials: "same-origin" })
@@ -13980,7 +13999,15 @@
         .then((res) => {
           st.loading = false;
           st.loaded = true;
-          st.slots = (res.data && Array.isArray(res.data.slots)) ? res.data.slots : [];
+          const fresh = (res.data && Array.isArray(res.data.slots)) ? res.data.slots : [];
+          if (res.status === 200) {
+            if (ivCache) ivCache.write(appId, careerDeviceTz, fresh);
+            if (cached && ivCache && ivCache.sameSlots(cached.slots, fresh)) return; // nothing changed — keep the instant paint
+            if (st.selected && !fresh.some((s) => s && s.startUtc === st.selected)) st.selected = "";
+          } else if (cached) {
+            return; // a failed refresh never wipes a good cached list
+          }
+          st.slots = fresh;
           if (res.status === 403) {
             // not_available: the practice hasn't accepted yet, so there is
             // genuinely nothing to book. Say that, don't show an error.
@@ -13995,6 +14022,7 @@
         .catch(() => {
           st.loading = false;
           st.loaded = true;
+          if (cached) return; // offline refresh — the cached list stays up
           st.error = "We couldn't load your interview times just now — check your connection and try again.";
           careerIvPaint(appId);
         });
@@ -14024,6 +14052,7 @@
           st.booking = false;
           if (res.status === 200 && res.data && res.data.ok) {
             const booked = res.data.booked || {};
+            if (careerIvCache()) careerIvCache().clear(appId);
             careerIvApplyBooking(appId, {
               scheduledAt: booked.scheduled_at || st.selected,
               zoomJoinUrl: booked.zoom_join_url || ""

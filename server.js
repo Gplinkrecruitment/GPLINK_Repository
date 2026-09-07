@@ -150,6 +150,16 @@ const INTERVIEW_GAP_MINUTES = (function () {
 // Interviews are 30 minutes (owner 2026-09-08). One number for the slot
 // engine, the Zoom meeting, the calendar event/links and the booked row.
 const INTERVIEW_DURATION_MIN = 30;
+// 60-second memo of the slot list per application + viewer timezone: the
+// list costs a diary + calendar round trip, and the card, the timeline and
+// the popup all ask for it within seconds of each other (owner 2026-09-08:
+// "keep this cached so it loads instantly"). A booking clears it.
+const INTERVIEW_SLOTS_MEMO_MS = 60 * 1000;
+const _interviewSlotsMemo = {};
+function interviewSlotsMemoClear(appId) {
+  const needle = '|' + String(appId || '') + '|';
+  Object.keys(_interviewSlotsMemo).forEach((k) => { if (k.indexOf(needle) !== -1) delete _interviewSlotsMemo[k]; });
+}
 // Vercel auto-injects CRON_SECRET for its own cron triggers; manual calls use the same secret
 const _CRON_SECRET_PRIMARY = String(process.env.CRON_SECRET || '').trim();
 function isValidCronSecret(token) {
@@ -50957,6 +50967,16 @@ async function handleApi(req, res, pathname) {
     const ciAppId = String(url.searchParams.get('applicationId') || '').trim();
     if (!ciAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
 
+    // Memo hit BEFORE the ownership/context lookups (each a Supabase round
+    // trip): the key carries the user, and an entry only exists once this
+    // user passed every check below, so serving it back to them is safe.
+    const ciMemoKey = String(ciUserId) + '|' + ciAppId + '|' + (interviewMeetings.sanitizeViewerTz(url.searchParams.get('viewer_tz')) || '');
+    const ciMemo = _interviewSlotsMemo[ciMemoKey];
+    if (ciMemo && Date.now() - ciMemo.at < INTERVIEW_SLOTS_MEMO_MS) {
+      sendJson(res, 200, { ok: true, slots: ciMemo.slots, cached: true });
+      return;
+    }
+
     const ciCtx = await atsGetApplicationContext(ciAppId);
     if (!ciCtx || String(ciCtx.userId || '') !== String(ciUserId)) {
       sendJson(res, 404, { ok: false, message: 'Application not found.' });
@@ -51003,6 +51023,7 @@ async function handleApi(req, res, pathname) {
 
     const ciSlotCtx = await _interviewSlotContext(ciAppId, Date.now(), ciViewerTz);
     if (ciSlotCtx.error) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    _interviewSlotsMemo[ciMemoKey] = { at: Date.now(), slots: ciSlotCtx.slots };
 
     // Remember where the doctor actually is. Staff screens have no doctor's
     // browser to ask, so this is the only way they can show the same times the
@@ -80716,6 +80737,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     // GP their interview confirmation (with the Zoom link), so a second
     // "you're through to interview" ping would be a duplicate.
     await atsUpdateApplicationStageRow(appCtx.app.id, 'interview', '', actorEmail || '');
+    interviewSlotsMemoClear(appCtx.app.id);
   } catch (bookErr) {
     if (zoom && zoom.id) {
       try { await deleteZoomMeeting(zoom.id); }

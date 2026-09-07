@@ -267,11 +267,25 @@
       confirmEl.textContent = state.booking ? 'Confirming…' : 'Confirm interview time';
     }
 
+    var cache = (typeof window !== 'undefined' && window.gpInterviewSlotsCache) || null;
     function loadSlots() {
-      statusEl.textContent = 'Loading available times…';
+      // Paint the cached list instantly (shared with the card picker), then
+      // refresh it quietly.
+      var cached = cache ? cache.read(iv.applicationId, tz) : null;
+      if (cached) {
+        state.slots = cached.slots;
+        statusEl.textContent = state.slots.length ? 'Tap a time to select it, then confirm.' : 'The practice’s times are being confirmed — we’ll message you the moment they’re open.';
+        paint();
+      } else {
+        statusEl.textContent = 'Loading available times…';
+      }
       var url = '/api/career/interview/slots?applicationId=' + encodeURIComponent(iv.applicationId) + (tz ? '&viewer_tz=' + encodeURIComponent(tz) : '');
       getJson(url).then(function (res) {
-        state.slots = (res.body && Array.isArray(res.body.slots)) ? res.body.slots : [];
+        var fresh = (res.body && Array.isArray(res.body.slots)) ? res.body.slots : [];
+        if (res.status === 200 && cache) cache.write(iv.applicationId, tz, fresh);
+        if (cached && (res.status !== 200 || (cache && cache.sameSlots(cached.slots, fresh)))) return; // keep the instant paint
+        if (state.selected && !fresh.some(function (s) { return s && s.startUtc === state.selected; })) state.selected = '';
+        state.slots = fresh;
         if (res.status === 403) statusEl.textContent = 'Your interview times open as soon as the practice confirms — we’ll let you know.';
         else if (res.status !== 200) statusEl.textContent = (res.body && res.body.message) || 'We couldn’t load your interview times just now.';
         else if (!state.slots.length) statusEl.textContent = 'The practice’s times are being confirmed — we’ll message you the moment they’re open.';
@@ -296,6 +310,7 @@
       postJson('/api/career/interview/book', { applicationId: iv.applicationId, slot_start_utc: state.selected, viewer_tz: tz || undefined }).then(function (res) {
         state.booking = false;
         if (res.status === 200 && res.body && res.body.ok) {
+          if (cache) cache.clear(iv.applicationId);
           var booked = res.body.booked || {};
           overlay.innerHTML = '<div class="gpip-card">' + buildBookedHtml(iv, { scheduledAt: booked.scheduled_at || state.selected }) + '</div>';
           startConfetti(overlay);
