@@ -68,6 +68,11 @@
       color: var(--text);
       overflow: hidden;
     }
+    /* The pages go dark with the system theme; the shell around the header
+       must not stay a pale strip above them (owner 2026-09-07). */
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f172a; }
+    }
 
     .app-shell-desktop {
       position: fixed;
@@ -75,7 +80,7 @@
       left: 0;
       right: 0;
       z-index: 1200;
-      padding: 4px 24px 0;
+      padding: 0 24px 0;
       pointer-events: none;
       transform: translateZ(0);
       -webkit-transform: translateZ(0);
@@ -88,8 +93,10 @@
     .topbar {
       margin: 0;
       padding: 8px 16px;
-      border-radius: var(--radius-lg);
+      /* Flush with the top edge: no gap above the header, corners only below. */
+      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
       border: 1px solid;
+      border-top: 0;
       border-color: var(--gp-glass-border);
       border-bottom: 1px solid rgba(15, 23, 42, 0.06);
       background: var(--gp-glass-bg);
