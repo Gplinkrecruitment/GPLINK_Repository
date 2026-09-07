@@ -35030,6 +35030,16 @@ function resendRetryDelayMs(res, attempt) {
 async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachments, scheduledAt, headers, category, paced }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   let recipients = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  // A "to" that is not an address — a role label such as 'practice_decision'
+  // leaking from a sent_by/created_by field — must never reach Resend or be
+  // filed as a delivery failure (owner report 2026-09-08).
+  const looksLikeEmailAddress = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim().replace(/^.*<([^>]+)>\s*$/, '$1'));
+  const droppedRecipients = recipients.filter((r) => !looksLikeEmailAddress(r));
+  if (droppedRecipients.length) {
+    console.warn('[sendEmail] dropped non-address recipient(s):', droppedRecipients.map(String).join(', '), '| subject:', String(subject || '').slice(0, 80));
+    recipients = recipients.filter(looksLikeEmailAddress);
+    if (!recipients.length) return { ok: false, skipped: true, error: 'no_valid_recipient' };
+  }
   const isMarketing = String(category || 'transactional') === 'marketing';
   // Marketing == the bulk-shaped traffic (invites, nudges, campaigns); callers
   // in an explicit send loop can opt in with { paced: true }.
@@ -37854,6 +37864,71 @@ async function sendMatchAcceptedWhatsAppToGp(appRow) {
   }
 }
 
+// Approved interview templates in the DoubleTick account (verified
+// 2026-09-08 via GET /templates):
+//   gp_link_interview_confirmed_gp        {{1}} first name  {{2}} practice  {{3}} time  {{4}} join link
+//   gp_link_interview_confirmed_practice  {{1}} contact     {{2}} doctor    {{3}} time  {{4}} join link
+//   gp_link_interview_times_ready         {{1}} first name  {{2}} practice  + URL button {{1}} = applicationId
+// Until 2026-09-08 none of these were used: booking sent no WhatsApp at all
+// and the times-ready nudge went as plain text, which WhatsApp only delivers
+// inside the 24-hour window (owner report: "no templates were sent to the
+// practice or gp").
+var INTERVIEW_WA_TEMPLATES = {
+  confirmedGp: 'gp_link_interview_confirmed_gp',
+  confirmedPractice: 'gp_link_interview_confirmed_practice',
+  timesReady: 'gp_link_interview_times_ready'
+};
+async function sendDoubleTickTemplateTo(toPhone, templateName, placeholders, buttonParams) {
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'no_api_key' };
+  var to = normalizePhone(toPhone);
+  if (!to) return { ok: false, skipped: 'no_phone' };
+  var content = {
+    templateName: templateName,
+    language: 'en',
+    templateData: { body: { placeholders: (Array.isArray(placeholders) ? placeholders : []).map(function (p) { return String(p == null ? '' : p); }) } }
+  };
+  if (Array.isArray(buttonParams) && buttonParams.length) {
+    content.templateData.buttons = buttonParams.map(function (p) { return { type: 'URL', parameter: String(p == null ? '' : p) }; });
+  }
+  try {
+    var resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+      method: 'POST',
+      signal: AbortSignal.timeout(15000),
+      headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ to: to, from: String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, ''), content: content }] })
+    });
+    var text = await resp.text().catch(function () { return ''; });
+    var outcome = doubleTickBatchOutcome(resp.ok, text);
+    if (!outcome.ok) {
+      console.warn('[interview-whatsapp] ' + templateName + ' failed', resp.status, outcome.error || String(text).slice(0, 160));
+      return { ok: false, status: resp.status, error: outcome.error || '' };
+    }
+    console.log('[interview-whatsapp] ' + templateName + ' sent to', maskPhone(to));
+    return { ok: true };
+  } catch (e) {
+    console.error('[interview-whatsapp] ' + templateName + ' error:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+async function lookupGpPhoneAndFirstName(userId) {
+  var out = { phone: '', firstName: '' };
+  if (!userId) return out;
+  try {
+    if (isSupabaseDbConfigured()) {
+      var r = await supabaseDbRequest('user_profiles', 'select=first_name,phone,country_dial,phone_number&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      var p = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+      if (p) {
+        out.firstName = String(p.first_name || '').trim();
+        out.phone = String(p.phone || [p.country_dial, p.phone_number].filter(Boolean).join(' ')).trim();
+      }
+    } else {
+      var c = (dbState.atsCandidates || []).find(function (x) { return x && String(x.user_id) === String(userId); });
+      if (c) { out.firstName = String(c.first_name || '').trim(); out.phone = String(c.phone || '').trim(); }
+    }
+  } catch (e) { /* no phone → the caller skips */ }
+  return out;
+}
+
 function matchNotifySummary(ann) {
   var a = ann && typeof ann === 'object' ? ann : {};
   // A skipped leg (no phone, no key, no link) is as important to the CEO as
@@ -40055,10 +40130,10 @@ async function maybeSendInterviewBookingInvite(applicationId) {
       if (waRow && waRow.phone) {
         var dtPhone = normalizePhone(waRow.phone);
         if (dtPhone) {
+          // The approved template carries the "Choose your time" button
+          // (URL suffix = applicationId); plain text never left the 24h window.
           var waFirst = waRow.first_name || 'there';
-          var waSecureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(id);
-          var waMsg = 'Hi ' + waFirst + ', your interview times are ready to choose — pick a slot here: ' + waSecureUrl;
-          guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(dtPhone, waMsg, AbortSignal.timeout(10000))).catch(function (e) { console.warn('[booking-invite] GP WA notify failed (ignored):', e && e.message); });
+          await sendDoubleTickTemplateTo(dtPhone, INTERVIEW_WA_TEMPLATES.timesReady, [waFirst, practiceName || 'the practice'], [String(id)]);
         }
       }
     }
@@ -40451,7 +40526,9 @@ async function atsDerivePlacementsFromCareerState(limit) {
 // offer.sent_by. Best-effort: never throws; failures are logged by callers.
 async function notifyOfferSenderOfDecision(offer, decision, info) {
   var to = String(offer && offer.sent_by || '').trim();
-  if (!to || !isEmailConfigured()) return;
+  // An offer the practice-decision flow created is sent_by 'practice_decision'
+  // — a label, not a consultant. The hello@ summary already covers it.
+  if (!to || to.indexOf('@') === -1 || !isEmailConfigured()) return;
   var escOfferHtml = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
   var details = info && typeof info === 'object' ? info : {};
   var gpLabel = String(details.gpName || '').trim() || 'The doctor';
@@ -40560,11 +40637,13 @@ async function atsGetApplicationContext(appId) {
         if (us && us.gp_selected_country) gpCountry = String(us.gp_selected_country).trim();
       }
     }
-    var practiceEmail = '', practiceRowState = '', practiceRowCity = '';
+    var practiceEmail = '', practiceRowState = '', practiceRowCity = '', practiceContactName = '', practicePhone = '';
     if (job && job.practice_id) {
-      var pr = await supabaseDbRequest('practices', 'select=contact_email,location_state,location_city&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
+      var pr = await supabaseDbRequest('practices', 'select=contact_email,contact_name,contact_phone,location_state,location_city&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
       if (pr.ok && pr.data && pr.data[0]) {
         practiceEmail = String(pr.data[0].contact_email || '').trim();
+        practiceContactName = String(pr.data[0].contact_name || '').trim();
+        practicePhone = String(pr.data[0].contact_phone || '').trim();
         practiceRowState = String(pr.data[0].location_state || '').trim();
         practiceRowCity = String(pr.data[0].location_city || '').trim();
       }
@@ -40582,7 +40661,9 @@ async function atsGetApplicationContext(appId) {
       gpName: gpName || app.candidate_name || app.name || 'Dr',
       gpEmail: gpEmail || (app && app.email) || '',
       gpCountry: gpCountry || '',
-      practiceEmail: practiceEmail
+      practiceEmail: practiceEmail,
+      practiceContactName: practiceContactName,
+      practicePhone: practicePhone
     };
   }
   // Local mode — resolve from in-memory seed collections.
@@ -80753,6 +80834,21 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
       }
+      // WhatsApp both sides with the approved templates (owner 2026-09-08).
+      try {
+        var waLink = joinUrl || 'We will send the video link before the interview.';
+        var waGp = await lookupGpPhoneAndFirstName(appCtx.userId);
+        if (waGp.phone) {
+          await sendDoubleTickTemplateTo(waGp.phone, INTERVIEW_WA_TEMPLATES.confirmedGp,
+            [waGp.firstName || 'Doctor', appCtx.practiceName || 'the practice', gpWhen, waLink]);
+        }
+        if (appCtx.practicePhone) {
+          await sendDoubleTickTemplateTo(appCtx.practicePhone, INTERVIEW_WA_TEMPLATES.confirmedPractice,
+            [String(appCtx.practiceContactName || '').split(' ')[0] || 'there', appCtx.gpName || 'the doctor', practiceWhen, waLink]);
+        } else {
+          console.warn('[interview-whatsapp] practice has no contact_phone — practice WhatsApp skipped');
+        }
+      } catch (waErr) { console.warn('[interview-whatsapp] booking sends failed (ignored):', waErr && waErr.message); }
       // RSO notification — the support officer who sits in on the interview.
       // Defaults to hello@ when unassigned; skipped there only to avoid doubling
       // the ops email below (which already lands in hello@).
@@ -80947,11 +81043,13 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
         var gpFirstName = pRow.first_name || 'there';
         var gpAppId = String(row.application_id || '');
         var secureUrl = APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(gpAppId);
-        var notifyMsg = 'Hi ' + gpFirstName + ', your interview times are ready to choose — pick a slot here: ' + secureUrl;
         if (pRow.phone && process.env.DOUBLETICK_API_KEY) {
           var dtPhone = normalizePhone(pRow.phone);
           if (dtPhone) {
-            guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(dtPhone, notifyMsg, AbortSignal.timeout(10000))).catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
+            // Approved template with the "Choose your time" button — plain
+            // text never left the 24-hour WhatsApp window (owner 2026-09-08).
+            sendDoubleTickTemplateTo(dtPhone, INTERVIEW_WA_TEMPLATES.timesReady, [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], [gpAppId])
+              .catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
           }
         }
         if (isEmailConfigured()) {
