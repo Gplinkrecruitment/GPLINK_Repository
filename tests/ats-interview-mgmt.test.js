@@ -647,3 +647,62 @@ describe('cancelling an interview clears it from the diary', () => {
     expect(after.body.slots.some((s) => s.startUtc === taken)).toBe(true);
   });
 });
+
+// Owner 2026-09-08: "simulate the interview has ended and now the practice
+// receives the email in which they get after the interview". A staff endpoint
+// that completes ONE booked interview and fires the same post-interview
+// decision email the Zoom meeting.ended webhook and the detect-no-shows cron
+// send — scoped to one application, unlike the prod-wide cron, and usable
+// where Zoom never saw the call.
+describe('POST /api/ats/interview/complete — the interview has ended, the practice gets its decision email', () => {
+  it('401 without a staff session, 404 with no interview, 409 while the interview is only invited', async () => {
+    const anon = await httpReq('POST', '/api/ats/interview/complete', { host: SUPER_HOST, body: { applicationId: 'app-mgmt-4' } });
+    expect(anon.status).toBe(401);
+    const none = await atsPost('/api/ats/interview/complete', { applicationId: 'app-mgmt-3' });
+    expect(none.status).toBe(404);
+    const invited = await atsPost('/api/ats/interview/complete', { applicationId: 'app-mgmt-4' }); // 'invited' row from the A2 409 test
+    expect(invited.status).toBe(409);
+  });
+
+  it('completes the booked row, stamps the application and emails the practice contact its two one-click links', async () => {
+    await atsPost('/api/ats/interview/use-default-times', { applicationId: 'app-mgmt-4' });
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-mgmt-4');
+    expect(slotsRes.status).toBe(200);
+    const book = await gpPost('/api/career/interview/book', { applicationId: 'app-mgmt-4', slot_start_utc: slotsRes.body.slots[0].startUtc });
+    expect(book.status).toBe(200);
+    const row = db.scheduled_calls.find((c) => c.application_id === 'app-mgmt-4' && c.meeting_kind === 'interview' && c.status === 'booked');
+    expect(row).toBeTruthy();
+
+    const before = emailsTo('anna@greenslopes-test.local').length;
+    const r = await atsPost('/api/ats/interview/complete', { applicationId: 'app-mgmt-4' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.interview.status).toBe('completed');
+    expect(r.body.interview.wasAlreadyCompleted).toBe(false);
+    expect(r.body.email).toEqual({ ok: true });
+
+    expect(row.status).toBe('completed');
+    expect(row.completed_at).toBeTruthy();
+    const app = db.gp_applications.find((a) => a.id === 'app-mgmt-4');
+    expect(app.status).toBe('interview_completed');
+    expect(app.interview_completed_at).toBeTruthy();
+    expect(app.post_interview_email_sent_at).toBeTruthy();
+
+    const mails = emailsTo('anna@greenslopes-test.local');
+    expect(mails.length).toBe(before + 1);
+    const mail = mails[mails.length - 1];
+    expect(String(mail.body.subject)).toMatch(/^How did the interview with .+ go\?$/);
+    expect(String(mail.body.text)).toContain('/pages/practice-offer.html?token=');
+    expect(String(mail.body.text)).toContain('&intent=offer');
+    expect(String(mail.body.text)).toContain('&intent=decline');
+  });
+
+  it('is idempotent: a second call touches nothing and reports already_sent', async () => {
+    const before = emailsTo('anna@greenslopes-test.local').length;
+    const r = await atsPost('/api/ats/interview/complete', { applicationId: 'app-mgmt-4' });
+    expect(r.status).toBe(200);
+    expect(r.body.interview.wasAlreadyCompleted).toBe(true);
+    expect(r.body.email).toEqual({ ok: false, skipped: 'already_sent' });
+    expect(emailsTo('anna@greenslopes-test.local').length).toBe(before);
+  });
+});

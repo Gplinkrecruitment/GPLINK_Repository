@@ -1,4 +1,12 @@
 // dev branch test - safe to remove
+// Node 20's "happy eyeballs" gives each address family only 250 ms to
+// connect before it moves on and finally fails the whole request with
+// ETIMEDOUT ("fetch failed"). Resend's edge answers a plain TCP connect from
+// an Australian Mac in ~258 ms, so with IPv6 unrouted every email send timed
+// out while curl (no such limit) sailed through (2026-09-08). Give each
+// attempt a realistic budget; harmless where connects are quick.
+try { require('net').setDefaultAutoSelectFamilyAttemptTimeout(2500); } catch (e) { /* older Node: no autoselection, nothing to tune */ }
+
 const http = require('http');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -38524,13 +38532,23 @@ async function sendPostInterviewDecisionEmail(applicationId) {
   if (!stampRes.ok) return { ok: false, error: 'stamp_failed' };
 
   var rollbackStamp = async function (error) {
-    try {
-      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' },
-        body: { post_interview_email_sent_at: null }
-      });
-    } catch (e) { /* best-effort — worst case a missed retry, never a double-send */ }
-    return { ok: false, error: error };
+    // The stamp is what the retry sweep keys on, so a rollback that quietly
+    // fails leaves the practice without this email forever: stamped, never
+    // sent, never retried (2026-09-08: one transient network error on the
+    // rollback's own request did exactly that). Try a few times and shout.
+    var rolledBack = false;
+    for (var rbAttempt = 0; rbAttempt < 3 && !rolledBack; rbAttempt++) {
+      try {
+        var rbRes = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { post_interview_email_sent_at: null }
+        });
+        rolledBack = !!(rbRes && rbRes.ok);
+      } catch (e) { rolledBack = false; }
+      if (!rolledBack && rbAttempt < 2) await new Promise(function (r) { setTimeout(r, 400 * (rbAttempt + 1)); });
+    }
+    if (!rolledBack) console.error('[post-interview] could not clear post_interview_email_sent_at for application ' + id + ' after a failed send (' + error + ') — the practice decision email will NOT be retried automatically; clear the stamp or call /api/ats/interview/complete again.');
+    return { ok: false, error: error, rollbackFailed: !rolledBack };
   };
 
   try {
@@ -77955,6 +77973,64 @@ Return ONLY valid JSON with no markdown formatting:
     await patchApplicationDecisionFields(riAppId, { booking_invite_sent_at: null });
     const riResult = await maybeSendInterviewBookingInvite(riAppId);
     sendJson(res, riResult && riResult.ok ? 200 : 409, { ok: !!(riResult && riResult.ok), result: riResult });
+    return;
+  }
+
+  // POST /api/ats/interview/complete { applicationId } — staff marks a booked
+  // interview as held and the practice gets its post-interview decision email
+  // right away: the SAME sendPostInterviewDecisionEmail the Zoom meeting.ended
+  // webhook and the detect-no-shows cron's zoomless branch call, and the same
+  // row writes as that branch. An interview Zoom never saw (no meeting id —
+  // Zoom unconfigured, or a call held off-platform) is otherwise only presumed
+  // complete by the cron 45 minutes after the slot, prod-wide; this is that
+  // completion on demand, one application at a time (owner 2026-09-08:
+  // "simulate the interview has ended and the practice receives the email").
+  // Idempotent: the helper's write-then-send stamp answers already_sent on a
+  // second call, and an already-completed row is not touched again.
+  if (pathname === '/api/ats/interview/complete' && req.method === 'POST') {
+    const icSession = requireAtsSession(req, res);
+    if (!icSession) return;
+    let icBody; try { icBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const icAppId = String((icBody && (icBody.applicationId || icBody.id)) || '').trim();
+    if (!icAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    const icRef = await findInterviewForApplication(icAppId);
+    if (!icRef) { sendJson(res, 404, { ok: false, message: 'No interview for this application.' }); return; }
+    let icRow = icRef;
+    if (isSupabaseDbConfigured()) {
+      const icRowRes = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(String(icRef.id)) + '&limit=1');
+      icRow = (icRowRes.ok && Array.isArray(icRowRes.data) && icRowRes.data[0]) ? icRowRes.data[0] : icRef;
+    }
+    const icStatus = String(icRow.status || '');
+    if (icStatus !== 'booked' && icStatus !== 'completed') {
+      sendJson(res, 409, { ok: false, message: 'This interview is not booked yet (' + (icStatus || 'no status') + ').' });
+      return;
+    }
+    const icNowIso = new Date().toISOString();
+    if (icStatus === 'booked') {
+      // Mirrors the cron's zoomless branch: no summary_status flip — there is
+      // no Zoom recording to fetch for a call Zoom never hosted.
+      const icPatch = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(icRow.id)), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'completed', completed_at: icNowIso, updated_at: icNowIso }
+      });
+      if (!icPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not update the interview.' }); return; }
+      const icTaskId = getScheduledCallRegistrationTaskId(icRow);
+      if (icTaskId) {
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(icTaskId), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { status: mapCallStatusToTaskStatus('completed'), updated_at: icNowIso }
+        });
+      }
+      interviewSlotsMemoClear(icAppId);
+    }
+    let icEmail;
+    try { icEmail = await sendPostInterviewDecisionEmail(icAppId); } catch (e) { icEmail = { ok: false, error: (e && e.message) || 'unexpected_error' }; }
+    console.log('[interview] marked completed via /api/ats/interview/complete — application', icAppId, '| was', icStatus, '| practice email:', JSON.stringify(icEmail));
+    sendJson(res, 200, {
+      ok: true,
+      interview: { id: icRow.id, status: 'completed', scheduled_at: icRow.scheduled_at || null, completed_at: icStatus === 'booked' ? icNowIso : (icRow.completed_at || null), wasAlreadyCompleted: icStatus === 'completed' },
+      email: icEmail
+    });
     return;
   }
 

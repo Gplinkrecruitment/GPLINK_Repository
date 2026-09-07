@@ -170,6 +170,15 @@ describe('after a booking, every cached copy is dropped and the open page is tol
     expect(handler).toContain("sendJson(res, 503, { ok: false, message: 'Could not load your applications just now — please try again shortly.' });");
     expect(handler.indexOf('if (isSupabaseDbConfigured() && !result.ok) {')).toBeLessThan(handler.indexOf('const applications = result.ok && Array.isArray(result.data) ? result.data : [];'));
   });
+  it('outbound connects get a realistic per-family attempt budget (Resend from AU needs > 250 ms)', () => {
+    expect(read('server.js')).toContain("require('net').setDefaultAutoSelectFamilyAttemptTimeout(2500)");
+  });
+  it('a failed post-interview send rolls its stamp back with retries and shouts if it cannot', () => {
+    const s = read('server.js');
+    expect(s).toContain('for (var rbAttempt = 0; rbAttempt < 3 && !rolledBack; rbAttempt++) {');
+    expect(s).toContain("console.error('[post-interview] could not clear post_interview_email_sent_at for application '");
+    expect(s).toContain('return { ok: false, error: error, rollbackFailed: !rolledBack };');
+  });
   it('the popup script and the service worker moved to a new version together', () => {
     const shell = read('pages/app-shell.html');
     expect(shell).toContain('/js/interview-popup.js?v=20260908b');
