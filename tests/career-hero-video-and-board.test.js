@@ -43,3 +43,29 @@ describe('matches & applications are visibly separate from the job board', () =>
     expect(career).toContain("var bEl=document.getElementById('boardCount');if(bEl)bEl.textContent=shown;");
   });
 });
+
+describe('white header, grey selected tab, visible APPLIED chip (owner 2026-09-08)', () => {
+  it('the header is solid white in every theme and the selected-tab glass is a grey tint', () => {
+    const shell = read('pages/app-shell.html');
+    expect(shell).toContain('border-bottom: 1px solid rgba(15, 23, 42, 0.06);\n      /* Solid white in every theme');
+    expect(shell).toContain('background: #fff;');
+    expect(shell.split('background: rgba(15, 23, 42, 0.07);').length - 1).toBe(2); // desktop + mobile glass
+  });
+  it('the roles-card chip says APPLIED on a fixed blue that reads in dark mode', () => {
+    const career = read('pages/career.html');
+    expect(career).toContain('.at-rstatus--applied { background: #2563eb; color: #fff; }');
+    expect(career).toContain('<span class="at-rstatus at-rstatus--applied">APPLIED</span>');
+    expect(career).not.toContain('at-rstatus--applied">UNDER REVIEW');
+  });
+});
+
+describe('card interview picker: the chosen time is visible in dark mode (owner 2026-09-08)', () => {
+  it('restates the selected + hover states at the dark override\'s specificity', () => {
+    const career = read('pages/career.html');
+    const dark = career.indexOf('html.dark-mode .ivc-slot { background: #1b2436;');
+    const sel = career.indexOf('html.dark-mode .ivc-slot.is-sel { background: #16a34a; border-color: #16a34a; color: #fff;');
+    expect(dark).toBeGreaterThan(0);
+    expect(sel).toBeGreaterThan(dark); // must come AFTER the override it corrects
+    expect(career).toContain('html.dark-mode .ivc-slot:hover { background: #24304a; border-color: #16a34a; color: #fff; }');
+  });
+});

@@ -7770,7 +7770,9 @@
       border-radius: 999px;
       box-shadow: var(--gp-shadow-sm);
     }
-    .at-rstatus--applied { background: var(--gp-ink, #0f172a); color: #fff; }
+    /* Fixed blue, not the theme ink: in dark mode --gp-ink is pale and the
+       chip vanished (owner 2026-09-08). */
+    .at-rstatus--applied { background: #2563eb; color: #fff; }
     .at-rstatus--offer { background: var(--gp-green, #16a34a); color: #fff; }
     /* Terminal outcomes (G4): calm, muted neutral — never a red alarm. */
     .at-rstatus--muted { background: var(--gp-muted, #64748b); color: #fff; }
@@ -8035,7 +8037,7 @@
       transition: background var(--gp-dur-fast, .16s) var(--at-ease), color var(--gp-dur-fast, .16s) var(--at-ease);
     }
     .ivc-slot:hover { background: #fff; border-color: var(--gp-green, #16a34a); }
-    .ivc-slot.is-sel { background: var(--gp-green, #16a34a); border-color: var(--gp-green, #16a34a); color: #fff; }
+    .ivc-slot.is-sel { background: var(--gp-green, #16a34a); border-color: var(--gp-green, #16a34a); color: #fff; box-shadow: 0 0 0 3px rgba(22, 163, 74, .28); }
     .ivc-confirm:disabled { background: #d7e3d9; color: #7d8f85; cursor: not-allowed; box-shadow: none; }
     /* Booked: the same panel, now stating the confirmed time. */
     .ivc.is-booked { display: flex; align-items: center; gap: 11px; }
@@ -8050,6 +8052,11 @@
     html.dark-mode .ivc-h, html.dark-mode .ivc-note, html.dark-mode .ivc-status,
     html.dark-mode .ivc-day-lbl, html.dark-mode .ivc-when b, html.dark-mode .ivc-when span { color: #b7f0cd; }
     html.dark-mode .ivc-slot { background: #1b2436; border-color: #2c4436; color: #e8eefb; }
+    /* The dark override above outranks .is-sel, so the chosen time looked like
+       every other pill (owner 2026-09-08). Restate the selected + hover states
+       at the same specificity. */
+    html.dark-mode .ivc-slot:hover { background: #24304a; border-color: #16a34a; color: #fff; }
+    html.dark-mode .ivc-slot.is-sel { background: #16a34a; border-color: #16a34a; color: #fff; box-shadow: 0 0 0 3px rgba(22, 163, 74, .38); }
     html.dark-mode .at-match-ghost { background: #1b2436; border-color: #26324a; color: #cfe0ff; }
     html.dark-mode .at-match-pin--muted .at-match-blurb { background: rgba(148, 163, 184, .12); border-color: #26324a; color: #94a3b8; }
     html.dark-mode .at-match-pin--green .at-match-blurb { background: rgba(22, 163, 74, .14); border-color: rgba(34, 180, 92, .28); color: #b7f0cd; }
@@ -12564,7 +12571,7 @@
       const website = named ? cardSafeUrl(role.website) : "";
       const websiteLabel = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "";
       return `<article class="at-row" data-open-role="${escapeHtml(role.id)}">
-        ${applied ? '<span class="at-rstatus at-rstatus--applied">UNDER REVIEW</span>' : ""}
+        ${applied ? '<span class="at-rstatus at-rstatus--applied">APPLIED</span>' : ""}
         ${buildRoleThumbHtml(role)}
         <div class="at-rbody">
           <div class="at-rtop">
