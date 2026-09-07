@@ -43,7 +43,7 @@ describe('interview popup — pure rules', () => {
     expect(html).toContain('Interview invitation');
     expect(html).toContain('to meet you, Dr Miller');
     expect(html).toContain('<b>Sandbox Coastal Medical Centre</b> has confirmed their availability');
-    expect(html).toContain('45 minutes on Zoom');
+    expect(html).toContain('30 minutes on Zoom');
     expect(html).toContain('data-gpip-days');
     expect(html).toContain('data-gpip-confirm disabled>Confirm interview time');
     expect(html).toContain('data-gpip-later>I’ll choose later');

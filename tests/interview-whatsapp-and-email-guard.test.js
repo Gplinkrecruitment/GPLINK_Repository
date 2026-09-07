@@ -65,9 +65,10 @@ describe('email recipients must be addresses', () => {
 });
 
 describe('booking + admin re-send (owner 2026-09-08)', () => {
-  it('a booked interview is 45 minutes on the row, matching the slot engine and the picker', () => {
-    expect(s).toContain("      gcal_event_id: String(gcal.id || '') || null,\n      // An interview is 45 minutes");
-    expect(s).toContain('      duration_minutes: 45,\n      updated_at: nowTs');
+  it('interviews are 30 minutes everywhere: one constant for the row, the slot engine, Zoom and the calendar', () => {
+    expect(s).toContain('const INTERVIEW_DURATION_MIN = 30;');
+    expect(s).toContain('      duration_minutes: INTERVIEW_DURATION_MIN,\n      updated_at: nowTs');
+    expect(s).not.toMatch(/durationMin: 45|45 \* 60000|duration_minutes: 45|\? 45 : 30/);
   });
   it('POST /api/ats/interview/resend-invite clears the one-shot stamp and re-sends, refusing a booked interview', () => {
     const a = s.indexOf("if (pathname === '/api/ats/interview/resend-invite' && req.method === 'POST') {");

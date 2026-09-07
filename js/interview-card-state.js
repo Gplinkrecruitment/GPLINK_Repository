@@ -19,9 +19,8 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.deriveInterviewCardState = api;
 })(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this), function () {
-  // How long an interview is assumed to run when the row does not say. Matches the 45 the
-  // card already prints as its "Duration" default.
-  var DEFAULT_DURATION_MINUTES = 45;
+  // How long an interview is assumed to run when the row does not say.
+  var DEFAULT_DURATION_MINUTES = 30; // owner 2026-09-08: interviews are 30 minutes
   // Interviews start late and run over. Keep the Join button alive this long past the
   // scheduled end so a doctor rejoining after a dropout is never locked out of their own
   // interview — the cost of being wrong in this direction is far higher than a button that

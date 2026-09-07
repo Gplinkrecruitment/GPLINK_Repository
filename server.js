@@ -147,6 +147,9 @@ const INTERVIEW_GAP_MINUTES = (function () {
   var n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 10;
 })();
+// Interviews are 30 minutes (owner 2026-09-08). One number for the slot
+// engine, the Zoom meeting, the calendar event/links and the booked row.
+const INTERVIEW_DURATION_MIN = 30;
 // Vercel auto-injects CRON_SECRET for its own cron triggers; manual calls use the same secret
 const _CRON_SECRET_PRIMARY = String(process.env.CRON_SECRET || '').trim();
 function isValidCronSecret(token) {
@@ -77988,7 +77991,7 @@ Return ONLY valid JSON with no markdown formatting:
             cxIcsAttachment = interviewIcs.icsAttachment({
               uid: _interviewIcsUid(cxRow.id),
               start: cxRow.scheduled_at,
-              durationMins: 45,
+              durationMins: INTERVIEW_DURATION_MIN,
               summary: 'Interview — ' + cxGpName + ' @ ' + cxPracticeName,
               description: 'This interview has been cancelled.' + cxReasonLine,
               organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
@@ -80503,7 +80506,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
     // interview runs 45. Trust the stored value, fall back per kind.
     var mins = Number(r.duration_minutes) > 0
       ? Number(r.duration_minutes)
-      : (r.meeting_kind === 'interview' ? 45 : 30);
+      : (r.meeting_kind === 'interview' ? INTERVIEW_DURATION_MIN : 30);
     busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + mins * 60000).toISOString() });
   });
 
@@ -80511,7 +80514,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   // over, and a slot that starts the second another ends leaves no room to
   // prepare. See INTERVIEW_GAP_MINUTES (default 10, matching the Calendly
   // buffer). Applied by widening every busy block rather than by shortening the
-  // interview, so the interview itself stays a full 45 minutes.
+  // interview, so the interview itself stays its full length.
   //
   // This pads BOTH sources: meetings booked in the app, and whatever
   // gcalReadBusy returned from Google Calendar. Note Calendly has its own,
@@ -80529,7 +80532,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   return interviewScheduler.computeInterviewSlots({
     now: now,
     horizonDays: interviewMeetings.INTERVIEW_HORIZON_DAYS,
-    durationMin: 45,
+    durationMin: INTERVIEW_DURATION_MIN,
     leadHours: interviewMeetings.INTERVIEW_LEAD_HOURS,
     gridMin: 30,
     maxSlots: maxSlots,
@@ -80641,7 +80644,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   var zoom = await createZoomInterviewMeeting({
     topic: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
     startUtc: slotStartUtc,
-    durationMin: 45
+    durationMin: INTERVIEW_DURATION_MIN
   });
   // The join link stored on the row + returned to the app: a real per-interview
   // Zoom link when Zoom is configured, else the standing INTERVIEW_MEETING_URL
@@ -80650,7 +80653,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
 
   var gcal;
   try {
-    var slotEnd = new Date(new Date(slotStartUtc).getTime() + 45 * 60000).toISOString();
+    var slotEnd = new Date(new Date(slotStartUtc).getTime() + INTERVIEW_DURATION_MIN * 60000).toISOString();
     gcal = await gcalCreateEvent({
       summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
       startUtc: slotStartUtc,
@@ -80680,10 +80683,9 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       zoom_join_url: resolvedJoin,
       zoom_passcode: String(zoom.passcode || ''),
       gcal_event_id: String(gcal.id || '') || null,
-      // An interview is 45 minutes (the slot engine, the calendar event and
-      // the picker all say so); without this the row kept the 30-minute
-      // default and the card read "30 min on Zoom" (owner screenshot 2026-09-08).
-      duration_minutes: 45,
+      // The booked row carries the real length, the same number the slot
+      // engine and the calendar event use.
+      duration_minutes: INTERVIEW_DURATION_MIN,
       updated_at: nowTs
     };
     // Persist the tz the GP actually booked in on the row's EXISTING timezone
@@ -80796,8 +80798,8 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       var rsoFirst = String(bookRso.name || 'GP Link').split(' ')[0];
       // "Add to calendar" (Google render URL); the .ics below covers Apple/Outlook.
       var calDesc = 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.' + (joinUrl ? ' Join: ' + joinUrl : '');
-      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
-      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
+      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: INTERVIEW_DURATION_MIN, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
+      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: INTERVIEW_DURATION_MIN, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
       // D1a: attach a calendar invite (METHOD:REQUEST). UID is stable per interview
       // row so a later cancellation .ics (same UID, SEQUENCE 1) removes it again.
       // Built in its own try/catch — a bad date can never stop the confirmations.
@@ -80806,7 +80808,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         bookIcsAttachment = interviewIcs.icsAttachment({
           uid: _interviewIcsUid(meetingRow.id),
           start: slotStartUtc,
-          durationMins: 45,
+          durationMins: INTERVIEW_DURATION_MIN,
           summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
           description: calDesc,
           location: joinUrl || '',
@@ -80887,7 +80889,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
             ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
             ctaUrl: joinUrl || (getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
             secondaryCtaText: 'Add to Calendar',
-            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: 45, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
+            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: INTERVIEW_DURATION_MIN, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
             footer: 'You’re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '’s Registration Support Officer.'
           }),
           text: appCtx.gpName + ' has an interview with ' + (appCtx.practiceName || 'the practice') + ' on ' + practiceWhen + '.' + (joinUrl ? ' Join: ' + joinUrl : ''),

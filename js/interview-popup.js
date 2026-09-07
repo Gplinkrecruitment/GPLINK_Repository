@@ -133,7 +133,7 @@
       '<div class="gpip-confetti-host"></div>' +
       '<div class="gpip-badge">✦ Interview invitation</div>' +
       '<h1 class="gpip-h">The practice wants<br>to meet you, ' + greet + '</h1>' +
-      '<p class="gpip-sub"><b>' + escapeHtml(practice) + '</b> has confirmed their availability. Choose the time that suits you — 45 minutes on Zoom, and your Registration Support Officer joins you, so you’re never in the room alone.</p>' +
+      '<p class="gpip-sub"><b>' + escapeHtml(practice) + '</b> has confirmed their availability. Choose the time that suits you — 30 minutes on Zoom, and your Registration Support Officer joins you, so you’re never in the room alone.</p>' +
       '<div class="gpip-job">' + photoHtml +
         '<div class="gpip-job-inner">' +
           '<div class="gpip-pn">' + escapeHtml(practice) + '</div>' +

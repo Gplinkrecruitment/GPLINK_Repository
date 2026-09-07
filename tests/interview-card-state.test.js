@@ -90,10 +90,10 @@ describe('deriveInterviewCardState — after the interview', () => {
 });
 
 describe('deriveInterviewCardState — input tolerance', () => {
-  it('assumes 45 minutes when the row carries no duration', () => {
+  it('assumes 30 minutes when the row carries no duration (owner 2026-09-08)', () => {
     const noDur = { status: 'scheduled', scheduled_at: '2026-08-01T04:00:00.000Z' };
-    expect(derive(noDur, START + 70 * MIN).showJoin).toBe(true);   // inside 45+30
-    expect(derive(noDur, START + 80 * MIN).showJoin).toBe(false);  // past it
+    expect(derive(noDur, START + 55 * MIN).showJoin).toBe(true);   // inside 30+30
+    expect(derive(noDur, START + 65 * MIN).showJoin).toBe(false);  // past it
   });
 
   it('accepts the camelCase shape /api/career/applications emits', () => {

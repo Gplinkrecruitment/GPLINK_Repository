@@ -8759,7 +8759,7 @@
               <span class="career-intro-num">2</span>
               <div class="career-intro-step-b">
                 <div class="career-intro-step-t">We introduce you</div>
-                <div class="career-intro-step-d">Your Registration Support Officer sends the practice your CV and a written introduction. The practice's name stays hidden on your side until they say they'd like to meet you.</div>
+                <div class="career-intro-step-d">Your Registration Support Officer sends the practice your CV and a written introduction. You see the practice's name and website from the start; their address and contact details open up once they say they'd like to meet you.</div>
               </div>
             </div>
             <div class="career-intro-step">
@@ -13873,7 +13873,7 @@
     function buildInterviewPickerHtml(appId) {
       return `<div class="ivc" data-iv-app="${escapeHtml(appId)}">
         <div class="ivc-h"><span>\u{1F4C5}</span><b>Pick your interview time</b></div>
-        <p class="ivc-note">45 minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.</p>
+        <p class="ivc-note">30 minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.</p>
         <p class="ivc-status" data-iv-status>Loading available times…</p>
         <div class="ivc-days" data-iv-days></div>
         <button type="button" class="at-match-accept shiny shiny--green ivc-confirm" data-iv-confirm disabled>Confirm interview time</button>
@@ -13900,16 +13900,21 @@
       return `<div class="ivc is-booked"><div class="ivc-when"><b>${escapeHtml(when)}</b><span>Interview confirmed · ${escapeHtml(durationLabel)}</span></div>${join}</div>`;
     }
 
+    // The same application is drawn in TWO places — the strip under the map
+    // and the Applications tab — so a picker must paint every copy, or the
+    // second one sits on "Loading available times…" for ever (owner
+    // screenshot 2026-09-08).
+    function careerIvHosts(appId) {
+      return Array.prototype.filter.call(document.querySelectorAll(".ivc[data-iv-app]"), (h) => h.getAttribute("data-iv-app") === appId);
+    }
     function careerIvHost(appId) {
-      const hosts = document.querySelectorAll(".ivc[data-iv-app]");
-      for (let i = 0; i < hosts.length; i += 1) {
-        if (hosts[i].getAttribute("data-iv-app") === appId) return hosts[i];
-      }
-      return null;
+      return careerIvHosts(appId)[0] || null;
     }
 
     function careerIvPaint(appId) {
-      const host = careerIvHost(appId);
+      careerIvHosts(appId).forEach((host) => careerIvPaintHost(appId, host));
+    }
+    function careerIvPaintHost(appId, host) {
       if (!host) return;
       const st = careerIvPickers[appId];
       if (!st) return;

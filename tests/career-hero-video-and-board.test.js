@@ -69,3 +69,11 @@ describe('card interview picker: the chosen time is visible in dark mode (owner 
     expect(career).toContain('html.dark-mode .ivc-slot:hover { background: #24304a; border-color: #16a34a; color: #fff; }');
   });
 });
+
+describe('careers intro deck matches the named tier (owner 2026-09-08)', () => {
+  it('no longer tells doctors the practice name stays hidden', () => {
+    const career = read('pages/career.html');
+    expect(career).not.toContain("The practice's name stays hidden on your side");
+    expect(career).toContain("You see the practice's name and website from the start; their address and contact details open up once they say they'd like to meet you.");
+  });
+});
