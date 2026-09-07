@@ -12553,7 +12553,7 @@
           <p class="at-rmeta">${escapeHtml(billingLabel)}<span class="at-dot">·</span>${escapeHtml(roleTypeLabel)}${locationLabel ? `<span class="at-dot">·</span>${escapeHtml(locationLabel)}` : ""}</p>
           ${earnings ? `<p class="at-rearn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4a1.5 1.5 0 0 1 0 3h-2a1.5 1.5 0 0 0 0 3h4" stroke-linecap="round"/></svg>${escapeHtml(earnings)}</p>` : ""}
           <div class="at-rfoot">
-            ${named ? `<span class="at-mini at-mini--named">${AT_CHECK_SVG}PRACTICE NAMED</span>` : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`}
+            ${named ? "<span></span>" : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`}
             <button class="at-rsave${saved ? " on" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="${saved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
             </button>
@@ -13623,7 +13623,9 @@
       // they accepted, and we are arranging the interview.
       if (key === "fast_tracked") {
         return S({
-          label: "Fast-tracked", ribbon: "FAST-TRACKED", tone: "green", rowTone: "applied",
+          // Same blue as a direct application: an accepted match is at the same
+          // stage (owner 2026-09-07) — only the ribbon and the words differ.
+          label: "Fast-tracked", ribbon: "FAST-TRACKED", tone: "blue", rowTone: "applied",
           blurb: "You accepted this match. Your Registration Support Officer is putting you forward now and will send you interview times to choose from \u2014 usually within a couple of business days."
         });
       }
@@ -13744,16 +13746,13 @@
         ? `<span class="at-match-cd at-match-cd--calm">Applied ${escapeHtml(appliedValue)}</span>`
         : "";
 
-      // Three states, mirroring the job page's identity box: the full
-      // identity (address + contact) only unlocks on acceptance; a NAMED row
-      // just knows the practice's name (owner 2026-09-07 — names are no
-      // longer hidden from a CV-verified doctor); otherwise still locked.
-      const identityUnlocked = app.revealed === true && !!revealedName;
-      const identityChip = identityUnlocked
-        ? '<span class="at-mini at-mini--unlocked">✓ IDENTITY UNLOCKED</span>'
-        : revealedName
-          ? '<span class="at-mini at-mini--unlocked">✓ PRACTICE NAMED</span>'
-          : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
+      // Practice names are never hidden on an application card (owner
+      // 2026-09-07), so there is nothing to announce beside the name: no
+      // "named" / "identity unlocked" chip. The locked chip survives only
+      // for a legacy row that carries no name at all.
+      const identityChip = revealedName
+        ? ""
+        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
       const metaBits = [billingValue].filter(Boolean).map((b) => escapeHtml(b)).join(" · ");
 
       // A secured placement opens the placement view, an unanswered match opens
@@ -13787,7 +13786,7 @@
           <div class="at-match-blurb">${escapeHtml(st.blurb)}</div>
           ${interviewHtml}
           ${actionHtml}
-          <div class="at-match-pass">${identityChip}</div>
+          ${identityChip ? `<div class="at-match-pass">${identityChip}</div>` : ""}
         </div>
       </article>`;
     }

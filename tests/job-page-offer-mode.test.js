@@ -165,7 +165,7 @@ describe('career.html — Offers tab reveal chip (folded Task-2 minor)', () => {
     expect(fn[0]).toContain('isConfidentialText');
     // The checkmark may be stored raw or as a ✓ JS escape — both render
     // identically in the browser.
-    expect(fn[0]).toMatch(/(?:✓|\\u2713) IDENTITY UNLOCKED/);
+    expect(fn[0]).not.toMatch(/IDENTITY UNLOCKED|PRACTICE NAMED/); // names are never hidden on a card (owner 2026-09-07)
     // Masked treatment kept otherwise.
     expect(fn[0]).toContain('NAME ON ACCEPTANCE');
     expect(fn[0]).toContain('at-mblur');

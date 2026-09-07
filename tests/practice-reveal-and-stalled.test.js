@@ -79,7 +79,7 @@ describe('doctor pages: named tier rendering', () => {
     const card = between(html, 'function buildRoleCardHtml(role) {', 'function isSaved(roleId) {');
     expect(card).toContain('const named = !!(role.nameRevealed && role.realPracticeName);');
     expect(card).toContain('class="at-rweb"');
-    expect(card).toContain('PRACTICE NAMED');
+    expect(card).not.toContain('PRACTICE NAMED'); // names are never hidden (owner 2026-09-07) — no chip beside a shown name
     expect(card).toContain('NAME ON ACCEPTANCE'); // masked fallback still renders
     expect(html).toContain('event.target.closest("a.at-rweb")) return;');
     expect(html).toContain('role.practiceName, role.realPracticeName, role.displayLabel');
@@ -346,9 +346,12 @@ describe('named headline everywhere + Under Review after applying', () => {
     expect(career).toContain('nameRevealed: job.nameRevealed === true || !!liveNamedName,');
     expect(career).toContain('const revealedName = ((app.revealed === true || app.nameRevealed === true)');
     expect(career).toContain(': namedRoleName;');
-    // Named ≠ identity unlocked: the chip says PRACTICE NAMED until acceptance.
-    expect(career).toContain('const identityUnlocked = app.revealed === true && !!revealedName;');
-    expect(career).toContain('PRACTICE NAMED');
+    // Names are never hidden on an application card (owner 2026-09-07): no
+    // "named" / "identity unlocked" chip beside a shown name; the locked chip
+    // survives only for a legacy row with no name.
+    expect(career).not.toContain('IDENTITY UNLOCKED</span>');
+    expect(career).not.toContain('PRACTICE NAMED</span>');
+    expect(career).toContain('const identityChip = revealedName\n        ? ""');
     expect(career).toContain('NAME ON ACCEPTANCE');
   });
 

@@ -57,7 +57,7 @@ describe('careers page: an accepted match reads as an application', () => {
   it('has its own FAST-TRACKED card state with the accept wording', () => {
     const career = read('pages/career.html');
     expect(career).toContain('if (key === "fast_tracked") {');
-    expect(career).toContain('label: "Fast-tracked", ribbon: "FAST-TRACKED", tone: "green", rowTone: "applied",');
+    expect(career).toContain('label: "Fast-tracked", ribbon: "FAST-TRACKED", tone: "blue", rowTone: "applied",');
     expect(career).toContain('blurb: "You accepted this match. Your Registration Support Officer is putting you forward now');
   });
   it('bumps the strip/home-card busters with the service worker', () => {
