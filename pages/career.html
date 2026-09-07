@@ -13598,6 +13598,9 @@
         return S({
           label: "Interview", ribbon: "INTERVIEW", tone: "green", rowTone: "offer",
           booked: !!when, bookable: canOfferPicker,
+          // The button says what to do now (owner 2026-09-07: "ensure the CTA
+          // changes accordingly").
+          ctaLabel: when ? "See my interview" : (canOfferPicker ? "Choose an interview time" : "Open the timeline"),
           blurb: when
             ? "Your interview is locked in. Your Registration Support Officer joins you, so you're never in the room alone."
             : (canOfferPicker

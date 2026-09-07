@@ -50303,6 +50303,14 @@ async function handleApi(req, res, pathname) {
         statusTone: roleStatusView.statusTone,
         offerPending: roleStatusView.offerPending === true
       };
+      // At the interview stage the practice page's bar must know whether a
+      // time is booked ("Choose your interview time" vs the joining details).
+      if (roleStatusView.status === 'interview') {
+        try {
+          const ivRef = await findInterviewForApplication(roleRevealCtx.application.id);
+          roleClientPayload.applicationStatus.interviewBooked = ivRef ? (String(ivRef.status || '') === 'booked') : null;
+        } catch (e) { /* unknown → the generic interview bar */ }
+      }
     }
 
     if (isAdminPreviewRole) roleClientPayload.preview = true;
@@ -51538,6 +51546,99 @@ async function handleApi(req, res, pathname) {
   // POST /api/career/match/seen {applicationId} — sets match_seen_at ONLY if
   // it's currently null (idempotent: the popup and the pinned card can both
   // race to call this on the same load).
+  // GET /api/career/interviews/pending — interviews whose practice has
+  // confirmed availability and the doctor has not booked yet. Drives the
+  // full-page interview-times popup (js/interview-popup.js; owner 2026-09-07:
+  // "when the practice accepts and gives interview times then there should be
+  // a full page that shows the available times"). Same gating as the matches
+  // feed: a locked or gated account sees nothing.
+  if (pathname === '/api/career/interviews/pending' && req.method === 'GET') {
+    const ipSession = requireSession(req, res);
+    if (!ipSession) return;
+    const ipEmail = getSessionEmail(ipSession);
+    if (!ipEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const ipUserId = getSessionSupabaseUserId(ipSession) || await getSupabaseUserIdByEmail(ipEmail);
+    if (!ipUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const ipStateResult = await getSupabaseUserStateByEmail(ipEmail);
+    const ipState = (ipStateResult && ipStateResult.state && typeof ipStateResult.state === 'object') ? ipStateResult.state : {};
+    const ipLock = (ipState.career_lock && typeof ipState.career_lock === 'object') ? ipState.career_lock : {};
+    if (isCareerLocked(ipLock)) { sendJson(res, 200, { ok: true, interviews: [], locked: true }); return; }
+    const ipAcct = String(ipState.account_status || 'active').toLowerCase();
+    if (!ipState.gp_onboarding_complete || ipAcct === 'under_review' || ipAcct === 'pep_waitlist' || ipAcct === 'archived') {
+      sendJson(res, 200, { ok: true, interviews: [], locked: false });
+      return;
+    }
+    const ipDismissed = (ipState.interview_popup_dismissed && typeof ipState.interview_popup_dismissed === 'object') ? ipState.interview_popup_dismissed : {};
+    const ipRowsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(ipUserId) + '&ats_stage=eq.interview&limit=200');
+    const ipRows = (ipRowsRes.ok && Array.isArray(ipRowsRes.data)) ? ipRowsRes.data : [];
+    const ipItems = [];
+    for (const r of ipRows) {
+      if (['withdrawn', 'not_proceeding', 'offer_declined', 'declined'].indexOf(String(r.status || '').toLowerCase()) !== -1) continue;
+      if (r.interview_completed_at) continue;
+      const ref = await findInterviewForApplication(r.id);
+      if (!ref || String(ref.status || '') === 'booked') continue;
+      let ivRow = null;
+      if (isSupabaseDbConfigured()) {
+        const rr = await supabaseDbRequest('scheduled_calls', 'select=*&id=eq.' + encodeURIComponent(String(ref.id)) + '&limit=1');
+        ivRow = (rr.ok && Array.isArray(rr.data) && rr.data[0]) ? rr.data[0] : null;
+      } else {
+        ivRow = (dbState.scheduledCalls || []).find((x) => String(x.id) === String(ref.id)) || null;
+      }
+      if (!ivRow || ivRow.scheduled_at) continue;
+      // "Times are ready" = the practice's availability came in, or the
+      // booking invite already went out (which needs windows to exist).
+      const timesReady = String(ivRow.practice_availability_status || '') === interviewMeetings.PRACTICE_AVAIL.RECEIVED || !!r.booking_invite_sent_at;
+      if (!timesReady) continue;
+      const job = (r.career_role_id !== null && r.career_role_id !== undefined) ? await atsGetJobRow(r.career_role_id) : null;
+      const practice = (job && job.practice_id) ? await atsGetPracticeRow(job.practice_id) : null;
+      const names = atsJobDisplayNames({ title: (job && job.title) || r.job_title || '', practice_name: (job && job.practice_name) || r.practice_name || '' }, practice);
+      ipItems.push({
+        applicationId: r.id,
+        roleId: job ? makeCareerRoleId(job.provider, job.provider_role_id) : String(r.career_role_id || ''),
+        practiceName: names.practice || '',
+        jobTitle: names.role || '',
+        website: resolveNamedPracticeWebsite(job || {}, practice),
+        headerImageUrl: (job && job.header_image_url) || '',
+        locationCity: (job && (job.suburb || job.location_city)) || '',
+        locationState: (job && job.location_state) || '',
+        invitedAt: r.booking_invite_sent_at || ivRow.practice_availability_received_at || ivRow.updated_at || null,
+        dismissedAt: ipDismissed[String(r.id)] || null
+      });
+    }
+    ipItems.sort((a, b) => new Date(b.invitedAt || 0) - new Date(a.invitedAt || 0));
+    let ipLastName = '';
+    try {
+      const ipProf = await supabaseDbRequest('user_profiles', 'select=last_name&user_id=eq.' + encodeURIComponent(ipUserId) + '&limit=1');
+      ipLastName = (ipProf.ok && Array.isArray(ipProf.data) && ipProf.data[0] && ipProf.data[0].last_name) || '';
+    } catch (e) { ipLastName = ''; }
+    sendJson(res, 200, { ok: true, locked: false, interviews: ipItems, gp: { lastName: ipLastName } });
+    return;
+  }
+
+  // POST /api/career/interview/popup-seen — "I'll choose later" on the
+  // interview-times popup. Recorded in the doctor's own user_state so it
+  // holds across devices; the popup returns after 24h while still unbooked.
+  if (pathname === '/api/career/interview/popup-seen' && req.method === 'POST') {
+    const psSession = requireSession(req, res);
+    if (!psSession) return;
+    const psEmail = getSessionEmail(psSession);
+    const psUserId = getSessionSupabaseUserId(psSession) || (psEmail ? await getSupabaseUserIdByEmail(psEmail) : null);
+    if (!psUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let psBody; try { psBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const psAppId = String((psBody && psBody.applicationId) || '').trim();
+    if (!psAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    const psCtx = await atsGetApplicationContext(psAppId);
+    if (!psCtx || String(psCtx.userId || '') !== String(psUserId)) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    const psState = await readUserStateForMerge(psUserId, 'interview-popup');
+    if (!psState) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
+    const psMap = (psState.interview_popup_dismissed && typeof psState.interview_popup_dismissed === 'object' && !Array.isArray(psState.interview_popup_dismissed)) ? psState.interview_popup_dismissed : {};
+    psMap[psAppId] = new Date().toISOString();
+    psState.interview_popup_dismissed = psMap;
+    await upsertSupabaseUserState(psUserId, psState);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (pathname === '/api/career/match/seen' && req.method === 'POST') {
     const msnSession = requireSession(req, res);
     if (!msnSession) return;

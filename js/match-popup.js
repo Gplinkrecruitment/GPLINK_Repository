@@ -106,6 +106,9 @@
     };
   }
 
+  // Shared with js/interview-popup.js so both takeovers celebrate the same way.
+  try { window.gpLaunchLoopingConfetti = launchLoopingConfetti; } catch (e) {}
+
   function fetchMatches() {
     return fetch("/api/career/matches", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : null; })

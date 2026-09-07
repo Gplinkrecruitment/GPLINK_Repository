@@ -1713,6 +1713,7 @@
     const st = serverApplicationKey(role);
     if (!st) return "";
     if (st === "offer" && role.applicationStatus.offerPending === false) return "offer_preparing";
+    if (st === "interview" && role.applicationStatus.interviewBooked === false) return "interview_pick";
     return jobStageKey(st);
   }
   function isApplied(roleId) {
@@ -2762,6 +2763,7 @@
     submitted: "✓ With the practice<small>They have your profile — we'll come back to you</small>",
     reviewing: "✓ With the practice<small>They're reviewing your profile now</small>",
     interview: "✓ Interview stage<small>Your time and joining link are on My Practice</small>",
+    interview_pick: "📅 Choose your interview time<small>The practice has confirmed their availability — pick a time on My Practice</small>",
     interview_completed: "✓ Interview done<small>The practice is making their decision</small>",
     offer: "🎉 Offer waiting for you<small>Open My Practice to read it and decide</small>",
     offer_preparing: "✓ Offer on its way<small>The practice is preparing your offer — we'll message you the moment it lands</small>",
