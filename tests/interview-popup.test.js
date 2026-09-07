@@ -89,3 +89,91 @@ describe('wiring', () => {
     expect(s).toContain("roleClientPayload.applicationStatus.interviewBooked = ivRef ? (String(ivRef.status || '') === 'booked') : null;");
   });
 });
+
+// Owner 2026-09-08: "interview time was selected but caching then shows this"
+// — the card kept offering the picker after the popup booking, because the
+// shell's gp-cache served /api/career/applications from sessionStorage for
+// ten minutes and nothing dropped it, and the slots endpoint happily listed
+// times for an interview that was already booked.
+describe('after a booking, every cached copy is dropped and the open page is told', () => {
+  function fakeWindow() {
+    const calls = { slotClear: [], invalidatePrefix: [], invalidate: [], session: {}, posted: [], events: [] };
+    const frame = { contentWindow: { postMessage: (m, o) => calls.posted.push({ m, o }) } };
+    return { calls, win: {
+      gpInterviewSlotsCache: { clear: (id) => calls.slotClear.push(id) },
+      gpCache: { invalidatePrefix: (p) => calls.invalidatePrefix.push(p), invalidate: (u) => calls.invalidate.push(u) },
+      sessionStorage: { setItem: (k, v) => { calls.session[k] = v; } },
+      document: { querySelectorAll: () => [frame, frame] },
+      location: { origin: 'http://localhost:3000' },
+      dispatchEvent: (ev) => calls.events.push(ev && ev.type)
+    } };
+  }
+  it('afterBooking clears the slot cache, drops every career payload, flags the list dirty and posts to each frame', () => {
+    const { calls, win } = fakeWindow();
+    const detail = P.afterBooking(win, 'a1', { scheduled_at: '2026-09-12T04:00:00Z', zoom_join_url: '' });
+    expect(detail).toEqual({ applicationId: 'a1', scheduledAt: '2026-09-12T04:00:00Z', zoomJoinUrl: '' });
+    expect(calls.slotClear).toEqual(['a1']);
+    expect(calls.invalidatePrefix).toEqual(['/api/career/']);
+    expect(calls.invalidate.flat()).toEqual(expect.arrayContaining(['/api/career/applications', '/api/career/roles', '/api/state']));
+    expect(calls.session.gp_career_apps_dirty).toBe('1');
+    expect(calls.posted).toHaveLength(2);
+    expect(calls.posted[0].o).toBe('http://localhost:3000');
+    expect(calls.posted[0].m).toEqual({ type: 'gp-interview-booked', applicationId: 'a1', scheduledAt: '2026-09-12T04:00:00Z', zoomJoinUrl: '' });
+    if (typeof CustomEvent !== 'undefined') expect(calls.events).toContain('gp-interview-booked');
+  });
+  it('a window with none of that is not an error (nothing to clear)', () => {
+    expect(() => P.afterBooking({ document: null, location: null }, 'a1', null)).not.toThrow();
+  });
+  it('the popup uses it on confirm and when the server says the interview is already booked', () => {
+    const src = read('js/interview-popup.js');
+    expect(src).toContain('afterBooking(window, iv.applicationId, booked);');
+    expect(src).toContain("if (res.status === 409 && res.body && res.body.error === 'already_booked') {");
+    expect(src).toContain('afterBooking(window, iv.applicationId, b);');
+    expect(src).not.toContain("new CustomEvent('gp-interview-booked', { detail: { applicationId: iv.applicationId } })");
+  });
+  it('the slots endpoint answers 409 already_booked with the confirmed time, before listing anything', () => {
+    const s = read('server.js');
+    const at = s.indexOf("pathname === '/api/career/interview/slots'");
+    const handler = s.slice(at, s.indexOf("pathname === '/api/career/interview/book'", at));
+    expect(handler).toContain('if (_interviewRowIsAlreadyBooked(ciInterviewRef)) {');
+    expect(handler).toContain("error: 'already_booked',");
+    expect(handler.indexOf("error: 'already_booked'")).toBeLessThan(handler.indexOf('_interviewSlotContext(ciAppId'));
+    expect(s).toContain("'select=id,status,scheduled_at,zoom_join_url&application_id=eq.'");
+  });
+  it('the career page listens for the booking, flips the card quietly and re-reads the list from the server', () => {
+    const career = read('pages/career.html');
+    expect(career).toContain('if (!data || data.type !== "gp-interview-booked" || !data.applicationId) return;');
+    expect(career).toContain('careerIvApplyBooking(String(data.applicationId), { scheduledAt: String(data.scheduledAt), zoomJoinUrl: data.zoomJoinUrl || "" }, { silent: true });');
+    expect(career).toContain('loadRemoteApplications({ forceNetwork: true });');
+    const load = (career.match(/function careerIvLoad\(appId\)[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(load).toContain('if (res.status === 409 && res.data && res.data.error === "already_booked") {');
+    const apply = (career.match(/function careerIvApplyBooking\(appId, interview, opts\)[\s\S]*?\n    \}\n/) || [''])[0];
+    expect(apply).toContain('window.gpCache.invalidatePrefix("/api/career/");');
+    expect(apply).toContain('window.gpCache.invalidate(["/api/career/roles", "/api/state"]);');
+    expect(apply).toContain('if (quiet) return;');
+  });
+  it('the job page, the application page and the secure-interview page say "already booked" instead of an error', () => {
+    expect(read('pages/job.html')).toContain('} else if (res.status === 409 && data && data.error === "already_booked") {');
+    expect(read('pages/job.html')).toContain('if (offerSlotsStatus === "booked") {');
+    expect(read('pages/application-detail.html')).toContain("else if (status === 409 && data.error === 'already_booked') {");
+    expect(read('pages/secure-interview.html')).toContain("if (status === 409 && data.error === 'already_booked') {");
+  });
+  it('the saved copy keeps server-backed applications across a roles refresh (no "No applications yet" flash)', () => {
+    const career = read('pages/career.html');
+    expect(career).toContain('.filter((job) => job && (job.id || roleIds.has(job.roleId) || job.isPlacementSecured === true))');
+  });
+  it('a failed applications lookup answers 503, never an empty success the page would cache and reconcile to', () => {
+    const s = read('server.js');
+    const at = s.indexOf("pathname === '/api/career/applications' && req.method === 'GET'");
+    const handler = s.slice(at, at + 6000);
+    expect(handler).toContain('if (isSupabaseDbConfigured() && !result.ok) {');
+    expect(handler).toContain("sendJson(res, 503, { ok: false, message: 'Could not load your applications just now — please try again shortly.' });");
+    expect(handler.indexOf('if (isSupabaseDbConfigured() && !result.ok) {')).toBeLessThan(handler.indexOf('const applications = result.ok && Array.isArray(result.data) ? result.data : [];'));
+  });
+  it('the popup script and the service worker moved to a new version together', () => {
+    const shell = read('pages/app-shell.html');
+    expect(shell).toContain('/js/interview-popup.js?v=20260908b');
+    expect(read('sw.js')).toContain('"/js/interview-popup.js?v=20260908b"');
+    expect(read('sw.js')).toContain('var VERSION = "20260908f"');
+  });
+});

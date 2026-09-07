@@ -9888,7 +9888,16 @@
             // never are. Dropping it here made the cached "Practice Secured"
             // view impossible: every boot fell back to the job board until the
             // server re-sent the placement (the wrong-page flash on My Practice).
-            .filter((job) => job && (roleIds.has(job.roleId) || job.isPlacementSecured === true))
+            // Server-backed applications (every application today: apply
+            // persists server-side, then we refetch) survive too, whatever the
+            // public roles list says. An in-app match is for a practice that is
+            // not on the job board, so filtering by roleIds dropped it on every
+            // re-read of the saved copy (roles fetch, state sync) and the page
+            // flashed "No applications yet" until the next applications round
+            // trip — losing a just-booked interview with it (2026-09-08).
+            // mergeRemoteApplications reconciles the list to the server on
+            // every load, so nothing stale can linger here.
+            .filter((job) => job && (job.id || roleIds.has(job.roleId) || job.isPlacementSecured === true))
             .map((job) => {
               const liveRole = roleMap.get(job.roleId);
               if (!liveRole) return normalizeCareerApplication(job);
@@ -13999,6 +14008,16 @@
         .then((res) => {
           st.loading = false;
           st.loaded = true;
+          if (res.status === 409 && res.data && res.data.error === "already_booked") {
+            // The card was painted from a cached applications payload; the
+            // server says this interview is confirmed. Flip the card and
+            // re-read the truth rather than offering times that no longer apply.
+            if (ivCache) ivCache.clear(appId);
+            const b = res.data.booked || {};
+            if (b.scheduled_at) careerIvApplyBooking(appId, { scheduledAt: String(b.scheduled_at), zoomJoinUrl: b.zoom_join_url || "" }, { silent: true });
+            loadRemoteApplications({ forceNetwork: true });
+            return;
+          }
           const fresh = (res.data && Array.isArray(res.data.slots)) ? res.data.slots : [];
           if (res.status === 200) {
             if (ivCache) ivCache.write(appId, careerDeviceTz, fresh);
@@ -14088,12 +14107,21 @@
     // application object both renders read, then re-rendering. The gp-cache
     // entry is dropped too, or a reload inside the 10-minute window would show
     // the picker again for an interview that is already booked.
-    function careerIvApplyBooking(appId, interview) {
+    function careerIvApplyBooking(appId, interview, opts) {
+      const quiet = !!(opts && opts.silent);
       try {
         const app = (careerState.applications || []).find((a) => a && String(a.id || a.applicationId || "") === String(appId));
         if (app) app.interview = interview;
+        // Drop EVERY cached career payload, not only the applications list:
+        // /api/career/roles carries applicationStatus.interviewBooked (the job
+        // page's "choose your interview time" bar) and /api/state feeds the
+        // home card. gp-cache serves them from sessionStorage for minutes.
         if (window.gpCache && typeof window.gpCache.invalidate === "function") {
           window.gpCache.invalidate("/api/career/applications");
+          window.gpCache.invalidate(["/api/career/roles", "/api/state"]);
+        }
+        if (window.gpCache && typeof window.gpCache.invalidatePrefix === "function") {
+          window.gpCache.invalidatePrefix("/api/career/");
         }
         // Write the booking to the saved copy NOW, not on some later sync. This
         // object only lived in memory before, so closing the tab straight after
@@ -14104,8 +14132,24 @@
         if (app) persistCareerState();
       } catch (e) { /* display-only */ }
       renderApplications();
+      if (quiet) return; // the shell popup already showed its own confirmation
       showCareerNotice("Interview confirmed", "You're booked for " + careerIvFormatFull(interview.scheduledAt) + ". We've emailed you the Zoom link, and your Registration Support Officer will join you.");
     }
+
+    // The shell's interview popup (js/interview-popup.js, above this frame)
+    // tells every open page when a time is confirmed, so a card already on
+    // screen flips to "See my interview" without a reload — and the list is
+    // then re-read from the server, never from the cached copy that still
+    // said "pick a time".
+    window.addEventListener("message", function (event) {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.type !== "gp-interview-booked" || !data.applicationId) return;
+      if (data.scheduledAt) {
+        careerIvApplyBooking(String(data.applicationId), { scheduledAt: String(data.scheduledAt), zoomJoinUrl: data.zoomJoinUrl || "" }, { silent: true });
+      }
+      loadRemoteApplications({ forceNetwork: true });
+    });
 
     // Start (or repaint) every picker currently on the page. Called after both
     // renders; the per-app state above means a repaint never refetches.

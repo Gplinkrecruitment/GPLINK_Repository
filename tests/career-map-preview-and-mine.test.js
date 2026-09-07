@@ -205,7 +205,7 @@ describe('career cards: pick an interview time in place', () => {
   // closing the tab straight after booking used to leave localStorage still
   // saying "no interview".
   it('writes a card booking through to the saved copy', () => {
-    const apply = (career.match(/function careerIvApplyBooking\(appId, interview\)[\s\S]*?\n    \}\n/) || [''])[0];
+    const apply = (career.match(/function careerIvApplyBooking\(appId, interview, opts\)[\s\S]*?\n    \}\n/) || [''])[0];
     expect(apply).toMatch(/if \(app\) app\.interview = interview;/);
     expect(apply).toMatch(/if \(app\) persistCareerState\(\);/);
   });

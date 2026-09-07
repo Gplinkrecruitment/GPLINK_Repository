@@ -113,6 +113,41 @@
     window.location.href = '/pages/career';
   }
 
+  // Booking side effects, shared by the confirm click and the "already
+  // booked" answer from the slots endpoint. The shell's gp-cache serves
+  // /api/career/applications, /api/career/roles and /api/state from
+  // sessionStorage for minutes, so without this the career page underneath
+  // repainted the picker for an interview that was already confirmed (owner
+  // 2026-09-08: "interview time was selected but caching then shows this").
+  // Drops the slot cache and every cached career payload, flags the
+  // applications list dirty for the next cold load, and tells each open page
+  // frame so a card already on screen flips to "See my interview" at once.
+  function afterBooking(win, applicationId, booked) {
+    var w = win || window;
+    var detail = {
+      applicationId: String(applicationId || ''),
+      scheduledAt: (booked && (booked.scheduledAt || booked.scheduled_at)) || '',
+      zoomJoinUrl: (booked && (booked.zoomJoinUrl || booked.zoom_join_url)) || ''
+    };
+    try { if (w.gpInterviewSlotsCache) w.gpInterviewSlotsCache.clear(detail.applicationId); } catch (e) {}
+    try {
+      var gc = w.gpCache;
+      if (gc && typeof gc.invalidatePrefix === 'function') gc.invalidatePrefix('/api/career/');
+      if (gc && typeof gc.invalidate === 'function') gc.invalidate(['/api/career/applications', '/api/career/roles', '/api/state']);
+    } catch (e) {}
+    try { w.sessionStorage.setItem('gp_career_apps_dirty', '1'); } catch (e) {}
+    var frames = [];
+    try { frames = Array.prototype.slice.call(w.document.querySelectorAll('iframe')); } catch (e) {}
+    var msg = { type: 'gp-interview-booked', applicationId: detail.applicationId, scheduledAt: detail.scheduledAt, zoomJoinUrl: detail.zoomJoinUrl };
+    var origin = '';
+    try { origin = w.location.origin; } catch (e) {}
+    frames.forEach(function (f) {
+      try { if (f.contentWindow) f.contentWindow.postMessage(msg, origin || '/'); } catch (e) {}
+    });
+    try { w.dispatchEvent(new CustomEvent('gp-interview-booked', { detail: detail })); } catch (e) {}
+    return detail;
+  }
+
   // ── Markup ───────────────────────────────────────────────────────────────
   function buildHtml(iv, gp) {
     var lastName = (gp && gp.lastName) || '';
@@ -268,6 +303,11 @@
     }
 
     var cache = (typeof window !== 'undefined' && window.gpInterviewSlotsCache) || null;
+    function showBooked(booked) {
+      overlay.innerHTML = '<div class="gpip-card">' + buildBookedHtml(iv, { scheduledAt: (booked && booked.scheduled_at) || '' }) + '</div>';
+      var done = overlay.querySelector('[data-gpip-done]');
+      if (done) done.addEventListener('click', function () { closeOverlay(overlay); navigateToCareer(); });
+    }
     function loadSlots() {
       // Paint the cached list instantly (shared with the card picker), then
       // refresh it quietly.
@@ -281,6 +321,14 @@
       }
       var url = '/api/career/interview/slots?applicationId=' + encodeURIComponent(iv.applicationId) + (tz ? '&viewer_tz=' + encodeURIComponent(tz) : '');
       getJson(url).then(function (res) {
+        if (res.status === 409 && res.body && res.body.error === 'already_booked') {
+          // Booked meanwhile (from the card underneath, or another tab): show
+          // the confirmation, never a picker for a time that is already set.
+          var b = res.body.booked || {};
+          afterBooking(window, iv.applicationId, b);
+          showBooked(b);
+          return;
+        }
         var fresh = (res.body && Array.isArray(res.body.slots)) ? res.body.slots : [];
         if (res.status === 200 && cache) cache.write(iv.applicationId, tz, fresh);
         if (cached && (res.status !== 200 || (cache && cache.sameSlots(cached.slots, fresh)))) return; // keep the instant paint
@@ -310,13 +358,11 @@
       postJson('/api/career/interview/book', { applicationId: iv.applicationId, slot_start_utc: state.selected, viewer_tz: tz || undefined }).then(function (res) {
         state.booking = false;
         if (res.status === 200 && res.body && res.body.ok) {
-          if (cache) cache.clear(iv.applicationId);
           var booked = res.body.booked || {};
-          overlay.innerHTML = '<div class="gpip-card">' + buildBookedHtml(iv, { scheduledAt: booked.scheduled_at || state.selected }) + '</div>';
+          if (!booked.scheduled_at) booked.scheduled_at = state.selected;
+          afterBooking(window, iv.applicationId, booked);
+          showBooked(booked);
           startConfetti(overlay);
-          var done = overlay.querySelector('[data-gpip-done]');
-          if (done) done.addEventListener('click', function () { closeOverlay(overlay); navigateToCareer(); });
-          try { window.dispatchEvent(new CustomEvent('gp-interview-booked', { detail: { applicationId: iv.applicationId } })); } catch (e) {}
           return;
         }
         if (res.status === 409 && res.body && res.body.error === 'slot_taken') {
@@ -374,6 +420,7 @@
     groupSlotsByDay: groupSlotsByDay,
     buildHtml: buildHtml,
     buildBookedHtml: buildBookedHtml,
+    afterBooking: afterBooking,
     formatFull: formatFull,
     init: init,
     run: run

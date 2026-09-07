@@ -1819,7 +1819,8 @@
   })();
 
   let offerSlots = [];              // [{ startUtc, local: { gp: { tz, label } } }]
-  let offerSlotsStatus = "idle";    // idle | loading | ready | error | not_available
+  let offerSlotsStatus = "idle";    // idle | loading | ready | error | not_available | booked
+  let offerBookedAt = "";           // set with status "booked" — the confirmed time
   let offerSelectedDayKey = null;
   let offerSelectedSlotUtc = null;
   let offerPendingSlot = null;      // slot shown in the booking confirm sheet
@@ -3093,6 +3094,13 @@
       return;
     }
 
+    if (offerSlotsStatus === "booked") {
+      let bookedWhen = "";
+      try { bookedWhen = offerBookedAt ? new Date(offerBookedAt).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : ""; } catch (e) {}
+      wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">Your interview is already booked' + (bookedWhen ? ' for <b>' + bookedWhen + '</b>' : '') + '. We’ve emailed you the video link, and your Registration Support Officer will join you.</p></div>';
+      return;
+    }
+
     const groups = groupSlotsByDay(offerSlots);
     if (!groups.length) {
       wrap.innerHTML = '<div class="at-sched"><p class="at-sched-note">No times are available right now — please check back shortly, or <a href="' + OFFICER_RESCHEDULE_MAILTO + '">message your Registration Support Officer</a>.</p></div>';
@@ -3142,6 +3150,15 @@
         offerSlotsStatus = "ready";
       } else if (res.status === 403 && data && data.error === "not_available") {
         offerSlotsStatus = "not_available";
+      } else if (res.status === 409 && data && data.error === "already_booked") {
+        // Booked from the shell popup or the career card while this page's
+        // role payload (gp-cache, minutes old) still said "choose a time".
+        offerBookedAt = (data.booked && data.booked.scheduled_at) || "";
+        offerSlotsStatus = "booked";
+        try {
+          var gcBooked = window.gpCache || (window.parent && window.parent.gpCache) || null;
+          if (gcBooked && gcBooked.invalidatePrefix) { gcBooked.invalidatePrefix("/api/career/"); gcBooked.invalidate("/api/state"); }
+        } catch (e) {}
       } else if (res.status === 401) {
         redirectToSignIn();
         return;

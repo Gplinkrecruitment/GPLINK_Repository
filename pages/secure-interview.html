@@ -569,6 +569,10 @@
           showError('Please sign in again to book your interview.');
           return;
         }
+        if (status === 409 && data.error === 'already_booked') {
+          showError('This interview is already booked — check your email for the confirmed time and video link.');
+          return;
+        }
         if (status === 404) {
           showError("We couldn't find this application. Please go back to your offer and try again.", '/pages/offer-review.html');
           return;

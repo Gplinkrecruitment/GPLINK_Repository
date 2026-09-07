@@ -49,7 +49,9 @@ describe('wiring', () => {
     expect(career).toContain('if (careerIvCache()) careerIvCache().clear(appId);');
     const popup = read('js/interview-popup.js');
     expect(popup).toContain('var cached = cache ? cache.read(iv.applicationId, tz) : null;');
-    expect(popup).toContain('if (cache) cache.clear(iv.applicationId);');
+    // the clear now runs inside afterBooking(), with the rest of the post-booking refresh
+    expect(popup).toContain('afterBooking(window, iv.applicationId, booked);');
+    expect(popup).toContain('w.gpInterviewSlotsCache.clear(detail.applicationId);');
     const shell = read('pages/app-shell.html');
     expect(shell.indexOf('/js/interview-slots-cache.js?v=')).toBeLessThan(shell.indexOf('/js/interview-popup.js?v='));
     expect(read('sw.js')).toContain('"/js/interview-slots-cache.js?v=20260908a"');

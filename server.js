@@ -40716,7 +40716,7 @@ async function atsGetApplicationContext(appId) {
 async function findInterviewForApplication(appId) {
   if (isSupabaseDbConfigured()) {
     var r = await supabaseDbRequest('scheduled_calls',
-      'select=id,status&application_id=eq.' + encodeURIComponent(appId) + '&meeting_kind=eq.interview&status=neq.cancelled&limit=1');
+      'select=id,status,scheduled_at,zoom_join_url&application_id=eq.' + encodeURIComponent(appId) + '&meeting_kind=eq.interview&status=neq.cancelled&limit=1');
     return (r.ok && r.data && r.data[0]) ? r.data[0] : null;
   }
   return (dbState.scheduledCalls || []).find(function (r) {
@@ -50983,13 +50983,35 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    const ciInterviewRef = await findInterviewForApplication(ciAppId);
+    // A booked interview never hands out a list. (Ownership is verified above;
+    // the reveal lookup below is skipped for a booked row — confirming a time
+    // the doctor chose themselves discloses nothing new, and every Supabase
+    // round trip saved here is time the stale card keeps showing a picker.)
+    // The career page and the job page paint their pickers from gp-cache
+    // copies of /api/career/applications
+    // and /api/career/roles (minutes old), so a card could still say "pick a
+    // time" after the doctor booked in the shell popup (owner 2026-09-08).
+    // Answering with the confirmed time lets every picker flip itself to the
+    // booked state instead of listing times that no longer apply. Same rule
+    // as the book endpoint (_interviewRowIsAlreadyBooked): a sat or missed
+    // interview is history too, never a list of new times.
+    if (_interviewRowIsAlreadyBooked(ciInterviewRef)) {
+      interviewSlotsMemoClear(ciAppId);
+      sendJson(res, 409, {
+        ok: false,
+        error: 'already_booked',
+        message: 'This interview is already booked.',
+        booked: { scheduled_at: ciInterviewRef.scheduled_at || '', zoom_join_url: ciInterviewRef.zoom_join_url || '' }
+      });
+      return;
+    }
     const ciRevealed = await canRevealPracticeIdentity(ciUserId, ciCtx.careerRoleId);
     if (!ciRevealed) { sendJson(res, 403, { ok: false, error: 'not_available' }); return; }
 
     // Find (or create) the interview row for this application. Creating it
     // here — rather than requiring the admin /request flow first — is the
     // whole point of self-serve booking: no practice round-trip.
-    const ciInterviewRef = await findInterviewForApplication(ciAppId);
     if (!ciInterviewRef) {
       const ciRow = interviewMeetings.buildInterviewRow({
         caseId: ciCtx.caseId,
@@ -52897,6 +52919,17 @@ async function handleApi(req, res, pathname) {
         `select=*&user_id=eq.${encodeURIComponent(userId)}&order=applied_at.desc`
       )
     ]);
+    // A failed lookup must NOT come back as an empty success: the career page
+    // reconciles its list to this payload unconditionally (an authoritative
+    // empty list means "no applications") and gp-cache would then serve that
+    // empty list for ten minutes — every card gone, a booked interview with
+    // them, on one transient Supabase error (2026-09-08). Say it failed; the
+    // page keeps what it has and tries again on the next load.
+    if (isSupabaseDbConfigured() && !result.ok) {
+      console.warn('[career/applications] lookup failed:', result.status || '', String(result.error || '').slice(0, 160));
+      sendJson(res, 503, { ok: false, message: 'Could not load your applications just now — please try again shortly.' });
+      return;
+    }
     const applications = result.ok && Array.isArray(result.data) ? result.data : [];
     // Zoho Recruit decommissioned — applications are served from the owned
     // gp_applications table; there is no live external source to merge.

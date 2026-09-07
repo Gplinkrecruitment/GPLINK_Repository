@@ -1775,6 +1775,12 @@
             }
             statusEl.hidden = false;
             if (status === 403) statusEl.textContent = "Your interview isn't open for booking just yet — we'll email you the moment the practice shares their times.";
+            else if (status === 409 && data.error === 'already_booked') {
+              // Booked elsewhere (shell popup / career card) while this page
+              // still held a cached copy that said "pick a time".
+              try { if (window.gpCache && window.gpCache.invalidatePrefix) { window.gpCache.invalidatePrefix('/api/career/'); window.gpCache.invalidate('/api/state'); } } catch (e) {}
+              statusEl.textContent = "This interview is already booked — refresh the page to see your confirmed time.";
+            }
             else statusEl.textContent = "We couldn't load your interview times. Please try again shortly.";
           })
           .catch(function () {

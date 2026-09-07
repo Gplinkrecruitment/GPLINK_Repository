@@ -399,9 +399,15 @@ describe('A4 + A2 — book (ops-notified) then cancel & rebook', () => {
     expect(row).toBeTruthy();
     const originalWhen = row.scheduled_at;
 
+    // A booked interview no longer hands out a list — the pickers flip to the
+    // confirmed state on this answer (owner 2026-09-08) — so the "other" time
+    // a late booking would try is derived instead.
     const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-mgmt-2');
-    const otherSlot = (slotsRes.body.slots || []).find((s) => s.startUtc !== originalWhen);
-    expect(otherSlot).toBeTruthy();
+    expect(slotsRes.status).toBe(409);
+    expect(slotsRes.body.error).toBe('already_booked');
+    expect(slotsRes.body.booked.scheduled_at).toBe(originalWhen);
+    const otherSlot = { startUtc: new Date(Date.parse(originalWhen) + 30 * 60 * 1000).toISOString() };
+    expect(otherSlot.startUtc).not.toBe(originalWhen);
 
     for (const sat of ['completed', 'no_show']) {
       row.status = sat;
