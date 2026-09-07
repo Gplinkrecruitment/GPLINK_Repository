@@ -179,6 +179,14 @@ describe('after a booking, every cached copy is dropped and the open page is tol
     expect(s).toContain("console.error('[post-interview] could not clear post_interview_email_sent_at for application '");
     expect(s).toContain('return { ok: false, error: error, rollbackFailed: !rolledBack };');
   });
+  it('every Resend send carries one Idempotency-Key across its retries, so a lost response cannot double-send', () => {
+    const s = read('server.js');
+    const at = s.indexOf('async function sendEmail({');
+    const fn = s.slice(at, at + 12000);
+    expect(fn).toContain('const idempotencyKey = crypto.randomUUID();');
+    expect(fn).toContain("'Idempotency-Key': idempotencyKey");
+    expect(fn.indexOf('const idempotencyKey = crypto.randomUUID();')).toBeLessThan(fn.indexOf('for (let attempt = 0; attempt < RESEND_MAX_SEND_ATTEMPTS && !delivered; attempt++) {'));
+  });
   it('the popup script and the service worker moved to a new version together', () => {
     const shell = read('pages/app-shell.html');
     expect(shell).toContain('/js/interview-popup.js?v=20260908b');

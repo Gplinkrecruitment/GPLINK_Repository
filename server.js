@@ -35159,6 +35159,12 @@ async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachmen
     const retryDeadlineMs = Date.now() + RESEND_RETRY_BUDGET_MS;
     let lastFailure = null;
     let delivered = false;
+    // One idempotency key per logical send, reused on every retry: Resend
+    // keeps it for 24 h and answers a repeat with the original result instead
+    // of a second email. Without it a retry after a LOST response (Resend
+    // accepted, our socket timed out reading the answer — 2026-09-08, slow
+    // connects from AU) sent the practice the same email twice.
+    const idempotencyKey = crypto.randomUUID();
 
     for (let attempt = 0; attempt < RESEND_MAX_SEND_ATTEMPTS && !delivered; attempt++) {
       // Bulk-shaped sends take a turn at the pacing gate — first try AND
@@ -35173,7 +35179,8 @@ async function sendEmail({ to, subject, html, text, from, replyTo, cc, attachmen
           signal: controller.signal,
           headers: {
             'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey
           },
           body: JSON.stringify(emailPayload)
         });
@@ -38533,9 +38540,11 @@ async function sendPostInterviewDecisionEmail(applicationId) {
 
   var rollbackStamp = async function (error) {
     // The stamp is what the retry sweep keys on, so a rollback that quietly
-    // fails leaves the practice without this email forever: stamped, never
-    // sent, never retried (2026-09-08: one transient network error on the
-    // rollback's own request did exactly that). Try a few times and shout.
+    // failed would leave the practice without this email forever: stamped,
+    // never sent, never retried. Try a few times and shout rather than
+    // swallow it (hardened 2026-09-08 while tracing a send that failed
+    // locally; the stamp that "survived" there turned out to be production's
+    // reconcile sweep sending the email itself — same database).
     var rolledBack = false;
     for (var rbAttempt = 0; rbAttempt < 3 && !rolledBack; rbAttempt++) {
       try {
