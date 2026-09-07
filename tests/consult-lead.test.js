@@ -420,17 +420,38 @@ describe('nextConsultNudge', () => {
   // Both touches are CHASES: the magic link now goes out on qualification from
   // the FB webhook, because Meta gives us no way to identify a GP who taps the
   // thank-you button, so the email is the only zero-typing route to a booking.
-  it('not-booked: fires step 0 at 2h, step 1 at 48h, one per pass, never repeats', () => {
+  it('not-booked: fires step 0 at 2h, step 1 at 48h, step 2 (WhatsApp only) at day 5, one per pass, never repeats', () => {
     const base = { consult: { call_booked: false, nudges: [] }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...base, nowMs: t0 + 45 * MIN })).toBe(null);
     expect(nextConsultNudge({ ...base, nowMs: t0 + 1 * H })).toBe(null);
-    expect(nextConsultNudge({ ...base, nowMs: t0 + 3 * H })).toEqual({ seq: 'not_booked', step: 0 });
+    expect(nextConsultNudge({ ...base, nowMs: t0 + 3 * H })).toEqual({ seq: 'not_booked', step: 0, email: true, wa: 'not_booked' });
     // after step 0 recorded, step 1 not due until 48h even if 3h elapsed
     const afterStep0 = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 3 * H })).toBe(null);
-    expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 49 * H })).toEqual({ seq: 'not_booked', step: 1 });
-    const done = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 49 * H })).toEqual({ seq: 'not_booked', step: 1, email: true, wa: 'not_booked_2' });
+    // step 2 is the WhatsApp-only "last note", day 5
+    const afterStep1 = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...afterStep1, nowMs: t0 + 4 * D })).toBe(null);
+    expect(nextConsultNudge({ ...afterStep1, nowMs: t0 + 5 * D })).toEqual({ seq: 'not_booked', step: 2, email: false, wa: 'not_booked_3' });
+    const done = { consult: { call_booked: false, nudges: [0, 1, 2].map((s) => ({ seq: 'not_booked', step: s })) }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...done, nowMs: t0 + 90 * D })).toBe(null);
+  });
+  it('not-booked: catch-up steps are spaced by the 20h floor, never sent back to back', () => {
+    // A lead repaired (or a cron that was down) 10 days in: step 0 goes now…
+    const late = t0 + 10 * D;
+    const fresh = { consult: { call_booked: false, nudges: [] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...fresh, nowMs: late })).toMatchObject({ step: 0 });
+    // …step 1 is long overdue by the schedule but waits for the floor after step 0…
+    const step0Just = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0, sent_at: new Date(late).toISOString() }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...step0Just, nowMs: late + 1 * H })).toBe(null);
+    expect(nextConsultNudge({ ...step0Just, nowMs: late + 19 * H })).toBe(null);
+    expect(nextConsultNudge({ ...step0Just, nowMs: late + 20 * H })).toMatchObject({ step: 1 });
+    // …and a step recorded without a readable sent_at (older rows) never blocks.
+    const step0NoTime = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...step0NoTime, nowMs: late })).toMatchObject({ step: 1 });
+    // The normal cadence is untouched: 2h → 48h is 46h apart, 48h → day 5 is 72h apart.
+    const step0OnTime = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0, sent_at: new Date(t0 + 2 * H).toISOString() }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...step0OnTime, nowMs: t0 + 48 * H })).toMatchObject({ step: 1 });
   });
   it('booked: touch 0 fires right after booking (anchored at call_booked_at)', () => {
     const bookedAt = t0 + 1 * H;
@@ -495,11 +516,15 @@ describe('isConsultExhausted', () => {
     expect(isConsultExhausted({ call_booked: false, nudges: [] })).toBe(false);
     expect(isConsultExhausted({})).toBe(false);
   });
-  it('not_booked: exhausted once both steps 0 and 1 are recorded', () => {
+  it('not_booked: exhausted only once all three steps (0–2) are recorded', () => {
     expect(isConsultExhausted({ call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] })).toBe(false);
     expect(isConsultExhausted({
       call_booked: false,
       nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
+    })).toBe(false);
+    expect(isConsultExhausted({
+      call_booked: false,
+      nudges: [0, 1, 2].map((s) => ({ seq: 'not_booked', step: s })),
     })).toBe(true);
   });
   it('booked_no_signup: exhausted only once all 5 steps (0–4) are recorded', () => {
@@ -511,7 +536,7 @@ describe('isConsultExhausted', () => {
   it('a finished not_booked run is NOT exhausted once call_booked flips the applicable sequence', () => {
     const consult = {
       call_booked: true,
-      nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }],
+      nudges: [0, 1, 2].map((s) => ({ seq: 'not_booked', step: s })),
     };
     expect(isConsultExhausted(consult)).toBe(false);
     // Only exhausted once the NOW-applicable booked_no_signup steps (all 5) are sent too.
@@ -520,6 +545,41 @@ describe('isConsultExhausted', () => {
       call_booked: true,
       nudges: consult.nudges.concat(allBooked),
     })).toBe(true);
+  });
+});
+
+describe('not_booked step channels + owed WhatsApp legs', () => {
+  const { consultNudgeStepSpec, pendingConsultWaKinds, CONSULT_WA_RETRY_WINDOW_MS } = require('../lib/consult-lead.js');
+  const now = Date.parse('2026-09-08T12:00:00Z');
+  const ago = (ms) => new Date(now - ms).toISOString();
+
+  it('each not_booked step names its channels; booked_no_signup steps are email-only', () => {
+    expect(consultNudgeStepSpec('not_booked', 0)).toEqual({ email: true, wa: 'not_booked' });
+    expect(consultNudgeStepSpec('not_booked', 1)).toEqual({ email: true, wa: 'not_booked_2' });
+    expect(consultNudgeStepSpec('not_booked', 2)).toEqual({ email: false, wa: 'not_booked_3' });
+    expect(consultNudgeStepSpec('not_booked', 3)).toBe(null);
+    expect(consultNudgeStepSpec('booked_no_signup', 0)).toEqual({ email: true, wa: null });
+  });
+
+  it('a recorded step whose WhatsApp never went is owed, oldest first, for 3 days', () => {
+    const c = { qualified: true, nudges: [
+      { seq: 'not_booked', step: 0, sent_at: ago(2 * D) },
+      { seq: 'not_booked', step: 1, sent_at: ago(1 * H) },
+    ] };
+    expect(pendingConsultWaKinds(c, now)).toEqual(['not_booked', 'not_booked_2']);
+    // sent → no longer owed; skipped (no phone etc.) → no longer owed
+    expect(pendingConsultWaKinds({ ...c, wa: { not_booked: { sent_at: 'x' } } }, now)).toEqual(['not_booked_2']);
+    expect(pendingConsultWaKinds({ ...c, wa_skipped: { not_booked_2: { reason: 'no_phone' } } }, now)).toEqual(['not_booked']);
+    // the retry window closes
+    const old = { qualified: true, nudges: [{ seq: 'not_booked', step: 0, sent_at: ago(CONSULT_WA_RETRY_WINDOW_MS + H) }] };
+    expect(pendingConsultWaKinds(old, now)).toEqual([]);
+    // a booked, stopped, or screened-out lead is owed nothing
+    expect(pendingConsultWaKinds({ ...c, call_booked: true }, now)).toEqual([]);
+    expect(pendingConsultWaKinds({ ...c, stopped: 'exhausted' }, now)).toEqual([]);
+    // steps recorded without a sent_at (older rows) are not retried
+    expect(pendingConsultWaKinds({ qualified: true, nudges: [{ seq: 'not_booked', step: 0 }] }, now)).toEqual([]);
+    // booked_no_signup steps carry no WhatsApp leg
+    expect(pendingConsultWaKinds({ qualified: true, nudges: [{ seq: 'booked_no_signup', step: 0, sent_at: ago(H) }] }, now)).toEqual([]);
   });
 });
 

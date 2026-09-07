@@ -21087,7 +21087,7 @@ async function maybeSendConsultWa(row, kind, extra) {
     if (!phone) return { ok: false, skipped: true, reason: 'no_phone' };
     const ctx = { name: row.name };
     if (kind === 'call_booked') ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
-    if (kind === 'not_booked') {
+    if (consultWhatsapp.NOT_BOOKED_WA_KINDS.indexOf(kind) !== -1) {
       ctx.bookUrl = consult.token
         ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
         : CONSULT_START_BASE + '/start#book';
@@ -21110,6 +21110,44 @@ async function maybeSendConsultWa(row, kind, extra) {
     console.error('[consult-wa] maybeSendConsultWa error:', kind, err && err.message);
     return { ok: false, error: err && err.message };
   }
+}
+
+// A WhatsApp leg that will never send (no phone, feature off, template built
+// nothing, …) is recorded under consult.wa_skipped[kind] so the cron stops
+// owing it — the same shape as a sent marker, with the reason instead of a time.
+async function markConsultWaSkipped(row, kind, reason) {
+  try {
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return;
+    const consult = row.metadata.consult;
+    const skipped = Object.assign({}, consult.wa_skipped, {});
+    skipped[kind] = { reason: String(reason || 'skipped'), at: new Date().toISOString() };
+    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { wa_skipped: skipped }) });
+    const up = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (up) row.metadata = md;
+  } catch (err) {
+    console.error('[consult-wa] markConsultWaSkipped error:', kind, err && err.message);
+  }
+}
+
+// Send the pre-booking WhatsApp legs a lead is owed (lib/consult-lead.js
+// pendingConsultWaKinds, oldest first, plus the step that just went out). One
+// message per lead per run: the newest copy is sent and older owed legs are
+// retired as 'superseded', so a template approved days late never produces a
+// burst of three. A send that fails (pending approval, DoubleTick down) leaves
+// the leg owed for the next run; a send that can never happen is marked skipped.
+async function sendOwedConsultWa(row, kinds) {
+  const list = [];
+  (Array.isArray(kinds) ? kinds : []).forEach((k) => { if (k && list.indexOf(k) === -1) list.push(k); });
+  if (!list.length) return { ok: false, skipped: true, reason: 'nothing_owed' };
+  const latest = list[list.length - 1];
+  for (const older of list.slice(0, -1)) await markConsultWaSkipped(row, older, 'superseded');
+  const res = await maybeSendConsultWa(row, latest);
+  if (res && res.skipped) {
+    const consult = (row.metadata && row.metadata.consult) || {};
+    const alreadySent = !!(consult.wa && consult.wa[latest]);
+    if (!alreadySent) await markConsultWaSkipped(row, latest, res.reason || 'skipped');
+  }
+  return res;
 }
 
 // Stamp a terminal onboarding-pass marker (completed / window_passed / …) so the
@@ -25634,14 +25672,27 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
 // only — never resurrects a stopped/unsubscribed/signed_up sequence. Best-effort.
 async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone) {
   const em = String(email || '').trim().toLowerCase();
-  if (!em || !isSupabaseDbConfigured()) return;
+  if (!em && !inviteePhone) return;
   try {
-    const lead = await findSiteEnquiryByEmail(em);
+    let lead = em ? await findSiteEnquiryByEmail(em) : null;
+    let matchedByPhone = false;
+    // No lead under the booking email: the doctor may have enquired under
+    // another address. The phone Calendly collected is the join.
+    if ((!lead || !lead.metadata || !lead.metadata.consult) && inviteePhone) {
+      const byPhone = await findConsultLeadByPhone(inviteePhone);
+      if (byPhone) { lead = byPhone; matchedByPhone = true; }
+    }
     if (!lead || !lead.metadata || !lead.metadata.consult) return;
     const c = lead.metadata.consult;
     const patch = {};
     if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
     if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso; }
+    // Remember the address they actually booked with, so the Meetings row (keyed
+    // by invitee_email) and this lead can be joined by a human later.
+    if (matchedByPhone && em && String(lead.email || '').trim().toLowerCase() !== em && c.booking_email !== em) {
+      patch.booking_email = em;
+      patch.booked_via = 'phone_match';
+    }
     const rowPatch = {};
     // Backfill a phone we never captured. Our /start form's phone can be blank on
     // older leads, but Calendly requires one at booking — so a booked lead should
@@ -25777,6 +25828,16 @@ async function captureCalendlyDirectBookerLead(d) {
     if (existing) {
       console.log('[calendly invitee.created] Lead already exists for', email, '— left untouched');
       return;
+    }
+    // Same person, different email: the enquiry under their other address already
+    // owns this booking (ensureLeadBookedCallAt stamped it via the phone), so a
+    // second row would only split one doctor into two leads.
+    if (d.phone) {
+      const byPhone = await findConsultLeadByPhone(d.phone);
+      if (byPhone) {
+        console.log('[calendly invitee.created] Lead already exists for this phone (' + String(byPhone.email || '') + ') — not duplicating for', email);
+        return;
+      }
     }
 
     // isGp/country are unknowable here: this person answered NO screening questions, so
@@ -28088,6 +28149,54 @@ async function findSiteEnquiryByEmail(email) {
   }
   const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
   return rows.find((row) => String(row.email || '').toLowerCase() === addr) || null;
+}
+
+// The digits that identify a phone across the ways people write it: the last
+// ten of the national number, so "+44 7473 330463", "07473330463" and
+// "+447473330463" all agree. Empty when there are not enough digits to be a
+// real number (a short string must never match everything).
+function consultPhoneMatchKey(phone) {
+  const digits = String(phone || '').replace(/[^\d]/g, '');
+  if (digits.length < 9) return '';
+  return digits.slice(-10);
+}
+
+// The GP lead that owns this phone number, newest first — the fallback that
+// joins a Calendly booking to its enquiry when the doctor booked under a
+// different email from the one on their Facebook profile (Humayra, 2026-09-02:
+// enquired as @nhs.net, booked one minute later as @gmail.com, and then got the
+// whole "still want that chat?" sequence for a call she had already booked).
+// Calendly requires a phone at booking and the lead form captures one too, so
+// the number is the one identifier both records reliably share. A lead that
+// carries consult state is preferred over a bare website-enquiry row.
+async function findConsultLeadByPhone(phone) {
+  const key = consultPhoneMatchKey(phone);
+  if (!key) return null;
+  const pick = (rows) => {
+    const hits = (Array.isArray(rows) ? rows : []).filter((row) =>
+      row && row.kind === 'gp' && consultPhoneMatchKey(row.phone) === key);
+    return hits.find((row) => row.metadata && row.metadata.consult) || hits[0] || null;
+  };
+  if (isSupabaseDbConfigured()) {
+    // Fast path: the stored number ends in the same ten digits (true for every
+    // Facebook-sourced lead, which arrives as bare E.164). ilike is fine here —
+    // the key is digits only, so there is nothing to escape.
+    let r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&phone=ilike.' + encodeURIComponent('*' + key) + '&order=created_at.desc&limit=5',
+      { method: 'GET' });
+    let found = pick(r.ok ? r.data : []);
+    if (found) return found;
+    // Slow path: a number stored with spaces or dashes defeats a suffix match,
+    // so compare digit keys in code over the recent leads. Only reached for a
+    // booking whose email matched nothing, so the cost stays rare.
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&phone=not.is.null&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc&limit=500',
+      { method: 'GET' });
+    return pick(r.ok ? r.data : []);
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return pick(rows.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
 }
 
 const CONSULT_MATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -34685,6 +34794,31 @@ async function isEmailSuppressed(email) {
   } catch (err) {
     console.error('[suppression] lookup failed (treating as not suppressed):', err && err.message);
     return false;
+  }
+}
+
+// WHY an address is suppressed: 'hard_bounce' | 'complaint' | 'unsubscribe' |
+// '' (not suppressed, or unreadable). The consult-nudge cron needs the
+// distinction — a bounced address means "this email is dead, keep the
+// WhatsApp going", whereas an unsubscribe or a spam complaint means "stop".
+// Before this the cron filed every suppression under 'unsubscribed', so two
+// doctors whose Facebook profile carried a typo'd email were shown as having
+// opted out and were never messaged on the working phone number they gave us.
+async function getEmailSuppressionReason(email) {
+  const lower = normalizeSuppressionEmail(email);
+  if (!lower) return '';
+  try {
+    let row = null;
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('email_suppression', 'select=reason&email=eq.' + encodeURIComponent(lower) + '&limit=1');
+      row = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    } else if (dbState.emailSuppression && Object.prototype.hasOwnProperty.call(dbState.emailSuppression, lower)) {
+      row = dbState.emailSuppression[lower];
+    }
+    return row ? String(row.reason || '').trim().toLowerCase() : '';
+  } catch (err) {
+    console.error('[suppression] reason lookup failed:', err && err.message);
+    return '';
   }
 }
 
@@ -43628,6 +43762,28 @@ async function handleApi(req, res, pathname) {
               '(was unreadable:', JSON.stringify(cnConsult.country_raw || ''), ')');
           }
         }
+        // ── Repair a stop that was really a bounce ─────────────────────────────
+        // Until 2026-09-08 every suppressed address was stamped 'unsubscribed',
+        // bounces included — which also silenced WhatsApp for a doctor whose phone
+        // works (two real leads, both with typo'd emails and valid UK mobiles, got
+        // nothing on any channel). The suppression row says what actually
+        // happened. A genuine unsubscribe or spam complaint stays stopped and is
+        // marked with its reason so this lookup runs once per lead, not hourly.
+        if (cnConsult.stopped === 'unsubscribed' && cnConsult.email_bounced !== true && !cnConsult.unsubscribe_reason) {
+          var cnStopWhy = await getEmailSuppressionReason(cnRow.email);
+          var cnRepaired = Object.assign({}, cnConsult);
+          if (cnStopWhy === 'hard_bounce') {
+            delete cnRepaired.stopped;
+            cnRepaired.email_bounced = true;
+            cnRepaired.email_bounced_at = cnRepaired.email_bounced_at || new Date().toISOString();
+            console.log('[consult-nudge] lead', cnRow.id, 'was stopped as unsubscribed but the address bounced — resuming on WhatsApp');
+          } else {
+            cnRepaired.unsubscribe_reason = cnStopWhy || 'unknown';
+          }
+          var cnRepairedMeta = Object.assign({}, cnMeta, { consult: cnRepaired });
+          await updateSiteEnquiryRow(cnRow.id, { metadata: cnRepairedMeta });
+          cnRow.metadata = cnRepairedMeta; cnMeta = cnRepairedMeta; cnConsult = cnRepaired;
+        }
         // Qualified-gate applies to the pre-booking funnel ONLY. A booked lead (screened
         // OR a never-screened direct Calendly booker) gets the signup drip regardless of
         // qualification — booking a call is the strongest intent there is. screened_out (an
@@ -43658,8 +43814,19 @@ async function handleApi(req, res, pathname) {
         // signup (the final nudge's CTA is the signup link, so post-final-
         // email conversions land exactly here): run the existence check once
         // more before choosing between 'signed_up'/converted and 'exhausted'.
+        //
+        // WhatsApp legs owed from earlier steps are settled first: a template
+        // that was still pending WhatsApp approval fails soft and leaves its
+        // step recorded without a wa marker, so it is retried for a few days
+        // rather than lost — and the terminal stop waits until nothing is owed.
+        var cnWaOwed = consultLead.pendingConsultWaKinds(cnConsult, Date.now());
         if (!cnDue) {
-          if (consultLead.isConsultExhausted(cnConsult)) {
+          if (cnWaOwed.length) {
+            await sendOwedConsultWa(cnRow, cnWaOwed);
+            cnMeta = cnRow.metadata; cnConsult = cnMeta.consult;
+            cnWaOwed = consultLead.pendingConsultWaKinds(cnConsult, Date.now());
+          }
+          if (consultLead.isConsultExhausted(cnConsult) && !cnWaOwed.length) {
             var cnExhUserExists = false;
             if (isSupabaseDbConfigured()) {
               cnExhUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
@@ -43701,27 +43868,46 @@ async function handleApi(req, res, pathname) {
           cnStopped++;
           continue;
         }
-        var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
-        if (cnSendRes && cnSendRes.suppressed) {
-          var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed' }) });
-          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
-          cnStopped++;
-          continue;
+        // ── The step's channels ─────────────────────────────────────────────
+        // A not_booked step carries email and/or WhatsApp (lib/consult-lead.js
+        // schedule: 2h email+WA, 48h email+WA, day 5 WA only); booked_no_signup
+        // steps are email-only. A lead whose address hard-bounced keeps just the
+        // WhatsApp leg. The recorded entry says what the email leg did
+        // ('sent' | 'bounced' | 'skipped' | 'none') so the Leads tab counts
+        // honestly; the WhatsApp leg records itself in consult.wa / wa_skipped.
+        var cnSpec = consultLead.consultNudgeStepSpec(cnDue.seq, cnDue.step) || { email: true, wa: null };
+        var cnEntry = { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString(), email: cnSpec.email ? 'sent' : 'none' };
+        if (cnSpec.email && cnConsult.email_bounced === true) {
+          cnEntry.email = 'skipped';
+        } else if (cnSpec.email) {
+          var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
+          if (cnSendRes && cnSendRes.suppressed) {
+            var cnWhy = await getEmailSuppressionReason(cnRow.email);
+            if (cnWhy !== 'hard_bounce') {
+              // They asked us to stop (or reported us) — every channel stops.
+              var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed', unsubscribe_reason: cnWhy || 'unknown' }) });
+              await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
+              cnStopped++;
+              continue;
+            }
+            // Dead address, live phone: note the bounce and carry on with WhatsApp.
+            cnConsult = Object.assign({}, cnConsult, { email_bounced: true, email_bounced_at: cnEntry.sent_at });
+            cnMeta = Object.assign({}, cnMeta, { consult: cnConsult });
+            cnEntry.email = 'bounced';
+            console.log('[consult-nudge] email bounced for lead', cnRow.id, '— WhatsApp only from here');
+          } else if (!(cnSendRes && cnSendRes.ok)) {
+            cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
+            continue;
+          }
         }
-        if (cnSendRes && cnSendRes.ok) {
-          var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([
-            { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString() }
-          ]);
-          var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
-          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
-          cnRow.metadata = cnMetaSent;
-          // WhatsApp rides along on the pre-booking nudge — marker-guarded, so
-          // only the FIRST due not_booked touch carries a WhatsApp message.
-          if (cnDue.seq === 'not_booked') await maybeSendConsultWa(cnRow, 'not_booked');
-          cnSent++;
-        } else {
-          cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
-        }
+        var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([cnEntry]);
+        var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
+        await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
+        cnRow.metadata = cnMetaSent;
+        // The WhatsApp leg for this step, plus any still owed from earlier ones
+        // (the doctor gets the newest copy; older owed legs are retired).
+        if (cnSpec.wa) await sendOwedConsultWa(cnRow, cnWaOwed.concat([cnSpec.wa]));
+        cnSent++;
       }
       // ── WhatsApp onboarding pass ─────────────────────────────────────────
       // The main loop skips stopped rows forever, so signed-up leads who never
@@ -49757,8 +49943,13 @@ async function handleApi(req, res, pathname) {
         // The start form stores the question on the row itself; a question typed
         // at booking time lands in consult.call_question. Either is "they asked us".
         call_question: c.call_question || (r && r.message) || '',
-        nudges_sent: nudges.length,
+        // Steps whose email leg actually went — a bounced or WhatsApp-only step
+        // is on the record but was not an email (entries before 2026-09-08
+        // carry no `email` field and were all emails).
+        nudges_sent: nudges.filter((n) => n && (n.email == null || n.email === 'sent')).length,
         last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
+        wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
+        email_bounced: c.email_bounced === true,
         stopped: c.stopped || ''
       };
     });
@@ -80976,9 +81167,14 @@ module.exports.__testUtils = {
   readUserStateForMerge,
   parseGpLinkUpdatesList,
   maybeSendConsultWa,
+  sendOwedConsultWa,
+  markConsultWaSkipped,
   markConsultWaOnboardingResolved,
   getConsultLeadAccountState,
   ensureLeadBookedCallAt,
+  findConsultLeadByPhone,
+  consultPhoneMatchKey,
+  getEmailSuppressionReason,
   runConsultCallReminders,
   // Test-only: seeds a signed-up account directly into dbState.users (local-
   // JSON mode) — dbState is loaded once at module import, so a raw write to
