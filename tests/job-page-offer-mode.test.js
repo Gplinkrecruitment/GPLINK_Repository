@@ -101,7 +101,11 @@ describe('job.html — offer mode wiring (Phase 2 Task 4)', () => {
     expect(html).toMatch(/zoomUrl\.indexOf\("https:\/\/"\) === 0/);
     expect(html).toContain('zoom_join_url');
     expect(html).toContain('https://calendar.google.com/calendar/render');
-    expect(html).toMatch(/45 \* 60 \* 1000/); // 45-minute event
+    // The event length comes from the booking, not a literal. It was a
+    // hardcoded 45 while every interview row said 30, so the doctor's calendar
+    // blocked 15 minutes that were never booked (owner report 2026-09-06).
+    expect(html).toContain('booked.durationMinutes');
+    expect(html).not.toMatch(/45 \* 60 \* 1000/);
     // Calendar title is masked-or-real strictly by the reveal gate.
     expect(html).toMatch(/revealed \? \("Interview — " \+ String\(currentRole\.realPracticeName\)\) : "GP Link practice interview"/);
   });

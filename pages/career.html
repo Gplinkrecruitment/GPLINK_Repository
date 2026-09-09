@@ -56,7 +56,7 @@
   <script src="/js/nav-shell-bridge.js?v=20260709a"></script>
   <script src="../js/bypass-config.js?v=20260906a"></script>
   <script src="../js/api-dedupe.js?v=20260729a"></script>
-  <script src="../js/interview-card-state.js?v=20260801a"></script>
+  <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
@@ -13885,7 +13885,7 @@
     function buildInterviewPickerHtml(appId) {
       return `<div class="ivc" data-iv-app="${escapeHtml(appId)}">
         <div class="ivc-h"><span>\u{1F4C5}</span><b>Pick your interview time</b></div>
-        <p class="ivc-note">30 minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.</p>
+        <p class="ivc-note" data-iv-note>Your Registration Support Officer joins you, so you're never in the room alone.</p>
         <p class="ivc-status" data-iv-status>Loading available times…</p>
         <div class="ivc-days" data-iv-days></div>
         <button type="button" class="at-match-accept shiny shiny--green ivc-confirm" data-iv-confirm disabled>Confirm interview time</button>
@@ -13908,7 +13908,7 @@
       // Duration comes from the booking; 45 is only the fallback when the row omits it
       // (it was hardcoded, so a 30-minute interview still advertised 45).
       const mins = Number(iv.durationMinutes);
-      const durationLabel = (isFinite(mins) && mins > 0 ? mins : 45) + " min on Zoom";
+      const durationLabel = (isFinite(mins) && mins > 0 ? mins : 30) + " min on Zoom";
       return `<div class="ivc is-booked"><div class="ivc-when"><b>${escapeHtml(when)}</b><span>Interview confirmed · ${escapeHtml(durationLabel)}</span></div>${join}</div>`;
     }
 
@@ -13929,6 +13929,12 @@
     function careerIvPaintHost(appId, host) {
       if (!host) return;
       const st = careerIvPickers[appId];
+      // Say the real length once the server has told us (main 54b6946). The note
+      // ships with no number rather than repeating a hardcoded one.
+      const noteEl = host.querySelector("[data-iv-note]");
+      if (noteEl && st && st.durationMinutes > 0) {
+        noteEl.textContent = st.durationMinutes + " minutes on Zoom. Your Registration Support Officer joins you, so you're never in the room alone.";
+      }
       if (!st) return;
       const statusEl = host.querySelector("[data-iv-status]");
       const daysEl = host.querySelector("[data-iv-days]");
@@ -14021,7 +14027,9 @@
           const fresh = (res.data && Array.isArray(res.data.slots)) ? res.data.slots : [];
           if (res.status === 200) {
             if (ivCache) ivCache.write(appId, careerDeviceTz, fresh);
-            if (cached && ivCache && ivCache.sameSlots(cached.slots, fresh)) return; // nothing changed — keep the instant paint
+            // How long this interview actually runs, straight from the row (main 54b6946).
+            st.durationMinutes = Number(res.data && res.data.durationMinutes) || st.durationMinutes || 0;
+            if (cached && ivCache && ivCache.sameSlots(cached.slots, fresh)) { careerIvPaint(appId); return; } // nothing changed — keep the instant paint (repaint for the length note)
             if (st.selected && !fresh.some((s) => s && s.startUtc === st.selected)) st.selected = "";
           } else if (cached) {
             return; // a failed refresh never wipes a good cached list

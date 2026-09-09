@@ -144,7 +144,7 @@ describe('GET /api/cron/consult-nudge', () => {
     expect(sent.html + sent.text).toContain('/api/unsubscribe?token=');
     const row = readDb().siteEnquiries[0];
     expect(row.metadata.consult.nudges).toEqual([
-      { seq: 'not_booked', step: 0, sent_at: expect.any(String) }
+      { seq: 'not_booked', step: 0, sent_at: expect.any(String), email: 'sent' }
     ]);
 
     // Immediately rerun the cron: step 0 is recorded and step 1 isn't due
@@ -198,24 +198,56 @@ describe('GET /api/cron/consult-nudge', () => {
     expect(resendCaptured.length).toBe(1);
     const row = readDb().siteEnquiries[0];
     expect(row.metadata.consult.nudges.length).toBe(2);
+    expect(row.metadata.consult.nudges[1]).toMatchObject({ seq: 'not_booked', step: 1, email: 'sent' });
     expect(row.metadata.consult.stopped).toBeUndefined();
 
-    // Nothing due next run (sequence fully sent) → terminal exhausted stop,
-    // no further email, no further HTTP existence check needed.
+    // Both emails are out, but the sequence is not over: the day-5 WhatsApp
+    // step is still ahead, so no terminal stop yet — just nothing due.
     resendCaptured.length = 0;
     const res2 = await get(CRON, AUTH);
     expect(res2.json.sent).toBe(0);
-    expect(res2.json.stopped).toBe(1);
+    expect(res2.json.stopped).toBe(0);
     expect(resendCaptured.length).toBe(0);
-    const row2 = readDb().siteEnquiries[0];
-    expect(row2.metadata.consult.stopped).toBe('exhausted');
+    expect(readDb().siteEnquiries[0].metadata.consult.stopped).toBeUndefined();
+
+    // Six days in with both emails recorded: the WhatsApp-only step comes due.
+    // No email goes out for it; this lead has no phone (and this harness no
+    // DoubleTick), so the WhatsApp leg is recorded as skipped, not owed forever.
+    testUtils.__seedSiteEnquiriesForTest([seedLead({
+      id: 'l3b', email: 'exhausted2@example.co.uk', created_at: new Date(Date.now() - 6 * 24 * H).toISOString(),
+      metadata: {
+        source: 'meta_lead_ad',
+        consult: {
+          token: 'TOKZ', qualified: true, is_gp: true, country: 'uk', call_booked: false,
+          nudges: [
+            { seq: 'not_booked', step: 0, sent_at: new Date(Date.now() - 6 * 24 * H + 2 * H).toISOString() },
+            { seq: 'not_booked', step: 1, sent_at: new Date(Date.now() - 4 * 24 * H).toISOString() },
+          ],
+        },
+      },
+    })]);
+    const res3 = await get(CRON, AUTH);
+    expect(res3.json.sent).toBe(1);
+    expect(resendCaptured.length).toBe(0);
+    const row3 = readDb().siteEnquiries[0];
+    expect(row3.metadata.consult.nudges.length).toBe(3);
+    expect(row3.metadata.consult.nudges[2]).toMatchObject({ seq: 'not_booked', step: 2, email: 'none' });
+    expect(row3.metadata.consult.wa_skipped.not_booked_3.reason).toBe('no_phone');
+    expect(row3.metadata.consult.stopped).toBeUndefined();
+
+    // Nothing due and nothing owed → terminal exhausted stop, no further email.
+    const res4 = await get(CRON, AUTH);
+    expect(res4.json.sent).toBe(0);
+    expect(res4.json.stopped).toBe(1);
+    expect(resendCaptured.length).toBe(0);
+    expect(readDb().siteEnquiries[0].metadata.consult.stopped).toBe('exhausted');
 
     // Once stopped, the lead is filtered out before nextConsultNudge even
     // runs — scanned but skipped, no more state churn.
-    const res3 = await get(CRON, AUTH);
-    expect(res3.json.sent).toBe(0);
-    expect(res3.json.stopped).toBe(0);
-    expect(res3.json.skipped).toBe(1);
+    const res5 = await get(CRON, AUTH);
+    expect(res5.json.sent).toBe(0);
+    expect(res5.json.stopped).toBe(0);
+    expect(res5.json.skipped).toBe(1);
   });
 
   it('de-dupes by email: two due rows for the same person send exactly one nudge, to the newest row', async () => {
@@ -246,15 +278,17 @@ describe('GET /api/cron/consult-nudge', () => {
     // stop, and must not email them.
     seedLocalUser('lastemail-signup@example.co.uk');
     testUtils.__seedSiteEnquiriesForTest([seedLead({
-      id: 'l4', email: 'lastemail-signup@example.co.uk', created_at: new Date(Date.now() - 80 * H).toISOString(),
+      id: 'l4', email: 'lastemail-signup@example.co.uk', created_at: new Date(Date.now() - 6 * 24 * H).toISOString(),
       metadata: {
         source: 'meta_lead_ad',
         consult: {
           token: 'TOKY', qualified: true, is_gp: true, country: 'uk', call_booked: false,
           nudges: [
-            { seq: 'not_booked', step: 0, sent_at: new Date(Date.now() - 78 * H).toISOString() },
-            { seq: 'not_booked', step: 1, sent_at: new Date(Date.now() - 30 * H).toISOString() },
+            { seq: 'not_booked', step: 0, sent_at: new Date(Date.now() - 6 * 24 * H + 2 * H).toISOString() },
+            { seq: 'not_booked', step: 1, sent_at: new Date(Date.now() - 4 * 24 * H).toISOString() },
+            { seq: 'not_booked', step: 2, sent_at: new Date(Date.now() - 24 * H).toISOString(), email: 'none' },
           ],
+          wa_skipped: { not_booked_3: { reason: 'no_phone' } },
         },
       },
     })]);

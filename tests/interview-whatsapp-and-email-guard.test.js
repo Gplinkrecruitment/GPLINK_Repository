@@ -19,27 +19,35 @@ describe('interview WhatsApp templates', () => {
     expect(fn).toContain("content.templateData.buttons = buttonParams.map(function (p) { return { type: 'URL', parameter: String(p == null ? '' : p) }; });");
     expect(fn).toContain('doubleTickBatchOutcome(resp.ok, text)'); // never trusts a bare 200
   });
-  it('booking sends the GP + practice confirmations after the emails, with the join link or a promise of it', () => {
+  // Release merge 2026-09-10: main's own implementation of these sends
+  // (sendInterviewWhatsappTemplate, bb1beb3) is the one that ships; the
+  // branch's duplicate was removed so nobody is messaged twice. Main's helper
+  // now also goes through the test allowlist and reads DoubleTick's per-message
+  // FAILED rows as failures.
+  it('booking sends the GP + practice confirmations after the emails — once each, via main\'s helper', () => {
     const gpEmail = s.indexOf("subject: 'Your interview is confirmed 🎉'");
-    const wa = s.indexOf('var waGp = await lookupGpPhoneAndFirstName(appCtx.userId);');
+    const wa = s.indexOf("sendInterviewWhatsappTemplate(appCtx.gpPhone, 'confirmed_gp'");
     expect(gpEmail).toBeGreaterThan(0);
     expect(wa).toBeGreaterThan(gpEmail);
-    const block = s.slice(wa, wa + 1200);
-    expect(block).toContain("sendDoubleTickTemplateTo(waGp.phone, INTERVIEW_WA_TEMPLATES.confirmedGp,\n            [waGp.firstName || 'Doctor', appCtx.practiceName || 'the practice', gpWhen, waLink]);");
-    expect(block).toContain("sendDoubleTickTemplateTo(appCtx.practicePhone, INTERVIEW_WA_TEMPLATES.confirmedPractice,");
-    expect(s).toContain("var waLink = joinUrl || 'We will send the video link before the interview.';");
-    expect(s).toContain("practice has no contact_phone — practice WhatsApp skipped");
+    expect(s.slice(wa, wa + 600)).toContain("'confirmed_practice'");
+    expect(s).not.toContain('INTERVIEW_WA_TEMPLATES.confirmedGp');
+    expect(s.split("'confirmed_gp'").length - 1).toBe(1);
   });
-  it('the times-ready nudge uses the template with its Choose-your-time button', () => {
-    expect(s).toContain("await sendDoubleTickTemplateTo(dtPhone, INTERVIEW_WA_TEMPLATES.timesReady, [waFirst, practiceName || 'the practice'], [String(id)]);");
-    // the booking-invite block itself no longer sends plain text
+  it("main's WhatsApp helper is guarded by the test allowlist and treats a FAILED row as a failure", () => {
+    const h = s.slice(s.indexOf('async function sendInterviewWhatsappTemplate('), s.indexOf('async function sendInterviewWhatsappTemplate(') + 3000);
+    expect(h).toContain("guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template'");
+    expect(h).toContain('const dtOutcome = doubleTickBatchOutcome(resp.ok, raw);');
+    expect(h).not.toContain("await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/template'");
+  });
+  it('the times-ready nudge uses the template with its Choose-your-time button, from both places it fires', () => {
     const inv = s.indexOf('async function maybeSendInterviewBookingInvite(');
     const invBlock = s.slice(inv, s.indexOf('async function notifyGpOfSelfAcceptedPlacement('));
+    expect(invBlock).toContain("'times_ready'");
     expect(invBlock).not.toContain("'/whatsapp/message/text'");
     expect(invBlock).not.toContain('doubleTickTextRequest(');
-    // …and so does the practice-reply ingest (the other place the nudge fired)
-    expect(s).toContain("sendDoubleTickTemplateTo(dtPhone, INTERVIEW_WA_TEMPLATES.timesReady, [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], [gpAppId])");
+    expect(s).toContain("sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId)");
     expect(s).not.toContain('your interview times are ready to choose — pick a slot here');
+    expect(s).not.toContain('INTERVIEW_WA_TEMPLATES.timesReady');
   });
   it('the booking context carries the practice contact name + phone', () => {
     expect(s).toContain("'select=contact_email,contact_name,contact_phone,location_state,location_city&id=eq.'");
@@ -65,9 +73,15 @@ describe('email recipients must be addresses', () => {
 });
 
 describe('booking + admin re-send (owner 2026-09-08)', () => {
-  it('interviews are 30 minutes everywhere: one constant for the row, the slot engine, Zoom and the calendar', () => {
-    expect(s).toContain('const INTERVIEW_DURATION_MIN = 30;');
-    expect(s).toContain('      duration_minutes: INTERVIEW_DURATION_MIN,\n      updated_at: nowTs');
+  it('interviews are 30 minutes everywhere: the row\'s own length (main 54b6946) with a 30-minute default, never a literal 45', () => {
+    // Release merge 2026-09-10: main reads each interview's stored length via
+    // interviewDurationMinutes(row); the branch's single constant was dropped.
+    const lib = read('lib/interview-meetings.js');
+    expect(lib).toContain('var INTERVIEW_DEFAULT_DURATION_MINUTES = 30;');
+    expect(lib).toContain('function interviewDurationMinutes(row) {');
+    expect(s).toContain('var bookDurationMin = interviewMeetings.interviewDurationMinutes(meetingRow);');
+    expect(s).toContain('duration_minutes: bookDurationMin,');
+    expect(s).not.toContain('INTERVIEW_DURATION_MIN');
     expect(s).not.toMatch(/durationMin: 45|45 \* 60000|duration_minutes: 45|\? 45 : 30/);
   });
   it('POST /api/ats/interview/resend-invite clears the one-shot stamp and re-sends, refusing a booked interview', () => {

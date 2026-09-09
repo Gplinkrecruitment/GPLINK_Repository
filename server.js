@@ -155,9 +155,6 @@ const INTERVIEW_GAP_MINUTES = (function () {
   var n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 10;
 })();
-// Interviews are 30 minutes (owner 2026-09-08). One number for the slot
-// engine, the Zoom meeting, the calendar event/links and the booked row.
-const INTERVIEW_DURATION_MIN = 30;
 // 60-second memo of the slot list per application + viewer timezone: the
 // list costs a diary + calendar round trip, and the card, the timeline and
 // the popup all ask for it within seconds of each other (owner 2026-09-08:
@@ -367,6 +364,22 @@ const DOUBLETICK_STAGE_TEMPLATES = {
   // carried as body variable {{2}} (a body-embedded dynamic URL passes WhatsApp review).
   ahpra_docs_complete: { templateName: 'gp_link_ahpra_docs_complete', language: 'en' }
   // career and visa templates not yet created in DoubleTick
+};
+// Interview WhatsApp templates (created in DoubleTick 2026-09-06, category
+// UTILITY). WhatsApp only allows FREE-TEXT inside a 24-hour session window, and
+// neither of these moments is reliably inside one — a doctor who has not
+// messaged us today would simply never receive it. Both must therefore be
+// approved templates, which is also why the old free-text nudge here could
+// never have worked even with the right request shape.
+//   times_ready        {{1}} GP first name, {{2}} practice name
+//                      + URL button variable = the application id
+//   confirmed_gp       {{1}} GP first name, {{2}} practice, {{3}} when, {{4}} join link
+//   confirmed_practice {{1}} contact name, {{2}} doctor name, {{3}} when, {{4}} join link
+// Sends fail soft while a template is still PENDING Meta review.
+const INTERVIEW_WHATSAPP_TEMPLATES = {
+  times_ready: { templateName: 'gp_link_interview_times_ready', language: 'en' },
+  confirmed_gp: { templateName: 'gp_link_interview_confirmed_gp', language: 'en' },
+  confirmed_practice: { templateName: 'gp_link_interview_confirmed_practice', language: 'en' }
 };
 // One-time "you're now connected with your RSO" welcome. Sent by the app the first
 // time a GP is assigned to an RSO, to MATERIALIZE their DoubleTick conversation so
@@ -21119,6 +21132,67 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName, extraPlacehol
   }
 }
 
+// Send one of the INTERVIEW_WHATSAPP_TEMPLATES.
+//
+// Deliberately built on the SAME request shape as sendDoubleTickTemplate above,
+// which is the one that demonstrably works: the RAW api key (no 'Bearer '
+// prefix) and a `messages: [...]` envelope. The interview code used to send
+// free text with `Authorization: Bearer <key>` and a flat `{to, body}` — two
+// independent mistakes that make DoubleTick answer 403 every single time. It
+// failed soft, so the "your interview times are ready" WhatsApp has never
+// reached a single doctor since it was written.
+//
+// buttonUrlParam fills the dynamic SUFFIX of a URL button (the template stores
+// the fixed prefix), and is omitted for templates without a button.
+// Never throws: returns { ok:false } so a WhatsApp problem can never break a
+// booking or an email.
+async function sendInterviewWhatsappTemplate(toPhone, templateKey, placeholders, buttonUrlParam) {
+  const tpl = INTERVIEW_WHATSAPP_TEMPLATES[templateKey];
+  if (!tpl) { console.warn('[interview-wa] unknown template key:', templateKey); return { ok: false }; }
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'not_configured' };
+  const to = normalizePhone(toPhone);
+  if (!to) return { ok: false, skipped: 'no_phone' };
+
+  const templateData = {
+    body: { placeholders: (placeholders || []).map(function (p) { return String(p == null ? '' : p); }) }
+  };
+  if (buttonUrlParam) {
+    templateData.buttons = [{ type: 'URL', parameter: String(buttonUrlParam) }];
+  }
+
+  try {
+    // Through the test allowlist (localhost) and with DoubleTick's per-message
+    // FAILED bodies read as failures — a 200 with a FAILED row is not a send.
+    const resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/template', {
+      method: 'POST',
+      headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{
+          to: to,
+          from: String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, ''),
+          content: { templateName: tpl.templateName, language: tpl.language || 'en', templateData: templateData }
+        }]
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+    const raw = await resp.text();
+    const dtOutcome = doubleTickBatchOutcome(resp.ok, raw);
+    if (!dtOutcome.ok) {
+      // Loud on purpose. The whole class of bug this replaces was a silent
+      // 403 nobody could see; a PENDING template also lands here.
+      console.error('[interview-wa]', tpl.templateName, 'send failed:', resp.status, raw.slice(0, 200));
+      return { ok: false, status: resp.status };
+    }
+    let data = {}; try { data = JSON.parse(raw); } catch (_) { /* non-JSON success */ }
+    const messageId = data && data.messages && data.messages[0] && data.messages[0].id;
+    console.log('[interview-wa]', tpl.templateName, 'sent to', maskPhone(to), 'msgId:', messageId || 'n/a');
+    return { ok: true, messageId: messageId || null };
+  } catch (e) {
+    console.error('[interview-wa]', tpl.templateName, 'send error:', e && e.message);
+    return { ok: false, error: e && e.message };
+  }
+}
+
 // Send a Zoom call invite via DoubleTick WhatsApp — direct text message with booking URL
 async function sendDoubleTickZoomCallInvite(toPhone, gpFirstName, stage, bookingUrl) {
   if (!process.env.DOUBLETICK_API_KEY) return { ok: false, error: 'DoubleTick not configured' };
@@ -21270,7 +21344,7 @@ async function maybeSendConsultWa(row, kind, extra) {
     if (!phone) return { ok: false, skipped: true, reason: 'no_phone' };
     const ctx = { name: row.name };
     if (kind === 'call_booked') ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
-    if (kind === 'not_booked') {
+    if (consultWhatsapp.NOT_BOOKED_WA_KINDS.indexOf(kind) !== -1) {
       ctx.bookUrl = consult.token
         ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
         : CONSULT_START_BASE + '/start#book';
@@ -21293,6 +21367,44 @@ async function maybeSendConsultWa(row, kind, extra) {
     console.error('[consult-wa] maybeSendConsultWa error:', kind, err && err.message);
     return { ok: false, error: err && err.message };
   }
+}
+
+// A WhatsApp leg that will never send (no phone, feature off, template built
+// nothing, …) is recorded under consult.wa_skipped[kind] so the cron stops
+// owing it — the same shape as a sent marker, with the reason instead of a time.
+async function markConsultWaSkipped(row, kind, reason) {
+  try {
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return;
+    const consult = row.metadata.consult;
+    const skipped = Object.assign({}, consult.wa_skipped, {});
+    skipped[kind] = { reason: String(reason || 'skipped'), at: new Date().toISOString() };
+    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { wa_skipped: skipped }) });
+    const up = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (up) row.metadata = md;
+  } catch (err) {
+    console.error('[consult-wa] markConsultWaSkipped error:', kind, err && err.message);
+  }
+}
+
+// Send the pre-booking WhatsApp legs a lead is owed (lib/consult-lead.js
+// pendingConsultWaKinds, oldest first, plus the step that just went out). One
+// message per lead per run: the newest copy is sent and older owed legs are
+// retired as 'superseded', so a template approved days late never produces a
+// burst of three. A send that fails (pending approval, DoubleTick down) leaves
+// the leg owed for the next run; a send that can never happen is marked skipped.
+async function sendOwedConsultWa(row, kinds) {
+  const list = [];
+  (Array.isArray(kinds) ? kinds : []).forEach((k) => { if (k && list.indexOf(k) === -1) list.push(k); });
+  if (!list.length) return { ok: false, skipped: true, reason: 'nothing_owed' };
+  const latest = list[list.length - 1];
+  for (const older of list.slice(0, -1)) await markConsultWaSkipped(row, older, 'superseded');
+  const res = await maybeSendConsultWa(row, latest);
+  if (res && res.skipped) {
+    const consult = (row.metadata && row.metadata.consult) || {};
+    const alreadySent = !!(consult.wa && consult.wa[latest]);
+    if (!alreadySent) await markConsultWaSkipped(row, latest, res.reason || 'skipped');
+  }
+  return res;
 }
 
 // Stamp a terminal onboarding-pass marker (completed / window_passed / …) so the
@@ -25823,14 +25935,27 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
 // only — never resurrects a stopped/unsubscribed/signed_up sequence. Best-effort.
 async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone) {
   const em = String(email || '').trim().toLowerCase();
-  if (!em || !isSupabaseDbConfigured()) return;
+  if (!em && !inviteePhone) return;
   try {
-    const lead = await findSiteEnquiryByEmail(em);
+    let lead = em ? await findSiteEnquiryByEmail(em) : null;
+    let matchedByPhone = false;
+    // No lead under the booking email: the doctor may have enquired under
+    // another address. The phone Calendly collected is the join.
+    if ((!lead || !lead.metadata || !lead.metadata.consult) && inviteePhone) {
+      const byPhone = await findConsultLeadByPhone(inviteePhone);
+      if (byPhone) { lead = byPhone; matchedByPhone = true; }
+    }
     if (!lead || !lead.metadata || !lead.metadata.consult) return;
     const c = lead.metadata.consult;
     const patch = {};
     if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
     if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso; }
+    // Remember the address they actually booked with, so the Meetings row (keyed
+    // by invitee_email) and this lead can be joined by a human later.
+    if (matchedByPhone && em && String(lead.email || '').trim().toLowerCase() !== em && c.booking_email !== em) {
+      patch.booking_email = em;
+      patch.booked_via = 'phone_match';
+    }
     const rowPatch = {};
     // Backfill a phone we never captured. Our /start form's phone can be blank on
     // older leads, but Calendly requires one at booking — so a booked lead should
@@ -25966,6 +26091,16 @@ async function captureCalendlyDirectBookerLead(d) {
     if (existing) {
       console.log('[calendly invitee.created] Lead already exists for', email, '— left untouched');
       return;
+    }
+    // Same person, different email: the enquiry under their other address already
+    // owns this booking (ensureLeadBookedCallAt stamped it via the phone), so a
+    // second row would only split one doctor into two leads.
+    if (d.phone) {
+      const byPhone = await findConsultLeadByPhone(d.phone);
+      if (byPhone) {
+        console.log('[calendly invitee.created] Lead already exists for this phone (' + String(byPhone.email || '') + ') — not duplicating for', email);
+        return;
+      }
     }
 
     // isGp/country are unknowable here: this person answered NO screening questions, so
@@ -28282,6 +28417,54 @@ async function findSiteEnquiryByEmail(email) {
   }
   const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
   return rows.find((row) => String(row.email || '').toLowerCase() === addr) || null;
+}
+
+// The digits that identify a phone across the ways people write it: the last
+// ten of the national number, so "+44 7473 330463", "07473330463" and
+// "+447473330463" all agree. Empty when there are not enough digits to be a
+// real number (a short string must never match everything).
+function consultPhoneMatchKey(phone) {
+  const digits = String(phone || '').replace(/[^\d]/g, '');
+  if (digits.length < 9) return '';
+  return digits.slice(-10);
+}
+
+// The GP lead that owns this phone number, newest first — the fallback that
+// joins a Calendly booking to its enquiry when the doctor booked under a
+// different email from the one on their Facebook profile (Humayra, 2026-09-02:
+// enquired as @nhs.net, booked one minute later as @gmail.com, and then got the
+// whole "still want that chat?" sequence for a call she had already booked).
+// Calendly requires a phone at booking and the lead form captures one too, so
+// the number is the one identifier both records reliably share. A lead that
+// carries consult state is preferred over a bare website-enquiry row.
+async function findConsultLeadByPhone(phone) {
+  const key = consultPhoneMatchKey(phone);
+  if (!key) return null;
+  const pick = (rows) => {
+    const hits = (Array.isArray(rows) ? rows : []).filter((row) =>
+      row && row.kind === 'gp' && consultPhoneMatchKey(row.phone) === key);
+    return hits.find((row) => row.metadata && row.metadata.consult) || hits[0] || null;
+  };
+  if (isSupabaseDbConfigured()) {
+    // Fast path: the stored number ends in the same ten digits (true for every
+    // Facebook-sourced lead, which arrives as bare E.164). ilike is fine here —
+    // the key is digits only, so there is nothing to escape.
+    let r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&phone=ilike.' + encodeURIComponent('*' + key) + '&order=created_at.desc&limit=5',
+      { method: 'GET' });
+    let found = pick(r.ok ? r.data : []);
+    if (found) return found;
+    // Slow path: a number stored with spaces or dashes defeats a suffix match,
+    // so compare digit keys in code over the recent leads. Only reached for a
+    // booking whose email matched nothing, so the cost stays rare.
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    r = await supabaseDbRequest('site_enquiries',
+      'select=*&kind=eq.gp&phone=not.is.null&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc&limit=500',
+      { method: 'GET' });
+    return pick(r.ok ? r.data : []);
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return pick(rows.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
 }
 
 const CONSULT_MATCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -34819,7 +35002,9 @@ function buildGoogleCalendarUrl(o) {
   }
   var start = new Date(o.startUtc);
   if (isNaN(start.getTime())) return '';
-  var end = new Date(start.getTime() + ((o.durationMin || 45) * 60000));
+  // Every caller passes the interview's stored length; this fallback only
+  // guards a caller that forgets, and must not reintroduce the old 45.
+  var end = new Date(start.getTime() + ((o.durationMin || interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES) * 60000));
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
     + '&text=' + encodeURIComponent(o.summary || 'GP Link Interview')
     + '&dates=' + fmt(start) + '/' + fmt(end)
@@ -34877,6 +35062,31 @@ async function isEmailSuppressed(email) {
   } catch (err) {
     console.error('[suppression] lookup failed (treating as not suppressed):', err && err.message);
     return false;
+  }
+}
+
+// WHY an address is suppressed: 'hard_bounce' | 'complaint' | 'unsubscribe' |
+// '' (not suppressed, or unreadable). The consult-nudge cron needs the
+// distinction — a bounced address means "this email is dead, keep the
+// WhatsApp going", whereas an unsubscribe or a spam complaint means "stop".
+// Before this the cron filed every suppression under 'unsubscribed', so two
+// doctors whose Facebook profile carried a typo'd email were shown as having
+// opted out and were never messaged on the working phone number they gave us.
+async function getEmailSuppressionReason(email) {
+  const lower = normalizeSuppressionEmail(email);
+  if (!lower) return '';
+  try {
+    let row = null;
+    if (isSupabaseDbConfigured()) {
+      const r = await supabaseDbRequest('email_suppression', 'select=reason&email=eq.' + encodeURIComponent(lower) + '&limit=1');
+      row = (r && r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    } else if (dbState.emailSuppression && Object.prototype.hasOwnProperty.call(dbState.emailSuppression, lower)) {
+      row = dbState.emailSuppression[lower];
+    }
+    return row ? String(row.reason || '').trim().toLowerCase() : '';
+  } catch (err) {
+    console.error('[suppression] reason lookup failed:', err && err.message);
+    return '';
   }
 }
 
@@ -36150,6 +36360,42 @@ var ATS_REG_RAIL = [
   { key: 'commencement', label: 'Commencement' }
 ];
 var ATS_REG_STAGE_MAX = 6; // 'complete' = fully done (DB_STAGE_ORDER.complete)
+
+// CEO alert (owner 2026-09-01 / 2026-09-04): documents the AI could not decide
+// wait on a HUMAN as open doc_review / flagged_doc tasks. The candidates list
+// counts them ("Docs · N to review") and the candidate profile LISTS the same
+// rows with a Review button — one filter string shared by both reads so the
+// chip can never point at a profile with nothing to review.
+var ATS_DOC_REVIEW_OPEN_FILTER = 'task_type=in.(doc_review,flagged_doc)&status=in.(open,in_progress,waiting)';
+var ATS_DOC_REVIEW_STAGE_LABELS = { onboarding: 'Onboarding' };
+async function atsCandidateDocReviews(caseId) {
+  if (!caseId || !isSupabaseDbConfigured()) return [];
+  var res = await supabaseDbRequest('registration_tasks',
+    'select=id,title,task_type,status,related_document_key,related_stage,priority,description,ai_match_reasoning,created_at' +
+    '&case_id=eq.' + encodeURIComponent(caseId) + '&' + ATS_DOC_REVIEW_OPEN_FILTER + '&order=created_at.asc&limit=100');
+  var rows = (res.ok && Array.isArray(res.data)) ? res.data.slice() : [];
+  // Re-sort in JS: emulators (and chunked reads) ignore order=.
+  rows.sort(function (a, b) { return String(a.created_at || '').localeCompare(String(b.created_at || '')); });
+  return rows.filter(Boolean).map(function (t) {
+    var key = String(t.related_document_key || '');
+    var stage = String(t.related_stage || '').trim().toLowerCase();
+    var railLabel = atsRailLabel(stage);
+    return {
+      id: t.id, title: t.title || '', task_type: t.task_type || '', status: t.status || '',
+      related_document_key: key,
+      document_label: (key && getDocumentLabelForKey(key)) || '',
+      related_stage: stage,
+      // atsRailLabel echoes an unknown stage back verbatim — humanise that case.
+      stage_label: ATS_DOC_REVIEW_STAGE_LABELS[stage] || ((railLabel && railLabel !== '—' && railLabel !== stage) ? railLabel : stage.replace(/_/g, ' ')),
+      // Same precedence the review modal uses: flagged_doc keeps the flag in
+      // description, doc_review keeps the AI note in ai_match_reasoning.
+      description: t.description || '', ai_match_reasoning: t.ai_match_reasoning || '',
+      reason: t.description || t.ai_match_reasoning || '',
+      priority: t.priority || 'normal',
+      created_at: t.created_at || null
+    };
+  });
+}
 
 function atsNowIso() { return new Date().toISOString(); }
 function atsLocalId(prefix) {
@@ -40233,25 +40479,25 @@ async function maybeSendInterviewBookingInvite(applicationId) {
     return { ok: false, skipped: 'send_failed' };
   }
 
-  // WhatsApp nudge — moved here from the availability handler so it fires
-  // exactly once (alongside the email), and is best-effort: a failure never
-  // rolls back the stamp (the email is the primary channel). Same build as the
-  // old availability block: phone from user_profiles + a one-tap slot deep link.
+  // WhatsApp nudge — fires exactly once (alongside the email) and is
+  // best-effort: a failure never rolls back the stamp, because the email is the
+  // primary channel.
+  //
+  // This used to be a hand-rolled free-text fetch with `Bearer <key>` and a flat
+  // {to, body}. Both were wrong, so DoubleTick answered 403 every time and the
+  // nudge has never actually reached a doctor. Free text was the wrong tool
+  // regardless: WhatsApp only permits it inside a 24-hour session window, and a
+  // doctor who hasn't messaged us today is not in one. It is now the approved
+  // gp_link_interview_times_ready template, whose URL button carries the
+  // application id so the doctor lands straight on their slot picker.
   try {
-    var waUserId = ctx && ctx.userId;
-    if (waUserId && isSupabaseDbConfigured() && process.env.DOUBLETICK_API_KEY) {
-      var waRes = await supabaseDbRequest('user_profiles', 'select=phone,first_name&user_id=eq.' + encodeURIComponent(waUserId) + '&limit=1');
-      var waRow = (waRes.ok && Array.isArray(waRes.data) && waRes.data[0]) ? waRes.data[0] : null;
-      if (waRow && waRow.phone) {
-        var dtPhone = normalizePhone(waRow.phone);
-        if (dtPhone) {
-          // The approved template carries the "Choose your time" button
-          // (URL suffix = applicationId); plain text never left the 24h window.
-          var waFirst = waRow.first_name || 'there';
-          await sendDoubleTickTemplateTo(dtPhone, INTERVIEW_WA_TEMPLATES.timesReady, [waFirst, practiceName || 'the practice'], [String(id)]);
-        }
-      }
-    }
+    var waFirst = (ctx && ctx.gpFirstName) || String((ctx && ctx.gpName) || '').trim().split(/\s+/)[0] || 'there';
+    await sendInterviewWhatsappTemplate(
+      ctx && ctx.gpPhone,
+      'times_ready',
+      [waFirst, practiceName || 'the practice'],
+      id
+    );
   } catch (waErr) { console.warn('[booking-invite] WA nudge error (ignored):', waErr && waErr.message); }
 
   return { ok: true };
@@ -40731,18 +40977,23 @@ async function atsGetApplicationContext(appId) {
     // registration_cases has NO gp_name/gp_email/country columns (see commit 9f4c6df) — select
     // only real columns. The case id (when one exists) is the real registration_cases.id; name,
     // email and country are resolved from user_profiles (same pattern the rest of server.js uses).
-    var caseId = null, gpName = '', gpEmail = '', gpCountry = '';
+    // gpFirstName/gpPhone exist for the WhatsApp sends — a template greets by
+    // first name and needs an E.164 number, neither of which is derivable from
+    // the joined display name.
+    var caseId = null, gpName = '', gpFirstName = '', gpEmail = '', gpPhone = '', gpCountry = '';
     if (app.user_id) {
       var cr = await supabaseDbRequest('registration_cases', 'select=id,user_id&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
       var caseRow = (cr.ok && cr.data && cr.data[0]) ? cr.data[0] : null;
       if (caseRow) {
         caseId = caseRow.id || null;
       }
-      var upr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+      var upr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone,registration_country&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
       var up = (upr.ok && upr.data && upr.data[0]) ? upr.data[0] : null;
       if (up) {
         gpName = [String(up.first_name || '').trim(), String(up.last_name || '').trim()].filter(Boolean).join(' ');
+        gpFirstName = String(up.first_name || '').trim();
         gpEmail = String(up.email || '').trim();
+        gpPhone = String(up.phone || '').trim();
         if (!gpCountry) gpCountry = String(up.registration_country || '').trim();
       }
       // Country fallback mirrors _resolveGpCountry: user_profiles.registration_country → user_state.gp_selected_country.
@@ -40752,7 +41003,10 @@ async function atsGetApplicationContext(appId) {
         if (us && us.gp_selected_country) gpCountry = String(us.gp_selected_country).trim();
       }
     }
-    var practiceEmail = '', practiceRowState = '', practiceRowCity = '', practiceContactName = '', practicePhone = '';
+    var practiceEmail = '', practiceRowState = '', practiceRowCity = '';
+    // The practice's primary contact — the person the application was actually
+    // submitted to. Name + phone are here for the interview WhatsApp templates.
+    var practiceContactName = '', practicePhone = '';
     if (job && job.practice_id) {
       var pr = await supabaseDbRequest('practices', 'select=contact_email,contact_name,contact_phone,location_state,location_city&id=eq.' + encodeURIComponent(job.practice_id) + '&limit=1');
       if (pr.ok && pr.data && pr.data[0]) {
@@ -40763,6 +41017,9 @@ async function atsGetApplicationContext(appId) {
         practiceRowCity = String(pr.data[0].location_city || '').trim();
       }
     }
+    // The per-application contact (set when staff submitted this candidate) is
+    // the more specific person, so it wins over the practice-wide default.
+    practiceContactName = String(app.practice_contact_name || '').trim() || practiceContactName;
     return {
       app: app,
       userId: app.user_id || null,
@@ -40774,7 +41031,9 @@ async function atsGetApplicationContext(appId) {
       practiceState: String((job && job.location_state) || '').trim() || practiceRowState,
       practiceCity: String((job && job.location_city) || '').trim() || practiceRowCity,
       gpName: gpName || app.candidate_name || app.name || 'Dr',
+      gpFirstName: gpFirstName,
       gpEmail: gpEmail || (app && app.email) || '',
+      gpPhone: gpPhone,
       gpCountry: gpCountry || '',
       practiceEmail: practiceEmail,
       practiceContactName: practiceContactName,
@@ -40808,9 +41067,15 @@ async function atsGetApplicationContext(appId) {
     practiceState: String((job && job.location_state) || (practice && practice.location_state) || '').trim(),
     practiceCity: String((job && job.location_city) || (practice && practice.location_city) || '').trim(),
     gpName: (candidate && candidate.name) || app.name || 'Dr',
+    // Same shape as the Supabase branch above, so the WhatsApp sends behave
+    // identically in local mode instead of silently seeing undefined.
+    gpFirstName: String(((candidate && candidate.name) || app.name || '')).trim().split(/\s+/)[0] || '',
     gpEmail: (candidate && candidate.email) || app.email || '',
+    gpPhone: (candidate && candidate.phone) || app.phone || '',
     gpCountry: (candidate && candidate.country) || app.country || '',
-    practiceEmail: (practice && practice.contact_email) || ''
+    practiceEmail: (practice && practice.contact_email) || '',
+    practiceContactName: String(app.practice_contact_name || (practice && practice.contact_name) || '').trim(),
+    practicePhone: String((practice && practice.contact_phone) || '').trim()
   };
 }
 
@@ -44072,6 +44337,28 @@ async function handleApi(req, res, pathname) {
               '(was unreadable:', JSON.stringify(cnConsult.country_raw || ''), ')');
           }
         }
+        // ── Repair a stop that was really a bounce ─────────────────────────────
+        // Until 2026-09-08 every suppressed address was stamped 'unsubscribed',
+        // bounces included — which also silenced WhatsApp for a doctor whose phone
+        // works (two real leads, both with typo'd emails and valid UK mobiles, got
+        // nothing on any channel). The suppression row says what actually
+        // happened. A genuine unsubscribe or spam complaint stays stopped and is
+        // marked with its reason so this lookup runs once per lead, not hourly.
+        if (cnConsult.stopped === 'unsubscribed' && cnConsult.email_bounced !== true && !cnConsult.unsubscribe_reason) {
+          var cnStopWhy = await getEmailSuppressionReason(cnRow.email);
+          var cnRepaired = Object.assign({}, cnConsult);
+          if (cnStopWhy === 'hard_bounce') {
+            delete cnRepaired.stopped;
+            cnRepaired.email_bounced = true;
+            cnRepaired.email_bounced_at = cnRepaired.email_bounced_at || new Date().toISOString();
+            console.log('[consult-nudge] lead', cnRow.id, 'was stopped as unsubscribed but the address bounced — resuming on WhatsApp');
+          } else {
+            cnRepaired.unsubscribe_reason = cnStopWhy || 'unknown';
+          }
+          var cnRepairedMeta = Object.assign({}, cnMeta, { consult: cnRepaired });
+          await updateSiteEnquiryRow(cnRow.id, { metadata: cnRepairedMeta });
+          cnRow.metadata = cnRepairedMeta; cnMeta = cnRepairedMeta; cnConsult = cnRepaired;
+        }
         // Qualified-gate applies to the pre-booking funnel ONLY. A booked lead (screened
         // OR a never-screened direct Calendly booker) gets the signup drip regardless of
         // qualification — booking a call is the strongest intent there is. screened_out (an
@@ -44102,8 +44389,19 @@ async function handleApi(req, res, pathname) {
         // signup (the final nudge's CTA is the signup link, so post-final-
         // email conversions land exactly here): run the existence check once
         // more before choosing between 'signed_up'/converted and 'exhausted'.
+        //
+        // WhatsApp legs owed from earlier steps are settled first: a template
+        // that was still pending WhatsApp approval fails soft and leaves its
+        // step recorded without a wa marker, so it is retried for a few days
+        // rather than lost — and the terminal stop waits until nothing is owed.
+        var cnWaOwed = consultLead.pendingConsultWaKinds(cnConsult, Date.now());
         if (!cnDue) {
-          if (consultLead.isConsultExhausted(cnConsult)) {
+          if (cnWaOwed.length) {
+            await sendOwedConsultWa(cnRow, cnWaOwed);
+            cnMeta = cnRow.metadata; cnConsult = cnMeta.consult;
+            cnWaOwed = consultLead.pendingConsultWaKinds(cnConsult, Date.now());
+          }
+          if (consultLead.isConsultExhausted(cnConsult) && !cnWaOwed.length) {
             var cnExhUserExists = false;
             if (isSupabaseDbConfigured()) {
               cnExhUserExists = !!(await getSupabaseUserIdByEmail(cnRow.email));
@@ -44145,27 +44443,46 @@ async function handleApi(req, res, pathname) {
           cnStopped++;
           continue;
         }
-        var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
-        if (cnSendRes && cnSendRes.suppressed) {
-          var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed' }) });
-          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
-          cnStopped++;
-          continue;
+        // ── The step's channels ─────────────────────────────────────────────
+        // A not_booked step carries email and/or WhatsApp (lib/consult-lead.js
+        // schedule: 2h email+WA, 48h email+WA, day 5 WA only); booked_no_signup
+        // steps are email-only. A lead whose address hard-bounced keeps just the
+        // WhatsApp leg. The recorded entry says what the email leg did
+        // ('sent' | 'bounced' | 'skipped' | 'none') so the Leads tab counts
+        // honestly; the WhatsApp leg records itself in consult.wa / wa_skipped.
+        var cnSpec = consultLead.consultNudgeStepSpec(cnDue.seq, cnDue.step) || { email: true, wa: null };
+        var cnEntry = { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString(), email: cnSpec.email ? 'sent' : 'none' };
+        if (cnSpec.email && cnConsult.email_bounced === true) {
+          cnEntry.email = 'skipped';
+        } else if (cnSpec.email) {
+          var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
+          if (cnSendRes && cnSendRes.suppressed) {
+            var cnWhy = await getEmailSuppressionReason(cnRow.email);
+            if (cnWhy !== 'hard_bounce') {
+              // They asked us to stop (or reported us) — every channel stops.
+              var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed', unsubscribe_reason: cnWhy || 'unknown' }) });
+              await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
+              cnStopped++;
+              continue;
+            }
+            // Dead address, live phone: note the bounce and carry on with WhatsApp.
+            cnConsult = Object.assign({}, cnConsult, { email_bounced: true, email_bounced_at: cnEntry.sent_at });
+            cnMeta = Object.assign({}, cnMeta, { consult: cnConsult });
+            cnEntry.email = 'bounced';
+            console.log('[consult-nudge] email bounced for lead', cnRow.id, '— WhatsApp only from here');
+          } else if (!(cnSendRes && cnSendRes.ok)) {
+            cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
+            continue;
+          }
         }
-        if (cnSendRes && cnSendRes.ok) {
-          var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([
-            { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString() }
-          ]);
-          var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
-          await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
-          cnRow.metadata = cnMetaSent;
-          // WhatsApp rides along on the pre-booking nudge — marker-guarded, so
-          // only the FIRST due not_booked touch carries a WhatsApp message.
-          if (cnDue.seq === 'not_booked') await maybeSendConsultWa(cnRow, 'not_booked');
-          cnSent++;
-        } else {
-          cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
-        }
+        var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([cnEntry]);
+        var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
+        await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
+        cnRow.metadata = cnMetaSent;
+        // The WhatsApp leg for this step, plus any still owed from earlier ones
+        // (the doctor gets the newest copy; older owed legs are retired).
+        if (cnSpec.wa) await sendOwedConsultWa(cnRow, cnWaOwed.concat([cnSpec.wa]));
+        cnSent++;
       }
       // ── WhatsApp onboarding pass ─────────────────────────────────────────
       // The main loop skips stopped rows forever, so signed-up leads who never
@@ -45295,7 +45612,7 @@ async function handleApi(req, res, pathname) {
         const hasZoomMeetingId = call.zoom_meeting_id != null && String(call.zoom_meeting_id).trim() !== '';
         if (!hasZoomMeetingId) {
           const noZoomStartMs = Date.parse(call.scheduled_at);
-          const noZoomDueMs = noZoomStartMs + ((Number(call.duration_minutes) || 45) + 15) * 60000;
+          const noZoomDueMs = noZoomStartMs + ((Number(call.duration_minutes) || interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES) + 15) * 60000;
           if (!Number.isFinite(noZoomDueMs) || nowMs < noZoomDueMs) { skipped++; continue; } // not due yet (or unparseable scheduled_at) — retry next run
           const noZoomNowIso = new Date().toISOString();
           // No summary_status flip to 'pending': there is no Zoom recording to
@@ -50169,8 +50486,13 @@ async function handleApi(req, res, pathname) {
         // The start form stores the question on the row itself; a question typed
         // at booking time lands in consult.call_question. Either is "they asked us".
         call_question: c.call_question || (r && r.message) || '',
-        nudges_sent: nudges.length,
+        // Steps whose email leg actually went — a bounced or WhatsApp-only step
+        // is on the record but was not an email (entries before 2026-09-08
+        // carry no `email` field and were all emails).
+        nudges_sent: nudges.filter((n) => n && (n.email == null || n.email === 'sent')).length,
         last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
+        wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
+        email_bounced: c.email_bounced === true,
         stopped: c.stopped || ''
       };
     });
@@ -51031,7 +51353,7 @@ async function handleApi(req, res, pathname) {
     const ciMemoKey = String(ciUserId) + '|' + ciAppId + '|' + (interviewMeetings.sanitizeViewerTz(url.searchParams.get('viewer_tz')) || '');
     const ciMemo = _interviewSlotsMemo[ciMemoKey];
     if (ciMemo && Date.now() - ciMemo.at < INTERVIEW_SLOTS_MEMO_MS) {
-      sendJson(res, 200, { ok: true, slots: ciMemo.slots, cached: true });
+      sendJson(res, 200, { ok: true, slots: ciMemo.slots, durationMinutes: ciMemo.durationMinutes || interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES, cached: true });
       return;
     }
 
@@ -51103,7 +51425,7 @@ async function handleApi(req, res, pathname) {
 
     const ciSlotCtx = await _interviewSlotContext(ciAppId, Date.now(), ciViewerTz);
     if (ciSlotCtx.error) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
-    _interviewSlotsMemo[ciMemoKey] = { at: Date.now(), slots: ciSlotCtx.slots };
+    _interviewSlotsMemo[ciMemoKey] = { at: Date.now(), slots: ciSlotCtx.slots, durationMinutes: interviewMeetings.interviewDurationMinutes(ciSlotCtx.meetingRow) };
 
     // Remember where the doctor actually is. Staff screens have no doctor's
     // browser to ask, so this is the only way they can show the same times the
@@ -51123,7 +51445,13 @@ async function handleApi(req, res, pathname) {
       console.warn('[interview] could not record the doctor timezone (ignored):', ciTzErr && ciTzErr.message);
     }
 
-    sendJson(res, 200, { ok: true, slots: ciSlotCtx.slots });
+    // The picker tells the doctor how long the interview runs, so it needs the
+    // real stored length rather than the 45 its copy used to hardcode.
+    sendJson(res, 200, {
+      ok: true,
+      slots: ciSlotCtx.slots,
+      durationMinutes: interviewMeetings.interviewDurationMinutes(ciSlotCtx.meetingRow)
+    });
     return;
   }
 
@@ -78069,6 +78397,52 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ---- Interview allow short notice (POST) ---------------------------------
+  // The 48-hour notice rule (INTERVIEW_LEAD_HOURS) is right by default, but it
+  // strands a real case: a practice offers times that everyone is happy with
+  // and our own rule is the only thing refusing them — either because they
+  // replied late, or because the times were legal when they sent them and the
+  // clock has since caught up (PKG Medical Centre, owner report 2026-09-06:
+  // windows submitted 3 Sep for the 7th and 8th, still perfectly workable on
+  // the 6th, and the picker was empty). Waives the notice period for THIS
+  // interview only; the standard rule is untouched for everyone else.
+  //
+  // Slots in the past are still impossible — computeInterviewSlots keeps its
+  // `t < earliest` test and with 0 notice "earliest" simply becomes now.
+  if (pathname === '/api/ats/interview/allow-short-notice' && req.method === 'POST') {
+    var ctxSN = requireAtsSession(req, res); if (!ctxSN) return;
+    var bodySN; try { bodySN = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var snAppId = (bodySN && (bodySN.applicationId != null ? bodySN.applicationId : bodySN.application_id) != null)
+      ? String(bodySN.applicationId != null ? bodySN.applicationId : bodySN.application_id) : '';
+    if (!snAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    // Optional: waive down to N hours rather than all the way to zero. Anything
+    // absent/invalid means a full waiver; anything at or above the standard
+    // rule is pointless, so it is refused rather than silently stored.
+    var snHours = 0;
+    if (bodySN && bodySN.hours != null && String(bodySN.hours) !== '') {
+      var snParsed = Number(bodySN.hours);
+      if (!Number.isFinite(snParsed) || snParsed < 0) { sendJson(res, 400, { ok: false, message: 'hours must be 0 or more.' }); return; }
+      if (snParsed >= interviewMeetings.INTERVIEW_LEAD_HOURS) {
+        sendJson(res, 400, { ok: false, message: 'That is the standard notice period already — nothing to waive.' });
+        return;
+      }
+      snHours = Math.floor(snParsed);
+    }
+    var snRef = await findInterviewForApplication(snAppId);
+    if (!snRef) { sendJson(res, 404, { ok: false, message: 'No interview row found — call /api/ats/interview/request first.' }); return; }
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(String(snRef.id)), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { min_notice_hours: snHours, updated_at: atsNowIso() }
+      });
+    } else {
+      var snRow = (dbState.scheduledCalls || []).find(function (r) { return String(r.id) === String(snRef.id); });
+      if (snRow) { snRow.min_notice_hours = snHours; snRow.updated_at = atsNowIso(); saveDbState(); }
+    }
+    sendJson(res, 200, { ok: true, min_notice_hours: snHours });
+    return;
+  }
+
   // ---- Interview cancel (POST) ---------------------------------------------
   // GAP A2: cancel a BOOKED interview from the ATS and leave it rebookable.
   // Design: the booked row is flipped to status='cancelled' (matches the
@@ -78270,7 +78644,9 @@ Return ONLY valid JSON with no markdown formatting:
             cxIcsAttachment = interviewIcs.icsAttachment({
               uid: _interviewIcsUid(cxRow.id),
               start: cxRow.scheduled_at,
-              durationMins: INTERVIEW_DURATION_MIN,
+              // Same stored length the REQUEST invite carried, so the cancellation
+              // describes the event it is cancelling.
+              durationMins: interviewMeetings.interviewDurationMinutes(cxRow),
               summary: 'Interview — ' + cxGpName + ' @ ' + cxPracticeName,
               description: 'This interview has been cancelled.' + cxReasonLine,
               organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
@@ -79322,7 +79698,7 @@ Return ONLY valid JSON with no markdown formatting:
     // merge after the fact" pattern as the velocity/lock merges above. Degrades
     // to zero when Supabase is absent (local mode) or a row has no case_id.
     var drTasksRes = await supabaseDbRequest('registration_tasks',
-      'select=case_id&task_type=in.(doc_review,flagged_doc)&status=in.(open,in_progress,waiting)&limit=2000');
+      'select=case_id&' + ATS_DOC_REVIEW_OPEN_FILTER + '&limit=2000');
     var drByCase = {};
     ((drTasksRes.ok && drTasksRes.data) || []).forEach(function (t) {
       if (t && t.case_id) drByCase[t.case_id] = (drByCase[t.case_id] || 0) + 1;
@@ -79713,6 +80089,10 @@ Return ONLY valid JSON with no markdown formatting:
     var candidateIsCareerLocked = isCareerLocked(facts.careerLock);
     if (isSupabaseDbConfigured() && !candidateIsCareerLocked) atsStoreIntentForCase(facts.case_id, intent, facts);
     var displayIntentScore = (candidateIsCareerLocked && storedIntentScore != null) ? storedIntentScore : intent.score;
+    // Owner 2026-09-04: the "Docs · N to review" chip on the candidates list
+    // led to a profile with nowhere to review. The profile now carries the
+    // same open review tasks the chip counts (one Review button each).
+    var docReviews = await atsCandidateDocReviews(facts.case_id);
     var railIdx = atsRegStageIndex(facts.regStage);
     var rail = ATS_REG_RAIL.map(function (s, i) {
       var dbIdx = ceoMetrics.DB_STAGE_ORDER[s.key];
@@ -79726,6 +80106,7 @@ Return ONLY valid JSON with no markdown formatting:
         intent: { score: displayIntentScore, band: intent.bandLabel, signals: intent.signals },
         reg_stage: facts.regStage, reg_stage_label: atsRailLabel(facts.regStage), blocked: facts.blockedDays > 0, blocked_days: facts.blockedDays,
         rail: rail, onboarding: facts.ob, docs: facts.docs, comms: facts.comms, calls: facts.calls, apps: facts.apps, ai_handover: facts.aiHandover,
+        doc_reviews: docReviews, doc_reviews_pending: docReviews.length,
         // AI Matching (Task 8): "Interviews & strikes" panel data — null when
         // this GP has never been career-locked.
         career_lock: buildCareerLockAdminView(facts.careerLock)
@@ -80781,11 +81162,12 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   }
   bookedMeetings.forEach(function (r) {
     if (!r || !r.scheduled_at) return;
-    // scheduled_calls.duration_minutes is NOT NULL DEFAULT 30 (consults); an
-    // interview runs 45. Trust the stored value, fall back per kind.
+    // scheduled_calls.duration_minutes is NOT NULL DEFAULT 30. Trust the stored
+    // value; the fallback is the same default for both kinds (an interview runs
+    // 30, not 45 — see INTERVIEW_DEFAULT_DURATION_MINUTES).
     var mins = Number(r.duration_minutes) > 0
       ? Number(r.duration_minutes)
-      : (r.meeting_kind === 'interview' ? INTERVIEW_DURATION_MIN : 30);
+      : interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES;
     busy.push({ startUtc: r.scheduled_at, endUtc: new Date(new Date(r.scheduled_at).getTime() + mins * 60000).toISOString() });
   });
 
@@ -80793,7 +81175,7 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   // over, and a slot that starts the second another ends leaves no room to
   // prepare. See INTERVIEW_GAP_MINUTES (default 10, matching the Calendly
   // buffer). Applied by widening every busy block rather than by shortening the
-  // interview, so the interview itself stays its full length.
+  // interview, so the interview itself keeps its full stored length.
   //
   // This pads BOTH sources: meetings booked in the app, and whatever
   // gcalReadBusy returned from Google Calendar. Note Calendly has its own,
@@ -80811,8 +81193,11 @@ async function _interviewComputeSlots(row, appCtx, now, maxSlots, excludeId, gpT
   return interviewScheduler.computeInterviewSlots({
     now: now,
     horizonDays: interviewMeetings.INTERVIEW_HORIZON_DAYS,
-    durationMin: INTERVIEW_DURATION_MIN,
-    leadHours: interviewMeetings.INTERVIEW_LEAD_HOURS,
+    // The row's OWN length, never a literal — see interviewDurationMinutes.
+    durationMin: interviewMeetings.interviewDurationMinutes(row),
+    // Normally the 48-hour notice rule; an operator can waive it per-interview
+    // (min_notice_hours) when a practice's short-notice times are still on.
+    leadHours: interviewMeetings.interviewLeadHours(row),
     gridMin: 30,
     maxSlots: maxSlots,
     host: host,
@@ -80905,6 +81290,12 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   // the country-derived fallback everywhere below.
   var gpViewerTz = (bookOpts && bookOpts.gpViewerTz) || '';
 
+  // ONE length for this booking, read from the row, used by every side-effect
+  // below: the Zoom meeting, the Google Calendar event, the .ics invite and
+  // both "add to calendar" links. They were four independent literal 45s, so a
+  // 30-minute interview blocked 45 minutes in everyone's diary.
+  var bookDurationMin = interviewMeetings.interviewDurationMinutes(meetingRow);
+
   // MUST use the same GP tz the doctor's picker was built with, or this
   // re-check disagrees with what they were just shown and a legitimate pick
   // 409s as "slot taken". The GP book path passes their device tz; the admin
@@ -80923,7 +81314,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   var zoom = await createZoomInterviewMeeting({
     topic: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
     startUtc: slotStartUtc,
-    durationMin: INTERVIEW_DURATION_MIN
+    durationMin: bookDurationMin
   });
   // The join link stored on the row + returned to the app: a real per-interview
   // Zoom link when Zoom is configured, else the standing INTERVIEW_MEETING_URL
@@ -80932,7 +81323,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
 
   var gcal;
   try {
-    var slotEnd = new Date(new Date(slotStartUtc).getTime() + INTERVIEW_DURATION_MIN * 60000).toISOString();
+    var slotEnd = new Date(new Date(slotStartUtc).getTime() + bookDurationMin * 60000).toISOString();
     gcal = await gcalCreateEvent({
       summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
       startUtc: slotStartUtc,
@@ -80964,7 +81355,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       gcal_event_id: String(gcal.id || '') || null,
       // The booked row carries the real length, the same number the slot
       // engine and the calendar event use.
-      duration_minutes: INTERVIEW_DURATION_MIN,
+      duration_minutes: bookDurationMin,
       updated_at: nowTs
     };
     // Persist the tz the GP actually booked in on the row's EXISTING timezone
@@ -81078,8 +81469,8 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
       var rsoFirst = String(bookRso.name || 'GP Link').split(' ')[0];
       // "Add to calendar" (Google render URL); the .ics below covers Apple/Outlook.
       var calDesc = 'GP Link interview: ' + appCtx.gpName + ' with ' + (appCtx.practiceName || 'the practice') + '.' + (joinUrl ? ' Join: ' + joinUrl : '');
-      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: INTERVIEW_DURATION_MIN, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
-      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: INTERVIEW_DURATION_MIN, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
+      var gpCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'GP Link interview — ' + (appCtx.practiceName || 'the practice'), description: calDesc, location: joinUrl || 'Video call' });
+      var practiceCalUrl = buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'Interview — ' + appCtx.gpName, description: calDesc, location: joinUrl || 'Video call' });
       // D1a: attach a calendar invite (METHOD:REQUEST). UID is stable per interview
       // row so a later cancellation .ics (same UID, SEQUENCE 1) removes it again.
       // Built in its own try/catch — a bad date can never stop the confirmations.
@@ -81088,7 +81479,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         bookIcsAttachment = interviewIcs.icsAttachment({
           uid: _interviewIcsUid(meetingRow.id),
           start: slotStartUtc,
-          durationMins: INTERVIEW_DURATION_MIN,
+          durationMins: bookDurationMin,
           summary: 'Interview — ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'Practice'),
           description: calDesc,
           location: joinUrl || '',
@@ -81139,21 +81530,6 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
           attachments: bookIcsAttachment ? [bookIcsAttachment] : undefined
         });
       }
-      // WhatsApp both sides with the approved templates (owner 2026-09-08).
-      try {
-        var waLink = joinUrl || 'We will send the video link before the interview.';
-        var waGp = await lookupGpPhoneAndFirstName(appCtx.userId);
-        if (waGp.phone) {
-          await sendDoubleTickTemplateTo(waGp.phone, INTERVIEW_WA_TEMPLATES.confirmedGp,
-            [waGp.firstName || 'Doctor', appCtx.practiceName || 'the practice', gpWhen, waLink]);
-        }
-        if (appCtx.practicePhone) {
-          await sendDoubleTickTemplateTo(appCtx.practicePhone, INTERVIEW_WA_TEMPLATES.confirmedPractice,
-            [String(appCtx.practiceContactName || '').split(' ')[0] || 'there', appCtx.gpName || 'the doctor', practiceWhen, waLink]);
-        } else {
-          console.warn('[interview-whatsapp] practice has no contact_phone — practice WhatsApp skipped');
-        }
-      } catch (waErr) { console.warn('[interview-whatsapp] booking sends failed (ignored):', waErr && waErr.message); }
       // RSO notification — the support officer who sits in on the interview.
       // Defaults to hello@ when unassigned; skipped there only to avoid doubling
       // the ops email below (which already lands in hello@).
@@ -81169,7 +81545,7 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
             ctaText: joinUrl ? 'Join Meeting' : 'Open candidate',
             ctaUrl: joinUrl || (getSuperAdminBaseUrl() + '/pages/ceo-dashboard?case=' + encodeURIComponent(String(appCtx.caseId || ''))),
             secondaryCtaText: 'Add to Calendar',
-            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: INTERVIEW_DURATION_MIN, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
+            secondaryCtaUrl: buildGoogleCalendarUrl({ startUtc: slotStartUtc, durationMin: bookDurationMin, summary: 'Interview, ' + appCtx.gpName + ' @ ' + (appCtx.practiceName || 'practice'), description: calDesc, location: joinUrl || 'Video call' }),
             footer: 'You’re receiving this as ' + _esc(appCtx.gpName || 'the doctor') + '’s Registration Support Officer.'
           }),
           text: appCtx.gpName + ' has an interview with ' + (appCtx.practiceName || 'the practice') + ' on ' + practiceWhen + '.' + (joinUrl ? ' Join: ' + joinUrl : ''),
@@ -81191,6 +81567,32 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         }
       } catch (opsErr) {
         console.warn('[interview] book ops notify error (ignored):', opsErr && opsErr.message);
+      }
+
+      // WhatsApp confirmations — the doctor AND the practice's primary contact,
+      // each carrying the join link and the time in THEIR OWN zone (the same
+      // labels the emails use, so the two channels can never disagree).
+      //
+      // Email alone was not enough here: a practice contact who does not open
+      // their inbox before the call has no link, and the doctor's confirmation
+      // is the message they will actually reach for on the day. Both are
+      // approved templates because neither party is reliably inside WhatsApp's
+      // 24-hour free-text window. Sent in parallel, each already fail-soft, and
+      // awaited so the serverless GP booking path cannot be frozen mid-send.
+      try {
+        var waGpFirst = appCtx.gpFirstName || String(appCtx.gpName || '').trim().split(/\s+/)[0] || 'there';
+        var waPractice = appCtx.practiceName || 'the practice';
+        var waJoin = joinUrl || (APP_BASE_URL + '/pages/secure-interview?applicationId=' + encodeURIComponent(String((appCtx.app && appCtx.app.id) || '')));
+        await Promise.all([
+          sendInterviewWhatsappTemplate(appCtx.gpPhone, 'confirmed_gp', [waGpFirst, waPractice, gpWhen, waJoin]),
+          sendInterviewWhatsappTemplate(
+            appCtx.practicePhone,
+            'confirmed_practice',
+            [appCtx.practiceContactName || 'there', appCtx.gpName || 'your candidate', practiceWhen, waJoin]
+          )
+        ]);
+      } catch (waErr) {
+        console.warn('[interview] book WhatsApp confirmations error (ignored):', waErr && waErr.message);
       }
     } catch (notifyErr) {
       console.warn('[interview] book notify error (ignored):', notifyErr && notifyErr.message);
@@ -81353,7 +81755,7 @@ async function ingestPracticeAvailabilityReply(interviewId, replyText, nowIso, o
           if (dtPhone) {
             // Approved template with the "Choose your time" button — plain
             // text never left the 24-hour WhatsApp window (owner 2026-09-08).
-            sendDoubleTickTemplateTo(dtPhone, INTERVIEW_WA_TEMPLATES.timesReady, [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], [gpAppId])
+            sendInterviewWhatsappTemplate(dtPhone, 'times_ready', [gpFirstName, String(row.practice_name || '').trim() || 'the practice'], gpAppId)
               .catch(function (e) { console.warn('[interview] GP WA notify failed (ignored):', e && e.message); });
           }
         }
@@ -81768,9 +82170,14 @@ module.exports.__testUtils = {
   readUserStateForMerge,
   parseGpLinkUpdatesList,
   maybeSendConsultWa,
+  sendOwedConsultWa,
+  markConsultWaSkipped,
   markConsultWaOnboardingResolved,
   getConsultLeadAccountState,
   ensureLeadBookedCallAt,
+  findConsultLeadByPhone,
+  consultPhoneMatchKey,
+  getEmailSuppressionReason,
   runConsultCallReminders,
   // Test-only: seeds a signed-up account directly into dbState.users (local-
   // JSON mode) — dbState is loaded once at module import, so a raw write to

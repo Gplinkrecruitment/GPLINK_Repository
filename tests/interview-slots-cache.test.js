@@ -45,7 +45,7 @@ describe('wiring', () => {
     const career = read('pages/career.html');
     expect(career).toContain('/js/interview-slots-cache.js?v=');
     expect(career).toContain('const cached = ivCache ? ivCache.read(appId, careerDeviceTz) : null;');
-    expect(career).toContain('if (cached && ivCache && ivCache.sameSlots(cached.slots, fresh)) return;');
+    expect(career).toContain('if (cached && ivCache && ivCache.sameSlots(cached.slots, fresh)) { careerIvPaint(appId); return; }');
     expect(career).toContain('if (careerIvCache()) careerIvCache().clear(appId);');
     const popup = read('js/interview-popup.js');
     expect(popup).toContain('var cached = cache ? cache.read(iv.applicationId, tz) : null;');
@@ -59,8 +59,8 @@ describe('wiring', () => {
   it('the server memoises the slot list for 60 s per application + timezone and clears it on booking', () => {
     const s = read('server.js');
     expect(s).toContain('const INTERVIEW_SLOTS_MEMO_MS = 60 * 1000;');
-    expect(s).toContain("sendJson(res, 200, { ok: true, slots: ciMemo.slots, cached: true });");
-    expect(s).toContain('_interviewSlotsMemo[ciMemoKey] = { at: Date.now(), slots: ciSlotCtx.slots };');
+    expect(s).toContain("sendJson(res, 200, { ok: true, slots: ciMemo.slots, durationMinutes: ciMemo.durationMinutes || interviewMeetings.INTERVIEW_DEFAULT_DURATION_MINUTES, cached: true });");
+    expect(s).toContain('_interviewSlotsMemo[ciMemoKey] = { at: Date.now(), slots: ciSlotCtx.slots, durationMinutes: interviewMeetings.interviewDurationMinutes(ciSlotCtx.meetingRow) };');
     // keyed by user and checked before the ownership lookups; cleared by application id
     expect(s).toContain("const ciMemoKey = String(ciUserId) + '|' + ciAppId + '|' + (interviewMeetings.sanitizeViewerTz(url.searchParams.get('viewer_tz')) || '');");
     expect(s.indexOf('const ciMemo = _interviewSlotsMemo[ciMemoKey];')).toBeLessThan(s.indexOf('const ciCtx = await atsGetApplicationContext(ciAppId);'));

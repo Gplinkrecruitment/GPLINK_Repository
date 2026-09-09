@@ -213,14 +213,20 @@
       ? '<span class="lead-fact">Call booked ' + ATS.esc(localTime(l.call_booked_at)) + '</span>'
       : '';
 
-    // Chase emails: count + when the last one went, then why they stopped.
+    // Chase touches: emails and WhatsApps, when the last one went, then why
+    // they stopped. A bounced address is said plainly — the doctor is still
+    // being chased on WhatsApp, they have not opted out.
     var nudgeText;
-    if (!l.nudges_sent) {
-      nudgeText = 'No chase emails sent';
+    if (!l.nudges_sent && !l.wa_sent) {
+      nudgeText = 'No chase messages sent';
     } else {
-      nudgeText = l.nudges_sent + ' chase email' + (l.nudges_sent === 1 ? '' : 's') + ' sent';
+      var parts = [];
+      if (l.nudges_sent) parts.push(l.nudges_sent + ' chase email' + (l.nudges_sent === 1 ? '' : 's'));
+      if (l.wa_sent) parts.push(l.wa_sent + ' WhatsApp' + (l.wa_sent === 1 ? '' : 's'));
+      nudgeText = parts.join(' + ') + ' sent';
       if (l.last_nudge_at) nudgeText += ' — last ' + localTime(l.last_nudge_at);
     }
+    if (l.email_bounced) nudgeText += ' — email bounced, WhatsApp only';
     if (l.stopped) nudgeText += ' (' + (STOPPED_LABELS[l.stopped] || 'stopped') + ')';
 
     var questionHtml = l.call_question

@@ -40,7 +40,7 @@ describe('server: WhatsApp confirmation when a match is accepted', () => {
     expect(fn(false, 'Unauthorized').ok).toBe(false);
     // both senders use it
     expect(fn(true, '{"messages":[{"status":"FAILED"},{"status":"SENT"}]}').ok).toBe(true); // partial batch still counts as sent
-    expect(server.split('doubleTickBatchOutcome(resp.ok, ').length - 1).toBe(3); // match invitation, match accepted, interview templates
+    expect(server.split('doubleTickBatchOutcome(resp.ok, ').length - 1).toBe(4); // match invitation, match accepted, interview templates, main's sendInterviewWhatsappTemplate (release merge 2026-09-10)
   });
   it('the plain-text wording names the practice and sets the interview expectation', () => {
     const start = server.indexOf('function buildMatchAcceptedWhatsAppText(firstName, practiceName) {');
