@@ -94,12 +94,19 @@ describe('walkthrough controller: slideshows own the first-run guidance', () => 
     expect(welcome).toContain("gpShellNavigate('/pages/career'");
     expect(js).toContain("var CAREER_INTRO_SEEN_KEY = 'gp_career_intro_seen';");
   });
-  it('the registration deck counts the tab tour as done and hands over to the Home pointer', () => {
+  it('the registration deck counts the tab tour as done, opens the registration pathway page, and keeps the Home pointer for the first visit Home', () => {
+    // Owner 2026-09-10: "once they do the walkthrough then the myintealth step
+    // should automatically open … so they can begin".
     const reg = between(js, 'function runRegistrationSlides(replay)', 'function replay()');
     expect(reg).toContain('markDone();');
-    expect(reg).toContain("gpShellNavigate('/pages/index'");
-    expect(reg).toContain("afterFrame('/pages/index'");
+    expect(reg).toContain("gpShellNavigate('/pages/registration-intro', { replace: true })");
+    expect(reg).not.toContain("gpShellNavigate('/pages/index'");
+    expect(reg).toContain("onFrameLoaded('/pages/index'");
+    expect(reg).not.toContain("afterFrame('/pages/index'");
     expect(reg).toContain('scheduleNextStepPointer(');
+    // no ceiling on that wait — the pointer must never fire over the registration pages
+    const helper = between(js, 'function onFrameLoaded(route, fn)', 'function afterFrame(route, fn, ceiling)');
+    expect(helper).not.toContain('setTimeout');
   });
   it('a running slideshow blocks the coach, and a phase change re-arms the one-shot', () => {
     const guardedBlock = between(js, 'function guarded', 'function hasLiveMatch');
@@ -154,7 +161,7 @@ describe('cache: busters and service worker moved together', () => {
   it('sw.js VERSION moved and precaches the new scripts at the busters the shell ships', () => {
     const sw = read('sw.js');
     const shell = read('pages/app-shell.html');
-    expect(sw).toContain('var VERSION = "20260910b"');
+    expect(sw).toContain('var VERSION = "20260910c"');
     for (const f of ['app-shell.js', 'gp-walkthrough-state.js', 'gp-walkthrough-shell.js', 'gp-doctor-phase.js', 'gp-intro-slides.js']) {
       const m = shell.match(new RegExp('/js/' + f.replace('.', '\\.') + '\\?v=([0-9a-z]+)'));
       expect(m, f).not.toBeNull();

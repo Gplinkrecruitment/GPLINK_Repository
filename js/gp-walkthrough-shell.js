@@ -364,6 +364,17 @@
       };
     });
   }
+  // Like afterFrame but with NO ceiling: fn runs only when that route really
+  // loads, however long that takes (a pointer that must never fire over
+  // another page waits here).
+  function onFrameLoaded(route, fn) {
+    var onLoad = function (e) {
+      if (!e || !e.detail || e.detail.route !== route) return;
+      window.removeEventListener('gp-shell-frame-loaded', onLoad);
+      try { fn(); } catch (err) {}
+    };
+    window.addEventListener('gp-shell-frame-loaded', onLoad);
+  }
   function afterFrame(route, fn, ceiling) {
     var done = false;
     var go = function () { if (done) return; done = true; window.removeEventListener('gp-shell-frame-loaded', onLoad); fn(); };
@@ -425,15 +436,22 @@
         onSkip: function () { if (!replay) markRegistrationIntroSeen(); }
       }).then(function (reason) {
         if (reason !== 'done' || replay) { broadcastCoachActive(false); return; }
-        // "Start my registration" → Home, then the existing placed-branch
-        // pointer spotlights the MyIntealth journey row once Home has loaded.
-        pointerPending = true;
-        try { if (window.gpShellNavigate) window.gpShellNavigate('/pages/index', { replace: true }); } catch (e) {}
-        afterFrame('/pages/index', function () {
-          pointerPending = false;
+        // "Start my registration" → the registration pathway page itself
+        // ("Your Registration Pathway — Begin Registration"), whose button
+        // opens the MyIntealth account step (owner 2026-09-10: "once they do
+        // the walkthrough then the MyIntealth step should automatically open
+        // … so they can begin"). It used to hand over to Home and spotlight
+        // the MyIntealth row there; that "start here" pointer now keeps its
+        // turn for the doctor's first visit Home — with no ceiling, so it can
+        // never fire over the registration pages. The coach flag is released
+        // here so those pages' own tips are not blocked meanwhile.
+        pointerPending = false;
+        broadcastCoachActive(false);
+        try { if (window.gpShellNavigate) window.gpShellNavigate('/pages/registration-intro', { replace: true }); } catch (e) {}
+        onFrameLoaded('/pages/index', function () {
           ranPointer = false; // allow one pointer decision for this hand-off
           scheduleNextStepPointer(700);
-        }, 6000);
+        });
       });
     });
   }
