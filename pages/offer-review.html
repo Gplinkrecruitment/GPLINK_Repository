@@ -15,6 +15,7 @@
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
   <script src="../js/state-sync.js?v=20260806a" defer></script>
+  <script src="/js/placement-secured.js?v=20260910a" defer></script>
   <script src="../js/updates-sync.js?v=20260730a" defer></script>
   <script src="../js/qualification-camera.js?v=20260801d" defer></script>
   <script src="../js/document-prep.js?v=20260614a" defer></script>
@@ -984,6 +985,10 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
           <div class="celebration-icon">🎉</div>
           <div class="celebration-title" id="contractSecuredTitle">Placement secured 🎉</div>
           <div class="celebration-sub" id="contractSecuredSub">Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.</div>
+          <!-- Owner 2026-09-10: the position is secured, so the doctor's view
+               moves to the registration pathway — this button takes them
+               there (through the registration intro the first time). -->
+          <a id="contractSecuredCta" href="/pages/myinthealth" style="display:block;margin:18px auto 0;max-width:360px;text-align:center;padding:14px 18px;border-radius:14px;background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);color:#fff;font-weight:700;font-size:15px;text-decoration:none;box-shadow:0 12px 28px -8px rgba(37,99,235,.6);">Start my registration →</a>
         </div>
       </div>
     </div>
@@ -1006,6 +1011,20 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       window.location.href = 'application-detail';
     }
   });
+
+  // ── "Start my registration" on the secured celebration: through the shell
+  //    (which shows the registration intro the first time), else a plain load.
+  var securedCta = document.getElementById('contractSecuredCta');
+  if (securedCta) {
+    securedCta.addEventListener('click', function (e) {
+      e.preventDefault();
+      var target = '/pages/myinthealth';
+      try {
+        if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === 'function') { window.parent.gpShellNavigate(target, { replace: false }); return; }
+      } catch (err) {}
+      window.location.href = target;
+    });
+  }
 
   // ── Restore accepted state from localStorage (server state also applies below) ──
   var acceptKey = applicationId ? 'gp_offer_accepted_' + applicationId : 'gp_offer_accepted';
@@ -1511,6 +1530,9 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       // confirms placementSecured; otherwise the honest "still finalising"
       // copy (same text finalize-signed itself returns on that failure path).
       if (contract.placementSecured === true) {
+        // The server says secured (maybe signed on another device, or a page
+        // reload) — make this browser's copies and the shell agree right now.
+        if (window.gpPlacementSecured) { try { window.gpPlacementSecured.applyPlacementSecured(window, contractAppId, { practiceName: contract.practiceName || '' }); } catch (e) {} }
         showContractSecured('Placement secured 🎉', 'Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
         launchConfetti();
       } else {
@@ -1645,6 +1667,7 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
             if (btn) btn.disabled = false;
             if (fin.status === 200 && fin.data && fin.data.ok) {
               if (fin.data.placementSecured) {
+                if (window.gpPlacementSecured) { try { window.gpPlacementSecured.applyPlacementSecured(window, contractAppId, {}); } catch (e) {} }
                 showContractSecured('Position secured 🎉', 'Congratulations — your signed agreement is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
                 launchConfetti();
               } else {
@@ -1719,6 +1742,7 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
               if (uploadBtn) uploadBtn.disabled = false;
               if (fin.status === 200 && fin.data && fin.data.ok) {
                 if (fin.data.placementSecured) {
+                  if (window.gpPlacementSecured) { try { window.gpPlacementSecured.applyPlacementSecured(window, contractAppId, {}); } catch (e) {} }
                   showContractSecured('Placement secured 🎉', 'Congratulations — your signed agreement is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
                   launchConfetti();
                 } else {

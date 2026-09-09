@@ -1410,6 +1410,14 @@
       if (!event || event.key === null || PHASE_STORAGE_KEYS[event.key]) refreshPhase("storage");
     });
     window.addEventListener("gp-state-hydrated", function () { refreshPhase("hydrated"); });
+    // A frame just secured the doctor's placement (js/placement-secured.js):
+    // the storage write above normally carries it, this makes sure of it.
+    window.addEventListener("message", function (event) {
+      if (!event || event.origin !== window.location.origin) return;
+      var d = event.data;
+      if (!d || d.type !== "gp-placement-secured") return;
+      refreshPhase("placement");
+    });
   }
 
   window.gpShellPhase = {

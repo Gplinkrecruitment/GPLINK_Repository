@@ -14144,6 +14144,13 @@
     window.addEventListener("message", function (event) {
       if (event.origin !== window.location.origin) return;
       const data = event.data;
+      if (data && data.type === "gp-placement-secured") {
+        // The doctor just signed (offer-review, another frame): the list must
+        // come from the server now, never from the cached "finalising" copy,
+        // and the page locks to the placement view.
+        loadRemoteApplications({ forceNetwork: true });
+        return;
+      }
       if (!data || data.type !== "gp-interview-booked" || !data.applicationId) return;
       if (data.scheduledAt) {
         careerIvApplyBooking(String(data.applicationId), { scheduledAt: String(data.scheduledAt), zoomJoinUrl: data.zoomJoinUrl || "" }, { silent: true });
