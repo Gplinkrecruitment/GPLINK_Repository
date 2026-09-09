@@ -189,8 +189,8 @@ describe('after a booking, every cached copy is dropped and the open page is tol
   });
   it('the popup script and the service worker moved to a new version together', () => {
     const shell = read('pages/app-shell.html');
-    expect(shell).toContain('/js/interview-popup.js?v=20260908b');
-    expect(read('sw.js')).toContain('"/js/interview-popup.js?v=20260908b"');
-    expect(read('sw.js')).toContain('var VERSION = "20260908f"');
+    expect(shell).toContain('/js/interview-popup.js?v=20260910a');
+    expect(read('sw.js')).toContain('"/js/interview-popup.js?v=20260910a"');
+    expect(read('sw.js')).toContain('var VERSION = "20260910a"');
   });
 });

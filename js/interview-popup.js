@@ -391,15 +391,28 @@
   }
 
   // ── Boot ─────────────────────────────────────────────────────────────────
+  // Published for the popups that queue behind this one (js/contract-popup.js):
+  // window.gpInterviewCheck mirrors window.gpMatchCheck, and
+  // gp-interview-check-done fires exactly once, whether or not we took the
+  // screen — so the next popup can never stack over this one.
+  if (typeof window !== 'undefined' && !window.gpInterviewCheck) window.gpInterviewCheck = { pending: true, popupShown: false };
+  function publishInterviewCheck(shown) {
+    var s = window.gpInterviewCheck || (window.gpInterviewCheck = { pending: true, popupShown: false });
+    if (s.pending === false) return;
+    s.pending = false;
+    s.popupShown = !!shown;
+    try { window.dispatchEvent(new CustomEvent('gp-interview-check-done', { detail: s })); } catch (e) {}
+  }
   function run() {
-    if (document.getElementById('gpInterviewPopup') || document.getElementById('gpMatchPopup')) return;
+    if (document.getElementById('gpInterviewPopup') || document.getElementById('gpMatchPopup')) { publishInterviewCheck(!!document.getElementById('gpInterviewPopup')); return; }
     var mc = window.gpMatchCheck;
-    if (mc && mc.popupShown) return; // the match popup owns this visit
+    if (mc && mc.popupShown) { publishInterviewCheck(false); return; } // the match popup owns this visit
     getJson('/api/career/interviews/pending').then(function (res) {
       var iv = pickPendingInterview(res.body);
-      if (!iv) return;
-      if (document.getElementById('gpMatchPopup')) return;
+      if (!iv) { publishInterviewCheck(false); return; }
+      if (document.getElementById('gpMatchPopup')) { publishInterviewCheck(false); return; }
       showOverlay(iv, (res.body && res.body.gp) || {});
+      publishInterviewCheck(true);
     });
   }
 

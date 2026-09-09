@@ -1555,22 +1555,29 @@ describe('CEO Contracts queue — wiring (Task 12)', () => {
     expect(branch).toMatch(/atsUpdateApplicationStageRow\(cdApp\.id, cdTarget/);
   });
 
-  it('submit_to_gp fires the GP notification trio (in-app + push + email)', () => {
+  it('submit_to_gp fires the GP notification quartet (in-app + push + email + WhatsApp) through notifyGpContractReady', () => {
     const idx = SERVER_SRC.indexOf("if (cdAction === 'submit_to_gp')");
     const branch = SERVER_SRC.slice(idx, idx + 6600);
-    expect(branch).toMatch(/pushCareerNotificationToUser\(cdGpUserId/);
-    expect(branch).toMatch(/sendPushNotification\(cdGpUserId/);
-    expect(branch).toMatch(/sendGpNotificationEmail\(cdGpUserId/);
+    // 2026-09-10: the inline trio moved into notifyGpContractReady so the staff
+    // resend endpoint and the WhatsApp template share it.
+    expect(branch).toContain('await notifyGpContractReady(cdContract, cdApp);');
+    const fnIdx = SERVER_SRC.indexOf('async function notifyGpContractReady(');
+    expect(fnIdx).toBeGreaterThan(-1);
+    const fn = SERVER_SRC.slice(fnIdx, SERVER_SRC.indexOf('async function sendMatchAcceptedWhatsAppToGp(', fnIdx));
+    expect(fn).toMatch(/pushCareerNotificationToUser\(userId/);
+    expect(fn).toMatch(/sendPushNotification\(userId/);
+    expect(fn).toMatch(/sendGpNotificationEmail\(userId/);
+    expect(fn).toMatch(/sendContractReadyWhatsAppToGp\(userId/);
     // Owner call 2026-08-05: leads with the congratulations, names the
     // practice, and the CTA is "Secure my position".
-    expect(branch).toContain('Congratulations');
-    expect(branch).toContain('Secure my position');
-    expect(branch).toContain('/pages/offer-review?applicationId=');
+    expect(fn).toContain('Congratulations');
+    expect(fn).toContain('Secure my position');
+    expect(fn).toContain('/pages/offer-review?applicationId=');
     // The in-app card + push render PLAIN text, so the shared strings must not
     // carry email-only markup or the {{name}} placeholder.
-    expect(branch).toMatch(/const cdTitle = 'Congratulations — the position is yours/);
-    expect(branch).not.toMatch(/const cdTitle = '[^']*\{\{name\}\}/);
-    expect(branch).not.toMatch(/const cdBodyMsg = '[^']*\*\*/);
+    expect(fn).toMatch(/var title = 'Congratulations — the position is yours/);
+    expect(fn).not.toMatch(/var title = '[^']*\{\{name\}\}/);
+    expect(fn).not.toMatch(/var bodyMsg = '[^']*\*\*/);
   });
 
   it('submit_to_gp is refused with 409 application_terminal when the application is withdrawn/not_proceeding/already secured — checked BEFORE the contract PATCH', () => {
@@ -2173,13 +2180,13 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
     expect(block).toMatch(/contractStage: detailContractStage/);
   });
 
-  it('career.html renders a CONTRACT ribbon + "Review agreement" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
+  it('career.html renders a CONTRACT ribbon + "Complete agreement" CTA when contractStage is sent_to_gp, and carries the field through the client normalize/merge path', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
     expect(html).toMatch(/app\.contractStage === "sent_to_gp"/);
     // The ribbon word + its CTA now come from careerApplicationState, the one
     // state map every application card reads (2026-07-31).
     expect(html).toMatch(/ribbon: "CONTRACT", tone: "green"/);
-    expect(html).toContain('ctaLabel: "Review agreement"');
+    expect(html).toContain('ctaLabel: "Complete agreement"');
     expect(html).toContain('offerHref = "offer-review?applicationId="');
     // The field must survive BOTH client-side hops or it never reaches the
     // ribbon: the list normalizer (mergeRemoteApplications -> app.contractStage)
@@ -2188,13 +2195,13 @@ describe('GP contract experience — view / sign / request changes (Task 13)', (
     expect(html).toContain('contractStage: source.contractStage || null');
   });
 
-  it('application-detail.html shows the offer card with a "Review agreement" label when contractStage is sent_to_gp', () => {
+  it('application-detail.html shows the offer card with a "Complete agreement" label when contractStage is sent_to_gp', () => {
     const html = fs.readFileSync(path.join(ROOT, 'pages/application-detail.html'), 'utf8');
     expect(html).toMatch(/isContractSent = app\.contractStage === 'sent_to_gp'/);
     // showOfferCard must exclude terminal states (withdrawn, not_proceeding, offer_declined, secured) to avoid showing card on withdrawn app with lingering sent_to_gp contract
     expect(html).toMatch(/showOfferCard = \(app\.offerPending === true \|\| isContractSent\) && !isSecured && !isWithdrawn && !isClosed && !isOfferDeclined/);
     // Owner call 2026-08-06: "agreement" reads as lower friction than "contract".
-    expect(html).toContain("isContractSent ? 'Review agreement' : 'Review Offer'");
+    expect(html).toContain("isContractSent ? 'Complete agreement' : 'Review Offer'");
     // ...and the OFFER box is green, not amber — amber reads as a warning.
     // (Scoped to .offer-card: other elements on the page are legitimately amber.)
     const offerCardCss = html.slice(html.indexOf('.offer-card {'), html.indexOf('.offer-card-badge {'));
@@ -4474,7 +4481,7 @@ describe('GP signs the agreement in the app', () => {
     expect(PAGE).not.toContain('Your contract is ready');
     expect(PAGE).not.toContain('Please review your employment contract');
     const career = fs.readFileSync(path.join(ROOT, 'pages/career.html'), 'utf8');
-    expect(career).toContain('ctaLabel: "Review agreement"');
+    expect(career).toContain('ctaLabel: "Complete agreement"');
     expect(career).not.toContain('ctaLabel: "Review contract"');
   });
 });

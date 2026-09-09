@@ -37835,6 +37835,81 @@ function buildMatchAcceptedWhatsAppText(firstName, practiceName) {
   return 'Hi ' + name + ', thanks for accepting your match with ' + practice
     + '. Your Registration Support Officer is now arranging your interview — we’ll send you interview times to choose from, usually within a couple of business days. Reply here if you have any questions.';
 }
+// ── Contract ready → the doctor (owner 2026-09-10) ──────────────────────────
+// The moment the CEO submits a contract to the doctor (POST /api/ceo/contract/
+// decision action:'submit_to_gp') they hear about it four ways: the in-app
+// notification card, a push, the "Congratulations — the position is yours"
+// email, and a WhatsApp template whose "Complete agreement" button deep-links
+// to the offer-review page. The full-page popup in js/contract-popup.js reads
+// the same state from GET /api/career/contracts/pending. Shared by submit_to_gp
+// and the staff resend endpoint (POST /api/ats/contract/notify-gp), which can
+// pick channels.
+var CONTRACT_WA_TEMPLATE = 'gp_link_contract_ready';
+async function sendContractReadyWhatsAppToGp(userId, practiceName, applicationId) {
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'no_api_key' };
+  var wa = await lookupGpPhoneAndFirstName(userId);
+  if (!wa.phone) { console.warn('[contract-whatsapp] doctor has no phone — WhatsApp skipped'); return { ok: false, skipped: 'no_phone' }; }
+  var r = await sendDoubleTickTemplateTo(wa.phone, CONTRACT_WA_TEMPLATE, [wa.firstName || 'Doctor', practiceName || 'The practice'], [String(applicationId || '')]);
+  var masked = String(wa.phone).replace(/\d(?=\d{2})/g, '•');
+  if (r && r.ok) console.log('[contract-whatsapp] ' + CONTRACT_WA_TEMPLATE + ' sent to ' + masked);
+  else console.warn('[contract-whatsapp] ' + CONTRACT_WA_TEMPLATE + ' failed for ' + masked, JSON.stringify(r));
+  return r;
+}
+async function notifyGpContractReady(contract, appRow, opts) {
+  var options = opts || {};
+  var channels = (Array.isArray(options.channels) && options.channels.length) ? options.channels : ['inapp', 'push', 'email', 'whatsapp'];
+  var want = function (c) { return channels.indexOf(c) !== -1; };
+  var userId = (contract && contract.user_id) || (appRow && appRow.user_id) || null;
+  var applicationId = String((contract && contract.application_id) || (appRow && appRow.id) || '');
+  if (!userId) return { ok: false, skipped: 'no_user' };
+
+  // Name the practice in the congratulations — by this point the doctor has
+  // interviewed with them and is holding their contract, so there is no masked
+  // identity left to protect. Falls back to "The practice" rather than sending
+  // a blank if the lookup fails. Angle brackets are stripped: this string is
+  // interpolated into the plain-text body, and a tag-like substring flips
+  // buildCareerEmailHtml onto its raw, UNESCAPED branch.
+  var practiceName = '';
+  var roleId = (contract && contract.career_role_id != null) ? contract.career_role_id : (appRow && appRow.career_role_id);
+  if (roleId != null) {
+    try {
+      var roleRes = await supabaseDbRequest('career_roles', 'select=practice_name&id=eq.' + encodeURIComponent(roleId) + '&limit=1');
+      var roleRow = (roleRes.ok && Array.isArray(roleRes.data) && roleRes.data[0]) ? roleRes.data[0] : null;
+      practiceName = String((roleRow && roleRow.practice_name) || '').replace(/[<>]/g, '').trim();
+    } catch (e) { practiceName = ''; }
+  }
+  var who = practiceName || 'The practice';
+
+  // ⚠️ The in-app card and the push notification render PLAIN text — so this
+  // shared title/body must not carry `{{name}}` (only sendGpNotificationEmail
+  // substitutes it) or `**bold**`/blank lines (only the email formatter
+  // renders those). The email gets its own warmer, formatted copy below.
+  var title = 'Congratulations — the position is yours 🎉';
+  var bodyMsg = who + ' has offered you the position. All that\'s left is to secure it — review your employment agreement and sign.';
+  var nextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(applicationId);
+
+  // Owner call 2026-08-05: lead with the congratulations, not the paperwork.
+  // The doctor beat real competition to get here, and the only thing between
+  // them and the job is signing — so the email says that, and the CTA is
+  // "Secure my position".
+  var emailTitle = 'Congratulations {{name}} — the position is yours 🎉';
+  var emailBody = '**' + who + ' has offered you the position.**\n\n'
+    + 'This was a competitive role with strong interest from other doctors, so being the one the practice chose is a real achievement — congratulations.\n\n'
+    + 'All that\'s left is to secure it: review your employment agreement and sign it.\n\n'
+    + 'If something needs adjusting before you can sign, you can request a change on the same page.';
+
+  var results = {};
+  var jobs = [];
+  var record = function (key, p) { return p.then(function (r) { results[key] = r === undefined ? { ok: true } : r; }).catch(function (e) { results[key] = { ok: false, error: (e && e.message) || String(e) }; }); };
+  if (want('inapp')) jobs.push(record('inapp', pushCareerNotificationToUser(userId, { type: 'success', title: title, body: bodyMsg })));
+  if (want('push')) jobs.push(record('push', sendPushNotification(userId, { title: title, body: bodyMsg, data: { type: 'career', action: 'contract_ready', url: nextPath } })));
+  if (want('email')) jobs.push(record('email', sendGpNotificationEmail(userId, emailTitle + ' — GP Link', emailTitle, emailBody, 'Secure my position', APP_BASE_URL + nextPath,
+    'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.')));
+  if (want('whatsapp')) jobs.push(record('whatsapp', sendContractReadyWhatsAppToGp(userId, who, applicationId)));
+  await Promise.all(jobs);
+  return { ok: true, practiceName: who, channels: channels, results: results };
+}
+
 async function sendMatchAcceptedWhatsAppToGp(appRow) {
   var row = appRow || {};
   if (!row.id || !row.user_id) return { ok: false, error: 'missing_application' };
@@ -49323,53 +49398,9 @@ async function handleApi(req, res, pathname) {
         if (cdTarget) await atsUpdateApplicationStageRow(cdApp.id, cdTarget, undefined, 'ceo_contract_submit_to_gp');
       }
 
-      // GP notification trio — mirrors notifyGpInterviewInvitationAccepted's
-      // shape (in-app + push + email), deep-linking to the offer review page.
-      const cdGpUserId = cdContract.user_id || (cdApp && cdApp.user_id) || null;
-      if (cdGpUserId) {
-        // Name the practice in the congratulations — by this point the doctor
-        // has interviewed with them and is holding their contract, so there is
-        // no masked identity left to protect. Falls back to "The practice"
-        // rather than emailing a blank if the lookup fails. Angle brackets are
-        // stripped: this string is interpolated into the plain-text `body`,
-        // and a `<tag>`-like substring flips buildCareerEmailHtml onto its raw,
-        // UNESCAPED branch (see the note on sendPostInterviewDecisionEmail).
-        let cdPracticeName = '';
-        if (cdContract.career_role_id != null) {
-          try {
-            const cdRoleRes = await supabaseDbRequest('career_roles', 'select=practice_name&id=eq.' + encodeURIComponent(cdContract.career_role_id) + '&limit=1');
-            const cdRoleRow = (cdRoleRes.ok && Array.isArray(cdRoleRes.data) && cdRoleRes.data[0]) ? cdRoleRes.data[0] : null;
-            cdPracticeName = String((cdRoleRow && cdRoleRow.practice_name) || '').replace(/[<>]/g, '').trim();
-          } catch (e) { cdPracticeName = ''; }
-        }
-        const cdWho = cdPracticeName || 'The practice';
-
-        // ⚠️ The in-app card and the push notification render PLAIN text — so
-        // this shared title/body must not carry `{{name}}` (only
-        // sendGpNotificationEmail substitutes it) or `**bold**`/blank lines
-        // (only the email formatter renders those). The email gets its own
-        // warmer, formatted copy below.
-        const cdTitle = 'Congratulations — the position is yours 🎉';
-        const cdBodyMsg = cdWho + ' has offered you the position. All that\'s left is to secure it — review your employment agreement and sign.';
-        const cdNextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(String(cdContract.application_id || ''));
-
-        // Owner call 2026-08-05: lead with the congratulations, not the
-        // paperwork. The doctor beat real competition to get here, and the only
-        // thing between them and the job is signing — so the email says that,
-        // and the CTA is "Secure my position".
-        const cdEmailTitle = 'Congratulations {{name}} — the position is yours 🎉';
-        const cdEmailBody = '**' + cdWho + ' has offered you the position.**\n\n'
-          + 'This was a competitive role with strong interest from other doctors, so being the one the practice chose is a real achievement — congratulations.\n\n'
-          + 'All that\'s left is to secure it: review your employment agreement and sign it.\n\n'
-          + 'If something needs adjusting before you can sign, you can request a change on the same page.';
-
-        await Promise.all([
-          pushCareerNotificationToUser(cdGpUserId, { type: 'success', title: cdTitle, body: cdBodyMsg }).catch(() => {}),
-          sendPushNotification(cdGpUserId, { title: cdTitle, body: cdBodyMsg, data: { type: 'career', action: 'contract_ready', url: cdNextPath } }).catch(() => {}),
-          sendGpNotificationEmail(cdGpUserId, cdEmailTitle + ' — GP Link', cdEmailTitle, cdEmailBody, 'Secure my position', APP_BASE_URL + cdNextPath,
-            'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.').catch(() => {})
-        ]);
-      }
+      // In-app card + push + email + WhatsApp, and the full-page popup reads the
+      // same state — see notifyGpContractReady.
+      try { await notifyGpContractReady(cdContract, cdApp); } catch (e) { console.error('[contract-notify] submit_to_gp notify failed:', e && e.message); }
 
       sendJson(res, 200, { ok: true });
       return;
@@ -51789,6 +51820,91 @@ async function handleApi(req, res, pathname) {
     psMap[psAppId] = new Date().toISOString();
     psState.interview_popup_dismissed = psMap;
     await upsertSupabaseUserState(psUserId, psState);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // GET /api/career/contracts/pending — contracts the CEO has sent to this
+  // doctor that are still waiting for their signature. Drives the full-page
+  // congratulations popup (js/contract-popup.js; owner 2026-09-10). Same
+  // gating as the interviews feed: a locked or gated account sees nothing.
+  if (pathname === '/api/career/contracts/pending' && req.method === 'GET') {
+    const cpSession = requireSession(req, res);
+    if (!cpSession) return;
+    const cpEmail = getSessionEmail(cpSession);
+    if (!cpEmail) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const cpUserId = getSessionSupabaseUserId(cpSession) || await getSupabaseUserIdByEmail(cpEmail);
+    if (!cpUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const cpStateResult = await getSupabaseUserStateByEmail(cpEmail);
+    const cpState = (cpStateResult && cpStateResult.state && typeof cpStateResult.state === 'object') ? cpStateResult.state : {};
+    const cpLock = (cpState.career_lock && typeof cpState.career_lock === 'object') ? cpState.career_lock : {};
+    if (isCareerLocked(cpLock)) { sendJson(res, 200, { ok: true, contracts: [], locked: true }); return; }
+    const cpAcct = String(cpState.account_status || 'active').toLowerCase();
+    if (!cpState.gp_onboarding_complete || cpAcct === 'under_review' || cpAcct === 'pep_waitlist' || cpAcct === 'archived') {
+      sendJson(res, 200, { ok: true, contracts: [], locked: false });
+      return;
+    }
+    const cpDismissed = (cpState.contract_popup_dismissed && typeof cpState.contract_popup_dismissed === 'object') ? cpState.contract_popup_dismissed : {};
+    const cpRowsRes = await supabaseDbRequest('career_contracts', 'select=id,application_id,user_id,career_role_id,version,status,sent_to_gp_at,updated_at&user_id=eq.' + encodeURIComponent(cpUserId) + '&status=eq.sent_to_gp&order=sent_to_gp_at.desc&limit=20');
+    const cpRows = (cpRowsRes.ok && Array.isArray(cpRowsRes.data)) ? cpRowsRes.data : [];
+    const cpItems = [];
+    const cpSeenApps = new Set();
+    for (const c of cpRows) {
+      const cpAppId = String(c.application_id || '');
+      if (!cpAppId || cpSeenApps.has(cpAppId)) continue;
+      cpSeenApps.add(cpAppId);
+      const cpAppRes = await supabaseDbRequest('gp_applications', 'select=id,status,career_role_id&id=eq.' + encodeURIComponent(cpAppId) + '&limit=1');
+      const cpApp = (cpAppRes.ok && Array.isArray(cpAppRes.data) && cpAppRes.data[0]) ? cpAppRes.data[0] : null;
+      if (!cpApp) continue;
+      const cpKey = normalizeCareerApplicationStatusKey(cpApp.status);
+      if (cpKey === 'withdrawn' || cpKey === 'not_proceeding' || cpKey === 'offer_declined' || isCareerPlacementSecuredStatus(cpKey)) continue;
+      const cpRoleId = (c.career_role_id != null) ? c.career_role_id : cpApp.career_role_id;
+      const job = (cpRoleId !== null && cpRoleId !== undefined) ? await atsGetJobRow(cpRoleId) : null;
+      const practice = (job && job.practice_id) ? await atsGetPracticeRow(job.practice_id) : null;
+      const names = atsJobDisplayNames({ title: (job && job.title) || '', practice_name: (job && job.practice_name) || '' }, practice);
+      cpItems.push({
+        applicationId: cpAppId,
+        contractId: c.id,
+        roleId: job ? makeCareerRoleId(job.provider, job.provider_role_id) : String(cpRoleId || ''),
+        practiceName: names.practice || '',
+        jobTitle: names.role || '',
+        website: resolveNamedPracticeWebsite(job || {}, practice),
+        headerImageUrl: (job && job.header_image_url) || '',
+        locationCity: (job && (job.suburb || job.location_city)) || '',
+        locationState: (job && job.location_state) || '',
+        sentAt: c.sent_to_gp_at || c.updated_at || null,
+        dismissedAt: cpDismissed[cpAppId] || null
+      });
+    }
+    let cpLastName = '';
+    try {
+      const cpProf = await supabaseDbRequest('user_profiles', 'select=last_name&user_id=eq.' + encodeURIComponent(cpUserId) + '&limit=1');
+      cpLastName = (cpProf.ok && Array.isArray(cpProf.data) && cpProf.data[0] && cpProf.data[0].last_name) || '';
+    } catch (e) { cpLastName = ''; }
+    sendJson(res, 200, { ok: true, locked: false, contracts: cpItems, gp: { lastName: cpLastName } });
+    return;
+  }
+
+  // POST /api/career/contract/popup-seen — "I'll do it later" (or opening the
+  // agreement) on the contract popup. Recorded in the doctor's own user_state
+  // so it holds across devices; the popup returns after 24h while unsigned.
+  if (pathname === '/api/career/contract/popup-seen' && req.method === 'POST') {
+    const csSession = requireSession(req, res);
+    if (!csSession) return;
+    const csEmail = getSessionEmail(csSession);
+    const csUserId = getSessionSupabaseUserId(csSession) || (csEmail ? await getSupabaseUserIdByEmail(csEmail) : null);
+    if (!csUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let csBody; try { csBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const csAppId = String((csBody && csBody.applicationId) || '').trim();
+    if (!csAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    const csCtx = await atsGetApplicationContext(csAppId);
+    if (!csCtx || String(csCtx.userId || '') !== String(csUserId)) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    const csState = await readUserStateForMerge(csUserId, 'contract-popup');
+    if (!csState) { sendJson(res, 502, { ok: false, message: 'Could not save.' }); return; }
+    const csMap = (csState.contract_popup_dismissed && typeof csState.contract_popup_dismissed === 'object' && !Array.isArray(csState.contract_popup_dismissed)) ? csState.contract_popup_dismissed : {};
+    csMap[csAppId] = new Date().toISOString();
+    csState.contract_popup_dismissed = csMap;
+    await upsertSupabaseUserState(csUserId, csState);
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -78040,6 +78156,30 @@ Return ONLY valid JSON with no markdown formatting:
       interview: { id: icRow.id, status: 'completed', scheduled_at: icRow.scheduled_at || null, completed_at: icStatus === 'booked' ? icNowIso : (icRow.completed_at || null), wasAlreadyCompleted: icStatus === 'completed' },
       email: icEmail
     });
+    return;
+  }
+
+  // POST /api/ats/contract/notify-gp { applicationId, channels? } — staff
+  // re-sends the "the position is yours" notifications for a contract that is
+  // waiting for the doctor's signature. channels (optional) picks a subset of
+  // ['inapp','push','email','whatsapp'] — e.g. just the WhatsApp when the
+  // template was approved after the contract went out.
+  if (pathname === '/api/ats/contract/notify-gp' && req.method === 'POST') {
+    const cnSession = requireAtsSession(req, res);
+    if (!cnSession) return;
+    let cnBody; try { cnBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const cnAppId = String((cnBody && (cnBody.applicationId || cnBody.id)) || '').trim();
+    if (!cnAppId) { sendJson(res, 400, { ok: false, message: 'applicationId required.' }); return; }
+    const cnChannels = Array.isArray(cnBody && cnBody.channels) ? cnBody.channels.map(function (c) { return String(c || '').toLowerCase(); }).filter(function (c) { return ['inapp', 'push', 'email', 'whatsapp'].indexOf(c) !== -1; }) : [];
+    const cnRes = await supabaseDbRequest('career_contracts', 'select=*&application_id=eq.' + encodeURIComponent(cnAppId) + '&status=eq.sent_to_gp&order=version.desc&limit=1');
+    const cnContract = (cnRes.ok && Array.isArray(cnRes.data) && cnRes.data[0]) ? cnRes.data[0] : null;
+    if (!cnContract) { sendJson(res, 404, { ok: false, message: 'No contract is waiting for the doctor\'s signature on this application.' }); return; }
+    const cnAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(cnAppId) + '&limit=1');
+    const cnApp = (cnAppRes.ok && Array.isArray(cnAppRes.data) && cnAppRes.data[0]) ? cnAppRes.data[0] : null;
+    let cnOut;
+    try { cnOut = await notifyGpContractReady(cnContract, cnApp, { channels: cnChannels }); } catch (e) { cnOut = { ok: false, error: (e && e.message) || 'unexpected_error' }; }
+    console.log('[contract-notify] resent via /api/ats/contract/notify-gp — application', cnAppId, JSON.stringify(cnOut));
+    sendJson(res, cnOut && cnOut.ok ? 200 : 409, { ok: !!(cnOut && cnOut.ok), result: cnOut });
     return;
   }
 
