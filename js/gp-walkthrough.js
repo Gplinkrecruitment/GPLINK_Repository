@@ -167,7 +167,29 @@
     if (!area || !C || !S) return;
     var steps = stepsFor(area);
     if (!steps.length) return;
-    C.run(steps, { label: firstVisitLabel });
+    C.run(steps, { label: firstVisitLabel }).then(function (reason) {
+      if (area === 'home' && reason === 'done') openCurrentJourneyStep();
+    });
+  }
+  // Owner 2026-09-10: "when i click done on the walkthrough it does not take
+  // me straight to myintealth step". Home's first-visit tour ends on the
+  // journey list, so "Done" opens the doctor's current step — the row's own
+  // Continue target (MyIntealth for a newly placed doctor; the shell shows the
+  // registration intro the first time). Skip and Escape leave them on Home; a
+  // doctor who has not secured a position yet has nothing to open here.
+  function openCurrentJourneyStep() {
+    var row = document.querySelector('[data-journey-step].current')
+      || document.querySelector('[data-journey-step].is-current')
+      || document.querySelector('[data-journey-step="myinthealth"]');
+    if (!row || row.classList.contains('done')) return;
+    var cta = row.querySelector('.journey-body-cta[data-route]');
+    var route = cta ? String(cta.getAttribute('data-route') || '') : '';
+    if (!route || route === '/pages/career') return;
+    try {
+      if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === 'function') { window.parent.gpShellNavigate(route, { replace: false }); return; }
+    } catch (e) {}
+    try { if (typeof window.gpShellNavigate === 'function') { window.gpShellNavigate(route, { replace: false }); return; } } catch (e) {}
+    window.location.href = route;
   }
   // Priority rule: the one-off "start here" pointer ALWAYS outranks the generic
   // home tip. The shell may ask this page to run the pointer at any moment after
