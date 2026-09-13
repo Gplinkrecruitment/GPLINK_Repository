@@ -254,6 +254,7 @@ const onboardingNudge = require('./lib/onboarding-nudge.js');
 const dropoffNudges = require('./lib/dropoff-nudges.js');
 const docAiReview = require('./lib/doc-ai-review.js');
 var consultLead = require('./lib/consult-lead.js');
+var metaCapi = require('./lib/meta-capi.js');
 var consultWhatsapp = require('./lib/consult-whatsapp.js');
 var matchWhatsapp = require('./lib/match-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
@@ -10655,6 +10656,8 @@ const CRON_SCHEDULES = {
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
   'consult-nudge': { schedule: '20 * * * *', cadenceMinutes: 60 },
+  // Meta Conversions API for CRM: report bookings/signups back to Meta (lib/meta-capi.js).
+  'meta-lead-stages': { schedule: '50 * * * *', cadenceMinutes: 60 },
   // Post-onboarding drop-off chase (career_start / career_cv), both channels.
   'dropoff-nudge': { schedule: '40 * * * *', cadenceMinutes: 60 },
   // Automatic AI document review — decides uploaded qualification docs,
@@ -15871,6 +15874,11 @@ async function processFacebookLeadDelivery(body, req, ip, hydrationFailure) {
       try { await sendConsultMagicLinkEmail(gpRow); }
       catch (e) { console.error('[fb-gp-lead] magic-link email failed:', e.message); }
     }
+    // Meta Conversions API for CRM: tell Meta this lead exists (the raw 'lead'
+    // stage, plus 'qualified_gp' when screening passed). Bookings and signups
+    // follow from the hourly meta-lead-stages sweep. No-op until META_CAPI_*
+    // is configured; a failure here never fails the webhook.
+    await syncMetaLeadStagesForRow(gpRow, { route: '/api/webhooks/facebook-lead' });
     return { status: 200, body: { ok: true, kind: 'gp_lead', lead_id: gpRow.id } };
   }
 
@@ -28224,6 +28232,60 @@ async function updateSiteEnquiryRow(id, patch) {
   Object.assign(row, patch);
   saveDbState();
   return true;
+}
+
+// ── Meta Conversions API for CRM: lead-stage feed ───────────────────────────
+// Reports each Meta-ads lead's funnel stage (lead → qualified_gp → call_booked →
+// signed_up) back to Meta, keyed by the instant-form lead id, so the ad set can
+// run the "Maximise number of qualified leads" goal against real bookings
+// instead of form fills. Decision logic + payload live in lib/meta-capi.js;
+// this wrapper binds env config, persistence and error reporting. It is a no-op
+// until META_CAPI_DATASET_ID and META_CAPI_ACCESS_TOKEN are set, and it never
+// throws: a failed send is logged, recorded for the error digest, and retried
+// by the hourly /api/cron/meta-lead-stages sweep (the stage stamp in
+// metadata.consult.meta_capi.sent is only written once Meta acknowledged it).
+async function consultLeadHasSignedUp(row) {
+  const email = String((row && row.email) || '').trim().toLowerCase();
+  if (!email) return false;
+  if (isSupabaseDbConfigured()) return !!(await getSupabaseUserIdByEmail(email));
+  return !!(dbState.users && dbState.users[email]);
+}
+
+async function syncMetaLeadStagesForRow(row, opts) {
+  const o = opts || {};
+  const cfg = metaCapi.metaCapiConfigFromEnv(process.env);
+  if (!cfg) return { ok: false, skipped: 'not_configured', sent: [] };
+  const route = o.route || 'meta-capi';
+  const rowId = row && row.id;
+  try {
+    // "Has this GP signed up?" is not on the row — it is the same account
+    // lookup the consult-nudge cron makes. Only asked when it could change
+    // something: an eligible lead whose signup Meta has not been told about.
+    let signedUp = false;
+    if (o.checkSignup && metaCapi.isMetaLeadStageCandidate(row, Date.now()) && !metaCapi.sentMetaLeadStages(row).signed_up) {
+      try { signedUp = await consultLeadHasSignedUp(row); }
+      catch (e) { console.warn('[meta-capi] signup lookup failed for lead', rowId, ':', e && e.message); }
+    }
+    const result = await metaCapi.syncMetaLeadStages(row, {
+      cfg,
+      signedUp,
+      now: Date.now(),
+      persist: (id, patch) => updateSiteEnquiryRow(id, patch)
+    });
+    if (!result.ok && result.error) {
+      const attempted = (result.attempted || result.sent || []).join(',');
+      console.warn('[meta-capi] send failed for lead', rowId, '(' + attempted + '):', result.error);
+      await recordServerError(new Error('Meta CAPI send failed: ' + result.error),
+        { route, label: 'meta-capi ' + attempted, userEmail: row && row.email });
+    } else if (result.sent && result.sent.length) {
+      console.log('[meta-capi] sent', result.sent.join(','), 'for lead', rowId, result.persisted ? '' : '(stamp not persisted)');
+    }
+    return result;
+  } catch (e) {
+    console.error('[meta-capi] sync error for lead', rowId, ':', e && e.message);
+    try { await recordServerError(e, { route, label: 'meta-capi sync', userEmail: row && row.email }); } catch { /* best effort */ }
+    return { ok: false, error: String((e && e.message) || e), sent: [] };
+  }
 }
 
 // Funnel state for a site_enquiries row, or {} for rows that never went through
@@ -44368,6 +44430,43 @@ async function handleApi(req, res, pathname) {
   // signed_up stop).
   // 45s time-box mirrors onboarding-nudge above — a rerun is idempotent since
   // each lead's due-ness is independently recomputed from its own state.
+  // Meta Conversions API for CRM — hourly lead-stage sweep. Re-derives every
+  // recent Meta-ads lead's stages (booked via Calendly or /start, signed up)
+  // and sends whatever Meta has not been told yet. Idempotent: each stage is
+  // stamped in metadata.consult.meta_capi.sent once Meta acknowledges it, and a
+  // rejected send is simply retried next hour. Keep the schedule in sync with
+  // CRON_SCHEDULES + vercel.json.
+  if (req.method === 'GET' && pathname === '/api/cron/meta-lead-stages') {
+    var mlsSecret = String(process.env.CRON_SECRET || '').trim();
+    var mlsAuth = req.headers['authorization'] || '';
+    if (!mlsSecret || mlsAuth !== 'Bearer ' + mlsSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    if (!metaCapi.metaCapiConfigFromEnv(process.env)) {
+      res.gpCronDetail = 'skipped: META_CAPI_DATASET_ID / META_CAPI_ACCESS_TOKEN not set';
+      sendJson(res, 200, { ok: true, skipped: 'not_configured', scanned: 0, sent: 0, failed: 0 });
+      return;
+    }
+    var mlsStart = Date.now();
+    var MLS_TIME_BUDGET_MS = 45000;
+    var mlsScanned = 0, mlsSent = 0, mlsFailed = 0, mlsSkipped = 0, mlsPartial = false;
+    try {
+      var mlsRows = await listSiteEnquiryRows('', 'gp');
+      for (var mlsRow of mlsRows) {
+        if (Date.now() - mlsStart > MLS_TIME_BUDGET_MS) { mlsPartial = true; break; }
+        if (!metaCapi.isMetaLeadStageCandidate(mlsRow, Date.now())) { mlsSkipped++; continue; }
+        mlsScanned++;
+        var mlsResult = await syncMetaLeadStagesForRow(mlsRow, { route: '/api/cron/meta-lead-stages', checkSignup: true });
+        if (mlsResult && mlsResult.ok) mlsSent += (mlsResult.sent || []).length;
+        else mlsFailed++;
+      }
+      res.gpCronDetail = 'scanned ' + mlsScanned + ', sent ' + mlsSent + ', failed ' + mlsFailed + (mlsPartial ? ', partial' : '');
+      sendJson(res, 200, { ok: true, scanned: mlsScanned, sent: mlsSent, failed: mlsFailed, skipped: mlsSkipped, partial: mlsPartial });
+    } catch (e) {
+      console.error('[meta-capi] cron failed:', e.message);
+      sendJson(res, 500, { ok: false, error: 'Internal error' });
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/cron/consult-nudge') {
     var cnSecret = String(process.env.CRON_SECRET || '').trim();
     var cnAuth = req.headers['authorization'] || '';
@@ -82431,6 +82530,7 @@ module.exports.__testUtils = {
   findSiteEnquiryByEmail,
   buildConsultLeadRow,
   captureCalendlyDirectBookerLead,
+  syncMetaLeadStagesForRow,
   sendConsultNudgeEmail,
   sendConsultWhatsAppTemplate,
   ensureDoubleTickContactName,

@@ -74,6 +74,10 @@
       "schedule": "20 * * * *"
     },
     {
+      "path": "/api/cron/meta-lead-stages",
+      "schedule": "50 * * * *"
+    },
+    {
       "path": "/api/cron/match-lifecycle",
       "schedule": "0 * * * *"
     },
