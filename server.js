@@ -41193,6 +41193,47 @@ var CONTRACT_UPLOAD_ACCEPTED_MIME = new Set([
 function contractMimeIsAccepted(mime) {
   return CONTRACT_UPLOAD_ACCEPTED_MIME.has(String(mime || '').trim().toLowerCase());
 }
+// Storage key for one contract revision — the SAME shape the practice's
+// sign-upload/finalize pair computes inline, so a contract staff file by hand
+// lands exactly where a practice upload would, and finalize can recompute it
+// from the row + filename instead of trusting a client-supplied path.
+function careerContractStoragePath(contractRow, filename) {
+  var safeName = sanitizeStoragePathSegment(String(filename || 'contract.pdf'), 120);
+  return ['contracts', sanitizeStoragePathSegment(String((contractRow && contractRow.application_id) || ''), 80), 'v' + (Number(contractRow && contractRow.version) || 1), safeName].join('/');
+}
+// Staff-filed contracts (owner request 2026-09-14): a practice that EMAILS the
+// offer contract instead of using its extend-offer upload link leaves the
+// application stranded — no career_contracts row, so no AI review, nothing on
+// the Contracts tab, no way to send it to the doctor. This guard is one of the
+// only two rules the manual path adds (the other is the live-revision rule in
+// the endpoint); everything after finalize is the normal pipeline. A terminal
+// application is refused for the same reason every other contract surface
+// refuses it: a dead application must never grow a live contract.
+function ceoContractApplicationBlock(appRow) {
+  if (applicationIsWithdrawn(appRow)) {
+    return { ok: false, code: 'withdrawn', message: 'The doctor withdrew from this application, so a contract cannot be filed against it.' };
+  }
+  var key = normalizeCareerApplicationStatusKey(appRow && appRow.status);
+  var stage = String((appRow && appRow.ats_stage) || '').trim().toLowerCase();
+  if (key === 'not_proceeding' || stage === 'not_proceeding') {
+    return { ok: false, code: 'not_available', message: 'This application is closed as not proceeding — move it back into the pipeline before filing a contract.' };
+  }
+  if (isCareerPlacementSecuredStatus(key) || stage === 'hired') {
+    return { ok: false, code: 'not_available', message: 'This placement is already secured — there is nothing left to file.' };
+  }
+  return null;
+}
+// Plain-English reason a second contract cannot be filed while one is live.
+function ceoContractExistsMessage(contractRow) {
+  var v = 'v' + (Number(contractRow && contractRow.version) || 1);
+  switch (String((contractRow && contractRow.status) || '')) {
+    case 'uploaded': return 'A contract (' + v + ') is already waiting for your review — open it on the Contracts tab.';
+    case 'sent_to_gp': return 'A contract (' + v + ') has already gone to the doctor to sign — see the Contracts tab.';
+    case 'changes_requested': return 'The doctor has asked for changes to the current contract (' + v + ') — triage that on the Contracts tab first.';
+    case 'signed': return 'The contract (' + v + ') is already signed.';
+    default: return 'A contract is already on file for this application — see the Contracts tab.';
+  }
+}
 function mintContractUploadToken(contractId) {
   return createSignedPurposeToken(CONTRACT_UPLOAD_TOKEN_PURPOSE, { contractId: String(contractId || '') }, CONTRACT_UPLOAD_TOKEN_TTL_MS);
 }
@@ -41648,6 +41689,26 @@ function atsOfferCardState(offerRow) {
   };
 }
 
+// Live employment-contract summary for the candidate drawer's Offer / contract
+// line (owner request 2026-09-14). `null` = no live career_contracts row —
+// nothing filed yet, or every revision is void — which is when the drawer
+// offers "Upload contract" for a contract the practice emailed instead.
+function atsContractCardState(contractRow) {
+  if (!contractRow) return null;
+  var review = (contractRow.ai_review && typeof contractRow.ai_review === 'object') ? contractRow.ai_review : null;
+  return {
+    id: contractRow.id,
+    version: Number(contractRow.version) || 1,
+    status: String(contractRow.status || ''),
+    ai_review_status: String(contractRow.ai_review_status || 'not_run'),
+    verdict: (review && review.overall) ? String(review.overall) : null,
+    discrepancies: (review && Array.isArray(review.discrepancies)) ? review.discrepancies.length : 0,
+    uploaded_at: contractRow.uploaded_at || null,
+    sent_to_gp_at: contractRow.sent_to_gp_at || null,
+    signed_at: contractRow.signed_at || null
+  };
+}
+
 // Build the normalized candidate "facts" bundle from a local seed row.
 function atsLocalCandidateFacts(row) {
   // Enrich each seeded app with interview (most-recent non-cancelled interview from
@@ -41668,6 +41729,9 @@ function atsLocalCandidateFacts(row) {
     return Object.assign({}, a, {
       interview: intRow,
       offer: atsOfferCardState(offerRow),
+      // The contract pipeline is Supabase-only, so local/dev mode never has a
+      // live career_contracts row to summarise.
+      contract: null,
       // Parity with atsProdCandidateFacts: the drawer's withdrawal badge needs
       // the raw status + stamp in local/dev mode too.
       status: a.status || '',
@@ -41752,6 +41816,24 @@ async function atsProdCandidateFacts(regCase) {
       offerRows.forEach(function (o) { if (o && o.application_id) appOfferMap[String(o.application_id)] = o; });
     } catch (e) { /* offers are optional decoration on the drawer */ }
   }
+  // Live employment contract per application — the post-interview pipeline's
+  // career_contracts row, highest non-void version (same rule as
+  // getLatestLiveCareerContractForApplication). Drives the drawer's
+  // "Contract v1 · Awaiting your review" line and its "Upload contract"
+  // affordance for a contract the practice emailed instead of uploading.
+  var appContractMap = {};
+  if (prodAppIds.length) {
+    try {
+      var ccIdList = prodAppIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
+      var ccRes = await supabaseDbRequest('career_contracts',
+        'select=id,application_id,version,status,ai_review_status,ai_review,uploaded_at,sent_to_gp_at,signed_at&application_id=in.(' + encodeURIComponent(ccIdList) + ')&status=neq.void&limit=500');
+      ((ccRes.ok && ccRes.data) || []).forEach(function (row) {
+        if (!row || !row.application_id || String(row.status) === 'void') return;
+        var k = String(row.application_id);
+        if (!appContractMap[k] || (Number(row.version) || 0) > (Number(appContractMap[k].version) || 0)) appContractMap[k] = row;
+      });
+    } catch (e) { /* contracts are optional decoration on the drawer */ }
+  }
   var apps = appRows.map(function (a) {
     var role = roleMap[a.career_role_id] || {};
     var intRow = appInterviewMap[a.id] || null;
@@ -41773,7 +41855,8 @@ async function atsProdCandidateFacts(regCase) {
       // offers to generate one when a direct applicant has none.
       match_score: (a.match_score != null) ? a.match_score : null,
       interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null, join_url: resolveInterviewJoinUrl(intRow.zoom_join_url) } : null,
-      offer: atsOfferCardState(appOfferMap[String(a.id)] || null)
+      offer: atsOfferCardState(appOfferMap[String(a.id)] || null),
+      contract: atsContractCardState(appContractMap[String(a.id)] || null)
     };
   });
 
@@ -49470,6 +49553,190 @@ async function handleApi(req, res, pathname) {
   // Only meaningful once a file actually exists on the row, so it's refused
   // outside uploaded/changes_requested/sent_to_gp (never on awaiting_upload,
   // practice_review, signed or void).
+  // ── Staff-filed contract (owner request 2026-09-14) ──────────────────────
+  // PKG Medical Centre extended an offer by EMAILING the contract to GP Link
+  // instead of using the extend-offer upload link, so the application sat at
+  // "Offer accepted" with no career_contracts row — no AI review, nothing on
+  // the Contracts tab, no way to send it to the doctor to sign. These two
+  // endpoints let the CEO file that emailed contract from the candidate's
+  // profile. They are the practice's sign-upload/finalize pair re-keyed to a
+  // CEO session + an applicationId: the browser still PUTs the raw file
+  // straight to Storage (Vercel's ~4.5 MB body cap never sees it), finalize
+  // still verifies the object exists before recording it, and the SAME
+  // aiReviewCareerContract runs — from here on the row is indistinguishable
+  // from a practice upload and flows through Submit to GP → sign as normal.
+  //
+  // Revision rules (the only logic the manual path adds):
+  //   • no live row             → open v1 (or v(max+1) after voided rows)
+  //   • live 'awaiting_upload'  → REUSE it — the practice was emailed the link
+  //                               and replied with an attachment instead
+  //   • live 'practice_review'  → the practice was asked by email to approve
+  //                               the doctor's change and emailed a revised
+  //                               contract instead of clicking: start v+1 and
+  //                               void the old row exactly as consent-approve does
+  //   • anything else live      → 409, the Contracts tab owns it
+  if (pathname === '/api/ceo/contract/sign-upload' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const csuCtx = requireCeoSession(req, res);
+    if (!csuCtx) return;
+
+    let csuBody;
+    try { csuBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const csuAppId = String((csuBody && csuBody.applicationId) || '').trim();
+    if (!csuAppId) { sendJson(res, 400, { ok: false, message: 'applicationId is required.' }); return; }
+    const csuMime = String((csuBody && csuBody.mimeType) || '').trim();
+    if (!contractMimeIsAccepted(csuMime)) {
+      sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
+      return;
+    }
+
+    const csuAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(csuAppId) + '&limit=1');
+    if (!csuAppRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not verify the application — please try again.' }); return; }
+    const csuApp = (Array.isArray(csuAppRes.data) && csuAppRes.data[0]) ? csuAppRes.data[0] : null;
+    if (!csuApp) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    const csuBlock = ceoContractApplicationBlock(csuApp);
+    if (csuBlock) { sendJson(res, 409, csuBlock); return; }
+
+    const csuAll = await listCareerContractsForApplication(csuAppId);
+    const csuLive = csuAll.filter((c) => String(c.status) !== 'void');
+    const csuBusy = csuLive.find((c) => String(c.status) !== 'awaiting_upload' && String(c.status) !== 'practice_review');
+    if (csuBusy) {
+      sendJson(res, 409, { ok: false, code: 'contract_exists', status: String(csuBusy.status), contractId: csuBusy.id, version: csuBusy.version, message: ceoContractExistsMessage(csuBusy) });
+      return;
+    }
+    const csuNowIso = new Date().toISOString();
+    let csuContract = csuLive.find((c) => String(c.status) === 'awaiting_upload') || null;
+    if (!csuContract) {
+      const csuSupersede = csuLive.find((c) => String(c.status) === 'practice_review') || null;
+      const csuMaxV = csuAll.reduce((m, c) => Math.max(m, Number(c.version) || 0), 0);
+      const csuInsert = {
+        application_id: csuAppId,
+        user_id: csuApp.user_id || (csuSupersede && csuSupersede.user_id) || null,
+        career_role_id: csuApp.career_role_id || (csuSupersede && csuSupersede.career_role_id) || null,
+        version: csuMaxV + 1,
+        status: 'awaiting_upload',
+        ai_review_status: 'not_run',
+        practice_contact_email: String((csuSupersede && csuSupersede.practice_contact_email) || csuApp.practice_contact_email || '').trim() || null,
+        practice_contact_name: String((csuSupersede && csuSupersede.practice_contact_name) || csuApp.practice_contact_name || '').trim() || null,
+        created_at: csuNowIso,
+        updated_at: csuNowIso
+      };
+      // Insert-before-void, the same ordering return_to_practice and the
+      // consent approve use: a failed insert leaves the old row live and
+      // the CEO can simply retry.
+      const csuIns = await supabaseDbRequest('career_contracts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [csuInsert] });
+      csuContract = (csuIns.ok && Array.isArray(csuIns.data) && csuIns.data[0]) ? csuIns.data[0] : null;
+      if (!csuContract) { sendJson(res, 502, { ok: false, message: 'Could not start the contract upload. Please try again.' }); return; }
+      if (csuSupersede) {
+        const csuVoid = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(csuSupersede.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { status: 'void', change_response: 'approved', updated_at: csuNowIso }
+        });
+        if (!csuVoid || !csuVoid.ok) {
+          console.warn('[ceo contract-upload] failed to void practice_review contract ' + csuSupersede.id + ' after opening v' + csuContract.version + ' (ignored — two live rows is recoverable):', csuVoid && csuVoid.error);
+        }
+      }
+    }
+
+    const csuPath = careerContractStoragePath(csuContract, csuBody && csuBody.filename);
+    const csuUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, csuPath, { upsert: true });
+    if (!csuUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
+    sendJson(res, 200, { ok: true, contractId: csuContract.id, version: csuContract.version, uploadUrl: csuUrl, path: csuPath });
+    return;
+  }
+
+  if (pathname === '/api/ceo/contract/finalize' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const cfzCtx = requireCeoSession(req, res);
+    if (!cfzCtx) return;
+
+    let cfzBody;
+    try { cfzBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid JSON body.' }); return; }
+    const cfzContractId = String((cfzBody && cfzBody.contractId) || '').trim();
+    if (!cfzContractId) { sendJson(res, 400, { ok: false, message: 'contractId is required.' }); return; }
+    const cfzMime = String((cfzBody && cfzBody.mimeType) || '').trim();
+    if (!contractMimeIsAccepted(cfzMime)) {
+      sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
+      return;
+    }
+
+    const cfzContract = await getCareerContractById(cfzContractId);
+    if (!cfzContract) { sendJson(res, 404, { ok: false, message: 'Contract not found.' }); return; }
+    // Replay-safe, same as the practice finalize: only the open revision can
+    // be recorded, so a second click can never clobber a reviewed file.
+    if (String(cfzContract.status) !== 'awaiting_upload') {
+      sendJson(res, 409, { ok: false, code: 'already_uploaded', message: 'This contract has already been recorded — see the Contracts tab.' });
+      return;
+    }
+    const cfzAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(cfzContract.application_id) + '&limit=1');
+    const cfzApp = (cfzAppRes.ok && Array.isArray(cfzAppRes.data) && cfzAppRes.data[0]) ? cfzAppRes.data[0] : null;
+    // Fail CLOSED: a lookup hiccup must never skip the terminal-application guard.
+    if (!cfzApp) { sendJson(res, 502, { ok: false, message: 'Could not verify the application state — please try again.' }); return; }
+    const cfzBlock = ceoContractApplicationBlock(cfzApp);
+    if (cfzBlock) { sendJson(res, 409, cfzBlock); return; }
+
+    // Recompute the path from the row + filename — never trust a client path.
+    const cfzFilename = String((cfzBody && cfzBody.filename) || 'contract.pdf');
+    const cfzPath = careerContractStoragePath(cfzContract, cfzFilename);
+    const cfzObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, cfzPath);
+    if (!cfzObj || !cfzObj.buffer || !cfzObj.buffer.length) {
+      sendJson(res, 400, { ok: false, message: 'We could not find the uploaded file. Please try uploading again.' });
+      return;
+    }
+
+    const cfzNowIso = new Date().toISOString();
+    const cfzPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cfzContract.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        status: 'uploaded',
+        uploaded_at: cfzNowIso,
+        contract_bucket: SUPABASE_DOCUMENT_BUCKET,
+        contract_path: cfzPath,
+        contract_filename: sanitizeUserString(cfzFilename, 240) || 'contract.pdf',
+        contract_mime: cfzMime,
+        updated_at: cfzNowIso
+      }
+    });
+    if (!cfzPatch || !cfzPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the upload. Please try again.' }); return; }
+
+    // No "a practice uploaded a contract" email to the hub here — the CEO IS
+    // the uploader. The AI review is the same guarded best-effort call the
+    // practice finalize makes: a failed review leaves the row 'uploaded' with
+    // ai_review_status 'error', and the Contracts tab offers a re-run.
+    let cfzReview = { ai_review_status: 'error', ai_review: null };
+    try {
+      await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cfzContract.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { ai_review_status: 'running', updated_at: new Date().toISOString() }
+      });
+      cfzReview = (await aiReviewCareerContract(Object.assign({}, cfzContract, {
+        status: 'uploaded',
+        contract_bucket: SUPABASE_DOCUMENT_BUCKET,
+        contract_path: cfzPath,
+        contract_mime: cfzMime,
+        contract_filename: cfzFilename
+      }))) || cfzReview;
+    } catch (e) {
+      console.error('[contract-ai] review failed for staff-filed contract', cfzContract.id, ':', e && e.message);
+      try {
+        await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cfzContract.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { ai_review_status: 'error', updated_at: new Date().toISOString() }
+        });
+      } catch (e2) { /* best effort — never fail finalize over this */ }
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      contractId: cfzContract.id,
+      version: cfzContract.version,
+      status: 'uploaded',
+      ai_review_status: (cfzReview && cfzReview.ai_review_status) || 'error',
+      ai_review: (cfzReview && cfzReview.ai_review) || null
+    });
+    return;
+  }
+
   if (pathname === '/api/ceo/contract/ai-check' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const acCtx = requireCeoSession(req, res);

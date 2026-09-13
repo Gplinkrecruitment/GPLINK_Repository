@@ -403,7 +403,7 @@
     return '' +
       '<div class="ats-section-head"><div>' +
         '<h2>Contracts</h2>' +
-        '<p>Employment contracts uploaded by practices — review the AI verdict, then submit to the GP or return it for changes.</p>' +
+        '<p>Employment contracts uploaded by practices — or filed by you from a candidate\'s profile when a practice emailed it instead. Review the AI verdict, then submit to the GP or return it for changes.</p>' +
       '</div></div>' +
       '<div id="contracts-list">' + ATS.loadingHtml('Loading contracts…') + '</div>';
   }

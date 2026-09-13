@@ -1372,7 +1372,13 @@
       ' style="background:none;border:none;padding:0;margin-left:10px;color:var(--ats-blue);font-size:11.5px;text-decoration:underline;cursor:pointer">View contract</button>';
   }
 
+  // The whole Offer / contract cell: the in-app offer state on the first line,
+  // then the employment-contract line underneath (see contractLineHtml).
   function offerLineHtml(a) {
+    return offerStateHtml(a) + contractLineHtml(a);
+  }
+
+  function offerStateHtml(a) {
     var offer = a.offer || {};
     var status = offer.status || 'not_started';
     if (status === 'accepted') {
@@ -1396,6 +1402,162 @@
     if (!canSend) return priorNote || '<span>' + ATS.esc(offer.label || '—') + '</span>';
     return priorNote +
       '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-offer-send" data-app-id="' + ATS.escAttr(String(a.id)) + '">Send offer</button>';
+  }
+
+  /* ---- Employment contract line (owner request 2026-09-14) ----
+   * The post-interview pipeline expects the PRACTICE to upload the contract
+   * through its extend-offer link. PKG Medical Centre emailed it to us instead,
+   * so the application sat at "Offer accepted" with no contract row — no AI
+   * review, nothing on the Contracts tab, no way to send it to the doctor.
+   * This line shows the live contract's state when there is one, and lets the
+   * CEO file an emailed contract into the SAME pipeline when there isn't (or
+   * when the practice never used the upload link it was sent). */
+  var CONTRACT_FILE_STAGES = ['submitted', 'reviewing', 'interview', 'offer'];
+  var CONTRACT_ACCEPT = '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  var CONTRACT_MAX_BYTES = 25 * 1024 * 1024; // PUT straight to Storage — Vercel's body cap never sees it
+  var CONTRACT_STATUS_META = {
+    awaiting_upload: { label: 'Awaiting practice upload', mod: 'muted' },
+    uploaded: { label: 'Awaiting your review', mod: 'amber' },
+    sent_to_gp: { label: 'Sent to the doctor to sign', mod: 'blue' },
+    changes_requested: { label: 'Doctor requested changes', mod: 'red' },
+    practice_review: { label: 'With the practice', mod: 'purple' },
+    signed: { label: 'Signed', mod: 'green' }
+  };
+  var CONTRACT_VERDICT_META = {
+    aligned: { label: 'AI: aligned', mod: 'green' },
+    minor_gaps: { label: 'AI: minor gaps', mod: 'amber' },
+    major_discrepancies: { label: 'AI: major discrepancies', mod: 'red' },
+    unreadable: { label: 'AI: could not read it', mod: 'muted' }
+  };
+
+  // Only the CEO can file one (the contract endpoints are super-admin only),
+  // only against a live application, and only once it has actually gone to a
+  // practice — a practice cannot have offered a contract to a doctor it has
+  // never been sent.
+  function canFileContract(a) {
+    if (ATS.isConsultant && ATS.isConsultant()) return false;
+    if (isWithdrawn(a)) return false;
+    return CONTRACT_FILE_STAGES.indexOf(String(a.ats_stage || '')) !== -1;
+  }
+
+  function contractLineHtml(a) {
+    var c = a.contract || null;
+    var consultant = !!(ATS.isConsultant && ATS.isConsultant());
+    var appId = ATS.escAttr(String(a.id));
+    var parts = [];
+    if (c) {
+      var sm = CONTRACT_STATUS_META[c.status] || { label: String(c.status || '').replace(/_/g, ' '), mod: 'muted' };
+      parts.push('<span style="font-size:11.5px;color:var(--ats-dim)">Contract v' + ATS.esc(String(c.version)) + '</span>');
+      parts.push('<span class="ats-pill ' + sm.mod + '">' + ATS.esc(sm.label) + '</span>');
+      if (c.ai_review_status === 'running') {
+        parts.push('<span class="ats-pill muted">AI review running…</span>');
+      } else if (c.verdict && CONTRACT_VERDICT_META[c.verdict]) {
+        var vm = CONTRACT_VERDICT_META[c.verdict];
+        parts.push('<span class="ats-pill ' + vm.mod + '">' + ATS.esc(vm.label + (c.discrepancies ? ' · ' + c.discrepancies : '')) + '</span>');
+      } else if (c.ai_review_status === 'error') {
+        parts.push('<span class="ats-pill muted">AI review failed</span>');
+      }
+      if (!consultant) parts.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-contract-open" data-app-id="' + appId + '">Review in Contracts</button>');
+    }
+    // A row the practice never used (awaiting_upload) or is sitting on
+    // (practice_review) is exactly the "they emailed it instead" case, so the
+    // upload stays available alongside the state.
+    var uploadable = !c || c.status === 'awaiting_upload' || c.status === 'practice_review';
+    if (uploadable && canFileContract(a)) {
+      var hint = !c
+        ? 'Practice emailed the offer contract instead of uploading it? File it here — it gets the same AI review and lands on the Contracts tab to send to the doctor.'
+        : (c.status === 'practice_review'
+          ? 'The practice was asked by email to approve the doctor\'s change — if they emailed a revised contract instead, file it here as v' + (Number(c.version) + 1) + '.'
+          : 'The practice was sent an upload link but has not used it — if they emailed the contract instead, file it here.');
+      parts.push('<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-contract-upload" data-app-id="' + appId + '">Upload contract</button>');
+      parts.push('<span style="font-size:11px;color:var(--ats-dim);flex:1;min-width:180px">' + ATS.esc(hint) + '</span>');
+    }
+    if (!parts.length) return '';
+    return '<div class="ats-contract-line"' + (c ? ' data-contract-id="' + ATS.escAttr(String(c.id)) + '"' : '') +
+      ' style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px">' + parts.join('') + '</div>';
+  }
+
+  // Finder often reports an empty type for .docx, so decide by extension first.
+  function contractMimeFor(file) {
+    var name = String((file && file.name) || '').toLowerCase();
+    if (/\.pdf$/.test(name)) return 'application/pdf';
+    if (/\.docx$/.test(name)) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    var t = String((file && file.type) || '').toLowerCase();
+    return (t === 'application/pdf' || t === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') ? t : '';
+  }
+
+  // Picker created per click and discarded after, same as the document slots:
+  // the drawer re-renders on every reload, so a persistent input would be
+  // orphaned mid-upload.
+  function pickContractFile(btn, c) {
+    var appId = btn.getAttribute('data-app-id');
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = CONTRACT_ACCEPT;
+    input.style.display = 'none';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      if (file) uploadContractFile(btn, c, appId, file);
+      if (input.parentNode) input.parentNode.removeChild(input);
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  // Three steps, the same shape the practice's own upload page uses: ask the
+  // server for a signed Storage URL, PUT the raw file straight there, then
+  // finalize so the row is recorded and the AI review runs. The button narrates
+  // each step because the review can take a while and a silent half-minute
+  // looks broken.
+  function uploadContractFile(btn, c, appId, file) {
+    var mime = contractMimeFor(file);
+    if (!mime) { ATS.toast('Please choose the contract as a PDF or Word (.docx) file.'); return; }
+    if (file.size > CONTRACT_MAX_BYTES) { ATS.toast('That file is too large — keep the contract under 25 MB.'); return; }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Uploading…';
+    var restore = function () { btn.disabled = false; btn.textContent = label; };
+    var filename = file.name || 'contract.pdf';
+
+    ATS.api('/api/ceo/contract/sign-upload', { method: 'POST', body: { applicationId: String(appId), filename: filename, mimeType: mime } }).then(function (sign) {
+      if (!sign || !sign.ok || !sign.uploadUrl) {
+        restore();
+        ATS.toast((sign && sign.message) || 'Could not prepare the upload — please try again.');
+        return null;
+      }
+      return fetch(sign.uploadUrl, { method: 'PUT', credentials: 'omit', headers: { 'Content-Type': mime, 'x-upsert': 'true' }, body: file })
+        .then(function (put) {
+          if (!put.ok) { restore(); ATS.toast('The file could not be stored — please try again.'); return null; }
+          btn.textContent = 'Running AI review…';
+          return ATS.api('/api/ceo/contract/finalize', { method: 'POST', body: { contractId: sign.contractId, filename: filename, mimeType: mime } });
+        })
+        .then(function (fin) {
+          if (fin === null) return;
+          restore();
+          if (!fin || !fin.ok) { ATS.toast((fin && fin.message) || 'Could not record the contract — please try again.'); return; }
+          ATS.toast(contractFiledMessage(fin));
+          // The red "!" on the Contracts tab must light up the moment a row
+          // needs the CEO — the same refresh the tab's own decisions call.
+          if (ATS.refreshContractsAlert) ATS.refreshContractsAlert();
+          window.atsOpenCandidate(c.case_id);
+        });
+    }).catch(function () { restore(); ATS.toast('Could not upload the contract — please try again.'); });
+  }
+
+  function contractFiledMessage(fin) {
+    var v = 'v' + (fin.version || 1);
+    if (fin.ai_review_status === 'done' && fin.ai_review && fin.ai_review.overall) {
+      var vm = CONTRACT_VERDICT_META[fin.ai_review.overall];
+      return 'Contract ' + v + ' filed — ' + (vm ? vm.label : 'AI review complete') + '. Review it on the Contracts tab, then submit it to the doctor.';
+    }
+    return 'Contract ' + v + ' filed, but the AI review could not complete — open the Contracts tab to re-run it or review it by hand.';
+  }
+
+  // Deep-link into the Contracts master tab: clicking its button runs the
+  // shared switcher (ceo-ats-shared.js), which shows the panel and loads it.
+  function openContractsTab() {
+    var tab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="contracts"]');
+    if (tab) tab.click(); else ATS.toast('Open the Contracts tab to review it.');
   }
 
   function offerFormHtml(appId) {
@@ -2229,6 +2391,12 @@
       // A7b: open the offer's stored contract.
       var ocBtn = e.target.closest('.ats-offer-contract');
       if (ocBtn) { viewOfferContract(ocBtn.getAttribute('data-app-id'), ocBtn); return; }
+      // Owner request 2026-09-14: file a contract the practice emailed instead
+      // of uploading, and jump to the Contracts tab for one already on file.
+      var cuBtn = e.target.closest('.ats-contract-upload');
+      if (cuBtn) { pickContractFile(cuBtn, c); return; }
+      var coBtn = e.target.closest('.ats-contract-open');
+      if (coBtn) { openContractsTab(); return; }
       // A8a: mark placement secured (verbal acceptance) — inline confirm.
       var markPlBtn = e.target.closest('.ats-mark-placement');
       if (markPlBtn) { openPlacementForm(markPlBtn.getAttribute('data-app-id')); return; }
