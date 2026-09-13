@@ -1646,7 +1646,7 @@ describe('CEO Contracts tab UI (Task 12)', () => {
     // Bumped 2026-08-05 for the inline contract reader + red highlighting.
     // JS is served with max-age=3600, so a stale pin here means the owner keeps
     // getting the previous file for an hour after a deploy.
-    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260914a');
+    expect(CEO_HTML).toContain('/js/ceo-ats-contracts.js?v=20260914b');
     expect(CEO_HTML).not.toContain('/js/ceo-ats-contracts.js?v=20260805c');
   });
 

@@ -3414,6 +3414,10 @@ async function aiReviewCareerContract(contractRow) {
   // offer terms only — deterministic, never left to the model to get right.
   var interviewTermsAvailable = !!interviewSummary;
   var termsContext = { interview_summary: interviewSummary, offer_terms: offerTerms, listing_terms: listingTerms };
+  // Whether a letter of offer rides on this revision (owner request
+  // 2026-09-14) — deterministic from the row, so the Contracts tab can say
+  // "two documents reviewed" without trusting the model to notice.
+  var hasOfferLetter = !!(contract.offer_letter_bucket && contract.offer_letter_path);
 
   // No API key configured (local dev / preview without the secret) — never
   // explode; store a clearly-labelled stub so the UI has something sane to
@@ -3424,7 +3428,8 @@ async function aiReviewCareerContract(contractRow) {
       summary: 'AI review unavailable — no API key configured.',
       extracted_terms: _contractAiBlankExtractedTerms(),
       discrepancies: [],
-      interview_terms_available: interviewTermsAvailable
+      interview_terms_available: interviewTermsAvailable,
+      has_offer_letter: hasOfferLetter
     };
     await persist(noKeyReview, 'error', termsContext);
     return { ai_review_status: 'error', ai_review: noKeyReview };
@@ -3444,7 +3449,8 @@ async function aiReviewCareerContract(contractRow) {
       summary: 'Could not read the uploaded contract file.',
       extracted_terms: _contractAiBlankExtractedTerms(),
       discrepancies: [],
-      interview_terms_available: interviewTermsAvailable
+      interview_terms_available: interviewTermsAvailable,
+      has_offer_letter: hasOfferLetter
     };
     await persist(noFileReview, 'error', termsContext);
     return { ai_review_status: 'error', ai_review: noFileReview };
@@ -3464,17 +3470,30 @@ async function aiReviewCareerContract(contractRow) {
       summary: contractRead.reason,
       extracted_terms: _contractAiBlankExtractedTerms(),
       discrepancies: [],
-      interview_terms_available: interviewTermsAvailable
+      interview_terms_available: interviewTermsAvailable,
+      has_offer_letter: hasOfferLetter
     };
     await persist(unreadableReview, 'error', termsContext);
     return { ai_review_status: 'error', ai_review: unreadableReview };
   }
 
+  // The letter of offer's blocks when the practice sent one, [] otherwise —
+  // see readOfferLetterBlocksForReview for why an unreadable letter is a
+  // text block rather than a failed review.
+  var letterBlocks = hasOfferLetter ? await readOfferLetterBlocksForReview(contract) : [];
+
   // `contract_says` MUST be a verbatim quote: the CEO's inline viewer finds
   // that exact string in the contract text and highlights it red. A paraphrase
   // silently breaks the highlight, so the shape is spelled out rather than
-  // left for the model to infer (it previously was).
+  // left for the model to infer (it previously was). `document` says WHICH
+  // document the quote came from, so the viewer highlights the right one.
   var promptText = 'You are checking an employment contract a practice uploaded for a GP placement.\n' +
+    'Two documents may be attached: a LETTER OF OFFER and the EMPLOYMENT CONTRACT.\n' +
+    'Review BOTH against the promised terms. Every discrepancy MUST include\n' +
+    '"document": "contract" | "offer_letter" naming which document the verbatim quote\n' +
+    'was copied from. Where the letter of offer and the contract disagree with each\n' +
+    'other, report that too (quote the contract, set source to "offer_letter",\n' +
+    'expected = what the letter says).\n' +
     'Compare the contract against (1) the terms discussed in the interview (the Zoom\n' +
     'meeting summary below) and (2) the advertised job terms. Where interview terms\n' +
     'and the advertised terms differ, THE INTERVIEW TERMS SUPERSEDE the listing.\n' +
@@ -3489,9 +3508,10 @@ async function aiReviewCareerContract(contractRow) {
     '    {\n' +
     '      "field": "short label, e.g. Billing split",\n' +
     '      "severity": "minor" | "major",\n' +
-    '      "contract_says": "VERBATIM quote copied EXACTLY from the contract text — character for character, no paraphrase, no ellipsis, no added quotation marks. This exact string is highlighted in the contract, so it must appear in it word for word. Keep it under ~200 characters: quote the specific clause, not the whole paragraph.",\n' +
-    '      "expected": "what the interview/offer/listing actually promised",\n' +
-    '      "source": "interview" | "offer" | "listing"\n' +
+    '      "document": "contract" | "offer_letter",\n' +
+    '      "contract_says": "VERBATIM quote copied EXACTLY from the named document\'s text — character for character, no paraphrase, no ellipsis, no added quotation marks. This exact string is highlighted in that document, so it must appear in it word for word. Keep it under ~200 characters: quote the specific clause, not the whole paragraph.",\n' +
+    '      "expected": "what the interview/offer/listing/letter actually promised",\n' +
+    '      "source": "interview" | "offer" | "listing" | "offer_letter"\n' +
     '    }\n' +
     '  ],\n' +
     '  "interview_terms_available": true | false\n' +
@@ -3504,7 +3524,10 @@ async function aiReviewCareerContract(contractRow) {
     ? 'EMPLOYMENT CONTRACT (uploaded by the practice, attached as a PDF):'
     : 'EMPLOYMENT CONTRACT (uploaded by the practice, text extracted from ' + (contract.contract_filename || 'the uploaded file') + '):';
 
-  var contentBlocks = [{ type: 'text', text: contractIntro }]
+  // Letter first (when there is one), then the contract — the order the
+  // doctor reads them in and the order the prompt names them.
+  var contentBlocks = letterBlocks
+    .concat([{ type: 'text', text: contractIntro }])
     .concat(contractRead.blocks)
     .concat([
       { type: 'text', text: 'INTERVIEW SUMMARY (Zoom meeting — supersedes the advertised terms where they differ):\n' + (interviewSummary || '(No interview summary is available for this application.)') },
@@ -3593,14 +3616,26 @@ async function aiReviewCareerContract(contractRow) {
 
     var overallRaw = parsed.overall;
     var overall = ['aligned', 'minor_gaps', 'major_discrepancies', 'unreadable'].indexOf(overallRaw) !== -1 ? overallRaw : 'unreadable';
+    // Every discrepancy names its document. Older reviews (and a model that
+    // ignores the instruction) have no `document`, and the only document those
+    // could have quoted is the contract — so that is the default. Anything
+    // that is not a known key is coerced rather than passed through, because
+    // the viewer picks which file to highlight by this string alone. Every
+    // other field the model returned is left exactly as it came.
+    var rawDiscrepancies = Array.isArray(parsed.discrepancies) ? parsed.discrepancies : [];
+    var discrepancies = rawDiscrepancies.map(function (d) {
+      if (!d || typeof d !== 'object') return d;
+      return Object.assign({}, d, { document: careerContractDocumentKey(d.document) });
+    });
     reviewResult = {
       overall: overall,
       summary: String(parsed.summary || ''),
       extracted_terms: Object.assign(_contractAiBlankExtractedTerms(), (parsed.extracted_terms && typeof parsed.extracted_terms === 'object') ? parsed.extracted_terms : {}),
-      discrepancies: Array.isArray(parsed.discrepancies) ? parsed.discrepancies : [],
+      discrepancies: discrepancies,
       // Deterministic, not left to the model: true only when a real
       // interview summary actually existed to compare against.
-      interview_terms_available: interviewTermsAvailable
+      interview_terms_available: interviewTermsAvailable,
+      has_offer_letter: hasOfferLetter
     };
     status = 'done';
   } catch (e) {
@@ -3610,13 +3645,42 @@ async function aiReviewCareerContract(contractRow) {
       summary: 'AI review failed: ' + (e && e.message ? e.message : 'unknown error'),
       extracted_terms: _contractAiBlankExtractedTerms(),
       discrepancies: [],
-      interview_terms_available: interviewTermsAvailable
+      interview_terms_available: interviewTermsAvailable,
+      has_offer_letter: hasOfferLetter
     };
     status = 'error';
   }
 
   await persist(reviewResult, status, termsContext);
   return { ai_review_status: status, ai_review: reviewResult };
+}
+
+// The letter of offer's content blocks for the AI review (owner request
+// 2026-09-14). The letter is reviewed ALONGSIDE the contract in the one call —
+// the interesting failures are the two documents disagreeing with each other,
+// which a separate review per document could never see. A letter we cannot
+// download or read must not sink the contract's review: the model is told in
+// plain words that the letter was unreadable and carries on with the contract.
+// Returns [] when the revision has no letter.
+async function readOfferLetterBlocksForReview(contractRow) {
+  var c = contractRow || {};
+  if (!c.offer_letter_bucket || !c.offer_letter_path) return [];
+  var name = c.offer_letter_filename || 'the letter of offer';
+  var obj = null;
+  try { obj = await supabaseStorageDownloadObject(c.offer_letter_bucket, c.offer_letter_path); }
+  catch (e) { console.error('[contract-ai] letter of offer download failed:', e && e.message); }
+  var read = null;
+  if (obj && obj.buffer && obj.buffer.length) {
+    try { read = await readContractFileForReview(obj.buffer, c.offer_letter_mime || obj.mimeType, c.offer_letter_filename); }
+    catch (e) { read = { ok: false, reason: (e && e.message) || 'unexpected error' }; }
+  }
+  if (read && read.ok) {
+    var intro = read.kind === 'pdf'
+      ? 'LETTER OF OFFER (uploaded by the practice, attached as a PDF):'
+      : 'LETTER OF OFFER (uploaded by the practice, text extracted from ' + name + '):';
+    return [{ type: 'text', text: intro }].concat(read.blocks);
+  }
+  return [{ type: 'text', text: 'LETTER OF OFFER (uploaded by the practice as ' + name + '): this document could not be read' + (read && read.reason ? ' — ' + read.reason : '') + '. Review the employment contract below on its own and say in the summary that the letter of offer could not be read.' }];
 }
 
 // ── Gmail integration (Phase 1b) ──
@@ -26451,7 +26515,14 @@ async function handleZoomSchedulingWebhook(req, res) {
   }
 
   const event = String(payload.event || '');
-  const eventId = String(payload.payload && payload.payload.object && payload.payload.object.uuid || payload.id || '');
+  // The dedupe key is the meeting INSTANCE plus the event name. Summary events
+  // carry the instance as `meeting_uuid` (meeting.ended says `uuid`), and the
+  // two events for one instance must be recorded separately — keyed on the
+  // uuid alone, whichever of the pair arrived second was thrown away as a
+  // replay of the first. An event with no id at all stays undeduped, as before.
+  const eventObj = (payload.payload && payload.payload.object) || {};
+  const eventInstance = String(eventObj.uuid || eventObj.meeting_uuid || payload.id || '');
+  const eventId = eventInstance ? eventInstance + ':' + event : '';
 
   // Deduplicate
   const isDuplicate = await checkAndRecordWebhookEvent('zoom', eventId, event, payload);
@@ -26476,6 +26547,96 @@ async function handleZoomSchedulingWebhook(req, res) {
   }
 
   sendJson(res, 200, { ok: true });
+}
+
+// ── Early-join guard for Zoom webhooks (production incident 2026-09-07/08) ──
+// Dr Ganesh's PKG interview was booked for 2026-09-08 09:00Z. The practice
+// clicked the join link a DAY early (2026-09-07 09:14Z, three minutes alone on
+// the call). Zoom sent meeting.ended for that instance; handleZoomMeetingEnded
+// completed the call, fetchAndSaveZoomSummary stored a garbage summary
+// ("disjointed conversation with no clear main topic") and
+// sendPostInterviewDecisionEmail asked the practice to extend an offer or
+// decline — a day before the interview happened. When the real instance ended
+// the next day the row was already completed + saved, so its (excellent)
+// summary was never fetched, and a later summary_completed could match nothing
+// because the fallback filters summary_status=neq.saved.
+//
+// The rule: an instance that ENDS more than ZOOM_EARLY_JOIN_MIN before the
+// booked start AND is shorter than ZOOM_EARLY_JOIN_MAX_DURATION_MIN is an
+// accidental early join — note it on the row and ignore it. A long early call
+// is left alone: a practice that genuinely ran the interview early must not
+// lose it. Both knobs are env-tunable without a deploy. Applies to every
+// meeting_kind — a consult call can suffer exactly the same accident.
+function zoomEarlyJoinMinutes() {
+  var n = Number(process.env.ZOOM_EARLY_JOIN_MIN);
+  return Number.isFinite(n) && n > 0 ? n : 60;
+}
+function zoomEarlyJoinMaxDurationMinutes() {
+  var n = Number(process.env.ZOOM_EARLY_JOIN_MAX_DURATION_MIN);
+  return Number.isFinite(n) && n > 0 ? n : 15;
+}
+function zoomIsoToMs(value) {
+  var t = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+// Instance timing from a Zoom payload object. meeting.ended carries
+// start_time / end_time / duration (minutes); meeting.summary_completed carries
+// meeting_start_time / meeting_end_time and no duration, so the duration is
+// derived from the two stamps when Zoom did not send one. Missing values are
+// null — never NaN — so every comparison below is deliberate.
+function zoomInstanceTiming(obj) {
+  var o = obj || {};
+  var startMs = zoomIsoToMs(o.start_time || o.meeting_start_time);
+  var endMs = zoomIsoToMs(o.end_time || o.meeting_end_time);
+  var duration = Number(o.duration);
+  if (!Number.isFinite(duration) || duration < 0 || o.duration === undefined || o.duration === null || o.duration === '') {
+    duration = (startMs != null && endMs != null && endMs >= startMs) ? Math.round((endMs - startMs) / 60000) : null;
+  }
+  return { startMs: startMs, endMs: endMs, durationMin: duration };
+}
+// One ended instance measured against the row's booked time. `early` is true
+// only when the instance ended well before the slot AND was short (or its
+// length is unknown) — see the block comment above for why both are needed.
+function zoomInstanceIsEarlyJoin(callRecord, timing) {
+  var scheduledMs = zoomIsoToMs(callRecord && callRecord.scheduled_at);
+  if (scheduledMs == null) return { early: false };
+  var endMs = (timing && timing.endMs != null) ? timing.endMs : Date.now();
+  if (endMs >= scheduledMs - zoomEarlyJoinMinutes() * 60000) return { early: false };
+  var durationMin = timing ? timing.durationMin : null;
+  if (durationMin != null && durationMin >= zoomEarlyJoinMaxDurationMinutes()) return { early: false };
+  return { early: true, minutesBefore: Math.round((scheduledMs - endMs) / 60000), durationMin: durationMin };
+}
+// The summary already on the row came from an instance that ended before the
+// slot — i.e. an early join that slipped through before this guard existed —
+// so the real instance's summary should replace it rather than be discarded.
+function zoomSavedSummaryPredatesSlot(callRecord) {
+  var scheduledMs = zoomIsoToMs(callRecord && callRecord.scheduled_at);
+  var savedMs = zoomIsoToMs(callRecord && (callRecord.summary_saved_at || callRecord.completed_at));
+  if (scheduledMs == null || savedMs == null) return false;
+  return savedMs < scheduledMs - zoomEarlyJoinMinutes() * 60000;
+}
+function zoomSydneyTimeLabel(ms) {
+  var d = new Date(ms == null ? Date.now() : ms);
+  if (Number.isNaN(d.getTime())) return 'an unknown time';
+  try {
+    return d.toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Australia/Sydney', timeZoneName: 'short' });
+  } catch (e) { return d.toISOString(); }
+}
+// admin_notes is the one place staff already read about a call, so the guard
+// leaves its trail there — one line per event, newest last, existing notes kept.
+function appendSystemAdminNote(existing, line) {
+  var base = String(existing || '').trim();
+  return (base ? base + '\n' : '') + line;
+}
+function zoomEarlyJoinNote(callRecord, timing, early) {
+  var kind = (callRecord && callRecord.meeting_kind === 'interview') ? 'interview' : 'call';
+  return '[System] Zoom link joined early on ' + zoomSydneyTimeLabel(timing && timing.endMs != null ? timing.endMs : Date.now())
+    + ' — ' + early.minutesBefore + ' min before the booked time, '
+    + (early.durationMin == null ? 'unknown' : early.durationMin) + ' min long. Ignored: not treated as the ' + kind + '.';
+}
+function zoomRealInstanceNote(callRecord, endMs) {
+  var kind = (callRecord && callRecord.meeting_kind === 'interview') ? 'interview' : 'call';
+  return '[System] Real ' + kind + ' instance ended ' + zoomSydneyTimeLabel(endMs) + '; the earlier summary came from an early join and will be replaced.';
 }
 
 async function handleZoomMeetingEnded(payload) {
@@ -26524,21 +26685,65 @@ async function handleZoomMeetingEnded(payload) {
   }
   const callRecord = r.data[0];
   const now = new Date().toISOString();
+  const timing = zoomInstanceTiming(obj);
+  const endedAtIso = timing.endMs != null ? new Date(timing.endMs).toISOString() : now;
+
+  // (a) Early-join guard — see the block comment above zoomEarlyJoinMinutes.
+  // Only admin_notes is written: status, summary_status, uuid, completed_at
+  // and the practice email are all left for the instance that really happens.
+  const early = zoomInstanceIsEarlyJoin(callRecord, timing);
+  if (early.early) {
+    console.log('[zoom meeting.ended] early join ignored for scheduled_call', callRecord.id, '— instance', meetingUuid || '(no uuid)', 'ended', endedAtIso, early.minutesBefore, 'min before the booked time, duration', early.durationMin == null ? 'unknown' : early.durationMin + ' min');
+    await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: {
+        admin_notes: appendSystemAdminNote(callRecord.admin_notes, zoomEarlyJoinNote(callRecord, timing, early)),
+        updated_at: now
+      }
+    });
+    return;
+  }
+
+  // (b) The real instance supersedes a summary saved from an early join that
+  // got through before the guard existed: point the row at THIS instance,
+  // re-arm the summary fetch and take this end time as the completion. The
+  // practice email below is idempotent, so no second email goes out.
+  // Re-arming throws a saved summary away, so it needs positive evidence: an
+  // explicit end_time that places this instance at the slot, and a DIFFERENT
+  // instance uuid from the one whose summary is on the row. A bare
+  // meeting.ended with neither (the shape the older race tests replay) keeps
+  // today's behaviour — first completion time and saved summary preserved.
+  const supersedesEarlySummary = callRecord.status === 'completed'
+    && callRecord.summary_status === 'saved'
+    && timing.endMs != null
+    && !!meetingUuid && meetingUuid !== callRecord.zoom_meeting_uuid
+    && zoomSavedSummaryPredatesSlot(callRecord);
 
   await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
     method: 'PATCH', headers: { Prefer: 'return=minimal' },
-    body: {
-      status: 'completed',
-      // Preserve what the summary handler may already have written when it won
-      // the race: keep the FIRST completion time, and never re-arm a summary
-      // that is already saved back to 'pending' (that would send the
-      // call-summary-retry cron chasing a summary it has already stored).
-      completed_at: callRecord.completed_at || now,
-      zoom_meeting_uuid: meetingUuid || callRecord.zoom_meeting_uuid || null,
-      summary_status: callRecord.summary_status === 'saved' ? 'saved' : 'pending',
-      updated_at: now
-    }
+    body: supersedesEarlySummary
+      ? {
+        status: 'completed',
+        completed_at: endedAtIso,
+        zoom_meeting_uuid: meetingUuid || callRecord.zoom_meeting_uuid || null,
+        summary_status: 'pending',
+        summary_fetch_attempts: 0,
+        admin_notes: appendSystemAdminNote(callRecord.admin_notes, zoomRealInstanceNote(callRecord, timing.endMs)),
+        updated_at: now
+      }
+      : {
+        status: 'completed',
+        // Preserve what the summary handler may already have written when it won
+        // the race: keep the FIRST completion time, and never re-arm a summary
+        // that is already saved back to 'pending' (that would send the
+        // call-summary-retry cron chasing a summary it has already stored).
+        completed_at: callRecord.completed_at || now,
+        zoom_meeting_uuid: meetingUuid || callRecord.zoom_meeting_uuid || null,
+        summary_status: callRecord.summary_status === 'saved' ? 'saved' : 'pending',
+        updated_at: now
+      }
   });
+  if (supersedesEarlySummary) console.log('[zoom meeting.ended] real instance', meetingUuid, 'supersedes the early-join summary on scheduled_call', callRecord.id, '→ summary re-armed');
   console.log('[zoom meeting.ended] Updated scheduled_call', callRecord.id, '→ completed, summary_status: pending');
 
   const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
@@ -26570,6 +26775,11 @@ async function handleZoomMeetingEnded(payload) {
 async function handleZoomSummaryCompleted(payload) {
   const obj = (payload.payload && payload.payload.object) || {};
   const meetingId = String(obj.id || obj.meeting_id || '');
+  // Summary events name the instance `meeting_uuid` (meeting.ended says
+  // `uuid`). Zoom only serves a summary by the instance it belongs to, so the
+  // fetch below must target THIS uuid, not whichever one the row last stored.
+  const instanceUuid = String(obj.meeting_uuid || obj.uuid || '');
+  const timing = zoomInstanceTiming(obj);
 
   if (!meetingId) {
     console.warn('[zoom meeting.summary_completed] No meeting id in payload');
@@ -26581,9 +26791,32 @@ async function handleZoomSummaryCompleted(payload) {
     return;
   }
 
+  // An accidental early join's summary (see zoomEarlyJoinMinutes) is never
+  // fetched into a row that is still waiting for the real call, and never
+  // re-points a completed row that is waiting on a DIFFERENT (real) instance.
+  const ignoreEarly = (row) => {
+    const early = zoomInstanceIsEarlyJoin(row, timing);
+    if (!early.early) return false;
+    if (row.status !== 'completed') return true;
+    return !!(instanceUuid && row.zoom_meeting_uuid && row.zoom_meeting_uuid !== instanceUuid);
+  };
+
   // Normal path: meeting.ended already set summary_status='pending'.
   const r = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&summary_status=eq.pending&limit=1');
   let callRecord = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+  if (callRecord) {
+    if (ignoreEarly(callRecord)) {
+      console.log('[zoom meeting.summary_completed] early join ignored for scheduled_call', callRecord.id, '— instance', instanceUuid || '(no uuid)');
+      return;
+    }
+    if (instanceUuid && callRecord.zoom_meeting_uuid !== instanceUuid) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { zoom_meeting_uuid: instanceUuid, updated_at: new Date().toISOString() }
+      });
+      callRecord = Object.assign({}, callRecord, { zoom_meeting_uuid: instanceUuid });
+    }
+  }
   if (!callRecord) {
     // Robustness: the summary can be ready before (or without) a meeting.ended
     // webbook. Fall back to any non-cancelled row for this meeting that hasn't
@@ -26591,16 +26824,46 @@ async function handleZoomSummaryCompleted(payload) {
     const r2 = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&status=neq.cancelled&summary_status=neq.saved&order=created_at.desc&limit=1');
     callRecord = (r2.ok && Array.isArray(r2.data) && r2.data[0]) ? r2.data[0] : null;
     if (!callRecord) {
+      // The row already saved a summary. If that summary came from an early
+      // join (it predates the slot) and THIS instance is the real one, re-arm
+      // the row at this instance so the real summary replaces the junk —
+      // mirrors handleZoomMeetingEnded's supersede branch for the case where
+      // the summary event is the one that reaches us.
+      const r3 = await supabaseDbRequest('scheduled_calls', 'select=*&zoom_meeting_id=eq.' + encodeURIComponent(meetingId) + '&status=eq.completed&summary_status=eq.saved&order=created_at.desc&limit=1');
+      const savedRow = (r3.ok && Array.isArray(r3.data) && r3.data[0]) ? r3.data[0] : null;
+      // Same positive evidence handleZoomMeetingEnded demands before it
+      // throws a saved summary away: an explicit end time and a different uuid.
+      if (savedRow && instanceUuid && instanceUuid !== savedRow.zoom_meeting_uuid && timing.endMs != null
+        && zoomSavedSummaryPredatesSlot(savedRow) && !zoomInstanceIsEarlyJoin(savedRow, timing).early) {
+        const rearmIso = new Date().toISOString();
+        const rearmEndIso = timing.endMs != null ? new Date(timing.endMs).toISOString() : rearmIso;
+        const rearm = {
+          zoom_meeting_uuid: instanceUuid,
+          summary_status: 'pending',
+          summary_fetch_attempts: 0,
+          completed_at: rearmEndIso,
+          admin_notes: appendSystemAdminNote(savedRow.admin_notes, zoomRealInstanceNote(savedRow, timing.endMs)),
+          updated_at: rearmIso
+        };
+        await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(savedRow.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: rearm });
+        console.log('[zoom meeting.summary_completed] real instance', instanceUuid, 'supersedes the early-join summary on scheduled_call', savedRow.id, '→ re-armed and fetching');
+        await fetchAndSaveZoomSummary(Object.assign({}, savedRow, rearm));
+        return;
+      }
       console.warn('[zoom meeting.summary_completed] No matching scheduled_call for meeting_id:', meetingId);
+      return;
+    }
+    if (ignoreEarly(callRecord)) {
+      console.log('[zoom meeting.summary_completed] early join ignored for scheduled_call', callRecord.id, '— instance', instanceUuid || '(no uuid)', 'ended before the booked time; the row stays', callRecord.status);
       return;
     }
     const nowIso = new Date().toISOString();
     const summaryCompletesCall = callRecord.status === 'booked';
     await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(callRecord.id), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
-      body: { status: summaryCompletesCall ? 'completed' : callRecord.status, completed_at: callRecord.completed_at || nowIso, summary_status: 'pending', updated_at: nowIso }
+      body: { status: summaryCompletesCall ? 'completed' : callRecord.status, completed_at: callRecord.completed_at || nowIso, summary_status: 'pending', zoom_meeting_uuid: instanceUuid || callRecord.zoom_meeting_uuid || null, updated_at: nowIso }
     });
-    callRecord = Object.assign({}, callRecord, { summary_status: 'pending' });
+    callRecord = Object.assign({}, callRecord, { summary_status: 'pending', zoom_meeting_uuid: instanceUuid || callRecord.zoom_meeting_uuid || null });
     // Task 9 parity: when THIS handler is the one that ends the interview —
     // i.e. Zoom's summary beat meeting.ended to us — it owes the practice the
     // same extend-offer/not-proceeding email that meeting.ended sends. Before
@@ -38192,8 +38455,14 @@ async function notifyGpContractReady(contract, appRow, opts) {
   // shared title/body must not carry `{{name}}` (only sendGpNotificationEmail
   // substitutes it) or `**bold**`/blank lines (only the email formatter
   // renders those). The email gets its own warmer, formatted copy below.
+  // Two documents when the practice sent a letter of offer too (owner request
+  // 2026-09-14) — the doctor is told up front that there are two to sign.
+  var twoDocs = careerContractHasOfferLetter(contract);
+  var reviewAndSign = twoDocs
+    ? 'review your letter of offer and employment agreement and sign them'
+    : 'review your employment agreement and sign';
   var title = 'Congratulations — the position is yours 🎉';
-  var bodyMsg = who + ' has offered you the position. All that\'s left is to secure it — review your employment agreement and sign.';
+  var bodyMsg = who + ' has offered you the position. All that\'s left is to secure it — ' + reviewAndSign + '.';
   var nextPath = '/pages/offer-review?applicationId=' + encodeURIComponent(applicationId);
 
   // Owner call 2026-08-05: lead with the congratulations, not the paperwork.
@@ -38203,7 +38472,7 @@ async function notifyGpContractReady(contract, appRow, opts) {
   var emailTitle = 'Congratulations {{name}} — the position is yours 🎉';
   var emailBody = '**' + who + ' has offered you the position.**\n\n'
     + 'This was a competitive role with strong interest from other doctors, so being the one the practice chose is a real achievement — congratulations.\n\n'
-    + 'All that\'s left is to secure it: review your employment agreement and sign it.\n\n'
+    + 'All that\'s left is to secure it: ' + (twoDocs ? reviewAndSign : 'review your employment agreement and sign it') + '.\n\n'
     + 'If something needs adjusting before you can sign, you can request a change on the same page.';
 
   var results = {};
@@ -41255,13 +41524,102 @@ var CONTRACT_UPLOAD_ACCEPTED_MIME = new Set([
 function contractMimeIsAccepted(mime) {
   return CONTRACT_UPLOAD_ACCEPTED_MIME.has(String(mime || '').trim().toLowerCase());
 }
+// ── Two documents on one contract revision (owner request 2026-09-14) ──────
+// Some practices send a LETTER OF OFFER alongside the employment contract and
+// the doctor must sign both; others send the contract alone. Rather than a
+// second career_contracts row (which would need its own status, version, AI
+// review and CAS story), the letter rides on the SAME row in its own
+// offer_letter_* columns. Every surface addresses a document by key:
+//   'contract'      — the employment contract (the default whenever omitted,
+//                     which is what keeps every single-document caller working)
+//   'offer_letter'  — the letter of offer
+// 'offer-letter' / 'letter' are accepted from clients; we always EMIT the
+// underscore form so the UI has one string to compare against.
+function careerContractDocumentKey(raw) {
+  var k = String(raw == null ? '' : raw).trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (k === 'offer_letter' || k === 'letter' || k === 'letter_of_offer' || k === 'offerletter') return 'offer_letter';
+  return 'contract';
+}
+function careerContractDocumentLabel(documentKey) {
+  return careerContractDocumentKey(documentKey) === 'offer_letter' ? 'Letter of offer' : 'Employment contract';
+}
 // Storage key for one contract revision — the SAME shape the practice's
 // sign-upload/finalize pair computes inline, so a contract staff file by hand
 // lands exactly where a practice upload would, and finalize can recompute it
 // from the row + filename instead of trusting a client-supplied path.
-function careerContractStoragePath(contractRow, filename) {
-  var safeName = sanitizeStoragePathSegment(String(filename || 'contract.pdf'), 120);
-  return ['contracts', sanitizeStoragePathSegment(String((contractRow && contractRow.application_id) || ''), 80), 'v' + (Number(contractRow && contractRow.version) || 1), safeName].join('/');
+// The letter of offer sits one folder down (…/v<n>/offer-letter/<name>) so it
+// can never overwrite the contract when the practice gives both files the
+// same name; the contract path itself is byte-identical to what it always was.
+function careerContractStoragePath(contractRow, filename, documentKey) {
+  var isLetter = careerContractDocumentKey(documentKey) === 'offer_letter';
+  var safeName = sanitizeStoragePathSegment(String(filename || (isLetter ? 'offer-letter.pdf' : 'contract.pdf')), 120);
+  var parts = ['contracts', sanitizeStoragePathSegment(String((contractRow && contractRow.application_id) || ''), 80), 'v' + (Number(contractRow && contractRow.version) || 1)];
+  if (isLetter) parts.push('offer-letter');
+  parts.push(safeName);
+  return parts.join('/');
+}
+// Where the doctor's signed copy of each document lands. Same …/signed/ prefix
+// the GP sign-upload / sign-inapp / finalize-signed trio has always used for
+// the contract (kept byte-identical); the signed letter goes one folder down.
+function careerContractSignedStoragePath(contractRow, filename, documentKey) {
+  var isLetter = careerContractDocumentKey(documentKey) === 'offer_letter';
+  var safeName = sanitizeStoragePathSegment(String(filename || (isLetter ? 'signed-offer-letter.pdf' : 'signed-contract.pdf')), 120);
+  var parts = ['contracts', sanitizeStoragePathSegment(String((contractRow && contractRow.application_id) || ''), 80), 'v' + (Number(contractRow && contractRow.version) || 1), 'signed'];
+  if (isLetter) parts.push('offer-letter');
+  parts.push(safeName);
+  return parts.join('/');
+}
+function careerContractHasOfferLetter(contractRow) {
+  return !!(contractRow && contractRow.offer_letter_path);
+}
+// The documents on a revision, in the order the doctor should read them: the
+// letter of offer first (it is the short "here is what we are offering" page),
+// then the contract. A row without a letter yields just the contract, which is
+// what every pre-2026-09-14 row looks like. `signed` is derived from the signed
+// path being recorded — the same fact finalize-signed writes — never from
+// status, because status only flips to 'signed' once EVERY document is.
+function careerContractDocuments(contractRow) {
+  var r = contractRow || {};
+  var docs = [];
+  if (careerContractHasOfferLetter(r)) {
+    docs.push({
+      key: 'offer_letter',
+      label: 'Letter of offer',
+      bucket: r.offer_letter_bucket || null,
+      path: r.offer_letter_path || null,
+      filename: r.offer_letter_filename || '',
+      mime: r.offer_letter_mime || '',
+      signed: !!r.offer_letter_signed_path,
+      signedBucket: r.offer_letter_signed_bucket || null,
+      signedPath: r.offer_letter_signed_path || null,
+      signedFilename: r.offer_letter_signed_filename || '',
+      signedAt: r.offer_letter_signed_at || null
+    });
+  }
+  docs.push({
+    key: 'contract',
+    label: 'Employment contract',
+    bucket: r.contract_bucket || null,
+    path: r.contract_path || null,
+    filename: r.contract_filename || '',
+    mime: r.contract_mime || '',
+    signed: !!r.signed_path,
+    signedBucket: r.signed_bucket || null,
+    signedPath: r.signed_path || null,
+    signedFilename: r.signed_filename || '',
+    // Rows signed before the letter existed only have the row-level signed_at.
+    signedAt: r.contract_signed_at || (r.signed_path ? (r.signed_at || null) : null)
+  });
+  return docs;
+}
+function careerContractDocument(contractRow, documentKey) {
+  var key = careerContractDocumentKey(documentKey);
+  return careerContractDocuments(contractRow).find(function (d) { return d.key === key; }) || null;
+}
+// "Every document the practice sent has a signed copy" — the gate between a
+// partial signature (row stays sent_to_gp) and the placement being secured.
+function careerContractAllSigned(contractRow) {
+  return careerContractDocuments(contractRow).every(function (d) { return d.signed; });
 }
 // Staff-filed contracts (owner request 2026-09-14): a practice that EMAILS the
 // offer contract instead of using its extend-offer upload link leaves the
@@ -41767,7 +42125,12 @@ function atsContractCardState(contractRow) {
     discrepancies: (review && Array.isArray(review.discrepancies)) ? review.discrepancies.length : 0,
     uploaded_at: contractRow.uploaded_at || null,
     sent_to_gp_at: contractRow.sent_to_gp_at || null,
-    signed_at: contractRow.signed_at || null
+    signed_at: contractRow.signed_at || null,
+    // Two-document state (owner request 2026-09-14): lets the drawer say
+    // "letter signed, contract outstanding" while status is still sent_to_gp.
+    has_offer_letter: !!contractRow.offer_letter_path,
+    contract_signed: !!contractRow.signed_path,
+    offer_letter_signed: !!contractRow.offer_letter_signed_path
   };
 }
 
@@ -41888,7 +42251,7 @@ async function atsProdCandidateFacts(regCase) {
     try {
       var ccIdList = prodAppIds.map(function (id) { return '"' + String(id).replace(/"/g, '') + '"'; }).join(',');
       var ccRes = await supabaseDbRequest('career_contracts',
-        'select=id,application_id,version,status,ai_review_status,ai_review,uploaded_at,sent_to_gp_at,signed_at&application_id=in.(' + encodeURIComponent(ccIdList) + ')&status=neq.void&limit=500');
+        'select=id,application_id,version,status,ai_review_status,ai_review,uploaded_at,sent_to_gp_at,signed_at,offer_letter_path,signed_path,offer_letter_signed_path&application_id=in.(' + encodeURIComponent(ccIdList) + ')&status=neq.void&limit=500');
       ((ccRes.ok && ccRes.data) || []).forEach(function (row) {
         if (!row || !row.application_id || String(row.status) === 'void') return;
         var k = String(row.application_id);
@@ -49688,6 +50051,12 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
       return;
     }
+    // Which document this upload is (owner request 2026-09-14): the drawer
+    // sends the contract first, then — for a practice that also sent one — the
+    // letter of offer against the SAME application. The letter call lands on
+    // the awaiting_upload row the contract call just opened (the reuse rule
+    // below), so both files sit on one revision and finalize records them together.
+    const csuDocument = careerContractDocumentKey(csuBody && csuBody.document);
 
     const csuAppRes = await supabaseDbRequest('gp_applications', 'select=*&id=eq.' + encodeURIComponent(csuAppId) + '&limit=1');
     if (!csuAppRes.ok) { sendJson(res, 502, { ok: false, message: 'Could not verify the application — please try again.' }); return; }
@@ -49737,10 +50106,10 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    const csuPath = careerContractStoragePath(csuContract, csuBody && csuBody.filename);
+    const csuPath = careerContractStoragePath(csuContract, csuBody && csuBody.filename, csuDocument);
     const csuUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, csuPath, { upsert: true });
     if (!csuUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
-    sendJson(res, 200, { ok: true, contractId: csuContract.id, version: csuContract.version, uploadUrl: csuUrl, path: csuPath });
+    sendJson(res, 200, { ok: true, contractId: csuContract.id, version: csuContract.version, uploadUrl: csuUrl, path: csuPath, document: csuDocument });
     return;
   }
 
@@ -49783,10 +50152,38 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Optional letter of offer (owner request 2026-09-14). Verified with the
+    // same rigour as the contract — mime, recomputed path, object really in
+    // Storage — BEFORE anything is written, so a half-uploaded pair can never
+    // leave a row 'uploaded' with a letter the doctor is asked to sign but
+    // nobody can open. Both file sets go into the ONE patch below.
+    const cfzLetterIn = (cfzBody && cfzBody.offerLetter && typeof cfzBody.offerLetter === 'object') ? cfzBody.offerLetter : null;
+    let cfzLetterFields = null;
+    if (cfzLetterIn) {
+      const cfzLetterMime = String(cfzLetterIn.mimeType || '').trim();
+      if (!contractMimeIsAccepted(cfzLetterMime)) {
+        sendJson(res, 400, { ok: false, message: 'Please upload the letter of offer as a PDF or Word (.docx) file.' });
+        return;
+      }
+      const cfzLetterFilename = String(cfzLetterIn.filename || 'offer-letter.pdf');
+      const cfzLetterPath = careerContractStoragePath(cfzContract, cfzLetterFilename, 'offer_letter');
+      const cfzLetterObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, cfzLetterPath);
+      if (!cfzLetterObj || !cfzLetterObj.buffer || !cfzLetterObj.buffer.length) {
+        sendJson(res, 400, { ok: false, message: 'We could not find the uploaded letter of offer. Please try uploading it again.' });
+        return;
+      }
+      cfzLetterFields = {
+        offer_letter_bucket: SUPABASE_DOCUMENT_BUCKET,
+        offer_letter_path: cfzLetterPath,
+        offer_letter_filename: sanitizeUserString(cfzLetterFilename, 240) || 'offer-letter.pdf',
+        offer_letter_mime: cfzLetterMime
+      };
+    }
+
     const cfzNowIso = new Date().toISOString();
     const cfzPatch = await supabaseDbRequest('career_contracts', 'id=eq.' + encodeURIComponent(cfzContract.id), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
-      body: {
+      body: Object.assign({
         status: 'uploaded',
         uploaded_at: cfzNowIso,
         contract_bucket: SUPABASE_DOCUMENT_BUCKET,
@@ -49794,7 +50191,7 @@ async function handleApi(req, res, pathname) {
         contract_filename: sanitizeUserString(cfzFilename, 240) || 'contract.pdf',
         contract_mime: cfzMime,
         updated_at: cfzNowIso
-      }
+      }, cfzLetterFields || {})
     });
     if (!cfzPatch || !cfzPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the upload. Please try again.' }); return; }
 
@@ -49814,7 +50211,7 @@ async function handleApi(req, res, pathname) {
         contract_path: cfzPath,
         contract_mime: cfzMime,
         contract_filename: cfzFilename
-      }))) || cfzReview;
+      }, cfzLetterFields || {}))) || cfzReview;
     } catch (e) {
       console.error('[contract-ai] review failed for staff-filed contract', cfzContract.id, ':', e && e.message);
       try {
@@ -49830,6 +50227,7 @@ async function handleApi(req, res, pathname) {
       contractId: cfzContract.id,
       version: cfzContract.version,
       status: 'uploaded',
+      hasOfferLetter: !!cfzLetterFields,
       ai_review_status: (cfzReview && cfzReview.ai_review_status) || 'error',
       ai_review: (cfzReview && cfzReview.ai_review) || null
     });
@@ -49931,6 +50329,15 @@ async function handleApi(req, res, pathname) {
       const signedUrl = (row.signed_bucket && row.signed_path)
         ? (await supabaseStorageCreateSignedUrl(row.signed_bucket, row.signed_path, row.signed_filename || 'signed-contract.pdf')) || ''
         : undefined;
+      // Letter of offer (owner request 2026-09-14) — same 1h-URL treatment as
+      // the contract; '' / undefined on a single-document row so the tab's
+      // existing rendering sees exactly what it always did.
+      const offerLetterUrl = (row.offer_letter_bucket && row.offer_letter_path)
+        ? (await supabaseStorageCreateSignedUrl(row.offer_letter_bucket, row.offer_letter_path, row.offer_letter_filename || 'offer-letter.pdf')) || ''
+        : '';
+      const offerLetterSignedUrl = (row.offer_letter_signed_bucket && row.offer_letter_signed_path)
+        ? (await supabaseStorageCreateSignedUrl(row.offer_letter_signed_bucket, row.offer_letter_signed_path, row.offer_letter_signed_filename || 'signed-offer-letter.pdf')) || ''
+        : undefined;
       return {
         id: row.id,
         applicationId: row.application_id,
@@ -49946,7 +50353,14 @@ async function handleApi(req, res, pathname) {
         contractFilename: row.contract_filename || '',
         contractMime: row.contract_mime || '',
         contractUrl: contractUrl,
-        signedUrl: signedUrl
+        signedUrl: signedUrl,
+        offerLetterUrl: offerLetterUrl,
+        offerLetterFilename: row.offer_letter_filename || '',
+        offerLetterMime: row.offer_letter_mime || '',
+        offerLetterSignedUrl: offerLetterSignedUrl,
+        contractSignedAt: row.contract_signed_at || null,
+        offerLetterSignedAt: row.offer_letter_signed_at || null,
+        documents: careerContractDocuments(row).map((d) => ({ key: d.key, label: d.label, signed: d.signed }))
       };
     }));
 
@@ -49976,40 +50390,45 @@ async function handleApi(req, res, pathname) {
 
     const cpvRow = await getCareerContractById(cpvId);
     if (!cpvRow) { sendJson(res, 404, { ok: false, message: 'Contract not found.' }); return; }
-    if (!cpvRow.contract_bucket || !cpvRow.contract_path) {
-      sendJson(res, 200, { ok: true, kind: 'none', message: 'No contract file has been uploaded on this row yet.' });
+    // ?document=offer_letter = the letter (owner request 2026-09-14).
+    const cpvDocKey = careerContractDocumentKey(url.searchParams.get('document'));
+    const cpvDoc = careerContractDocument(cpvRow, cpvDocKey);
+    const cpvNoun = careerContractDocumentLabel(cpvDocKey).toLowerCase();
+    if (!cpvDoc || !cpvDoc.bucket || !cpvDoc.path) {
+      sendJson(res, 200, { ok: true, kind: 'none', message: 'No ' + cpvNoun + ' has been uploaded yet.' });
       return;
     }
 
     // A PDF renders natively in the browser — hand back the signed URL and let
     // the <iframe> do the work rather than shipping megabytes of base64.
-    const cpvMime = String(cpvRow.contract_mime || '').toLowerCase();
-    const cpvName = String(cpvRow.contract_filename || '').toLowerCase();
+    const cpvMime = String(cpvDoc.mime || '').toLowerCase();
+    const cpvName = String(cpvDoc.filename || '').toLowerCase();
     if (cpvMime === 'application/pdf' || /\.pdf$/.test(cpvName)) {
-      const cpvUrl = await supabaseStorageCreateSignedUrl(cpvRow.contract_bucket, cpvRow.contract_path, cpvRow.contract_filename || 'contract.pdf');
-      sendJson(res, 200, { ok: true, kind: 'pdf', url: cpvUrl || '', filename: cpvRow.contract_filename || '' });
+      const cpvUrl = await supabaseStorageCreateSignedUrl(cpvDoc.bucket, cpvDoc.path, cpvDoc.filename || 'contract.pdf');
+      sendJson(res, 200, { ok: true, kind: 'pdf', document: cpvDocKey, url: cpvUrl || '', filename: cpvDoc.filename || '' });
       return;
     }
 
     let cpvFile = null;
-    try { cpvFile = await supabaseStorageDownloadObject(cpvRow.contract_bucket, cpvRow.contract_path); }
+    try { cpvFile = await supabaseStorageDownloadObject(cpvDoc.bucket, cpvDoc.path); }
     catch (e) { cpvFile = null; }
     if (!cpvFile || !cpvFile.buffer || !cpvFile.buffer.length) {
-      sendJson(res, 200, { ok: true, kind: 'error', message: 'Could not open the uploaded contract file.' });
+      sendJson(res, 200, { ok: true, kind: 'error', message: 'Could not open the uploaded ' + cpvNoun + '.' });
       return;
     }
 
     // Render the DOCUMENT, not just its words — headings, bold, tables and
     // embedded images all survive, so the CEO sees the contract the practice
     // actually submitted rather than a flat text dump (owner report 2026-08-05).
-    const cpvRead = await renderContractDocumentHtml(cpvFile.buffer, cpvRow.contract_mime || cpvFile.mimeType, cpvRow.contract_filename);
+    const cpvRead = await renderContractDocumentHtml(cpvFile.buffer, cpvDoc.mime || cpvFile.mimeType, cpvDoc.filename);
     if (!cpvRead.ok) { sendJson(res, 200, { ok: true, kind: 'error', message: cpvRead.reason }); return; }
     sendJson(res, 200, {
       ok: true,
       kind: cpvRead.kind,
       html: cpvRead.html || '',
       text: cpvRead.text || '',
-      filename: cpvRow.contract_filename || ''
+      filename: cpvDoc.filename || '',
+      document: cpvDocKey
     });
     return;
   }
@@ -54325,6 +54744,24 @@ async function handleApi(req, res, pathname) {
     } else if (ccContract.contract_bucket && ccContract.contract_path) {
       ccUrl = (await supabaseStorageCreateSignedUrl(ccContract.contract_bucket, ccContract.contract_path, ccContract.contract_filename || 'contract.pdf')) || '';
     }
+    // Per-document view (owner request 2026-09-14): the letter of offer, when
+    // the practice sent one, plus a `documents` list in reading order so the
+    // offer-review page can show one sign button per document and tick them
+    // off. Each URL is the doctor's signed copy once THAT document is signed,
+    // else the practice's original — the file worth opening at that moment.
+    const ccDocs = careerContractDocuments(ccContract);
+    const ccDocuments = [];
+    for (const d of ccDocs) {
+      let dUrl = '';
+      if (d.signed && d.signedBucket && d.signedPath) {
+        dUrl = (await supabaseStorageCreateSignedUrl(d.signedBucket, d.signedPath, d.signedFilename || (d.key === 'offer_letter' ? 'signed-offer-letter.pdf' : 'signed-contract.pdf'))) || '';
+      } else if (d.bucket && d.path) {
+        dUrl = (await supabaseStorageCreateSignedUrl(d.bucket, d.path, d.filename || (d.key === 'offer_letter' ? 'offer-letter.pdf' : 'contract.pdf'))) || '';
+      }
+      ccDocuments.push({ key: d.key, label: d.label, signed: d.signed, signedAt: d.signedAt || null, url: dUrl });
+    }
+    const ccLetterDoc = ccDocuments.find((d) => d.key === 'offer_letter') || null;
+    const ccContractDoc = ccDocs.find((d) => d.key === 'contract');
     sendJson(res, 200, {
       ok: true,
       contract: {
@@ -54332,6 +54769,13 @@ async function handleApi(req, res, pathname) {
         status: ccContract.status,
         version: ccContract.version,
         contractUrl: ccUrl,
+        offerLetterUrl: ccLetterDoc ? ccLetterDoc.url : '',
+        offerLetterFilename: ccContract.offer_letter_filename || '',
+        hasOfferLetter: !!ccLetterDoc,
+        contractSigned: !!(ccContractDoc && ccContractDoc.signed),
+        offerLetterSigned: !!(ccLetterDoc && ccLetterDoc.signed),
+        allSigned: careerContractAllSigned(ccContract),
+        documents: ccDocuments,
         changeRequest: ccContract.change_request || null,
         changeResponse: ccContract.change_response || null,
         sentToGpAt: ccContract.sent_to_gp_at || null,
@@ -54382,16 +54826,29 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
       return;
     }
+    // Which document the signed copy is for (owner request 2026-09-14) — the
+    // contract unless the doctor is uploading their signed letter of offer.
+    // A document already signed on this revision is refused so a stale tab
+    // cannot overwrite a signed copy that finalize-signed has already recorded.
+    const suDocument = careerContractDocumentKey(suBody && suBody.document);
+    const suDoc = careerContractDocument(suContract, suDocument);
+    if (!suDoc) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'There is no letter of offer on this agreement.' });
+      return;
+    }
+    if (suDoc.signed) {
+      sendJson(res, 409, { ok: false, code: 'already_signed', document: suDocument, message: 'You have already signed the ' + suDoc.label.toLowerCase() + '.' });
+      return;
+    }
     const suMime = String((suBody && suBody.mimeType) || '').trim();
     if (!contractMimeIsAccepted(suMime)) {
       sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
       return;
     }
-    const suSafeName = sanitizeStoragePathSegment(String((suBody && suBody.filename) || 'signed-contract.pdf'), 120);
-    const suPath = ['contracts', sanitizeStoragePathSegment(String(suContract.application_id), 80), 'v' + (Number(suContract.version) || 1), 'signed', suSafeName].join('/');
+    const suPath = careerContractSignedStoragePath(suContract, (suBody && suBody.filename) || 'signed-contract.pdf', suDocument);
     const suUrl = await supabaseStorageCreateSignedUploadUrl(SUPABASE_DOCUMENT_BUCKET, suPath, { upsert: true });
     if (!suUrl) { sendJson(res, 502, { ok: false, message: 'Could not prepare the upload. Please try again.' }); return; }
-    sendJson(res, 200, { ok: true, uploadUrl: suUrl, path: suPath });
+    sendJson(res, 200, { ok: true, uploadUrl: suUrl, path: suPath, document: suDocument });
     return;
   }
 
@@ -54422,34 +54879,39 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'There is no agreement to view yet.' });
       return;
     }
-    if (!cvContract.contract_bucket || !cvContract.contract_path) {
-      sendJson(res, 200, { ok: true, kind: 'none', message: 'No agreement file has been uploaded yet.' });
+    // `document=offer_letter` reads the letter of offer (owner request
+    // 2026-09-14); omitted = the contract, exactly as before.
+    const cvDocKey = careerContractDocumentKey(new URL(req.url, 'http://x').searchParams.get('document'));
+    const cvDoc = careerContractDocument(cvContract, cvDocKey);
+    if (!cvDoc || !cvDoc.bucket || !cvDoc.path) {
+      sendJson(res, 200, { ok: true, kind: 'none', document: cvDocKey, message: cvDocKey === 'offer_letter' ? 'No letter of offer has been uploaded yet.' : 'No agreement file has been uploaded yet.' });
       return;
     }
 
-    const cvMime = String(cvContract.contract_mime || '').toLowerCase();
-    const cvName = String(cvContract.contract_filename || '').toLowerCase();
+    const cvMime = String(cvDoc.mime || '').toLowerCase();
+    const cvName = String(cvDoc.filename || '').toLowerCase();
     if (cvMime === 'application/pdf' || /\.pdf$/.test(cvName)) {
-      const cvUrl = await supabaseStorageCreateSignedUrl(cvContract.contract_bucket, cvContract.contract_path, cvContract.contract_filename || 'agreement.pdf');
-      sendJson(res, 200, { ok: true, kind: 'pdf', url: cvUrl || '', filename: cvContract.contract_filename || '' });
+      const cvUrl = await supabaseStorageCreateSignedUrl(cvDoc.bucket, cvDoc.path, cvDoc.filename || (cvDocKey === 'offer_letter' ? 'offer-letter.pdf' : 'agreement.pdf'));
+      sendJson(res, 200, { ok: true, kind: 'pdf', document: cvDocKey, url: cvUrl || '', filename: cvDoc.filename || '' });
       return;
     }
 
     let cvFile = null;
-    try { cvFile = await supabaseStorageDownloadObject(cvContract.contract_bucket, cvContract.contract_path); }
+    try { cvFile = await supabaseStorageDownloadObject(cvDoc.bucket, cvDoc.path); }
     catch (e) { cvFile = null; }
     if (!cvFile || !cvFile.buffer || !cvFile.buffer.length) {
-      sendJson(res, 200, { ok: true, kind: 'error', message: 'Could not open the agreement file.' });
+      sendJson(res, 200, { ok: true, kind: 'error', document: cvDocKey, message: cvDocKey === 'offer_letter' ? 'Could not open the letter of offer.' : 'Could not open the agreement file.' });
       return;
     }
-    const cvRead = await renderContractDocumentHtml(cvFile.buffer, cvContract.contract_mime || cvFile.mimeType, cvContract.contract_filename);
-    if (!cvRead.ok) { sendJson(res, 200, { ok: true, kind: 'error', message: cvRead.reason }); return; }
+    const cvRead = await renderContractDocumentHtml(cvFile.buffer, cvDoc.mime || cvFile.mimeType, cvDoc.filename);
+    if (!cvRead.ok) { sendJson(res, 200, { ok: true, kind: 'error', document: cvDocKey, message: cvRead.reason }); return; }
     sendJson(res, 200, {
       ok: true,
       kind: cvRead.kind,
+      document: cvDocKey,
       html: cvRead.html || '',
       text: cvRead.text || '',
-      filename: cvContract.contract_filename || ''
+      filename: cvDoc.filename || ''
     });
     return;
   }
@@ -54498,13 +54960,23 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'This agreement is not ready to sign.' });
       return;
     }
-    if (!siContract.contract_bucket || !siContract.contract_path) {
-      sendJson(res, 409, { ok: false, code: 'not_available', message: 'There is no agreement file to sign.' });
+    // The doctor signs ONE document per call (owner request 2026-09-14): the
+    // contract by default, or the letter of offer when the practice sent one.
+    // The execution page is appended to THAT document's file, and a document
+    // already signed on this revision is refused rather than re-executed.
+    const siDocument = careerContractDocumentKey(siBody && siBody.document);
+    const siDoc = careerContractDocument(siContract, siDocument);
+    if (!siDoc || !siDoc.bucket || !siDoc.path) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: siDocument === 'offer_letter' ? 'There is no letter of offer to sign.' : 'There is no agreement file to sign.' });
+      return;
+    }
+    if (siDoc.signed) {
+      sendJson(res, 409, { ok: false, code: 'already_signed', document: siDocument, message: 'You have already signed the ' + siDoc.label.toLowerCase() + '.' });
       return;
     }
 
     let siFile = null;
-    try { siFile = await supabaseStorageDownloadObject(siContract.contract_bucket, siContract.contract_path); }
+    try { siFile = await supabaseStorageDownloadObject(siDoc.bucket, siDoc.path); }
     catch (e) { siFile = null; }
     if (!siFile || !siFile.buffer || !siFile.buffer.length) {
       sendJson(res, 502, { ok: false, message: 'Could not open the agreement to sign. Please try again.' });
@@ -54515,12 +54987,12 @@ async function handleApi(req, res, pathname) {
     // their document is untouched. Anything else (a .docx) is typeset from the
     // text we already extract for the reader — the practice's original stays on
     // the contract row regardless.
-    const siMime = String(siContract.contract_mime || '').toLowerCase();
-    const siName = String(siContract.contract_filename || '').toLowerCase();
+    const siMime = String(siDoc.mime || '').toLowerCase();
+    const siName = String(siDoc.filename || '').toLowerCase();
     const siIsPdf = siMime === 'application/pdf' || /\.pdf$/.test(siName);
     let siAgreementText = '';
     if (!siIsPdf) {
-      const siRead = await readContractFileForReview(siFile.buffer, siContract.contract_mime || siFile.mimeType, siContract.contract_filename);
+      const siRead = await readContractFileForReview(siFile.buffer, siDoc.mime || siFile.mimeType, siDoc.filename);
       if (!siRead.ok || !String(siRead.text || '').trim()) {
         sendJson(res, 409, { ok: false, code: 'unreadable', message: (siRead && siRead.reason) || 'We could not read this agreement well enough to sign it in the app. Please upload a signed copy instead.' });
         return;
@@ -54544,12 +55016,12 @@ async function handleApi(req, res, pathname) {
         sourceKind: siIsPdf ? 'pdf' : 'text',
         sourceBuffer: siFile.buffer,
         agreementText: siAgreementText,
-        agreementTitle: siContract.contract_filename || 'Employment agreement',
+        agreementTitle: siDocument === 'offer_letter' ? 'Letter of offer' : (siDoc.filename || 'Employment agreement'),
         signerName: siSignerName,
         signatureDataUrl: siSignature,
         signedAtIso: siSignedAt,
         practiceName: siPracticeName,
-        sourceFilename: siContract.contract_filename || ''
+        sourceFilename: siDoc.filename || ''
       });
     } catch (e) {
       console.error('[gp-sign] building the signed PDF failed:', e && e.message);
@@ -54558,9 +55030,14 @@ async function handleApi(req, res, pathname) {
     }
 
     // Land it on exactly the path finalize-signed derives and verifies, so the
-    // in-app and manual-upload routes converge on one object.
-    const siFilename = 'signed-agreement.pdf';
-    const siPath = ['contracts', sanitizeStoragePathSegment(String(siContract.application_id), 80), 'v' + (Number(siContract.version) || 1), 'signed', siFilename].join('/');
+    // in-app and manual-upload routes converge on one object. The contract
+    // keeps its long-standing filename and inline path; the letter gets its
+    // own name and the shared helper's …/signed/offer-letter/ folder, so the
+    // two signed copies can never be confused for each other in Storage or email.
+    const siFilename = siDocument === 'offer_letter' ? 'signed-offer-letter.pdf' : 'signed-agreement.pdf';
+    const siPath = siDocument === 'offer_letter'
+      ? careerContractSignedStoragePath(siContract, siFilename, 'offer_letter')
+      : ['contracts', sanitizeStoragePathSegment(String(siContract.application_id), 80), 'v' + (Number(siContract.version) || 1), 'signed', siFilename].join('/');
     const siUploaded = await supabaseStorageUploadObject(
       SUPABASE_DOCUMENT_BUCKET, siPath,
       'data:application/pdf;base64,' + siPdf.toString('base64'),
@@ -54572,7 +55049,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    sendJson(res, 200, { ok: true, filename: siFilename, mimeType: 'application/pdf' });
+    sendJson(res, 200, { ok: true, filename: siFilename, mimeType: 'application/pdf', document: siDocument });
     return;
   }
 
@@ -54617,6 +55094,21 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
       return;
     }
+    // Owner request 2026-09-14: one document per call (letter of offer or
+    // contract); the placement is secured only once EVERY document is signed.
+    const fsDocument = careerContractDocumentKey(fsBody && fsBody.document);
+    const fsDoc = careerContractDocument(fsContract, fsDocument);
+    if (!fsDoc) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'There is no letter of offer on this agreement.' });
+      return;
+    }
+    // All copies recorded but still sent_to_gp = a previous call died before
+    // the status flip. Resume at the flip rather than 409 into a dead end.
+    const fsResume = !!fsDoc.signed && careerContractAllSigned(fsContract);
+    if (fsDoc.signed && !fsResume) {
+      sendJson(res, 409, { ok: false, code: 'already_signed', document: fsDocument, message: 'You have already signed the ' + fsDoc.label.toLowerCase() + '.' });
+      return;
+    }
     const fsMime = String((fsBody && fsBody.mimeType) || '').trim();
     if (!contractMimeIsAccepted(fsMime)) {
       sendJson(res, 400, { ok: false, message: 'Please upload a PDF or Word (.docx) file.' });
@@ -54624,13 +55116,17 @@ async function handleApi(req, res, pathname) {
     }
     // Recompute the signed path server-side — the client `path` is ignored, so
     // the GP can never point finalize at an arbitrary object (same rule as the
-    // practice finalize endpoint).
-    const fsFilename = String((fsBody && fsBody.filename) || 'signed-contract.pdf');
+    // practice finalize endpoint). Letter → the helper's …/signed/offer-letter/.
+    const fsDefaultName = fsDocument === 'offer_letter' ? 'signed-offer-letter.pdf' : 'signed-contract.pdf';
+    const fsFilename = String((fsBody && fsBody.filename) || fsDefaultName);
     const fsSafeName = sanitizeStoragePathSegment(fsFilename, 120);
-    const fsPath = ['contracts', sanitizeStoragePathSegment(String(fsContract.application_id), 80), 'v' + (Number(fsContract.version) || 1), 'signed', fsSafeName].join('/');
+    const fsPath = fsDocument === 'offer_letter'
+      ? careerContractSignedStoragePath(fsContract, fsFilename, 'offer_letter')
+      : ['contracts', sanitizeStoragePathSegment(String(fsContract.application_id), 80), 'v' + (Number(fsContract.version) || 1), 'signed', fsSafeName].join('/');
 
-    const fsObj = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, fsPath);
-    if (!fsObj || !fsObj.buffer || !fsObj.buffer.length) {
+    // On resume the copy was verified and recorded by the call that died.
+    const fsObj = fsResume ? null : await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, fsPath);
+    if (!fsResume && (!fsObj || !fsObj.buffer || !fsObj.buffer.length)) {
       sendJson(res, 400, { ok: false, message: 'We could not find the signed file. Please try uploading again.' });
       return;
     }
@@ -54641,21 +55137,27 @@ async function handleApi(req, res, pathname) {
     // above before either has patched — without the filter both PATCHes would
     // blindly succeed and placement + the signed-copy emails would fire twice.
     // Only the winner's PATCH matches a row; the loser gets back an empty array.
+    //
+    // Two PATCHes since the letter of offer arrived: the first records THIS
+    // document's signed copy (still sent_to_gp), and the returned row decides
+    // whether anything is left to sign. Only when every document is signed does
+    // the second PATCH flip status → 'signed' — and that one carries the same
+    // CAS filter, so two doctors' tabs finishing the last document together
+    // still produce exactly one placement and one set of emails.
     const fsNowIso = new Date().toISOString();
-    const fsPatch = await supabaseDbRequest('career_contracts',
+    const fsSignedName = sanitizeUserString(fsFilename, 240) || fsDefaultName;
+    const fsDocFields = fsDocument === 'offer_letter'
+      ? { offer_letter_signed_bucket: SUPABASE_DOCUMENT_BUCKET, offer_letter_signed_path: fsPath, offer_letter_signed_filename: fsSignedName, offer_letter_signed_at: fsNowIso }
+      : { signed_bucket: SUPABASE_DOCUMENT_BUCKET, signed_path: fsPath, signed_filename: fsSignedName, contract_signed_at: fsNowIso };
+    // On resume there is nothing left to record for this document — the status
+    // flip further down is the step that never happened.
+    const fsDocPatch = fsResume ? null : await supabaseDbRequest('career_contracts',
       'id=eq.' + encodeURIComponent(fsContract.id) + '&status=eq.sent_to_gp', {
         method: 'PATCH', headers: { Prefer: 'return=representation' },
-        body: {
-          status: 'signed',
-          signed_at: fsNowIso,
-          signed_bucket: SUPABASE_DOCUMENT_BUCKET,
-          signed_path: fsPath,
-          signed_filename: sanitizeUserString(fsFilename, 240) || 'signed-contract.pdf',
-          updated_at: fsNowIso
-        }
+        body: Object.assign({ updated_at: fsNowIso }, fsDocFields)
       });
-    if (!fsPatch || !fsPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the signed contract.' }); return; }
-    if (!Array.isArray(fsPatch.data) || !fsPatch.data.length) {
+    if (!fsResume && (!fsDocPatch || !fsDocPatch.ok)) { sendJson(res, 502, { ok: false, message: 'Could not record the signed contract.' }); return; }
+    if (!fsResume && (!Array.isArray(fsDocPatch.data) || !fsDocPatch.data.length)) {
       // Lost the race — someone else's finalize already flipped this contract
       // to signed between our checks above and this PATCH. Refuse WITHOUT
       // running placement or emails a second time; the winner's request
@@ -54663,6 +55165,39 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
       return;
     }
+    // Decide from the row PostgREST handed back, not from what we believed a
+    // moment ago — the other document may have been signed in another tab.
+    const fsAfterDoc = fsResume ? fsContract : fsDocPatch.data[0];
+    if (!careerContractAllSigned(fsAfterDoc)) {
+      const fsAfterDocs = careerContractDocuments(fsAfterDoc);
+      const fsRemaining = fsAfterDocs.filter((d) => !d.signed);
+      sendJson(res, 200, {
+        ok: true,
+        allSigned: false,
+        placementSecured: false,
+        document: fsDocument,
+        signedDocuments: fsAfterDocs.filter((d) => d.signed).map((d) => d.key),
+        remaining: fsRemaining.map((d) => d.key),
+        message: fsDoc.label + ' signed — now sign your ' + fsRemaining.map((d) => d.label.toLowerCase()).join(' and ') + '.'
+      });
+      return;
+    }
+
+    const fsPatch = await supabaseDbRequest('career_contracts',
+      'id=eq.' + encodeURIComponent(fsContract.id) + '&status=eq.sent_to_gp', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' },
+        body: { status: 'signed', signed_at: fsNowIso, updated_at: fsNowIso }
+      });
+    if (!fsPatch || !fsPatch.ok) { sendJson(res, 502, { ok: false, message: 'Could not record the signed contract.' }); return; }
+    if (!Array.isArray(fsPatch.data) || !fsPatch.data.length) {
+      sendJson(res, 409, { ok: false, code: 'not_available', message: 'This contract is not ready to sign.' });
+      return;
+    }
+    // The row as it now stands — status 'signed', both signed copies recorded.
+    // The email links below read from THIS, not from fsPath: when the letter
+    // was the last document signed, fsPath is the letter, not the contract.
+    const fsFinal = fsPatch.data[0];
+    const fsHasLetter = careerContractHasOfferLetter(fsFinal);
 
     // Placement. finalizeInAppPlacement expects a LIVE offer row (its
     // sent→accepted transition). Helen's real offer row is 'draft' → flip it to
@@ -54706,14 +55241,14 @@ async function handleApi(req, res, pathname) {
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           html: buildCareerEmailHtml({
             title: 'A signed contract needs manual placement',
-            body: fsFailEsc(fsFailSafeDr) + ' has signed their employment contract, but the automatic placement step failed. Please finish this from the candidate drawer using "Mark placement secured".',
+            body: fsFailEsc(fsFailSafeDr) + ' has signed their ' + (fsHasLetter ? 'letter of offer and employment contract' : 'employment contract') + ', but the automatic placement step failed. Please finish this from the candidate drawer using "Mark placement secured".',
             ctaText: 'Open the dashboard',
             ctaUrl: APP_BASE_URL + '/pages/admin.html'
           })
         });
       } catch (alertErr) { console.warn('[contract-signed] failure-branch CEO alert failed (ignored):', alertErr && alertErr.message); }
 
-      sendJson(res, 200, { ok: true, placementSecured: false, message: 'Signed — our team is finalising your placement.' });
+      sendJson(res, 200, { ok: true, placementSecured: false, allSigned: true, message: 'Signed — our team is finalising your placement.' });
       return;
     }
 
@@ -54721,22 +55256,43 @@ async function handleApi(req, res, pathname) {
     // fresh 1h signed download link. Both best-effort: an email outage must
     // never turn a secured placement into a failed response.
     try {
-      const fsSignedUrl = (await supabaseStorageCreateSignedUrl(SUPABASE_DOCUMENT_BUCKET, fsPath, sanitizeUserString(fsFilename, 240) || 'signed-contract.pdf')) || '';
+      const fsSignedUrl = (fsFinal.signed_bucket && fsFinal.signed_path)
+        ? (await supabaseStorageCreateSignedUrl(fsFinal.signed_bucket, fsFinal.signed_path, fsFinal.signed_filename || 'signed-contract.pdf')) || ''
+        : '';
+      // The signed letter of offer, when there is one — a second link in the
+      // body (the button stays the contract, which is the document the
+      // practice files).
+      const fsLetterUrl = (fsHasLetter && fsFinal.offer_letter_signed_bucket && fsFinal.offer_letter_signed_path)
+        ? (await supabaseStorageCreateSignedUrl(fsFinal.offer_letter_signed_bucket, fsFinal.offer_letter_signed_path, fsFinal.offer_letter_signed_filename || 'signed-offer-letter.pdf')) || ''
+        : '';
       const fsDrName = await contractGpDisplayName(fsUserId);
       const fsSafeDr = fsDrName.replace(/[<>]/g, '');
       const fsEsc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const fsCtaUrl = fsSignedUrl && fsSignedUrl.indexOf('http') === 0 ? fsSignedUrl : (APP_BASE_URL + '/pages/admin.html');
+      const fsLetterHref = fsLetterUrl && fsLetterUrl.indexOf('http') === 0 ? fsLetterUrl : '';
+      const fsWhat = fsHasLetter ? 'the letter of offer and the employment contract' : 'the employment contract';
+      // With a letter the body needs a real <a> — buildCareerEmailHtml's plain
+      // path has no link syntax — so it is handed as bodyHtml, escaped here.
+      const fsBodyHtml = (lead) => {
+        if (!fsHasLetter) return null;
+        const letterLink = fsLetterHref
+          ? ' The signed letter of offer is here: <a href="' + fsEsc(fsLetterHref).replace(/"/g, '&quot;') + '" style="color:#2563eb;font-weight:600">Download the signed letter of offer</a>.'
+          : '';
+        return '<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">' + lead + letterLink + ' Both links are valid for one hour.</p>';
+      };
       // (a) The practice — "Dr X has signed, here's the countersigned copy".
       try {
         const fsPracticeEmail = await resolveContractPracticeEmail(fsContract, fsApp);
         if (fsPracticeEmail && isEmailConfigured()) {
+          const fsPracticeLead = fsEsc(fsSafeDr) + ' has signed ' + fsWhat + '. You can download the countersigned contract using the button below' + (fsHasLetter ? '.' : ' — the link is valid for one hour.');
           await sendEmail({
             to: fsPracticeEmail,
-            subject: fsSafeDr + ' has signed the employment contract',
+            subject: fsSafeDr + ' has signed ' + fsWhat,
             from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
             html: buildCareerEmailHtml({
-              title: 'The contract has been signed',
-              body: fsEsc(fsSafeDr) + ' has signed the employment contract. You can download the countersigned copy using the button below — the link is valid for one hour.',
+              title: fsHasLetter ? 'The letter of offer and contract have been signed' : 'The contract has been signed',
+              body: fsPracticeLead,
+              bodyHtml: fsBodyHtml(fsPracticeLead),
               ctaText: 'Download the signed contract',
               ctaUrl: fsCtaUrl
             })
@@ -54745,13 +55301,15 @@ async function handleApi(req, res, pathname) {
       } catch (e) { console.warn('[contract-signed] practice signed-copy email failed (ignored):', e && e.message); }
       // (b) The CEO hub — placement secured alert with the signed copy link.
       try {
+        const fsCeoLead = fsEsc(fsSafeDr) + ' has signed ' + (fsHasLetter ? 'their letter of offer and employment contract' : 'their employment contract') + ' and the placement is now secured. Download the signed contract below' + (fsHasLetter ? '.' : ' — the link is valid for one hour.');
         await sendEmail({
           to: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
           subject: fsSafeDr + ' has signed — placement secured',
           from: { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' },
           html: buildCareerEmailHtml({
-            title: 'A doctor has signed their contract',
-            body: fsEsc(fsSafeDr) + ' has signed their employment contract and the placement is now secured. Download the signed copy below — the link is valid for one hour.',
+            title: fsHasLetter ? 'A doctor has signed their letter of offer and contract' : 'A doctor has signed their contract',
+            body: fsCeoLead,
+            bodyHtml: fsBodyHtml(fsCeoLead),
             ctaText: 'Download the signed contract',
             ctaUrl: fsCtaUrl
           })
@@ -54759,7 +55317,7 @@ async function handleApi(req, res, pathname) {
       } catch (e) { console.warn('[contract-signed] CEO signed-copy email failed (ignored):', e && e.message); }
     } catch (e) { /* best-effort — the placement is already secured */ }
 
-    sendJson(res, 200, { ok: true, placementSecured: true });
+    sendJson(res, 200, { ok: true, allSigned: true, placementSecured: true });
     return;
   }
 
@@ -82337,6 +82895,11 @@ module.exports.__testUtils = {
   readContractFileForReview,
   renderContractDocumentHtml,
   sanitizeContractHtml,
+  careerContractDocumentKey,
+  careerContractStoragePath,
+  careerContractSignedStoragePath,
+  careerContractDocuments,
+  careerContractAllSigned,
   recordServerError,
   decideUnreadableLeadResponse,
   FB_LEAD_UNREADABLE_RETRY_MS,

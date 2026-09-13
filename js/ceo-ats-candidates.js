@@ -919,6 +919,21 @@
         if (a.interview.summary) {
           interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
         }
+      } else if (a.interview.status === 'completed') {
+        // Owner report 2026-09-14: a HELD interview (the Zoom call had happened
+        // and its summary was saved) fell through to the slot picker below and
+        // rendered its "no mutual times" copy — as if the interview had never
+        // been arranged. Say it was held, and whether the summary the AI
+        // review compares the contract against is on file.
+        var heldDt = '';
+        try { heldDt = a.interview.scheduled_at ? new Date(a.interview.scheduled_at).toLocaleString() : ''; } catch (ex) { heldDt = a.interview.scheduled_at || ''; }
+        interviewHtml = '<span class="ats-app-interview-booked">Interview held' + (heldDt ? ' ' + ATS.esc(heldDt) : '') + '</span>' +
+          (a.interview.summary
+            ? ' <span class="ats-pill green" style="margin-left:8px">Summary saved</span>'
+            : ' <span class="ats-pill muted" style="margin-left:8px">No summary</span>');
+        if (a.interview.summary) {
+          interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
+        }
       } else {
         // Awaiting GP slot pick — placeholder filled by atsRenderSlotPicker in wireDetailEvents.
         interviewHtml = '<div class="ats-app-slot-pick" data-slot-pick-id="' + ATS.escAttr(String(a.id)) + '"></div>';
@@ -1449,6 +1464,13 @@
       var sm = CONTRACT_STATUS_META[c.status] || { label: String(c.status || '').replace(/_/g, ' '), mod: 'muted' };
       parts.push('<span style="font-size:11.5px;color:var(--ats-dim)">Contract v' + ATS.esc(String(c.version)) + '</span>');
       parts.push('<span class="ats-pill ' + sm.mod + '">' + ATS.esc(sm.label) + '</span>');
+      // Owner 2026-09-14: some practices send a signed LETTER OF OFFER as well
+      // as the contract. Say so — and while the pair is with the doctor, say
+      // which of the two has come back signed, since they sign separately.
+      if (c.has_offer_letter) parts.push('<span class="ats-pill muted">Letter of offer + contract</span>');
+      if (c.status === 'sent_to_gp' && !!c.contract_signed !== !!c.offer_letter_signed) {
+        parts.push('<span class="ats-pill amber">' + (c.offer_letter_signed ? 'Letter signed · contract pending' : 'Contract signed · letter pending') + '</span>');
+      }
       if (c.ai_review_status === 'running') {
         parts.push('<span class="ats-pill muted">AI review running…</span>');
       } else if (c.verdict && CONTRACT_VERDICT_META[c.verdict]) {
@@ -1486,71 +1508,122 @@
     return (t === 'application/pdf' || t === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') ? t : '';
   }
 
-  // Picker created per click and discarded after, same as the document slots:
-  // the drawer re-renders on every reload, so a persistent input would be
-  // orphaned mid-upload.
-  function pickContractFile(btn, c) {
-    var appId = btn.getAttribute('data-app-id');
-    var input = document.createElement('input');
-    input.type = 'file';
-    input.accept = CONTRACT_ACCEPT;
-    input.style.display = 'none';
-    input.addEventListener('change', function () {
-      var file = input.files && input.files[0];
-      if (file) uploadContractFile(btn, c, appId, file);
-      if (input.parentNode) input.parentNode.removeChild(input);
-    });
-    document.body.appendChild(input);
-    input.click();
+  /* ---- Upload form: contract + optional letter of offer (owner 2026-09-14) ----
+   * Some practices send the doctor a signed LETTER OF OFFER alongside the
+   * employment contract; both come back signed, and the AI reviews both. The
+   * single click-to-pick could only take one file, so the button now opens an
+   * inline mini-form in the same .ats-offer-box the send-offer form uses
+   * (openOfferForm / closeOfferForm pattern): the contract is required, the
+   * letter optional. The form is re-rendered from scratch on every drawer
+   * reload, so a half-finished pick never survives a repaint. */
+  function contractUploadFormHtml(appId) {
+    var id = ATS.escAttr(String(appId));
+    var lbl = 'display:grid;gap:3px;font-size:11px;color:var(--ats-dim)';
+    return '<div class="ats-contract-upload-form" data-contract-form-id="' + id + '"' +
+        ' style="display:grid;gap:9px;margin-top:6px;padding:12px;border:1px solid rgba(255,255,255,0.09);border-radius:10px">' +
+      '<div style="font-size:12px;font-weight:600">File the documents the practice sent</div>' +
+      '<label style="' + lbl + '">Employment contract (required)<input type="file" class="cu-contract" accept="' + CONTRACT_ACCEPT + '"></label>' +
+      '<label style="' + lbl + '">Letter of offer (optional — only if the practice sent one)<input type="file" class="cu-offer-letter" accept="' + CONTRACT_ACCEPT + '"></label>' +
+      '<div style="font-size:11px;color:var(--ats-dim)">PDF or Word (.docx), up to 25 MB each. Both go to the doctor to sign; the AI reviews both against the interview and advertised terms.</div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-contract-upload-cancel" data-app-id="' + id + '">Cancel</button>' +
+        '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-contract-upload-submit" data-app-id="' + id + '">Upload &amp; run AI review</button>' +
+      '</div>' +
+    '</div>';
   }
 
-  // Three steps, the same shape the practice's own upload page uses: ask the
-  // server for a signed Storage URL, PUT the raw file straight there, then
-  // finalize so the row is recorded and the AI review runs. The button narrates
-  // each step because the review can take a while and a silent half-minute
-  // looks broken.
-  function uploadContractFile(btn, c, appId, file) {
+  function openContractUploadForm(appId) {
+    var box = offerBoxFor(appId);
+    if (box) box.innerHTML = contractUploadFormHtml(appId);
+  }
+
+  // One signed-URL PUT, the same shape the practice's own upload page uses —
+  // the raw file goes straight to Storage, so Vercel's body cap never sees it.
+  function putContractFile(uploadUrl, mime, file) {
+    return fetch(uploadUrl, { method: 'PUT', credentials: 'omit', headers: { 'Content-Type': mime, 'x-upsert': 'true' }, body: file })
+      .then(function (put) { return !!(put && put.ok); });
+  }
+
+  // Sequence: sign-upload(contract) → PUT → [sign-upload(offer_letter) → PUT]
+  // → finalize. The server hands back the SAME contractId for the letter (it
+  // reuses the open revision), and finalize records both and runs one AI
+  // review over the pair. The submit button narrates each step because the
+  // review can take a while and a silent half-minute looks broken.
+  function submitContractUpload(appId, c) {
+    var box = offerBoxFor(appId);
+    var form = box ? box.querySelector('.ats-contract-upload-form') : null;
+    if (!form) return;
+    var contractInput = form.querySelector('.cu-contract');
+    var letterInput = form.querySelector('.cu-offer-letter');
+    var file = contractInput && contractInput.files && contractInput.files[0];
+    var letter = letterInput && letterInput.files && letterInput.files[0];
+    if (!file) { ATS.toast('Choose the employment contract first — the letter of offer is optional, the contract is not.'); return; }
     var mime = contractMimeFor(file);
     if (!mime) { ATS.toast('Please choose the contract as a PDF or Word (.docx) file.'); return; }
     if (file.size > CONTRACT_MAX_BYTES) { ATS.toast('That file is too large — keep the contract under 25 MB.'); return; }
-    var label = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Uploading…';
-    var restore = function () { btn.disabled = false; btn.textContent = label; };
-    var filename = file.name || 'contract.pdf';
+    var letterMime = letter ? contractMimeFor(letter) : '';
+    if (letter && !letterMime) { ATS.toast('Please choose the letter of offer as a PDF or Word (.docx) file.'); return; }
+    if (letter && letter.size > CONTRACT_MAX_BYTES) { ATS.toast('That letter of offer is too large — keep it under 25 MB.'); return; }
 
+    var btn = form.querySelector('.ats-contract-upload-submit');
+    var cancelBtn = form.querySelector('.ats-contract-upload-cancel');
+    var label = btn ? btn.textContent : '';
+    var narrate = function (text) {
+      if (btn) { btn.disabled = true; btn.textContent = text; }
+      if (cancelBtn) cancelBtn.disabled = true;
+    };
+    var restore = function () {
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+      if (cancelBtn) cancelBtn.disabled = false;
+    };
+    var fail = function (msg) { restore(); ATS.toast(msg); return null; };
+    var filename = file.name || 'contract.pdf';
+    var letterName = letter ? (letter.name || 'letter-of-offer.pdf') : '';
+    var contractId = null;
+
+    narrate('Uploading contract…');
     ATS.api('/api/ceo/contract/sign-upload', { method: 'POST', body: { applicationId: String(appId), filename: filename, mimeType: mime } }).then(function (sign) {
-      if (!sign || !sign.ok || !sign.uploadUrl) {
-        restore();
-        ATS.toast((sign && sign.message) || 'Could not prepare the upload — please try again.');
-        return null;
-      }
-      return fetch(sign.uploadUrl, { method: 'PUT', credentials: 'omit', headers: { 'Content-Type': mime, 'x-upsert': 'true' }, body: file })
-        .then(function (put) {
-          if (!put.ok) { restore(); ATS.toast('The file could not be stored — please try again.'); return null; }
-          btn.textContent = 'Running AI review…';
-          return ATS.api('/api/ceo/contract/finalize', { method: 'POST', body: { contractId: sign.contractId, filename: filename, mimeType: mime } });
-        })
-        .then(function (fin) {
-          if (fin === null) return;
-          restore();
-          if (!fin || !fin.ok) { ATS.toast((fin && fin.message) || 'Could not record the contract — please try again.'); return; }
-          ATS.toast(contractFiledMessage(fin));
-          // The red "!" on the Contracts tab must light up the moment a row
-          // needs the CEO — the same refresh the tab's own decisions call.
-          if (ATS.refreshContractsAlert) ATS.refreshContractsAlert();
-          window.atsOpenCandidate(c.case_id);
+      if (!sign || !sign.ok || !sign.uploadUrl) return fail((sign && sign.message) || 'Could not prepare the upload — please try again.');
+      contractId = sign.contractId;
+      return putContractFile(sign.uploadUrl, mime, file).then(function (stored) {
+        if (!stored) return fail('The contract file could not be stored — please try again.');
+        if (!letter) return true;
+        narrate('Uploading letter of offer…');
+        return ATS.api('/api/ceo/contract/sign-upload', { method: 'POST', body: { applicationId: String(appId), filename: letterName, mimeType: letterMime, document: 'offer_letter' } }).then(function (lsign) {
+          if (!lsign || !lsign.ok || !lsign.uploadUrl) return fail((lsign && lsign.message) || 'Could not prepare the letter of offer upload — please try again.');
+          if (lsign.contractId) contractId = lsign.contractId;
+          return putContractFile(lsign.uploadUrl, letterMime, letter).then(function (lstored) {
+            return lstored ? true : fail('The letter of offer could not be stored — please try again.');
+          });
         });
+      });
+    }).then(function (ready) {
+      if (ready !== true) return null;
+      narrate('Running AI review…');
+      return ATS.api('/api/ceo/contract/finalize', { method: 'POST', body: {
+        contractId: contractId, filename: filename, mimeType: mime,
+        offerLetter: letter ? { filename: letterName, mimeType: letterMime } : undefined
+      } });
+    }).then(function (fin) {
+      if (fin === null) return;
+      restore();
+      if (!fin || !fin.ok) { ATS.toast((fin && fin.message) || 'Could not record the contract — please try again.'); return; }
+      ATS.toast(contractFiledMessage(fin, !!letter));
+      // The red "!" on the Contracts tab must light up the moment a row
+      // needs the CEO — the same refresh the tab's own decisions call.
+      if (ATS.refreshContractsAlert) ATS.refreshContractsAlert();
+      window.atsOpenCandidate(c.case_id);
     }).catch(function () { restore(); ATS.toast('Could not upload the contract — please try again.'); });
   }
 
-  function contractFiledMessage(fin) {
+  function contractFiledMessage(fin, withLetter) {
+    var what = (withLetter || fin.hasOfferLetter) ? 'Contract and letter of offer' : 'Contract';
     var v = 'v' + (fin.version || 1);
     if (fin.ai_review_status === 'done' && fin.ai_review && fin.ai_review.overall) {
       var vm = CONTRACT_VERDICT_META[fin.ai_review.overall];
-      return 'Contract ' + v + ' filed — ' + (vm ? vm.label : 'AI review complete') + '. Review it on the Contracts tab, then submit it to the doctor.';
+      return what + ' ' + v + ' filed — ' + (vm ? vm.label : 'AI review complete') + '. Review it on the Contracts tab, then submit it to the doctor.';
     }
-    return 'Contract ' + v + ' filed, but the AI review could not complete — open the Contracts tab to re-run it or review it by hand.';
+    return what + ' ' + v + ' filed, but the AI review could not complete — open the Contracts tab to re-run it or review it by hand.';
   }
 
   // Deep-link into the Contracts master tab: clicking its button runs the
@@ -2393,8 +2466,15 @@
       if (ocBtn) { viewOfferContract(ocBtn.getAttribute('data-app-id'), ocBtn); return; }
       // Owner request 2026-09-14: file a contract the practice emailed instead
       // of uploading, and jump to the Contracts tab for one already on file.
+      // The button opens an inline form (contract + optional letter of offer);
+      // its own Cancel / submit buttons carry distinct class tokens so
+      // closest('.ats-contract-upload') never matches them.
       var cuBtn = e.target.closest('.ats-contract-upload');
-      if (cuBtn) { pickContractFile(cuBtn, c); return; }
+      if (cuBtn) { openContractUploadForm(cuBtn.getAttribute('data-app-id')); return; }
+      var cuCancel = e.target.closest('.ats-contract-upload-cancel');
+      if (cuCancel) { closeOfferForm(cuCancel.getAttribute('data-app-id')); return; }
+      var cuSubmit = e.target.closest('.ats-contract-upload-submit');
+      if (cuSubmit) { submitContractUpload(cuSubmit.getAttribute('data-app-id'), c); return; }
       var coBtn = e.target.closest('.ats-contract-open');
       if (coBtn) { openContractsTab(); return; }
       // A8a: mark placement secured (verbal acceptance) — inline confirm.

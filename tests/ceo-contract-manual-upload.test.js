@@ -44,6 +44,8 @@ describe('CEO files a contract the practice emailed (manual upload → same pipe
   const APP_WD = 'app-mc-withdrawn';
   const APP_HIRED = 'app-mc-hired';
   const APP_NOFILE = 'app-mc-nofile';           // finalize without ever PUTting a file
+  const APP_TWO = 'app-mc-two-docs';            // practice sent a letter of offer AND a contract
+  const APP_TWO_NOFILE = 'app-mc-two-docs-nofile'; // …but the letter was never PUT
 
   let server, port, sbServer, sbPort, realFetch, mod;
   const resendCalls = [];
@@ -68,7 +70,9 @@ describe('CEO files a contract the practice emailed (manual upload → same pipe
       appRow(APP_PR, { status: 'offer' }),
       appRow(APP_WD, { status: 'withdrawn', ats_stage: 'not_proceeding' }),
       appRow(APP_HIRED, { status: 'placement_secured', ats_stage: 'hired' }),
-      appRow(APP_NOFILE)
+      appRow(APP_NOFILE),
+      appRow(APP_TWO),
+      appRow(APP_TWO_NOFILE)
     ],
     career_contracts: [
       { id: 'contract-mc-reuse-v1', application_id: APP_REUSE, user_id: GP.userId, career_role_id: ROLE_ID, version: 1, status: 'awaiting_upload', ai_review_status: 'not_run', practice_contact_email: 'manager@pkg-test.local', practice_contact_name: 'PKG Practice Manager', created_at: NOW, updated_at: NOW },
@@ -411,6 +415,136 @@ describe('CEO files a contract the practice emailed (manual upload → same pipe
     expect(fin.body.message).toMatch(/could not find the uploaded file/i);
     expect(contractsFor(APP_NOFILE)[0].status).toBe('awaiting_upload');
   });
+
+  // Owner request 2026-09-14: some practices send a LETTER OF OFFER with the
+  // contract and the doctor must sign both. The drawer files the contract
+  // first, then the letter against the same application; finalize records the
+  // pair on the ONE revision. A practice that sends only the contract is the
+  // path every test above already covers — nothing about it changes.
+  describe('letter of offer alongside the contract', () => {
+    const LETTER = Buffer.from('%PDF-1.4 PKG Medical Centre — letter of offer (test bytes)', 'utf8');
+    let twoRow;
+
+    it('the letter sign-upload reuses the row the contract call opened and lands under /offer-letter/', async () => {
+      const signC = await ceoPost('/api/ceo/contract/sign-upload', { applicationId: APP_TWO, filename: 'PKG-Contract.pdf', mimeType: PDF_MIME });
+      expect(signC.status).toBe(200);
+      expect(signC.body.document).toBe('contract');
+      expect(signC.body.path).toBe('contracts/' + APP_TWO + '/v1/PKG-Contract.pdf');
+      expect((await putSignedUpload(signC.body.uploadUrl, PDF, PDF_MIME)).status).toBe(200);
+
+      const signL = await ceoPost('/api/ceo/contract/sign-upload', { applicationId: APP_TWO, filename: 'PKG-Letter-of-Offer.pdf', mimeType: PDF_MIME, document: 'offer_letter' });
+      expect(signL.status).toBe(200);
+      expect(signL.body.contractId).toBe(signC.body.contractId);
+      expect(signL.body.version).toBe(1);
+      expect(signL.body.document).toBe('offer_letter');
+      expect(signL.body.path).toBe('contracts/' + APP_TWO + '/v1/offer-letter/PKG-Letter-of-Offer.pdf');
+      expect(contractsFor(APP_TWO)).toHaveLength(1);
+      expect((await putSignedUpload(signL.body.uploadUrl, LETTER, PDF_MIME)).status).toBe(200);
+      expect(storage.has('gp-link-documents/' + signL.body.path)).toBe(true);
+      twoRow = contractsFor(APP_TWO)[0];
+      expect(twoRow.status).toBe('awaiting_upload');
+    });
+
+    it('finalize with offerLetter records both file sets on the one row and the review knows a letter is attached', async () => {
+      const before = resendCalls.length;
+      const fin = await ceoPost('/api/ceo/contract/finalize', { contractId: twoRow.id, filename: 'PKG-Contract.pdf', mimeType: PDF_MIME, offerLetter: { filename: 'PKG-Letter-of-Offer.pdf', mimeType: PDF_MIME } });
+      expect(fin.status).toBe(200);
+      expect(fin.body.ok).toBe(true);
+      expect(fin.body.status).toBe('uploaded');
+      expect(fin.body.hasOfferLetter).toBe(true);
+      // No Anthropic key → the deterministic stub, which still says a letter was there.
+      expect(fin.body.ai_review_status).toBe('error');
+      expect(fin.body.ai_review.has_offer_letter).toBe(true);
+
+      const row = contractsFor(APP_TWO)[0];
+      expect(row.status).toBe('uploaded');
+      expect(row.contract_bucket).toBe('gp-link-documents');
+      expect(row.contract_path).toBe('contracts/' + APP_TWO + '/v1/PKG-Contract.pdf');
+      expect(row.contract_filename).toBe('PKG-Contract.pdf');
+      expect(row.contract_mime).toBe(PDF_MIME);
+      expect(row.offer_letter_bucket).toBe('gp-link-documents');
+      expect(row.offer_letter_path).toBe('contracts/' + APP_TWO + '/v1/offer-letter/PKG-Letter-of-Offer.pdf');
+      expect(row.offer_letter_filename).toBe('PKG-Letter-of-Offer.pdf');
+      expect(row.offer_letter_mime).toBe(PDF_MIME);
+      expect(row.ai_review.has_offer_letter).toBe(true);
+      // Same as the single-document finalize: the CEO is the uploader, no hub email.
+      expect(resendCalls.length).toBe(before);
+      // A single-document row's review says so too.
+      expect(contractsFor(APP_MAIN)[0].ai_review.has_offer_letter).toBe(false);
+    });
+
+    it('the Contracts queue row carries the letter and lists both documents, letter first, both unsigned; the drawer sees the flags', async () => {
+      const list = await ceoGet('/api/ceo/contracts');
+      expect(list.status).toBe(200);
+      const mine = (list.body.contracts || []).find((c) => c.applicationId === APP_TWO);
+      expect(mine).toBeTruthy();
+      expect(mine.contractUrl).toMatch(/PKG-Contract\.pdf/);
+      expect(mine.offerLetterUrl).toMatch(/PKG-Letter-of-Offer\.pdf/);
+      expect(mine.offerLetterFilename).toBe('PKG-Letter-of-Offer.pdf');
+      expect(mine.offerLetterMime).toBe(PDF_MIME);
+      expect(mine.offerLetterSignedUrl).toBeUndefined();
+      expect(mine.contractSignedAt).toBeNull();
+      expect(mine.offerLetterSignedAt).toBeNull();
+      expect(mine.documents).toEqual([
+        { key: 'offer_letter', label: 'Letter of offer', signed: false },
+        { key: 'contract', label: 'Employment contract', signed: false }
+      ]);
+      // A row without a letter is untouched: no letter URL, one document.
+      const single = (list.body.contracts || []).find((c) => c.applicationId === APP_MAIN);
+      expect(single.offerLetterUrl).toBe('');
+      expect(single.offerLetterFilename).toBe('');
+      expect(single.documents).toEqual([{ key: 'contract', label: 'Employment contract', signed: false }]);
+
+      const cand = await ceoGet('/api/ceo/candidate?case_id=' + encodeURIComponent(CASE_ID));
+      const two = (cand.body.candidate.apps || []).find((a) => String(a.id) === APP_TWO);
+      expect(two.contract).toEqual(expect.objectContaining({ status: 'uploaded', has_offer_letter: true, contract_signed: false, offer_letter_signed: false }));
+      const main = (cand.body.candidate.apps || []).find((a) => String(a.id) === APP_MAIN);
+      expect(main.contract).toEqual(expect.objectContaining({ has_offer_letter: false }));
+    });
+
+    it('preview?document=offer_letter serves the letter as a PDF url; the default (and a row without a letter) behave as before', async () => {
+      const letter = await ceoGet('/api/ceo/contract/preview?contractId=' + encodeURIComponent(twoRow.id) + '&document=offer_letter');
+      expect(letter.status).toBe(200);
+      expect(letter.body.kind).toBe('pdf');
+      expect(letter.body.document).toBe('offer_letter');
+      expect(letter.body.url).toMatch(/offer-letter\/PKG-Letter-of-Offer\.pdf/);
+      expect(letter.body.filename).toBe('PKG-Letter-of-Offer.pdf');
+      // The hyphenated alias is accepted on the way in, the underscore form always comes back.
+      const alias = await ceoGet('/api/ceo/contract/preview?contractId=' + encodeURIComponent(twoRow.id) + '&document=offer-letter');
+      expect(alias.body.document).toBe('offer_letter');
+      expect(alias.body.url).toBe(letter.body.url);
+      const dflt = await ceoGet('/api/ceo/contract/preview?contractId=' + encodeURIComponent(twoRow.id));
+      expect(dflt.body.kind).toBe('pdf');
+      expect(dflt.body.document).toBe('contract');
+      expect(dflt.body.url).toMatch(/PKG-Contract\.pdf/);
+      expect(dflt.body.url).not.toMatch(/offer-letter/);
+      const none = await ceoGet('/api/ceo/contract/preview?contractId=' + encodeURIComponent(contractsFor(APP_MAIN)[0].id) + '&document=offer_letter');
+      expect(none.status).toBe(200);
+      expect(none.body.kind).toBe('none');
+      expect(none.body.message).toMatch(/letter of offer/i);
+    });
+
+    it('finalize with a letter that was never uploaded (or the wrong kind of file) is 400 naming the letter, and nothing is recorded', async () => {
+      const signC = await ceoPost('/api/ceo/contract/sign-upload', { applicationId: APP_TWO_NOFILE, filename: 'C.pdf', mimeType: PDF_MIME });
+      expect(signC.status).toBe(200);
+      expect((await putSignedUpload(signC.body.uploadUrl, PDF, PDF_MIME)).status).toBe(200);
+      const signL = await ceoPost('/api/ceo/contract/sign-upload', { applicationId: APP_TWO_NOFILE, filename: 'L.pdf', mimeType: PDF_MIME, document: 'offer_letter' });
+      expect(signL.body.contractId).toBe(signC.body.contractId);
+      // …but the letter is never PUT.
+      const fin = await ceoPost('/api/ceo/contract/finalize', { contractId: signC.body.contractId, filename: 'C.pdf', mimeType: PDF_MIME, offerLetter: { filename: 'L.pdf', mimeType: PDF_MIME } });
+      expect(fin.status).toBe(400);
+      expect(fin.body.message).toMatch(/letter of offer/i);
+      const badMime = await ceoPost('/api/ceo/contract/finalize', { contractId: signC.body.contractId, filename: 'C.pdf', mimeType: PDF_MIME, offerLetter: { filename: 'L.exe', mimeType: 'application/x-msdownload' } });
+      expect(badMime.status).toBe(400);
+      expect(badMime.body.message).toMatch(/letter of offer/i);
+
+      const row = contractsFor(APP_TWO_NOFILE)[0];
+      expect(row.status).toBe('awaiting_upload');
+      expect(row.contract_path).toBeUndefined();
+      expect(row.offer_letter_path).toBeUndefined();
+      expect(row.uploaded_at).toBeUndefined();
+    });
+  });
 });
 
 describe('CEO manual contract upload — dashboard wiring (source assertions)', () => {
@@ -448,9 +582,9 @@ describe('CEO manual contract upload — dashboard wiring (source assertions)', 
   });
 
   it('bumps the candidates, contracts and CSS cache-busters (CSS must be ≥ the candidates JS)', () => {
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20260914a');
-    expect(dash).toContain('/js/ceo-ats-contracts.js?v=20260914a');
-    expect(dash).toContain('/css/ceo-ats.css?v=20260914a');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20260914b');
+    expect(dash).toContain('/js/ceo-ats-contracts.js?v=20260914b');
+    expect(dash).toContain('/css/ceo-ats.css?v=20260914b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260910a');
     expect(dash).not.toContain('/js/ceo-ats-contracts.js?v=20260805d');
   });

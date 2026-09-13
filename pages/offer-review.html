@@ -719,6 +719,22 @@
 .agr-small:hover { color:#1e293b; }
 .agr-small-btn { width:100%; margin-top:14px; }
 
+/* ── Two documents to sign (owner 2026-09-14): some practices send a letter of
+   offer as well as the contract. The strip names both, in signing order, and
+   says in words (not colour alone) which is signed, which is current. ── */
+.doc-steps { list-style:none; margin:0 0 14px; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.doc-step { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; font-size:12.5px;
+            border:1px solid rgba(148,163,184,.4); background:#fff; color:#475569; }
+.doc-step-name { font-weight:600; color:#334155; }
+.doc-step-state { margin-left:auto; font-size:11.5px; font-weight:600; white-space:nowrap; color:#64748b; }
+.doc-step.is-active { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,.15); }
+.doc-step.is-active .doc-step-name { color:#1d4ed8; }
+.doc-step.is-active .doc-step-state { color:#1d4ed8; }
+.doc-step.is-done { border-color:rgba(22,163,74,.45); background:#f0fdf4; }
+.doc-step.is-done .doc-step-state { color:#15803d; }
+.signed-docs { display:grid; gap:6px; margin-top:14px; justify-items:center; }
+.signed-docs .agr-small { margin-top:0; }
+
 .sig-block { border:1px solid rgba(148,163,184,.35); border-radius:14px; padding:16px; background:#fff; }
 .sig-label { font-size:12px; font-weight:700; letter-spacing:.02em; color:#475569; text-transform:uppercase; }
 .sig-input { width:100%; box-sizing:border-box; margin-top:6px; padding:11px 13px; border-radius:11px;
@@ -943,6 +959,13 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
 
       <!-- Actions (sent_to_gp only) -->
       <div id="contractActions" style="margin-top: 18px;" hidden>
+        <!-- Two-document rows (owner 2026-09-14): a letter of offer is signed
+             FIRST, then the employment agreement. Hidden for the ordinary
+             single-document row, so that flow is untouched. -->
+        <ol class="doc-steps" id="contractDocSteps" aria-label="Documents to sign, in order" hidden>
+          <li class="doc-step" id="docStepOfferLetter" data-document="offer_letter"><span class="doc-step-name">1 · Letter of offer</span><span class="doc-step-state" id="docStepOfferLetterState"></span></li>
+          <li class="doc-step" id="docStepContract" data-document="contract"><span class="doc-step-name">2 · Employment agreement</span><span class="doc-step-state" id="docStepContractState"></span></li>
+        </ol>
         <!-- The agreement itself, read IN the app (owner request 2026-08-06):
              no download required to find out what you are signing. -->
         <div id="agreementDoc" class="agr-doc-wrap"></div>
@@ -963,7 +986,7 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
           </div>
           <button type="button" class="cta-accept" id="signAgreementBtn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
-            Sign &amp; secure my position
+            <span id="signAgreementBtnLabel">Sign &amp; secure my position</span>
           </button>
           <div class="accept-error" id="signInAppStatus" role="status" hidden></div>
 
@@ -985,6 +1008,8 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
           <div class="celebration-icon">🎉</div>
           <div class="celebration-title" id="contractSecuredTitle">Placement secured 🎉</div>
           <div class="celebration-sub" id="contractSecuredSub">Congratulations — your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.</div>
+          <!-- Two-document rows: both signed copies, letter first (owner 2026-09-14). -->
+          <div class="signed-docs" id="contractSignedDocs" hidden></div>
           <!-- Owner 2026-09-10: the position is secured, so the doctor's view
                moves to the registration pathway — this button takes them
                there (through the registration intro the first time). -->
@@ -1478,10 +1503,133 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
     if (secured) secured.hidden = false;
   }
 
+  /* ── Two documents (owner 2026-09-14) ──────────────────────────────────
+     Some practices send a LETTER OF OFFER as well as the contract, and the
+     doctor signs both — letter first. The server describes them in
+     contract.documents [{ key, label, signed, signedAt, url }]. For the
+     ordinary one-document row activeDocumentKey stays '' and every request
+     body / URL below is byte-for-byte what it was. */
+  var lastContract = null;         // the contract row we last rendered
+  var contractDocs = [];           // contract.documents, letter first
+  var activeDocumentKey = '';      // '' = single document; else 'offer_letter' | 'contract'
+  var DOC_LABELS = { offer_letter: 'letter of offer', contract: 'employment agreement' };
+
+  function documentsOf(contract) {
+    var docs = Array.isArray(contract.documents) ? contract.documents.slice() : [];
+    if (!docs.length && contract.hasOfferLetter) {
+      // Older payload shape — rebuild the list from the flat flags.
+      docs = [
+        { key: 'offer_letter', label: 'Letter of offer', signed: contract.offerLetterSigned === true, url: contract.offerLetterUrl || '' },
+        { key: 'contract', label: 'Employment contract', signed: contract.contractSigned === true, url: contract.contractUrl || '' }
+      ];
+    }
+    return docs;
+  }
+  function docByKey(key) {
+    for (var i = 0; i < contractDocs.length; i++) if (String(contractDocs[i].key) === key) return contractDocs[i];
+    return null;
+  }
+  // The ACTIVE document is the first unsigned one (letter first); once all
+  // are signed it is the contract, so the download link still means something.
+  function pickActiveDocumentKey(contract) {
+    if (!contract.hasOfferLetter) return '';
+    for (var i = 0; i < contractDocs.length; i++) if (!contractDocs[i].signed) return String(contractDocs[i].key || 'contract');
+    return 'contract';
+  }
+  function activeDocLabel() { return DOC_LABELS[activeDocumentKey] || 'agreement'; }
+  // Adds `document` to a request body ONLY for two-document rows, so the
+  // single-document payloads the server has always received do not change.
+  function withDocument(body) {
+    if (activeDocumentKey) body.document = activeDocumentKey;
+    return body;
+  }
+
+  function renderDocSteps(contract) {
+    var strip = document.getElementById('contractDocSteps');
+    if (!strip) return;
+    if (!contract.hasOfferLetter) { strip.hidden = true; return; }
+    var steps = [
+      { key: 'offer_letter', li: 'docStepOfferLetter', state: 'docStepOfferLetterState' },
+      { key: 'contract', li: 'docStepContract', state: 'docStepContractState' }
+    ];
+    for (var i = 0; i < steps.length; i++) {
+      var li = document.getElementById(steps[i].li);
+      var doc = docByKey(steps[i].key);
+      var signed = !!(doc && doc.signed);
+      var active = !signed && steps[i].key === activeDocumentKey;
+      if (li) {
+        li.classList.toggle('is-done', signed);
+        li.classList.toggle('is-active', active);
+        if (active) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+      }
+      setText(steps[i].state, signed ? '✓ Signed' : (active ? 'Sign now' : 'Next'));
+    }
+    strip.hidden = false;
+  }
+
+  // Both signed copies, letter first — only for two-document rows.
+  function renderSignedDocuments(contract) {
+    var host = document.getElementById('contractSignedDocs');
+    if (!host) return;
+    host.innerHTML = '';
+    if (!contract || !contract.hasOfferLetter) { host.hidden = true; return; }
+    var docs = documentsOf(contract);
+    var shown = 0;
+    for (var i = 0; i < docs.length; i++) {
+      var url = String(docs[i].url || '');
+      if (url.indexOf('http') !== 0) continue;
+      var a = document.createElement('a');
+      a.className = 'agr-small';
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      a.setAttribute('data-document', String(docs[i].key || ''));
+      a.textContent = 'Download signed ' + (DOC_LABELS[String(docs[i].key)] || String(docs[i].label || 'document').toLowerCase());
+      host.appendChild(a);
+      shown++;
+    }
+    host.hidden = shown === 0;
+  }
+
+  // Re-read the contract from the server and re-render. Used after a letter
+  // of offer is signed (so step 2 becomes active with the agreement in the
+  // reader) and after everything is signed (so both signed copies are listed).
+  function refreshContractState(onDone) {
+    return fetch('/api/career/contract?applicationId=' + encodeURIComponent(contractAppId), { credentials: 'same-origin' })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (data) {
+        if (data && data.ok && data.contract) { if (onDone) onDone(data.contract); return data.contract; }
+        return null;
+      })
+      .catch(function () { return null; });
+  }
+
+  // finalize-signed said { allSigned:false } — this document is in, another
+  // remains. Tell the doctor, clear the pad, and move the flow to the next one.
+  function onDocumentSigned(fin, statusEl) {
+    var msg = (fin && fin.message) || ('Letter of offer signed ✓ — now sign your employment agreement');
+    if (statusEl) { statusEl.textContent = msg; statusEl.hidden = false; statusEl.style.color = '#15803d'; }
+    sigClear();
+    var justSigned = activeDocumentKey;
+    refreshContractState(function (contract) { renderContractState(contract); })
+      .then(function (contract) {
+        if (contract) return;
+        // Could not re-read — advance locally so the doctor is never stuck.
+        var local = lastContract ? JSON.parse(JSON.stringify(lastContract)) : { status: 'sent_to_gp', hasOfferLetter: true };
+        local.documents = documentsOf(local);
+        for (var i = 0; i < local.documents.length; i++) if (String(local.documents[i].key) === justSigned) local.documents[i].signed = true;
+        if (justSigned === 'offer_letter') local.offerLetterSigned = true;
+        renderContractState(local);
+      });
+  }
+
   function renderContractState(contract) {
     hideLegacyStates();
     var cs = document.getElementById('contractState');
     if (cs) cs.hidden = false;
+
+    lastContract = contract;
+    contractDocs = documentsOf(contract);
+    activeDocumentKey = pickActiveDocumentKey(contract);
+    var activeDoc = activeDocumentKey ? docByKey(activeDocumentKey) : null;
 
     var status = String(contract.status || '');
     var heading = document.getElementById('contractHeading');
@@ -1501,18 +1649,32 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
     // rather than the way in.
     var dlLink = document.getElementById('downloadAgreementLink');
     if (dlLink) {
-      var url = String(contract.contractUrl || '');
+      // Two-document rows: the link follows the ACTIVE document.
+      var url = String((activeDoc && activeDoc.url) || contract.contractUrl || '');
       if (url.indexOf('http') === 0) { dlLink.href = url; dlLink.hidden = false; }
       else { dlLink.hidden = true; }
+      dlLink.textContent = activeDocumentKey === 'offer_letter' ? 'Download letter of offer' : 'Download agreement';
     }
 
     if (status === 'sent_to_gp') {
-      setText('contractHeading', 'Your agreement is ready');
-      setText('contractIntro', 'Read your agreement below, then sign it to secure your position.');
+      if (activeDocumentKey === 'offer_letter') {
+        setText('contractHeading', 'Sign your letter of offer');
+        setText('contractIntro', 'Read your letter of offer below, then sign it — your employment agreement is next.');
+        setText('signAgreementBtnLabel', 'Sign my letter of offer');
+      } else if (activeDocumentKey === 'contract') {
+        setText('contractHeading', 'Sign your employment agreement');
+        setText('contractIntro', 'Read your agreement below, then sign it to secure your position.');
+        setText('signAgreementBtnLabel', 'Sign & secure my position');
+      } else {
+        setText('contractHeading', 'Your agreement is ready');
+        setText('contractIntro', 'Read your agreement below, then sign it to secure your position.');
+        setText('signAgreementBtnLabel', 'Sign & secure my position');
+      }
+      renderDocSteps(contract);
       if (actions) actions.hidden = false;
       // The pad can only be sized once it has a width, so wire it after the
       // actions block is visible.
-      loadAgreementPreview();
+      loadAgreementPreview(activeDocumentKey);
       wireSigPad();
       setTimeout(setupSigPad, 0);
     } else if (status === 'changes_requested') {
@@ -1538,6 +1700,8 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       } else {
         showContractSecured('Agreement signed', 'Signed — our team is finalising your placement.');
       }
+      // Two-document rows: both signed copies, letter first.
+      renderSignedDocuments(contract);
     }
   }
 
@@ -1545,16 +1709,22 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
      Same reader the CEO's Contracts tab uses, scoped by the server to this
      doctor's own application. A PDF renders in an <iframe>; a Word file is
      rendered to HTML so its headings and tables survive. */
-  var agreementLoaded = false;
-  function loadAgreementPreview() {
-    if (agreementLoaded || !contractAppId) return;
-    agreementLoaded = true;
+  // The guard is keyed by document so the reader reloads when the active
+  // document changes (letter of offer → employment agreement) but never
+  // re-fetches the one it is already showing.
+  var agreementLoadedKey = null;
+  function loadAgreementPreview(docKey) {
+    docKey = String(docKey || '');
+    if (agreementLoadedKey === docKey || !contractAppId) return;
+    agreementLoadedKey = docKey;
     var host = document.getElementById('agreementDoc');
     if (!host) return;
-    host.innerHTML = '<div class="agr-doc-msg">Opening your agreement…</div>';
-    fetch('/api/career/contract/preview?applicationId=' + encodeURIComponent(contractAppId), { credentials: 'same-origin' })
+    host.innerHTML = '<div class="agr-doc-msg">Opening your ' + (docKey === 'offer_letter' ? 'letter of offer' : 'agreement') + '…</div>';
+    var previewUrl = '/api/career/contract/preview?applicationId=' + encodeURIComponent(contractAppId) + (docKey ? '&document=' + encodeURIComponent(docKey) : '');
+    fetch(previewUrl, { credentials: 'same-origin' })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (d) {
+        if (agreementLoadedKey !== docKey) return; // a newer document took over the reader
         if (!d || !d.ok) { host.innerHTML = '<div class="agr-doc-msg">We could not open your agreement here — use the download link below.</div>'; return; }
         if (d.kind === 'pdf' && d.url) {
           host.innerHTML = '<iframe class="agr-frame" src="' + escAttr(d.url) + '#view=FitH" title="Your agreement"></iframe>';
@@ -1644,11 +1814,11 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
     if (!sigHasInk || !sigReady) { setStatus('Please draw your signature above.', true); return; }
 
     if (btn) btn.disabled = true;
-    setStatus('Signing…', false);
+    setStatus(activeDocumentKey === 'offer_letter' ? 'Signing your letter of offer…' : 'Signing…', false);
     fetch('/api/career/contract/sign-inapp', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ applicationId: contractAppId, signedName: name, signatureDataUrl: sigCanvas.toDataURL('image/png') })
+      body: JSON.stringify(withDocument({ applicationId: contractAppId, signedName: name, signatureDataUrl: sigCanvas.toDataURL('image/png') }))
     })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
       .then(function (res) {
@@ -1660,12 +1830,14 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
         return fetch('/api/career/contract/finalize-signed', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ applicationId: contractAppId, filename: res.data.filename, mimeType: res.data.mimeType })
+          body: JSON.stringify(withDocument({ applicationId: contractAppId, filename: res.data.filename, mimeType: res.data.mimeType }))
         })
           .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, data: d }; }); })
           .then(function (fin) {
             if (btn) btn.disabled = false;
             if (fin.status === 200 && fin.data && fin.data.ok) {
+              // Two-document rows: the letter is in, the agreement is next.
+              if (fin.data.allSigned === false) { onDocumentSigned(fin.data, statusEl); return; }
               if (fin.data.placementSecured) {
                 if (window.gpPlacementSecured) { try { window.gpPlacementSecured.applyPlacementSecured(window, contractAppId, {}); } catch (e) {} }
                 showContractSecured('Position secured 🎉', 'Congratulations — your signed agreement is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
@@ -1673,9 +1845,13 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
               } else {
                 showContractSecured('Agreement signed', (fin.data.message || 'Signed — our team is finalising your placement.'));
               }
+              // Two-document rows: list both signed copies under the celebration.
+              if (activeDocumentKey) refreshContractState(function (c) { renderSignedDocuments(c); });
               return;
             }
             setStatus((fin.data && fin.data.message) || "That didn't go through — please try again.", true);
+            // 409 already_signed on a two-document row: this device is behind — re-sync.
+            if (fin.status === 409 && activeDocumentKey) refreshContractState(function (c) { renderContractState(c); });
           });
       })
       .catch(function () {
@@ -1705,14 +1881,14 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       setStatus('Please choose a PDF or Word (.docx) file.', true);
       return;
     }
-    var filename = file.name || 'signed-contract.pdf';
+    var filename = file.name || (activeDocumentKey === 'offer_letter' ? 'signed-letter-of-offer.pdf' : 'signed-contract.pdf');
     if (uploadBtn) uploadBtn.disabled = true;
-    setStatus('Uploading your signed contract…', false);
+    setStatus(activeDocumentKey === 'offer_letter' ? 'Uploading your signed letter of offer…' : 'Uploading your signed contract…', false);
 
     fetch('/api/career/contract/sign-upload', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ applicationId: contractAppId, filename: filename, mimeType: mime })
+      body: JSON.stringify(withDocument({ applicationId: contractAppId, filename: filename, mimeType: mime }))
     })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; }); })
       .then(function (sign) {
@@ -1736,11 +1912,13 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
           return fetch('/api/career/contract/finalize-signed', {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ applicationId: contractAppId, path: storagePath, filename: filename, mimeType: mime })
+            body: JSON.stringify(withDocument({ applicationId: contractAppId, path: storagePath, filename: filename, mimeType: mime }))
           }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { status: r.status, data: data }; }); })
             .then(function (fin) {
               if (uploadBtn) uploadBtn.disabled = false;
               if (fin.status === 200 && fin.data && fin.data.ok) {
+                // Two-document rows: the letter is in, the agreement is next.
+                if (fin.data.allSigned === false) { onDocumentSigned(fin.data, statusEl); return null; }
                 if (fin.data.placementSecured) {
                   if (window.gpPlacementSecured) { try { window.gpPlacementSecured.applyPlacementSecured(window, contractAppId, {}); } catch (e) {} }
                   showContractSecured('Placement secured 🎉', 'Congratulations — your signed agreement is in and your placement is confirmed. Your GP Link officer will guide you through the remaining registration steps.');
@@ -1748,9 +1926,13 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
                 } else {
                   showContractSecured('Agreement signed', (fin.data.message || 'Signed — our team is finalising your placement.'));
                 }
+                // Two-document rows: list both signed copies under the celebration.
+                if (activeDocumentKey) refreshContractState(function (c) { renderSignedDocuments(c); });
                 return null;
               }
               setStatus((fin.data && fin.data.message) || "That didn't go through — please try again.", true);
+              // 409 already_signed on a two-document row: this device is behind — re-sync.
+              if (fin.status === 409 && activeDocumentKey) refreshContractState(function (c) { renderContractState(c); });
               return null;
             });
         });
@@ -1816,6 +1998,17 @@ canvas#gpSigPad { display:block; width:100%; height:150px; cursor:crosshair; tou
       });
     }
   })();
+
+  // Headless render-check hook. Only exists when a harness sets
+  // window.__offerReviewTestEnable BEFORE this script runs — never in production.
+  if (window.__offerReviewTestEnable === true) {
+    window.__offerReviewTest = {
+      getState: function () { return { activeDocumentKey: activeDocumentKey, agreementLoadedKey: agreementLoadedKey, sigHasInk: sigHasInk, sigReady: sigReady, documents: contractDocs }; },
+      markInk: function () { setupSigPad(); sigHasInk = true; sigUpdateStatus(); return sigReady; },
+      sign: signAgreementInApp,
+      render: renderContractState
+    };
+  }
 
   // Bootstrap: contract first, legacy invitation flow only if there's no contract.
   if (contractAppId) {

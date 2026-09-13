@@ -6,6 +6,13 @@
  * discrepancies, terms context and a signed contract link. The CEO either
  * submits the contract on to the GP or returns it to the practice for a fix.
  * Exposes window.loadContractsTab().
+ *
+ * Two documents (owner 2026-09-14): some practices send a signed LETTER OF
+ * OFFER as well as the contract. Such a row (`documents` lists offer_letter,
+ * or offerLetterUrl is set) renders TWO inline readers, letter first, each in
+ * its own slot `data-doc-slot="<contractId>:<key>"`, and every discrepancy
+ * highlights ONLY the document it was made against (`d.document`, missing =
+ * 'contract'). A single-document row renders exactly as before.
  * ========================================================================== */
 (function () {
   'use strict';
@@ -19,7 +26,8 @@
   // Module state (persisted across re-renders). `expanded` holds the single
   // open contract id (accordion-style — mirrors the rest of the ATS tabs,
   // which show one detail view at a time).
-  // `docs` caches the inline contract reader per contract id:
+  // `docs` caches the inline reader per document, keyed "<contractId>:<key>"
+  // (key = 'contract' | 'offer_letter' — see docKey):
   //   { loading:true } | { kind:'text', text } | { kind:'pdf', url } | { kind:'error', message }
   var state = { contracts: [], expanded: null, busy: false, docs: {} };
 
@@ -222,17 +230,20 @@
    *  document; without this you read "the Contractor will receive not less
    *  than $170.00…" and then hunt for it by eye.
    * ===================================================================== */
-  function jumpToDiscrepancy(contractId, index) {
-    var slot = document.querySelector('[data-doc-slot="' + cssEscape(contractId) + '"]');
+  function jumpToDiscrepancy(contractId, index, key) {
+    // `key` names WHICH document ('contract' | 'offer_letter'): a two-document
+    // row has one reader pane per document and a finding belongs to one of them.
+    key = key || 'contract';
+    var slot = document.querySelector('[data-doc-slot="' + cssEscape(docKey(contractId, key)) + '"]');
     if (!slot) return;
     var pane = slot.querySelector('.ats-doc-view');
-    var doc = state.docs[contractId];
+    var doc = state.docs[docKey(contractId, key)];
 
     if (!pane) {
       // A PDF renders inside an <iframe> we cannot reach into or scroll.
       ATS.toast(doc && doc.kind === 'pdf'
-        ? 'This contract is a PDF — open it to find the clause.'
-        : 'The contract is still loading.');
+        ? 'This ' + docNoun(key) + ' is a PDF — open it to find the clause.'
+        : 'The ' + docNoun(key) + ' is still loading.');
       return;
     }
 
@@ -280,48 +291,91 @@
     jumpToDiscrepancy._t = setTimeout(function () { target.classList.remove('is-target'); }, 2200);
   }
 
-  function quotesFor(c) {
-    var review = c && c.ai_review;
-    var ds = (review && Array.isArray(review.discrepancies)) ? review.discrepancies : [];
-    return ds.map(function (d) { return d && d.contract_says; }).filter(Boolean);
+  /* ---- Which document? ----
+   * A row carries an employment contract and, for some practices, a letter of
+   * offer too. Everything below that touches ONE document takes `key`
+   * ('contract' | 'offer_letter'); omitting it means the contract, so the
+   * single-document path is exactly what it was before letters existed. */
+  function docKey(contractId, key) { return String(contractId) + ':' + (key || 'contract'); }
+  function docNoun(key) { return key === 'offer_letter' ? 'letter of offer' : 'contract'; }
+  // Which document a finding was made against — rows from before letters of
+  // offer existed carry no `document`, and those were always the contract.
+  function docOf(d) { return d ? (d.document || 'contract') : 'contract'; }
+
+  // The documents on a row, letter FIRST when there is one. `documents` comes
+  // from the server; the offerLetterUrl fallback covers a row that predates
+  // the list. A single-document row yields just the contract.
+  function documentsFor(c) {
+    var listed = Array.isArray(c && c.documents) ? c.documents : [];
+    var letter = listed.filter(function (d) { return d && d.key === 'offer_letter'; })[0];
+    var contract = listed.filter(function (d) { return d && d.key === 'contract'; })[0];
+    var out = [];
+    if (letter || (c && c.offerLetterUrl)) out.push({ key: 'offer_letter', label: (letter && letter.label) || 'Letter of offer', signed: !!(letter && letter.signed) });
+    out.push({ key: 'contract', label: (contract && contract.label) || 'Employment contract', signed: !!(contract && contract.signed) });
+    return out;
+  }
+  function hasOfferLetter(c) { return documentsFor(c).length > 1; }
+
+  // Drop every cached reader for a row (one per document).
+  function forgetDocs(contractId) {
+    var prefix = String(contractId) + ':';
+    Object.keys(state.docs).forEach(function (k) { if (k.indexOf(prefix) === 0) delete state.docs[k]; });
   }
 
-  // Fetch the readable contract for a card once, then re-render it in place.
-  function ensureDoc(c) {
+  // The quotes to highlight in ONE document, kept at their discrepancy index
+  // (that index is what each <mark data-disc> carries, so it must not shift).
+  // A finding against the other document becomes an empty slot, which
+  // collateQuotes drops as too short to match.
+  function quotesFor(c, key) {
+    var review = c && c.ai_review;
+    var ds = (review && Array.isArray(review.discrepancies)) ? review.discrepancies : [];
+    var want = key || 'contract';
+    return ds.map(function (d) { return (d && docOf(d) === want) ? (d.contract_says || '') : ''; });
+  }
+
+  // Fetch the readable document for a card once, then re-render it in place.
+  function ensureDoc(c, key) {
     if (!c || !c.id) return;
-    if (state.docs[c.id]) return;                 // cached (or in flight)
-    state.docs[c.id] = { loading: true };
-    ATS.api('/api/ceo/contract/preview?contractId=' + encodeURIComponent(c.id)).then(function (d) {
+    key = key || 'contract';
+    var k = docKey(c.id, key);
+    if (state.docs[k]) return;                    // cached (or in flight)
+    state.docs[k] = { loading: true };
+    // The contract is the endpoint's default, so its request is unchanged;
+    // the letter of offer asks for itself by name.
+    var url = '/api/ceo/contract/preview?contractId=' + encodeURIComponent(c.id) + (key === 'contract' ? '' : '&document=' + encodeURIComponent(key));
+    ATS.api(url).then(function (d) {
       if (!d || !d.ok) {
-        state.docs[c.id] = { kind: 'error', message: (d && d.message) || 'Could not open the contract.' };
+        state.docs[k] = { kind: 'error', message: (d && d.message) || 'Could not open the ' + docNoun(key) + '.' };
       } else {
-        state.docs[c.id] = d;
+        state.docs[k] = d;
       }
-      paintDoc(c);
+      paintDoc(c, key);
     });
   }
 
   // Write the reader into its slot, then run the DOM highlight pass. The rich
   // (rendered Word) view can only be highlighted after it is in the document,
   // so painting and highlighting always happen together — never innerHTML alone.
-  function paintDoc(c) {
-    var slot = document.querySelector('[data-doc-slot="' + cssEscape(c.id) + '"]');
+  function paintDoc(c, key) {
+    key = key || 'contract';
+    var slot = document.querySelector('[data-doc-slot="' + cssEscape(docKey(c.id, key)) + '"]');
     if (!slot) return;
-    slot.innerHTML = docHtml(c);
+    slot.innerHTML = docHtml(c, key);
     var rich = slot.querySelector('[data-doc-rich]');
     if (!rich) return;
-    var res = applyDomHighlights(rich, quotesFor(c));
+    var res = applyDomHighlights(rich, quotesFor(c, key));
     var note = slot.querySelector('[data-doc-note]');
     if (note && res.unmatched.length) {
       note.textContent = res.unmatched.length + ' flagged '
         + (res.unmatched.length === 1 ? 'clause is' : 'clauses are')
-        + ' listed below but could not be located word-for-word in the document — read them against the contract yourself.';
+        + ' listed below but could not be located word-for-word in the document — read them against the ' + docNoun(key) + ' yourself.';
     }
   }
 
-  function docHtml(c) {
-    var doc = state.docs[c.id];
-    if (!doc || doc.loading) return ATS.loadingHtml('Opening the contract…');
+  function docHtml(c, key) {
+    key = key || 'contract';
+    var doc = state.docs[docKey(c.id, key)];
+    if (!doc || doc.loading) return ATS.loadingHtml('Opening the ' + docNoun(key) + '…');
     if (doc.kind === 'html') {
       // The document as Word actually formats it — headings, bold, tables,
       // embedded images. Server-sanitised to an allow-list before it gets here.
@@ -330,19 +384,19 @@
     }
     if (doc.kind === 'pdf') {
       return doc.url
-        ? '<iframe class="ats-doc-frame" src="' + ATS.escAttr(doc.url) + '#view=FitH" title="Contract"></iframe>' +
+        ? '<iframe class="ats-doc-frame" src="' + ATS.escAttr(doc.url) + '#view=FitH" title="' + (key === 'offer_letter' ? 'Letter of offer' : 'Contract') + '"></iframe>' +
           '<div class="ats-doc-unmatched">This is a PDF, so it is shown as-is — the flagged clauses are listed underneath.</div>'
         : '<div class="ats-doc-missing">Could not open this PDF.</div>';
     }
     if (doc.kind === 'text') {
-      var res = highlightContract(doc.text || '', quotesFor(c));
-      if (!String(doc.text || '').trim()) return '<div class="ats-doc-missing">This contract has no readable text in it.</div>';
+      var res = highlightContract(doc.text || '', quotesFor(c, key));
+      if (!String(doc.text || '').trim()) return '<div class="ats-doc-missing">This ' + docNoun(key) + ' has no readable text in it.</div>';
       var note = res.unmatched.length
-        ? '<div class="ats-doc-unmatched">' + res.unmatched.length + ' flagged ' + (res.unmatched.length === 1 ? 'clause is' : 'clauses are') + ' listed below but could not be located word-for-word in the text — read them against the contract yourself.</div>'
+        ? '<div class="ats-doc-unmatched">' + res.unmatched.length + ' flagged ' + (res.unmatched.length === 1 ? 'clause is' : 'clauses are') + ' listed below but could not be located word-for-word in the text — read them against the ' + docNoun(key) + ' yourself.</div>'
         : '';
       return '<div class="ats-doc-view">' + res.html + '</div>' + note;
     }
-    return '<div class="ats-doc-missing">' + ATS.esc(doc.message || 'No contract file on this row.') + '</div>';
+    return '<div class="ats-doc-missing">' + ATS.esc(doc.message || ('No ' + docNoun(key) + ' file on this row.')) + '</div>';
   }
 
   // AI verdict → pill. `unreadable` and a missing/errored verdict both read
@@ -433,11 +487,14 @@
     if (state.expanded) {
       var openCard = state.contracts.filter(function (c) { return c.id === state.expanded; })[0];
       if (openCard) {
-        ensureDoc(openCard);
-        // Already cached (re-render after a toggle): detailHtml embedded the
-        // markup but nothing has highlighted it yet — that pass only runs here.
-        var cached = state.docs[openCard.id];
-        if (cached && !cached.loading) paintDoc(openCard);
+        // EVERY document on the card — a letter of offer has its own reader.
+        documentsFor(openCard).forEach(function (d) {
+          ensureDoc(openCard, d.key);
+          // Already cached (re-render after a toggle): detailHtml embedded the
+          // markup but nothing has highlighted it yet — that pass only runs here.
+          var cached = state.docs[docKey(openCard.id, d.key)];
+          if (cached && !cached.loading) paintDoc(openCard, d.key);
+        });
       }
     }
   }
@@ -447,16 +504,23 @@
    * ===================================================================== */
   function cardHtml(c) {
     var open = state.expanded === c.id;
+    var withLetter = hasOfferLetter(c);
     var sm = statusMeta(c.status);
+    // The two documents are signed separately — while the pair is with the
+    // doctor, say which one has come back so the CEO knows what is outstanding.
+    var smLabel = sm.label;
+    if (withLetter && c.status === 'sent_to_gp' && !!c.contractSignedAt !== !!c.offerLetterSignedAt) {
+      smLabel += c.offerLetterSignedAt ? ' · letter signed' : ' · contract signed';
+    }
     var vm = verdictMeta(c.ai_review && c.ai_review.overall);
     var head = '' +
       '<div class="ats-card-title" style="justify-content:space-between;cursor:pointer" data-toggle="' + ATS.escAttr(c.id) + '">' +
         '<div>' +
           '<div style="font-size:14px;font-weight:600">' + ATS.esc(c.gpName || 'Unknown GP') + '</div>' +
-          '<div style="font-size:12px;color:var(--ats-dim)">' + ATS.esc(c.practiceName || 'Unknown practice') + ' — ' + ATS.esc(c.roleTitle || 'Unknown role') + ' · v' + ATS.esc(c.version) + '</div>' +
+          '<div style="font-size:12px;color:var(--ats-dim)">' + ATS.esc(c.practiceName || 'Unknown practice') + ' — ' + ATS.esc(c.roleTitle || 'Unknown role') + ' · v' + ATS.esc(c.version) + (withLetter ? ' · letter of offer + contract' : '') + '</div>' +
         '</div>' +
         '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">' +
-          '<span class="ats-pill ' + sm.mod + '">' + ATS.esc(sm.label) + '</span>' +
+          '<span class="ats-pill ' + sm.mod + '">' + ATS.esc(smLabel) + '</span>' +
           '<span class="ats-pill ' + vm.mod + '">' + ATS.esc(vm.label) + '</span>' +
           '<span style="font-size:11px;color:var(--ats-dim)">' + ATS.esc(fmtDate(c.uploaded_at)) + '</span>' +
         '</div>' +
@@ -468,21 +532,40 @@
   // number stamped onto its <mark> in the document, which is what makes
   // click-to-jump possible. Rendered as a real button role + tabindex so it is
   // reachable by keyboard, not mouse-only.
-  function discrepancyRow(d, i, contractId) {
+  // `withLetter` rows prefix each finding with the document it is about, so
+  // the CEO knows which reader the jump will land in; data-jump-doc carries
+  // the same answer for the handler.
+  function discrepancyRow(d, i, contractId, withLetter) {
     d = d || {};
     var minor = String(d.severity || '').toLowerCase() === 'minor';
+    var dk = docOf(d);
+    var chip = withLetter
+      ? '<span class="ats-pill muted" style="font-size:10px;padding:1px 7px;margin-right:6px;vertical-align:middle">' + (dk === 'offer_letter' ? 'Letter' : 'Contract') + '</span>'
+      : '';
     return '' +
       '<div class="ats-detail-field ats-disc-row ' + (minor ? 'minor' : '') + '"' +
-        ' data-jump-disc="' + ATS.escAttr(String(i)) + '" data-jump-contract="' + ATS.escAttr(contractId) + '"' +
-        ' role="button" tabindex="0" title="Jump to this clause in the contract">' +
-        '<div class="df-lbl">' + ATS.esc(d.field || 'Unspecified') + (d.severity ? ' — ' + ATS.esc(d.severity) : '') + '</div>' +
+        ' data-jump-disc="' + ATS.escAttr(String(i)) + '" data-jump-contract="' + ATS.escAttr(contractId) + '" data-jump-doc="' + ATS.escAttr(dk) + '"' +
+        ' role="button" tabindex="0" title="Jump to this clause in the ' + docNoun(dk) + '">' +
+        '<div class="df-lbl">' + chip + ATS.esc(d.field || 'Unspecified') + (d.severity ? ' — ' + ATS.esc(d.severity) : '') + '</div>' +
         '<div class="df-val">Contract says: ' + ATS.esc(d.contract_says || '—') + '<br>Expected: ' + ATS.esc(d.expected || '—') + ' (' + ATS.esc(d.source || 'unknown source') + ')</div>' +
       '</div>';
+  }
+
+  // The open / signed-copy links for ONE document.
+  function docLinksHtml(url, signedUrl, label) {
+    var open = url
+      ? '<a class="ats-btn ats-btn-sm" href="' + ATS.escAttr(url) + '" target="_blank" rel="noopener">Open in a new tab</a>'
+      : '<span style="font-size:12px;color:var(--ats-dim)">No ' + ATS.esc(String(label || 'document').toLowerCase()) + ' file on this row.</span>';
+    var signed = signedUrl
+      ? ' <a class="ats-btn ats-btn-sm" href="' + ATS.escAttr(signedUrl) + '" target="_blank" rel="noopener">View signed copy</a>'
+      : '';
+    return open + signed;
   }
 
   function detailHtml(c) {
     var review = c.ai_review || null;
     var discrepancies = review && Array.isArray(review.discrepancies) ? review.discrepancies : [];
+    var withLetter = hasOfferLetter(c);
 
     // The GP's own change-request text, shown prominently for a bounced-back
     // contract. Task 14 wires the actual Release-to-practice / Decline-change
@@ -512,16 +595,27 @@
       : '';
 
     var discrepanciesHtml = discrepancies.length
-      ? '<div class="df-lbl" style="margin:14px 0 4px">Discrepancies — click one to jump to it in the contract above</div>' +
-        discrepancies.map(function (d, i) { return discrepancyRow(d, i, c.id); }).join('')
+      ? '<div class="df-lbl" style="margin:14px 0 4px">' + (withLetter
+          ? 'Discrepancies — click one to jump to it in the letter or contract above'
+          : 'Discrepancies — click one to jump to it in the contract above') + '</div>' +
+        discrepancies.map(function (d, i) { return discrepancyRow(d, i, c.id, withLetter); }).join('')
       : (review && !reviewFailed ? '<div class="ats-detail-field"><div class="df-val">The AI found nothing that contradicts the interview or the advertised terms.</div></div>' : '');
 
-    // The contract itself, read INLINE — downloading it was the only way to
-    // see it before. The signed-URL links stay as a secondary escape hatch
-    // (printing, or a browser that refuses to frame the PDF).
-    var readerHtml = '' +
-      '<div class="df-lbl" style="margin:16px 0 6px">Contract</div>' +
-      '<div data-doc-slot="' + ATS.escAttr(c.id) + '">' + docHtml(c) + '</div>';
+    // The document(s) themselves, read INLINE — downloading was the only way
+    // to see them before. A row with a letter of offer gets TWO readers,
+    // letter first, each with its own open / signed-copy links directly
+    // underneath; a single-document row is exactly what it always was, with
+    // its links below the findings. The signed-URL links stay as a secondary
+    // escape hatch (printing, or a browser that refuses to frame the PDF).
+    var readerHtml = withLetter
+      ? documentsFor(c).map(function (d) {
+          var isLetter = d.key === 'offer_letter';
+          return '<div class="df-lbl" style="margin:16px 0 6px">' + ATS.esc(d.label) + '</div>' +
+            '<div data-doc-slot="' + ATS.escAttr(docKey(c.id, d.key)) + '">' + docHtml(c, d.key) + '</div>' +
+            '<div style="margin-top:8px">' + docLinksHtml(isLetter ? c.offerLetterUrl : c.contractUrl, isLetter ? c.offerLetterSignedUrl : c.signedUrl, d.label) + '</div>';
+        }).join('')
+      : '<div class="df-lbl" style="margin:16px 0 6px">Contract</div>' +
+        '<div data-doc-slot="' + ATS.escAttr(docKey(c.id, 'contract')) + '">' + docHtml(c, 'contract') + '</div>';
 
     var linkHtml = c.contractUrl
       ? '<a class="ats-btn ats-btn-sm" href="' + ATS.escAttr(c.contractUrl) + '" target="_blank" rel="noopener">Open in a new tab</a>'
@@ -558,7 +652,8 @@
       '<div style="margin-top:14px;border-top:1px solid var(--ats-border);padding-top:14px">' +
         changeReqHtml + summaryHtml + rerunHtml + termsHtml +
         readerHtml + discrepanciesHtml +
-        '<div style="margin-top:14px">' + linkHtml + signedLinkHtml + '</div>' +
+        // Two-document rows already carry their links under each reader.
+        (withLetter ? '' : '<div style="margin-top:14px">' + linkHtml + signedLinkHtml + '</div>') +
         actionsHtml +
       '</div>';
   }
@@ -584,7 +679,7 @@
       var jump = e.target.closest ? e.target.closest('[data-jump-disc]') : null;
       if (jump) {
         e.stopPropagation();
-        jumpToDiscrepancy(jump.getAttribute('data-jump-contract'), jump.getAttribute('data-jump-disc'));
+        jumpToDiscrepancy(jump.getAttribute('data-jump-contract'), jump.getAttribute('data-jump-disc'), jump.getAttribute('data-jump-doc'));
         return;
       }
 
@@ -622,7 +717,7 @@
       var jump = e.target.closest ? e.target.closest('[data-jump-disc]') : null;
       if (!jump) return;
       e.preventDefault();
-      jumpToDiscrepancy(jump.getAttribute('data-jump-contract'), jump.getAttribute('data-jump-disc'));
+      jumpToDiscrepancy(jump.getAttribute('data-jump-contract'), jump.getAttribute('data-jump-disc'), jump.getAttribute('data-jump-doc'));
     });
   }
 
@@ -642,7 +737,7 @@
     ATS.api('/api/ceo/contract/ai-check', { method: 'POST', body: { contractId: contractId } }).then(function (d) {
       state.busy = false;
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not re-run the AI review.'); return; }
-      delete state.docs[contractId];
+      forgetDocs(contractId);
       ATS.toast(d.ai_review_status === 'done' ? 'AI review complete.' : 'The AI review could not complete — see the summary.');
       fetchAndRender();
     });
