@@ -82,7 +82,13 @@ describe('CEO files a contract the practice emailed (manual upload → same pipe
     ],
     ats_offers: [],
     ats_stage_events: [],
-    scheduled_calls: [],
+    // The PKG shape after the day-early Zoom join: the interview is completed
+    // and still carries the early join's junk text, but the record has been
+    // re-armed (summary_status 'pending') so the real summary replaces it. The
+    // drawer must report that state rather than call the junk "saved".
+    scheduled_calls: [
+      { id: 'call-mc-main', application_id: APP_MAIN, case_id: CASE_ID, user_id: GP.userId, meeting_kind: 'interview', status: 'completed', scheduled_at: NOW, completed_at: NOW, zoom_meeting_id: '81357219631', zoom_meeting_uuid: 'real-instance==', summary_status: 'pending', meeting_summary: 'The meeting transcript appeared to be a disjointed conversation with no clear main topic.', created_at: NOW, updated_at: NOW }
+    ],
     user_documents: []
   };
   function tableOf(name) { if (!db[name]) db[name] = []; return db[name]; }
@@ -341,6 +347,10 @@ describe('CEO files a contract the practice emailed (manual upload → same pipe
     const main = apps.find((a) => String(a.id) === APP_MAIN);
     expect(main).toBeTruthy();
     expect(main.contract).toEqual(expect.objectContaining({ status: 'uploaded', version: 1, ai_review_status: 'error', verdict: 'unreadable' }));
+    // The interview line carries the call id + summary_status so the card can
+    // show "Summary refreshing" and offer "Fetch summary now" for a re-armed row.
+    expect(main.interview).toEqual(expect.objectContaining({ id: 'call-mc-main', status: 'completed', summary_status: 'pending' }));
+    expect(main.interview.summary).toMatch(/disjointed conversation/);
     // Nothing filed yet → null, which is what makes the drawer show "Upload contract".
     const nofile = apps.find((a) => String(a.id) === APP_NOFILE);
     expect(nofile.contract).toBeNull();
@@ -554,6 +564,22 @@ describe('CEO manual contract upload — dashboard wiring (source assertions)', 
   const dash = read('pages/ceo-dashboard.html');
   const srv = read('server.js');
 
+  it('a completed interview whose summary is being re-read says so and offers a one-click Zoom fetch', () => {
+    // Owner 2026-09-14: after the PKG day-early join, the card called the junk
+    // text "Summary saved" while the record was already re-armed 'pending'.
+    expect(candidatesJs).toContain("var sumRefreshing = sumState === 'pending' || sumState === 'error' || sumState === 'running';");
+    expect(candidatesJs).toContain('Summary refreshing');
+    expect(candidatesJs).toContain('class="ats-btn ats-btn-ghost ats-btn-sm ats-int-fetch-summary"');
+    expect(candidatesJs).toContain("ATS.api('/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary', { method: 'POST' })");
+    expect(candidatesJs).toContain("e.target.closest('.ats-int-fetch-summary')");
+    // The payload carries what the card needs.
+    expect(srv).toContain('select=id,application_id,status,scheduled_at,meeting_summary,summary_status,zoom_join_url&application_id=in.(');
+    expect(srv).toContain('summary_status: intRow.summary_status || null');
+    // The GP file's own Fetch Summary button used to hide whenever ANY text was
+    // on file — exactly the early-join case (junk text present, real one pending).
+    expect(dash).toContain("cs === 'completed' && (!c.meeting_summary || (c.summary_status && c.summary_status !== 'saved' && c.summary_status !== 'not_available'))");
+  });
+
   it('the candidate drawer offers "Upload contract" and drives the same sign → PUT → finalize sequence', () => {
     expect(candidatesJs).toContain('class="ats-btn ats-btn-ghost ats-btn-sm ats-contract-upload"');
     expect(candidatesJs).toContain("ATS.api('/api/ceo/contract/sign-upload'");
@@ -582,9 +608,9 @@ describe('CEO manual contract upload — dashboard wiring (source assertions)', 
   });
 
   it('bumps the candidates, contracts and CSS cache-busters (CSS must be ≥ the candidates JS)', () => {
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20260914b');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20260914c');
     expect(dash).toContain('/js/ceo-ats-contracts.js?v=20260914b');
-    expect(dash).toContain('/css/ceo-ats.css?v=20260914b');
+    expect(dash).toContain('/css/ceo-ats.css?v=20260914c');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260910a');
     expect(dash).not.toContain('/js/ceo-ats-contracts.js?v=20260805d');
   });

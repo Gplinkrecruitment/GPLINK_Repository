@@ -104,7 +104,9 @@ describe('candidate drawer — a COMPLETED interview no longer falls into the sl
   it('has a completed branch BEFORE the slot-picker fallback', () => {
     const start = CANDS.indexOf('// Interview line');
     expect(start).toBeGreaterThan(-1);
-    const block = CANDS.slice(start, start + 3600);
+    // Window widened 2026-09-14 when the completed branch grew a "Summary
+    // refreshing" state + "Fetch summary now" button.
+    const block = CANDS.slice(start, start + 7000);
     const booked = block.indexOf("a.interview.status === 'booked'");
     const completed = block.indexOf("a.interview.status === 'completed'");
     const fallback = block.indexOf('ats-app-slot-pick');
@@ -114,9 +116,12 @@ describe('candidate drawer — a COMPLETED interview no longer falls into the sl
     expect(block).toContain('Interview held');
     expect(block).toContain('<span class="ats-pill green" style="margin-left:8px">Summary saved</span>');
     expect(block).toContain('<span class="ats-pill muted" style="margin-left:8px">No summary</span>');
-    // The saved summary excerpt keeps its existing class.
+    // The saved summary excerpt keeps its existing class (it may carry a dim
+    // style while the record is waiting on a Zoom re-read).
     const completedBlock = block.slice(completed, fallback);
-    expect(completedBlock).toContain('<div class="ats-app-interview-summary">');
+    expect(completedBlock).toContain('<div class="ats-app-interview-summary"');
+    expect(completedBlock).toContain('Summary refreshing');
+    expect(completedBlock).toContain('ats-int-fetch-summary');
     // Viewer-local time, like the booked line (the owner travels).
     expect(completedBlock).toContain('toLocaleString()');
     expect(completedBlock).not.toContain('timeZone');
@@ -234,9 +239,9 @@ describe('highlighter keeps discrepancy indexes when a quote belongs to the othe
 
 describe('cache-busters', () => {
   it('bumps candidates JS, contracts JS and the ATS CSS to 20260914b (CSS ≥ candidates JS)', () => {
-    expect(DASH).toContain('/js/ceo-ats-candidates.js?v=20260914b');
+    expect(DASH).toContain('/js/ceo-ats-candidates.js?v=20260914c');
     expect(DASH).toContain('/js/ceo-ats-contracts.js?v=20260914b');
-    expect(DASH).toContain('/css/ceo-ats.css?v=20260914b');
+    expect(DASH).toContain('/css/ceo-ats.css?v=20260914c');
     expect(DASH).not.toContain('/js/ceo-ats-candidates.js?v=20260914a');
     expect(DASH).not.toContain('/js/ceo-ats-contracts.js?v=20260914a');
     expect(DASH).not.toContain('/css/ceo-ats.css?v=20260914a');

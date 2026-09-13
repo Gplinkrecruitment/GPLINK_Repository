@@ -927,12 +927,29 @@
         // review compares the contract against is on file.
         var heldDt = '';
         try { heldDt = a.interview.scheduled_at ? new Date(a.interview.scheduled_at).toLocaleString() : ''; } catch (ex) { heldDt = a.interview.scheduled_at || ''; }
-        interviewHtml = '<span class="ats-app-interview-booked">Interview held' + (heldDt ? ' ' + ATS.esc(heldDt) : '') + '</span>' +
-          (a.interview.summary
-            ? ' <span class="ats-pill green" style="margin-left:8px">Summary saved</span>'
-            : ' <span class="ats-pill muted" style="margin-left:8px">No summary</span>');
+        // summary_status is the truth about the text below. 'pending' / 'error'
+        // means the record is waiting for Zoom to be re-read — e.g. the saved
+        // text came from a day-early join and the real instance's summary is
+        // due to replace it (PKG, 2026-09-14) — so that text must not be dressed
+        // up as "Summary saved", and the CEO gets a one-click fetch here rather
+        // than waiting for the nightly retry. (The GP file's own "Fetch Summary"
+        // hides whenever ANY text is on file, which is exactly this case.)
+        var sumState = String(a.interview.summary_status || (a.interview.summary ? 'saved' : ''));
+        var sumRefreshing = sumState === 'pending' || sumState === 'error' || sumState === 'running';
+        var sumPill;
+        if (sumRefreshing) sumPill = ' <span class="ats-pill amber" style="margin-left:8px">Summary refreshing</span>';
+        else if (a.interview.summary) sumPill = ' <span class="ats-pill green" style="margin-left:8px">Summary saved</span>';
+        else sumPill = ' <span class="ats-pill muted" style="margin-left:8px">No summary</span>';
+        interviewHtml = '<span class="ats-app-interview-booked">Interview held' + (heldDt ? ' ' + ATS.esc(heldDt) : '') + '</span>' + sumPill;
+        if (sumRefreshing) {
+          interviewHtml += '<div class="ats-app-interview-join ats-app-interview-join-muted">' +
+            'The summary on file is being replaced from Zoom' + (a.interview.summary ? ' — the text below is the old one' : '') + '.' +
+            ((ATS.isConsultant && ATS.isConsultant()) || !a.interview.id ? '' :
+              ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-int-fetch-summary" data-call-id="' + ATS.escAttr(String(a.interview.id)) + '" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">Fetch summary now</button>') +
+          '</div>';
+        }
         if (a.interview.summary) {
-          interviewHtml += '<div class="ats-app-interview-summary">' + ATS.esc(a.interview.summary) + '</div>';
+          interviewHtml += '<div class="ats-app-interview-summary"' + (sumRefreshing ? ' style="opacity:.55"' : '') + '>' + ATS.esc(a.interview.summary) + '</div>';
         }
       } else {
         // Awaiting GP slot pick — placeholder filled by atsRenderSlotPicker in wireDetailEvents.
@@ -1631,6 +1648,28 @@
   function openContractsTab() {
     var tab = document.querySelector('#masterTabs .ats-master-tab[data-mtab="contracts"]');
     if (tab) tab.click(); else ATS.toast('Open the Contracts tab to review it.');
+  }
+
+  // Pull the Zoom AI summary for a completed interview whose record is waiting
+  // on a re-read (summary_status pending/error). Same endpoint as the GP file's
+  // "Fetch Summary"; it refuses a row whose summary is already 'saved', so this
+  // can never overwrite a settled summary.
+  function fetchInterviewSummary(btn, c) {
+    var callId = btn.getAttribute('data-call-id');
+    if (!callId) { ATS.toast('This interview has no call record to refresh.'); return; }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Fetching from Zoom…';
+    ATS.api('/api/admin/calls/' + encodeURIComponent(callId) + '/fetch-summary', { method: 'POST' }).then(function (d) {
+      btn.disabled = false;
+      btn.textContent = label;
+      if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not fetch the summary.'); return; }
+      var st = String(d.summary_status || '');
+      if (st === 'saved') ATS.toast('Summary fetched from Zoom.');
+      else if (st === 'not_available') ATS.toast('Zoom has no summary for this meeting yet — try again a little later.');
+      else ATS.toast('Zoom did not return the summary (' + (st || 'unknown') + ') — try again shortly.');
+      window.atsOpenCandidate(c.case_id);
+    });
   }
 
   function offerFormHtml(appId) {
@@ -2450,6 +2489,9 @@
       if (withdrawBtn) { withdrawOffer(withdrawBtn.getAttribute('data-app-id'), c); return; }
       var acceptBtn = e.target.closest('.ats-accept-application');
       if (acceptBtn) { acceptApplication(acceptBtn.getAttribute('data-app-id'), c); return; }
+      // A completed interview whose summary is waiting on a Zoom re-read.
+      var intFetchBtn = e.target.closest('.ats-int-fetch-summary');
+      if (intFetchBtn) { fetchInterviewSummary(intFetchBtn, c); return; }
       var intCancelBtn = e.target.closest('.ats-int-cancel');
       if (intCancelBtn) { cancelInterview(intCancelBtn.getAttribute('data-app-id'), c); return; }
       // A6: open the candidate's CV (consultant-accessible).

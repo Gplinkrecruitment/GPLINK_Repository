@@ -42148,7 +42148,7 @@ function atsLocalCandidateFacts(row) {
     if (matches.length) {
       matches.sort(function (x, y) { return (y.created_at || '') > (x.created_at || '') ? 1 : -1; });
       var m = matches[0];
-      intRow = { status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null, join_url: resolveInterviewJoinUrl(m.zoom_join_url) };
+      intRow = { id: m.id, status: m.status, scheduled_at: m.scheduled_at || null, summary: m.meeting_summary || null, summary_status: m.summary_status || null, join_url: resolveInterviewJoinUrl(m.zoom_join_url) };
     }
     var offerRow = (dbState.atsOffers || []).find(function (o) { return String(o.application_id) === String(a.id); }) || null;
     return Object.assign({}, a, {
@@ -42225,7 +42225,7 @@ async function atsProdCandidateFacts(regCase) {
   if (prodAppIds.length) {
     var prodAppIdList = prodAppIds.map(function (id) { return String(id); }).join(',');
     var aiRes = await supabaseDbRequest('scheduled_calls',
-      'select=id,application_id,status,scheduled_at,meeting_summary,zoom_join_url&application_id=in.(' + encodeURIComponent(prodAppIdList) + ')&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=200');
+      'select=id,application_id,status,scheduled_at,meeting_summary,summary_status,zoom_join_url&application_id=in.(' + encodeURIComponent(prodAppIdList) + ')&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.desc&limit=200');
     ((aiRes.ok && aiRes.data) || []).forEach(function (r) {
       if (!appInterviewMap[r.application_id]) {
         appInterviewMap[r.application_id] = r;
@@ -42279,7 +42279,10 @@ async function atsProdCandidateFacts(regCase) {
       // AI match (2026-07-30): the card's action strip shows the score, and
       // offers to generate one when a direct applicant has none.
       match_score: (a.match_score != null) ? a.match_score : null,
-      interview: intRow ? { status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null, join_url: resolveInterviewJoinUrl(intRow.zoom_join_url) } : null,
+      // `id` + `summary_status` let the card say whether the summary text is
+      // the settled one or is waiting on a Zoom re-read (pending/error) and
+      // offer "Fetch summary now" against the right scheduled_calls row.
+      interview: intRow ? { id: intRow.id, status: intRow.status, scheduled_at: intRow.scheduled_at || null, summary: intRow.meeting_summary || null, summary_status: intRow.summary_status || null, join_url: resolveInterviewJoinUrl(intRow.zoom_join_url) } : null,
       offer: atsOfferCardState(appOfferMap[String(a.id)] || null),
       contract: atsContractCardState(appContractMap[String(a.id)] || null)
     };
