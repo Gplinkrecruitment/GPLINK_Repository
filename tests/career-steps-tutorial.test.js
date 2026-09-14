@@ -33,9 +33,25 @@ describe('careers page tutorial — the four steps of the strip', () => {
     expect(js).toContain("window.addEventListener('gp-career-intro-closed', fire);");
     expect(read('pages/career.html')).toContain("function announceCareerGateClosed() { try { window.dispatchEvent(new CustomEvent('gp-career-gate-closed')); }");
   });
+  it('runs on its own once-only flag, not behind the tab tour (which never runs in the two-tab phase)', async () => {
+    const { createRequire } = await import('node:module');
+    const req = createRequire(import.meta.url);
+    const S = req(path.join(process.cwd(), 'js', 'gp-walkthrough-state.js'));
+    expect(S.defaultState().careerStepsSeen).toBe(false);
+    expect(S.shouldRunCareerSteps({ tourDone: false })).toBe(true);          // no tour needed
+    expect(S.shouldRunCareerSteps(S.withCareerStepsSeen({}))).toBe(false);   // once only
+    expect(S.allSeenState().careerStepsSeen).toBe(true);
+    const fn = js.slice(js.indexOf('function maybeRunCareerSteps()'), js.indexOf('function maybeRun()'));
+    expect(fn).toContain('if (!S.shouldRunCareerSteps(readState())) return false;');
+    expect(fn).toContain("if (!document.querySelector('[data-career-step=\"1\"]')) return false;");
+    expect(fn).toContain('if (pageBlocked()) { armRetry(); return true; }');
+    expect(fn).toContain('markCareerStepsSeen(); // mark BEFORE running so it can never double-fire');
+    expect(fn).not.toContain('shouldRunTip');
+    expect(js).toContain("if (area === 'practice' && maybeRunCareerSteps()) return;");
+  });
   it('busters moved together', () => {
-    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915a'));
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915a"');
-    expect(read('sw.js')).toContain('var VERSION = "20260915a"');
+    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915b'));
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915b"');
+    expect(read('sw.js')).toContain('var VERSION = "20260915b"');
   });
 });

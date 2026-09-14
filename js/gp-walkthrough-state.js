@@ -20,7 +20,7 @@
     return t;
   }
   function defaultState() {
-    return { tourDone: false, nextStepDone: false, introSeen: false, registrationIntroSeen: false, tips: tipsAll(false) };
+    return { tourDone: false, nextStepDone: false, introSeen: false, registrationIntroSeen: false, careerStepsSeen: false, tips: tipsAll(false) };
   }
   function normalize(state) {
     var d = defaultState();
@@ -29,6 +29,10 @@
     d.nextStepDone = state.nextStepDone === true;
     d.introSeen = state.introSeen === true;
     d.registrationIntroSeen = state.registrationIntroSeen === true;
+    // Careers page step tutorial (owner 2026-09-15). Its own flag: the page
+    // tips are gated on tourDone, and the tab tour never runs in the two-tab
+    // position phase, so this one must not be.
+    d.careerStepsSeen = state.careerStepsSeen === true;
     var t = state.tips && typeof state.tips === 'object' ? state.tips : {};
     for (var i = 0; i < AREAS.length; i++) d.tips[AREAS[i]] = t[AREAS[i]] === true;
     return d;
@@ -40,12 +44,14 @@
   }
   function serializeState(state) { return JSON.stringify(normalize(state)); }
   function allSeenState() {
-    return { tourDone: true, nextStepDone: true, introSeen: true, registrationIntroSeen: true, tips: tipsAll(true) };
+    return { tourDone: true, nextStepDone: true, introSeen: true, registrationIntroSeen: true, careerStepsSeen: true, tips: tipsAll(true) };
   }
   function withTourDone(state) { var n = normalize(state); n.tourDone = true; return n; }
   function withNextStepDone(state) { var n = normalize(state); n.nextStepDone = true; return n; }
   function withIntroSeen(state) { var n = normalize(state); n.introSeen = true; return n; }
   function withRegistrationIntroSeen(state) { var n = normalize(state); n.registrationIntroSeen = true; return n; }
+  function withCareerStepsSeen(state) { var n = normalize(state); n.careerStepsSeen = true; return n; }
+  function shouldRunCareerSteps(state) { return normalize(state).careerStepsSeen !== true; }
   function withTipSeen(state, area) {
     var n = normalize(state);
     if (AREAS.indexOf(area) !== -1) n.tips[area] = true;
@@ -83,6 +89,7 @@
     AREAS: AREAS, defaultState: defaultState, parseState: parseState, serializeState: serializeState,
     allSeenState: allSeenState, withTourDone: withTourDone, withNextStepDone: withNextStepDone,
     withIntroSeen: withIntroSeen, withRegistrationIntroSeen: withRegistrationIntroSeen,
+    withCareerStepsSeen: withCareerStepsSeen, shouldRunCareerSteps: shouldRunCareerSteps,
     withTipSeen: withTipSeen, shouldRunTour: shouldRunTour, shouldRunNextStep: shouldRunNextStep,
     shouldRunTip: shouldRunTip, shouldRunIntro: shouldRunIntro,
     shouldRunRegistrationIntro: shouldRunRegistrationIntro, routeToArea: routeToArea

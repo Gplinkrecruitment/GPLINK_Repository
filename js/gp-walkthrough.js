@@ -144,9 +144,11 @@
   // which highlights each step eg 1. Find your practice, 2. Interview, etc
   // with more information on what the step is and what it then unlocks").
   // Spotlights the four steps of the masthead strip in order. It runs once
-  // (tips.practice) the first time the page is on screen; the careers
-  // explainer and the CV gate only DEFER it (pageBlocked → armRetry), so it
-  // fires after "Skip for now" exactly as after an upload.
+  // (careerStepsSeen — its OWN flag: the other page tips wait for the tab
+  // tour, which never runs in the two-tab position phase) the first time the
+  // page is on screen; the careers explainer and the CV gate only DEFER it
+  // (pageBlocked → armRetry), so it fires after "Skip for now" exactly as
+  // after an upload.
   var CAREER_STEPS = [
     { target: '[data-career-step="1"]', timeout: 8000, title: '1. Find your practice',
       body: 'Every practice on the map is one you are already eligible for. Browse the roles, save the ones you like, then apply or send an enquiry — your Registration Support Officer introduces you with your CV. Unlocks: the moment a practice wants to meet you, step 2 opens.' },
@@ -222,11 +224,37 @@
   function homeTipYields(area) {
     return area === 'home' && S.shouldRunNextStep(readState());
   }
+  function markCareerStepsSeen() {
+    try {
+      localStorage.setItem(KEY, S.serializeState(S.withCareerStepsSeen(readState())));
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+  }
+  // The careers step tutorial. Returns true when it took this boot (ran, or
+  // deferred behind a gate and armed a retry) so the generic tip stays out
+  // of its way; false when there is nothing to do (seen, or no strip —
+  // i.e. a position is already secured).
+  function maybeRunCareerSteps() {
+    if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') return false;
+    if (!S.shouldRunCareerSteps(readState())) return false;
+    if (!document.querySelector('[data-career-step="1"]')) return false;
+    if (pageBlocked()) { armRetry(); return true; } // defer — deliberately BEFORE marking seen
+    setTimeout(function () {
+      if (guarded()) return;
+      if (pageBlocked()) { armRetry(); return; }
+      if (!S.shouldRunCareerSteps(readState())) return;
+      if (!document.querySelector('[data-career-step="1"]')) return;
+      markCareerStepsSeen(); // mark BEFORE running so it can never double-fire
+      C.run(CAREER_STEPS.slice(), { label: firstVisitLabel });
+    }, 250);
+    return true;
+  }
   function maybeRun() {
     if (!S || !C) return;
     var area = S.routeToArea(location.pathname);
     if (!area) return;
     if (guarded()) return;
+    if (area === 'practice' && maybeRunCareerSteps()) return;
     if (!S.shouldRunTip(readState(), area)) return;
     if (homeTipYields(area)) return; // defer unmarked — retried via scheduleRetry()
     if (pageBlocked()) { armRetry(); return; } // defer — deliberately BEFORE markSeen

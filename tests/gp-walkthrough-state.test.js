@@ -14,6 +14,7 @@ describe('gp-walkthrough-state', () => {
       nextStepDone: false,
       introSeen: false,
       registrationIntroSeen: false,
+      careerStepsSeen: false,
       tips: { home: false, practice: false, support: false, account: false, scan: false }
     });
   });
