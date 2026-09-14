@@ -2724,8 +2724,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.openAhpraLetterModal=openAhpraLetterModal;
   function s80Meta(t){ var m=t&&t.metadata; if(typeof m==='string'){try{m=JSON.parse(m);}catch(e){m={};}} return (m&&typeof m==='object')?m:{}; }
   function isS80Task(t){ return !!(t&&t.task_type==='ahpra_action_item'&&s80Meta(t).s80); }
+  // Who/How labels — mirror S80_OWNER_LABELS / S80_MODE_LABELS in lib/ahpra-s80.js.
+  var S80_OWNER_LABELS={gp:'GP does it',practice:'Practice does it',team:'Team handles'};
+  var S80_MODE_LABELS={upload:'GP uploads',request_institution:'GP requests from institution',practice_upload:'Practice uploads',team:'Team handles'};
+  function s80OwnerForMode(mode){ return mode==='team'?'team':mode==='practice_upload'?'practice':'gp'; }
+  // Client copy of ahpraS80.applyRouting — computed from the SAVED metadata (never the sibling
+  // dropdown on screen) so the pair the RSO sees while the save is in flight is the pair the
+  // server will store.
+  function s80RouteFor(m,change){
+    m=m||{}; change=change||{};
+    var modes=['upload','request_institution','practice_upload','team'], owners=['gp','practice','team'];
+    var mode=modes.indexOf(m.mode)>=0?m.mode:'';
+    var owner=owners.indexOf(m.owner)>=0?m.owner:(mode?s80OwnerForMode(mode):'gp');
+    var wantOwner=owners.indexOf(change.owner)>=0?change.owner:'', wantMode=modes.indexOf(change.mode)>=0?change.mode:'';
+    function gpDefault(){ if(m.ai_mode==='upload'||m.ai_mode==='request_institution')return m.ai_mode; if(m.kind==='good_standing'||m.kind==='english'||m.institution)return 'request_institution'; return 'upload'; }
+    if(wantMode){ mode=wantMode; owner=s80OwnerForMode(mode); }
+    if(wantOwner&&owner!==wantOwner){ owner=wantOwner; if(owner==='team')mode='team'; else if(owner==='practice')mode='practice_upload'; else if(mode!=='upload'&&mode!=='request_institution')mode=gpDefault(); }
+    if(!mode) mode=owner==='team'?'team':owner==='practice'?'practice_upload':gpDefault();
+    return {owner:s80OwnerForMode(mode),mode:mode};
+  }
   function s80OwnerChip(owner){ return owner==='gp'
     ?'<span style="font-size:10px;font-weight:700;background:#eff6ff;color:#2563eb;border-radius:5px;padding:2px 7px;">GP</span>'
+    :owner==='practice'
+    ?'<span style="font-size:10px;font-weight:700;background:#fdf4ff;color:#7e22ce;border-radius:5px;padding:2px 7px;">PRACTICE</span>'
     :'<span style="font-size:10px;font-weight:700;background:#f1f5f9;color:#475569;border-radius:5px;padding:2px 7px;">TEAM</span>'; }
   function renderS80SubItems(m){
     if(!Array.isArray(m.sub_items)||!m.sub_items.length) return '';
@@ -2749,8 +2770,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='</div>'; return h;
   }
   // The exact text the doctor will see — so the team can sanity-check it before Release.
+  // For a practice item it is the note that seeds the request email; for a team item a plain
+  // reminder that nothing is shown to the doctor (so a hidden preview never reads as "lost").
   function renderS80GpPreview(m){
-    if(m.owner!=='gp') return '';
+    if(m.owner==='practice'){
+      var pi=m.practice_instructions||'';
+      var hp='<div style="margin-top:8px;border-left:3px solid #e9d5ff;background:#fdf8ff;border-radius:0 8px 8px 0;padding:8px 10px;">';
+      hp+='<div style="font-size:10px;font-weight:700;color:#7e22ce;text-transform:uppercase;letter-spacing:.4px;">What the practice will be asked</div>';
+      hp+='<div style="font-size:12px;color:var(--ink);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(pi||('AHPRA has asked for "'+(m.title||'this document')+'". The practice will be asked to reply with it attached.'))+'</div>';
+      hp+='<div style="font-size:11px;color:var(--muted);margin-top:6px;">After you release, this item gives you a drafted email to the practice to check and send. Nothing goes to the practice until you send it.</div>';
+      hp+='</div>';
+      return hp;
+    }
+    if(m.owner!=='gp'){
+      return '<div style="margin-top:8px;font-size:11px;color:var(--muted);">Team handles this. The GP will not see it.</div>';
+    }
     var gi=m.gp_instructions||'';
     if(!gi && !(Array.isArray(m.how_to_steps)&&m.how_to_steps.length)) return '';
     var h='<div style="margin-top:8px;border-left:3px solid #bfdbfe;background:#f8fbff;border-radius:0 8px 8px 0;padding:8px 10px;">';
@@ -2759,6 +2793,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+=renderS80HowTo(m);
     h+='</div>';
     return h;
+  }
+  function s80Select(attr,id,value,labels,order){
+    var h='<select data-'+attr+'="'+esc(id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;">';
+    order.forEach(function(k){ h+='<option value="'+k+'"'+(value===k?' selected':'')+'>'+esc(labels[k])+'</option>'; });
+    return h+'</select>';
   }
   function renderS80Tray(c, pending){
     if(!pending.length) return '';
@@ -2778,17 +2817,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       items.forEach(function(t){
         var m=s80Meta(t);
-        html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-top:10px;">';
+        // Render the CONSISTENT pair (a stale row can still hold owner=team + mode=upload).
+        var route=s80RouteFor(m,{});
+        html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-top:10px;" data-s80-item="'+esc(t.id)+'">';
         html+='<div style="font-weight:700;color:var(--ink);">'+esc(t.title)+'</div>';
+        if(Array.isArray(m.merged_from)&&m.merged_from.length>1) html+='<div style="font-size:11px;color:#6d28d9;margin-top:2px;">Covers '+m.merged_from.length+' requests from the letter that need the same document: '+esc(m.merged_from.join(' · '))+'</div>';
         var _ti=m.team_instructions||'';
         if(_ti) html+='<div style="font-size:13px;color:var(--ink);margin-top:4px;line-height:1.5;">'+esc(_ti)+'</div>';
         if(m.needs_call||m.kind==='qualification_check') html+='<div style="margin-top:6px;font-size:12px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;">📞 Book a Zoom call with the doctor to debug this (PSV / MyIntealth / AMC).</div>';
         html+='<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">Officer’s exact words</summary><div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.detail||'')+'</div></details>';
         html+=renderS80SubItems(m);
-        html+=renderS80GpPreview(m);
+        html+=renderS80GpPreview(Object.assign({},m,route,{title:t.title}));
         html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">';
-        html+='<label style="font-size:11px;color:var(--muted);">Who <select data-s80-owner="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="gp"'+(m.owner==='gp'?' selected':'')+'>GP does it</option><option value="team"'+(m.owner==='team'?' selected':'')+'>Team handles</option></select></label>';
-        html+='<label style="font-size:11px;color:var(--muted);">How <select data-s80-mode="'+esc(t.id)+'" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;"><option value="upload"'+(m.mode==='upload'?' selected':'')+'>GP uploads</option><option value="request_institution"'+(m.mode==='request_institution'?' selected':'')+'>GP requests from institution</option><option value="team"'+(m.mode==='team'?' selected':'')+'>Team handles</option></select></label>';
+        html+='<label style="font-size:11px;color:var(--muted);">Who '+s80Select('s80-owner',t.id,route.owner,S80_OWNER_LABELS,['gp','practice','team'])+'</label>';
+        html+='<label style="font-size:11px;color:var(--muted);">How '+s80Select('s80-mode',t.id,route.mode,S80_MODE_LABELS,['upload','request_institution','practice_upload','team'])+'</label>';
+        // The AI's original call + a one-click way back to it once the RSO has changed it.
+        if(m.ai_owner&&m.ai_mode&&(m.ai_owner!==route.owner||m.ai_mode!==route.mode)){
+          html+='<span style="font-size:11px;color:var(--muted);">AI suggested: '+esc(S80_OWNER_LABELS[m.ai_owner]||m.ai_owner)+' · '+esc(S80_MODE_LABELS[m.ai_mode]||m.ai_mode)+' <button type="button" data-s80-reset="'+esc(t.id)+'" style="background:none;border:none;color:#2563eb;font-size:11px;cursor:pointer;text-decoration:underline;padding:0;">Use AI suggestion</button></span>';
+        }
+        html+='<span data-s80-saving="'+esc(t.id)+'" style="font-size:11px;color:var(--muted);"></span>';
         html+='<button type="button" data-s80-remove="'+esc(t.id)+'" style="margin-left:auto;background:none;border:none;color:#b91c1c;font-size:12px;cursor:pointer;text-decoration:underline;">Remove</button>';
         html+='</div></div>';
       });
@@ -2814,14 +2861,30 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="font-size:12px;color:var(--ink);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>';
         html+='<div style="font-size:12px;color:var(--muted);margin-top:6px;">Book a Zoom call with the doctor to debug their PSV / MyIntealth / AMC status and pin down the exact issue.</div>';
         html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-book-call="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">📞 Book guidance call</button><button type="button" data-s80-complete="'+esc(t.id)+'" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">Mark done</button></div>';
-      } else if(m.mode==='upload'){
+      } else if(m.mode==='upload'||m.mode==='practice_upload'){
         var up=m.upload||null;
+        var isPr=m.mode==='practice_upload';
+        var pr=m.practice_request||null;
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(up&&up.status==='under_review'){
-          html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ GP uploaded: '+esc(up.file_name||'file')+'</div>';
+          html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ '+(isPr?(up.uploaded_by==='admin_upload'?'Filed by hand: ':'Practice sent: '):'GP uploaded: ')+esc(up.file_name||'file')+(Array.isArray(up.other_attachments)&&up.other_attachments.length?' <span style="color:var(--muted);">(their reply also had: '+esc(up.other_attachments.join(', '))+')</span>':'')+'</div>';
           html+=s80VerdictChip(m);
           html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
           html+='<div id="s80OfficerComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
+        } else if(isPr){
+          // Practice item: the team emails the practice (drafted for review), then waits for the reply.
+          if(up&&up.status==='rejected') html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+'. Email the practice again for a corrected copy.</div>';
+          if(pr&&pr.sent_at){
+            html+='<div style="font-size:12px;margin-top:6px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 9px;">📤 Request emailed to '+esc(pr.to||'the practice')+' on '+esc(fmtD(pr.sent_at))+(pr.send_count>1?' ('+pr.send_count+' times)':'')+'. Waiting on the practice to reply with the document. When they reply to that email, the attachment lands here automatically.</div>';
+          } else {
+            html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">Not yet requested from the practice.</div>';
+          }
+          html+='<div data-s80-practice-docs="'+esc(t.id)+'" style="margin-top:6px;"></div>';
+          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+          html+='<button type="button" data-s80-practice-draft="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">✉️ '+(pr&&pr.sent_at?'Email the practice again':'Suggest email to practice')+'</button>';
+          html+='<label style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">📎 File their document by hand<input type="file" accept=".pdf,application/pdf,image/*" data-s80-practice-upload="'+esc(t.id)+'" style="display:none;"></label>';
+          html+='</div>';
+          html+='<div id="s80PracticeComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
         } else if(up&&up.status==='rejected'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b91c1c;">Rejected: '+esc(up.reject_reason||'')+' — waiting on the GP to re-upload.</div>';
         } else {
@@ -2842,7 +2905,55 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='</div>';
     });
     html+='</div>';
+    // Practice items waiting on a reply: show any attachment the practice already sent back
+    // (filed on the task by the inbound email match) with a one-click "use this file".
+    if(active.some(function(t){ var m=s80Meta(t); return m.mode==='practice_upload'&&m.practice_request&&m.practice_request.sent_at&&!(m.upload&&m.upload.status==='under_review'); })){
+      setTimeout(s80LoadPracticeDocs,0);
+    }
     return html;
+  }
+  // Only items whose request has gone out are asked (a reply is only possible after that), and
+  // the answer is cached for a minute per item so the periodic re-renders don't re-download the
+  // reply's base64 payloads each time.
+  S._s80DocsCache=S._s80DocsCache||{};
+  async function s80LoadPracticeDocs(){
+    var boxes=document.querySelectorAll('[data-s80-practice-docs]');
+    for(var i=0;i<boxes.length;i++){
+      var box=boxes[i], tid=box.getAttribute('data-s80-practice-docs');
+      var task=(S.tasks||[]).find(function(x){return x.id===tid;});
+      var pm=task?s80Meta(task):{};
+      if(!(pm.practice_request&&pm.practice_request.sent_at)){ box.innerHTML=''; continue; }
+      try{
+        var docs;
+        var cached=S._s80DocsCache[tid];
+        if(cached&&(Date.now()-cached.at)<60000){ docs=cached.docs; }
+        else {
+          var r=await fetch('/api/admin/task/documents?taskId='+encodeURIComponent(tid),{credentials:'same-origin'});
+          var d=await r.json().catch(function(){return {};});
+          var all=(d.ok&&Array.isArray(d.documents)?d.documents:[]).filter(function(x){return x.attachment_url;});
+          // Every attachment of the newest reply (the inbound path may flag only the first as current).
+          var newest=all.length?String(all[0].message_id||''):'';
+          docs=(newest?all.filter(function(x){return String(x.message_id||'')===newest;}):all.slice(0,1)).map(function(x){return {id:x.id,filename:x.filename};});
+          S._s80DocsCache[tid]={at:Date.now(),docs:docs};
+        }
+        if(!document.body.contains(box)) continue;
+        if(!docs.length){ box.innerHTML=''; continue; }
+        var h='<div style="font-size:12px;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:6px 9px;">📎 The practice replied with '+docs.length+' file'+(docs.length===1?'':'s')+':</div>';
+        docs.forEach(function(x){
+          h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:12px;"><span>'+esc(x.filename||'document')+'</span><button type="button" data-s80-practice-usedoc="'+esc(tid)+'" data-s80-doc="'+esc(x.id)+'" style="background:#16a34a;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">Use this file</button></div>';
+        });
+        box.innerHTML=h;
+      }catch(err){ /* leave the box empty */ }
+    }
+  }
+  // Optimistic local update for a tray routing change: patch the task in S.tasks and re-render
+  // the pane, so the RSO never sees the previous value flash back while the save is in flight.
+  function s80ApplyLocal(taskId,metaPatch){
+    var t=(S.tasks||[]).find(function(x){return x.id===taskId;});
+    if(!t) return;
+    var m=s80Meta(t);
+    t.metadata=Object.assign({},m,metaPatch);
+    try{renderDetail();}catch(err){}
   }
 
   function renderGpTasksPane(c){
@@ -6042,8 +6153,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // available but collapsed. Used at every status (in review, waiting on GP/team, done).
   function renderOpsS80Item(task){
     var m=s80Meta(task);
-    var ownerLabel=m.owner==='gp'?'GP':'Team';
-    var modeLabel=m.mode==='upload'?'GP uploads':m.mode==='request_institution'?('GP requests'+(m.institution?(' from '+m.institution):'')):'Team handles';
+    var ownerLabel=m.owner==='gp'?'GP':m.owner==='practice'?'Practice':'Team';
+    var modeLabel=m.mode==='upload'?'GP uploads':m.mode==='request_institution'?('GP requests'+(m.institution?(' from '+m.institution):'')):m.mode==='practice_upload'?'Practice uploads':'Team handles';
     var stMap={open:'To do',waiting:'In review',waiting_on_gp:'Waiting on GP',waiting_on_practice:'Waiting on practice',in_progress:'In progress',completed:'Done'};
     var statusLabel=stMap[task.status||'open']||(task.status||'open');
     var ti=m.team_instructions||m.detail||task.description||'';
@@ -6805,23 +6916,51 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const wq=e.target.closest("[data-wq-case]");
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
+    /* AHPRA s80: change who-does-it / how in the review tray. The new pair is computed from the
+       SAVED metadata (not the sibling dropdown, which may be mid-re-render), applied locally at
+       once, then saved through /api/admin/ahpra/item/route which returns the stored row. The old
+       handler read the other <select> from the DOM and then did a full loadAll() that first
+       re-painted the OLD data — a change made in that window saved an inconsistent pair
+       (owner=team + mode=upload) and the "What the GP will see" preview vanished. */
+    async function s80SaveRoute(sid,body){
+      var saving=document.querySelector('[data-s80-saving="'+sid+'"]'); if(saving) saving.textContent='Saving…';
+      try{
+        var r=await fetch('/api/admin/ahpra/item/route',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(Object.assign({task_id:sid},body))});
+        var d=await r.json().catch(function(){return {};});
+        if(!d.ok){ showOpsToast(d.message||'Could not save the change','red'); await loadAll(true); return; }
+        if(d.task&&d.task.metadata){ var t=(S.tasks||[]).find(function(x){return x.id===sid;}); if(t){ t.metadata=d.task.metadata; if(d.task.description)t.description=d.task.description; } }
+        try{renderDetail();}catch(err){}
+      }catch(err){ showOpsToast('Could not save the change','red'); await loadAll(true); }
+    }
     document.getElementById("detailContent").addEventListener("change",async e=>{
-      /* AHPRA s80: change who-does-it / how in the review tray */
       var s80Own=e.target.closest("[data-s80-owner]");
       var s80Mod=e.target.closest("[data-s80-mode]");
+      var s80Up=e.target.closest("[data-s80-practice-upload]");
+      if(s80Up){
+        /* Practice item: staff file the document the practice sent them directly. */
+        var upTid=s80Up.getAttribute('data-s80-practice-upload');
+        var f=s80Up.files&&s80Up.files[0]; if(!f) return;
+        /* Base64-in-JSON goes through the serverless body limit; a CV/PD is well under this. */
+        if(f.size>3*1024*1024){ showOpsToast('File too large (max 3MB). Ask the practice to email it to us and use "Use this file".','red'); return; }
+        var reader=new FileReader();
+        reader.onload=async function(){
+          try{
+            var r=await fetch('/api/admin/ahpra/item/practice-file',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:upTid,fileName:f.name,mimeType:f.type,fileDataUrl:reader.result})});
+            var d=await r.json().catch(function(){return {};});
+            if(!d.ok){ showOpsToast(d.message||'Could not file the document','red'); return; }
+            showOpsToast('Document filed for review'); await loadAll(true);
+          }catch(err){ showOpsToast('Could not file the document','red'); }
+        };
+        reader.readAsDataURL(f);
+        return;
+      }
       if(!s80Own&&!s80Mod)return;
       var sid=(s80Own||s80Mod).getAttribute(s80Own?"data-s80-owner":"data-s80-mode");
-      var merge={};
-      if(s80Own){ merge.owner=s80Own.value;
-        if(s80Own.value==='team'){ merge.mode='team'; }
-        else { var me=document.querySelector('[data-s80-mode="'+sid+'"]'); if(me&&me.value==='team')merge.mode='request_institution'; }
-      }
-      if(s80Mod){ merge.mode=s80Mod.value;
-        if(s80Mod.value==='team'){ merge.owner='team'; }
-        else { var oe=document.querySelector('[data-s80-owner="'+sid+'"]'); if(oe&&oe.value==='team')merge.owner='gp'; }
-      }
-      try{ await fetch('/api/admin/task?id='+encodeURIComponent(sid),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({metadata_merge:merge})}); }catch(err){}
-      await loadAll(true);
+      var task=(S.tasks||[]).find(function(x){return x.id===sid;});
+      var change=s80Own?{owner:s80Own.value}:{mode:s80Mod.value};
+      var next=s80RouteFor(task?s80Meta(task):{},change);
+      s80ApplyLocal(sid,next);
+      await s80SaveRoute(sid,change);
     });
     document.getElementById("detailContent").addEventListener("click",async e=>{
       /* AHPRA "Send to GP" — the same 6-card action as the Ops Queue, but this pane (the GP
@@ -6842,6 +6981,71 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var rid=s80Rem.getAttribute("data-s80-remove");
         try{ await fetch('/api/admin/task?id='+encodeURIComponent(rid),{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({status:'cancelled'})}); }catch(err){}
         await loadAll(true); return;
+      }
+      /* Tray: put an item back to what the AI marked it as. */
+      var s80Rst=e.target.closest("[data-s80-reset]");
+      if(s80Rst){ e.preventDefault();
+        var rstId=s80Rst.getAttribute("data-s80-reset");
+        var rstTask=(S.tasks||[]).find(function(x){return x.id===rstId;});
+        var rstMeta=rstTask?s80Meta(rstTask):{};
+        s80ApplyLocal(rstId,s80RouteFor(rstMeta,{owner:rstMeta.ai_owner,mode:rstMeta.ai_mode}));
+        await s80SaveRoute(rstId,{reset:true}); return;
+      }
+      /* Practice item: open the drafted request email (AI-suggested, editable) to the practice. */
+      var s80Pd=e.target.closest("[data-s80-practice-draft]");
+      if(s80Pd){ e.preventDefault();
+        var pdId=s80Pd.getAttribute("data-s80-practice-draft"), pdCase=s80Pd.getAttribute("data-s80-case")||S.selectedCaseId;
+        var pbox=document.getElementById('s80PracticeComposer_'+pdId);
+        if(!pbox) return;
+        if(pbox.style.display!=='none'){ pbox.style.display='none'; return; }
+        pbox.style.display='block'; pbox.innerHTML='<div style="font-size:12px;color:var(--muted);">Drafting the email to the practice…</div>';
+        s80Pd.disabled=true;
+        try{
+          var pdr=await fetch('/api/admin/ahpra/item/practice-request-draft?task_id='+encodeURIComponent(pdId),{credentials:'same-origin'}).then(function(r){return r.json();});
+          if(!pdr.ok){ pbox.innerHTML='<div style="font-size:12px;color:#b91c1c;">'+esc(pdr.message||'Could not prepare the email.')+'</div>'; s80Pd.disabled=false; return; }
+          pbox.innerHTML=''
+            +'<div class="ops-expand-label">Email to the practice'+(pdr.practice_name?' · '+esc(pdr.practice_name):'')+'</div>'
+            +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(pdId)+'" value="'+esc(pdr.to||'')+'" placeholder="practice manager email" style="width:100%"/></div>'
+            +(pdr.to?'':'<div style="font-size:11px;color:#b45309;margin:-2px 0 6px;">No practice contact on file for this placement. Type the practice manager\'s email above.</div>')
+            +opsCcRow(pdId,false,[])
+            +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(pdId)+'" value="'+esc(pdr.subject||'')+'" style="width:100%"/></div>'
+            +'<div style="font-size:11px;color:var(--muted);margin:4px 0;">'+(pdr.ai_drafted?'AI draft — read it and change anything before sending.':'Standard wording — change anything before sending.')+' The practice replies to this email with the document attached and it lands on this card.</div>'
+            +'<div data-email-body="'+esc(pdId)+'" contenteditable="true" class="ops-email-body" style="min-height:140px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;font-size:13px;">'+(pdr.bodyHtml||'')+'</div>'
+            +'<div style="margin-top:8px;text-align:right;"><button type="button" data-s80-practice-send="'+esc(pdId)+'" style="background:#16a34a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Send to practice</button></div>';
+          loadCcContacts(pdCase);
+          s80Pd.disabled=false;
+        }catch(err){ pbox.innerHTML='<div style="font-size:12px;color:#b91c1c;">Error preparing the email.</div>'; s80Pd.disabled=false; }
+        return;
+      }
+      var s80Ps=e.target.closest("[data-s80-practice-send]");
+      if(s80Ps){ e.preventDefault();
+        var psId=s80Ps.getAttribute("data-s80-practice-send");
+        var psTo=(document.querySelector('[data-email-to="'+psId+'"]')||{}).value||'';
+        var psCcEl=document.querySelector('[data-email-cc="'+psId+'"]');
+        var psCc=psCcEl?Array.from(psCcEl.selectedOptions).map(function(o){return o.value;}).filter(Boolean).join(', '):'';
+        var psSubj=(document.querySelector('[data-email-subject="'+psId+'"]')||{}).value||'';
+        var psBodyEl=document.querySelector('[data-email-body="'+psId+'"]');
+        var psBody=psBodyEl?psBodyEl.innerHTML:'';
+        if(!psTo.trim()){ showOpsToast('Practice email required','red'); return; }
+        if(!psSubj.trim()){ showOpsToast('Subject required','red'); return; }
+        s80Ps.disabled=true; s80Ps.textContent='Sending…';
+        try{
+          var psr=await fetch('/api/admin/ahpra/item/practice-request',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:psId,to:psTo.trim(),cc:psCc,subject:psSubj.trim(),bodyHtml:psBody})}).then(function(r){return r.json();});
+          if(psr.ok){ showOpsToast('Request sent to the practice'); await loadAll(true); }
+          else { showOpsToast(psr.message||'Send failed','red'); s80Ps.disabled=false; s80Ps.textContent='Send to practice'; }
+        }catch(err){ showOpsToast(err.message||'Network error','red'); s80Ps.disabled=false; s80Ps.textContent='Send to practice'; }
+        return;
+      }
+      var s80Ud=e.target.closest("[data-s80-practice-usedoc]");
+      if(s80Ud){ e.preventDefault();
+        var udId=s80Ud.getAttribute("data-s80-practice-usedoc"), udDoc=s80Ud.getAttribute("data-s80-doc");
+        s80Ud.disabled=true; s80Ud.textContent='Filing…';
+        try{
+          var udr=await fetch('/api/admin/ahpra/item/practice-file',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:udId,document_id:udDoc})}).then(function(r){return r.json();});
+          if(udr.ok){ delete S._s80DocsCache[udId]; showOpsToast('Document filed for review'); await loadAll(true); }
+          else { showOpsToast(udr.message||'Could not file the document','red'); s80Ud.disabled=false; s80Ud.textContent='Use this file'; }
+        }catch(err){ showOpsToast('Could not file the document','red'); s80Ud.disabled=false; s80Ud.textContent='Use this file'; }
+        return;
       }
       var s80Book=e.target.closest("[data-s80-book-call]");
       if(s80Book){ e.preventDefault();

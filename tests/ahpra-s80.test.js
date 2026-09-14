@@ -121,9 +121,13 @@ describe('ahpra-s80 parsing + normalisation', () => {
     expect(item.title).toBe('Certificate of Good Standing from GMC');
   });
 
-  it('maps legacy owner words (practice/hazel) onto team', () => {
+  it('maps legacy owner words (hazel/support) onto team; "practice" is now a real owner', () => {
     expect(s80.normalizeItem({ title: 'X', owner: 'hazel' }).owner).toBe('team');
-    expect(s80.normalizeItem({ title: 'Y', owner: 'practice', mode: 'upload' }).owner).toBe('team');
+    expect(s80.normalizeItem({ title: 'X', owner: 'support' }).mode).toBe('team');
+    // A practice-owned item always pairs with the practice_upload mode (the model said "upload").
+    const p = s80.normalizeItem({ title: 'Y', owner: 'practice', mode: 'upload' });
+    expect(p.owner).toBe('practice');
+    expect(p.mode).toBe('practice_upload');
   });
 });
 
@@ -410,5 +414,216 @@ describe('officer-reply draft + prompt', () => {
     expect(m.userText).toContain('Signed CV');
     expect(m.userText).toContain('Smith Miller');
     expect(m.userText).toContain('1460970');
+  });
+});
+
+// ── 2026-09-14 (Dr Mercy's notice): practice-owned items, tray routing, duplicate items ──
+
+// The two real items the model returned for one resubmitted CV.
+const MERCY_CV = { title: 'Resubmission of CV with gaps explained', owner: 'gp', mode: 'upload', kind: '',
+  detail: 'Resubmission of CV - We note that you have provided your CV, however, note that you have not included periods of maternity leave in your CV (as mentioned in the documents from your employer). Therefore, please resubmit your CV, with any gaps in practice explained, and the dates of those gaps in practice.',
+  gp_instructions: 'Please update and resubmit your CV so it includes your full practice history, including your maternity leave period, with clear dates and explanations for any gaps.',
+  team_instructions: 'AHPRA wants an updated CV that includes all practice gaps with dates and reasons explained. Ask the doctor to resubmit a complete CV covering this.' };
+const MERCY_ENGLISH = { title: 'Evidence of meeting English language skills registration standard', owner: 'gp', mode: 'upload', kind: 'english',
+  detail: 'It\'s acknowledged that you have provided a copy of your PLAB completed on 8/11/2019. While this is an accepted English language test, the test is more than two years old. As your current CV does not have the dates of your gaps in practice, we require resubmission of your CV before we are able to assess this further.',
+  gp_instructions: 'Your PLAB test from 8/11/2019 is now more than two years old, so AHPRA needs to see that you started work within 12 months of the test. This ties in with the CV resubmission — make sure your gaps in practice and dates are clearly shown.',
+  team_instructions: 'AHPRA won\'t accept the 2019 PLAB test as-is; the work history needs to be shown clearly via the resubmitted CV. Make sure the CV resubmission addresses this alongside the gaps-in-practice request.' };
+const MERCY_SUP_CV = { title: 'Supervisor CV clarification/resubmission (Dr Ranatunga)', owner: 'team', mode: 'team', kind: 'supervised_practice_plan',
+  detail: 'Supervisor CV - We acknowledge receipt of your supervisor\'s CV however note in the employment section of Dr Ranatunga\'s CV, it states that they currently work at White Cross Accident and Medical Clinic in NZ. If this is not current information, we will need resubmission of Dr Ranatunga\'s CV with those dates amended.',
+  gp_instructions: 'AHPRA has a query about your supervisor Dr Ranatunga\'s CV.', team_instructions: 'This is a supervisor CV query tied to the supervised practice plan.' };
+
+describe('practice-owned items ("Practice uploads")', () => {
+  it('prompt offers the practice owner, practice_upload mode, practice_instructions and deliverable', () => {
+    const prompt = s80.buildExtractionPrompt({ bodyText: 'x' });
+    expect(prompt).toContain('"practice"');
+    expect(prompt).toContain('practice_upload');
+    expect(prompt).toContain('practice_instructions');
+    expect(prompt).toContain('"deliverable"');
+    expect(prompt).toContain('ONE DOCUMENT = ONE ITEM');
+    expect(prompt).toMatch(/Never use em dashes/);
+  });
+
+  it('routes a standalone supervisor-CV query to the practice even though the model tagged it as SPPA', () => {
+    const item = s80.normalizeItem(MERCY_SUP_CV);
+    expect(item.owner).toBe('practice');
+    expect(item.mode).toBe('practice_upload');
+    expect(item.kind).toBe('practice_document');
+    expect(item.practice_instructions).toContain('Supervisor CV clarification');
+    expect(item.practice_instructions).not.toMatch(/—/);
+    expect(item.team_instructions).toBe(MERCY_SUP_CV.team_instructions);
+  });
+
+  it('keeps the SPPA-00 form itself (with its listed attachments) with the team', () => {
+    const item = s80.normalizeItem({ title: 'Completed Supervised practice plan (SPPA-00)', detail: 'A signed and dated CV of the primary supervisor (required at Q3 of SPPA-00)', owner: 'gp', mode: 'upload', sub_items: ['CV of supervisor', 'Position description'] });
+    expect(item.owner).toBe('team');
+    expect(item.mode).toBe('team');
+    expect(item.kind).toBe('supervised_practice_plan');
+  });
+
+  it('does NOT send the doctor\'s own CV or previous-employer reference letters to the practice', () => {
+    expect(s80.normalizeItem(MERCY_CV).owner).toBe('gp');
+    const ref = s80.normalizeItem({ title: 'Employer reference letters', detail: 'Reference letters from your previous employers covering the last two years.', owner: 'gp', mode: 'upload' });
+    expect(ref.owner).toBe('gp');
+    expect(ref.mode).toBe('upload');
+    expect(s80.isPracticeDocumentItem({ title: 'Position description for the proposed role' })).toBe(true);
+    expect(s80.isPracticeDocumentItem({ title: 'Certificate of Good Standing', detail: 'as mentioned in the documents from your employer' })).toBe(false);
+    // Previous-employer paperwork is the doctor's history even when the words match.
+    expect(s80.isPracticeDocumentItem({ title: 'Statement of service', detail: 'A statement of service signed by the practice principal at your previous employer.' })).toBe(false);
+    expect(s80.isPracticeDocumentItem({ title: 'Position description for your previous role' })).toBe(false);
+  });
+
+  it('the wording test never overrides a model "gp" call — it only promotes team/untagged items', () => {
+    const gpSaid = s80.normalizeItem({ title: 'Letter from the practice you worked at in 2019', detail: 'Provide a letter from the practice confirming your hours.', owner: 'gp', mode: 'upload' });
+    expect(gpSaid.owner).toBe('gp');
+    const untagged = s80.normalizeItem({ title: 'Letter from the practice confirming supervision arrangements', detail: 'Please provide a letter from the practice.' });
+    expect(untagged.owner).toBe('practice');
+    expect(untagged.mode).toBe('practice_upload');
+  });
+
+  it('a model owner "practice" always pairs with practice_upload; practice_upload always pairs with practice', () => {
+    expect(s80.normalizeItem({ title: 'Letter from the practice', owner: 'practice', mode: 'upload' }).mode).toBe('practice_upload');
+    const byMode = s80.normalizeItem({ title: 'Signed letter', owner: 'gp', mode: 'practice_upload' });
+    expect(byMode.owner).toBe('practice');
+    expect(byMode.gp_instructions).toBe('');
+  });
+
+  it('shortDescription labels practice items', () => {
+    expect(s80.shortDescription({ owner: 'practice', mode: 'practice_upload', detail: 'x' })).toMatch(/^\[Practice · practice uploads\]/);
+  });
+
+  it('practice request email: template names the document, asks for a reply with it attached, no em dashes', () => {
+    const d = s80.buildPracticeRequestDraft({ gpName: 'Mercy Obanimoh', contactName: 'Jane', itemTitle: 'Updated CV for Dr Ranatunga', practiceInstructions: 'AHPRA needs the dates he finished at the NZ clinics.', reference: '14805868', deadline: '29 September 2026', senderName: 'Hazel' });
+    expect(d.subject).toContain('Updated CV for Dr Ranatunga');
+    expect(d.subject).toContain('14805868');
+    expect(d.body).toContain('Hi Jane,');
+    expect(d.body).toContain('Dr Mercy Obanimoh');
+    expect(d.body).toContain('reply to this email with the document attached by 29 September 2026');
+    expect(d.body).toContain('AHPRA needs the dates');
+    expect(d.body).toMatch(/Kind regards,\nHazel$/);
+    expect(d.body).not.toMatch(/—/);
+    const bare = s80.buildPracticeRequestDraft({});
+    expect(bare.body).toContain('Hi there,');
+    expect(bare.body).toContain('at your earliest convenience');
+  });
+
+  it('practice request AI prompt grounds with the practice, doctor, document and reference', () => {
+    const m = s80.buildPracticeRequestMessages({ gpName: 'Mercy Obanimoh', contactName: 'Jane', practiceName: 'The Doctors Werribee', itemTitle: 'Updated supervisor CV', reference: '14805868', senderName: 'Hazel' });
+    expect(m.system).toMatch(/practice manager/);
+    expect(m.system).toMatch(/no em dashes/);
+    expect(m.userText).toContain('Jane at The Doctors Werribee');
+    expect(m.userText).toContain('Updated supervisor CV');
+    expect(m.userText).toContain('14805868');
+    expect(m.userText).toContain('Sign off as: Hazel');
+  });
+});
+
+describe('tray routing (applyRouting / ensureInstructions)', () => {
+  const base = { owner: 'gp', mode: 'upload', ai_owner: 'gp', ai_mode: 'upload' };
+  it('every mode implies its owner', () => {
+    expect(s80.applyRouting(base, { mode: 'team' })).toEqual({ owner: 'team', mode: 'team' });
+    expect(s80.applyRouting(base, { mode: 'practice_upload' })).toEqual({ owner: 'practice', mode: 'practice_upload' });
+    expect(s80.applyRouting({ owner: 'team', mode: 'team' }, { mode: 'request_institution' })).toEqual({ owner: 'gp', mode: 'request_institution' });
+  });
+  it('Who=Team → team/team; back to GP → the AI\'s original GP mode (the revert the RSO expects)', () => {
+    const t = s80.applyRouting(base, { owner: 'team' });
+    expect(t).toEqual({ owner: 'team', mode: 'team' });
+    expect(s80.applyRouting(Object.assign({}, base, t), { owner: 'gp' })).toEqual({ owner: 'gp', mode: 'upload' });
+    // Without an AI record, the item's nature decides (good standing → request from institution).
+    expect(s80.applyRouting({ owner: 'team', mode: 'team', kind: 'good_standing' }, { owner: 'gp' })).toEqual({ owner: 'gp', mode: 'request_institution' });
+    expect(s80.applyRouting({ owner: 'team', mode: 'team' }, { owner: 'gp' })).toEqual({ owner: 'gp', mode: 'upload' });
+  });
+  it('Who=Practice → practice/practice_upload; back to GP restores the GP mode', () => {
+    const p = s80.applyRouting(base, { owner: 'practice' });
+    expect(p).toEqual({ owner: 'practice', mode: 'practice_upload' });
+    expect(s80.applyRouting(Object.assign({}, base, p), { owner: 'gp' })).toEqual({ owner: 'gp', mode: 'upload' });
+  });
+  it('heals Mercy\'s stored team/upload pair even with no change requested; an explicit owner wins over an explicit mode', () => {
+    expect(s80.applyRouting({ owner: 'team', mode: 'upload' }, {})).toEqual({ owner: 'gp', mode: 'upload' });
+    expect(s80.applyRouting({ owner: 'team', mode: 'upload', ai_owner: 'gp', ai_mode: 'upload' }, { owner: 'gp' })).toEqual({ owner: 'gp', mode: 'upload' });
+    expect(s80.applyRouting(base, { owner: 'team', mode: 'upload' })).toEqual({ owner: 'team', mode: 'team' });
+    expect(s80.applyRouting({}, {})).toEqual({ owner: 'gp', mode: 'upload' });
+    expect(s80.applyRouting(base, { owner: 'bogus', mode: 'nonsense' })).toEqual({ owner: 'gp', mode: 'upload' });
+  });
+  it('ensureInstructions fills only what is missing and never overwrites the AI\'s text', () => {
+    expect(s80.ensureInstructions({ owner: 'gp', mode: 'upload', title: 'Reference letter', gp_instructions: 'Keep me' }, {})).toEqual({});
+    const gp = s80.ensureInstructions({ owner: 'gp', mode: 'upload', title: 'Reference letter', detail: 'x' }, {});
+    expect(gp.gp_instructions.toLowerCase()).toContain('upload');
+    const inst = s80.ensureInstructions({ owner: 'gp', mode: 'request_institution', institution: 'GMC', title: 'Some certificate', detail: 'send to my email address', officer: { name: 'Paige Hooper', email: 'Paige.Hooper@ahpra.gov.au' } }, {});
+    expect(inst.gp_instructions).toContain('GMC');
+    expect(inst.gp_instructions).toContain('directly to AHPRA');
+    const pr = s80.ensureInstructions({ owner: 'practice', mode: 'practice_upload', title: 'Updated supervisor CV' }, {});
+    expect(pr.practice_instructions).toContain('Updated supervisor CV');
+    expect(s80.ensureInstructions({ owner: 'team', mode: 'team', title: 'X' }, {})).toEqual({});
+  });
+  it('dashesToSentences turns a spaced dash into a sentence break and leaves date ranges alone', () => {
+    expect(s80.dashesToSentences('This ties in with the CV resubmission — make sure your dates are shown.')).toBe('This ties in with the CV resubmission. Make sure your dates are shown.');
+    expect(s80.dashesToSentences('Worked 2019–2021 in Leeds.')).toBe('Worked 2019–2021 in Leeds.');
+    expect(s80.dashesToSentences('No dash here.')).toBe('No dash here.');
+    expect(s80.dashesToSentences('')).toBe('');
+  });
+});
+
+describe('duplicate items: one document asked for twice becomes one task', () => {
+  it('folds the English-language item into the CV resubmission item, keeping both requirements', () => {
+    const norm = s80.normalizeExtraction({ deadline: '2026-09-29', reference: '14805868', items: [MERCY_SUP_CV, MERCY_CV, MERCY_ENGLISH] }, { country: 'uk' });
+    expect(norm.items.length).toBe(2);
+    const cv = norm.items.find((i) => /Resubmission of CV/.test(i.title));
+    expect(cv).toBeTruthy();
+    expect(cv.title).toBe('Resubmission of CV with gaps explained (also covers: Evidence of meeting English language skills registration standard)');
+    expect(cv.owner).toBe('gp');
+    expect(cv.mode).toBe('upload');
+    expect(cv.detail).toContain('maternity leave');
+    expect(cv.detail).toContain('PLAB');
+    expect(cv.gp_instructions).toContain('resubmit your CV');
+    expect(cv.gp_instructions).toContain('PLAB test');
+    expect(cv.gp_instructions).not.toMatch(/—/);
+    expect(cv.team_instructions).toContain('practice gaps');
+    expect(cv.team_instructions).toContain('PLAB');
+    expect(cv.kind).toBe('english');
+    expect(cv.merged_from).toEqual(['Resubmission of CV with gaps explained', 'Evidence of meeting English language skills registration standard']);
+    // The supervisor CV (a different document, practice-owned) is untouched.
+    expect(norm.items.find((i) => /Supervisor CV/.test(i.title)).owner).toBe('practice');
+  });
+
+  it('the item whose TITLE names the CV is the base even when it comes second', () => {
+    const merged = s80.mergeDuplicateItems([s80.normalizeItem(MERCY_ENGLISH), s80.normalizeItem(MERCY_CV)]);
+    expect(merged.length).toBe(1);
+    expect(merged[0].title).toMatch(/^Resubmission of CV with gaps explained \(also covers/);
+  });
+
+  it('does not merge items with different owners/modes, different institutions, or no shared deliverable', () => {
+    const items = [
+      s80.normalizeItem({ title: 'Certificate of Good Standing from GMC', owner: 'gp', mode: 'request_institution', institution: 'GMC', deliverable: 'Certificate of Good Standing' }),
+      s80.normalizeItem({ title: 'Certificate of Good Standing from Medical and Dental Council of Nigeria', owner: 'gp', mode: 'request_institution', institution: 'MDCN', deliverable: 'Certificate of Good Standing' }),
+      s80.normalizeItem({ title: 'English test confirmation (IELTS/OET)', owner: 'gp', mode: 'request_institution', institution: 'OET', kind: 'english' }),
+      s80.normalizeItem(MERCY_CV),
+      s80.normalizeItem(MERCY_SUP_CV)
+    ];
+    expect(s80.mergeDuplicateItems(items).length).toBe(5);
+  });
+
+  it('merges on a model-named deliverable when everything else matches', () => {
+    const a = s80.normalizeItem({ title: 'Certified copy of primary degree', owner: 'gp', mode: 'upload', deliverable: 'Certified copy of MBBS' });
+    const b = s80.normalizeItem({ title: 'Evidence of medical qualification', owner: 'gp', mode: 'upload', deliverable: 'Certified copy of MBBS' });
+    const merged = s80.mergeDuplicateItems([a, b]);
+    expect(merged.length).toBe(1);
+    expect(merged[0].title).toContain('also covers: Evidence of medical qualification');
+  });
+
+  it('deliverableSignature: own CV → cv; officer asking for the CV again → weak cv?; supervisor CV → not cv; nothing known → empty', () => {
+    expect(s80.deliverableSignature(MERCY_CV)).toBe('cv');
+    expect(s80.deliverableSignature(MERCY_ENGLISH)).toBe('cv?');
+    expect(s80.deliverableSignature(MERCY_SUP_CV)).toBe('');
+    expect(s80.deliverableSignature({ title: 'Reference letters' })).toBe('');
+    // A mere mention of the CV in the instructions is not a request for it.
+    expect(s80.deliverableSignature({ title: 'Employer reference letters', detail: 'Reference letters from your employers.', team_instructions: 'Check them against the updated CV.' })).toBe('');
+  });
+
+  it('two items that only MENTION the CV are never merged with each other, and a mention never swallows a different document', () => {
+    const refs = s80.normalizeItem({ title: 'Employer reference letters', detail: 'Reference letters covering the periods in your updated CV. Please provide the letters.', owner: 'gp', mode: 'upload' });
+    const training = s80.normalizeItem({ title: 'Evidence of continuing professional development', detail: 'Please provide your CPD record and submit your CV showing the dates.', owner: 'gp', mode: 'upload' });
+    expect(s80.mergeDuplicateItems([refs, training]).length).toBe(2);
+    // …but the titled CV item does absorb a weak mention.
+    expect(s80.mergeDuplicateItems([s80.normalizeItem(MERCY_CV), training]).length).toBe(1);
   });
 });

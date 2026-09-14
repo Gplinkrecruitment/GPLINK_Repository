@@ -5612,7 +5612,16 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       source_card_task_id: opts.sourceCardTaskId || null,
       owner: item.owner,
       mode: item.mode,
+      // The AI's original call, kept so the tray can show "AI suggested …" and a one-click reset
+      // after the RSO has re-routed an item (owner/mode above are what is CURRENTLY chosen).
+      ai_owner: item.owner,
+      ai_mode: item.mode,
       kind: item.kind || '',
+      // For practice-owned items: the note to the practice manager (drives the request email).
+      practice_instructions: item.practice_instructions || '',
+      deliverable: item.deliverable || '',
+      // Set when two of the officer's requirements were folded into this one item (same document).
+      merged_from: Array.isArray(item.merged_from) && item.merged_from.length > 1 ? item.merged_from : null,
       detail: item.detail || item.title,
       // GP-facing instruction (plain English, second person) + the app's real
       // "how to get this" steps for documents we already guide. The verbatim
@@ -5703,6 +5712,128 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
 // Sends FROM the GP's assigned RSO mailbox when it's @mygplink.com.au (Reply-To
 // always points at the RSO). Tasks that already queued an email are skipped, and a
 // gp_email marker is stamped on metadata so a re-release can never double-send.
+// ── s80 practice items (owner 'practice' / mode 'practice_upload') ──
+// Who the request email goes to, and who it is about. Prefers the placement's OWNED rows
+// (resolvePlacedPracticeProfile) over the case columns, which can hold another doctor's practice.
+async function _s80PracticeContext(caseId) {
+  var out = { gpName: '', contactName: '', contactEmail: '', practiceName: '', senderName: '', userId: null };
+  try {
+    var cRes = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var c = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0] : {};
+    out.userId = c.user_id || null;
+    if (c.user_id) {
+      var pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(c.user_id) + '&limit=1');
+      var p = (pRes.ok && Array.isArray(pRes.data) && pRes.data[0]) ? pRes.data[0] : {};
+      out.gpName = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+      try {
+        var prof = await resolvePlacedPracticeProfile(c.user_id);
+        if (prof) { out.practiceName = prof.practiceName || ''; out.contactName = prof.contactName || ''; out.contactEmail = prof.contactEmail || ''; }
+      } catch (e) { /* fall through */ }
+      if (!out.contactEmail) {
+        try { var pc = await resolvePlacedPracticeContact(c.user_id); if (pc && pc.email) { out.contactEmail = pc.email; out.contactName = out.contactName || pc.name || ''; } } catch (e) { /* fall through */ }
+      }
+    }
+    if (!out.contactEmail) out.contactEmail = String(c.practice_contact_email || '').trim();
+    if (!out.contactName) out.contactName = String(c.practice_contact_name || '').trim();
+    if (!out.practiceName) out.practiceName = String(c.practice_name || '').trim();
+  } catch (e) { console.warn('[AHPRA practice item] context lookup failed:', e && e.message); }
+  try { var s = await resolveCaseSenderInfo(caseId); out.senderName = (s && s.fromName) || ''; } catch (e) { out.senderName = ''; }
+  return out;
+}
+
+// Store a practice-supplied document against an s80 item exactly the way the doctor's own upload
+// is stored (metadata.upload + Storage + the advisory AI check), so the existing "View file /
+// Accept & email AHPRA / Reject" review works unchanged. `file` = {dataUrl, mime, name,
+// sourceDocumentId, uploadedBy}. Returns {ok, upload} or {ok:false, status, message}.
+async function _storeS80UploadForTask(task, meta, file) {
+  var dataUrl = String((file && file.dataUrl) || '');
+  var mime = String((file && file.mime) || (dataUrl.match(/^data:([^;]+);/) || [])[1] || '').toLowerCase();
+  var buffer = Buffer.from(dataUrl.replace(/^data:[^;]+;base64,/, ''), 'base64');
+  if (!buffer.length) return { ok: false, status: 400, message: 'The file is empty.' };
+  var check = validateFileUpload(buffer, mime, (file && file.name) || 'document');
+  if (!check.valid) return { ok: false, status: 400, message: check.errors[0] || 'File validation failed.' };
+  var cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+  var uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
+  if (!uid) return { ok: false, status: 404, message: 'Case not found.' };
+  var country = await _resolveGpCountry(uid);
+  var docKey = ('ahpra_s80_' + task.id).replace(/[^a-z0-9_-]/gi, '');
+  var path = buildPreparedDocumentStoragePath(uid, normalizeDocumentCountry(country) || country || 'uk', docKey);
+  var uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, path, dataUrl, mime);
+  if (!uploaded) return { ok: false, status: 502, message: 'Could not store the file.' };
+  var upload = {
+    file_name: check.sanitisedFileName || (file && file.name) || 'document',
+    storage_path: path,
+    storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+    mime_type: mime,
+    file_size: buffer.length,
+    status: 'under_review',
+    reject_reason: '',
+    uploaded_at: new Date().toISOString(),
+    uploaded_by: (file && file.uploadedBy) || 'practice_reply',
+    source_document_id: (file && file.sourceDocumentId) || null,
+    country: country
+  };
+  try {
+    var uc = await runUploadCheck(buffer, mime, { title: task.title, detail: meta.detail, team_instructions: meta.team_instructions, sub_items: meta.sub_items });
+    upload.ai_check = { verdict: uc.verdict, summary: uc.summary, model: AHPRA_S80_EXTRACT_MODEL, checked_at: new Date().toISOString() };
+  } catch (e) { upload.ai_check = { verdict: 'unchecked', summary: '', checked_at: new Date().toISOString() }; }
+  meta.upload = upload;
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+    method: 'PATCH', body: { status: 'waiting', metadata: meta, updated_at: new Date().toISOString() }
+  });
+  return { ok: true, upload: upload };
+}
+
+// When the practice replies to our request with the document attached, the reply threads back
+// to the item and its attachments land in task_documents (the generic response-match path).
+// This turns the newest PDF/image among them into the item's reviewable upload so the RSO sees
+// "practice replied" with the AI check, instead of an unexplained attachment on a still-waiting
+// card. Fail-open; never throws. Returns true when a file was promoted.
+async function _autoFilePracticeReplyForS80(taskId) {
+  try {
+    var tRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    var task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
+    if (!task || task.task_type !== 'ahpra_action_item') return false;
+    var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+    if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = {}; } }
+    if (!meta.s80 || meta.mode !== 'practice_upload' || meta.review_status !== 'active') return false;
+    if (task.status === 'completed') return false;
+    if (meta.upload && meta.upload.status && meta.upload.status !== 'rejected' && meta.upload.status !== 'superseded') return false;
+    // The attachments of the NEWEST reply (all of them, whatever their is_current flag — the
+    // generic inbound path only keeps the first attachment current).
+    var dRes = await supabaseDbRequest('task_documents', 'select=id,message_id,filename,mime_type,attachment_url,created_at,is_current&task_id=eq.' + encodeURIComponent(taskId) + '&order=created_at.desc&limit=20');
+    var docs = (dRes.ok && Array.isArray(dRes.data)) ? dRes.data : [];
+    // Re-sort in JS (newest first) rather than trusting the query order alone.
+    docs.sort(function (a, b) { return String(b.created_at || '').localeCompare(String(a.created_at || '')); });
+    if (docs.length && docs[0].message_id) {
+      var newestMsg = String(docs[0].message_id);
+      docs = docs.filter(function (d) { return String(d.message_id || '') === newestMsg; });
+    } else if (docs.length) {
+      docs = [docs[0]];
+    }
+    var usable = docs.filter(function (d) {
+      var m = String(d.mime_type || (String(d.attachment_url || '').match(/^data:([^;]+);/) || [])[1] || '').toLowerCase();
+      return d.attachment_url && /^data:/.test(d.attachment_url) && (m.indexOf('pdf') >= 0 || m.indexOf('image/') === 0);
+    });
+    if (!usable.length) return false;
+    var pick = usable.find(function (d) { return /pdf/i.test(String(d.mime_type || '')); }) || usable[0];
+    // Never re-promote the same reply attachment (a re-scan of the thread would loop otherwise).
+    if (meta.upload && meta.upload.source_document_id && String(meta.upload.source_document_id) === String(pick.id)) return false;
+    var stored = await _storeS80UploadForTask(task, meta, { dataUrl: pick.attachment_url, mime: pick.mime_type, name: pick.filename, sourceDocumentId: pick.id, uploadedBy: 'practice_reply' });
+    if (!stored.ok) { console.warn('[AHPRA practice item] could not file the practice reply:', stored.message); return false; }
+    if (usable.length > 1) {
+      stored.upload.other_attachments = usable.filter(function (d) { return d.id !== pick.id; }).map(function (d) { return d.filename; });
+      meta.upload = stored.upload;
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() } });
+    }
+    await _logCaseEvent(task.case_id, taskId, 'status_change', 'Practice replied with the AHPRA document', (pick.filename || 'document') + ' filed for review' + (usable.length > 1 ? ' (' + (usable.length - 1) + ' other attachment(s) on the reply)' : ''), 'system');
+    return true;
+  } catch (e) {
+    console.error('[AHPRA practice item] auto-file failed (non-fatal):', e && e.message);
+    return false;
+  }
+}
+
 async function sendAhpraGpTaskEmails(caseId, userId, gpTasks, opts) {
   opts = opts || {};
   if (!isEmailConfigured() || !Array.isArray(gpTasks) || gpTasks.length === 0) return 0;
@@ -6717,11 +6848,15 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   // category=alt_supervisor_cv AND is_current=true (see ~line 2424), so
                   // demoting them there would hide them.
                   var _earlyIsSppa = earlyTask.related_document_key === 'sppa_00';
+                  // An AHPRA "practice uploads" item keeps every attachment current too: the
+                  // practice's reply often carries a logo/signature image first and the CV
+                  // second, and the RSO's "Use this file" picker must be able to see them all.
+                  var _earlyKeepAllCurrent = _earlyIsSppa || earlyTask.task_type === 'ahpra_action_item';
                   var _earlyDocRes = await supabaseDbRequest('task_documents', '', {
                     method: 'POST', headers: { Prefer: 'return=representation' },
                     body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
                       filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
-                      version: 1, is_current: (_earlyStoredDocIds.length === 0 || _earlyIsSppa),
+                      version: 1, is_current: (_earlyStoredDocIds.length === 0 || _earlyKeepAllCurrent),
                       uploaded_by: 'email_response',
                       attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
                   var _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
@@ -6734,7 +6869,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                       method: 'POST', headers: { Prefer: 'return=representation' },
                       body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
                         filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.size || 0,
-                        version: 1, is_current: (_earlyStoredDocIds.length === 0 || _earlyIsSppa),
+                        version: 1, is_current: (_earlyStoredDocIds.length === 0 || _earlyKeepAllCurrent),
                         uploaded_by: 'email_response',
                         attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
                     _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
@@ -6850,6 +6985,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             // Flip task status to open (Hazel's ball) for review
             await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
               { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+            // AHPRA "practice uploads" item: the practice's reply attachment becomes the item's
+            // reviewable upload (AI-checked). This early thread-match path is the one a practice
+            // reply actually takes (its `continue` below skips the generic block). Never for an
+            // officer email: every item in a bundle shares the officer's thread, so an officer
+            // follow-up with a PDF would otherwise be filed as "the practice sent" a document.
+            if (earlyTask.task_type === 'ahpra_action_item' && _earlyStoredDocIds.length > 0 && !isAhpraSender(emailMeta.sender)) {
+              await _autoFilePracticeReplyForS80(earlyTask.id);
+            }
             // Update practice_doc_ops to completed for non-SPPA practice_pack_child docs.
             // Gated on a document having actually been stored, for the same reason as the SPPA
             // transition above: `earlyIsDoc` alone would mark the document "completed" on the
@@ -7571,6 +7714,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   _ensurePracticeDocOps(gpCase.id).then(function () {
                     return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(gpCase.id) + '&document_key=eq.' + encodeURIComponent(rTask.related_document_key), { method: 'PATCH', body: { ops_status: 'completed' } });
                   }).catch(function (err) { console.error('[ResponseMatch] practice_doc_ops update failed:', err.message); });
+                }
+                // An AHPRA "practice uploads" item: the practice's attachment becomes the item's
+                // reviewable upload (AI-checked) so the RSO can Accept & email AHPRA from the card.
+                if (rTask.task_type === 'ahpra_action_item' && !isAhpraSender(emailMeta.sender)) {
+                  await _autoFilePracticeReplyForS80(rTask.id);
                 }
                 await _logCaseEvent(gpCase.id, rTask.id, 'status_change',
                   'GP/practice responded with document \u2014 review needed',
@@ -66051,12 +66199,17 @@ Return ONLY valid JSON with no markdown formatting:
       return m && m.s80 && m.bundle_id === bundleId && m.review_status === 'pending_review';
     });
     if (bundleTasks.length === 0) { sendJson(res, 404, { ok: false, message: 'No items awaiting release in this bundle.' }); return; }
-    let releasedGp = 0, releasedTeam = 0;
+    let releasedGp = 0, releasedTeam = 0, releasedPractice = 0;
     const releasedGpTasks = [];
     for (const t of bundleTasks) {
       var meta = (t.metadata && typeof t.metadata === 'object') ? t.metadata : {};
+      // Heal a stale owner/mode pair before it goes live (the old tray could save one).
+      var relRoute = ahpraS80.applyRouting(meta, {});
+      meta.owner = relRoute.owner; meta.mode = relRoute.mode;
       meta.review_status = 'active';
       meta.released_at = new Date().toISOString();
+      // Practice items stay 'open' (the team's ball): the practice hears nothing until the RSO
+      // reviews and sends the drafted request email from the item.
       var newStatus = meta.owner === 'gp' ? 'waiting_on_gp' : 'open';
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
         method: 'PATCH', body: { status: newStatus, metadata: meta, updated_at: new Date().toISOString() }
@@ -66064,7 +66217,8 @@ Return ONLY valid JSON with no markdown formatting:
       if (meta.owner === 'gp') {
         releasedGp++;
         releasedGpTasks.push({ id: t.id, title: t.title, metadata: meta, ahpra_deadline: t.ahpra_deadline, due_date: t.due_date });
-      } else releasedTeam++;
+      } else if (meta.owner === 'practice') releasedPractice++;
+      else releasedTeam++;
     }
     // Notify the GP only if they now have items to action.
     let emailsQueued = 0;
@@ -66084,8 +66238,172 @@ Return ONLY valid JSON with no markdown formatting:
         }
       } catch (e) { /* non-critical */ }
     }
-    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s) and activated ' + releasedTeam + ' team item(s).' + (emailsQueued ? ' Queued ' + emailsQueued + ' per-task email(s) to the GP, 1 minute apart.' : ''), adminCtx.email);
-    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam, emails_queued: emailsQueued });
+    await _logCaseEvent(caseId, null, 'note', 'AHPRA notice released to GP', 'Released ' + releasedGp + ' GP item(s), activated ' + releasedTeam + ' team item(s)' + (releasedPractice ? ' and ' + releasedPractice + ' practice item(s) (request email to send)' : '') + '.' + (emailsQueued ? ' Queued ' + emailsQueued + ' per-task email(s) to the GP, 1 minute apart.' : ''), adminCtx.email);
+    sendJson(res, 200, { ok: true, released_gp: releasedGp, released_team: releasedTeam, released_practice: releasedPractice, emails_queued: emailsQueued });
+    return;
+  }
+
+  // ── AHPRA s80: change who does an item / how, from the review tray ──
+  // Replaces the old client-side metadata_merge: the pair is computed from what is SAVED (never
+  // from the sibling dropdown on screen), so a change saved between two re-renders can no longer
+  // produce owner=team + mode=upload. Also guarantees the copy the new owner needs exists, so the
+  // "What the GP will see" preview always comes back when an item is routed back to the doctor.
+  if (pathname === '/api/admin/ahpra/item/route' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let rtBody; try { rtBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const rtTaskId = rtBody && typeof rtBody.task_id === 'string' ? rtBody.task_id.trim() : '';
+    if (!rtTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(rtTaskId), res))) return;
+    const rtRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(rtTaskId) + '&limit=1');
+    const rtTask = (rtRes.ok && Array.isArray(rtRes.data) && rtRes.data[0]) ? rtRes.data[0] : null;
+    if (!rtTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var rtMeta = (rtTask.metadata && typeof rtTask.metadata === 'object') ? rtTask.metadata : {};
+    if (typeof rtMeta === 'string') { try { rtMeta = JSON.parse(rtMeta); } catch (e) { rtMeta = {}; } }
+    if (!rtMeta.s80) { sendJson(res, 400, { ok: false, message: 'Not an AHPRA review item.' }); return; }
+    if (rtMeta.review_status !== 'pending_review') { sendJson(res, 409, { ok: false, message: 'This item has already been released. Who/how can only be changed before release.' }); return; }
+    var rtChange = {};
+    if (rtBody.reset === true) { rtChange.owner = rtMeta.ai_owner || ''; rtChange.mode = rtMeta.ai_mode || ''; }
+    else {
+      if (typeof rtBody.owner === 'string') rtChange.owner = rtBody.owner.trim().toLowerCase();
+      if (typeof rtBody.mode === 'string') rtChange.mode = rtBody.mode.trim().toLowerCase();
+    }
+    var rtRoute = ahpraS80.applyRouting(rtMeta, rtChange);
+    rtMeta.owner = rtRoute.owner;
+    rtMeta.mode = rtRoute.mode;
+    if (rtMeta.mode !== 'request_institution') rtMeta.institution = rtMeta.institution || '';
+    try {
+      var rtCaseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(rtTask.case_id) + '&limit=1');
+      var rtUid = (rtCaseRes.ok && Array.isArray(rtCaseRes.data) && rtCaseRes.data[0]) ? rtCaseRes.data[0].user_id : null;
+      var rtCountry = rtUid ? await _resolveGpCountry(rtUid) : 'uk';
+      Object.assign(rtMeta, ahpraS80.ensureInstructions(Object.assign({ title: rtTask.title }, rtMeta), { country: rtCountry, officer: rtMeta.officer || null }));
+    } catch (e) { /* copy fallbacks are best-effort; routing still saves */ }
+    var rtPatch = { metadata: rtMeta, updated_at: new Date().toISOString(), description: ahpraS80.shortDescription({ owner: rtMeta.owner, mode: rtMeta.mode, institution: rtMeta.institution, detail: rtMeta.detail, title: rtTask.title, sub_items: rtMeta.sub_items }) };
+    var rtSave = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rtTaskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: rtPatch });
+    if (!rtSave.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the change.' }); return; }
+    var rtSaved = (Array.isArray(rtSave.data) && rtSave.data[0]) ? rtSave.data[0] : Object.assign({}, rtTask, rtPatch);
+    sendJson(res, 200, { ok: true, task: rtSaved, owner: rtMeta.owner, mode: rtMeta.mode });
+    return;
+  }
+
+  // ── AHPRA s80 (practice item): pre-filled, AI-drafted request email to the practice ──
+  if (pathname === '/api/admin/ahpra/item/practice-request-draft' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    const pdTaskId = url.searchParams.get('task_id');
+    if (!pdTaskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(pdTaskId), res))) return;
+    const pdRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,title,ahpra_deadline,due_date,metadata&id=eq.' + encodeURIComponent(pdTaskId) + '&limit=1');
+    const pdTask = (pdRes.ok && Array.isArray(pdRes.data) && pdRes.data[0]) ? pdRes.data[0] : null;
+    if (!pdTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var pdMeta = (pdTask.metadata && typeof pdTask.metadata === 'object') ? pdTask.metadata : {};
+    if (!pdMeta.s80 || pdMeta.mode !== 'practice_upload') { sendJson(res, 400, { ok: false, message: 'Not a practice item.' }); return; }
+    var pdCtx = await _s80PracticeContext(pdTask.case_id);
+    var pdDeadline = '';
+    try { var pdD = pdTask.ahpra_deadline || pdTask.due_date; if (pdD) pdDeadline = new Date(pdD + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); } catch (e) { pdDeadline = ''; }
+    var pdOpts = { gpName: pdCtx.gpName, contactName: pdCtx.contactName, practiceName: pdCtx.practiceName, itemTitle: pdTask.title, practiceInstructions: pdMeta.practice_instructions || '', requirement: pdMeta.detail || '', reference: pdMeta.reference || '', deadline: pdDeadline, senderName: pdCtx.senderName };
+    var pdTemplate = ahpraS80.buildPracticeRequestDraft(pdOpts);
+    var pdBody = '';
+    var pdAi = false;
+    try {
+      if (process.env.ANTHROPIC_API_KEY && await checkAnthropicBudget()) {
+        var pdMsgs = ahpraS80.buildPracticeRequestMessages(pdOpts);
+        var pdCtl = new AbortController(); var pdT = setTimeout(function () { pdCtl.abort(); }, 30000);
+        var pdAiRes = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: pdCtl.signal, headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: SUGGEST_REPLY_MODEL, max_tokens: 700, system: pdMsgs.system, messages: [{ role: 'user', content: pdMsgs.userText }] }) });
+        clearTimeout(pdT);
+        var pdData = await pdAiRes.json();
+        if (pdData && pdData.usage) recordAnthropicSpend(pdData.usage.input_tokens || 0, pdData.usage.output_tokens || 0, pdData.usage.cache_read_input_tokens || 0, pdData.usage.cache_creation_input_tokens || 0);
+        pdBody = (pdData && pdData.content && pdData.content[0] && pdData.content[0].text) || '';
+        // Keep the internal-note guard's promise (nothing internal reaches a practice) and the no-em-dash rule.
+        pdBody = ahpraS80.dashesToSentences(pdBody);
+        pdAi = !!pdBody.trim();
+      }
+    } catch (pdErr) { console.error('[AHPRA practice-request-draft] AI failed (fallback to template):', pdErr && pdErr.message); }
+    if (!pdBody.trim()) pdBody = pdTemplate.body;
+    var _pdEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var pdBodyHtml = pdBody.split('\n').map(function (ln) { return _pdEsc(ln); }).join('<br>');
+    var pdPrev = pdMeta.practice_request || null;
+    sendJson(res, 200, { ok: true, to: (pdPrev && pdPrev.to) || pdCtx.contactEmail || '', cc: '', subject: (pdPrev && pdPrev.subject) || pdTemplate.subject, bodyHtml: pdBodyHtml, ai_drafted: pdAi, practice_name: pdCtx.practiceName, contact_name: pdCtx.contactName, already_sent: !!(pdPrev && pdPrev.sent_at) });
+    return;
+  }
+
+  // ── AHPRA s80 (practice item): send the request email to the practice ──
+  if (pathname === '/api/admin/ahpra/item/practice-request' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let prBody; try { prBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const prTaskId = prBody && typeof prBody.task_id === 'string' ? prBody.task_id.trim() : '';
+    const prTo = prBody && typeof prBody.to === 'string' ? prBody.to.trim() : '';
+    const prCc = prBody && typeof prBody.cc === 'string' ? prBody.cc.trim() : '';
+    const prSubject = prBody && typeof prBody.subject === 'string' ? prBody.subject.trim().slice(0, 800) : '';
+    const prBodyHtml = prBody && typeof prBody.bodyHtml === 'string' ? prBody.bodyHtml : '';
+    if (!prTaskId || !prTo || !prSubject || !prBodyHtml.trim()) { sendJson(res, 400, { ok: false, message: 'task_id, to, subject and a body are required.' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(prTo)) { sendJson(res, 400, { ok: false, message: 'The practice email address does not look valid.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(prTaskId), res))) return;
+    // Same last line of defence as /api/admin/email/send: an internal note must never reach a practice.
+    var prNotes = internalNoteGuard.findInternalNotes(prBodyHtml || '');
+    if (prNotes.length) { sendJson(res, 422, { ok: false, code: 'internal_note_in_body', message: internalNoteGuard.internalNoteBlockMessage(prNotes) }); return; }
+    const prRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(prTaskId) + '&limit=1');
+    const prTask = (prRes.ok && Array.isArray(prRes.data) && prRes.data[0]) ? prRes.data[0] : null;
+    if (!prTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var prMeta = (prTask.metadata && typeof prTask.metadata === 'object') ? prTask.metadata : {};
+    if (!prMeta.s80 || prMeta.mode !== 'practice_upload') { sendJson(res, 400, { ok: false, message: 'Not a practice item.' }); return; }
+    if (prMeta.review_status !== 'active') { sendJson(res, 409, { ok: false, message: 'Release the notice first, then email the practice.' }); return; }
+    if (prTask.status === 'completed') { sendJson(res, 200, { ok: true, sent: false, already: true, message: 'This item is already complete.' }); return; }
+    // A NEW thread on purpose: the item's own gmail_thread_id is the AHPRA officer's thread and the
+    // practice must never be added to it. The reply threads back to this task via the outbound
+    // task_message (matchResponseToTask signals 2 + 1.5).
+    var prSender = await resolveCaseSenderInfo(prTask.case_id);
+    var prSend = await sendGmailEmail({ from: prSender.from, fromName: prSender.fromName, to: prTo, cc: prCc || undefined, subject: prSubject, bodyHtml: prBodyHtml, caseId: prTask.case_id });
+    if (!prSend || !prSend.ok) { sendJson(res, 502, { ok: false, message: 'Email send failed.' + (prSend && prSend.error ? ' ' + prSend.error : '') }); return; }
+    var prPrev = (prMeta.practice_request && typeof prMeta.practice_request === 'object') ? prMeta.practice_request : {};
+    prMeta.practice_request = {
+      sent_at: new Date().toISOString(), to: prTo, cc: prCc || '', subject: prSubject, by: adminCtx.email,
+      gmail_thread_id: prSend.threadId || '', rfc822_message_id: prSend.rfc822MessageId || '',
+      send_count: (Number(prPrev.send_count) || 0) + 1, first_sent_at: prPrev.first_sent_at || new Date().toISOString()
+    };
+    // A rejected practice file is superseded by the new request.
+    if (prMeta.upload && prMeta.upload.status === 'rejected') { prMeta.upload.status = 'superseded'; }
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(prTaskId), { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: prMeta, updated_at: new Date().toISOString() } });
+    try {
+      await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: prTaskId, case_id: prTask.case_id, direction: 'outbound', channel: 'email', sender: prSender.from, recipient: prTo, cc: prCc || null, subject: prSubject, body_text: stripRemainingHtmlTags(prBodyHtml.replace(/<br\s*\/?>/gi, '\n'), ''), body_html: prBodyHtml, gmail_thread_id: prSend.threadId || null, gmail_message_id: prSend.gmailMessageId || null, rfc822_message_id: prSend.rfc822MessageId || null, created_at: new Date().toISOString() }] });
+    } catch (e) { /* non-critical */ }
+    await _logCaseEvent(prTask.case_id, prTaskId, 'status_change', 'AHPRA item requested from practice', (prTask.title || 'Document') + ' requested from ' + prTo + (prMeta.practice_request.send_count > 1 ? ' (sent again)' : ''), adminCtx.email);
+    try { await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(prTask.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } }); } catch (e) { /* non-critical */ }
+    sendJson(res, 200, { ok: true, sent: true });
+    return;
+  }
+
+  // ── AHPRA s80 (practice item): file the practice's document — from their emailed reply or by hand ──
+  if (pathname === '/api/admin/ahpra/item/practice-file' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let pfBody; try { pfBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const pfTaskId = pfBody && typeof pfBody.task_id === 'string' ? pfBody.task_id.trim() : '';
+    const pfDocId = pfBody && (typeof pfBody.document_id === 'string' || typeof pfBody.document_id === 'number') ? String(pfBody.document_id).trim() : '';
+    const pfDataUrl = pfBody && typeof pfBody.fileDataUrl === 'string' ? pfBody.fileDataUrl : '';
+    if (!pfTaskId || (!pfDocId && !pfDataUrl)) { sendJson(res, 400, { ok: false, message: 'task_id and a document (document_id or file) are required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(pfTaskId), res))) return;
+    const pfRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(pfTaskId) + '&limit=1');
+    const pfTask = (pfRes.ok && Array.isArray(pfRes.data) && pfRes.data[0]) ? pfRes.data[0] : null;
+    if (!pfTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var pfMeta = (pfTask.metadata && typeof pfTask.metadata === 'object') ? pfTask.metadata : {};
+    if (!pfMeta.s80 || pfMeta.mode !== 'practice_upload' || pfMeta.review_status !== 'active') { sendJson(res, 400, { ok: false, message: 'This item does not accept a practice document.' }); return; }
+    if (pfTask.status === 'completed') { sendJson(res, 409, { ok: false, message: 'This item is already complete.' }); return; }
+    var pfFile = null;
+    if (pfDocId) {
+      var pfDocRes = await supabaseDbRequest('task_documents', 'select=id,task_id,filename,mime_type,attachment_url&id=eq.' + encodeURIComponent(pfDocId) + '&task_id=eq.' + encodeURIComponent(pfTaskId) + '&limit=1');
+      var pfDoc = (pfDocRes.ok && Array.isArray(pfDocRes.data) && pfDocRes.data[0]) ? pfDocRes.data[0] : null;
+      if (!pfDoc || !pfDoc.attachment_url || !/^data:/.test(pfDoc.attachment_url)) { sendJson(res, 404, { ok: false, message: 'That reply attachment is not available.' }); return; }
+      pfFile = { dataUrl: pfDoc.attachment_url, mime: pfDoc.mime_type || (pfDoc.attachment_url.match(/^data:([^;]+);/) || [])[1] || '', name: pfDoc.filename || 'document', sourceDocumentId: pfDoc.id, uploadedBy: 'practice_reply' };
+    } else {
+      pfFile = { dataUrl: pfDataUrl, mime: (pfBody.mimeType || (pfDataUrl.match(/^data:([^;]+);/) || [])[1] || ''), name: (typeof pfBody.fileName === 'string' ? pfBody.fileName : '') || 'document', sourceDocumentId: null, uploadedBy: 'admin_upload' };
+    }
+    var pfStored = await _storeS80UploadForTask(pfTask, pfMeta, pfFile);
+    if (!pfStored.ok) { sendJson(res, pfStored.status || 502, { ok: false, message: pfStored.message || 'Could not store the file.' }); return; }
+    await _logCaseEvent(pfTask.case_id, pfTaskId, 'status_change', 'Practice document received for AHPRA item', (pfStored.upload.file_name || 'document') + (pfFile.uploadedBy === 'admin_upload' ? ' filed by ' + adminCtx.email : ' taken from the practice’s reply'), adminCtx.email);
+    sendJson(res, 200, { ok: true, status: 'under_review', file_name: pfStored.upload.file_name, ai_check: pfStored.upload.ai_check || null });
     return;
   }
 
@@ -66104,7 +66422,8 @@ Return ONLY valid JSON with no markdown formatting:
     const task = (tRes.ok && Array.isArray(tRes.data) && tRes.data[0]) ? tRes.data[0] : null;
     if (!task) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     var meta = (task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
-    if (!meta.s80 || meta.mode !== 'upload') { sendJson(res, 400, { ok: false, message: 'Not an AHPRA upload item.' }); return; }
+    if (!meta.s80 || (meta.mode !== 'upload' && meta.mode !== 'practice_upload')) { sendJson(res, 400, { ok: false, message: 'Not an AHPRA upload item.' }); return; }
+    var isPracticeItem = meta.mode === 'practice_upload';
     meta.upload = meta.upload || {};
     var patch = { updated_at: new Date().toISOString() };
     if (decision === 'approve') {
@@ -66119,13 +66438,14 @@ Return ONLY valid JSON with no markdown formatting:
       meta.upload.reject_reason = reason;
       meta.upload.reviewed_by = adminCtx.email;
       meta.upload.reviewed_at = new Date().toISOString();
-      patch.status = 'waiting_on_gp';
+      // A rejected practice file goes back to the team's ball: the RSO emails the practice again.
+      patch.status = isPracticeItem ? 'open' : 'waiting_on_gp';
     }
     patch.metadata = meta;
     await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: patch });
-    // Notify the GP of the outcome.
+    // Notify the GP of the outcome (GP items only — the doctor never sees a practice item).
     try {
-      const cRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      const cRes = isPracticeItem ? { ok: false } : await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
       const uid = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0].user_id : null;
       if (uid) {
         await pushDocumentNotificationToUser(uid, decision === 'approve'
@@ -83016,6 +83336,9 @@ module.exports.__testUtils = {
   ahpraConfidentMatch,
   isAhpraSender,
   buildAhpraGpDeliveryItem,
+  _autoFilePracticeReplyForS80,
+  _storeS80UploadForTask,
+  _s80PracticeContext,
   selectSppaReplyMessage,
   mapPreparedDocumentRow,
   toStatusLabel,

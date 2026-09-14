@@ -116,11 +116,14 @@ describe('practice-pack tasks get the same cursor-independent safety net as SPPA
 // to Postgres row order.
 describe('one current document per task', () => {
   it('only the FIRST attachment of a multi-attachment email becomes current', () => {
-    expect(serverSrc).toContain('is_current: (_earlyStoredDocIds.length === 0 || _earlyIsSppa)');
+    expect(serverSrc).toContain('is_current: (_earlyStoredDocIds.length === 0 || _earlyKeepAllCurrent)');
   });
 
-  it('exempts SPPA-00, which returns the form plus alt supervisor CVs together', () => {
+  it('exempts SPPA-00, which returns the form plus alt supervisor CVs together, and AHPRA practice items', () => {
     expect(serverSrc).toContain("var _earlyIsSppa = earlyTask.related_document_key === 'sppa_00';");
+    // An AHPRA "practice uploads" item keeps every reply attachment visible to the RSO's
+    // "Use this file" picker (a logo often arrives before the CV).
+    expect(serverSrc).toContain("var _earlyKeepAllCurrent = _earlyIsSppa || earlyTask.task_type === 'ahpra_action_item';");
     // Those alt CVs are looked up by category AND is_current, so demoting them would hide them.
     expect(serverSrc).toContain("category=eq.alt_supervisor_cv&is_current=eq.true");
   });
