@@ -9033,7 +9033,8 @@ const USER_STATE_KEYS = [
   'gp_admin_stage_override',
   'gp_stage_override_at',
   'gp_eligibility_waitlist',
-  'gp_walkthrough_state'
+  'gp_walkthrough_state',
+  'gp_career_steps_diag'
 ];
 
 const EPIC_STAGE_META = [

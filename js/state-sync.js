@@ -29,7 +29,10 @@
     'gp_amc_myintealth_id_updated_at',
     'gp_admin_stage_override',
     'gp_stage_override_at',
-    'gp_walkthrough_state'
+    'gp_walkthrough_state',
+    // Careers-tutorial decision trail (js/gp-walkthrough.js csLog) — read
+    // server-side when a doctor says the tutorial never appeared.
+    'gp_career_steps_diag'
   ];
   // Keys managed exclusively by admin endpoints — never push back to server
   const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];

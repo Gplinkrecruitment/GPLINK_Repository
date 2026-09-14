@@ -275,8 +275,10 @@ describe('warm-frame guard: tips defer inside a hidden preloaded frame (never bu
     expect(fn).toContain("window.addEventListener('resize', fire)");
     expect(fn).toContain('MutationObserver');
     expect(fn).toContain("attributeFilter: ['class', 'style']");
-    // the poll stays bounded, but the event wake-ups survive it for hidden frames
-    expect(fn).toContain('frameHidden()');
+    // the poll stays bounded, but the event wake-ups survive it — for hidden frames
+    // and (2026-09-15) for any gate that outlasts the minute
+    expect(fn).toContain('KEEP the event-driven');
+    expect(fn).not.toContain('        disarm();\n      }');
   });
 });
 

@@ -97,6 +97,11 @@
     // and the lost-target teardown still work as safety valves, and they mark
     // nothing so the tour re-arms on the next boot.
     var mandatoryMode = opts.mandatory === true;
+    // How many times a spotlight was actually placed on screen, and when.
+    // A run that never painted must not report 'done' (a null last target
+    // used to), and a key held over from the previous screen must not skip
+    // a tip nobody has read yet (owner 2026-09-15).
+    var painted = 0, lastPaintAt = 0, keyArmed = false;
     var reduced = false;
     try { reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
 
@@ -172,6 +177,7 @@
         if (hit) onTargetClick();
       }
       function onKey(e) {
+        if (Date.now() - lastPaintAt < 300) return; // a key still travelling from the previous screen
         if (e.key === 'Escape') { e.preventDefault(); skip(); }
         else if (e.key === 'Enter') { e.preventDefault(); if (pointerMode) skip(); else next(); }
         else if (e.key === 'Tab') {
@@ -218,6 +224,7 @@
         tip.style.left = pl.tip.left + 'px'; tip.style.top = pl.tip.top + 'px';
         arrowEl.style.left = pl.arrowLeft + 'px';
         arrowEl.className = 'gp-coach-arrow ' + (pl.placeBelow ? 'below' : 'above');
+        painted++; lastPaintAt = Date.now();
       }
       function renderActions() {
         actsEl.innerHTML = '';
@@ -246,7 +253,7 @@
       }
       function render() {
         resolveTarget(steps[idx].target, steps[idx].timeout || opts.timeout).then(function (el) {
-          if (!el) { if (idx >= total - 1) { done(); } else { idx++; render(); } return; }
+          if (!el) { if (idx >= total - 1) { if (painted === 0) cleanup('lost'); else done(); } else { idx++; render(); } return; }
           curTarget = el;
           if (pointerMode && !pointerClickArmed) {
             pointerClickArmed = true;
@@ -259,6 +266,7 @@
           renderActions();
           (window.requestAnimationFrame || function (f) { setTimeout(f, 16); })(function () {
             reposition();
+            if (!keyArmed) { keyArmed = true; d.addEventListener('keydown', onKey, true); }
             // Pointer mode has no Next — focus the "Got it" dismiss instead so
             // the keydown listener's document can hear Escape (focus may
             // otherwise sit in another frame). Pointer only renders at boot /
@@ -274,7 +282,6 @@
       activeCancel = function () { cleanup('cancel'); };
       window.addEventListener('resize', reposition, true);
       window.addEventListener('scroll', reposition, true);
-      d.addEventListener('keydown', onKey, true);
       render();
     });
   }

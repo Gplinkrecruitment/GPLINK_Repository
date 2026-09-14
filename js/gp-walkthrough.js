@@ -60,9 +60,19 @@
     } catch (e) {}
     return false;
   }
+  var SCRIPT_VERSION = '20260915e';
   function pageBlocked() {
     if (shellCoachActive) return true;
     if (frameHidden()) return true; // hidden warm frame — defer unmarked
+    // A background tab paints nothing the doctor can see.
+    try { if (document.visibilityState === 'hidden') return true; } catch (e) {}
+    // Shell-level takeovers the page cannot otherwise see (the coach-active
+    // message is a snapshot a late-loading frame never receives): the match /
+    // interview / contract popups, a slide deck, the shell's own coach.
+    try {
+      var pd = (window.parent && window.parent !== window) ? window.parent.document : null;
+      if (pd && pd.querySelector('#gpMatchPopup, #gpInterviewPopup, #gpContractPopup, .gp-intro-card, .gp-coach-overlay')) return true;
+    } catch (e) { /* cross-origin parent: nothing to see */ }
     try {
       // First-visit careers explainer (pages/career.html): a full-screen page
       // ahead of the CV gate. Owner rule 2026-07-31 — the walkthrough must not
@@ -91,10 +101,12 @@
       window.removeEventListener('gp-career-gate-closed', fire);
       window.removeEventListener('gp-career-intro-closed', fire);
       window.removeEventListener('resize', fire);
+      window.removeEventListener('gp-career-updated', fire);
+      document.removeEventListener('visibilitychange', fire);
       if (deferRetry.frameObs) { try { deferRetry.frameObs.disconnect(); } catch (e) {} deferRetry.frameObs = null; }
       if (deferRetry.poll) { clearInterval(deferRetry.poll); deferRetry.poll = null; }
     }
-    function fire() { disarm(); scheduleRetry(); }
+    function fire() { disarm(); careerStepsAttempts = 0; scheduleRetry(); }
     // Primary signal: the career gate announces its close.
     window.addEventListener('gp-career-gate-closed', fire);
     // The explainer announces its own close the same way. Re-checking is what
@@ -106,6 +118,10 @@
     // shell's opacity:0 warm frame NEVER resizes on activation — the is-active
     // class/style flip on the host iframe (same-origin) is the only signal.
     window.addEventListener('resize', fire);
+    // The strip re-renders on every state persist; a tab coming back to the
+    // foreground is when a hidden-tab deferral should be re-checked.
+    window.addEventListener('gp-career-updated', fire);
+    document.addEventListener('visibilitychange', fire);
     try {
       var fe = window.frameElement;
       if (fe && typeof MutationObserver !== 'undefined') {
@@ -119,13 +135,10 @@
     deferRetry.poll = setInterval(function () {
       if (!pageBlocked()) { fire(); return; }
       if (Date.now() > deadline) {
-        if (frameHidden()) {
-          // A warm frame can sit hidden for minutes: stop burning the poll but
-          // keep the event-driven wake-ups armed until activation fires them.
-          clearInterval(deferRetry.poll); deferRetry.poll = null;
-          return;
-        }
-        disarm();
+        // Stop burning the poll after a minute, but KEEP the event-driven
+        // wake-ups armed: a doctor who leaves the CV gate open longer than
+        // that must still get the tour when it closes (owner 2026-09-15).
+        clearInterval(deferRetry.poll); deferRetry.poll = null;
       }
     }, 1000);
   }
@@ -252,6 +265,15 @@
     var entry = { t: Math.round(performance.now()), what: what, extra: extra || null };
     careerStepsLog.push(entry);
     try { console.info('[walkthrough] career steps:', what, extra || ''); } catch (e) {}
+    // Persisted trail (last 20 decisions, synced to the doctor's user_state as
+    // gp_career_steps_diag) so a "it never showed" report can be read from the
+    // server instead of guessed at.
+    try {
+      var trail = JSON.parse(localStorage.getItem('gp_career_steps_diag') || '[]');
+      if (!Array.isArray(trail)) trail = [];
+      trail.push({ at: new Date().toISOString(), v: SCRIPT_VERSION, what: what, extra: extra || null });
+      localStorage.setItem('gp_career_steps_diag', JSON.stringify(trail.slice(-20)));
+    } catch (e) {}
   }
   function maybeRunCareerSteps() {
     if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') { csLog('no-modules'); return false; }

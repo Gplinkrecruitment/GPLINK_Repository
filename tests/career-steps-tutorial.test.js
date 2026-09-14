@@ -55,9 +55,35 @@ describe('careers page tutorial — the four steps of the strip', () => {
     expect(fn).not.toContain('shouldRunTip');
     expect(js).toContain("if (area === 'practice' && maybeRunCareerSteps()) return;");
   });
+  it('sees what the page alone cannot: a hidden tab and shell-level takeovers defer it; wake-ups stay armed', () => {
+    const js = read('js/gp-walkthrough.js');
+    const pb = js.slice(js.indexOf('function pageBlocked() {'), js.indexOf('function scheduleRetry()'));
+    expect(pb).toContain("if (document.visibilityState === 'hidden') return true;");
+    expect(pb).toContain("pd.querySelector('#gpMatchPopup, #gpInterviewPopup, #gpContractPopup, .gp-intro-card, .gp-coach-overlay')");
+    const ar = js.slice(js.indexOf('function armRetry() {'), js.indexOf('var HOME = ['));
+    expect(ar).toContain("document.addEventListener('visibilitychange', fire);");
+    expect(ar).toContain("window.addEventListener('gp-career-updated', fire);");
+    expect(ar).not.toContain('        disarm();\n      }'); // the 60 s deadline stops the poll only
+    expect(ar).toContain('function fire() { disarm(); careerStepsAttempts = 0; scheduleRetry(); }');
+  });
+  it('the coach never reports a tour it never painted as done, and ignores keys until a tip is on screen', () => {
+    const c = read('js/gp-coach.js');
+    expect(c).toContain("if (!el) { if (idx >= total - 1) { if (painted === 0) cleanup('lost'); else done(); } else { idx++; render(); } return; }");
+    expect(c).toContain('painted++; lastPaintAt = Date.now();');
+    expect(c).toContain("if (Date.now() - lastPaintAt < 300) return; // a key still travelling from the previous screen");
+    expect(c).toContain("if (!keyArmed) { keyArmed = true; d.addEventListener('keydown', onKey, true); }");
+    expect(c.split("d.addEventListener('keydown', onKey, true)").length - 1).toBe(1);
+  });
+  it('keeps a decision trail the server can read (gp_career_steps_diag, synced like the walkthrough state)', () => {
+    expect(read('js/gp-walkthrough.js')).toContain("localStorage.setItem('gp_career_steps_diag', JSON.stringify(trail.slice(-20)));");
+    expect(read('js/state-sync.js')).toContain("'gp_career_steps_diag'");
+    expect(read('server.js')).toContain("'gp_walkthrough_state',\n  'gp_career_steps_diag'\n];");
+  });
   it('busters moved together', () => {
-    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915d'));
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915d"');
-    expect(read('sw.js')).toContain('var VERSION = "20260915d"');
+    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915e'));
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915e"');
+    expect(read('sw.js')).toContain('var VERSION = "20260915e"');
+    expect(read('sw.js')).toContain('"/js/gp-coach.js?v=20260915a"');
+    expect(read('sw.js')).toContain('"/js/state-sync.js?v=20260915a"');
   });
 });
