@@ -61,7 +61,7 @@
   <script src="../js/state-sync.js?v=20260806a" defer></script>
   <script src="/js/gp-coach.js?v=20260902a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260903a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260910a" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20260915a" defer></script>
   <script src="/js/career-step-strip.js?v=20260907c" defer></script>
   <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
@@ -10193,7 +10193,7 @@
       if (row) {
         row.innerHTML = r.steps.map(function (st) {
           var cls = st.num < r.step ? "done" : (st.num === r.step ? "on" : "");
-          return '<li class="' + cls + '"' + (st.num === r.step ? ' aria-current="step"' : "") + '><span>' + st.num + ". " + escapeHtml(st.label) + "</span></li>";
+          return '<li class="' + cls + '" data-career-step="' + st.num + '"' + (st.num === r.step ? ' aria-current="step"' : "") + '><span>' + st.num + ". " + escapeHtml(st.label) + "</span></li>";
         }).join("");
       }
       if (hint) hint.textContent = r.hint || "";

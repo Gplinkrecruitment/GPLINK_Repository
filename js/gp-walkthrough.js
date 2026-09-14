@@ -139,12 +139,32 @@
     { target: '.account-hero', title: 'Your profile', body: 'Your details and how complete your profile is, at a glance.' },
     { target: '#panel-home .section-card', title: 'Settings & quick links', body: 'Update your details, notifications and privacy from here.' }
   ];
+  // Careers page tutorial (owner 2026-09-15: "There should be a tutorial once
+  // the GP gets to the career page (despite if cv has been uploaded or skipped)
+  // which highlights each step eg 1. Find your practice, 2. Interview, etc
+  // with more information on what the step is and what it then unlocks").
+  // Spotlights the four steps of the masthead strip in order. It runs once
+  // (tips.practice) the first time the page is on screen; the careers
+  // explainer and the CV gate only DEFER it (pageBlocked → armRetry), so it
+  // fires after "Skip for now" exactly as after an upload.
+  var CAREER_STEPS = [
+    { target: '[data-career-step="1"]', timeout: 8000, title: '1. Find your practice',
+      body: 'Every practice on the map is one you are already eligible for. Browse the roles, save the ones you like, then apply or send an enquiry — your Registration Support Officer introduces you with your CV. Unlocks: the moment a practice wants to meet you, step 2 opens.' },
+    { target: '[data-career-step="2"]', timeout: 8000, title: '2. Interview',
+      body: 'The practice shares its available times and you pick one straight from your application card: 30 minutes on Zoom, with your Registration Support Officer on the call so you are never in the room alone. Unlocks: a good interview leads to an offer.' },
+    { target: '[data-career-step="3"]', timeout: 8000, title: '3. Offer & contract',
+      body: 'The practice makes its offer and sends the employment agreement. We check it with you, you can ask for changes, and you sign it here in the app. Unlocks: signing secures your position.' },
+    { target: '[data-career-step="4"]', timeout: 8000, title: '4. Registration',
+      body: 'With your position secured the app grows — Home, My Documents and Support appear — and your personalised registration pathway begins: MyIntealth, AMC, AHPRA, visa and Medicare, each unlocking in order with your team guiding every step.' }
+  ];
   // Practice & Support are empty for brand-new GPs, so adapt: walk live cards if present,
   // otherwise a single tip on the static container explaining what will appear.
   function stepsFor(area) {
     if (area === 'home') return HOME;
     if (area === 'account') return ACCOUNT;
     if (area === 'practice') {
+      // The step strip is on screen until a position is secured — walk it.
+      if (document.querySelector('[data-career-step="1"]')) return CAREER_STEPS.slice();
       if (document.querySelector('.at-match-pin')) return [
         { target: '.at-match-pin', title: 'Roles matched to you', body: 'Each match is scored against your profile — higher means a better fit.' },
         { target: '.at-match-accept', title: 'Review & accept', body: 'Open a match to meet the practice, then accept the one you want.' }
