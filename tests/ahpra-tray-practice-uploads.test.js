@@ -358,6 +358,81 @@ describe('practice document arrives', () => {
   });
 });
 
+describe('the practice emails the document instead of replying on our thread', () => {
+  const DETECT_ID = 't-pu-detect';
+  const pdfBuf = (text) => Buffer.from('%PDF-1.4 ' + text, 'utf8');
+  function email(sender, files, msgId) {
+    return {
+      emailMeta: { sender, to: 'registration@mygplink.com.au', subject: 'Updated CV as requested', bodyText: 'Please find attached.', threadId: 'thread-fresh-' + msgId, hasAttachments: files.length > 0,
+        attachments: files.map((f, i) => ({ index: i, filename: f.name, mimeType: f.mime, attachmentId: 'att-' + i, size: f.buf.length })) },
+      currentMsgId: msgId, emailAddress: 'registration@mygplink.com.au', gmail: null, knownCase: null, senderRole: null,
+      downloadAttachment: async (att) => files[att.index].buf
+    };
+  }
+  beforeAll(() => {
+    // A released practice item whose request email went to the practice manager.
+    db.registration_tasks.push({ id: DETECT_ID, case_id: CASE_ID, task_type: 'ahpra_action_item', title: 'Supervisor CV clarification/resubmission (Dr Ranatunga)', status: 'waiting_on_practice', ahpra_deadline: '2026-09-29',
+      metadata: s80Meta({ owner: 'practice', mode: 'practice_upload', review_status: 'active', released_at: NOW, bundle_id: 's80_b3', kind: 'practice_document',
+        practice_instructions: 'Please send an updated CV for Dr Ranatunga.', practice_request: { sent_at: NOW, to: 'pm@practice-test.local', cc: '', subject: 'x', by: SUPER_EMAIL, gmail_thread_id: 'thread-our-request', send_count: 1 } }) });
+  });
+
+  it('ignores an AHPRA officer email and a stranger, and never touches the item', async () => {
+    let r = await testUtils._detectPracticeUploadFromEmail(email('Paige.Hooper@ahpra.gov.au', [{ name: 'Ranatunga CV.pdf', mime: 'application/pdf', buf: pdfBuf('x') }], 'msg-officer'));
+    expect(r.matched).toBe(false);
+    r = await testUtils._detectPracticeUploadFromEmail(email('someone@random-stranger.example', [{ name: 'Ranatunga CV.pdf', mime: 'application/pdf', buf: pdfBuf('x') }], 'msg-stranger'));
+    expect(r.matched).toBe(false);
+    expect(taskById(DETECT_ID).status).toBe('waiting_on_practice');
+    expect(taskById(DETECT_ID).metadata.upload).toBeUndefined();
+    expect(db.task_documents.filter((d) => d.task_id === DETECT_ID).length).toBe(0);
+  });
+
+  it('files a fresh email from the address we wrote to, on a NEW thread, picking the file named after the supervisor', async () => {
+    const files = [
+      { name: 'practice-logo.png', mime: 'image/png', buf: Buffer.from('\x89PNG\r\n\x1a\nxx') },
+      { name: 'Dr Ranatunga CV Sept 2026.pdf', mime: 'application/pdf', buf: pdfBuf('updated cv') }
+    ];
+    const r = await testUtils._detectPracticeUploadFromEmail(email('Practice Manager <PM@practice-test.local>', files, 'msg-fresh-1'));
+    expect(r.matched).toBe(true);
+    expect(r.taskId).toBe(DETECT_ID);
+    expect(r.reason).toBe('filename');   // no AI key in tests, so the name decides
+    expect(r.trust).toBe('requested');
+    const t = taskById(DETECT_ID);
+    expect(t.status).toBe('waiting');
+    expect(t.metadata.upload.status).toBe('under_review');
+    expect(t.metadata.upload.file_name).toBe('Dr Ranatunga CV Sept 2026.pdf');
+    expect(t.metadata.upload.uploaded_by).toBe('practice_email');
+    expect(t.metadata.upload.sender_verified).toBe(true);
+    expect(t.metadata.upload.detected_from.sender).toBe('pm@practice-test.local');
+    expect(t.metadata.upload.detected_from.gmail_thread_id).toBe('thread-fresh-msg-fresh-1');
+    expect(t.metadata.upload.other_attachments).toEqual(['practice-logo.png']);
+    // The email and both attachments are on the item's record; the CV is the promoted one.
+    const msgs = db.task_messages.filter((m) => m.task_id === DETECT_ID && m.direction === 'inbound');
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].gmail_message_id).toBe('msg-fresh-1');
+    const docs = db.task_documents.filter((d) => d.task_id === DETECT_ID);
+    expect(docs.map((d) => d.filename).sort()).toEqual(['Dr Ranatunga CV Sept 2026.pdf', 'practice-logo.png']);
+    expect(docs.every((d) => d.is_current === true)).toBe(true);
+    expect(t.metadata.upload.source_document_id).toBe(docs.find((d) => /CV/.test(d.filename)).id);
+    expect(db.processed_gmail_messages.find((p) => p.gmail_message_id === 'msg-fresh-1').result).toBe('ahpra_practice_upload_matched');
+    // The same email again is not filed twice; an item under review is not touched again.
+    const again = await testUtils._detectPracticeUploadFromEmail(email('pm@practice-test.local', files, 'msg-fresh-1'));
+    expect(again.matched).toBe(false);
+    expect(db.task_messages.filter((m) => m.task_id === DETECT_ID).length).toBe(1);
+  });
+
+  it('a case the inbound pipeline already resolved is scanned case-scoped, and the practice contact on file counts as known', async () => {
+    db.registration_tasks.push({ id: 't-pu-detect-2', case_id: CASE_ID, task_type: 'ahpra_action_item', title: 'Position description for the proposed role', status: 'open', ahpra_deadline: '2026-09-29',
+      metadata: s80Meta({ owner: 'practice', mode: 'practice_upload', review_status: 'active', released_at: NOW, bundle_id: 's80_b4', kind: 'practice_document', practice_instructions: 'Please send the position description.' }) });
+    const ctx = email('pm@practice-test.local', [{ name: 'PD.pdf', mime: 'application/pdf', buf: pdfBuf('position description') }], 'msg-fresh-2');
+    ctx.knownCase = { id: CASE_ID, user_id: GP.userId }; ctx.senderRole = 'practice';
+    const r = await testUtils._detectPracticeUploadFromEmail(ctx);
+    expect(r.matched).toBe(true);
+    expect(r.reason).toBe('single_candidate');   // one open item, one file, from the practice contact
+    expect(r.trust).toBe('contact');
+    expect(taskById('t-pu-detect-2').metadata.upload.file_name).toBe('PD.pdf');
+  });
+});
+
 describe('admin page tray markup', () => {
   const html = fs.readFileSync(path.join(process.cwd(), 'pages', 'admin.html'), 'utf8');
   it('offers Practice in both dropdowns and saves through the route endpoint, not a DOM-derived metadata_merge', () => {

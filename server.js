@@ -5502,7 +5502,15 @@ async function runUploadCheck(fileBuffer, mimeType, requirement) {
     var block;
     if (mt.indexOf('pdf') >= 0) block = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBuffer.toString('base64') } };
     else if (mt.indexOf('image/') === 0) block = { type: 'image', source: { type: 'base64', media_type: mt, data: fileBuffer.toString('base64') } };
-    else return fail; // unsupported (e.g. docx) — advisory only, skip rather than error
+    else if (mt.indexOf('wordprocessingml') >= 0 || mt.indexOf('msword') >= 0) {
+      // A practice's CV is very often a Word file: read its text (same extractor the alt-CV
+      // matcher uses) so the check is not skipped for the most common practice document.
+      var docxText = '';
+      try { docxText = require('./lib/alt-supervisor-cv-match.js').extractTextFromDocx(fileBuffer) || ''; } catch (e) { docxText = ''; }
+      if (!docxText.trim()) return fail;
+      block = { type: 'text', text: 'Document text (extracted from a Word file):\n\n' + docxText.slice(0, 12000) };
+    }
+    else return fail; // unsupported — advisory only, skip rather than error
     if (!(await checkAnthropicBudget())) return fail;
     var controller = new AbortController();
     var t = setTimeout(function () { controller.abort(); }, 30000);
@@ -5774,8 +5782,10 @@ async function _storeS80UploadForTask(task, meta, file) {
     country: country
   };
   try {
-    var uc = await runUploadCheck(buffer, mime, { title: task.title, detail: meta.detail, team_instructions: meta.team_instructions, sub_items: meta.sub_items });
-    upload.ai_check = { verdict: uc.verdict, summary: uc.summary, model: AHPRA_S80_EXTRACT_MODEL, checked_at: new Date().toISOString() };
+    // A caller that already ran the check (the inbound email detector) passes its verdict in.
+    var uc = (file && file.aiCheck && file.aiCheck.verdict) ? file.aiCheck
+      : await runUploadCheck(buffer, mime, { title: task.title, detail: meta.detail, team_instructions: meta.team_instructions, sub_items: meta.sub_items });
+    upload.ai_check = { verdict: uc.verdict, summary: uc.summary || '', model: AHPRA_S80_EXTRACT_MODEL, checked_at: new Date().toISOString() };
   } catch (e) { upload.ai_check = { verdict: 'unchecked', summary: '', checked_at: new Date().toISOString() }; }
   meta.upload = upload;
   await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
@@ -5831,6 +5841,191 @@ async function _autoFilePracticeReplyForS80(taskId) {
   } catch (e) {
     console.error('[AHPRA practice item] auto-file failed (non-fatal):', e && e.message);
     return false;
+  }
+}
+
+// The practice does not reliably reply on our request thread: the updated CV arrives as a fresh
+// email, from the practice manager rather than the contact we wrote to, or the doctor forwards
+// it. This scans an inbound email with attachments against every open "practice uploads" item
+// (case-scoped when the caller already resolved the case), asks the AI whether each attachment
+// satisfies each item, weighs how well we know the sender, and files the winning attachment as
+// the item's reviewable upload. Strangers never attach anything (their mail still goes to the
+// unmatched-documents triage as before). Fail-open; never throws.
+// ctx: { emailMeta, currentMsgId, emailAddress, gmail, knownCase, senderRole, downloadAttachment? }
+async function _detectPracticeUploadFromEmail(ctx) {
+  ctx = ctx || {};
+  var emailMeta = ctx.emailMeta || {};
+  var none = { matched: false };
+  function bare(s) { var m = String(s || '').match(/[\w.+-]+@[\w.-]+\.\w+/); return m ? m[0].toLowerCase() : ''; }
+  function usableMime(att) {
+    var mt = String((att && att.mimeType) || '').toLowerCase();
+    var fn = String((att && att.filename) || '').toLowerCase();
+    if (mt.indexOf('pdf') >= 0 || /\.pdf$/.test(fn)) return 'application/pdf';
+    if (mt.indexOf('image/') === 0) return mt;
+    if (mt.indexOf('wordprocessingml') >= 0 || /\.docx$/.test(fn)) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    return '';
+  }
+  try {
+    if (!isSupabaseDbConfigured()) return none;
+    var sender = bare(emailMeta.sender);
+    if (!sender || isAhpraSender(emailMeta.sender) || isOurOwnAddress(sender)) return none;
+    var atts = (emailMeta.attachments || []).map(function (a, i) {
+      return a ? { index: (typeof a.index === 'number' ? a.index : i), filename: a.filename || '', mimeType: usableMime(a), attachmentId: a.attachmentId || '', size: a.size || 0, raw: a } : null;
+    }).filter(function (a) { return a && a.mimeType && (a.attachmentId || ctx.downloadAttachment) && (!a.size || a.size <= 8 * 1024 * 1024); }).slice(0, 6);
+    if (!atts.length) return none;
+
+    var q = 'select=id,case_id,title,status,metadata,gmail_thread_id&task_type=eq.ahpra_action_item&status=in.(open,waiting_on_practice,waiting)&limit=200'
+      + (ctx.knownCase && ctx.knownCase.id ? '&case_id=eq.' + encodeURIComponent(ctx.knownCase.id) : '');
+    var tRes = await supabaseDbRequest('registration_tasks', q);
+    var rows = (tRes.ok && Array.isArray(tRes.data)) ? tRes.data : [];
+    var open = rows.filter(function (t) {
+      var m = t.metadata; if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = null; } }
+      if (!m || !m.s80 || m.mode !== 'practice_upload' || m.review_status !== 'active') return false;
+      if (m.upload && (m.upload.status === 'under_review' || m.upload.status === 'approved')) return false;
+      t.metadata = m; return true;
+    });
+    if (!open.length) return none;
+
+    var byCase = {};
+    open.forEach(function (t) { (byCase[t.case_id] = byCase[t.case_id] || []).push(t); });
+    var buffers = null; // downloaded once, shared across cases
+    var caseIds = Object.keys(byCase);
+    for (var ci = 0; ci < caseIds.length; ci++) {
+      var caseId = caseIds[ci];
+      var items = byCase[caseId];
+
+      // Idempotency: this message already filed somewhere on this case.
+      var dup = await supabaseDbRequest('task_messages', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&gmail_message_id=eq.' + encodeURIComponent(ctx.currentMsgId || '') + '&limit=1');
+      if (ctx.currentMsgId && dup.ok && Array.isArray(dup.data) && dup.data.length) continue;
+
+      // How well do we know the sender for THIS case?
+      var trust = 'unknown';
+      var threadId = String(emailMeta.threadId || '');
+      var requested = items.some(function (t) {
+        var pr = t.metadata.practice_request || {};
+        var to = bare(pr.to), cc = String(pr.cc || '').toLowerCase();
+        return (to && to === sender) || (cc && cc.indexOf(sender) !== -1) || (threadId && pr.gmail_thread_id && String(pr.gmail_thread_id) === threadId);
+      });
+      if (requested) trust = 'requested';
+      else if (ctx.knownCase && ctx.knownCase.id === caseId && ctx.senderRole === 'practice') trust = 'contact';
+      else if (ctx.knownCase && ctx.knownCase.id === caseId && ctx.senderRole === 'candidate') trust = 'candidate';
+      else {
+        var cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,practice_contact_email&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        var cRow = (cRes.ok && Array.isArray(cRes.data) && cRes.data[0]) ? cRes.data[0] : {};
+        var pcEmail = '';
+        try { var pc = cRow.user_id ? await resolvePlacedPracticeContact(cRow.user_id) : null; pcEmail = bare(pc && pc.email); } catch (e) { pcEmail = ''; }
+        if (!pcEmail) pcEmail = bare(cRow.practice_contact_email);
+        if (pcEmail && pcEmail === sender) trust = 'contact';
+        else {
+          var gpEmail = '';
+          try { var pRes = cRow.user_id ? await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(cRow.user_id) + '&limit=1') : { ok: false }; gpEmail = bare(pRes.ok && Array.isArray(pRes.data) && pRes.data[0] && pRes.data[0].email); } catch (e) { gpEmail = ''; }
+          if (gpEmail && gpEmail === sender) trust = 'candidate';
+          else {
+            try {
+              var signals = await buildPracticeAffiliationSignals(caseId);
+              if (isPracticeAffiliatedAddress(sender, threadId ? [threadId] : [], signals)) trust = 'affiliated';
+            } catch (e) { /* stays unknown */ }
+          }
+        }
+      }
+      if (trust === 'unknown') continue;
+
+      // Bytes, once.
+      if (!buffers) {
+        buffers = {};
+        for (var ai = 0; ai < atts.length; ai++) {
+          var att = atts[ai];
+          try {
+            var buf = null;
+            if (typeof ctx.downloadAttachment === 'function') buf = await ctx.downloadAttachment(att.raw);
+            else if (ctx.gmail && ctx.emailAddress && ctx.currentMsgId && att.attachmentId) {
+              var got = await ctx.gmail.users.messages.attachments.get({ userId: ctx.emailAddress, messageId: ctx.currentMsgId, id: att.attachmentId });
+              var b64 = (got && got.data && got.data.data) || '';
+              if (b64) buf = Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+            }
+            if (buf && buf.length) buffers[att.index] = buf;
+          } catch (e) { console.warn('[AHPRA practice item] attachment download failed:', att.filename, e && e.message); }
+        }
+      }
+      var live = atts.filter(function (a) { return !!buffers[a.index]; });
+      if (!live.length) return none;
+
+      // The AI's verdict for every (item, attachment) pair — the same advisory check the
+      // upload review shows. Fail-open ('unchecked') when the model is unavailable.
+      var verdicts = {};
+      for (var ii = 0; ii < items.length; ii++) {
+        var it = items[ii], im = it.metadata;
+        for (var li = 0; li < live.length; li++) {
+          var la = live[li];
+          try {
+            verdicts[it.id + '|' + la.index] = await runUploadCheck(buffers[la.index], la.mimeType, { title: it.title, detail: im.detail, team_instructions: [im.team_instructions, im.practice_instructions].filter(Boolean).join(' '), sub_items: im.sub_items });
+          } catch (e) { verdicts[it.id + '|' + la.index] = { verdict: 'unchecked', summary: '' }; }
+        }
+      }
+      var decision = ahpraS80.decidePracticeUploadMatch({
+        items: items.map(function (t) { return { id: t.id, title: t.title }; }),
+        attachments: live.map(function (a) { return { index: a.index, filename: a.filename, mimeType: a.mimeType }; }),
+        verdicts: verdicts, senderTrust: trust
+      });
+      if (!decision) continue;
+
+      var task = items.find(function (t) { return t.id === decision.itemId; });
+      var chosen = live.find(function (a) { return a.index === decision.attachmentIndex; });
+      if (!task || !chosen) continue;
+      var meta = task.metadata;
+
+      // Record the email on the item and every usable attachment as a task document (so the
+      // RSO can still pick another file by hand), then promote the chosen one.
+      var msgRes = await supabaseDbRequest('task_messages', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [{
+          task_id: task.id, case_id: caseId, direction: 'inbound', channel: 'email',
+          sender: emailMeta.sender || '', recipient: emailMeta.to || ctx.emailAddress || '', subject: emailMeta.subject || '',
+          body_text: String(emailMeta.bodyText || '').substring(0, 50000), body_html: emailMeta.bodyHtml || null,
+          rfc822_message_id: emailMeta.rfc822MessageId || null, rfc822_references: emailMeta.rfc822References || null, cc: emailMeta.cc || null,
+          gmail_message_id: ctx.currentMsgId || null, gmail_thread_id: threadId || null,
+          attachments: JSON.stringify(live.map(function (a) { return a.filename; }).filter(Boolean)),
+          is_document_delivery: true, created_at: new Date().toISOString()
+        }]
+      });
+      var msgId = (msgRes.ok && Array.isArray(msgRes.data) && msgRes.data[0]) ? msgRes.data[0].id : null;
+      var chosenDocId = null;
+      for (var di = 0; di < live.length; di++) {
+        var d = live[di];
+        var dataUrl = 'data:' + d.mimeType + ';base64,' + buffers[d.index].toString('base64');
+        var docRes = await supabaseDbRequest('task_documents', '', {
+          method: 'POST', headers: { Prefer: 'return=representation' },
+          body: [{ task_id: task.id, case_id: caseId, message_id: msgId, filename: d.filename || 'document', mime_type: d.mimeType, size_bytes: buffers[d.index].length, version: 1, is_current: true, uploaded_by: 'email_response', attachment_url: dataUrl }]
+        });
+        var docId = (docRes.ok && Array.isArray(docRes.data) && docRes.data[0]) ? docRes.data[0].id : null;
+        if (d.index === chosen.index) chosenDocId = docId;
+      }
+      var stored = await _storeS80UploadForTask(task, meta, {
+        dataUrl: 'data:' + chosen.mimeType + ';base64,' + buffers[chosen.index].toString('base64'),
+        mime: chosen.mimeType, name: chosen.filename || 'document', sourceDocumentId: chosenDocId, uploadedBy: 'practice_email',
+        aiCheck: verdicts[task.id + '|' + chosen.index] || null
+      });
+      if (!stored.ok) { console.warn('[AHPRA practice item] detected the document but could not store it:', stored.message); continue; }
+      meta.upload.detected_from = {
+        sender: sender, subject: String(emailMeta.subject || '').slice(0, 300), gmail_message_id: ctx.currentMsgId || '', gmail_thread_id: threadId,
+        trust: trust, reason: decision.reason, detected_at: new Date().toISOString()
+      };
+      meta.upload.sender_verified = (trust === 'requested' || trust === 'contact');
+      var others = live.filter(function (a) { return a.index !== chosen.index; }).map(function (a) { return a.filename; }).filter(Boolean);
+      if (others.length) meta.upload.other_attachments = others;
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() } });
+      await _logCaseEvent(caseId, task.id, 'status_change', 'Practice sent the AHPRA document by email',
+        (chosen.filename || 'document') + ' from ' + sender + ' — recognised by ' + (decision.reason === 'ai_match' ? 'the AI check' : decision.reason === 'filename' ? 'its file name' : 'being the one file we asked this sender for') + (meta.upload.sender_verified ? '' : ' (sender not on file — check before accepting)'), 'system');
+      try {
+        await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: ctx.currentMsgId || '', email_address: ctx.emailAddress || '', sender: emailMeta.sender, subject: emailMeta.subject, result: 'ahpra_practice_upload_matched', matched_task_id: task.id, processed_at: new Date().toISOString() }] });
+      } catch (e) { /* non-critical */ }
+      console.log('[AHPRA practice item] filed', chosen.filename, 'from', sender, 'on item', task.id, '(' + decision.reason + ', sender ' + trust + ')');
+      return { matched: true, taskId: task.id, reason: decision.reason, trust: trust };
+    }
+    return none;
+  } catch (e) {
+    console.error('[AHPRA practice item] email detection failed (non-fatal):', e && e.message);
+    return none;
   }
 }
 
@@ -6780,7 +6975,16 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         }
         if (earlyGpCase) {
           var earlyMatch = await matchResponseToTask(earlyGpCase.id, emailMeta);
-          if (earlyMatch && earlyMatch.confidence > 0.5) {
+          // AHPRA "practice uploads": a known party's email carrying attachments that no thread
+          // pins to a task (or that only the fuzzy content matcher would place) is checked
+          // against the case's open practice items first — the practice's updated CV usually
+          // arrives as a fresh email, not a reply on our request thread.
+          if (emailMeta.hasAttachments && !isAhpraSender(emailMeta.sender) &&
+              (!earlyMatch || !(earlyMatch.confidence > 0.5) || earlyMatch.method === 'ai_content_match')) {
+            var _puEarly = await _detectPracticeUploadFromEmail({ emailMeta: emailMeta, currentMsgId: currentMsgId, emailAddress: emailAddress, gmail: gmail, knownCase: earlyGpCase, senderRole: earlySenderRole });
+            if (_puEarly && _puEarly.matched) earlyResponseMatched = true;
+          }
+          if (!earlyResponseMatched && earlyMatch && earlyMatch.confidence > 0.5) {
             var earlyTask = earlyMatch.task;
             // Idempotency: never re-ingest a Gmail message already filed anywhere on this CASE.
             // This survives the processed_gmail_messages deletion that recovery tooling does,
@@ -7019,7 +7223,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             // Mark as processed
             await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'response_matched', processed_at: new Date().toISOString() }] });
             earlyResponseMatched = true;
-          } else {
+          } else if (!earlyResponseMatched) {
             // DIAGNOSTIC: the sender resolved to a known case (so this IS a tracked party's
             // reply) but matchResponseToTask produced no confident task match. Historically this
             // path fell through with ZERO trace — a surfaced practice/candidate reply could
@@ -7033,6 +7237,15 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
         }
       }
       if (earlyResponseMatched) continue;
+
+      // ── AHPRA "practice uploads": document from a sender we could not place by address ──
+      // (the practice manager rather than the contact we wrote to). The detector accepts the
+      // address we emailed the request to, the practice contact on file, the practice's own
+      // domain, or the doctor; strangers fall through to the existing triage untouched.
+      if (!earlyResponseMatched && !earlyGpCase && emailMeta.hasAttachments && !isAhpraSender(emailMeta.sender)) {
+        var _puLate = await _detectPracticeUploadFromEmail({ emailMeta: emailMeta, currentMsgId: currentMsgId, emailAddress: emailAddress, gmail: gmail, knownCase: null, senderRole: null });
+        if (_puLate && _puLate.matched) continue;
+      }
 
       // ── Alt supervisor CV detection (practice sends CVs in separate thread) ──
       if (!earlyResponseMatched && emailMeta.hasAttachments && filterResult.track === 'attachments') {
@@ -83339,6 +83552,7 @@ module.exports.__testUtils = {
   _autoFilePracticeReplyForS80,
   _storeS80UploadForTask,
   _s80PracticeContext,
+  _detectPracticeUploadFromEmail,
   selectSppaReplyMessage,
   mapPreparedDocumentRow,
   toStatusLabel,

@@ -610,6 +610,36 @@ describe('duplicate items: one document asked for twice becomes one task', () =>
     expect(merged[0].title).toContain('also covers: Evidence of medical qualification');
   });
 
+  it('recognising the practice\'s document in an email: name hints and the decision rules', () => {
+    expect(s80.titleNameHints('Supervisor CV clarification/resubmission (Dr Ranatunga)')).toEqual(['ranatunga']);
+    expect(s80.titleNameHints('Updated CV for Dr Jane Smith-Jones')).toEqual(['jane', 'smithjones']);
+    expect(s80.titleNameHints('Position description')).toEqual([]);
+    expect(s80.filenameMatchesHints('Ranatunga_CV_Sept2026.pdf', ['ranatunga'])).toBe(true);
+    expect(s80.filenameMatchesHints('logo.png', ['ranatunga'])).toBe(false);
+
+    const items = [{ id: 'sup', title: 'Supervisor CV clarification/resubmission (Dr Ranatunga)' }];
+    const cv = { index: 0, filename: 'Ranatunga CV updated.pdf', mimeType: 'application/pdf' };
+    const logo = { index: 1, filename: 'logo.png', mimeType: 'image/png' };
+    // 1. The AI recognised it (even under an unhelpful file name).
+    expect(s80.decidePracticeUploadMatch({ items, attachments: [{ index: 3, filename: 'scan.pdf', mimeType: 'application/pdf' }], verdicts: { 'sup|3': { verdict: 'match' } }, senderTrust: 'affiliated' }))
+      .toEqual({ itemId: 'sup', attachmentIndex: 3, reason: 'ai_match' });
+    // 2. Named after the person, AI silent (no key) → file name wins; a logo never does.
+    expect(s80.decidePracticeUploadMatch({ items, attachments: [logo, cv], verdicts: {}, senderTrust: 'affiliated' }))
+      .toEqual({ itemId: 'sup', attachmentIndex: 0, reason: 'filename' });
+    // …but not when the AI says it is the wrong document.
+    expect(s80.decidePracticeUploadMatch({ items, attachments: [cv], verdicts: { 'sup|0': { verdict: 'possible_issue' } }, senderTrust: 'requested' })).toBeNull();
+    // 3. We asked this sender for one thing and they sent one file.
+    expect(s80.decidePracticeUploadMatch({ items: [{ id: 'pd', title: 'Position description' }], attachments: [{ index: 0, filename: 'scan.pdf', mimeType: 'application/pdf' }], verdicts: {}, senderTrust: 'requested' }))
+      .toEqual({ itemId: 'pd', attachmentIndex: 0, reason: 'single_candidate' });
+    // Two files or two items and no other signal → nothing is guessed.
+    expect(s80.decidePracticeUploadMatch({ items: [{ id: 'pd', title: 'Position description' }], attachments: [logo, { index: 2, filename: 'scan.pdf', mimeType: 'application/pdf' }], verdicts: {}, senderTrust: 'requested' })).toBeNull();
+    // A merely affiliated sender (practice domain) needs the AI or the name; the doctor too.
+    expect(s80.decidePracticeUploadMatch({ items: [{ id: 'pd', title: 'Position description' }], attachments: [cv], verdicts: {}, senderTrust: 'affiliated' })).toBeNull();
+    expect(s80.decidePracticeUploadMatch({ items: [{ id: 'pd', title: 'Position description' }], attachments: [cv], verdicts: {}, senderTrust: 'candidate' })).toBeNull();
+    // Strangers never attach anything.
+    expect(s80.decidePracticeUploadMatch({ items, attachments: [cv], verdicts: { 'sup|0': { verdict: 'match' } }, senderTrust: 'unknown' })).toBeNull();
+  });
+
   it('deliverableSignature: own CV → cv; officer asking for the CV again → weak cv?; supervisor CV → not cv; nothing known → empty', () => {
     expect(s80.deliverableSignature(MERCY_CV)).toBe('cv');
     expect(s80.deliverableSignature(MERCY_ENGLISH)).toBe('cv?');
