@@ -54266,7 +54266,21 @@ async function handleApi(req, res, pathname) {
       }
       if (hasUsableFullName(cvAccountName)) {
         const cvNameCheck = crossCheckDocumentName(cvScan.nameFound, cvAccountName, cvKnownNames);
-        if (cvNameCheck.match === 'mismatch') {
+        // Recreated TEST account (owner 2026-09-15: "accept this cv although
+        // the name is wrong for account smithmiller1234@gmail.com"): the name
+        // check alone is waived for the ID_CHECK_BYPASS_EMAILS list — the same
+        // narrow list that short-circuits the identity scan. The file still
+        // has to be a real CV of an allowed type and size, and the waiver is
+        // logged so a real doctor's mismatch can never pass silently.
+        const cvNameBypassEmails = String(process.env.ID_CHECK_BYPASS_EMAILS == null
+          ? 'smithmiller1234@gmail.com'
+          : process.env.ID_CHECK_BYPASS_EMAILS)
+          .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+        const cvNameBypassed = cvNameCheck.match === 'mismatch' && cvNameBypassEmails.includes(String(email || '').trim().toLowerCase());
+        if (cvNameBypassed) {
+          console.warn('[career-cv-scan] name mismatch WAIVED for test account ' + email + ': CV "' + cvScan.nameFound + '" vs account "' + cvAccountName + '"');
+        }
+        if (cvNameCheck.match === 'mismatch' && !cvNameBypassed) {
           console.warn('[career-cv-scan] IDENTITY MISMATCH — rejected: CV name "' + cvScan.nameFound + '" vs account "' + cvAccountName + '" (user ' + userId + ')');
           sendJson(res, 422, { ok: false, verified: false, reason: 'The name on this CV (“' + cvScan.nameFound + '”) does not match your account name (“' + cvAccountName + '”). Please upload YOUR OWN signed CV. If you have recently changed your name, please contact support so we can update your details.' });
           return;

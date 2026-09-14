@@ -572,3 +572,40 @@ describe('staff-filed candidate documents — every slot', () => {
     expect(res.body.slot).toBe('cv');
   });
 });
+
+// Owner 2026-09-15 (re-testing with the recreated smithmiller1234@gmail.com,
+// whose account name is not the name on the test CV): "accept this cv
+// although the name is wrong for account smithmiller1234@gmail.com". The name
+// check alone is waived for the ID_CHECK_BYPASS_EMAILS list — the same narrow
+// list that short-circuits the identity scan. Every other doctor is still
+// refused, and the waiver is logged.
+describe('test account: the CV name check is waived for smithmiller1234@gmail.com only', () => {
+  beforeAll(() => {
+    db.user_profiles.push({ user_id: 'u-smith-test', email: 'smithmiller1234@gmail.com', first_name: 'Mohammed', last_name: 'Avais Hussain', registration_country: 'uk' });
+    // a fresh ordinary doctor (the earlier fixtures have used up their daily scan limit)
+    db.user_profiles.push({ user_id: 'u-other-doc', email: 'other-doc@example.com', first_name: 'Priya', last_name: 'Nair', registration_country: 'uk' });
+  });
+  it("accepts and stores a CV in someone else's name for the test account, while a normal doctor is still refused", async () => {
+    aiMode = 'wrong_name'; // the scan reads "Sana Ahsan" off the file
+    const body = { fileName: 'smith-test.pdf', mimeType: 'application/pdf', fileSize: 500, fileBase64: PDF_B64 };
+    const res = await httpReq('POST', '/api/career/profile/cv', { cookie: userCookie('smithmiller1234@gmail.com', 'u-smith-test'), body });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.verified).toBe(true);
+    expect(db.user_documents.find((d) => d.user_id === 'u-smith-test' && d.document_key === 'career_cv')).toBeTruthy();
+
+    const other = await httpReq('POST', '/api/career/profile/cv', { cookie: userCookie('other-doc@example.com', 'u-other-doc'), body });
+    expect(other.status).toBe(422);
+    expect(String(other.body.reason || other.body.message)).toMatch(/does not match your account name/);
+    aiMode = 'genuine_cv';
+  });
+  it('the waiver is keyed on the same list as the identity-scan bypass', async () => {
+    const fsm = await import('node:fs'); const pathm = await import('node:path');
+    const s = fsm.readFileSync(pathm.join(process.cwd(), 'server.js'), 'utf8');
+    const at = s.indexOf("if (pathname === '/api/career/profile/cv' && req.method === 'POST') {");
+    const handler = s.slice(at, at + 9000);
+    expect(handler).toContain("const cvNameBypassed = cvNameCheck.match === 'mismatch' && cvNameBypassEmails.includes(String(email || '').trim().toLowerCase());");
+    expect(handler).toContain("if (cvNameCheck.match === 'mismatch' && !cvNameBypassed) {");
+    expect(handler).toContain("name mismatch WAIVED for test account");
+  });
+});
