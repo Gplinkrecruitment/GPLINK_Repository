@@ -43,7 +43,7 @@ describe('careers page tutorial — the four steps of the strip', () => {
     expect(S.allSeenState().careerStepsSeen).toBe(true);
     const fn = js.slice(js.indexOf('function maybeRunCareerSteps()'), js.indexOf('function maybeRun()'));
     expect(fn).toContain("if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen'); return false; }");
-    expect(fn).toContain("if (!document.querySelector('[data-career-step=\"1\"]')) return false;");
+    expect(fn).toContain("if (!document.querySelector('[data-career-step=\"1\"]')) { csLog('no-strip'); return false; }");
     expect(fn).toContain("if (pageBlocked()) { csLog('blocked-defer'); armRetry(); return true; }");
     // seen is recorded only when the doctor finishes or skips — never at start
     // (a reload mid-tour used to burn the one shot; owner 2026-09-15)

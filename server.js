@@ -5208,6 +5208,29 @@ async function _resolveGpJobsProfile(userId, email) {
 // ids belonging to any practice that turned them down — practice_id where the
 // role has one (a corporate group's whole estate hides together, which is the
 // intent: the group said no), falling back to practice_name.
+// Practices hidden from doctors (lib/ats-practices.js isPracticeHiddenFromDoctors
+// — practices.metadata.hidden_from_doctors). One tiny practices read per minute
+// per instance, keyed on the JSON flag so it never grows with the directory;
+// fails OPEN (empty refs, not cached) so a Supabase blip can never blank the
+// board. Owner 2026-09-15: "hide GP Link Sandbox Practice from any user".
+let _doctorHiddenPracticesCache = null; // { refs, at }
+const DOCTOR_HIDDEN_PRACTICES_TTL_MS = 60 * 1000;
+function __resetDoctorHiddenPracticesCacheForTest() { _doctorHiddenPracticesCache = null; }
+async function listDoctorHiddenPracticeRefs() {
+  const now = Date.now();
+  if (_doctorHiddenPracticesCache && now - _doctorHiddenPracticesCache.at < DOCTOR_HIDDEN_PRACTICES_TTL_MS) return _doctorHiddenPracticesCache.refs;
+  let rows = [];
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('practices', 'select=id,name,metadata&metadata->>hidden_from_doctors=eq.true');
+    if (!r.ok || !Array.isArray(r.data)) return atsPracticeUtil.buildHiddenPracticeRefs([]);
+    rows = r.data;
+  } else {
+    rows = dbState.atsPractices || [];
+  }
+  const refs = atsPracticeUtil.buildHiddenPracticeRefs(rows);
+  _doctorHiddenPracticesCache = { refs, at: now };
+  return refs;
+}
 async function _rolesHiddenByPracticeTurnDown(userId) {
   if (!userId || !isSupabaseDbConfigured()) return new Set();
   try {
@@ -28347,6 +28370,9 @@ async function getActivePublicJobRowsLive() {
   if (!isSupabaseDbConfigured()) return null;
   const result = await supabaseDbRequest('career_roles', 'select=*&is_active=eq.true&order=updated_at.desc');
   if (!result.ok || !Array.isArray(result.data)) return null;
+  // Practices hidden from doctors never reach the public board, the practice
+  // map (careers-page pins + count), the SEO job page or the sitemap.
+  const hiddenPracticeRefs = await listDoctorHiddenPracticeRefs();
   // Defensive belt-and-braces on top of is_active=eq.true above: a
   // practice-client-pipeline job (task 6) is only ever public once an
   // admin/CEO has approved it. Rows with no approval_status at all (Zoho /
@@ -28357,7 +28383,8 @@ async function getActivePublicJobRowsLive() {
   // (treated as open), so this is filtered in JS rather than in the query.
   return result.data.filter((row) =>
     (!row.approval_status || row.approval_status === 'approved') &&
-    String(row.job_status || 'open').trim().toLowerCase() === 'open');
+    String(row.job_status || 'open').trim().toLowerCase() === 'open' &&
+    !atsPracticeUtil.roleBelongsToHiddenPractice(row, hiddenPracticeRefs));
 }
 
 // Cached read for GET /api/public/jobs — 5-min TTL so an anonymous, no-auth
@@ -39772,6 +39799,9 @@ async function redirectOthersForJob(jobId, hiredAppId) {
       'family_friendly,regional,metro,practice_type,header_image_url,job_status,is_active' +
       '&job_status=eq.open&is_active=eq.true&limit=500');
     var roPool = (roPoolRes.ok && Array.isArray(roPoolRes.data)) ? roPoolRes.data : [];
+    // Hidden practices are never offered as alternatives (metadata.hidden_from_doctors).
+    var roHiddenRefs = await listDoctorHiddenPracticeRefs();
+    roPool = roPool.filter(function (j) { return !atsPracticeUtil.roleBelongsToHiddenPractice(j, roHiddenRefs); });
 
     // DPA eligibility per GP (review fix, FIX 2) — the alternatives pool must
     // honor the SAME gate checkMatchEligibility enforces everywhere else
@@ -51701,7 +51731,10 @@ async function handleApi(req, res, pathname) {
       // is_active, so it can still show on the admin Jobs board with a "Filled"
       // badge) — so hide any non-open role from GPs regardless of provider. The
       // open-check (is_active + approved + job_status==='open') is provider-agnostic.
-      const visibleRows = rows.filter((row) => row && isInternalAtsRoleOpenForGp(row));
+      // metadata.hidden_from_doctors: a practice we keep fully usable for staff and
+      // for already-matched doctors, but never list (see listDoctorHiddenPracticeRefs).
+      const hiddenPracticeRefs = await listDoctorHiddenPracticeRefs();
+      const visibleRows = rows.filter((row) => row && isInternalAtsRoleOpenForGp(row) && !atsPracticeUtil.roleBelongsToHiddenPractice(row, hiddenPracticeRefs));
       const visibleRowsByClientId = {};
       visibleRows.forEach((row) => { visibleRowsByClientId[makeCareerRoleId(row.provider, row.provider_role_id)] = row; });
       const gatedRoles = await _applyGpRoleVisibilityGate(visibleRows.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail);
@@ -51716,7 +51749,8 @@ async function handleApi(req, res, pathname) {
     }
 
     // Local-JSON dev mode: still surface CEO-created in-app ATS jobs.
-    const localInternalRoles = await listGpVisibleInternalAtsRoles();
+    const localHiddenRefs = await listDoctorHiddenPracticeRefs();
+    const localInternalRoles = (await listGpVisibleInternalAtsRoles()).filter((row) => !atsPracticeUtil.roleBelongsToHiddenPractice(row, localHiddenRefs));
     const localRowsByClientId = {};
     localInternalRoles.forEach((row) => { if (row) localRowsByClientId[makeCareerRoleId(row.provider, row.provider_role_id)] = row; });
     const localGatedRoles = await _applyGpRoleVisibilityGate(localInternalRoles.map(mapCareerRoleRowToClient), _gpRolesUserId, _gpRolesEmail);
@@ -51770,6 +51804,24 @@ async function handleApi(req, res, pathname) {
 
     const roleDetailEmail = getSessionEmail(session);
     const roleDetailUserId = getSessionSupabaseUserId(session) || (roleDetailEmail ? await getSupabaseUserIdByEmail(roleDetailEmail) : null);
+
+    // Hidden practice (metadata.hidden_from_doctors): the job page reached by
+    // URL is a listing too. Staff preview passes; so does a doctor who already
+    // holds a row on this role (a team match, an application). Everyone else
+    // gets the same 404 as a role that does not exist — decided BEFORE the DPA
+    // stub below, which would otherwise prove the role is real.
+    if (!isAdminPreviewRole && atsPracticeUtil.roleBelongsToHiddenPractice(finalRoleRow, await listDoctorHiddenPracticeRefs())) {
+      let hiddenPass = false;
+      if (roleDetailUserId && finalRoleRow.id != null) {
+        if (isSupabaseDbConfigured()) {
+          const hpRes = await supabaseDbRequest('gp_applications', 'select=id&user_id=eq.' + encodeURIComponent(roleDetailUserId) + '&career_role_id=eq.' + encodeURIComponent(finalRoleRow.id) + '&limit=1');
+          hiddenPass = !!(hpRes.ok && Array.isArray(hpRes.data) && hpRes.data[0]);
+        } else {
+          hiddenPass = (dbState.gpApplications || []).some((a) => a && String(a.user_id) === String(roleDetailUserId) && String(a.career_role_id) === String(finalRoleRow.id));
+        }
+      }
+      if (!hiddenPass) { sendJson(res, 404, { ok: false, message: 'Role not found.' }); return; }
+    }
 
     // Task 11 DPA gate — a GP who can't be shown this role on /api/career/roles
     // (blurred filler) must not be able to fetch its full detail either, e.g.
@@ -52864,6 +52916,13 @@ async function handleApi(req, res, pathname) {
       `select=*&user_id=eq.${encodeURIComponent(userId)}&career_role_id=eq.${encodeURIComponent(roleRow.id)}&limit=1`
     );
     const existingAppRow = (existingApp.ok && Array.isArray(existingApp.data) && existingApp.data[0]) ? existingApp.data[0] : null;
+    // Hidden practice (metadata.hidden_from_doctors): only a doctor who already
+    // holds a row on this role (a team match, an earlier application) may act on
+    // it — a stale or shared job page must not be a way in.
+    if (!existingAppRow && atsPracticeUtil.roleBelongsToHiddenPractice(roleRow, await listDoctorHiddenPracticeRefs())) {
+      sendJson(res, 404, { ok: false, message: 'Role not found.' });
+      return;
+    }
     if (existingAppRow) {
       // Owner rule: once a GP withdraws from a role, they can never re-apply
       // to it — checked FIRST, before the shortlisted self-apply-as-accept
@@ -83412,6 +83471,8 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  listDoctorHiddenPracticeRefs,
+  __resetDoctorHiddenPracticesCacheForTest,
   _createRegTask,
   resolveCareerContractTermsFromStorage,
   parseEmailListWithNames,
