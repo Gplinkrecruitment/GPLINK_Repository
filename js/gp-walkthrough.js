@@ -234,13 +234,6 @@
   // deferred behind a gate and armed a retry) so the generic tip stays out
   // of its way; false when there is nothing to do (seen, or no strip —
   // i.e. a position is already secured).
-  function unmarkCareerStepsSeen() {
-    try {
-      var st = readState(); st.careerStepsSeen = false;
-      localStorage.setItem(KEY, S.serializeState(st));
-      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
-    } catch (e) {}
-  }
   // The strip li exists before the strip is shown (the host starts hidden and
   // renderCareerStepStrip reveals it), and the coach treats a zero-size target
   // as lost. Wait for a real box before spotlighting it.
@@ -253,30 +246,47 @@
     return r.width > 0 && r.height > 0;
   }
   var careerStepsAttempts = 0;
+  var careerStepsRunning = false;
+  var careerStepsLog = [];
+  function csLog(what, extra) {
+    var entry = { t: Math.round(performance.now()), what: what, extra: extra || null };
+    careerStepsLog.push(entry);
+    try { console.info('[walkthrough] career steps:', what, extra || ''); } catch (e) {}
+  }
   function maybeRunCareerSteps() {
-    if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') return false;
-    if (!S.shouldRunCareerSteps(readState())) return false;
-    if (!document.querySelector('[data-career-step="1"]')) return false;
-    if (pageBlocked()) { armRetry(); return true; } // defer — deliberately BEFORE marking seen
+    if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') { csLog('no-modules'); return false; }
+    if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen'); return false; }
+    if (!document.querySelector('[data-career-step="1"]')) { csLog('no-strip'); return false; }
+    if (pageBlocked()) { csLog('blocked-defer'); armRetry(); return true; } // defer — deliberately BEFORE marking seen
     setTimeout(function () {
-      if (guarded()) return;
-      if (pageBlocked()) { armRetry(); return; }
-      if (!S.shouldRunCareerSteps(readState())) return;
+      if (guarded()) { csLog('guarded'); return; }
+      if (pageBlocked()) { csLog('blocked-defer-late'); armRetry(); return; }
+      if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen-late'); return; }
       if (!careerStripVisible()) {
+        csLog('strip-not-visible', { attempt: careerStepsAttempts });
         // Not on screen yet (or a warm frame): look again shortly, a few times.
         if (careerStepsAttempts++ < 12) setTimeout(maybeRunCareerSteps, 700);
         return;
       }
-      markCareerStepsSeen(); // mark BEFORE running so it can never double-fire
+      if (careerStepsRunning || (C.isActive && C.isActive())) { csLog('already-running'); return; }
+      // Seen is recorded only when the doctor finishes or skips the tour —
+      // never when it starts. Marking at start burned the one shot whenever
+      // the tab was reloaded mid-tour or the tip was drawn behind something
+      // (owner 2026-09-15: "reloaded 2 times and still not showing" — the
+      // server had careerStepsSeen:true stamped seconds after each load).
+      // Double-fire within a page is prevented by careerStepsRunning + the
+      // coach's own active flag; across page loads a tour the doctor never
+      // finished simply comes back.
+      careerStepsRunning = true;
+      csLog('run');
       C.run(CAREER_STEPS.slice(), { label: firstVisitLabel }).then(function (reason) {
-        // Only a tour the doctor actually saw counts. 'busy' (another coach),
-        // 'empty', 'lost' (target vanished before the first tip drew) and
-        // 'cancel' mean nothing was shown: re-arm it and try once more this
-        // visit (owner 2026-09-15: it marked itself seen on the live app
-        // without ever appearing).
-        if (reason === 'done' || reason === 'skip' || reason === 'target') return;
-        try { console.info('[walkthrough] career steps tutorial did not show (' + reason + ') — re-armed'); } catch (e) {}
-        unmarkCareerStepsSeen();
+        careerStepsRunning = false;
+        csLog('outcome', { reason: reason });
+        if (reason === 'done' || reason === 'skip' || reason === 'target') { markCareerStepsSeen(); return; }
+        // 'busy' (another coach), 'empty', 'lost' (target vanished before the
+        // first tip drew) and 'cancel' mean nothing was shown: try again
+        // shortly, this visit.
+        try { console.info('[walkthrough] career steps tutorial did not show (' + reason + ') — will retry'); } catch (e) {}
         if (careerStepsAttempts++ < 12) setTimeout(maybeRunCareerSteps, 3000);
       });
     }, 250);
@@ -359,5 +369,5 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer };
+  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer, careerStepsLog: careerStepsLog };
 })();

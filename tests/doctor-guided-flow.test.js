@@ -161,7 +161,7 @@ describe('cache: busters and service worker moved together', () => {
   it('sw.js VERSION moved and precaches the new scripts at the busters the shell ships', () => {
     const sw = read('sw.js');
     const shell = read('pages/app-shell.html');
-    expect(sw).toContain('var VERSION = "20260915c"');
+    expect(sw).toContain('var VERSION = "20260915d"');
     for (const f of ['app-shell.js', 'gp-walkthrough-state.js', 'gp-walkthrough-shell.js', 'gp-doctor-phase.js', 'gp-intro-slides.js']) {
       const m = shell.match(new RegExp('/js/' + f.replace('.', '\\.') + '\\?v=([0-9a-z]+)'));
       expect(m, f).not.toBeNull();
