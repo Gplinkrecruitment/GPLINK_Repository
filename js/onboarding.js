@@ -703,11 +703,14 @@
     // Local dev host: optional for ANY account (owner 2026-09-06) — mirrors the
     // server's loopback ID-scan bypass, so testing the journey never needs a
     // real ID. Production (a real host) still requires the named tester digest.
+    if (isLocalDevHost()) return true;
+    try { return !!(window.gpIdentityStepOptional && window.gpIdentityStepOptional()); } catch (e) { return false; }
+  }
+  function isLocalDevHost() {
     try {
       var h = String(location.hostname || "").toLowerCase();
-      if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]") return true;
-    } catch (e) {}
-    try { return !!(window.gpIdentityStepOptional && window.gpIdentityStepOptional()); } catch (e) { return false; }
+      return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
+    } catch (e) { return false; }
   }
 
   function canBypassOnboardingValidation() {
@@ -1776,10 +1779,14 @@
       statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Confirming your identity...</div>';
       actionsEl.style.display = "none";
     } else if (status !== "verified" && identityStepOptionalForTester()) {
-      // Local testing (owner 2026-09-06): the step is optional here, so don't
-      // show a red scan failure — say plainly it can be skipped and let Submit
-      // through. Still lets the tester upload if they want to exercise the scan.
-      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--gp-muted);">Identity verification is optional in local testing — press Submit to continue, or upload an ID to test the scan.</div>';
+      // Local testing (owner 2026-09-06) or the listed tester (owner 2026-09-14:
+      // "let him skip any uploads … including identity verification"): the
+      // step is optional, so don't show a red scan failure — say plainly it
+      // can be skipped and let Submit through. Still lets the tester upload
+      // if they want to exercise the scan. The wording says which case it is
+      // so the live test account never reads "local testing".
+      var idOptionalWhy = isLocalDevHost() ? "in local testing" : "for this test account";
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--gp-muted);">Identity verification is optional ' + idOptionalWhy + ' — press <b>Submit</b> to continue without uploading anything, or upload an ID to test the scan.</div>';
       if (actionsEl) actionsEl.style.display = "";
       hideError("docsError");
     } else if (status === "verified") {
