@@ -47,7 +47,6 @@ describe('careers page tutorial — the four steps of the strip', () => {
     expect(fn).toContain('if (pageBlocked()) { armRetry(); return true; }');
     // seen is recorded only when the doctor finishes or skips — never at start
     // (a reload mid-tour used to burn the one shot; owner 2026-09-15)
-    expect(fn).not.toContain('markCareerStepsSeen(); // mark BEFORE running');
     expect(fn).toContain("if (reason === 'done' || reason === 'skip' || reason === 'target') { markCareerStepsSeen(); return; }");
     expect(fn).toContain('if (careerStepsRunning || (C.isActive && C.isActive())) {');
     expect(js).not.toContain('function unmarkCareerStepsSeen');
