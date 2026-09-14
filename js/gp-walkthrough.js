@@ -234,6 +234,25 @@
   // deferred behind a gate and armed a retry) so the generic tip stays out
   // of its way; false when there is nothing to do (seen, or no strip —
   // i.e. a position is already secured).
+  function unmarkCareerStepsSeen() {
+    try {
+      var st = readState(); st.careerStepsSeen = false;
+      localStorage.setItem(KEY, S.serializeState(st));
+      if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+    } catch (e) {}
+  }
+  // The strip li exists before the strip is shown (the host starts hidden and
+  // renderCareerStepStrip reveals it), and the coach treats a zero-size target
+  // as lost. Wait for a real box before spotlighting it.
+  function careerStripVisible() {
+    var el = document.querySelector('[data-career-step="1"]');
+    if (!el) return false;
+    var host = document.getElementById('careerStepStrip');
+    if (host && host.hidden) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+  var careerStepsAttempts = 0;
   function maybeRunCareerSteps() {
     if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') return false;
     if (!S.shouldRunCareerSteps(readState())) return false;
@@ -243,9 +262,23 @@
       if (guarded()) return;
       if (pageBlocked()) { armRetry(); return; }
       if (!S.shouldRunCareerSteps(readState())) return;
-      if (!document.querySelector('[data-career-step="1"]')) return;
+      if (!careerStripVisible()) {
+        // Not on screen yet (or a warm frame): look again shortly, a few times.
+        if (careerStepsAttempts++ < 12) setTimeout(maybeRunCareerSteps, 700);
+        return;
+      }
       markCareerStepsSeen(); // mark BEFORE running so it can never double-fire
-      C.run(CAREER_STEPS.slice(), { label: firstVisitLabel });
+      C.run(CAREER_STEPS.slice(), { label: firstVisitLabel }).then(function (reason) {
+        // Only a tour the doctor actually saw counts. 'busy' (another coach),
+        // 'empty', 'lost' (target vanished before the first tip drew) and
+        // 'cancel' mean nothing was shown: re-arm it and try once more this
+        // visit (owner 2026-09-15: it marked itself seen on the live app
+        // without ever appearing).
+        if (reason === 'done' || reason === 'skip' || reason === 'target') return;
+        try { console.info('[walkthrough] career steps tutorial did not show (' + reason + ') — re-armed'); } catch (e) {}
+        unmarkCareerStepsSeen();
+        if (careerStepsAttempts++ < 12) setTimeout(maybeRunCareerSteps, 3000);
+      });
     }, 250);
     return true;
   }

@@ -46,12 +46,17 @@ describe('careers page tutorial — the four steps of the strip', () => {
     expect(fn).toContain("if (!document.querySelector('[data-career-step=\"1\"]')) return false;");
     expect(fn).toContain('if (pageBlocked()) { armRetry(); return true; }');
     expect(fn).toContain('markCareerStepsSeen(); // mark BEFORE running so it can never double-fire');
+    // a tour that never drew (busy / lost / cancel / empty) re-arms instead of burning the one shot
+    expect(fn).toContain("if (reason === 'done' || reason === 'skip' || reason === 'target') return;");
+    expect(fn).toContain('unmarkCareerStepsSeen();');
+    expect(fn).toContain('if (!careerStripVisible()) {');
+    expect(js).toContain("var host = document.getElementById('careerStepStrip');");
     expect(fn).not.toContain('shouldRunTip');
     expect(js).toContain("if (area === 'practice' && maybeRunCareerSteps()) return;");
   });
   it('busters moved together', () => {
-    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915b'));
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915b"');
-    expect(read('sw.js')).toContain('var VERSION = "20260915b"');
+    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915c'));
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915c"');
+    expect(read('sw.js')).toContain('var VERSION = "20260915c"');
   });
 });
