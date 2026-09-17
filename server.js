@@ -2915,6 +2915,41 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
   finally { delete _ahpraConflictLetterInflight[caseId]; }
 }
 
+// The practice has emailed the AHPRA officer and CC'd us: complete the conflict-letter task.
+// Shared by the early thread-match path (the practice usually replies FROM our request email,
+// so the CC copy arrives on our own thread) and the dedicated auto-close further down the
+// inbound pipeline (a fresh email). `task` may lack metadata (matchResponseToTask selects a
+// narrow column list) — it is fetched here. Returns true when the task was completed.
+// Owner report 2026-09-17 (Dr Mercy): Dr Ranatunga's statement to the officer, CC hazel@, was
+// filed on the task by the thread path, which then flipped the task back to "open" — so the
+// card offered to send the request again eight days after the practice had already done it.
+async function _completeConflictLetterFromCc(task, caseId, emailMeta, currentMsgId) {
+  if (!task || !task.id) return false;
+  var meta = task.metadata;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = null; } }
+  if (!meta || typeof meta !== 'object') {
+    var mRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(task.id) + '&limit=1');
+    meta = (mRes.ok && Array.isArray(mRes.data) && mRes.data[0]) ? mRes.data[0].metadata : null;
+    if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = null; } }
+  }
+  meta = meta || {};
+  if (!isConflictLetterConfirmation(emailMeta, { practiceEmail: meta.practice_email || '', officerEmail: meta.ahpra_officer_email || '' })) return false;
+  var nowIso = new Date().toISOString();
+  var newMeta = Object.assign({}, meta, { confirmed_at: nowIso, confirmed_via: 'practice_cc', confirmed_gmail_message_id: currentMsgId || null });
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+    method: 'PATCH',
+    body: { status: 'completed', completed_at: nowIso, completed_by: 'system:practice_cc', metadata: newMeta, updated_at: nowIso }
+  });
+  await supabaseDbRequest('task_timeline', '', {
+    method: 'POST',
+    body: [{ task_id: task.id, case_id: caseId || task.case_id || null, event_type: 'completed',
+      title: 'Practice emailed AHPRA officer — conflict letter confirmed',
+      detail: 'From: ' + (emailMeta.sender || '') + ' to ' + (emailMeta.to || ''), actor: 'system:practice_cc' }]
+  }).catch(function () {});
+  console.log('[conflict-letter] Auto-closed task', task.id, '— practice_cc confirmation from', emailMeta.sender);
+  return true;
+}
+
 /**
  * Deliver matched alternate-supervisor CV(s) onto the case: create the
  * alt_supervisor_cv_review task + task_documents + inbound task_message + case
@@ -7130,7 +7165,18 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
             // A return is a DOCUMENT, so require one from THIS message. With no document the flow
             // falls through to the branch below, which records the reply and reads it for the RSO
             // ("Practice replied — no completed SPPA-00 attached") without moving the machine.
-            if (earlyTask.related_document_key === 'sppa_00' && earlyIsDoc && _earlyStoredDocIds.length > 0) {
+            // Conflict-letter task: the practice replies FROM our request, so their email to the
+            // officer (CC us) lands on THIS thread and takes THIS path — never the dedicated
+            // auto-close below the `continue`. If this message is the practice writing to the
+            // officer, the task is done; it must not be flipped back to "open" as a reply to review.
+            var _earlyConflictClosed = false;
+            if (earlyTask.task_type === 'ahpra_conflict_letter') {
+              try { _earlyConflictClosed = await _completeConflictLetterFromCc(earlyTask, earlyGpCase.id, emailMeta, currentMsgId); }
+              catch (_eccErr) { console.error('[conflict-letter] early-thread auto-close failed:', _eccErr.message); }
+            }
+            if (_earlyConflictClosed) {
+              // Completed above; the message row is already on the task.
+            } else if (earlyTask.related_document_key === 'sppa_00' && earlyIsDoc && _earlyStoredDocIds.length > 0) {
               var sppaTaskFull = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(earlyTask.id) + '&limit=1');
               var sppaMeta = (sppaTaskFull.ok && sppaTaskFull.data && sppaTaskFull.data[0]) ? sppaTaskFull.data[0].metadata : {};
               if (typeof sppaMeta === 'string') try { sppaMeta = JSON.parse(sppaMeta); } catch (e) { sppaMeta = {}; }
@@ -7209,9 +7255,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId, options
                   { method: 'PATCH', body: _sppaNoAdvancePatch });
               }
             } else {
-            // Flip task status to open (Hazel's ball) for review
+            // Flip task status to open (Hazel's ball) for review. A conflict-letter task that is
+            // waiting on the practice keeps waiting: its "open" state re-renders the send-to-practice
+            // composer as if the request had never gone out (the message is still recorded and
+            // logged below, so a reply from the practice remains visible on the task).
+            var _earlyKeepWaiting = earlyTask.task_type === 'ahpra_conflict_letter' && earlyTask.status === 'waiting_on_practice';
             await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
-              { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+              { method: 'PATCH', body: _earlyKeepWaiting ? { updated_at: new Date().toISOString() } : { status: 'open', updated_at: new Date().toISOString() } });
             // AHPRA "practice uploads" item: the practice's reply attachment becomes the item's
             // reviewable upload (AI-checked). This early thread-match path is the one a practice
             // reply actually takes (its `continue` below skips the generic block). Never for an
