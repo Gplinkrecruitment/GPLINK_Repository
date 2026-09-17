@@ -3,5 +3,12 @@
 -- pathway ... but marks them as PEP pathway on their gp link profile").
 -- POST /api/pep/consult stamps this column; the doctor's own user_state
 -- carries the same mark, so the endpoint works whether or not this has been
--- applied. Idempotent.
-ALTER TABLE pep_waitlist ADD COLUMN IF NOT EXISTS consult_requested_at TIMESTAMPTZ;
+-- applied.
+--
+-- APPLIED TO PROD 2026-09-18 via the exec_sql RPC. Note the schema qualifier:
+-- exec_sql does NOT run with public on its search_path, so the unqualified
+-- form fails with 42P01 "relation does not exist" even though PostgREST reads
+-- the same table happily. Additive and nullable — pep_waitlist had 0 rows and
+-- nothing was written. Undo: ALTER TABLE public.pep_waitlist DROP COLUMN
+-- consult_requested_at; Idempotent.
+ALTER TABLE public.pep_waitlist ADD COLUMN IF NOT EXISTS consult_requested_at TIMESTAMPTZ;
