@@ -40,6 +40,11 @@
   const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const SESSION_OWNER_KEY = 'gp_state_owner';
+  // The account id behind that email. Kept SEPARATE from SESSION_OWNER_KEY
+  // because js/auth-guard.js, js/app-shell.js, js/gp-cache.js, js/onboarding.js
+  // and js/bypass-config.js all read gp_state_owner expecting a bare email —
+  // changing its shape would break five readers.
+  const SESSION_OWNER_UID_KEY = 'gp_state_owner_uid';
   const SESSION_PROFILE_CACHE_KEY = 'gp_session_profile_cache';
   const PROFILE_CACHE_KEY = 'gp_profile_cache';
   const ACCOUNT_STATUS_CACHE_KEY = 'gp_account_status_cache';
@@ -247,16 +252,40 @@
 
   // Detect if localStorage belongs to a different user and wipe it immediately.
   // This runs synchronously before any page rendering to prevent data leaks.
-  function enforceOwnership(email) {
+  //
+  // Two different owners, because an email is not an identity. Deleting a GP
+  // and signing up again with the SAME address in the SAME browser produces a
+  // new account that the email check waves straight through, so the old
+  // localStorage survives and is pushed up to the new user id — and since the
+  // server copy wins for gp_walkthrough_state, the brand-new account starts
+  // with every tour already marked seen and no first-run experience ever
+  // fires. That is exactly what happened to the owner's test account on
+  // 2026-09-17 (owner: "there was no tutorial walkthrough or slide pages when
+  // onboarding was complete, fix this once and for all"). Keying on the
+  // account id as well closes it.
+  //
+  // A missing id never wipes: existing browsers hold no gp_state_owner_uid at
+  // all, and treating that absence as a mismatch would wipe every signed-in
+  // doctor's local state on the deploy that ships this. They simply record
+  // their id on the next hydrate and are protected from then on.
+  function enforceOwnership(email, userId) {
     if (!email) return;
     var currentOwner = '';
+    var currentUid = '';
     try { currentOwner = localStorage.getItem(SESSION_OWNER_KEY) || ''; } catch (e) {}
-    if (currentOwner && currentOwner !== email) {
-      // Different user — clear all previous user's data immediately
+    try { currentUid = localStorage.getItem(SESSION_OWNER_UID_KEY) || ''; } catch (e) {}
+    var uid = typeof userId === 'string' ? userId.trim() : '';
+    var differentEmail = !!(currentOwner && currentOwner !== email);
+    var recreatedAccount = !!(currentUid && uid && currentUid !== uid);
+    if (differentEmail || recreatedAccount) {
       clearTrackedLocalState();
       clearStoredResetAt();
+      // The response cache is keyed per URL, not per user: leaving it in place
+      // would serve the previous account's applications and roles.
+      try { if (window.gpCache && typeof window.gpCache.clear === 'function') window.gpCache.clear(); } catch (e) {}
     }
     try { localStorage.setItem(SESSION_OWNER_KEY, email); } catch (e) {}
+    try { if (uid) localStorage.setItem(SESSION_OWNER_UID_KEY, uid); } catch (e) {}
   }
 
   function flushBatchedStorageKey(storageKey) {
@@ -329,15 +358,17 @@
       try {
         // Get current user email from session to enforce ownership
         var sessionEmail = '';
+        var sessionUserId = '';
         try {
           var session = window.gpSessionPromise ? await window.gpSessionPromise : null;
           if (session && session.ok && session.profile && session.profile.email) {
             sessionEmail = session.profile.email;
+            if (typeof session.profile.supabaseUserId === 'string') sessionUserId = session.profile.supabaseUserId;
           }
         } catch (e) {}
 
         // Immediately clear stale data if user changed (synchronous, before any rendering)
-        if (sessionEmail) enforceOwnership(sessionEmail);
+        if (sessionEmail) enforceOwnership(sessionEmail, sessionUserId);
 
         flushTrackedBatches();
         var localState = snapshotTrackedLocalState();

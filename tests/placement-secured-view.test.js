@@ -97,7 +97,7 @@ describe('wiring', () => {
   it('the module is precached and the busters moved together', () => {
     const sw = read('sw.js');
     expect(sw).toContain('"/js/placement-secured.js?v=20260910a"');
-    expect(sw).toContain('var VERSION = "20260918a"');
+    expect(sw).toContain('var VERSION = "20260918b"');
     expect(read('pages/app-shell.html')).toContain('/js/app-shell.js?v=20260910a');
     expect(sw).toContain('/js/app-shell.js?v=20260910a');
   });
