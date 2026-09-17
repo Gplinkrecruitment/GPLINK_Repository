@@ -263,6 +263,10 @@ var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 // depend on the apex. process.env read directly here (not the APP_BASE_URL const below)
 // to avoid any const-ordering hazard. See docs/superpowers/specs/2026-07-14-meta-ads-gp-funnel-design.md §7.
 const CONSULT_START_BASE = process.env.SITE_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'https://app.mygplink.com.au';
+// The CEO's free 30-minute consultation event. NOT CALENDLY_EVENT_URL, which is the
+// RSO "gp-registration-assistance" event — a different call with a different host.
+// Same link pages/site-start.html mounts in its inline widget (CAL_BASE there).
+const CONSULT_CALENDLY_URL = String(process.env.CONSULT_CALENDLY_URL || '').trim() || 'https://calendly.com/hello-mygplink/30min';
 const careerIntro = require('./lib/career-intro.js');
 const practiceSubmissionWa = require('./lib/practice-submission-whatsapp.js');
 const registerVerification = require('./lib/register-verification.js');
@@ -21785,6 +21789,48 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
   } finally { clearTimeout(timeout); }
 }
 
+// The book-nudge link, pointed STRAIGHT at Calendly instead of /start#book
+// (owner request 2026-09-17: "reduce friction"). For a lead we are already
+// chasing, /start had exactly one job left — prefill the widget — and a direct
+// link carries the same prefill as query params, so the tap-through is gone.
+//
+// Nothing downstream depends on the lead landing on /start first:
+//   - Booking correlation is by EMAIL with a phone fallback (ensureLeadBookedCallAt),
+//     never the lead token, and captureCalendlyDirectBookerLead already handles
+//     someone arriving straight off a public Calendly link.
+//   - The Meta booking conversion still reaches Meta: the hourly meta-lead-stages
+//     sweep derives it from call_booked on the lead row, server-side via CAPI.
+//     Only the browser-side fbq('track','Schedule') on /start is lost, which CAPI
+//     already covers more reliably (it is keyed to the Meta lead id).
+//   - Only qualified leads get these touches, so there is no screening left to do.
+//
+// ⚠️ a1 is POSITIONAL — it is the FIRST custom question on the event ("Please
+// share your phone number for contact via WhatsApp"), the one Calendly marks
+// required. Reordering the questions in Calendly silently fills the wrong box.
+// pages/site-start.html carries the same warning for its widget prefill; keep
+// the phone question first on that event and these two stay in step.
+// Calendly has no URL equivalent of the widget's smsReminderNumber, so Calendly's
+// own "send text messages to" field stays blank — our WhatsApp reminders, which
+// read the phone from a1 via invitee_notes, are unaffected.
+function buildConsultBookingUrl(consult, row) {
+  const p = new URLSearchParams();
+  const fullName = String((row && row.name) || '').trim();
+  const email = String((row && row.email) || '').trim();
+  const phone = String((row && row.phone) || '').trim();
+  if (fullName) p.set('name', fullName);
+  if (email) p.set('email', email);
+  if (phone) p.set('a1', phone);
+  p.set('hide_gdpr_banner', '1');
+  // Keeps the nudge attributable in Calendly + Meta without the lead token having
+  // to survive a redirect. utm_content deliberately uses a `lead_` prefix: the
+  // Calendly webhook only correlates scheduled_calls on `call_<32hex>`, so this
+  // reads as analytics and never collides with the RSO call track.
+  p.set('utm_source', 'gplink');
+  p.set('utm_medium', 'consult_nudge');
+  if (consult && consult.token) p.set('utm_content', 'lead_' + consult.token);
+  return CONSULT_CALENDLY_URL + '?' + p.toString();
+}
+
 // One consult-funnel WhatsApp touch for one lead row. Marker-guarded (at most
 // one send per kind per lead, ever), eligibility mirrors the email funnel's
 // gates (lib/consult-whatsapp.js), and the marker is stamped ONLY after a
@@ -21802,9 +21848,7 @@ async function maybeSendConsultWa(row, kind, extra) {
     const ctx = { name: row.name };
     if (kind === 'call_booked') ctx.callAtIso = (extra && extra.callAtIso) || consult.call_at || '';
     if (consultWhatsapp.NOT_BOOKED_WA_KINDS.indexOf(kind) !== -1) {
-      ctx.bookUrl = consult.token
-        ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(consult.token) + '#book'
-        : CONSULT_START_BASE + '/start#book';
+      ctx.bookUrl = buildConsultBookingUrl(consult, row);
     }
     const message = consultWhatsapp.buildConsultWaMessage(kind, ctx);
     if (!message) return { ok: false, skipped: true, reason: 'no_message' };

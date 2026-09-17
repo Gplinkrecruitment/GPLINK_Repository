@@ -214,7 +214,16 @@ describe('cron wiring', () => {
     expect(msg.to).toBe('+447700900123');
     expect(msg.content.templateName).toBe('gp_link_consult_book_nudge');
     expect(msg.content.templateData.body.placeholders[0]).toBe('Aisha');
-    expect(msg.content.templateData.body.placeholders[1]).toContain('/start?lead=' + lead.metadata.consult.token);
+    // The booking link goes STRAIGHT to Calendly — no /start interstitial — and
+    // carries the prefill /start used to apply in its widget, so the doctor lands
+    // on the calendar with name, email and the required phone question filled.
+    const bookUrl = new URL(msg.content.templateData.body.placeholders[1]);
+    expect(bookUrl.origin + bookUrl.pathname).toBe('https://calendly.com/hello-mygplink/30min');
+    expect(bookUrl.searchParams.get('name')).toBe('Aisha Khan');
+    expect(bookUrl.searchParams.get('email')).toBe(lead.email);
+    expect(bookUrl.searchParams.get('a1')).toBe('+44 7700 900123'); // positional: first custom question = phone
+    expect(bookUrl.searchParams.get('utm_content')).toBe('lead_' + lead.metadata.consult.token);
+    expect(msg.content.templateData.body.placeholders[1]).not.toContain('/start');
     // The DoubleTick contact is named with the candidate's FULL name before
     // the message, so the chat never shows a bare phone number as the name.
     const nameSaves = dtCaptured.filter((c) => c.path === '/customer/assign-tags-custom-fields');
