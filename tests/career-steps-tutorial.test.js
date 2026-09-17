@@ -44,10 +44,10 @@ describe('careers page tutorial — the four steps of the strip', () => {
     const fn = js.slice(js.indexOf('function maybeRunCareerSteps()'), js.indexOf('function maybeRun()'));
     expect(fn).toContain("if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen'); return false; }");
     expect(fn).toContain("if (!document.querySelector('[data-career-step=\"1\"]')) { csLog('no-strip'); return false; }");
-    expect(fn).toContain("if (pageBlocked()) { csLog('blocked-defer'); armRetry(); return true; }");
+    expect(fn).toContain("if (pageBlocked(CAREER_STEPS_BLOCK_OPTS)) { csLog('blocked-defer'); armRetry(); return true; }");
     // seen is recorded only when the doctor finishes or skips — never at start
     // (a reload mid-tour used to burn the one shot; owner 2026-09-15)
-    expect(fn).toContain("if (reason === 'done' || reason === 'skip' || reason === 'target') { markCareerStepsSeen(); return; }");
+    expect(fn).toContain("if (reason === 'done' || reason === 'skip' || reason === 'target') { markCareerStepsSeen(); announceCareerStepsDone(); return; }");
     expect(fn).toContain('if (careerStepsRunning || (C.isActive && C.isActive())) {');
     expect(js).not.toContain('function unmarkCareerStepsSeen');
     expect(fn).toContain('if (!careerStripVisible()) {');
@@ -57,7 +57,7 @@ describe('careers page tutorial — the four steps of the strip', () => {
   });
   it('sees what the page alone cannot: a hidden tab and shell-level takeovers defer it; wake-ups stay armed', () => {
     const js = read('js/gp-walkthrough.js');
-    const pb = js.slice(js.indexOf('function pageBlocked() {'), js.indexOf('function scheduleRetry()'));
+    const pb = js.slice(js.indexOf('function pageBlocked('), js.indexOf('function scheduleRetry()'));
     expect(pb).toContain("if (document.visibilityState === 'hidden') return true;");
     expect(pb).toContain("pd.querySelector('#gpMatchPopup, #gpInterviewPopup, #gpContractPopup, .gp-intro-card, .gp-coach-overlay')");
     const ar = js.slice(js.indexOf('function armRetry() {'), js.indexOf('var HOME = ['));
@@ -79,10 +79,61 @@ describe('careers page tutorial — the four steps of the strip', () => {
     expect(read('js/state-sync.js')).toContain("'gp_career_steps_diag'");
     expect(read('server.js')).toContain("'gp_walkthrough_state',\n  'gp_career_steps_diag',");
   });
+  // Owner 2026-09-18: "there is a clash here the upload cv popup should only
+  // pop up after the walkthrough". Order is explainer -> tutorial -> CV gate.
+  describe('the CV gate waits for the tutorial, not the other way round', () => {
+    const js = read('js/gp-walkthrough.js');
+    const career = read('pages/career.html');
+
+    it('only the careers tutorial is exempt from the CV gate — every other tip still defers', () => {
+      expect(js).toContain('var CAREER_STEPS_BLOCK_OPTS = { ignoreCvGate: true };');
+      expect(js).toContain("if (!(opts && opts.ignoreCvGate)) {");
+      // Both of the tutorial's own checks opt out...
+      expect(js).toContain("if (pageBlocked(CAREER_STEPS_BLOCK_OPTS)) { csLog('blocked-defer');");
+      expect(js).toContain("if (pageBlocked(CAREER_STEPS_BLOCK_OPTS)) { csLog('blocked-defer-late');");
+      // ...and nothing else passes the opt-out.
+      expect(js.split('ignoreCvGate: true').length - 1).toBe(1);
+      // The gate itself is still in pageBlocked for the generic tips.
+      expect(js).toContain("var gate = document.querySelector('.career-gate-modal.is-open');");
+    });
+
+    it('the first-visit EXPLAINER still blocks the tutorial, so it stays first', () => {
+      const pb = js.slice(js.indexOf('function pageBlocked('), js.indexOf('function scheduleRetry()'));
+      const introChecks = pb.slice(0, pb.indexOf('ignoreCvGate'));
+      expect(introChecks).toContain("classList.contains('career-intro-open')");
+      expect(introChecks).toContain(".career-intro.is-open");
+    });
+
+    it('the gate asks the walkthrough whether it is still pending', () => {
+      expect(js).toContain('function careerStepsPending() {');
+      expect(js).toContain('careerStepsPending: careerStepsPending');
+      expect(career).toContain("typeof w.careerStepsPending === 'function' && w.careerStepsPending()");
+      expect(career).toContain('openCareerGateAfterTutorial();');
+      // ensureCareerGate must no longer open the modal directly.
+      const ensure = career.slice(career.indexOf('async function ensureCareerGate'), career.indexOf("document.addEventListener('change'"));
+      expect(ensure).toContain('openCareerGateAfterTutorial();');
+      expect(ensure).not.toContain('openCareerGateModal();');
+    });
+
+    it('a finished tutorial releases the gate, and a returning doctor is not made to wait', () => {
+      expect(js).toContain("window.dispatchEvent(new CustomEvent('gp-career-steps-done'))");
+      expect(js).toContain("{ markCareerStepsSeen(); announceCareerStepsDone(); return; }");
+      expect(career).toContain("window.addEventListener('gp-career-steps-done', go);");
+      // Already seen -> careerStepsPending() false -> gate opens at once.
+      expect(js).toContain('if (careerStepsRunning) return true;');
+      expect(js).toContain('return !!S.shouldRunCareerSteps(readState());');
+    });
+
+    it('a tutorial that never runs cannot strand the gate', () => {
+      expect(career).toContain('var CAREER_GATE_TUTORIAL_CEILING_MS = 20000;');
+      expect(career).toContain('setTimeout(go, CAREER_GATE_TUTORIAL_CEILING_MS);');
+    });
+  });
+
   it('busters moved together', () => {
-    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915e'));
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915e"');
-    expect(read('sw.js')).toContain('var VERSION = "20260918b"');
+    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260918a'));
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260918a"');
+    expect(read('sw.js')).toContain('var VERSION = "20260918d"');
     expect(read('sw.js')).toContain('"/js/gp-coach.js?v=20260915a"');
     expect(read('sw.js')).toContain('"/js/state-sync.js?v=20260918b"');
   });

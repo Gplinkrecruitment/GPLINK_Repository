@@ -80,7 +80,19 @@ describe('doctor pages: named tier rendering', () => {
     expect(card).toContain('const named = !!(role.nameRevealed && role.realPracticeName);');
     expect(card).toContain('class="at-rweb"');
     expect(card).not.toContain('PRACTICE NAMED'); // names are never hidden (owner 2026-09-07) — no chip beside a shown name
-    expect(card).toContain('NAME ON ACCEPTANCE'); // masked fallback still renders
+    // Owner 2026-09-18: the caption must name what ACTUALLY unlocks the
+    // practice — a CV on file, not acceptance (server.js
+    // attachNamedPracticeToClientRoles reveals on gpHasVerifiedCareerCv).
+    expect(card).toContain('UNLOCK WITH CV');
+    expect(card).not.toContain('NAME ON ACCEPTANCE');
+    expect(card).toContain('title="Upload your CV and every practice you qualify for is named — before you apply."');
+    // The two cards a CV does NOT unlock keep the old, accurate wording: a
+    // blurred role stays masked even for a CV-verified doctor, and a doctor
+    // with an application necessarily already had a CV.
+    const html2 = read('pages/career.html');
+    const blurred = between(html2, 'function buildBlurredRoleCardHtml(role) {', 'function buildRoleCardHtml(role) {');
+    expect(blurred).toContain('NAME ON ACCEPTANCE');
+    expect(blurred).not.toContain('UNLOCK WITH CV');
     expect(html).toContain('event.target.closest("a.at-rweb")) return;');
     expect(html).toContain('role.practiceName, role.realPracticeName, role.displayLabel');
     // suburb label still derives from the MASKED headline, untouched

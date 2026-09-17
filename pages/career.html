@@ -61,7 +61,7 @@
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260915e" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20260918a" defer></script>
   <script src="/js/career-step-strip.js?v=20260907c" defer></script>
   <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
@@ -12645,7 +12645,7 @@
           <p class="at-rmeta">${escapeHtml(billingLabel)}<span class="at-dot">·</span>${escapeHtml(roleTypeLabel)}${locationLabel ? `<span class="at-dot">·</span>${escapeHtml(locationLabel)}` : ""}</p>
           ${earnings ? `<p class="at-rearn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4a1.5 1.5 0 0 1 0 3h-2a1.5 1.5 0 0 0 0 3h4" stroke-linecap="round"/></svg>${escapeHtml(earnings)}</p>` : ""}
           <div class="at-rfoot">
-            ${named ? "<span></span>" : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`}
+            ${named ? "<span></span>" : `<span class="at-mini" title="Upload your CV and every practice you qualify for is named — before you apply.">${AT_LOCK_SVG}<span class="at-mblur"></span>UNLOCK WITH CV</span>`}
             <button class="at-rsave${saved ? " on" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="${saved ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
             </button>
@@ -15175,6 +15175,36 @@
     // Anyone waiting on the gate (e.g. the walkthrough first-visit tip defers
     // while the gate owns the screen) listens for this on window.
     function announceCareerGateClosed() { try { window.dispatchEvent(new CustomEvent('gp-career-gate-closed')); } catch (e) {} }
+    // Owner 2026-09-18: "the upload cv popup should only pop up after the
+    // walkthrough". The first-visit tutorial and this modal used to race — the
+    // tutorial fired first and the gate then opened straight over the top of
+    // it. The tutorial now goes first and the gate waits for it to finish.
+    // js/gp-walkthrough.js no longer treats this modal as a blocker for that
+    // one tour (it still does for every other tip), so the two cannot deadlock;
+    // the ceiling below covers a tutorial that never runs at all.
+    var careerGateWaitingOnTutorial = false;
+    var CAREER_GATE_TUTORIAL_CEILING_MS = 20000;
+    function careerTutorialPending() {
+      try {
+        var w = window.gpWalkthrough;
+        return !!(w && typeof w.careerStepsPending === 'function' && w.careerStepsPending());
+      } catch (e) { return false; }
+    }
+    function openCareerGateAfterTutorial() {
+      if (!careerTutorialPending()) { openCareerGateModal(); return; }
+      if (careerGateWaitingOnTutorial) return;
+      careerGateWaitingOnTutorial = true;
+      var opened = false;
+      var go = function () {
+        if (opened) return;
+        opened = true;
+        window.removeEventListener('gp-career-steps-done', go);
+        careerGateWaitingOnTutorial = false;
+        openCareerGateModal();
+      };
+      window.addEventListener('gp-career-steps-done', go);
+      setTimeout(go, CAREER_GATE_TUTORIAL_CEILING_MS);
+    }
     function openCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.add('is-open'); m.setAttribute('aria-hidden', 'false'); document.documentElement.classList.add('career-gate-open'); document.body.classList.add('career-gate-open'); } }
     function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } document.documentElement.classList.remove('career-gate-open'); document.body.classList.remove('career-gate-open'); announceCareerGateClosed(); }
 
@@ -15247,7 +15277,7 @@
         if (!data || data.gateRequired !== true) return; // server truth: e.g. already placed on a stale local cache
         if (careerGateSkipActive()) return; // skipped this tab: browse freely, applying re-gates on the job page
         careerGateSyncCta();
-        openCareerGateModal();
+        openCareerGateAfterTutorial();
       } catch (err) { /* network failure: don't lock the page */ }
     }
     document.addEventListener('change', function (ev) {

@@ -1323,21 +1323,57 @@
     return group ? group.desktop : "";
   }
 
+  // Every nav item and mobile tab, captured ONCE before anything is detached —
+  // a querySelectorAll after the first pass would no longer see the removed
+  // ones. Each entry carries the comment node standing in for it while it is
+  // out of the DOM, so a phase upgrade can put it back in its original slot.
+  var navRegistry = null;
+  function navItems() {
+    if (navRegistry) return navRegistry;
+    navRegistry = [];
+    getDesktopItems().forEach(function (item) {
+      var key = item.getAttribute("data-nav");
+      if (key) navRegistry.push({ el: item, key: key, marker: null });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".mobile-nav .mobile-tab"), function (tab) {
+      var key = mobileTabNavKey(tab);
+      if (key) navRegistry.push({ el: tab, key: key, marker: null });
+    });
+    return navRegistry;
+  }
+
+  // Owner 2026-09-18: "you have just hidden the additional menu items instead
+  // of removing them for gps who have not secured placement yet" — correct,
+  // and it mattered. display:none left a real <a href="/pages/my-documents">
+  // in the markup, and the browser paints the full five-item nav before the
+  // deferred app-shell.js runs: handleDocumentClick is not installed until
+  // init(), so a tap in that window was a genuine top-level navigation to a
+  // page the doctor's phase does not include. A detached node cannot be
+  // clicked, tabbed to, or announced. The CSS class is kept as belt and
+  // braces for anything that re-inserts a node behind our back.
   function applyNavVisibility(phase) {
     var P = window.gpDoctorPhase;
     if (!P) return;
     var vis = P.navVisibility(phase);
-    getDesktopItems().forEach(function (item) {
-      var key = item.getAttribute("data-nav");
-      item.classList.toggle("gp-nav-hidden", !!key && vis[key] === false);
-    });
-    Array.prototype.forEach.call(document.querySelectorAll(".mobile-nav .mobile-tab"), function (tab) {
-      var key = mobileTabNavKey(tab);
-      tab.classList.toggle("gp-nav-hidden", !!key && vis[key] === false);
+    navItems().forEach(function (entry) {
+      var hide = vis[entry.key] === false;
+      entry.el.classList.toggle("gp-nav-hidden", hide);
+      if (hide) {
+        if (entry.el.parentNode && !entry.marker) {
+          entry.marker = document.createComment("gp-nav:" + entry.key);
+          entry.el.parentNode.replaceChild(entry.marker, entry.el);
+        }
+      } else if (entry.marker && entry.marker.parentNode) {
+        entry.marker.parentNode.replaceChild(entry.el, entry.marker);
+        entry.marker = null;
+      }
     });
     var root = document.documentElement;
     P.PHASES.forEach(function (name) { root.classList.remove(PHASE_CLASS_PREFIX + name); });
     root.classList.add(PHASE_CLASS_PREFIX + phase);
+    // Releases the pre-paint nav gate in pages/app-shell.html: until this the
+    // page shows only the two items every phase has.
+    root.classList.add("gp-phase-resolved");
   }
 
   // Phases only move forward mid-session. state-sync clears every synced key

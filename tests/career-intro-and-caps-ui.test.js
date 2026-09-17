@@ -51,10 +51,12 @@ describe('first-visit careers explainer', () => {
   });
 
   it('blocks the walkthrough while it is open, and defers UNMARKED', () => {
-    const blocked = walkthrough.slice(walkthrough.indexOf('function pageBlocked()'), walkthrough.indexOf('var deferRetry'));
+    const blocked = walkthrough.slice(walkthrough.indexOf('function pageBlocked('), walkthrough.indexOf('var deferRetry'));
     expect(blocked).toContain("classList.contains('career-intro-open')");
     expect(blocked).toContain("querySelector('.career-intro.is-open')");
-    // The CV gate stays a blocker too — the walkthrough must wait for BOTH.
+    // The CV gate stays a blocker for the generic tips. The careers TUTORIAL
+    // opts out (pageBlocked's ignoreCvGate) because since 2026-09-18 the gate
+    // waits for the tutorial instead of the other way round.
     expect(blocked).toContain("classList.contains('career-gate-open')");
     // pageBlocked() is consulted before markSeen(area), so deferring never
     // burns the doctor's one chance to see the tip.

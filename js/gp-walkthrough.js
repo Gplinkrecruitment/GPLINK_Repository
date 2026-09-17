@@ -61,7 +61,13 @@
     return false;
   }
   var SCRIPT_VERSION = '20260915e';
-  function pageBlocked() {
+  // opts.ignoreCvGate: the careers tutorial now runs BEFORE the CV gate, and
+  // the gate waits for it (owner 2026-09-18: "the upload cv popup should only
+  // pop up after the walkthrough"). It is the only caller that passes this —
+  // every other tip still defers while the gate owns the screen, and the
+  // first-visit careers EXPLAINER still blocks the tutorial, so the order is
+  // explainer -> tutorial -> CV gate.
+  function pageBlocked(opts) {
     if (shellCoachActive) return true;
     if (frameHidden()) return true; // hidden warm frame — defer unmarked
     // A background tab paints nothing the doctor can see.
@@ -81,9 +87,11 @@
       if (document.body && document.body.classList.contains('career-intro-open')) return true;
       if (document.querySelector('.career-intro.is-open')) return true;
       // Career CV gate (pages/career.html): full-screen modal until CV verified.
-      if (document.body && document.body.classList.contains('career-gate-open')) return true;
-      var gate = document.querySelector('.career-gate-modal.is-open');
-      if (gate) return true;
+      if (!(opts && opts.ignoreCvGate)) {
+        if (document.body && document.body.classList.contains('career-gate-open')) return true;
+        var gate = document.querySelector('.career-gate-modal.is-open');
+        if (gate) return true;
+      }
     } catch (e) {}
     return false;
   }
@@ -275,14 +283,30 @@
       localStorage.setItem('gp_career_steps_diag', JSON.stringify(trail.slice(-20)));
     } catch (e) {}
   }
+  var CAREER_STEPS_BLOCK_OPTS = { ignoreCvGate: true };
+
+  // Tells pages/career.html whether to keep the CV gate closed. True while the
+  // tutorial still has to run (or is running); false the moment it is finished
+  // or was already seen, so a returning doctor gets the gate immediately.
+  function careerStepsPending() {
+    if (careerStepsRunning) return true;
+    try {
+      if (!S || typeof S.shouldRunCareerSteps !== 'function') return false;
+      return !!S.shouldRunCareerSteps(readState());
+    } catch (e) { return false; }
+  }
+  function announceCareerStepsDone() {
+    try { window.dispatchEvent(new CustomEvent('gp-career-steps-done')); } catch (e) {}
+  }
+
   function maybeRunCareerSteps() {
     if (!S || !C || typeof S.shouldRunCareerSteps !== 'function') { csLog('no-modules'); return false; }
     if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen'); return false; }
     if (!document.querySelector('[data-career-step="1"]')) { csLog('no-strip'); return false; }
-    if (pageBlocked()) { csLog('blocked-defer'); armRetry(); return true; } // defer — deliberately BEFORE marking seen
+    if (pageBlocked(CAREER_STEPS_BLOCK_OPTS)) { csLog('blocked-defer'); armRetry(); return true; } // defer — deliberately BEFORE marking seen
     setTimeout(function () {
       if (guarded()) { csLog('guarded'); return; }
-      if (pageBlocked()) { csLog('blocked-defer-late'); armRetry(); return; }
+      if (pageBlocked(CAREER_STEPS_BLOCK_OPTS)) { csLog('blocked-defer-late'); armRetry(); return; }
       if (!S.shouldRunCareerSteps(readState())) { csLog('already-seen-late'); return; }
       if (!careerStripVisible()) {
         csLog('strip-not-visible', { attempt: careerStepsAttempts });
@@ -304,7 +328,7 @@
       C.run(CAREER_STEPS.slice(), { label: firstVisitLabel }).then(function (reason) {
         careerStepsRunning = false;
         csLog('outcome', { reason: reason });
-        if (reason === 'done' || reason === 'skip' || reason === 'target') { markCareerStepsSeen(); return; }
+        if (reason === 'done' || reason === 'skip' || reason === 'target') { markCareerStepsSeen(); announceCareerStepsDone(); return; }
         // 'busy' (another coach), 'empty', 'lost' (target vanished before the
         // first tip drew) and 'cancel' mean nothing was shown: try again
         // shortly, this visit.
@@ -391,5 +415,5 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer, careerStepsLog: careerStepsLog };
+  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer, careerStepsLog: careerStepsLog, careerStepsPending: careerStepsPending };
 })();

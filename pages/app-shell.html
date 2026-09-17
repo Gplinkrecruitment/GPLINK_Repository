@@ -21,7 +21,7 @@
   <script src="/js/bypass-config.js?v=20260906a"></script>
   <script src="/js/journey-stages.js?v=20260902a"></script>
   <script src="/js/gp-doctor-phase.js?v=20260907a"></script>
-  <script src="/js/app-shell.js?v=20260910a" defer></script>
+  <script src="/js/app-shell.js?v=20260918a" defer></script>
   <script src="/js/match-popup.js?v=20260904c" defer></script>
   <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <script src="/js/interview-popup.js?v=20260910a" defer></script>
@@ -615,8 +615,24 @@
 
     /* ── Doctor phase nav (js/gp-doctor-phase.js + app-shell.js applyNavVisibility) ──
        Until a position is secured the doctor sees ONLY My Practice and Account
-       (owner brief 2026-09-03). Hidden items keep their markup so the tour,
-       glass highlight and route groups need no special cases. */
+       (owner brief 2026-09-03). applyNavVisibility now DETACHES the items that
+       do not belong to the phase rather than merely hiding them; this class is
+       kept as belt and braces.
+
+       The pre-paint gate below is the other half. app-shell.js is deferred, so
+       without it the browser paints all five desktop items and the five-column
+       mobile bar first and only then snaps to two — the "glitching" the owner
+       reported on 2026-09-18 — and worse, those links are genuinely clickable
+       in that window because handleDocumentClick is not installed until
+       init(). Paint the strict nav FIRST and let a registration-phase doctor's
+       extra items appear when the phase resolves, which is the harmless
+       direction for this to be wrong in. */
+    html:not(.gp-phase-resolved) .nav-item[data-nav="home"],
+    html:not(.gp-phase-resolved) .nav-item[data-nav="documents"],
+    html:not(.gp-phase-resolved) .nav-item[data-nav="support"],
+    html:not(.gp-phase-resolved) .mobile-nav {
+      display: none !important;
+    }
     .nav-item.gp-nav-hidden,
     .mobile-tab.gp-nav-hidden {
       display: none !important;
