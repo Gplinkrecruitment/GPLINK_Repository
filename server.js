@@ -14152,7 +14152,7 @@ async function verifyQualificationDocument({ contentBlock, documentType, expecte
   const dateRules = {
     GB: 'August 2007 or later',
     IE: '2009 or later',
-    NZ: '2010 or later'
+    NZ: '2012 or later'
   };
   const dateRule = dateRules[expectedCountry] || 'any date';
 
@@ -14327,7 +14327,7 @@ Verify this document.`;
 // ═══════════════════════════════════════════════════════════════════════════
 
 function pepCutoffLabel(country) {
-  return ({ GB: 'August 2007', IE: '2009', NZ: '2010' })[String(country || '').toUpperCase()] || '';
+  return ({ GB: 'August 2007', IE: '2009', NZ: '2012' })[String(country || '').toUpperCase()] || '';
 }
 
 // Set a GP's account_status (used for the pep_waitlist gate and for release).

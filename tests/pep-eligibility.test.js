@@ -9,7 +9,7 @@ const { classifyPepEligibility } = require('../lib/document-pipeline.js');
 // (GB/IE/NZ) dated clearly BEFORE that country's cutoff.
 //   GB mrcgp certificate  -> 2007-08-01
 //   IE micgp certificate  -> 2009-01-01
-//   NZ frnzcgp certificate-> 2010-01-01
+//   NZ frnzcgp certificate-> 2012-01-01
 describe('classifyPepEligibility', () => {
   it('1. GB MRCGP dated before the cutoff, verified -> PEP eligible', () => {
     const result = classifyPepEligibility({
@@ -46,7 +46,7 @@ describe('classifyPepEligibility', () => {
     });
     expect(result.pepEligible).toBe(true);
     expect(result.pepMeta.country).toBe('NZ');
-    expect(result.pepMeta.cutoffDate).toBe('2010-01-01');
+    expect(result.pepMeta.cutoffDate).toBe('2012-01-01');
   });
 
   it('4. GB MRCGP dated ON or after the cutoff, verified -> NOT eligible', () => {

@@ -28,6 +28,16 @@ describe('parseRegisterDate', () => {
 });
 
 describe('assessExpeditedPathway', () => {
+  // One table, three countries, sourced from RACGP's admission policy and the
+  // Medical Board's accepted-qualification list. NZ was wrong (2010) until the
+  // owner confirmed 2012 on 2026-09-18.
+  it('pins all three country cutoffs, and the labels the doctor is shown', () => {
+    expect(PEP_DATE_CUTOFFS).toEqual({ GB: '2007-08-01', IE: '2009-01-01', NZ: '2012-01-01' });
+    const server = read('server.js');
+    expect(server).toContain("({ GB: 'August 2007', IE: '2009', NZ: '2012' })");
+    expect(server).toContain("NZ: '2012 or later'");
+  });
+
   it('reuses the one cutoff table the certificate check already uses', () => {
     expect(PEP_DATE_CUTOFFS.GB).toBe('2007-08-01');
     expect(reg.assessExpeditedPathway({ country: 'GB', gpRegisterDate: '05 February 2026' }).cutoff)
