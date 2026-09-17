@@ -179,10 +179,22 @@ describe('a before_cutoff register date applies the PEP gate — at the END of o
 
 describe('Book a consultation', () => {
   const server = read('server.js');
+  it('every consultation books the owner\'s own 30-minute link, not the assigned officer', () => {
+    expect(server).toContain("const CONSULT_CALENDLY_URL = String(process.env.CONSULT_CALENDLY_URL || 'https://calendly.com/hello-mygplink/30min').trim();");
+    // The open consult route uses it; the career-lock route keeps per-officer.
+    expect(server).toContain('const lbRso = lbIsConsult ? null : await resolveAssignedRsoForCareerEmail(lbUserId);');
+    expect(server).toContain('buildCalendlyBookingUrl(lbToken, lbIsConsult ? CONSULT_CALENDLY_URL : (lbRso && lbRso.calendly_event_url))');
+    const epStart = server.indexOf("pathname === '/api/pep/consult'");
+    const ep = server.slice(epStart, server.indexOf("Careers profile gate (Task 3)", epStart));
+    expect(ep).toContain('buildCalendlyBookingUrl(generateCorrelationToken(), CONSULT_CALENDLY_URL)');
+    expect(ep).not.toContain('resolveAssignedRsoForCareerEmail');
+    // Still correlation-tokened, so the Calendly webhook ties it to the doctor.
+    expect(server).toContain("'utm_source=gplink&utm_medium=registration_call&utm_content=call_'");
+  });
+
   it('the PEP CTA marks the profile before handing back the booking link', () => {
     const epStart = server.indexOf("pathname === '/api/pep/consult'");
     const ep = server.slice(epStart, server.indexOf("Careers profile gate (Task 3)", epStart));
-    expect(ep).toContain('buildCalendlyBookingUrl(generateCorrelationToken()');
     expect(ep).toContain("pcState.gp_pep_pathway = JSON.stringify({ initiated_at: pcNowIso, via: 'consultation' })");
     expect(ep).toContain("supabaseDbRequest('pep_waitlist'");
     expect(ep).toContain('consult_requested_at: pcNowIso');

@@ -130,6 +130,13 @@ const SUPABASE_SCAN_NORMALIZER_FUNCTION = String(process.env.SUPABASE_SCAN_NORMA
 // ── Zoom Call Scheduling (Calendly + Zoom AI Companion) ──
 const CALENDLY_API_TOKEN = String(process.env.CALENDLY_API_TOKEN || '').trim();
 const CALENDLY_EVENT_URL = String(process.env.CALENDLY_EVENT_URL || '').trim();
+// Every "Book a consultation" CTA — the PEP pathway page, the onboarding
+// success screen and the career masthead — books straight into the owner's own
+// 30-minute slot, NOT the doctor's assigned officer (owner 2026-09-18:
+// "calendly consultations should be directed straight to ..."). The correlation
+// token is still appended, so the Calendly webhook ties the booking back to the
+// doctor exactly as every other booking does. Overridable without a deploy.
+const CONSULT_CALENDLY_URL = String(process.env.CONSULT_CALENDLY_URL || 'https://calendly.com/hello-mygplink/30min').trim();
 const CALENDLY_EVENT_TYPE_URI = String(process.env.CALENDLY_EVENT_TYPE_URI || '').trim();
 const CALENDLY_WEBHOOK_SECRET = String(process.env.CALENDLY_WEBHOOK_SECRET || '').trim();
 const ZOOM_WEBHOOK_SECRET = String(process.env.ZOOM_WEBHOOK_SECRET || '').trim();
@@ -54310,19 +54317,20 @@ async function handleApi(req, res, pathname) {
   // buildCalendlyBookingUrl, server.js's existing Zoom-assistance-call
   // machinery), personalized to the GP's assigned officer when one is set.
   // career-paused.html's "Book a call" button opens this URL.
-  // '/api/consult/booking-url' is the SAME handler under a name the rest of
-  // the app can honestly use: the "Book a consultation" CTA now appears on the
-  // onboarding success screen and the career page for every GP, not only a
-  // career-locked one (owner 2026-09-18).
+  // Two routes, one handler, two destinations. '/api/career/lock/booking-url'
+  // keeps its per-officer link (career-paused.html's "Book a call" — a
+  // different conversation). '/api/consult/booking-url' is the open
+  // "Book a consultation" CTA and books CONSULT_CALENDLY_URL.
   if ((pathname === '/api/career/lock/booking-url' || pathname === '/api/consult/booking-url') && req.method === 'GET') {
+    const lbIsConsult = pathname === '/api/consult/booking-url';
     const lbSession = requireSession(req, res);
     if (!lbSession) return;
     const lbEmail = getSessionEmail(lbSession);
     const lbUserId = getSessionSupabaseUserId(lbSession) || (lbEmail ? await getSupabaseUserIdByEmail(lbEmail) : null);
     if (!lbUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
-    const lbRso = await resolveAssignedRsoForCareerEmail(lbUserId);
+    const lbRso = lbIsConsult ? null : await resolveAssignedRsoForCareerEmail(lbUserId);
     const lbToken = generateCorrelationToken();
-    const lbUrl = buildCalendlyBookingUrl(lbToken, lbRso && lbRso.calendly_event_url);
+    const lbUrl = buildCalendlyBookingUrl(lbToken, lbIsConsult ? CONSULT_CALENDLY_URL : (lbRso && lbRso.calendly_event_url));
     if (!lbUrl) { sendJson(res, 503, { ok: false, message: 'Booking is not available right now — please try again later.' }); return; }
     sendJson(res, 200, { ok: true, url: lbUrl });
     return;
@@ -54341,8 +54349,7 @@ async function handleApi(req, res, pathname) {
     const pcEmail = getSessionEmail(pcSession);
     const pcUserId = getSessionSupabaseUserId(pcSession) || (pcEmail ? await getSupabaseUserIdByEmail(pcEmail) : null);
     if (!pcUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
-    const pcRso = await resolveAssignedRsoForCareerEmail(pcUserId);
-    const pcUrl = buildCalendlyBookingUrl(generateCorrelationToken(), pcRso && pcRso.calendly_event_url);
+    const pcUrl = buildCalendlyBookingUrl(generateCorrelationToken(), CONSULT_CALENDLY_URL);
     if (!pcUrl) { sendJson(res, 503, { ok: false, message: 'Booking is not available right now — please try again later.' }); return; }
     const pcNowIso = new Date().toISOString();
     // The profile mark: survives on the doctor's own state, so the app and the
