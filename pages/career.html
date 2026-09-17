@@ -61,8 +61,8 @@
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260918b" defer></script>
-  <script src="/js/career-step-strip.js?v=20260907c" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20260918c" defer></script>
+  <script src="/js/career-step-strip.js?v=20260918a" defer></script>
   <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
        must read identically here and on the job page. NOT defer — the intro
@@ -12605,7 +12605,7 @@
         <div class="at-rbody">
           <h2 class="at-rtitle">General Practice</h2>
           <p class="at-rmeta">${escapeHtml([billingLabel, location].filter(Boolean).join(" · "))}</p>
-          <div class="at-rfoot"><span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span></div>
+          <div class="at-rfoot"><span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>PRACTICE CONFIDENTIAL</span></div>
         </div>
         <div class="at-blur-overlay">You don't currently qualify for this role</div>
       </article>`;
@@ -13807,7 +13807,7 @@
 
       // Identity reveal: only when the SERVER marked this application revealed
       // does the card show the real practice name; otherwise the locked
-      // NAME ON ACCEPTANCE treatment, exactly as the old row did.
+      // PRACTICE CONFIDENTIAL treatment, exactly as the old row did.
       // Named tier (owner 2026-09-07): a CV-verified doctor sees the real
       // practice name on every application (nameRevealed) — the masked
       // "DPA - Terrigal - …" headline is no longer what the card is titled.
@@ -13847,7 +13847,7 @@
       // for a legacy row that carries no name at all.
       const identityChip = revealedName
         ? ""
-        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>NAME ON ACCEPTANCE</span>`;
+        : `<span class="at-mini">${AT_LOCK_SVG}<span class="at-mblur"></span>PRACTICE CONFIDENTIAL</span>`;
       const metaBits = [billingValue].filter(Boolean).map((b) => escapeHtml(b)).join(" · ");
 
       // A secured placement opens the placement view, an unanswered match opens

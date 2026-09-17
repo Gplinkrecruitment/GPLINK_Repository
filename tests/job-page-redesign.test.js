@@ -32,7 +32,7 @@ describe('job.html — redesign (2026-07)', () => {
   it('renders a name-on-acceptance dropdown as a real <details> disclosure', () => {
     expect(html).toContain('<details class="at-noa');
     expect(html).toContain('at-noa-mask');
-    expect(html).toContain('REVEALED ON ACCEPTANCE');
+    expect(html).toContain('UNLOCKS WITH YOUR CV');
   });
 
   it('keeps the reveal branch (role.revealed && role.realPracticeName) inside the same builder', () => {

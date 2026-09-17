@@ -11,7 +11,7 @@ const app = (over) => Object.assign({ id: 'a1', roleId: 'r9', practiceName: 'Pra
 
 describe('career step strip — which step, what to do now', () => {
   it('four fixed steps', () => {
-    expect(STEPS.map((s) => s.label)).toEqual(['Find your practice', 'Interview', 'Offer & contract', 'Registration']);
+    expect(STEPS.map((s) => s.label)).toEqual(['Job Search', 'Interview', 'Offer & contract', 'Registration']);
   });
   it('no applications → step 1, browse/apply/enquire', () => {
     const r = deriveCareerStep([]);

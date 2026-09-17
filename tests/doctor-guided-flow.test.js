@@ -16,8 +16,8 @@ describe('shell: phase-driven nav', () => {
   it('loads the phase module before app-shell.js and the slides before the walkthrough controller', () => {
     expect(html.indexOf('/js/gp-doctor-phase.js?v=')).toBeGreaterThan(-1);
     expect(html.indexOf('/js/gp-doctor-phase.js?v=')).toBeLessThan(html.indexOf('/js/app-shell.js?v='));
-    expect(html.indexOf('/js/gp-intro-slides.js?v=')).toBeGreaterThan(html.indexOf('/js/gp-coach.js?v='));
-    expect(html.indexOf('/js/gp-intro-slides.js?v=')).toBeLessThan(html.indexOf('/js/gp-walkthrough-shell.js?v='));
+    expect(html.indexOf('/js/gp-intro-slides.js?v=20260918a')).toBeGreaterThan(html.indexOf('/js/gp-coach.js?v='));
+    expect(html.indexOf('/js/gp-intro-slides.js?v=20260918a')).toBeLessThan(html.indexOf('/js/gp-walkthrough-shell.js?v='));
   });
   it('hides nav items via .gp-nav-hidden and collapses the mobile grid to two tabs in the position phase', () => {
     expect(html).toMatch(/\.mobile-tab\.gp-nav-hidden\s*\{[^}]*display:\s*none\s*!important/);
@@ -118,7 +118,7 @@ describe('walkthrough controller: slideshows own the first-run guidance', () => 
 describe('careers page: "where am I" strip', () => {
   const html = read('pages/career.html');
   it('loads the pure helper and renders the strip inside the masthead', () => {
-    expect(html).toContain('/js/career-step-strip.js?v=');
+    expect(html).toContain('/js/career-step-strip.js?v=20260918a');
     const mast = between(html, '<div class="at-mast-inner">', '</header>');
     expect(mast).toContain('id="careerStepStrip"');
     expect(mast).toContain('id="careerStepRow"');
@@ -161,7 +161,7 @@ describe('cache: busters and service worker moved together', () => {
   it('sw.js VERSION moved and precaches the new scripts at the busters the shell ships', () => {
     const sw = read('sw.js');
     const shell = read('pages/app-shell.html');
-    expect(sw).toContain('var VERSION = "20260918e"');
+    expect(sw).toContain('var VERSION = "20260918f"');
     for (const f of ['app-shell.js', 'gp-walkthrough-state.js', 'gp-walkthrough-shell.js', 'gp-doctor-phase.js', 'gp-intro-slides.js']) {
       const m = shell.match(new RegExp('/js/' + f.replace('.', '\\.') + '\\?v=([0-9a-z]+)'));
       expect(m, f).not.toBeNull();

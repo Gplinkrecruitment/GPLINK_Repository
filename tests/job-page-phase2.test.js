@@ -121,7 +121,7 @@ describe('job.html — Atlas detail rebuild (Phase 2 Task 3)', () => {
     // new markup. The masked bar stays a static CSS placeholder: no role
     // field is ever interpolated into it pre-reveal.
     expect(html).toContain('at-noa-mask');
-    expect(html).toContain('REVEALED ON ACCEPTANCE');
+    expect(html).toContain('UNLOCKS WITH YOUR CV');
     expect(html).toMatch(/<div class="at-noa-line"><span class="at-noa-mask"><\/span><\/div>/);
     expect(html).toContain('stay private until you');
   });

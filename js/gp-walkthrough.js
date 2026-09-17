@@ -162,7 +162,7 @@
   ];
   // Careers page tutorial (owner 2026-09-15: "There should be a tutorial once
   // the GP gets to the career page (despite if cv has been uploaded or skipped)
-  // which highlights each step eg 1. Find your practice, 2. Interview, etc
+  // which highlights each step eg 1. Job Search, 2. Interview, etc
   // with more information on what the step is and what it then unlocks").
   // Spotlights the four steps of the masthead strip in order. It runs once
   // (careerStepsSeen — its OWN flag: the other page tips wait for the tab
@@ -171,7 +171,7 @@
   // (pageBlocked → armRetry), so it fires after "Skip for now" exactly as
   // after an upload.
   var CAREER_STEPS = [
-    { target: '[data-career-step="1"]', timeout: 8000, title: '1. Find your practice',
+    { target: '[data-career-step="1"]', timeout: 8000, title: '1. Job Search',
       body: 'Every practice on the map is one you are already eligible for. Browse the roles, save the ones you like, then apply or send an enquiry — your Registration Support Officer introduces you with your CV. Unlocks: the moment a practice wants to meet you, step 2 opens.' },
     { target: '[data-career-step="2"]', timeout: 8000, title: '2. Interview',
       body: 'The practice shares its available times and you pick one straight from your application card: 30 minutes on Zoom, with your Registration Support Officer on the call so you are never in the room alone. Unlocks: a good interview leads to an offer.' },

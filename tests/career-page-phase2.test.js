@@ -51,7 +51,7 @@ describe('career.html — Atlas browse rebuild (Phase 2 Task 2)', () => {
   });
 
   it('has the masked-identity locked ribbon treatment on cards', () => {
-    expect(html).toContain('NAME ON ACCEPTANCE');
+    expect(html).toContain('PRACTICE CONFIDENTIAL');
     expect(html).toContain('at-mblur');
   });
 

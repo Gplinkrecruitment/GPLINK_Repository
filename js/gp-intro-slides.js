@@ -66,7 +66,7 @@
         body: "We'll take you from here to your first day in an Australian practice, one step at a time. Here's how it works."
       },
       {
-        icon: 'search', kicker: 'Step 1 of 4', title: 'Find your practice',
+        icon: 'search', kicker: 'Step 1 of 4', title: 'Job Search',
         body: 'Browse the practices matched to you. Apply directly to one you like, or send an enquiry if you have a question first.',
         note: 'You can have two applications in play at once, and three in a calendar month. Withdrawing from a position is final.'
       },

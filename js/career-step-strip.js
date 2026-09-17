@@ -7,7 +7,9 @@
 // returns which of the four pre-registration steps the doctor is on and the one
 // line of "what to do now" copy, plus an optional deep link.
 //
-//   1 Find your practice → 2 Interview → 3 Offer & contract → 4 Registration
+//   1 Job Search → 2 Interview → 3 Offer & contract → 4 Registration
+//   (step 1 read "Find your practice" until 2026-09-18 — on a phone the strip
+//   truncated it to "1. Find your pra…")
 //
 // UMD: window.deriveCareerStep in the browser, module.exports under vitest.
 (function (root, factory) {
@@ -18,7 +20,7 @@
   'use strict';
 
   var STEPS = Object.freeze([
-    { num: 1, label: 'Find your practice' },
+    { num: 1, label: 'Job Search' },
     { num: 2, label: 'Interview' },
     { num: 3, label: 'Offer & contract' },
     { num: 4, label: 'Registration' }

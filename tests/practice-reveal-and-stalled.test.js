@@ -71,7 +71,7 @@ describe('doctor pages: named tier rendering', () => {
     const box = between(html, 'function buildPracticeIdentityHtml(role) {', '/* ── Detail body ── */');
     expect(box).toContain('const named = !!(role && role.nameRevealed && role.realPracticeName);');
     expect(box).toContain('ADDRESS &amp; CONTACT &middot; SHARED ON ACCEPTANCE');
-    expect(box).toContain('REVEALED ON ACCEPTANCE'); // masked state stays for doctors without a CV
+    expect(box).toContain('UNLOCKS WITH YOUR CV'); // masked state names the real unlock for a doctor without a CV
     expect(box.indexOf('if (revealed) {')).toBeLessThan(box.indexOf('if (named) {'));
   });
   it('career.html cards show the name + website, keep the masked headline for suburb/search, and the link does not open the role', () => {
@@ -91,7 +91,7 @@ describe('doctor pages: named tier rendering', () => {
     // with an application necessarily already had a CV.
     const html2 = read('pages/career.html');
     const blurred = between(html2, 'function buildBlurredRoleCardHtml(role) {', 'function buildRoleCardHtml(role) {');
-    expect(blurred).toContain('NAME ON ACCEPTANCE');
+    expect(blurred).toContain('PRACTICE CONFIDENTIAL');
     expect(blurred).not.toContain('UNLOCK WITH CV');
     expect(html).toContain('event.target.closest("a.at-rweb")) return;');
     expect(html).toContain('role.practiceName, role.realPracticeName, role.displayLabel');
@@ -364,7 +364,7 @@ describe('named headline everywhere + Under Review after applying', () => {
     expect(career).not.toContain('IDENTITY UNLOCKED</span>');
     expect(career).not.toContain('PRACTICE NAMED</span>');
     expect(career).toContain('const identityChip = revealedName\n        ? ""');
-    expect(career).toContain('NAME ON ACCEPTANCE');
+    expect(career).toContain('PRACTICE CONFIDENTIAL');
   });
 
   it('local rows created on apply/save are titled with the real name when known', () => {
