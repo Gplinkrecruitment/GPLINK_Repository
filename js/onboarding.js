@@ -2447,6 +2447,34 @@
     window.location.href = "/pages/index";
   });
 
+  // Optional consultation, offered to every GP on the success screen. Opens
+  // the same booking link the rest of the app uses, personalised to the
+  // doctor's assigned support officer; a failure just restores the button
+  // (owner 2026-09-18).
+  const successConsultBtn = document.getElementById("successConsultBtn");
+  if (successConsultBtn) {
+    successConsultBtn.addEventListener("click", () => {
+      successConsultBtn.disabled = true;
+      const original = successConsultBtn.textContent;
+      successConsultBtn.textContent = "Opening\u2026";
+      fetch("/api/consult/booking-url", { credentials: "same-origin" })
+        .then((res) => res.json().catch(() => null))
+        .then((data) => {
+          successConsultBtn.disabled = false;
+          if (data && data.ok && data.url) {
+            window.open(data.url, "_blank", "noopener");
+            successConsultBtn.textContent = "Booking page opened \u2713";
+            return;
+          }
+          successConsultBtn.textContent = original;
+        })
+        .catch(() => {
+          successConsultBtn.disabled = false;
+          successConsultBtn.textContent = original;
+        });
+    });
+  }
+
   function highlightQualSlot(wizardKey) {
     setTimeout(function () {
       var slot = document.getElementById("qualSlot_" + wizardKey);

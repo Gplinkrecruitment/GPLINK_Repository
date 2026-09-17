@@ -27,6 +27,6 @@ describe('Home first-visit tour → Done opens the current registration step', (
   it('every page that loads the controller moved to the new buster, and the worker precaches it', () => {
     ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915e'));
     expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915e"');
-    expect(read('sw.js')).toContain('var VERSION = "20260915e"');
+    expect(read('sw.js')).toContain('var VERSION = "20260918a"');
   });
 });

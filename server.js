@@ -9084,7 +9084,8 @@ const USER_STATE_KEYS = [
   'gp_stage_override_at',
   'gp_eligibility_waitlist',
   'gp_walkthrough_state',
-  'gp_career_steps_diag'
+  'gp_career_steps_diag',
+  'gp_pep_pathway'
 ];
 
 const EPIC_STAGE_META = [
@@ -10455,6 +10456,64 @@ async function fetchMcnzRegisterCards(firstName, lastName) {
 // and on a verified outcome writes the same fields the staff buttons write
 // (register_verified_by names the SOURCE, not a person). Returns
 // { outcome: 'verified' | 'pending' | 'error' | 'manual_only' | 'skipped', evidence }.
+// Has this doctor finished the onboarding wizard? The PEP gate waits for it.
+async function isOnboardingComplete(userId) {
+  try {
+    const res = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const state = (res.ok && Array.isArray(res.data) && res.data[0] && res.data[0].state) || {};
+    return state.gp_onboarding_complete === true || state.gp_onboarding_complete === 'true';
+  } catch (e) { return false; }
+}
+
+// Apply the PEP gate from a register-date verdict. ONLY 'before_cutoff' gates:
+// that verdict is arithmetic on an official date from a name-matched register
+// row. 'short_gap' (the three-year training signal that hints at the Portfolio
+// route) is a suspicion, not proof, and never locks anyone out.
+// Best-effort — a failed gate must not undo a good register verification.
+async function applyRegisterPathwayPepGate(userId, profile, pathway) {
+  if (!pathway || pathway.verdict !== 'before_cutoff') return false;
+  try {
+    await applyPepWaitlistGate((profile && profile.email) || '', userId, {
+      country: 'GB',
+      certType: 'GP Register entry (NHS England performers list)',
+      dateFound: pathway.gpRegisterDate,
+      cutoffDate: pathway.cutoff
+    }, profile);
+    return true;
+  } catch (pepErr) {
+    console.error('[PEP] register-date gate failed:', pepErr && pepErr.message);
+    return false;
+  }
+}
+
+// Screen a doctor's expedited-pathway position from the register mirror alone,
+// independent of whether the register verification happens to have run yet.
+// The onboarding-complete handler needs this because a doctor verified by the
+// wizard precheck reaches it already 'verified', and the verification function
+// early-returns for anything that is not still pending.
+// Returns { pathway, profile } or null. Never runs the slow live NHS download.
+async function screenExpeditedPathwayForUser(userId) {
+  try {
+    const profRes = await supabaseDbRequest('user_profiles',
+      `select=user_id,first_name,last_name,email,phone,register_body,register_number&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+    if (!prof || prof.register_body !== 'gmc' || !prof.register_number) return null;
+    const doctor = {
+      number: String(prof.register_number || '').replace(/\D+/g, ''),
+      firstName: prof.first_name || '',
+      lastName: prof.last_name || ''
+    };
+    const mirror = await lookupPerformersMirror(doctor.number);
+    if (!mirror.ok || !mirror.fresh) return null;
+    const verdict = registerLookup.performersVerdict(mirror.rows, doctor);
+    if (!verdict || !verdict.pathway) return null;
+    return { pathway: verdict.pathway, profile: prof };
+  } catch (e) {
+    console.warn('[PEP] pathway screen failed (tolerated):', e && e.message);
+    return null;
+  }
+}
+
 async function attemptAutomaticRegisterVerification(userId, options = {}) {
   const profRes = await supabaseDbRequest('user_profiles',
     `select=user_id,first_name,last_name,email,phone,register_body,register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
@@ -10530,18 +10589,17 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
   // Best-effort, like the certificate-side gate: a failure here must not undo
   // a good register verification. Staff can release a gated doctor from the
   // CEO dashboard if a case turns out to be wrong.
+  // Owner 2026-09-18: "gate them at the end of onboarding instead". The
+  // register check runs long before that — at the GMC field, from the wizard
+  // precheck — and gating there would bounce a doctor out of the app mid
+  // signup, before we hold their details or they have met anyone. So the
+  // verdict is computed here but only ACTED on once onboarding is finished:
+  // the onboarding-complete handler screens again and applies the gate, and
+  // this path covers the doctor who finished onboarding earlier and is only
+  // being verified now (hourly cron, staff one-click).
   const pathwayScreen = verdict.pathway || null;
-  if (pathwayScreen && pathwayScreen.verdict === 'before_cutoff') {
-    try {
-      await applyPepWaitlistGate(prof.email || '', userId, {
-        country: 'GB',
-        certType: 'GP Register entry (NHS England performers list)',
-        dateFound: pathwayScreen.gpRegisterDate,
-        cutoffDate: pathwayScreen.cutoff
-      }, prof);
-    } catch (pepErr) {
-      console.error('[PEP] register-date gate failed (verification kept):', pepErr && pepErr.message);
-    }
+  if (pathwayScreen && pathwayScreen.verdict === 'before_cutoff' && await isOnboardingComplete(userId)) {
+    await applyRegisterPathwayPepGate(userId, prof, pathwayScreen);
   }
   try {
     const regCase = await _ensureRegCase(userId);
@@ -54252,7 +54310,11 @@ async function handleApi(req, res, pathname) {
   // buildCalendlyBookingUrl, server.js's existing Zoom-assistance-call
   // machinery), personalized to the GP's assigned officer when one is set.
   // career-paused.html's "Book a call" button opens this URL.
-  if (pathname === '/api/career/lock/booking-url' && req.method === 'GET') {
+  // '/api/consult/booking-url' is the SAME handler under a name the rest of
+  // the app can honestly use: the "Book a consultation" CTA now appears on the
+  // onboarding success screen and the career page for every GP, not only a
+  // career-locked one (owner 2026-09-18).
+  if ((pathname === '/api/career/lock/booking-url' || pathname === '/api/consult/booking-url') && req.method === 'GET') {
     const lbSession = requireSession(req, res);
     if (!lbSession) return;
     const lbEmail = getSessionEmail(lbSession);
@@ -54263,6 +54325,44 @@ async function handleApi(req, res, pathname) {
     const lbUrl = buildCalendlyBookingUrl(lbToken, lbRso && lbRso.calendly_event_url);
     if (!lbUrl) { sendJson(res, 503, { ok: false, message: 'Booking is not available right now — please try again later.' }); return; }
     sendJson(res, 200, { ok: true, url: lbUrl });
+    return;
+  }
+
+  // POST /api/pep/consult — the PEP pathway page's "Book a consultation" CTA.
+  // Returns the same per-RSO Calendly link every other booking uses AND marks
+  // the doctor as having started the PEP pathway, so booking the call is what
+  // initiates it rather than a separate admin step (owner 2026-09-18: "offer
+  // them a cta with book a consultation to initiate PEP pathway which lets
+  // them book a call with me but marks them as PEP pathway on their gp link
+  // profile").
+  if (pathname === '/api/pep/consult' && req.method === 'POST') {
+    const pcSession = requireSession(req, res);
+    if (!pcSession) return;
+    const pcEmail = getSessionEmail(pcSession);
+    const pcUserId = getSessionSupabaseUserId(pcSession) || (pcEmail ? await getSupabaseUserIdByEmail(pcEmail) : null);
+    if (!pcUserId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const pcRso = await resolveAssignedRsoForCareerEmail(pcUserId);
+    const pcUrl = buildCalendlyBookingUrl(generateCorrelationToken(), pcRso && pcRso.calendly_event_url);
+    if (!pcUrl) { sendJson(res, 503, { ok: false, message: 'Booking is not available right now — please try again later.' }); return; }
+    const pcNowIso = new Date().toISOString();
+    // The profile mark: survives on the doctor's own state, so the app and the
+    // CEO drawer both see it without waiting on the Calendly webhook.
+    try {
+      const pcStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(pcUserId)}&limit=1`);
+      const pcState = (pcStateRes.ok && Array.isArray(pcStateRes.data) && pcStateRes.data[0] && pcStateRes.data[0].state) || {};
+      pcState.gp_pep_pathway = JSON.stringify({ initiated_at: pcNowIso, via: 'consultation' });
+      await upsertSupabaseUserState(pcUserId, pcState, pcNowIso);
+    } catch (pcStateErr) { console.warn('[PEP] consult state mark failed (tolerated):', pcStateErr && pcStateErr.message); }
+    // Waitlist row stamp. Best-effort on its own: the consult_requested_at
+    // column ships in a migration that may not be applied yet, and a missing
+    // column must not cost the doctor their booking link.
+    try {
+      await supabaseDbRequest('pep_waitlist', 'user_id=eq.' + encodeURIComponent(pcUserId), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { consult_requested_at: pcNowIso, updated_at: pcNowIso }
+      });
+    } catch (pcRowErr) { /* column not applied yet — the state mark still stands */ }
+    sendJson(res, 200, { ok: true, url: pcUrl });
     return;
   }
 
@@ -60027,7 +60127,21 @@ async function handleApi(req, res, pathname) {
       }
     }
 
-    sendJson(res, 200, { ok: true, message: 'Onboarding complete.', registerVerification: obRegisterOutcome });
+    // ── PEP gate, applied HERE and nowhere earlier (owner 2026-09-18) ──────
+    // A GP whose GP Register entry predates the August 2007 cutoff cannot hold
+    // the MRCGP the expedited pathway requires. They now finish onboarding in
+    // full — so we hold their details and they have seen the app — and only
+    // then land on /pages/pep-pathway, where they can book a consultation to
+    // start the PEP pathway instead of simply being told no.
+    let obPepGated = false;
+    if (isSupabaseDbConfigured() && userId) {
+      const obScreen = await screenExpeditedPathwayForUser(userId);
+      if (obScreen && obScreen.pathway.verdict === 'before_cutoff') {
+        obPepGated = await applyRegisterPathwayPepGate(userId, obScreen.profile, obScreen.pathway);
+      }
+    }
+
+    sendJson(res, 200, { ok: true, message: 'Onboarding complete.', registerVerification: obRegisterOutcome, pepGated: obPepGated });
     return;
   }
 

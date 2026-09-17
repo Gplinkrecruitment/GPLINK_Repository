@@ -111,6 +111,16 @@
     .btn:active { transform: scale(0.985); }
     .btn:disabled { opacity: 0.7; cursor: default; }
 
+    /* Secondary action: "notify me" is no longer the main thing to do here —
+       booking the consultation is what actually starts the PEP pathway. */
+    .btn-secondary {
+      background: transparent;
+      color: var(--primary);
+      border: 1.5px solid var(--border);
+      margin-top: 18px;
+    }
+    .btn-secondary:hover { background: rgba(37, 99, 235, 0.06); }
+
     .subline {
       font-size: 13px;
       color: var(--muted);
@@ -205,8 +215,16 @@
       <div class="divider"></div>
 
       <div id="actionZone">
-        <button type="button" id="notifyBtn" class="btn">Notify me when this is available</button>
-        <p class="subline">We&rsquo;ll notify you by WhatsApp and email.</p>
+        <button type="button" id="pepConsultBtn" class="btn">Book a consultation</button>
+        <p class="subline">
+          A 30-minute call with our team to start your PEP pathway. Booking
+          marks your GP Link profile as PEP pathway.
+        </p>
+        <div id="consultError" class="error" role="alert">
+          We couldn&rsquo;t open the booking page. Please check your connection and try again.
+        </div>
+        <button type="button" id="notifyBtn" class="btn btn-secondary">Notify me when this is available</button>
+        <p class="subline">Or just wait &mdash; we&rsquo;ll message you by WhatsApp and email when the pathway opens.</p>
         <div id="notifyError" class="error" role="alert">
           Something went wrong. Please check your connection and try again.
         </div>
@@ -229,6 +247,34 @@
         '</div>';
 
       var actionZone = document.getElementById("actionZone");
+      // Booking the consultation IS the PEP pathway opt-in: the endpoint marks
+      // the profile before handing back the booking link (owner 2026-09-18).
+      var pepConsultBtn = document.getElementById("pepConsultBtn");
+      var consultError = document.getElementById("consultError");
+      pepConsultBtn.addEventListener("click", function () {
+        consultError.classList.remove("show");
+        pepConsultBtn.disabled = true;
+        var original = pepConsultBtn.textContent;
+        pepConsultBtn.textContent = "Opening\u2026";
+        fetch("/api/pep/consult", { method: "POST", credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return null; }); })
+          .then(function (data) {
+            pepConsultBtn.disabled = false;
+            pepConsultBtn.textContent = original;
+            if (data && data.ok && data.url) {
+              window.open(data.url, "_blank", "noopener");
+              pepConsultBtn.textContent = "Booking page opened \u2713";
+              return;
+            }
+            consultError.classList.add("show");
+          })
+          .catch(function () {
+            pepConsultBtn.disabled = false;
+            pepConsultBtn.textContent = original;
+            consultError.classList.add("show");
+          });
+      });
+
       var notifyBtn = document.getElementById("notifyBtn");
       var notifyError = document.getElementById("notifyError");
 

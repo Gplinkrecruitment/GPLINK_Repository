@@ -58,7 +58,7 @@
   <script src="../js/api-dedupe.js?v=20260729a"></script>
   <script src="../js/interview-card-state.js?v=20260910a"></script>
   <script src="../js/auth-guard.js?v=20260810a" defer></script>
-  <script src="../js/state-sync.js?v=20260915a" defer></script>
+  <script src="../js/state-sync.js?v=20260918a" defer></script>
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough.js?v=20260915e" defer></script>
@@ -7423,6 +7423,24 @@
     .at-steps-cta { flex: none; font-size: 12.5px; font-weight: 700; color: #fff; text-decoration: none; border: 1px solid rgba(255, 255, 255, .5); border-radius: 999px; padding: 6px 12px; transition: background var(--gp-dur, .18s) var(--gp-ease, ease); }
     .at-steps-cta:hover { background: rgba(255, 255, 255, .14); }
     .at-steps-cta[hidden] { display: none !important; }
+
+    /* ── "Book a consultation", every GP, any time (owner 2026-09-18) ──
+       Sits under the masthead strip on the same dark veil, so it is glassy
+       like .at-steps-cta rather than a solid button. Unlike the strip it is
+       NOT hidden once a position is secured — a placed GP can still want a
+       conversation. */
+    .at-consult { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin-top: 14px; }
+    .at-consult-btn {
+      flex: none; appearance: none; cursor: pointer; font-family: inherit;
+      font-size: 12.5px; font-weight: 700; color: #fff;
+      border: 1px solid rgba(255, 255, 255, .35);
+      background: rgba(255, 255, 255, .08);
+      border-radius: 999px; padding: 9px 16px;
+      transition: background .18s ease;
+    }
+    .at-consult-btn:hover { background: rgba(255, 255, 255, .18); }
+    .at-consult-btn:disabled { opacity: .7; cursor: default; }
+    .at-consult-note { font-size: 12.5px; color: #c2dbff; }
     body.career-mode-secured .at-steps { display: none !important; }
 
     /* ── Search dock (overlaps the masthead) + tabs + dropdown filters ── */
@@ -8453,6 +8471,13 @@
                 <span class="at-steps-hint" id="careerStepHint"></span>
                 <a class="at-steps-cta" id="careerStepCta" href="#" hidden></a>
               </div>
+            </div>
+            <!-- Optional consultation, always available once onboarding is
+                 done (owner 2026-09-18). Same booking link as the onboarding
+                 success screen. -->
+            <div class="at-consult">
+              <button type="button" class="at-consult-btn" id="careerConsultBtn">Book a consultation</button>
+              <span class="at-consult-note">Talk to our team about your move &mdash; any time.</span>
             </div>
           </div>
         </header>
@@ -10203,6 +10228,31 @@
       }
       host.hidden = false;
     }
+    // Book a consultation — the same booking link the onboarding success
+    // screen opens, personalised to the doctor's assigned support officer.
+    // Opened in a new tab so they keep their place on the board.
+    (function () {
+      var consultBtn = document.getElementById("careerConsultBtn");
+      if (!consultBtn) return;
+      consultBtn.addEventListener("click", function () {
+        consultBtn.disabled = true;
+        var original = consultBtn.textContent;
+        consultBtn.textContent = "Opening\u2026";
+        fetch("/api/consult/booking-url", { credentials: "same-origin" })
+          .then(function (res) { return res.json().catch(function () { return null; }); })
+          .then(function (data) {
+            consultBtn.disabled = false;
+            if (data && data.ok && data.url) {
+              window.open(data.url, "_blank", "noopener");
+              consultBtn.textContent = "Booking page opened \u2713";
+              return;
+            }
+            consultBtn.textContent = original;
+          })
+          .catch(function () { consultBtn.disabled = false; consultBtn.textContent = original; });
+      });
+    })();
+
     window.addEventListener("gp-career-updated", renderCareerStepStrip);
     document.addEventListener("DOMContentLoaded", renderCareerStepStrip);
 

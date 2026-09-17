@@ -119,48 +119,106 @@ describe('performersVerdict carries the pathway screen', () => {
 // the same place the certificate scan sends them weeks later.
 // Owner 2026-09-17: "so if they were on the gp register before august 2007 then
 // they will be taken to the pep pathway waitlist page?"
-describe('a before_cutoff register date applies the PEP gate', () => {
+describe('a before_cutoff register date applies the PEP gate — at the END of onboarding', () => {
   const server = read('server.js');
-  // The whole function, not a fixed-size window: the gate sits near its end.
-  const fnStart = server.indexOf('async function attemptAutomaticRegisterVerification');
-  const fn = server.slice(fnStart, server.indexOf('\nasync function ', fnStart + 10));
+  const slice = (name) => {
+    const i = server.indexOf('async function ' + name);
+    return server.slice(i, server.indexOf('\nasync function ', i + 10));
+  };
+  const gateFn = slice('applyRegisterPathwayPepGate');
+  const verifyFn = slice('attemptAutomaticRegisterVerification');
 
   it('reuses the certificate path gate rather than a second mechanism', () => {
-    expect(fn).toContain('await applyPepWaitlistGate(');
-    // One gate, called from both the certificate scan and the register check.
+    expect(gateFn).toContain('await applyPepWaitlistGate(');
     expect(server.split('async function applyPepWaitlistGate').length - 1).toBe(1);
+    // Two callers: the certificate scan, and the register-date helper.
     expect(server.split('await applyPepWaitlistGate(').length - 1).toBe(2);
   });
 
   it('gates ONLY on before_cutoff — a short gap is a suspicion, never a lockout', () => {
-    expect(fn).toContain("pathwayScreen.verdict === 'before_cutoff'");
-    const gateBlock = fn.slice(fn.indexOf('const pathwayScreen'), fn.indexOf('return {\n    outcome: \'verified\''));
-    expect(gateBlock).not.toContain("'short_gap'");
+    expect(gateFn).toContain("if (!pathway || pathway.verdict !== 'before_cutoff') return false;");
+    expect(gateFn).not.toContain("'short_gap'");
   });
 
   it('records the register date as the evidence behind the gate', () => {
-    expect(fn).toContain("certType: 'GP Register entry (NHS England performers list)'");
-    expect(fn).toContain('dateFound: pathwayScreen.gpRegisterDate');
-    expect(fn).toContain('cutoffDate: pathwayScreen.cutoff');
-  });
-
-  it('reads the email and phone the waitlist row needs', () => {
-    expect(fn).toContain('select=user_id,first_name,last_name,email,phone,register_body');
+    expect(gateFn).toContain("certType: 'GP Register entry (NHS England performers list)'");
+    expect(gateFn).toContain('dateFound: pathway.gpRegisterDate');
+    expect(gateFn).toContain('cutoffDate: pathway.cutoff');
   });
 
   it('is best-effort: a failed gate never loses a good register verification', () => {
-    expect(fn).toContain("console.error('[PEP] register-date gate failed (verification kept):'");
-    const gateIdx = fn.indexOf('applyPepWaitlistGate');
-    expect(fn.lastIndexOf('try {', gateIdx)).toBeGreaterThan(-1);
+    expect(gateFn).toContain("console.error('[PEP] register-date gate failed:'");
   });
 
-  it('tells callers the doctor is now gated', () => {
-    expect(fn).toContain("pepGated: !!(pathwayScreen && pathwayScreen.verdict === 'before_cutoff')");
+  // The owner's 2026-09-18 decision: finish onboarding first, THEN gate.
+  it('the verification path refuses to gate until onboarding is finished', () => {
+    expect(verifyFn).toContain("pathwayScreen.verdict === 'before_cutoff' && await isOnboardingComplete(userId)");
+    expect(slice('isOnboardingComplete')).toContain("state.gp_onboarding_complete === true");
+  });
+
+  it('the onboarding-complete handler screens and gates on its way out', () => {
+    const handler = server.slice(server.indexOf("let obPepGated = false;"), server.indexOf("message: 'Onboarding complete.'") + 200);
+    expect(handler).toContain('await screenExpeditedPathwayForUser(userId)');
+    expect(handler).toContain("obScreen.pathway.verdict === 'before_cutoff'");
+    expect(handler).toContain('pepGated: obPepGated');
+  });
+
+  it('the screen never runs the slow live NHS download at the finish line', () => {
+    const scr = slice('screenExpeditedPathwayForUser');
+    expect(scr).toContain('await lookupPerformersMirror(');
+    expect(scr).not.toContain('scanPerformersCsvForNumbers');
+    expect(scr).toContain('if (!mirror.ok || !mirror.fresh) return null;');
   });
 
   it('the gate the auth guard enforces still points at the PEP page', () => {
     const guard = read('js/auth-guard.js');
     expect(guard).toContain('window.location.replace("/pages/pep-pathway")');
     expect(guard).toContain('status === "pep_waitlist"');
+  });
+});
+
+describe('Book a consultation', () => {
+  const server = read('server.js');
+  it('the PEP CTA marks the profile before handing back the booking link', () => {
+    const epStart = server.indexOf("pathname === '/api/pep/consult'");
+    const ep = server.slice(epStart, server.indexOf("Careers profile gate (Task 3)", epStart));
+    expect(ep).toContain('buildCalendlyBookingUrl(generateCorrelationToken()');
+    expect(ep).toContain("pcState.gp_pep_pathway = JSON.stringify({ initiated_at: pcNowIso, via: 'consultation' })");
+    expect(ep).toContain("supabaseDbRequest('pep_waitlist'");
+    expect(ep).toContain('consult_requested_at: pcNowIso');
+  });
+
+  it('every GP can book: one handler serves the career-lock and the open route', () => {
+    expect(server).toContain("if ((pathname === '/api/career/lock/booking-url' || pathname === '/api/consult/booking-url') && req.method === 'GET') {");
+  });
+
+  it('the CTA is on the PEP page, the onboarding success screen and the career page', () => {
+    expect(read('pages/pep-pathway.html')).toContain('id="pepConsultBtn"');
+    expect(read('pages/pep-pathway.html')).toContain('/api/pep/consult');
+    expect(read('pages/onboarding.html')).toContain('id="successConsultBtn"');
+    expect(read('js/onboarding.js')).toContain('/api/consult/booking-url');
+    expect(read('pages/career.html')).toContain('id="careerConsultBtn"');
+    expect(read('pages/career.html')).toContain('/api/consult/booking-url');
+  });
+
+  it('is optional everywhere — it never blocks the doctor carrying on', () => {
+    // The success screen keeps its own primary button; the career button sits
+    // beside the board rather than in front of it.
+    expect(read('pages/onboarding.html')).toContain('id="successContinueBtn"');
+    expect(read('pages/career.html')).not.toContain('careerConsultBtn" disabled');
+  });
+
+  it('a placed GP keeps the career button even though the step strip goes', () => {
+    const css = read('pages/career.html');
+    expect(css).toContain('body.career-mode-secured .at-steps { display: none !important; }');
+    expect(css).not.toContain('body.career-mode-secured .at-consult');
+  });
+
+  it('the waitlist stamp ships as a migration and the endpoint survives without it', () => {
+    expect(read('supabase/migrations/20260918000000_pep_waitlist_consult_requested.sql'))
+      .toContain('ADD COLUMN IF NOT EXISTS consult_requested_at');
+    const epStart = server.indexOf("pathname === '/api/pep/consult'");
+    const ep = server.slice(epStart, server.indexOf("Careers profile gate (Task 3)", epStart));
+    expect(ep).toContain('column not applied yet');
   });
 });

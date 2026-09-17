@@ -32,7 +32,9 @@
     'gp_walkthrough_state',
     // Careers-tutorial decision trail (js/gp-walkthrough.js csLog) — read
     // server-side when a doctor says the tutorial never appeared.
-    'gp_career_steps_diag'
+    'gp_career_steps_diag',
+    // Set when a PEP-gated GP books their pathway consultation.
+    'gp_pep_pathway'
   ];
   // Keys managed exclusively by admin endpoints — never push back to server
   const ADMIN_READONLY_KEYS = ['gp_admin_stage_override', 'gp_stage_override_at'];

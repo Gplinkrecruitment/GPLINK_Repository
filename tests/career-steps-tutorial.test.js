@@ -77,13 +77,13 @@ describe('careers page tutorial — the four steps of the strip', () => {
   it('keeps a decision trail the server can read (gp_career_steps_diag, synced like the walkthrough state)', () => {
     expect(read('js/gp-walkthrough.js')).toContain("localStorage.setItem('gp_career_steps_diag', JSON.stringify(trail.slice(-20)));");
     expect(read('js/state-sync.js')).toContain("'gp_career_steps_diag'");
-    expect(read('server.js')).toContain("'gp_walkthrough_state',\n  'gp_career_steps_diag'\n];");
+    expect(read('server.js')).toContain("'gp_walkthrough_state',\n  'gp_career_steps_diag',");
   });
   it('busters moved together', () => {
     ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260915e'));
     expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260915e"');
-    expect(read('sw.js')).toContain('var VERSION = "20260915e"');
+    expect(read('sw.js')).toContain('var VERSION = "20260918a"');
     expect(read('sw.js')).toContain('"/js/gp-coach.js?v=20260915a"');
-    expect(read('sw.js')).toContain('"/js/state-sync.js?v=20260915a"');
+    expect(read('sw.js')).toContain('"/js/state-sync.js?v=20260918a"');
   });
 });
