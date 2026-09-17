@@ -10457,7 +10457,7 @@ async function fetchMcnzRegisterCards(firstName, lastName) {
 // { outcome: 'verified' | 'pending' | 'error' | 'manual_only' | 'skipped', evidence }.
 async function attemptAutomaticRegisterVerification(userId, options = {}) {
   const profRes = await supabaseDbRequest('user_profiles',
-    `select=user_id,first_name,last_name,register_body,register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    `select=user_id,first_name,last_name,email,phone,register_body,register_number,register_status&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
   const prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
   if (!prof) return { outcome: 'error', evidence: 'Doctor not found.' };
   if (prof.register_status !== 'pending_verification') {
@@ -10500,7 +10500,7 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
   }
 
   await stampChecked();
-  if (verdict.outcome !== 'verified') return { outcome: 'pending', evidence: verdict.evidence };
+  if (verdict.outcome !== 'verified') return { outcome: 'pending', evidence: verdict.evidence, pathway: verdict.pathway || null };
 
   const nowIso = new Date().toISOString();
   const patch = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
@@ -10513,13 +10513,49 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
     }
   });
   if (!patch.ok) return { outcome: 'error', evidence: 'Verification found but could not be saved. It will retry.' };
+
+  // PEP gate from the register date (owner 2026-09-17: "so if they were on the
+  // gp register before august 2007 then they will be taken to the pep pathway
+  // waitlist page?"). Same gate the certificate scan applies weeks later —
+  // reused, not reimplemented — so the doctor lands on /pages/pep-pathway and
+  // appears on the CEO waitlist exactly as they would have then.
+  //
+  // ONLY 'before_cutoff' gates. That verdict is arithmetic on an official date
+  // from a name-matched register row: the GP Register entry predates the
+  // country cutoff, so the MRCGP cannot be "from August 2007 onwards" and the
+  // expedited pathway is closed. 'short_gap' is a suspicion about the
+  // Portfolio route, NOT proof, and must never lock anyone out — it stays a
+  // note for staff.
+  //
+  // Best-effort, like the certificate-side gate: a failure here must not undo
+  // a good register verification. Staff can release a gated doctor from the
+  // CEO dashboard if a case turns out to be wrong.
+  const pathwayScreen = verdict.pathway || null;
+  if (pathwayScreen && pathwayScreen.verdict === 'before_cutoff') {
+    try {
+      await applyPepWaitlistGate(prof.email || '', userId, {
+        country: 'GB',
+        certType: 'GP Register entry (NHS England performers list)',
+        dateFound: pathwayScreen.gpRegisterDate,
+        cutoffDate: pathwayScreen.cutoff
+      }, prof);
+    } catch (pepErr) {
+      console.error('[PEP] register-date gate failed (verification kept):', pepErr && pepErr.message);
+    }
+  }
   try {
     const regCase = await _ensureRegCase(userId);
     if (regCase) {
       await _logCaseEvent(regCase.id, null, 'system', 'Medical register verified automatically', verdict.evidence, 'system');
     }
   } catch { /* best-effort audit trail */ }
-  return { outcome: 'verified', evidence: verdict.evidence };
+  return {
+    outcome: 'verified',
+    evidence: verdict.evidence,
+    pathway: pathwayScreen,
+    // Staff read this to know the doctor is no longer in the app.
+    pepGated: !!(pathwayScreen && pathwayScreen.verdict === 'before_cutoff')
+  };
 }
 
 function now() {

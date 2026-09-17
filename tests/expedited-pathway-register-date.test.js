@@ -5,7 +5,10 @@
 // date they were on the gp register and ensure they would have completed the
 // nMRCGP curriculum".
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
 import { createRequire } from 'module';
+
+const read = (p) => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
 
 const requireCjs = createRequire(import.meta.url);
 const reg = requireCjs('../lib/register-lookup.js');
@@ -60,6 +63,17 @@ describe('assessExpeditedPathway', () => {
     expect(reg.MIN_UK_GP_TRAINING_YEARS).toBe(3);
   });
 
+  it('treats the "01 January 1900" placeholder as no date, never as pre-cutoff', () => {
+    // 58 GP Performer rows carried this placeholder on 2026-09-17. Read
+    // literally it would lock each of those doctors out over a missing field.
+    const v = reg.assessExpeditedPathway({ country: 'GB', gpRegisterDate: '01 January 1900' });
+    expect(v.verdict).toBe('unknown');
+    expect(v.reason).toContain('placeholder');
+    expect(reg.REGISTER_DATE_FLOOR).toBe('1960-01-01');
+    // A genuine old date is still a real answer.
+    expect(reg.assessExpeditedPathway({ country: 'GB', gpRegisterDate: '03 July 1968' }).verdict).toBe('before_cutoff');
+  });
+
   it('never guesses: no date, unreadable date or an ungated country stays unknown', () => {
     expect(reg.assessExpeditedPathway({ country: 'GB', gpRegisterDate: '' }).verdict).toBe('unknown');
     expect(reg.assessExpeditedPathway({ country: 'GB', gpRegisterDate: 'Feb 2026' }).verdict).toBe('unknown');
@@ -98,5 +112,55 @@ describe('performersVerdict carries the pathway screen', () => {
     const v = reg.performersVerdict([row({ gpRegisterDate: '' })], doctor);
     expect(v.outcome).toBe('verified');
     expect(v.pathway.verdict).toBe('unknown');
+  });
+});
+
+// A pre-cutoff GP must not merely be noted — they belong behind the PEP page,
+// the same place the certificate scan sends them weeks later.
+// Owner 2026-09-17: "so if they were on the gp register before august 2007 then
+// they will be taken to the pep pathway waitlist page?"
+describe('a before_cutoff register date applies the PEP gate', () => {
+  const server = read('server.js');
+  // The whole function, not a fixed-size window: the gate sits near its end.
+  const fnStart = server.indexOf('async function attemptAutomaticRegisterVerification');
+  const fn = server.slice(fnStart, server.indexOf('\nasync function ', fnStart + 10));
+
+  it('reuses the certificate path gate rather than a second mechanism', () => {
+    expect(fn).toContain('await applyPepWaitlistGate(');
+    // One gate, called from both the certificate scan and the register check.
+    expect(server.split('async function applyPepWaitlistGate').length - 1).toBe(1);
+    expect(server.split('await applyPepWaitlistGate(').length - 1).toBe(2);
+  });
+
+  it('gates ONLY on before_cutoff — a short gap is a suspicion, never a lockout', () => {
+    expect(fn).toContain("pathwayScreen.verdict === 'before_cutoff'");
+    const gateBlock = fn.slice(fn.indexOf('const pathwayScreen'), fn.indexOf('return {\n    outcome: \'verified\''));
+    expect(gateBlock).not.toContain("'short_gap'");
+  });
+
+  it('records the register date as the evidence behind the gate', () => {
+    expect(fn).toContain("certType: 'GP Register entry (NHS England performers list)'");
+    expect(fn).toContain('dateFound: pathwayScreen.gpRegisterDate');
+    expect(fn).toContain('cutoffDate: pathwayScreen.cutoff');
+  });
+
+  it('reads the email and phone the waitlist row needs', () => {
+    expect(fn).toContain('select=user_id,first_name,last_name,email,phone,register_body');
+  });
+
+  it('is best-effort: a failed gate never loses a good register verification', () => {
+    expect(fn).toContain("console.error('[PEP] register-date gate failed (verification kept):'");
+    const gateIdx = fn.indexOf('applyPepWaitlistGate');
+    expect(fn.lastIndexOf('try {', gateIdx)).toBeGreaterThan(-1);
+  });
+
+  it('tells callers the doctor is now gated', () => {
+    expect(fn).toContain("pepGated: !!(pathwayScreen && pathwayScreen.verdict === 'before_cutoff')");
+  });
+
+  it('the gate the auth guard enforces still points at the PEP page', () => {
+    const guard = read('js/auth-guard.js');
+    expect(guard).toContain('window.location.replace("/pages/pep-pathway")');
+    expect(guard).toContain('status === "pep_waitlist"');
   });
 });
