@@ -641,6 +641,7 @@ describe('duplicate items: one document asked for twice becomes one task', () =>
   });
 
   it('deliverableSignature: own CV → cv; officer asking for the CV again → weak cv?; supervisor CV → not cv; nothing known → empty', () => {
+    // (see the dedicated describe below for the stat-dec rule)
     expect(s80.deliverableSignature(MERCY_CV)).toBe('cv');
     expect(s80.deliverableSignature(MERCY_ENGLISH)).toBe('cv?');
     expect(s80.deliverableSignature(MERCY_SUP_CV)).toBe('');
@@ -655,5 +656,72 @@ describe('duplicate items: one document asked for twice becomes one task', () =>
     expect(s80.mergeDuplicateItems([refs, training]).length).toBe(2);
     // …but the titled CV item does absorb a weak mention.
     expect(s80.mergeDuplicateItems([s80.normalizeItem(MERCY_CV), training]).length).toBe(1);
+  });
+});
+
+// ── 2026-09-17 owner rule: no statutory declaration on the confirmation-of-training item ──
+// Dr Mercy's tray showed "While that's being processed, you can submit a statutory declaration…"
+// to the doctor, "help the doctor prepare a statutory declaration" to the team, and an "Interim
+// statutory declaration…" sub-item — all on the GMC training-confirmation item. The same card
+// also carried the Certificate of Good Standing steps (COGS@) because the model tagged the item
+// good_standing.
+const MERCY_TRAINING = {
+  title: 'Confirmation of GP training with RCGP from the GMC', owner: 'gp', mode: 'request_institution', institution: 'GMC', kind: 'good_standing',
+  detail: 'Confirmation of your GP training with the RCGP from the GMC - you must apply to the General Medical Council for a confirmation of your UK training document. While Ahpra awaits this document, you can provide a Statutory Declaration that outlines the date you applied to the GMC.',
+  gp_instructions: 'Please apply to the GMC for a confirmation of your UK GP training document and have it sent directly to your assigned AHPRA officer (Paige Hooper, Paige.Hooper@ahpra.gov.au). While that\'s being processed, you can submit a statutory declaration (signed by an approved witness) stating when you applied to the GMC, the dates and locations of your GP training, and your training pathway (GP specialty training programme or Accreditation of Transferable Capabilities).',
+  team_instructions: 'AHPRA needs confirmation of the doctor\'s UK GP training directly from the GMC, sent to Paige Hooper. In the meantime, help the doctor prepare a statutory declaration covering their GMC application date, training dates/locations, and training pathway.',
+  sub_items: ['Confirmation of UK training document requested from GMC, sent direct to Paige Hooper', 'Interim statutory declaration stating date applied to GMC, training dates/locations, and training pathway (GP specialty training programme or ATC)']
+};
+
+describe('confirmation of training: no statutory declaration option, and the right GMC steps', () => {
+  it('prompt tells the model never to mention a statutory declaration on the training item', () => {
+    const prompt = s80.buildExtractionPrompt({ bodyText: 'x' });
+    expect(prompt).toMatch(/"confirmation of training" item[\s\S]*NEVER mention a[\s\S]*statutory declaration/);
+    expect(prompt).toContain('"training_confirmation"');
+  });
+
+  it('strips the stat-dec sentences and sub-item from Mercy\'s item, keeping the GMC instruction', () => {
+    const item = s80.normalizeItem(MERCY_TRAINING, { country: 'uk', officer: { name: 'Paige Hooper', email: 'Paige.Hooper@ahpra.gov.au' } });
+    expect(item.stat_dec_removed).toBe(true);
+    expect(item.gp_instructions).toBe('Please apply to the GMC for a confirmation of your UK GP training document and have it sent directly to your assigned AHPRA officer (Paige Hooper, Paige.Hooper@ahpra.gov.au).');
+    expect(item.team_instructions).toBe('AHPRA needs confirmation of the doctor\'s UK GP training directly from the GMC, sent to Paige Hooper.');
+    expect(item.sub_items.map((s) => s.label)).toEqual(['Confirmation of UK training document requested from GMC, sent direct to Paige Hooper']);
+    expect(item.gp_instructions.toLowerCase()).not.toContain('statutory');
+    expect(item.team_instructions.toLowerCase()).not.toContain('statutory');
+    // The officer's verbatim words are the record of what was asked and stay intact.
+    expect(item.detail).toContain('Statutory Declaration');
+  });
+
+  it('a training item tagged good_standing gets the training-confirmation steps, not the COGS ones', () => {
+    const item = s80.normalizeItem(MERCY_TRAINING, { country: 'uk' });
+    expect(item.kind).toBe('training_confirmation');
+    expect(item.doc_guide_key).toBe('confirmation_training');
+    expect(item.how_to_steps.join(' ')).toContain('registration18@ahpra.gov.au');
+    expect(item.how_to_steps.join(' ')).not.toContain('COGS@');
+    expect(item.mode).toBe('request_institution');
+    expect(s80.docGuides.matchGuide({ title: 'Confirmation of GP training with RCGP from the GMC', kind: 'good_standing' }, 'uk').key).toBe('confirmation_training');
+    // A real good-standing item is untouched.
+    expect(s80.docGuides.matchGuide({ title: 'Certificate of Good Standing from GMC', kind: 'good_standing' }, 'uk').key).toBe('certificate_good_standing');
+  });
+
+  it('does not strip stat-dec wording from items that are not the training confirmation', () => {
+    const cogs = s80.normalizeItem({ title: 'Certificate of Good Standing from MDCN', owner: 'gp', mode: 'request_institution', institution: 'MDCN', kind: 'good_standing',
+      gp_instructions: 'Ask the council to send it directly to AHPRA. If they cannot, a statutory declaration may be accepted.' }, { country: 'uk' });
+    expect(cogs.stat_dec_removed).toBe(false);
+    expect(cogs.gp_instructions).toContain('statutory declaration');
+    expect(s80.removeStatutoryDeclarationOption({ title: 'Reference letters', gp_instructions: 'x statutory declaration y' }).gp_instructions).toBe('x statutory declaration y');
+  });
+
+  it('sentence stripper keeps everything else and handles line breaks', () => {
+    expect(s80.stripStatutoryDeclarationSentences('Apply to the GMC. You can also lodge a stat dec meanwhile.\nThe GMC must send it to AHPRA.')).toBe('Apply to the GMC. The GMC must send it to AHPRA.');
+    expect(s80.stripStatutoryDeclarationSentences('No mention here.')).toBe('No mention here.');
+    expect(s80.stripStatutoryDeclarationSentences('')).toBe('');
+  });
+
+  it('the whole-notice path keeps the rule after merging and country guides', () => {
+    const norm = s80.normalizeExtraction({ items: [MERCY_TRAINING] }, { country: 'uk' });
+    expect(norm.items.length).toBe(1);
+    expect(norm.items[0].gp_instructions.toLowerCase()).not.toContain('statutory');
+    expect(norm.items[0].sub_items.length).toBe(1);
   });
 });
