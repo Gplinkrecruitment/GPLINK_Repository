@@ -55,6 +55,6 @@ describe('state ownership is keyed on the account, not just the address', () => 
 
   it('busters moved with the file', () => {
     expect(read('pages/index.html')).toContain('state-sync.js?v=20260918b');
-    expect(read('sw.js')).toContain('var VERSION = "20260918d"');
+    expect(read('sw.js')).toContain('var VERSION = "20260918e"');
   });
 });

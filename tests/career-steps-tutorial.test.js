@@ -107,7 +107,8 @@ describe('careers page tutorial — the four steps of the strip', () => {
     it('the gate asks the walkthrough whether it is still pending', () => {
       expect(js).toContain('function careerStepsPending() {');
       expect(js).toContain('careerStepsPending: careerStepsPending');
-      expect(career).toContain("typeof w.careerStepsPending === 'function' && w.careerStepsPending()");
+      expect(career).toContain("function careerTutorialPending() { return careerTutorialAsk('careerStepsPending'); }");
+      expect(career).toContain("function careerTutorialActive() { return careerTutorialAsk('careerStepsActive'); }");
       expect(career).toContain('openCareerGateAfterTutorial();');
       // ensureCareerGate must no longer open the modal directly.
       const ensure = career.slice(career.indexOf('async function ensureCareerGate'), career.indexOf("document.addEventListener('change'"));
@@ -118,22 +119,32 @@ describe('careers page tutorial — the four steps of the strip', () => {
     it('a finished tutorial releases the gate, and a returning doctor is not made to wait', () => {
       expect(js).toContain("window.dispatchEvent(new CustomEvent('gp-career-steps-done'))");
       expect(js).toContain("{ markCareerStepsSeen(); announceCareerStepsDone(); return; }");
-      expect(career).toContain("window.addEventListener('gp-career-steps-done', go);");
+      expect(career).toContain("window.addEventListener('gp-career-steps-done', openNow);");
       // Already seen -> careerStepsPending() false -> gate opens at once.
       expect(js).toContain('if (careerStepsRunning) return true;');
       expect(js).toContain('return !!S.shouldRunCareerSteps(readState());');
     });
 
     it('a tutorial that never runs cannot strand the gate', () => {
-      expect(career).toContain('var CAREER_GATE_TUTORIAL_CEILING_MS = 20000;');
-      expect(career).toContain('setTimeout(go, CAREER_GATE_TUTORIAL_CEILING_MS);');
+      expect(career).toContain('var CAREER_GATE_TUTORIAL_CEILING_MS = 90000;');
+      expect(career).toContain('setTimeout(ceiling, CAREER_GATE_TUTORIAL_CEILING_MS);');
+    });
+
+    it('the ceiling NEVER cuts across a tour the doctor is reading', () => {
+      // Owner 2026-09-18: the first version fired at 20s and opened the gate
+      // on step 3 of 4. While a tip is on screen the ceiling re-arms.
+      expect(career).toContain('if (careerTutorialActive()) { setTimeout(ceiling, CAREER_GATE_TUTORIAL_RECHECK_MS); return; }');
+      expect(js).toContain('function careerStepsActive() { return !!careerStepsRunning; }');
+      expect(js).toContain('careerStepsActive: careerStepsActive');
+      // Only the done event opens the gate outright.
+      expect(career).toContain("window.addEventListener('gp-career-steps-done', openNow);");
     });
   });
 
   it('busters moved together', () => {
-    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260918a'));
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260918a"');
-    expect(read('sw.js')).toContain('var VERSION = "20260918d"');
+    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260918b'));
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260918b"');
+    expect(read('sw.js')).toContain('var VERSION = "20260918e"');
     expect(read('sw.js')).toContain('"/js/gp-coach.js?v=20260915a"');
     expect(read('sw.js')).toContain('"/js/state-sync.js?v=20260918b"');
   });

@@ -61,7 +61,7 @@
   <script src="../js/state-sync.js?v=20260918b" defer></script>
   <script src="/js/gp-coach.js?v=20260915a" defer></script>
   <script src="/js/gp-walkthrough-state.js?v=20260915a" defer></script>
-  <script src="/js/gp-walkthrough.js?v=20260918a" defer></script>
+  <script src="/js/gp-walkthrough.js?v=20260918b" defer></script>
   <script src="/js/career-step-strip.js?v=20260907c" defer></script>
   <script src="/js/interview-slots-cache.js?v=20260908a" defer></script>
   <!-- Shared notice dialog: the application-rule refusals (2 live, 3 a month)
@@ -15183,27 +15183,42 @@
     // one tour (it still does for every other tip), so the two cannot deadlock;
     // the ceiling below covers a tutorial that never runs at all.
     var careerGateWaitingOnTutorial = false;
-    var CAREER_GATE_TUTORIAL_CEILING_MS = 20000;
-    function careerTutorialPending() {
+    // The ceiling exists only for the pathological case where the tutorial is
+    // owed but never starts (script missing, strip never renders). It is NOT a
+    // limit on how long the doctor may take to read it: four tips at reading
+    // pace comfortably outlive any short timeout, and the first version of
+    // this (20s) opened the gate on step 3 of 4. While a tip is actually on
+    // screen the ceiling re-arms instead of firing.
+    var CAREER_GATE_TUTORIAL_CEILING_MS = 90000;
+    var CAREER_GATE_TUTORIAL_RECHECK_MS = 5000;
+    function careerTutorialAsk(method) {
       try {
         var w = window.gpWalkthrough;
-        return !!(w && typeof w.careerStepsPending === 'function' && w.careerStepsPending());
+        return !!(w && typeof w[method] === 'function' && w[method]());
       } catch (e) { return false; }
     }
+    function careerTutorialPending() { return careerTutorialAsk('careerStepsPending'); }
+    function careerTutorialActive() { return careerTutorialAsk('careerStepsActive'); }
     function openCareerGateAfterTutorial() {
       if (!careerTutorialPending()) { openCareerGateModal(); return; }
       if (careerGateWaitingOnTutorial) return;
       careerGateWaitingOnTutorial = true;
       var opened = false;
-      var go = function () {
+      var openNow = function () {
         if (opened) return;
         opened = true;
-        window.removeEventListener('gp-career-steps-done', go);
+        window.removeEventListener('gp-career-steps-done', openNow);
         careerGateWaitingOnTutorial = false;
         openCareerGateModal();
       };
-      window.addEventListener('gp-career-steps-done', go);
-      setTimeout(go, CAREER_GATE_TUTORIAL_CEILING_MS);
+      var ceiling = function () {
+        if (opened) return;
+        // Mid-tour: never cut across it. The done event will release us.
+        if (careerTutorialActive()) { setTimeout(ceiling, CAREER_GATE_TUTORIAL_RECHECK_MS); return; }
+        openNow();
+      };
+      window.addEventListener('gp-career-steps-done', openNow);
+      setTimeout(ceiling, CAREER_GATE_TUTORIAL_CEILING_MS);
     }
     function openCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.add('is-open'); m.setAttribute('aria-hidden', 'false'); document.documentElement.classList.add('career-gate-open'); document.body.classList.add('career-gate-open'); } }
     function closeCareerGateModal() { var m = careerGateEl('careerGateModal'); if (m) { m.classList.remove('is-open'); m.setAttribute('aria-hidden', 'true'); } document.documentElement.classList.remove('career-gate-open'); document.body.classList.remove('career-gate-open'); announceCareerGateClosed(); }

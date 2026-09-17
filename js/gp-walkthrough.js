@@ -288,6 +288,11 @@
   // Tells pages/career.html whether to keep the CV gate closed. True while the
   // tutorial still has to run (or is running); false the moment it is finished
   // or was already seen, so a returning doctor gets the gate immediately.
+  // Is a tip on screen RIGHT NOW? The CV gate uses this to know that its
+  // safety timeout must not fire — a tour the doctor is part-way through must
+  // never be interrupted (owner 2026-09-18: the gate opened on step 3 of 4).
+  function careerStepsActive() { return !!careerStepsRunning; }
+
   function careerStepsPending() {
     if (careerStepsRunning) return true;
     try {
@@ -415,5 +420,5 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 
-  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer, careerStepsLog: careerStepsLog, careerStepsPending: careerStepsPending };
+  window.gpWalkthrough = { maybeRun: maybeRun, runArea: runArea, runNextStepPointer: runNextStepPointer, careerStepsLog: careerStepsLog, careerStepsPending: careerStepsPending, careerStepsActive: careerStepsActive };
 })();

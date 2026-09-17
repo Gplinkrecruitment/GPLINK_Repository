@@ -25,8 +25,8 @@ describe('Home first-visit tour → Done opens the current registration step', (
     expect(read('pages/index.html')).toContain('<a class="journey-body-cta" href="/pages/${step.page}" data-route="/pages/${step.page}">Continue');
   });
   it('every page that loads the controller moved to the new buster, and the worker precaches it', () => {
-    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260918a'));
-    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260918a"');
-    expect(read('sw.js')).toContain('var VERSION = "20260918d"');
+    ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260918b'));
+    expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260918b"');
+    expect(read('sw.js')).toContain('var VERSION = "20260918e"');
   });
 });
