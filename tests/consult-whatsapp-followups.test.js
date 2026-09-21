@@ -388,6 +388,52 @@ describe('cron wiring', () => {
     expect(waSends().map((s) => s.body.messages[0].content.templateName)).not.toContain('gp_link_consult_book_nudge');
   });
 
+  it('records which ad produced a Calendly booking, and never lets a later event overwrite it', async () => {
+    // The Warm/Hot retargeting ads send people STRAIGHT to Calendly, so they never
+    // touch a lead form: utm_campaign, forwarded by Calendly, is the only thing that
+    // separates one of those bookings from an organic direct one.
+    expect(testUtils.normalizeCalendlyBookingUtm({ utm_campaign: 'WARM', utm_source: 'facebook', utm_medium: 'paid' }))
+      .toEqual({ campaign: 'warm', source: 'facebook', medium: 'paid' });
+    // utm_content carries the correlation token, not a campaign — it must not leak in.
+    expect(testUtils.normalizeCalendlyBookingUtm({ utm_content: 'call_abc' })).toBe(null);
+    expect(testUtils.normalizeCalendlyBookingUtm(null)).toBe(null);
+    expect(testUtils.normalizeCalendlyBookingUtm({ utm_campaign: 'x'.repeat(400) }).campaign.length).toBe(120);
+
+    // A Cold form-filler who never booked comes back through a Warm ad.
+    const lead = seedLead({ phone: '+44 7700 900321' });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const now = new Date().toISOString();
+    await testUtils.ensureLeadBookedCallAt(lead.email, '2026-09-25T09:00:00Z', now, null, { campaign: 'warm', source: 'facebook' });
+    expect(readDb().siteEnquiries[0].metadata.consult.booking_utm).toEqual({ campaign: 'warm', source: 'facebook' });
+
+    // Calendly replays the tracking block on every invitee.created, so a reschedule
+    // must not hand the credit to whatever campaign happens to be tagged later.
+    await testUtils.ensureLeadBookedCallAt(lead.email, '2026-09-26T09:00:00Z', now, null, { campaign: 'hot' });
+    expect(readDb().siteEnquiries[0].metadata.consult.booking_utm.campaign).toBe('warm');
+    expect(readDb().siteEnquiries[0].metadata.consult.call_at).toBe('2026-09-26T09:00:00Z');
+
+    // …and an untagged booking never blanks a campaign already on record.
+    await testUtils.ensureLeadBookedCallAt(lead.email, '2026-09-27T09:00:00Z', now, null, null);
+    expect(readDb().siteEnquiries[0].metadata.consult.booking_utm.campaign).toBe('warm');
+
+    // A stranger who books straight off a Warm ad gets the tag on their new lead row.
+    await testUtils.captureCalendlyDirectBookerLead({
+      email: 'warm.booker@example.com', name: 'New Booker', phone: '+447700900777',
+      nowIso: now, scheduledAt: '2026-09-28T09:00:00Z', utm: { campaign: 'warm', source: 'facebook' }
+    });
+    const fresh = readDb().siteEnquiries.find((r) => r.email === 'warm.booker@example.com');
+    expect(fresh.metadata.consult.booking_utm).toEqual({ campaign: 'warm', source: 'facebook' });
+    expect(fresh.metadata.consult.call_booked).toBe(true);
+    // An organic direct booker still gets a clean row with no campaign invented for them.
+    await testUtils.captureCalendlyDirectBookerLead({
+      email: 'organic.booker@example.com', name: 'Organic', phone: '+447700900888',
+      nowIso: now, scheduledAt: '2026-09-29T09:00:00Z'
+    });
+    const organic = readDb().siteEnquiries.find((r) => r.email === 'organic.booker@example.com');
+    expect(organic.metadata.consult.booking_utm).toBeUndefined();
+    expect(organic.metadata.consult.call_booked).toBe(true);
+  });
+
   it('phone matching compares the last ten digits and refuses short numbers', async () => {
     testUtils.__seedSiteEnquiriesForTest([seedLead({ phone: '07700 900-123' })]);
     expect(testUtils.consultPhoneMatchKey('+44 7700 900123')).toBe('7700900123');

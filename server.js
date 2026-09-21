@@ -26324,6 +26324,12 @@ async function handleCalendlyInviteeCreated(payload) {
   let correlationToken = null;
   const ctMatch = utmContent.match(/^call_([0-9a-f]{32})$/i);
   if (ctMatch) correlationToken = ctMatch[1];
+  // The ad's own UTM tags, forwarded by Calendly. This is the ONLY thing that can
+  // attribute a retargeting booking: the Warm/Hot ads send people STRAIGHT to
+  // Calendly, so those bookers never touch a lead form and are otherwise
+  // indistinguishable from an organic direct booking (every scheduled_calls row
+  // reads created_by:calendly_direct with no campaign on it).
+  const bookingUtm = normalizeCalendlyBookingUtm(tracking);
 
   console.log('[calendly invitee.created] email:', email, '| correlation_token:', correlationToken || '(none)');
 
@@ -26405,7 +26411,7 @@ async function handleCalendlyInviteeCreated(payload) {
     // row (double-up on the Meetings tab, and a phantom no-show for the cron). Cancel the stale
     // slot(s) before recording the new one so at most one active consultation survives per booker.
     await supersedeActiveDirectConsultations(email, inviteeUri);
-    await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone);
+    await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm);
     await createScheduledCallFromDirectCalendlyBooking({
       nowIso: now,
       email,
@@ -26418,7 +26424,8 @@ async function handleCalendlyInviteeCreated(payload) {
       zoomMeetingId,
       zoomMeetingPassword,
       inviteeNotes,
-      phone: inviteePhone
+      phone: inviteePhone,
+      utm: bookingUtm
     });
     return;
   }
@@ -26443,7 +26450,7 @@ async function handleCalendlyInviteeCreated(payload) {
   });
   console.log('[calendly invitee.created] Updated scheduled_call', callRecord.id, '→ booked');
   // Anchor the signup drip on the real call time for a screened booker's pre-existing lead.
-  await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone);
+  await ensureLeadBookedCallAt(email, scheduledAt, now, inviteePhone, bookingUtm);
 
   // Update linked registration_tasks
   const registrationTaskId = getScheduledCallRegistrationTaskId(callRecord);
@@ -26541,7 +26548,25 @@ async function createScheduledCallFromDirectCalendlyBooking(d) {
 // the screened /start booker (whose lead pre-exists, so captureCalendlyDirectBookerLead
 // early-returns without call_at) and reschedules (call_at tracks the new slot). Fills gaps
 // only — never resurrects a stopped/unsubscribed/signed_up sequence. Best-effort.
-async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone) {
+// Normalize the `tracking` block Calendly forwards from the booking URL's query string.
+// Only the three tags an ad actually sets are kept, lower-cased and length-capped, so a
+// crafted link cannot stuff arbitrary text into the lead row. Returns null when the
+// booker arrived with no UTM at all (an organic direct booking) — callers must treat
+// null as "leave whatever is already stamped alone".
+function normalizeCalendlyBookingUtm(tracking) {
+  const t = (tracking && typeof tracking === 'object') ? tracking : {};
+  const pick = (v) => String(v == null ? '' : v).trim().slice(0, 120).toLowerCase() || null;
+  const out = {};
+  const campaign = pick(t.utm_campaign);
+  const source = pick(t.utm_source);
+  const medium = pick(t.utm_medium);
+  if (campaign) out.campaign = campaign;
+  if (source) out.source = source;
+  if (medium) out.medium = medium;
+  return Object.keys(out).length ? out : null;
+}
+
+async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, bookingUtm) {
   const em = String(email || '').trim().toLowerCase();
   if (!em && !inviteePhone) return;
   try {
@@ -26564,6 +26589,11 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone) 
       patch.booking_email = em;
       patch.booked_via = 'phone_match';
     }
+    // Which ad sent them. Write-once: the FIRST campaign that produced a booking owns
+    // the credit, so a later reschedule (Calendly replays the tracking block on every
+    // invitee.created) cannot overwrite it, and a booker who arrives with no UTM at all
+    // never blanks a campaign we already recorded.
+    if (bookingUtm && !c.booking_utm) patch.booking_utm = bookingUtm;
     const rowPatch = {};
     // Backfill a phone we never captured. Our /start form's phone can be blank on
     // older leads, but Calendly requires one at booking — so a booked lead should
@@ -26738,6 +26768,8 @@ async function captureCalendlyDirectBookerLead(d) {
     if (d.phone) row.phone = d.phone;
     row.metadata.consult.call_booked = true;
     row.metadata.consult.call_booked_at = d.nowIso;
+    // Which ad sent them (Warm/Hot send people straight here, bypassing the lead form).
+    if (d.utm) row.metadata.consult.booking_utm = d.utm;
     // The actual call time (Calendly slot) — anchors the "after your call" + weekly
     // touches of the signup drip (lib/consult-lead.js booked_no_signup schedule).
     if (d.scheduledAt) row.metadata.consult.call_at = d.scheduledAt;
@@ -83916,6 +83948,7 @@ module.exports.__testUtils = {
   findSiteEnquiryByEmail,
   buildConsultLeadRow,
   captureCalendlyDirectBookerLead,
+  normalizeCalendlyBookingUtm,
   syncMetaLeadStagesForRow,
   sendConsultNudgeEmail,
   sendConsultWhatsAppTemplate,
