@@ -50,6 +50,38 @@ describe('lib/register-lookup — Performers List verdicts', () => {
     expect(v.evidence).toContain('REGISTRAR');
   });
 
+  // NHS England's performers file lags the GMC register on the role field:
+  // proven on GMC 7742772, still tagged "GP Registrar" with a blank GP Register
+  // date on 2026-09-21 though the GMC had him on the GP Register from 08 Jul
+  // 2026. The registrar tag alone must not park a real GP in the manual queue,
+  // but the relaxation is corroborated by the ID document and opt-in.
+  it('verifies a registrar-tagged row when the ID document corroborates the name', () => {
+    const v = lookup.performersVerdict(rowsFor('7533234'),
+      { number: '7533234', firstName: 'Ayesha', lastName: 'Aamir', identityVerified: true });
+    expect(v.outcome).toBe('verified');
+    expect(v.matchedName).toBe('Ayesha Aamir');
+    // The NUMBER is proven; the training status explicitly is not.
+    expect(v.gpRegisterUnconfirmed).toBe(true);
+    expect(v.evidence).toContain('REGISTRATION is confirmed');
+    expect(v.evidence).toContain('GP Registrar');
+    expect(v.evidence).toContain('NOT confirmed');
+    // A blank GP Register date can never reach the PEP gate.
+    expect(v.pathway.verdict).toBe('unknown');
+  });
+
+  it('still refuses a registrar row when the name does not match, ID or not', () => {
+    const v = lookup.performersVerdict(rowsFor('7533234'),
+      { number: '7533234', firstName: 'Deepika', lastName: 'Ganesh', identityVerified: true });
+    expect(v.outcome).toBe('pending');
+    expect(v.evidence).toContain('different name');
+  });
+
+  it('never verifies off a Dental row even with a verified ID', () => {
+    const v = lookup.performersVerdict(rowsFor('326371'),
+      { number: '326371', firstName: 'Azeema', lastName: 'Shamoo', identityVerified: true });
+    expect(v.outcome).toBe('pending');
+  });
+
   it('leaves a wrong-name match and a not-found number pending — never a mismatch', () => {
     const wrongName = lookup.performersVerdict(rowsFor('7708579'), { number: '7708579', firstName: 'Deepika', lastName: 'Ganesh' });
     expect(wrongName.outcome).toBe('pending');

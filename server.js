@@ -10472,6 +10472,22 @@ async function isOnboardingComplete(userId) {
   } catch (e) { return false; }
 }
 
+// Did this doctor pass the AI ID-document check? This is what lets
+// performersVerdict verify a row NHS England still tags "GP Registrar" (see
+// the lag note there). It deliberately demands idVerification.status, NOT the
+// looser "an ID file exists" the ATS drawer accepts: only the scan cross-checks
+// the name ON the document against the profile name (a disagreement fails the
+// step outright), and that cross-check is the whole reason the relaxed path is
+// safe. Best-effort — a read failure just means no relaxation, never a verify.
+async function hasVerifiedIdentityDocument(userId) {
+  try {
+    const res = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const state = (res.ok && Array.isArray(res.data) && res.data[0] && res.data[0].state) || {};
+    const ob = _parseStateVal(state.gp_onboarding) || {};
+    return !!(ob.idVerification && ob.idVerification.status === 'verified');
+  } catch (e) { return false; }
+}
+
 // Apply the PEP gate from a register-date verdict. ONLY 'before_cutoff' gates:
 // that verdict is arithmetic on an official date from a name-matched register
 // row. 'short_gap' (the three-year training signal that hints at the Portfolio
@@ -10508,7 +10524,12 @@ async function screenExpeditedPathwayForUser(userId) {
     const doctor = {
       number: String(prof.register_number || '').replace(/\D+/g, ''),
       firstName: prof.first_name || '',
-      lastName: prof.last_name || ''
+      lastName: prof.last_name || '',
+      // Same relaxation as the verification path, for the same reason: without
+      // it a registrar-tagged row yields no verdict at all, so the 275 doctors
+      // NHS England tags "GP Registrar" while already holding a GP Register
+      // date would get no expedited-pathway screen.
+      identityVerified: await hasVerifiedIdentityDocument(userId)
     };
     const mirror = await lookupPerformersMirror(doctor.number);
     if (!mirror.ok || !mirror.fresh) return null;
@@ -10532,7 +10553,10 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
   const doctor = {
     number: String(prof.register_number || '').replace(/\D+/g, ''),
     firstName: prof.first_name || '',
-    lastName: prof.last_name || ''
+    lastName: prof.last_name || '',
+    // Lets performersVerdict clear a row NHS England still tags "GP Registrar"
+    // when the ID document corroborates the name. MCNZ ignores this.
+    identityVerified: await hasVerifiedIdentityDocument(userId)
   };
   const stampChecked = () => supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
     method: 'PATCH', body: { register_auto_checked_at: new Date().toISOString() }
@@ -10611,13 +10635,25 @@ async function attemptAutomaticRegisterVerification(userId, options = {}) {
   try {
     const regCase = await _ensureRegCase(userId);
     if (regCase) {
-      await _logCaseEvent(regCase.id, null, 'system', 'Medical register verified automatically', verdict.evidence, 'system');
+      // The title carries the caveat so the timeline shows at a glance that the
+      // NUMBER was confirmed while the training status was not — the evidence
+      // body spells out why (NHS England's role field lags the GMC register).
+      // register_verified_by stays 'system:<source>' either way: the doctor IS
+      // verified, and several callers pin that exact value.
+      await _logCaseEvent(regCase.id, null, 'system',
+        verdict.gpRegisterUnconfirmed
+          ? 'Medical register verified automatically (number only — GP Register date unconfirmed)'
+          : 'Medical register verified automatically',
+        verdict.evidence, 'system');
     }
   } catch { /* best-effort audit trail */ }
   return {
     outcome: 'verified',
     evidence: verdict.evidence,
     pathway: pathwayScreen,
+    // True when the number is proven but NHS England still tags the doctor a
+    // registrar, so the drawer can say so instead of implying a qualified GP.
+    gpRegisterUnconfirmed: !!verdict.gpRegisterUnconfirmed,
     // Staff read this to know the doctor is no longer in the app.
     pepGated: !!(pathwayScreen && pathwayScreen.verdict === 'before_cutoff')
   };
