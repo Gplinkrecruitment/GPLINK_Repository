@@ -2852,10 +2852,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='<div style="border:1px solid var(--border);background:#fff;border-radius:10px;padding:12px;margin-bottom:10px;">';
       html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-weight:700;color:var(--ink);">'+esc(t.title)+'</span>'+s80OwnerChip(m.owner)+'</div>';
       if(m.mode==='reply'){
-        var draft=m.draft||{};
+        var draft=m._draftPending||m.draft||{};
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;">All the GP’s institution-request items are done. Email it to the AHPRA officer from here. It goes out as a reply on the original AHPRA thread.</div>';
-        html+='<div style="font-size:12px;color:var(--ink);margin-top:6px;"><strong>Subject:</strong> '+esc(draft.subject||'')+'</div>';
-        html+='<pre id="s80draft-'+esc(t.id)+'" style="white-space:pre-wrap;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:280px;overflow:auto;">'+esc(draft.body||m.detail||'')+'</pre>';
+        html+='<div style="font-size:12px;color:var(--ink);margin-top:6px;display:flex;align-items:center;gap:6px;"><strong>Subject:</strong><input id="s80draftsubj-'+esc(t.id)+'" data-s80-draft-edit="'+esc(t.id)+'" value="'+esc(draft.subject||'')+'" style="flex:1;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;"/></div>';
+        html+='<textarea id="s80draft-'+esc(t.id)+'" data-s80-draft-edit="'+esc(t.id)+'" rows="14" style="display:block;width:100%;box-sizing:border-box;white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;resize:vertical;">'+esc(draft.body||m.detail||'')+'</textarea>';
+        html+='<div data-s80-draft-status="'+esc(t.id)+'" style="font-size:11px;color:var(--muted);margin-top:3px;">You can edit this. Changes save automatically.</div>';
         html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Email AHPRA officer</button><button type="button" data-s80-copy="'+esc(t.id)+'" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Copy draft</button><button type="button" data-s80-complete="'+esc(t.id)+'" title="Use this if you sent it from your own inbox" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">Mark sent</button></div>';
         html+='<div id="s80OfficerComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
       } else if(m.kind==='qualification_check'){
@@ -2875,7 +2876,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             if(up.sender_verified===false) html+='<div style="font-size:12px;margin-top:4px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;">⚠ The sender is not the practice contact on file. Check it really is the right document before accepting.</div>';
           }
           html+=s80VerdictChip(m);
-          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
+          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener"'+(/\.docx?$/i.test(up.file_name||'')||/word/i.test(up.mime_type||'')?' data-s80-viewfile="'+esc(t.id)+'" data-s80-fname="'+esc(up.file_name||'document')+'"':'')+' style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a><button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button><button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="reject" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Reject</button></div>';
           html+='<div id="s80OfficerComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
         } else if(isPr){
           // Practice item: the team emails the practice (drafted for review), then waits for the reply.
@@ -2888,7 +2889,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='<div data-s80-practice-docs="'+esc(t.id)+'" style="margin-top:6px;"></div>';
           html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
           html+='<button type="button" data-s80-practice-draft="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">✉️ '+(pr&&pr.sent_at?'Email the practice again':'Suggest email to practice')+'</button>';
-          html+='<label style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">📎 File their document by hand<input type="file" accept=".pdf,application/pdf,image/*" data-s80-practice-upload="'+esc(t.id)+'" style="display:none;"></label>';
+          html+='<label style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">📎 File their document by hand<input type="file" accept=".pdf,application/pdf,image/*,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-s80-practice-upload="'+esc(t.id)+'" style="display:none;"></label>';
           html+='</div>';
           html+='<div id="s80PracticeComposer_'+esc(t.id)+'" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc;"></div>';
         } else if(up&&up.status==='rejected'){
@@ -2922,6 +2923,41 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   // the answer is cached for a minute per item so the periodic re-renders don't re-download the
   // reply's base64 payloads each time.
   S._s80DocsCache=S._s80DocsCache||{};
+  // Confirm-receipt draft edits: saved to the task (debounced) so a re-render, another RSO or the
+  // email composer all see the edited text. Returns false only when a save was needed and failed.
+  S._s80DraftTimers=S._s80DraftTimers||{};
+  async function s80SaveReplyDraft(tid){
+    var bEl=document.getElementById('s80draft-'+tid), sEl=document.getElementById('s80draftsubj-'+tid);
+    if(!bEl||bEl.tagName!=='TEXTAREA') return true;
+    var t=(S.tasks||[]).find(function(x){return x.id===tid;}); var d=t?(s80Meta(t).draft||{}):{};
+    var body=bEl.value, subject=sEl?sEl.value:(d.subject||'');
+    if(body===(d.body||'')&&subject===(d.subject||'')) return true;
+    clearTimeout(S._s80DraftTimers[tid]);
+    var st=document.querySelector('[data-s80-draft-status="'+tid+'"]'); if(st) st.textContent='Saving…';
+    try{
+      var r=await fetch('/api/admin/ahpra/item/reply-draft',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:tid,subject:subject,body:body})}).then(function(x){return x.json();});
+      if(!r.ok) throw new Error(r.message||'save failed');
+      if(t){ var mm=s80Meta(t); mm.draft=Object.assign({},mm.draft||{},{subject:subject,body:body}); delete mm._draftPending; t.metadata=mm; }
+      if(st) st.textContent='Saved ✓';
+      return true;
+    }catch(err){ if(st) st.textContent='Not saved: '+(err.message||'error'); return false; }
+  }
+  document.addEventListener('focusout',function(ev){
+    var el=ev.target&&ev.target.closest&&ev.target.closest('[data-s80-draft-edit]'); if(el) s80SaveReplyDraft(el.getAttribute('data-s80-draft-edit'));
+  },true);
+  document.addEventListener('input',function(ev){
+    var el=ev.target&&ev.target.closest&&ev.target.closest('[data-s80-draft-edit]'); if(!el) return;
+    var tid=el.getAttribute('data-s80-draft-edit');
+    var st=document.querySelector('[data-s80-draft-status="'+tid+'"]'); if(st) st.textContent='Editing…';
+    // Keep the local copy in step so a re-render (deferred until blur) never restores the old text.
+    var t=(S.tasks||[]).find(function(x){return x.id===tid;});
+    if(t){
+      var bEl=document.getElementById('s80draft-'+tid), sEl=document.getElementById('s80draftsubj-'+tid);
+      var mm=s80Meta(t); mm._draftPending=Object.assign({},mm.draft||{},{subject:sEl?sEl.value:'',body:bEl?bEl.value:''}); t.metadata=mm;
+    }
+    clearTimeout(S._s80DraftTimers[tid]);
+    S._s80DraftTimers[tid]=setTimeout(function(){ s80SaveReplyDraft(tid); },800);
+  });
   async function s80LoadPracticeDocs(){
     var boxes=document.querySelectorAll('[data-s80-practice-docs]');
     for(var i=0;i<boxes.length;i++){
@@ -2939,14 +2975,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           var all=(d.ok&&Array.isArray(d.documents)?d.documents:[]).filter(function(x){return x.attachment_url;});
           // Every attachment of the newest reply (the inbound path may flag only the first as current).
           var newest=all.length?String(all[0].message_id||''):'';
-          docs=(newest?all.filter(function(x){return String(x.message_id||'')===newest;}):all.slice(0,1)).map(function(x){return {id:x.id,filename:x.filename};});
+          docs=(newest?all.filter(function(x){return String(x.message_id||'')===newest;}):all.slice(0,1)).map(function(x){return {id:x.id,filename:x.filename,url:x.attachment_url};});
           S._s80DocsCache[tid]={at:Date.now(),docs:docs};
         }
         if(!document.body.contains(box)) continue;
         if(!docs.length){ box.innerHTML=''; continue; }
         var h='<div style="font-size:12px;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:6px 9px;">📎 The practice replied with '+docs.length+' file'+(docs.length===1?'':'s')+':</div>';
         docs.forEach(function(x){
-          h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:12px;"><span>'+esc(x.filename||'document')+'</span><button type="button" data-s80-practice-usedoc="'+esc(tid)+'" data-s80-doc="'+esc(x.id)+'" style="background:#16a34a;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">Use this file</button></div>';
+          h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:12px;"><span>'+esc(x.filename||'document')+'</span><button type="button" data-s80-practice-viewdoc="'+esc(tid)+'" data-s80-doc="'+esc(x.id)+'" style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;">View</button><button type="button" data-s80-practice-usedoc="'+esc(tid)+'" data-s80-doc="'+esc(x.id)+'" style="background:#16a34a;color:#fff;border:none;padding:4px 10px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">Use this file &amp; run AI check</button></div>';
         });
         box.innerHTML=h;
       }catch(err){ /* leave the box empty */ }
@@ -7042,15 +7078,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }catch(err){ showOpsToast(err.message||'Network error','red'); s80Ps.disabled=false; s80Ps.textContent='Send to practice'; }
         return;
       }
+      var s80Vd=e.target.closest("[data-s80-practice-viewdoc]");
+      if(s80Vd){ e.preventDefault();
+        var vdCache=S._s80DocsCache[s80Vd.getAttribute("data-s80-practice-viewdoc")];
+        var vdDoc=vdCache&&vdCache.docs.find(function(x){return String(x.id)===s80Vd.getAttribute("data-s80-doc");});
+        if(vdDoc&&vdDoc.url) openDocPreviewModal(vdDoc.url,vdDoc.filename||'document',vdDoc.id);
+        else showOpsToast('That file is not available to preview','red');
+        return;
+      }
+      var s80Vf=e.target.closest("[data-s80-viewfile]");
+      if(s80Vf){ e.preventDefault();
+        var vfName=s80Vf.getAttribute("data-s80-fname")||'document';
+        try{
+          var vfBlob=await fetch(s80Vf.getAttribute("href"),{credentials:'same-origin'}).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); });
+          var vfUrl=await new Promise(function(res,rej){ var fr=new FileReader(); fr.onload=function(){res(fr.result);}; fr.onerror=rej; fr.readAsDataURL(vfBlob); });
+          openDocPreviewModal(vfUrl,vfName);
+        }catch(err){ showOpsToast('Could not preview the file: '+(err.message||'error'),'red'); }
+        return;
+      }
       var s80Ud=e.target.closest("[data-s80-practice-usedoc]");
       if(s80Ud){ e.preventDefault();
         var udId=s80Ud.getAttribute("data-s80-practice-usedoc"), udDoc=s80Ud.getAttribute("data-s80-doc");
-        s80Ud.disabled=true; s80Ud.textContent='Filing…';
+        s80Ud.disabled=true; s80Ud.textContent='Filing + AI check…';
         try{
           var udr=await fetch('/api/admin/ahpra/item/practice-file',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:udId,document_id:udDoc})}).then(function(r){return r.json();});
           if(udr.ok){ delete S._s80DocsCache[udId]; showOpsToast('Document filed for review'); await loadAll(true); }
-          else { showOpsToast(udr.message||'Could not file the document','red'); s80Ud.disabled=false; s80Ud.textContent='Use this file'; }
-        }catch(err){ showOpsToast('Could not file the document','red'); s80Ud.disabled=false; s80Ud.textContent='Use this file'; }
+          else { showOpsToast(udr.message||'Could not file the document','red'); s80Ud.disabled=false; s80Ud.textContent='Use this file & run AI check'; }
+        }catch(err){ showOpsToast('Could not file the document','red'); s80Ud.disabled=false; s80Ud.textContent='Use this file & run AI check'; }
         return;
       }
       var s80Book=e.target.closest("[data-s80-book-call]");
@@ -7070,6 +7124,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var box=document.getElementById('s80OfficerComposer_'+atid);
         if(!box) return;
         if(box.style.display!=='none'){ box.style.display='none'; return; }
+        // The confirm-receipt card's draft is edited in place: save it first so the email carries the edit.
+        if(!(await s80SaveReplyDraft(atid))){ showOpsToast('Could not save your edits to the draft','red'); return; }
         box.style.display='block'; box.innerHTML='<div style="font-size:12px;color:var(--muted);">Preparing email…</div>';
         s80Acc.disabled=true;
         try{
@@ -7106,7 +7162,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var s80Copy=e.target.closest("[data-s80-copy]");
       if(s80Copy){ e.preventDefault();
         var pre=document.getElementById('s80draft-'+s80Copy.getAttribute("data-s80-copy"));
-        if(pre){ try{ await navigator.clipboard.writeText(pre.textContent); var ot=s80Copy.textContent; s80Copy.textContent='Copied ✓'; setTimeout(()=>{s80Copy.textContent=ot;},1500); }catch(err){ alert('Copy failed — select the text manually.'); } }
+        if(pre){ try{ await navigator.clipboard.writeText(pre.value!=null?pre.value:pre.textContent); var ot=s80Copy.textContent; s80Copy.textContent='Copied ✓'; setTimeout(()=>{s80Copy.textContent=ot;},1500); }catch(err){ alert('Copy failed — select the text manually.'); } }
         return;
       }
       var s80Comp=e.target.closest("[data-s80-complete]");

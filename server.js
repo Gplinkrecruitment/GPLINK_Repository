@@ -5845,6 +5845,26 @@ async function _s80PracticeContext(caseId) {
   return out;
 }
 
+// The correction we asked a practice for on this item (previous reject reason, our request emails,
+// their replies), so the advisory AI check judges a resubmitted file against the ACTUAL fix and
+// not only the officer's original wording. `extraInbound` = the email carrying the file when it is
+// not on the task yet. Fail-open: ''.
+async function _s80RevisionContext(task, meta, extraInbound) {
+  try {
+    meta = meta || {};
+    var pr = (meta.practice_request && typeof meta.practice_request === 'object') ? meta.practice_request : {};
+    var prev = (meta.upload && typeof meta.upload === 'object') ? meta.upload : {};
+    var rejectReason = (prev.status === 'rejected' || prev.status === 'superseded') ? (prev.reject_reason || '') : '';
+    if (!pr.sent_at && !rejectReason) return '';
+    var since = pr.first_sent_at || pr.sent_at || '';
+    var sinceIso = since ? new Date(new Date(since).getTime() - 60000).toISOString() : '';
+    var mRes = await supabaseDbRequest('task_messages', 'select=direction,sender,body_text,created_at&task_id=eq.' + encodeURIComponent(task.id) + (sinceIso ? '&created_at=gte.' + encodeURIComponent(sinceIso) : '') + '&order=created_at.asc&limit=30');
+    var msgs = (mRes.ok && Array.isArray(mRes.data) ? mRes.data : []).filter(function (m) { return !(m.direction === 'inbound' && isAhpraSender(m.sender)); });
+    if (extraInbound) msgs.push({ direction: 'inbound', body_text: extraInbound });
+    return ahpraS80.buildRevisionContext({ rejectReason: rejectReason, messages: msgs });
+  } catch (e) { return ''; }
+}
+
 // Store a practice-supplied document against an s80 item exactly the way the doctor's own upload
 // is stored (metadata.upload + Storage + the advisory AI check), so the existing "View file /
 // Accept & email AHPRA / Reject" review works unchanged. `file` = {dataUrl, mime, name,
@@ -5880,7 +5900,7 @@ async function _storeS80UploadForTask(task, meta, file) {
   try {
     // A caller that already ran the check (the inbound email detector) passes its verdict in.
     var uc = (file && file.aiCheck && file.aiCheck.verdict) ? file.aiCheck
-      : await runUploadCheck(buffer, mime, { title: task.title, detail: meta.detail, team_instructions: meta.team_instructions, sub_items: meta.sub_items });
+      : await runUploadCheck(buffer, mime, { title: task.title, detail: meta.detail, team_instructions: [meta.team_instructions, meta.practice_instructions].filter(Boolean).join(' '), sub_items: meta.sub_items, revision_request: meta.mode === 'practice_upload' ? await _s80RevisionContext(task, meta) : '' });
     upload.ai_check = { verdict: uc.verdict, summary: uc.summary || '', model: AHPRA_S80_EXTRACT_MODEL, checked_at: new Date().toISOString() };
   } catch (e) { upload.ai_check = { verdict: 'unchecked', summary: '', checked_at: new Date().toISOString() }; }
   meta.upload = upload;
@@ -5919,7 +5939,9 @@ async function _autoFilePracticeReplyForS80(taskId) {
     }
     var usable = docs.filter(function (d) {
       var m = String(d.mime_type || (String(d.attachment_url || '').match(/^data:([^;]+);/) || [])[1] || '').toLowerCase();
-      return d.attachment_url && /^data:/.test(d.attachment_url) && (m.indexOf('pdf') >= 0 || m.indexOf('image/') === 0);
+      // Word too: a supervisor's CV very often comes back as a .docx (the AI check reads its text).
+      var isWord = m.indexOf('wordprocessingml') >= 0 || /\.docx$/i.test(String(d.filename || ''));
+      return d.attachment_url && /^data:/.test(d.attachment_url) && (m.indexOf('pdf') >= 0 || m.indexOf('image/') === 0 || isWord);
     });
     if (!usable.length) return false;
     var pick = usable.find(function (d) { return /pdf/i.test(String(d.mime_type || '')); }) || usable[0];
@@ -6051,10 +6073,11 @@ async function _detectPracticeUploadFromEmail(ctx) {
       var verdicts = {};
       for (var ii = 0; ii < items.length; ii++) {
         var it = items[ii], im = it.metadata;
+        var itRevision = await _s80RevisionContext(it, im, emailMeta.bodyText || '');
         for (var li = 0; li < live.length; li++) {
           var la = live[li];
           try {
-            verdicts[it.id + '|' + la.index] = await runUploadCheck(buffers[la.index], la.mimeType, { title: it.title, detail: im.detail, team_instructions: [im.team_instructions, im.practice_instructions].filter(Boolean).join(' '), sub_items: im.sub_items });
+            verdicts[it.id + '|' + la.index] = await runUploadCheck(buffers[la.index], la.mimeType, { title: it.title, detail: im.detail, team_instructions: [im.team_instructions, im.practice_instructions].filter(Boolean).join(' '), sub_items: im.sub_items, revision_request: itRevision });
           } catch (e) { verdicts[it.id + '|' + la.index] = { verdict: 'unchecked', summary: '' }; }
         }
       }
@@ -67068,6 +67091,30 @@ Return ONLY valid JSON with no markdown formatting:
     if (!signed) { sendJson(res, 502, { ok: false, message: 'Could not create link.' }); return; }
     res.writeHead(302, { Location: signed });
     res.end();
+    return;
+  }
+
+  // ── AHPRA s80: save the team's edits to the combined "confirm receipt" reply draft ──
+  if (pathname === '/api/admin/ahpra/item/reply-draft' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
+    let rdBody; try { rdBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const rdTaskId = rdBody && typeof rdBody.task_id === 'string' ? rdBody.task_id.trim() : '';
+    const rdSubject = rdBody && typeof rdBody.subject === 'string' ? rdBody.subject.trim().slice(0, 800) : '';
+    const rdText = rdBody && typeof rdBody.body === 'string' ? rdBody.body.slice(0, 20000) : '';
+    if (!rdTaskId || !rdText.trim()) { sendJson(res, 400, { ok: false, message: 'task_id and a body are required.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(rdTaskId), res))) return;
+    const rdRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,metadata&id=eq.' + encodeURIComponent(rdTaskId) + '&limit=1');
+    const rdTask = (rdRes.ok && Array.isArray(rdRes.data) && rdRes.data[0]) ? rdRes.data[0] : null;
+    if (!rdTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    var rdMeta = (rdTask.metadata && typeof rdTask.metadata === 'object') ? rdTask.metadata : {};
+    if (rdMeta.mode !== 'reply') { sendJson(res, 400, { ok: false, message: 'Not an AHPRA reply draft.' }); return; }
+    if (rdTask.status === 'completed' || (rdMeta.draft && rdMeta.draft.sent_at)) { sendJson(res, 409, { ok: false, message: 'This reply was already sent.' }); return; }
+    rdMeta.draft = Object.assign({}, rdMeta.draft || {}, { subject: rdSubject || (rdMeta.draft && rdMeta.draft.subject) || '', body: rdText, edited_by: adminCtx.email, edited_at: new Date().toISOString() });
+    rdMeta.detail = rdText;
+    const rdUp = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rdTaskId), { method: 'PATCH', body: { metadata: rdMeta, updated_at: new Date().toISOString() } });
+    if (!rdUp.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the draft.' }); return; }
+    sendJson(res, 200, { ok: true });
     return;
   }
 
