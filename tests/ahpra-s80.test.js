@@ -1,6 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import s80 from '../lib/ahpra-s80.js';
 
+describe('resolveReplyOfficer', () => {
+  it('takes the first real officer from the candidates in order', () => {
+    const o = s80.resolveReplyOfficer([null, { email: '', name: 'x' }, { email: 'Paige.Hooper@ahpra.gov.au', name: 'Paige Hooper' }, { email: 'other@ahpra.gov.au' }]);
+    expect(o).toEqual({ email: 'paige.hooper@ahpra.gov.au', name: 'Paige Hooper' });
+  });
+  it('parses a raw sender string', () => {
+    expect(s80.resolveReplyOfficer(['"Paige Hooper" <paige.hooper@ahpra.gov.au>']).email).toBe('paige.hooper@ahpra.gov.au');
+    expect(s80.resolveReplyOfficer(['paige.hooper@ahpra.gov.au']).email).toBe('paige.hooper@ahpra.gov.au');
+  });
+  it('skips the generic placeholder and our own forwarding staff', () => {
+    const o = s80.resolveReplyOfficer(['officer@ahpra.gov.au', 'Hazel <hazel@mygplink.com.au>', { email: 'real@ahpra.gov.au', name: 'real.officer' }]);
+    expect(o).toEqual({ email: 'real@ahpra.gov.au', name: '' });
+  });
+  it('returns blanks when nothing usable is found', () => {
+    expect(s80.resolveReplyOfficer([])).toEqual({ email: '', name: '' });
+    expect(s80.resolveReplyOfficer(undefined)).toEqual({ email: '', name: '' });
+  });
+});
+
 // A representative AHPRA s80(1)(b) notice body (the real Smith Miller / ref 1460970
 // example), trimmed to the parts that matter for extraction fidelity.
 const NOTICE_BODY = `Notice to provide further information under section 80(1)(b)

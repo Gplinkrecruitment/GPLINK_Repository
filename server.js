@@ -5604,6 +5604,37 @@ async function runUploadCheck(fileBuffer, mimeType, requirement) {
 // review_status 'pending_review' (status 'waiting') so the team checks them before
 // anything reaches the GP. Shared by the live Gmail pipeline and the manual-ingest
 // endpoint. Returns { created, bundleId, deadline, skipped }.
+// The combined "Reply to AHPRA to confirm receipt" task carries no inbound officer email of its
+// own. Its bundle siblings do (or their 6-card source card does), so gather the officer and the
+// original notice's RFC822 ids from them to keep the reply on AHPRA's thread.
+async function _s80BundleReplyContext(task) {
+  var out = { officers: [], threadId: '', inReplyTo: '', references: '' };
+  var meta = (task && task.metadata && typeof task.metadata === 'object') ? task.metadata : {};
+  if (!task || !task.case_id || !meta.bundle_id) return out;
+  var sibRes = await supabaseDbRequest('registration_tasks', 'select=id,gmail_thread_id,metadata&case_id=eq.' + encodeURIComponent(task.case_id) + '&task_type=eq.ahpra_action_item&order=created_at.asc&limit=200');
+  var sibs = (sibRes.ok && Array.isArray(sibRes.data) ? sibRes.data : []).filter(function (t) {
+    return t.id !== task.id && t.metadata && t.metadata.bundle_id === meta.bundle_id;
+  });
+  var ids = [task.id];
+  sibs.forEach(function (t) {
+    if (t.metadata.officer) out.officers.push(t.metadata.officer);
+    if (!out.threadId && t.gmail_thread_id) out.threadId = t.gmail_thread_id;
+    ids.push(t.id);
+    if (t.metadata.source_card_task_id) ids.push(t.metadata.source_card_task_id);
+  });
+  ids = ids.filter(function (id, i) { return id && ids.indexOf(id) === i; });
+  var msgRes = await supabaseDbRequest('task_messages', 'select=sender,rfc822_message_id,rfc822_references,gmail_thread_id&direction=eq.inbound&task_id=in.(' + ids.map(function (id) { return '"' + id + '"'; }).join(',') + ')&order=created_at.asc&limit=50');
+  var msgs = msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : [];
+  var anchorMsg = msgs.filter(function (m) { return m.rfc822_message_id; })[0] || msgs[0] || null;
+  if (anchorMsg) {
+    if (!out.threadId && anchorMsg.gmail_thread_id) out.threadId = anchorMsg.gmail_thread_id;
+    out.inReplyTo = anchorMsg.rfc822_message_id || '';
+    out.references = anchorMsg.rfc822_references || anchorMsg.rfc822_message_id || '';
+    if (anchorMsg.sender) out.officers.push(anchorMsg.sender);
+  }
+  return out;
+}
+
 async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction, opts) {
   opts = opts || {};
   if (!gpCase || !gpCase.id) return { created: 0, skipped: true, reason: 'no_case' };
@@ -67041,6 +67072,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ── AHPRA s80: pre-filled, AI-drafted reply to the officer for one uploaded item ──
+  // (also serves the combined "Reply to AHPRA to confirm receipt" task — mode 'reply')
   if (pathname === '/api/admin/ahpra/item/officer-reply-draft' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res); if (!adminCtx) return;
@@ -67060,6 +67092,18 @@ Return ONLY valid JSON with no markdown formatting:
       const p = (drProf.ok && Array.isArray(drProf.data) && drProf.data[0]) ? drProf.data[0] : {};
       drGpName = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || drGpName;
       drGpEmail = p.email || '';
+    }
+    // The combined "confirm receipt" reply: the team already reviewed this draft on the card, so
+    // hand it back as-is (no AI rewrite) with the officer found via the bundle's sibling items.
+    if (drMeta.mode === 'reply') {
+      var drCtx = await _s80BundleReplyContext(drTask);
+      var drReplyOfficer = ahpraS80.resolveReplyOfficer([drMeta.officer].concat(drCtx.officers, [{ email: drCase.ahpra_officer_email || '', name: drCase.ahpra_officer_name || '' }, drMeta.original_email && drMeta.original_email.sender]));
+      var drDraft = (drMeta.draft && typeof drMeta.draft === 'object') ? drMeta.draft : {};
+      var drRSubj = drDraft.subject || drMeta.thread_subject || (drMeta.original_email && drMeta.original_email.subject) || '';
+      drRSubj = drRSubj ? (/^re:/i.test(drRSubj) ? drRSubj : 'Re: ' + drRSubj) : 'Re: ' + ahpraS80.DEFAULT_REPLY_SUBJECT;
+      var _drREsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+      sendJson(res, 200, { ok: true, mode: 'reply', to: drReplyOfficer.email, cc: drGpEmail, subject: drRSubj, bodyHtml: String(drDraft.body || drMeta.detail || '').split('\n').map(_drREsc).join('<br>'), file_name: '', threaded: !!drCtx.inReplyTo });
+      return;
     }
     var drOfficer = (drMeta.officer && drMeta.officer.email) || drCase.ahpra_officer_email || '';
     var drOfficerName = (drMeta.officer && drMeta.officer.name) || drCase.ahpra_officer_name || '';
@@ -67101,7 +67145,34 @@ Return ONLY valid JSON with no markdown formatting:
     const orRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(orTaskId) + '&limit=1');
     const orTask = (orRes.ok && Array.isArray(orRes.data) && orRes.data[0]) ? orRes.data[0] : null;
     if (!orTask) { sendJson(res, 404, { ok: false, message: 'Item not found.' }); return; }
+    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentByTaskId(orTaskId), res))) return;
     var orMeta = (orTask.metadata && typeof orTask.metadata === 'object') ? orTask.metadata : {};
+    if (orMeta.mode === 'reply') {
+      // Combined "confirm receipt" reply: no attachment, threaded on the original AHPRA notice.
+      if (orTask.status === 'completed' || (orMeta.draft && orMeta.draft.sent_at)) {
+        sendJson(res, 200, { ok: true, sent: false, already: true, message: 'This reply was already sent to the AHPRA officer.' }); return;
+      }
+      var rpCtx = await _s80BundleReplyContext(orTask);
+      var rpSender = await resolveCaseSenderInfo(orTask.case_id);
+      var rpSubject = orSubject || (orMeta.draft && orMeta.draft.subject) || ('Re: ' + ahpraS80.DEFAULT_REPLY_SUBJECT);
+      var rpThreadId = orTask.gmail_thread_id || rpCtx.threadId || '';
+      var rpResult = await sendGmailEmail({
+        from: rpSender.from, fromName: rpSender.fromName, to: orTo, cc: orCc || undefined,
+        subject: rpSubject, bodyHtml: orBodyHtml,
+        threadId: rpThreadId || undefined, inReplyTo: rpCtx.inReplyTo || undefined, references: rpCtx.references || undefined,
+        caseId: orTask.case_id
+      });
+      if (!rpResult || !rpResult.ok) { sendJson(res, 502, { ok: false, message: 'Email send failed.' }); return; }
+      var rpNow = new Date().toISOString();
+      orMeta.draft = Object.assign({}, orMeta.draft || {}, { sent_at: rpNow, sent_by: adminCtx.email, sent_to: orTo });
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(orTaskId), { method: 'PATCH', body: { status: 'completed', completed_at: rpNow, completed_by: adminCtx.email, metadata: orMeta, updated_at: rpNow } });
+      try {
+        await supabaseDbRequest('task_messages', '', { method: 'POST', body: [{ task_id: orTaskId, case_id: orTask.case_id, direction: 'outbound', channel: 'email', sender: rpSender.from, recipient: orTo, cc: orCc || null, subject: rpSubject, body_text: stripRemainingHtmlTags(orBodyHtml.replace(/<br\s*\/?>/gi, '\n'), ''), gmail_thread_id: rpResult.threadId || rpThreadId || null, rfc822_message_id: rpResult.rfc822MessageId || null, created_at: rpNow }] });
+      } catch (e) { /* non-critical */ }
+      await _logCaseEvent(orTask.case_id, orTaskId, 'completed', 'AHPRA confirm-receipt reply sent', 'Emailed to ' + orTo, adminCtx.email);
+      sendJson(res, 200, { ok: true, sent: true });
+      return;
+    }
     // Idempotency: never re-send to the regulator. A retry / second tab / direct re-POST after a
     // successful send would otherwise email AHPRA a duplicate of the same document.
     if (orTask.status === 'completed' || (orMeta.upload && orMeta.upload.status === 'approved')) {
