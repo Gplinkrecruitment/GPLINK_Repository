@@ -80,7 +80,7 @@
   // 20260903a: doctor-guided flow — phase-driven nav (two tabs until a
   // position is secured), welcome + registration slideshows, careers step
   // strip, Account team card. Shell + career + account + index markup moved.
-  var VERSION = "20260918f";
+  var VERSION = "20260926a";
   var STATIC_CACHE = "gp-link-static-" + VERSION;
   var PAGE_CACHE = "gp-link-pages-" + VERSION;
   var RUNTIME_CACHE = "gp-link-runtime-" + VERSION;
@@ -129,7 +129,7 @@
     "/js/perf-cache.js?v=20260902a",
     "/js/journey-stages.js?v=20260902a",
     "/js/native-bridge.js?v=20260707a",
-    "/js/match-popup.js?v=20260904c",
+    "/js/match-popup.js?v=20260926a",
     "/js/interview-slots-cache.js?v=20260908a",
     "/js/interview-popup.js?v=20260910a",
     "/js/contract-popup.js?v=20260910a",

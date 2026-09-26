@@ -144,7 +144,7 @@ describe('careers page tutorial — the four steps of the strip', () => {
   it('busters moved together', () => {
     ['pages/index.html', 'pages/account.html', 'pages/career.html', 'pages/messages.html'].forEach((p) => expect(read(p)).toContain('/js/gp-walkthrough.js?v=20260918c'));
     expect(read('sw.js')).toContain('"/js/gp-walkthrough.js?v=20260918c"');
-    expect(read('sw.js')).toContain('var VERSION = "20260918f"');
+    expect(read('sw.js')).toContain('var VERSION = "20260926a"');
     expect(read('sw.js')).toContain('"/js/gp-coach.js?v=20260915a"');
     expect(read('sw.js')).toContain('"/js/state-sync.js?v=20260918b"');
   });

@@ -12,6 +12,17 @@
  * shown — never stacks. Marks the match seen on render. Accept posts
  * /api/career/match/respond then navigates the shell to /pages/career.
  *
+ * A refused accept is NEVER silent (Dr Fashola, 2026-09-26: "the button is
+ * not responding" — the server had answered 403 requiresSpecialistCert
+ * because his MRCGP upload had been auto-rejected, and this file reset the
+ * button to its idle label without a word). The popup is shown ONCE per
+ * match (match_seen_at is stamped on render), so it cannot bounce the doctor
+ * elsewhere to sort it out: the specialist-certificate gate is answered
+ * INLINE — same endpoint, canonical key and retry-the-accept flow as
+ * career.html's openCareerCertModal / job.html's openCertModal — and every
+ * other refusal (caps, career lock, withdrawn, 5xx, network) prints the
+ * server's own message under the button.
+ *
  * Never shown to a gated account (mid-onboarding / under_review /
  * pep_waitlist / archived) — enforced server-side in GET /api/career/matches
  * (which returns an empty matches list for those accounts), so this file
@@ -152,6 +163,42 @@
     });
   }
 
+  function readFileAsDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(new Error("read failed")); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Same endpoint + canonical key as onboarding, career.html and job.html —
+  // the accept gate (getOnboardingDocumentRow) reads exactly this row back.
+  function uploadSpecialistCert(country, file, dataUrl) {
+    return fetch("/api/onboarding-documents", {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        country: country,
+        key: "onboarding_specialist_qualification",
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        fileDataUrl: dataUrl
+      })
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (body) {
+        return { status: r.status, body: body };
+      });
+    });
+  }
+
+  var ACCEPT_LABEL = "Fast-track to Interview";
+  var ACCEPT_FAILED_FALLBACK = "We couldn\u2019t accept this match just now \u2014 please try again, or message your team.";
+  var ACCEPT_NETWORK_ERROR = "Network error \u2014 please check your connection and try again.";
+  var CERT_UPLOAD_LABEL = "Upload & Fast-track";
+
   function navigateToCareer() {
     try {
       if (typeof window.gpShellNavigate === "function") {
@@ -229,6 +276,7 @@
       '<div class="gpmp-stat"><div class="gpmp-pct">98%</div><div class="gpmp-lbl"><b>of team-matched GPs are accepted by the practice.</b></div></div>' +
       '<div class="gpmp-cd">⏳ This match is reserved for you ' + reserveInnerHtml + '</div>' +
       '<button type="button" class="gpmp-accept shiny" data-gpmp-accept>Fast-track to Interview</button>' +
+      '<p class="gpmp-note" data-gpmp-note role="alert" hidden></p>' +
       '<a href="#" class="gpmp-later" data-gpmp-later>I’ll look at this later</a>'
     );
   }
@@ -279,6 +327,15 @@
     ".gpmp-accept{position:relative;overflow:hidden;display:block;width:100%;text-align:center;color:#fff;font-weight:700;text-decoration:none;font-size:15px;padding:15px;border-radius:14px;border:0;cursor:pointer;",
     "background:linear-gradient(180deg,#4f8bff 0%,#2563eb 45%,#1d4ed8 100%);box-shadow:0 12px 28px -8px rgba(37,99,235,.75), inset 0 1.5px 0 rgba(255,255,255,.5), inset 0 -2px 6px rgba(13,38,110,.45);}",
     ".gpmp-accept:disabled{opacity:.75;cursor:default;}",
+    ".gpmp-accept[hidden]{display:none;}",
+    ".gpmp-note{position:relative;margin:10px 0 0;padding:10px 12px;border-radius:11px;background:rgba(220,38,38,.16);border:1px solid rgba(248,113,113,.45);color:#fecaca;font-size:12.5px;line-height:1.45;text-align:center;}",
+    ".gpmp-note[hidden]{display:none;}",
+    ".gpmp-cert{position:relative;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:14px 15px 12px;margin-bottom:12px;}",
+    ".gpmp-cert-t{font-family:'Source Serif 4',Georgia,serif;font-size:17px;font-weight:700;line-height:1.25;margin:0 0 6px;}",
+    ".gpmp-cert p{font-size:12.5px;color:rgba(226,233,246,.85);line-height:1.5;margin:0 0 10px;}",
+    ".gpmp-cert input[type=file]{display:block;width:100%;font-size:13px;color:#e6edfb;margin:0 0 6px;}",
+    ".gpmp-cert-s{min-height:16px;font-size:12.5px;color:#fca5a5;line-height:1.4;margin:0 0 8px;}",
+    ".gpmp-cert-cancel{display:block;text-align:center;color:rgba(226,233,246,.65);font-size:13px;text-decoration:none;padding:10px 0 0;}",
     ".gpmp-accept::after{content:'';position:absolute;top:-10%;bottom:-10%;left:-70%;width:44%;background:linear-gradient(115deg, transparent 0%, rgba(255,255,255,.55) 50%, transparent 100%);transform:skewX(-22deg);animation:gpmpshine 3s ease-in-out infinite;}",
     "@media (prefers-reduced-motion: reduce){.gpmp-accept::after{animation:none;}}",
     "@keyframes gpmpshine{0%{left:-70%}55%{left:135%}100%{left:135%}}",
@@ -314,31 +371,141 @@
     }
 
     var acceptEl = overlay.querySelector("[data-gpmp-accept]");
-    if (acceptEl) {
-      acceptEl.addEventListener("click", function () {
-        acceptEl.disabled = true;
-        acceptEl.textContent = "Accepting…";
-        respond(match.applicationId, "accept").then(function (result) {
-          if (result && result.status === 200 && result.body && result.body.ok) {
-            acceptEl.textContent = "Accepted ✓";
-            setTimeout(function () {
-              closeOverlay(overlay);
-              navigateToCareer();
-            }, 900);
+    var noteEl = overlay.querySelector("[data-gpmp-note]");
+
+    function showNote(text) {
+      if (!noteEl) return;
+      noteEl.textContent = text || "";
+      noteEl.hidden = !text;
+    }
+
+    function resetAccept() {
+      acceptEl.disabled = false;
+      acceptEl.textContent = ACCEPT_LABEL;
+    }
+
+    function handleAcceptResult(result) {
+      if (result && result.status === 200 && result.body && result.body.ok) {
+        showNote("");
+        acceptEl.textContent = "Accepted ✓";
+        setTimeout(function () {
+          closeOverlay(overlay);
+          navigateToCareer();
+        }, 900);
+        return;
+      }
+      if (result && result.status === 410) {
+        closeOverlay(overlay);
+        navigateToCareer();
+        return;
+      }
+      resetAccept();
+      // Specialist-certificate gate (server: 403 requiresSpecialistCert) —
+      // collect the MRCGP / MICGP / FRNZCGP right here and retry.
+      if (result && result.status === 403 && result.body && result.body.requiresSpecialistCert) {
+        openCertPanel(result.body);
+        return;
+      }
+      // Caps (409), career lock (423), previously withdrawn (409), not
+      // found (404), 5xx: the server's sentence is written for the doctor.
+      showNote((result && result.body && result.body.message) || ACCEPT_FAILED_FALLBACK);
+    }
+
+    function submitAccept() {
+      showNote("");
+      acceptEl.disabled = true;
+      acceptEl.textContent = "Accepting…";
+      return respond(match.applicationId, "accept").then(handleAcceptResult).catch(function () {
+        resetAccept();
+        showNote(ACCEPT_NETWORK_ERROR);
+      });
+    }
+
+    // Inline specialist-certificate panel: replaces the accept button until
+    // the doctor uploads (then the accept retries itself) or backs out.
+    function openCertPanel(body) {
+      var label = String((body && body.certLabel) || "specialist GP certificate");
+      var country = String((body && body.certCountry) || "");
+      var existing = overlay.querySelector("[data-gpmp-cert]");
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+      var panel = document.createElement("div");
+      panel.className = "gpmp-cert";
+      panel.setAttribute("data-gpmp-cert", "");
+      panel.innerHTML =
+        '<div class="gpmp-cert-t">Upload your ' + escapeHtml(label) + ' to fast-track</div>' +
+        '<p>Practices need to see your specialist GP qualification before an application goes out. Upload a photo, PDF or scan under 10 MB \u2014 our team checks it, so one clear copy is all you need.</p>' +
+        '<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" data-gpmp-cert-file>' +
+        '<div class="gpmp-cert-s" data-gpmp-cert-status></div>' +
+        '<button type="button" class="gpmp-accept shiny" data-gpmp-cert-upload disabled>' + escapeHtml(CERT_UPLOAD_LABEL) + '</button>' +
+        '<a href="#" class="gpmp-cert-cancel" data-gpmp-cert-cancel>Not now</a>';
+      acceptEl.hidden = true;
+      acceptEl.parentNode.insertBefore(panel, acceptEl);
+
+      var fileInput = panel.querySelector("[data-gpmp-cert-file]");
+      var statusEl = panel.querySelector("[data-gpmp-cert-status]");
+      var uploadBtn = panel.querySelector("[data-gpmp-cert-upload]");
+
+      function closePanel() {
+        if (panel.parentNode) panel.parentNode.removeChild(panel);
+        acceptEl.hidden = false;
+      }
+
+      panel.querySelector("[data-gpmp-cert-cancel]").addEventListener("click", function (e) {
+        e.preventDefault();
+        closePanel();
+        showNote("Upload your " + label + " to fast-track this match \u2014 you can also add it under My Documents.");
+      });
+
+      fileInput.addEventListener("change", function () {
+        var file = fileInput.files && fileInput.files[0];
+        statusEl.textContent = "";
+        if (!file) { uploadBtn.disabled = true; return; }
+        if (!/\.(pdf|jpe?g|png|webp)$/i.test(file.name || "")) {
+          statusEl.textContent = "Please select a PDF or photo (JPG, PNG).";
+          fileInput.value = "";
+          uploadBtn.disabled = true;
+          return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          statusEl.textContent = "File too large. Maximum 10 MB.";
+          fileInput.value = "";
+          uploadBtn.disabled = true;
+          return;
+        }
+        uploadBtn.disabled = false;
+      });
+
+      uploadBtn.addEventListener("click", function () {
+        var file = fileInput.files && fileInput.files[0];
+        if (!file) { statusEl.textContent = "Choose a file first."; return; }
+        if (!country) {
+          statusEl.textContent = "We couldn\u2019t work out which certificate to file \u2014 please upload it under My Documents.";
+          return;
+        }
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Uploading\u2026";
+        readFileAsDataUrl(file).then(function (dataUrl) {
+          return uploadSpecialistCert(country, file, dataUrl);
+        }).then(function (up) {
+          if (!(up && up.status === 200 && up.body && up.body.ok)) {
+            statusEl.textContent = (up && up.body && up.body.message) || "Upload failed. Please try again.";
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = CERT_UPLOAD_LABEL;
             return;
           }
-          if (result && result.status === 410) {
-            closeOverlay(overlay);
-            navigateToCareer();
-            return;
-          }
-          acceptEl.disabled = false;
-          acceptEl.textContent = "Fast-track to Interview";
+          closePanel();
+          return submitAccept();
         }).catch(function () {
-          acceptEl.disabled = false;
-          acceptEl.textContent = "Fast-track to Interview";
+          statusEl.textContent = "Network error. Please try again.";
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = CERT_UPLOAD_LABEL;
         });
       });
+    }
+
+    if (acceptEl) {
+      acceptEl.addEventListener("click", function () { submitAccept(); });
     }
   }
 
