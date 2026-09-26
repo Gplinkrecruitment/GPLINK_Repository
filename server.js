@@ -53094,33 +53094,13 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Specialist-certificate gate (owner 2026-09-01): applying ALSO requires
-    // the doctor's specialist GP qualification certificate — MRCGP (UK),
-    // MICGP (Ireland) or FRNZCGP (NZ) — asked for AT APPLY TIME via job.html's
-    // certificate modal, deliberately NOT on the careers-page CV gate.
-    // Doctors who uploaded it at onboarding (old wizard) or the MyIntealth
-    // gateway pass silently (same canonical user_documents key); a rejected
-    // upload must be replaced. Countries outside GB/IE/NZ have no defined
-    // certificate and skip this gate.
-    const certProfRes = await supabaseDbRequest('user_profiles', `select=qualification_country,registration_country&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-    const certProf = (certProfRes.ok && Array.isArray(certProfRes.data) && certProfRes.data[0]) ? certProfRes.data[0] : {};
-    const certCode = registerVerification.qualCountryCode(certProf.qualification_country || certProf.registration_country);
-    if (certCode) {
-      const certLabels = { GB: 'MRCGP certificate', IE: 'MICGP certificate', NZ: 'FRNZCGP certificate' };
-      const certDocCountry = { GB: 'uk', IE: 'ie', NZ: 'nz' }[certCode];
-      const certRow = await getOnboardingDocumentRow(userId, certDocCountry, 'onboarding_specialist_qualification');
-      const certProvided = !!(certRow && String(certRow.storage_path || certRow.file_url || '').trim() && String(certRow.status || '') !== 'rejected');
-      if (!certProvided) {
-        sendJson(res, 403, {
-          ok: false,
-          requiresSpecialistCert: true,
-          certLabel: certLabels[certCode],
-          certCountry: certDocCountry,
-          message: 'Please upload your ' + certLabels[certCode] + ' to apply. Open the job and tap Apply to add it in a few seconds.'
-        });
-        return;
-      }
-    }
+    // NO specialist-certificate gate (owner 2026-09-26, reversing the
+    // 2026-09-01 rule): a UK GP is verified by GMC number + identity at
+    // onboarding and no step collects an MRCGP, so demanding one here only
+    // blocked genuine doctors (Dr Fashola: his onboarding upload was
+    // auto-rejected as a GMC certificate and every apply/accept then 403'd).
+    // Same decision on POST /api/career/match/respond. The CV gate above is
+    // the only document requirement for applying.
 
     // Already-placed guard: a GP whose placement is secured can't start new
     // applications — their recruitment officer manages any change from here.
@@ -54135,34 +54115,10 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    // Specialist-certificate gate (owner 2026-09-01): ACCEPTING a match makes
-    // the doctor an applicant, so the same MRCGP / MICGP / FRNZCGP requirement
-    // that guards /api/career/apply applies here — same 403 shape, and
-    // career.html opens its inline certificate modal. Deliberately AFTER the
-    // ownership, expiry and already-responded guards: a match that is not
-    // theirs, has lapsed or is already settled answers with ITS truth, never
-    // with a demand for paperwork. Decline/enquire are never gated.
-    if (mrAction === 'accept') {
-      const mrCertProfRes = await supabaseDbRequest('user_profiles', `select=qualification_country,registration_country&user_id=eq.${encodeURIComponent(mrUserId)}&limit=1`);
-      const mrCertProf = (mrCertProfRes.ok && Array.isArray(mrCertProfRes.data) && mrCertProfRes.data[0]) ? mrCertProfRes.data[0] : {};
-      const mrCertCode = registerVerification.qualCountryCode(mrCertProf.qualification_country || mrCertProf.registration_country);
-      if (mrCertCode) {
-        const mrCertLabels = { GB: 'MRCGP certificate', IE: 'MICGP certificate', NZ: 'FRNZCGP certificate' };
-        const mrCertDocCountry = { GB: 'uk', IE: 'ie', NZ: 'nz' }[mrCertCode];
-        const mrCertRow = await getOnboardingDocumentRow(mrUserId, mrCertDocCountry, 'onboarding_specialist_qualification');
-        const mrCertProvided = !!(mrCertRow && String(mrCertRow.storage_path || mrCertRow.file_url || '').trim() && String(mrCertRow.status || '') !== 'rejected');
-        if (!mrCertProvided) {
-          sendJson(res, 403, {
-            ok: false,
-            requiresSpecialistCert: true,
-            certLabel: mrCertLabels[mrCertCode],
-            certCountry: mrCertDocCountry,
-            message: 'Please upload your ' + mrCertLabels[mrCertCode] + ' to accept this match.'
-          });
-          return;
-        }
-      }
-    }
+    // NO specialist-certificate gate on accept (owner 2026-09-26): see the
+    // note on POST /api/career/apply — GMC number + identity are the UK
+    // check, nothing collects an MRCGP, and the 2026-09-01 gate here left
+    // Dr Fashola unable to accept his match. Decline/enquire were never gated.
 
     const mrJob = mrRow.career_role_id ? await atsGetJobRow(mrRow.career_role_id) : null;
     const mrNowIso = new Date().toISOString();

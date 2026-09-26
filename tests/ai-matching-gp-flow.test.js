@@ -111,9 +111,9 @@ const db = {
     updated_at: iso(NOW)
   })),
   user_documents: [
-    // Owner 2026-09-01: accepting a match now requires the specialist GP
-    // certificate — give the accepting fixture doctor an MRCGP on file so the
-    // accept-path tests keep testing the accept machinery itself.
+    // Legacy onboarding certificate row. The accept path stopped requiring
+    // it on 2026-09-26 (owner: GMC number + identity are the UK check); kept
+    // so the fixture still mirrors a real doctor's document set.
     { id: 'doc-cert-accept', user_id: ACCEPT_GP.userId, document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/accept/mrcgp.pdf', country_code: 'uk' }
   ],
   user_roles: [],

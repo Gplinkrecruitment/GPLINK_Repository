@@ -57,8 +57,8 @@ const db = {
     // CV (document_key 'career_cv'), not a registration-file document.
     { id: 'doc-cv-overseas', user_id: OVERSEAS_GP.userId, document_key: 'career_cv', status: 'uploaded' },
     { id: 'doc-cv-au', user_id: AU_TRAINED_GP.userId, document_key: 'career_cv', status: 'uploaded' },
-    // Owner 2026-09-01: applying also requires the specialist GP certificate
-    // (MRCGP for these UK-trained fixtures) — same canonical onboarding key.
+    // Legacy onboarding certificate rows — applying stopped requiring them
+    // on 2026-09-26 (owner: GMC number + identity are the UK check).
     { id: 'doc-cert-overseas', user_id: OVERSEAS_GP.userId, document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/overseas/mrcgp.pdf', country_code: 'uk' },
     { id: 'doc-cert-au', user_id: AU_TRAINED_GP.userId, document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/au/mrcgp.pdf', country_code: 'uk' }
   ],

@@ -343,43 +343,38 @@ describe('apply gate requires career_cv', () => {
     expect(res.status).toBe(403);
     expect(res.body.requiresCv).toBe(true);
   });
-  it('after the CV, apply asks for the specialist certificate (owner 2026-09-01)', async () => {
+  it('after the CV, apply does NOT ask for a specialist certificate (owner 2026-09-26)', async () => {
+    // Reverses the 2026-09-01 gate: a UK GP is verified by GMC number +
+    // identity at onboarding and nothing collects an MRCGP, so the gate only
+    // ever blocked genuine doctors (Dr Fashola, 2026-09-26: his onboarding
+    // upload had been auto-rejected and every accept 403'd).
     aiMode = 'genuine_cv';
     await httpReq('POST', '/api/career/profile/cv', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { fileName: 'cv.pdf', fileBase64: PDF_B64, mimeType: 'application/pdf', fileSize: 900 } });
     const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
-    expect(res.status).toBe(403);
-    expect(res.body.requiresSpecialistCert).toBe(true);
-    expect(res.body.certLabel).toBe('MRCGP certificate');
-    expect(res.body.certCountry).toBe('uk');
-  });
-  it('apply succeeds once the specialist certificate is on file, and re-gates if it is rejected', async () => {
-    const certRow = { id: 'doc-cert-gate2', user_id: 'u-gate-2', document_key: 'onboarding_specialist_qualification', status: 'pending', storage_path: 'onboarding/uk/u-gate-2/mrcgp.pdf', country_code: 'uk', file_name: 'mrcgp.pdf', updated_at: '2026-09-01T00:00:00Z' };
-    db.user_documents.push(certRow);
-    const res = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
     expect(res.status).toBe(200);
-    // A certificate the review team REJECTED no longer satisfies the gate.
-    certRow.status = 'rejected';
+    expect(res.body.requiresSpecialistCert).toBeUndefined();
+  });
+  it('a REJECTED specialist-certificate row never blocks an application either', async () => {
+    db.user_documents.push({ id: 'doc-cert-gate2', user_id: 'u-gate-2', document_key: 'onboarding_specialist_qualification', status: 'rejected', storage_path: 'onboarding/uk/u-gate-2/mrcgp.pdf', country_code: 'uk', file_name: 'mrcgp.pdf', updated_at: '2026-09-01T00:00:00Z' });
     const again = await httpReq('POST', '/api/career/apply', { cookie: userCookie('gate2@example.com', 'u-gate-2'), body: { roleId: SEEDED_ROLE_ID } });
-    expect(again.status === 403 && again.body.requiresSpecialistCert === true
-      // (a 409 duplicate would mean the gate was skipped — the cert check
-      // runs BEFORE the duplicate check, so 403 is the required answer)
-    ).toBe(true);
-    certRow.status = 'pending';
+    // Already applied above, so the honest answer is the duplicate 409 —
+    // never a paperwork 403.
+    expect(again.status).not.toBe(403);
+    expect(again.body && again.body.requiresSpecialistCert).not.toBe(true);
   });
 });
 
-describe('match-accept requires the specialist certificate too (owner 2026-09-01)', () => {
-  it('403 requiresSpecialistCert when a UK doctor accepts a match without the certificate', async () => {
-    db.user_profiles.push({ user_id: 'u-gate-match', email: 'gate-match@example.com', registration_country: 'uk' });
+describe('match-accept does not require the specialist certificate either (owner 2026-09-26)', () => {
+  it('a UK doctor whose only certificate row is REJECTED accepts a match', async () => {
+    db.user_profiles.push({ user_id: 'u-gate-match', email: 'gate-match@example.com', registration_country: 'uk', qualification_country: 'GB' });
     db.user_state.push({ user_id: 'u-gate-match', state: { gp_onboarding_complete: true } });
+    db.user_documents.push({ id: 'doc-cert-gate-match', user_id: 'u-gate-match', document_key: 'onboarding_specialist_qualification', status: 'rejected', storage_path: 'onboarding/uk/u-gate-match/mrcgp.pdf', country_code: 'uk', file_name: 'mrcgp.pdf', updated_at: '2026-09-01T00:00:00Z' });
     db.gp_applications.push({ id: 'app-gate-match', user_id: 'u-gate-match', ats_stage: 'shortlisted', match_expires_at: new Date(Date.now() + 86400000).toISOString(), career_role_id: 'role-gate-cv' });
     const res = await httpReq('POST', '/api/career/match/respond', { cookie: userCookie('gate-match@example.com', 'u-gate-match'), body: { applicationId: 'app-gate-match', action: 'accept' } });
-    expect(res.status).toBe(403);
-    expect(res.body.requiresSpecialistCert).toBe(true);
-    expect(res.body.certLabel).toBe('MRCGP certificate');
-    // Declining is NEVER gated — it reduces commitments, not grows them.
-    const dec = await httpReq('POST', '/api/career/match/respond', { cookie: userCookie('gate-match@example.com', 'u-gate-match'), body: { applicationId: 'app-gate-match', action: 'decline' } });
-    expect(dec.body && dec.body.requiresSpecialistCert).not.toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.application && res.body.application.match_outcome).toBe('accepted');
+    expect(res.body.requiresSpecialistCert).toBeUndefined();
   });
 });
 
