@@ -6625,13 +6625,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   var _docxPreviewLoaded=null;
   function _loadDocxPreview(){
     if(_docxPreviewLoaded)return _docxPreviewLoaded;
-    _docxPreviewLoaded=new Promise(function(resolve,reject){
-      var s=document.createElement('script');
-      s.src='https://cdn.jsdelivr.net/npm/docx-preview@0.3.3/dist/docx-preview.min.js';
-      s.onload=function(){resolve(window.docx);};
-      s.onerror=function(){_docxPreviewLoaded=null;reject(new Error('Failed to load docx-preview'));};
-      document.head.appendChild(s);
-    });
+    // docx-preview reads the .docx zip through a global JSZip and does not bundle it: without this
+    // every Word preview failed with "Cannot read properties of undefined (reading 'loadAsync')".
+    function load(src){
+      return new Promise(function(resolve,reject){
+        var s=document.createElement('script');
+        s.src=src; s.onload=resolve; s.onerror=function(){reject(new Error('Failed to load '+src));};
+        document.head.appendChild(s);
+      });
+    }
+    _docxPreviewLoaded=(window.JSZip?Promise.resolve():load('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'))
+      .then(function(){ return load('https://cdn.jsdelivr.net/npm/docx-preview@0.3.3/dist/docx-preview.min.js'); })
+      .then(function(){ if(!window.JSZip||!window.docx) throw new Error('Word preview library did not load'); return window.docx; })
+      .catch(function(err){ _docxPreviewLoaded=null; throw err; });
     return _docxPreviewLoaded;
   }
   function openDocPreviewModal(dataUrl,filename,docId){
