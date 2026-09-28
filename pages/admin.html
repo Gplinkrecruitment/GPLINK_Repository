@@ -1723,7 +1723,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return false;
   }
   function flushPendingRender(){
-    if(S.pendingRender&&!isUserInteracting()){S.pendingRender=false;renderAll();}
+    // Only the SILENT 15s refresh defers a render, and that refresh never rebuilds panels (just the
+    // top bar + filters). Flushing it with renderAll() rebuilt the detail pane 80ms after focus left a
+    // composer, i.e. on MOUSEDOWN of its Send button, so the button vanished before the click landed
+    // and the AHPRA email was silently never sent. Keep the flush exactly as light as the refresh.
+    if(S.pendingRender&&!isUserInteracting()){S.pendingRender=false;renderTopBar();renderFilters();}
   }
   document.addEventListener("focusout",function(){setTimeout(flushPendingRender,80);},true);
 
@@ -7138,11 +7142,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           var dr=await fetch('/api/admin/ahpra/item/officer-reply-draft?task_id='+encodeURIComponent(atid),{credentials:'same-origin'}).then(r=>r.json());
           if(!dr.ok){ box.innerHTML='<div style="font-size:12px;color:#b91c1c;">Could not prepare the email.</div>'; s80Acc.disabled=false; return; }
           box.innerHTML=''
+            +'<div style="font-size:12px;font-weight:700;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;margin-bottom:8px;">Not sent yet. Check the email below, then click “Send to AHPRA officer”.</div>'
             +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-oreply-to="'+esc(atid)+'" value="'+esc(dr.to||'')+'" style="width:100%"/></div>'
             +'<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-oreply-cc="'+esc(atid)+'" value="'+esc(dr.cc||'')+'" style="width:100%"/></div>'
             +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-oreply-subject="'+esc(atid)+'" value="'+esc(dr.subject||'')+'" style="width:100%"/></div>'
             +'<div style="font-size:11px;color:var(--muted);margin:4px 0;">'+(dr.mode==='reply'?(dr.threaded?'Sent as a reply on the original AHPRA thread':'Sent as a new email (the original AHPRA email was not found)'):'📎 '+esc(dr.file_name||'the uploaded document')+' will be attached · sent as a reply on the AHPRA thread')+'</div>'
             +'<div data-oreply-body="'+esc(atid)+'" contenteditable="true" style="min-height:120px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;font-size:13px;">'+(dr.bodyHtml||'')+'</div>'
+            +'<div data-oreply-err="'+esc(atid)+'" style="display:none;margin-top:8px;font-size:12px;font-weight:600;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:6px 9px;"></div>'
             +'<div style="margin-top:8px;text-align:right;"><button type="button" data-oreply-send="'+esc(atid)+'" style="background:#16a34a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Send to AHPRA officer</button></div>';
           s80Acc.disabled=false;
         }catch(err){ box.innerHTML='<div style="font-size:12px;color:#b91c1c;">Error preparing email.</div>'; s80Acc.disabled=false; }
@@ -7150,6 +7156,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       var s80Snd=e.target.closest("[data-oreply-send]");
       if(s80Snd){ e.preventDefault();
+        var s80SendErr=function(id,msg){ var el=document.querySelector('[data-oreply-err="'+id+'"]'); if(el){ el.textContent=msg; el.style.display='block'; } showOpsToast(msg,'red'); };
+        var s80ErrBox=document.querySelector('[data-oreply-err="'+s80Snd.getAttribute("data-oreply-send")+'"]'); if(s80ErrBox) s80ErrBox.style.display='none';
         var stid=s80Snd.getAttribute("data-oreply-send");
         var to=(document.querySelector('[data-oreply-to="'+stid+'"]')||{}).value||'';
         var cc=(document.querySelector('[data-oreply-cc="'+stid+'"]')||{}).value||'';
@@ -7160,9 +7168,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         s80Snd.disabled=true; s80Snd.textContent='Sending…';
         try{
           var sr=await fetch('/api/admin/ahpra/item/officer-reply',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:stid,to:to.trim(),cc:cc.trim(),subject:subj.trim(),bodyHtml:bodyHtml})}).then(r=>r.json());
-          if(sr.ok){ showOpsToast('Sent to AHPRA officer — replied on the thread'); if(typeof loadAll==='function')loadAll(true); }
-          else { showOpsToast(sr.message||'Send failed','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
-        }catch(err){ showOpsToast(err.message||'Network error','red'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
+          if(sr.ok){ showOpsToast(sr.already?(sr.message||'Already sent to the AHPRA officer'):'Sent to AHPRA officer — replied on the thread'); if(typeof loadAll==='function')loadAll(true); }
+          else { s80SendErr(stid,'Not sent: '+(sr.message||'the email could not be sent')+'. Nothing went to AHPRA. Try again.'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
+        }catch(err){ s80SendErr(stid,'Not sent: '+(err.message||'network error')+'. Nothing went to AHPRA. Try again.'); s80Snd.disabled=false; s80Snd.textContent='Send to AHPRA officer'; }
         return;
       }
       var s80Copy=e.target.closest("[data-s80-copy]");
