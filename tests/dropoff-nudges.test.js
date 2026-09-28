@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  WA_TEMPLATES, onboardingStepNudgeKey, postOnboardingNudgeDecision,
+  WA_TEMPLATES, ONBOARDING_STEP_WA_TEMPLATES, onboardingStepNudgeKey, onboardingStepForLink,
+  buildOnboardingStepEmail, postOnboardingNudgeDecision,
   buildDropoffEmail, CAREER_START_AFTER_MS, CAREER_CV_AFTER_MS, DAY_MS
 } from '../lib/dropoff-nudges.js';
 
@@ -43,13 +44,41 @@ describe('every drop-off point has a WhatsApp template and an email channel', ()
 });
 
 describe('onboarding wizard slide → drop-off point', () => {
-  it('maps every slide to the right point', () => {
-    expect(onboardingStepNudgeKey(0)).toBe('onboarding_start');
-    expect(onboardingStepNudgeKey(1)).toBe('onboarding_start');
-    expect(onboardingStepNudgeKey(2)).toBe('onboarding_move');
-    expect(onboardingStepNudgeKey(3)).toBe('onboarding_move');
-    expect(onboardingStepNudgeKey(4)).toBe('onboarding_identity');
-    expect(onboardingStepNudgeKey(undefined)).toBe('onboarding_start');
+  // Slide order since the 2026-08-24 reorder: 0 welcome, 1 plan your move,
+  // 2 country + register number, 3 review, 4 identity. The old mapping assumed
+  // the pre-reorder order, so a GP stuck on "Plan your move" got the start copy
+  // and one on the register-number step was told "a couple of questions to go".
+  it('maps every slide to the step it actually shows', () => {
+    expect(onboardingStepNudgeKey(0)).toBe('onboarding_step_start');
+    expect(onboardingStepNudgeKey(1)).toBe('onboarding_step_move');
+    expect(onboardingStepNudgeKey(2)).toBe('onboarding_step_register');
+    expect(onboardingStepNudgeKey(3)).toBe('onboarding_step_id');
+    expect(onboardingStepNudgeKey(4)).toBe('onboarding_step_id');
+    expect(onboardingStepNudgeKey(undefined)).toBe('onboarding_step_start');
+  });
+  it('every step key has a button template and an email', () => {
+    for (const key of ['onboarding_step_start', 'onboarding_step_move', 'onboarding_step_register', 'onboarding_step_id']) {
+      expect(ONBOARDING_STEP_WA_TEMPLATES[key], key).toMatch(/^gp_link_onboarding_step_/);
+      const mail = buildOnboardingStepEmail(key, { firstName: 'Sarah', step: 2, appBaseUrl: 'https://app.mygplink.com.au/' });
+      expect(mail, key).toBeTruthy();
+      expect(mail.subject, key).toContain('Sarah');
+      expect(mail.body, key).toContain('Khaleed');
+      expect(mail.ctaUrl, key).toBe('https://app.mygplink.com.au/pages/onboarding.html?step=2');
+      expect(mail.subject + mail.title + mail.body + mail.ctaText, key).not.toMatch(/—/);
+    }
+    expect(buildOnboardingStepEmail('career_start', { firstName: 'Sarah' })).toBe(null);
+  });
+  it('the register step says no certificates are needed (they no longer are)', () => {
+    const mail = buildOnboardingStepEmail('onboarding_step_register', { firstName: 'Sarah', step: 2 });
+    expect(mail.body).toMatch(/no longer need to upload any certificates/);
+    expect(mail.body).toMatch(/GMC, IMC or MCNZ/);
+  });
+  it('button link opens the slide the GP left off on, clamped to the wizard', () => {
+    expect(onboardingStepForLink(4)).toBe(4);
+    expect(onboardingStepForLink(2)).toBe(2);
+    expect(onboardingStepForLink(undefined)).toBe(0);
+    expect(onboardingStepForLink(-3)).toBe(0);
+    expect(onboardingStepForLink(9)).toBe(4);
   });
 });
 
@@ -118,6 +147,34 @@ describe('server wiring (source pins)', () => {
     expect(block).toContain('dropoffNudges.onboardingStepNudgeKey(');
     expect(block).toContain('maybeSendDropoffWa(');
     expect(block).toMatch(/onbWaSent < 15/);
+  });
+  it('the hourly WhatsApp leg sends the step template with a button that opens the step', () => {
+    const cron = serverJs.slice(serverJs.indexOf("pathname === '/api/cron/onboarding-nudge'"));
+    const block = cron.slice(0, cron.indexOf('[OnbNudge/Cron]'));
+    expect(block).toContain('dropoffNudges.ONBOARDING_STEP_WA_TEMPLATES[onbWaKey]');
+    expect(block).toContain('buttonParam: dropoffNudges.onboardingStepForLink(onbG.lastStep)');
+    const wa = serverJs.slice(serverJs.indexOf('async function maybeSendDropoffWa'), serverJs.indexOf('async function maybeSendDropoffEmail'));
+    expect(wa).toContain("waMsg.buttons = [{ type: 'URL', parameter: String(opts.buttonParam) }]");
+  });
+  it('the on-demand step follow-up is cron-authed, dry-run by default, and skips opt-outs + test accounts', () => {
+    const route = serverJs.slice(serverJs.indexOf("pathname === '/api/cron/onboarding-step-followup'"));
+    const block = route.slice(0, route.indexOf('onboarding-step-followup failed'));
+    expect(block).toContain("'Bearer ' + osfSecret");
+    expect(block).toContain("searchParams.get('send') === '1'");
+    expect(block).toContain('if (osfSend) Object.assign(osfOut, await sendOnboardingStepFollowup(osfG))');
+    expect(block).toContain("skipped = 'unsubscribed'");
+    expect(block).toContain('isBypassLockEmail(osfG.email)');
+    const em = serverJs.slice(serverJs.indexOf('async function maybeSendOnboardingStepEmail'), serverJs.indexOf('async function sendOnboardingStepFollowup'));
+    expect(em).toContain("hasDropoffNudge(gp.userId, nudgeKey, 'email')");
+    expect(em).toContain("allowsNonCriticalNotification(gp.email, 'emailNudges')");
+    expect(em).toContain("'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'");
+  });
+  it('a consult lead is converted at signup AND login, not only when its next nudge falls due', () => {
+    expect(serverJs.split('.then(() => markConsultLeadSignedUp(email))').length - 1).toBe(2);
+    const fn = serverJs.slice(serverJs.indexOf('async function markConsultLeadSignedUp'), serverJs.indexOf('async function backfillPriorConsultationsForUser'));
+    expect(fn).toContain('if (consult.stopped) return');
+    expect(fn).toContain("stopped: 'signed_up'");
+    expect(fn).toContain("maybeSendConsultWa(row, 'signed_up')");
   });
   it('the ledger makes double-sends impossible: every sender checks gp_nudge_log first', () => {
     const wa = serverJs.slice(serverJs.indexOf('async function maybeSendDropoffWa'), serverJs.indexOf('async function maybeSendDropoffEmail'));

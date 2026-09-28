@@ -22132,9 +22132,11 @@ async function logDropoffNudge(userId, nudgeKey, channel) {
 // Sends the approved WhatsApp template for a drop-off point, once ever.
 // Fail-soft like every DoubleTick sender: an unapproved template, missing
 // phone or DT outage skips quietly and the point stays eligible next run.
-async function maybeSendDropoffWa(userId, fullName, nudgeKey) {
+// opts: { templateName, buttonParam } — the step-accurate onboarding templates
+// carry a URL button whose dynamic suffix is the wizard slide to open.
+async function maybeSendDropoffWa(userId, fullName, nudgeKey, opts) {
   try {
-    const tpl = dropoffNudges.WA_TEMPLATES[nudgeKey];
+    const tpl = (opts && opts.templateName) || dropoffNudges.WA_TEMPLATES[nudgeKey];
     if (!tpl || !userId) return { ok: false, skipped: 'no_template' };
     if (await hasDropoffNudge(userId, nudgeKey, 'whatsapp')) return { ok: false, skipped: 'already_sent' };
     const phone = await getGpWhatsAppPhone(userId);
@@ -22144,7 +22146,9 @@ async function maybeSendDropoffWa(userId, fullName, nudgeKey) {
     // Only set the DoubleTick contact name with a FULL name — the API
     // overwrites unconditionally and must never downgrade a named contact.
     if (cleanName.indexOf(' ') > 0) { try { await ensureDoubleTickContactName(phone, cleanName); } catch (e) {} }
-    const sendRes = await sendConsultWhatsAppTemplate(phone, { templateName: tpl, placeholders: [first] });
+    const waMsg = { templateName: tpl, placeholders: [first] };
+    if (opts && opts.buttonParam != null) waMsg.buttons = [{ type: 'URL', parameter: String(opts.buttonParam) }];
+    const sendRes = await sendConsultWhatsAppTemplate(phone, waMsg);
     if (sendRes && sendRes.ok) {
       await logDropoffNudge(userId, nudgeKey, 'whatsapp');
       return { ok: true };
@@ -22185,6 +22189,55 @@ async function maybeSendDropoffEmail(userId, email, firstName, nudgeKey) {
     console.error('[DropoffNudge] email send error:', e && e.message);
     return { ok: false, skipped: 'error' };
   }
+}
+
+// Step-accurate onboarding email (2026-09-29): tells the GP exactly what the
+// step they stopped on asks for, with a button + plain link that opens that
+// slide. Once per step per GP (gp_nudge_log, channel email). Honours both the
+// onboarding-reminder unsubscribe and the in-app "email nudges" preference,
+// and carries the same one-click unsubscribe as the 7-touch drip.
+async function maybeSendOnboardingStepEmail(gp, nudgeKey) {
+  try {
+    if (!gp || !gp.userId || !gp.email) return { ok: false, skipped: 'no_email' };
+    if (!isEmailConfigured()) return { ok: false, skipped: 'email_unconfigured' };
+    if (await hasDropoffNudge(gp.userId, nudgeKey, 'email')) return { ok: false, skipped: 'already_sent' };
+    if (!(await allowsNonCriticalNotification(gp.email, 'emailNudges'))) return { ok: false, skipped: 'opted_out' };
+    const firstName = String(gp.name || '').trim().split(/\s+/)[0] || '';
+    const mail = dropoffNudges.buildOnboardingStepEmail(nudgeKey, { firstName: firstName, step: gp.lastStep, appBaseUrl: APP_BASE_URL });
+    if (!mail) return { ok: false, skipped: 'no_copy' };
+    const unsubUrl = APP_BASE_URL + '/api/onboarding-reminders/unsubscribe?u=' + encodeURIComponent(String(gp.userId)) + '&t=' + onbUnsubToken(gp.userId);
+    const linkLine = 'Or copy this link into your browser: <a href="' + mail.ctaUrl + '" style="color:#2563eb;word-break:break-all">' + mail.ctaUrl + '</a>';
+    const footer = '<span style="color:#5b6475;font-size:12px">' + linkLine + '</span><br><br>'
+      + '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these reminders</a>';
+    const sendRes = await sendEmail({
+      to: gp.email,
+      subject: mail.subject,
+      html: buildCareerEmailHtml({ title: mail.title, body: mail.body, ctaText: mail.ctaText, ctaUrl: mail.ctaUrl, footer: footer }),
+      text: mail.body + '\n\n' + mail.ctaText + ': ' + mail.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
+      category: 'marketing',
+      headers: { 'List-Unsubscribe': '<' + unsubUrl + '>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+    });
+    if (sendRes && (sendRes.ok || sendRes.id)) {
+      await logDropoffNudge(gp.userId, nudgeKey, 'email');
+      return { ok: true };
+    }
+    if (sendRes && sendRes.suppressed) return { ok: false, skipped: 'suppressed' };
+    return { ok: false, skipped: 'send_failed' };
+  } catch (e) {
+    console.error('[OnbStepNudge] email send error:', e && e.message);
+    return { ok: false, skipped: 'error' };
+  }
+}
+
+// Both legs of the step nudge for one incomplete GP.
+async function sendOnboardingStepFollowup(gp) {
+  const key = dropoffNudges.onboardingStepNudgeKey(gp.lastStep);
+  const email = await maybeSendOnboardingStepEmail(gp, key);
+  const wa = await maybeSendDropoffWa(gp.userId, gp.name || '', key, {
+    templateName: dropoffNudges.ONBOARDING_STEP_WA_TEMPLATES[key],
+    buttonParam: dropoffNudges.onboardingStepForLink(gp.lastStep)
+  });
+  return { key: key, email: email, whatsapp: wa };
 }
 
 async function markConsultWaOnboardingResolved(row, value) {
@@ -26775,6 +26828,30 @@ async function hasPriorConsultationForEmail(email) {
   } catch (e) {
     console.error('[first-step] consultation lookup failed:', e && e.message);
     return true;
+  }
+}
+
+// Convert this email's consult-funnel lead the moment the account exists.
+// The consult-nudge cron only runs its "did they sign up?" check when a nudge
+// is DUE, so a doctor who signed up between touches (Shakeema, 2026-09-26:
+// next touch 7 days out) sat as an unconverted lead for a week with no
+// signed_up / onboarding WhatsApp. Called from signup AND login; idempotent
+// (a stopped lead is left alone). Never throws.
+async function markConsultLeadSignedUp(email) {
+  try {
+    const row = await findSiteEnquiryByEmail(email);
+    if (!row || row.kind !== 'gp' || !row.metadata || !row.metadata.consult) return { ok: false, skipped: 'no_lead' };
+    const consult = row.metadata.consult;
+    if (consult.stopped) return { ok: false, skipped: 'already_stopped' };
+    const md = Object.assign({}, row.metadata, { consult: Object.assign({}, consult, { stopped: 'signed_up' }) });
+    const up = await updateSiteEnquiryRow(row.id, { status: 'converted', metadata: md });
+    if (!up) return { ok: false, skipped: 'write_failed' };
+    row.metadata = md;
+    await maybeSendConsultWa(row, 'signed_up');
+    return { ok: true };
+  } catch (err) {
+    console.error('[consult-lead] markConsultLeadSignedUp error:', err && err.message);
+    return { ok: false, skipped: 'error' };
   }
 }
 
@@ -45118,11 +45195,15 @@ async function handleApi(req, res, pathname) {
             onbSent++;
             // WhatsApp leg (owner 2026-09-01): the email drip already covers the
             // email channel; this adds ONE WhatsApp per drop-off point (start /
-            // plan-your-move / identity), only after 24h+ away, deduped forever
-            // via gp_nudge_log. Fail-soft: no phone or DT outage skips quietly.
+            // plan-your-move / register number / identity, with a button that
+            // opens that slide), only after 24h+ away, deduped forever via
+            // gp_nudge_log. Fail-soft: no phone or DT outage skips quietly.
             if (onbWaSent < 15 && onbInactivity >= dropoffNudges.ONBOARDING_WA_AFTER_MS) {
               var onbWaKey = dropoffNudges.onboardingStepNudgeKey(onbG.lastStep);
-              var onbWaRes = await maybeSendDropoffWa(onbG.userId, onbG.name || '', onbWaKey);
+              var onbWaRes = await maybeSendDropoffWa(onbG.userId, onbG.name || '', onbWaKey, {
+                templateName: dropoffNudges.ONBOARDING_STEP_WA_TEMPLATES[onbWaKey],
+                buttonParam: dropoffNudges.onboardingStepForLink(onbG.lastStep)
+              });
               if (onbWaRes && onbWaRes.ok) onbWaSent++;
             }
           } else if (onbSendRes && onbSendRes.optedOut) {
@@ -45147,6 +45228,43 @@ async function handleApi(req, res, pathname) {
     } catch (onbErr) {
       console.error('[Cron] onboarding-nudge failed:', onbErr);
       await respondServerError(res, onbErr, { route: pathname, method: req.method });
+    }
+    return;
+  }
+
+  // ── On-demand step follow-up for incomplete onboarding (2026-09-29) ──
+  // Sends every incomplete GP the step-accurate email (button + plain link) and
+  // WhatsApp (URL button) for the wizard step they stopped on, now, instead of
+  // waiting for the hourly drip's 24h rule. Dry run unless ?send=1; ?only= takes
+  // comma-separated user ids. Each leg is once per step per GP (gp_nudge_log),
+  // so re-running never double-sends. Skips GPs who unsubscribed from reminders.
+  if (req.method === 'GET' && pathname === '/api/cron/onboarding-step-followup') {
+    var osfSecret = String(process.env.CRON_SECRET || '').trim();
+    if (!osfSecret || (req.headers['authorization'] || '') !== 'Bearer ' + osfSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var osfUrl = new URL(req.url, 'http://localhost');
+      var osfSend = osfUrl.searchParams.get('send') === '1';
+      var osfOnly = String(osfUrl.searchParams.get('only') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      var osfGps = (await enumerateIncompleteOnboardingGps()).filter(function (g) {
+        return !g.completed && (!osfOnly.length || osfOnly.indexOf(String(g.userId)) !== -1);
+      });
+      var osfUnsub = {};
+      (await listOnboardingReminders()).forEach(function (r) { if (r && r.user_id && r.unsubscribed) osfUnsub[String(r.user_id)] = true; });
+      var osfResults = [];
+      var osfStart = Date.now();
+      for (var osfG of osfGps) {
+        if (Date.now() - osfStart > 45000) { osfResults.push({ partial: true }); break; }
+        var osfKey = dropoffNudges.onboardingStepNudgeKey(osfG.lastStep);
+        var osfOut = { userId: osfG.userId, name: osfG.name, step: osfG.lastStep, key: osfKey };
+        if (isBypassLockEmail(osfG.email)) { osfOut.skipped = 'test_account'; osfResults.push(osfOut); continue; }
+        if (osfUnsub[String(osfG.userId)]) { osfOut.skipped = 'unsubscribed'; osfResults.push(osfOut); continue; }
+        if (osfSend) Object.assign(osfOut, await sendOnboardingStepFollowup(osfG));
+        osfResults.push(osfOut);
+      }
+      sendJson(res, 200, { ok: true, sent: osfSend, count: osfResults.length, results: osfResults });
+    } catch (osfErr) {
+      console.error('[Cron] onboarding-step-followup failed:', osfErr);
+      await respondServerError(res, osfErr, { route: pathname, method: req.method });
     }
     return;
   }
@@ -47463,6 +47581,7 @@ async function handleApi(req, res, pathname) {
     if (signupUserId) {
       _ensureRegCase(signupUserId)
         .then(() => backfillPriorConsultationsForUser(signupUserId, email))
+        .then(() => markConsultLeadSignedUp(email))
         .catch(err => console.error('[signup] Case setup failed:', err && err.message));
     }
 
@@ -47633,6 +47752,7 @@ async function handleApi(req, res, pathname) {
       if (supaUserId) {
         _ensureRegCase(supaUserId)
           .then(() => backfillPriorConsultationsForUser(supaUserId, email))
+          .then(() => markConsultLeadSignedUp(email))
           .catch(err => console.error('[login] Case setup failed:', err && err.message));
       }
       const bootstrapResult = resolveFastAuthBootstrap(email, {
