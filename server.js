@@ -15737,11 +15737,18 @@ function readRawBody(req, maxBytes) {
  */
 function normalizePhone(phone) {
   if (!phone || typeof phone !== 'string') return '';
-  const digits = phone.replace(/[^\d+]/g, '');
-  if (digits.startsWith('+')) return digits;
+  let digits = phone.replace(/[^\d+]/g, '');
+  // "+44 +447581364436": signup glued the dial code onto a number that already
+  // carried it. The last "+" starts the real international number.
+  const lastPlus = digits.lastIndexOf('+');
+  if (lastPlus > 0) digits = digits.slice(lastPlus);
+  // "+44 07734408785": the national trunk 0 never follows the country code
+  // for the countries we serve (UK, IE, NZ, AU); WhatsApp can't route it.
+  const dropTrunkZero = (intl) => intl.replace(/^\+(44|353|64|61)0(\d{7,})$/, '+$1$2');
+  if (digits.startsWith('+')) return dropTrunkZero(digits);
   // Australian local format: 04xxxxxxxx → +614xxxxxxxx
   if (digits.startsWith('0') && digits.length === 10) return '+61' + digits.slice(1);
-  if (digits.length >= 10 && digits.length <= 15) return '+' + digits;
+  if (digits.length >= 10 && digits.length <= 15) return dropTrunkZero('+' + digits);
   return digits;
 }
 
@@ -83946,6 +83953,7 @@ module.exports.buildDoubleTickAssignBody = buildDoubleTickAssignBody;
 module.exports.buildRsoWritePayload = buildRsoWritePayload;
 module.exports.resolveCaseSenderEmail = resolveCaseSenderEmail;
 module.exports.__testUtils = {
+  normalizePhone,
   listDoctorHiddenPracticeRefs,
   __resetDoctorHiddenPracticesCacheForTest,
   _createRegTask,
