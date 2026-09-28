@@ -160,6 +160,7 @@ describe('server wiring (source pins)', () => {
     const route = serverJs.slice(serverJs.indexOf("pathname === '/api/cron/onboarding-step-followup'"));
     const block = route.slice(0, route.indexOf('onboarding-step-followup failed'));
     expect(block).toContain("'Bearer ' + osfSecret");
+    expect(block).toContain('osfOwnSecret.length >= 32'); // never an empty or short secret
     expect(block).toContain("searchParams.get('send') === '1'");
     expect(block).toContain('if (osfSend) Object.assign(osfOut, await sendOnboardingStepFollowup(osfG))');
     expect(block).toContain("skipped = 'unsubscribed'");

@@ -45239,8 +45239,13 @@ async function handleApi(req, res, pathname) {
   // comma-separated user ids. Each leg is once per step per GP (gp_nudge_log),
   // so re-running never double-sends. Skips GPs who unsubscribed from reminders.
   if (req.method === 'GET' && pathname === '/api/cron/onboarding-step-followup') {
+    // CRON_SECRET is write-only in Vercel, so staff sessions/scripts can't
+    // present it; ONBOARDING_FOLLOWUP_SECRET is this route's own trigger secret.
     var osfSecret = String(process.env.CRON_SECRET || '').trim();
-    if (!osfSecret || (req.headers['authorization'] || '') !== 'Bearer ' + osfSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var osfOwnSecret = String(process.env.ONBOARDING_FOLLOWUP_SECRET || '').trim();
+    var osfAuth = req.headers['authorization'] || '';
+    var osfAuthed = (osfSecret && osfAuth === 'Bearer ' + osfSecret) || (osfOwnSecret.length >= 32 && osfAuth === 'Bearer ' + osfOwnSecret);
+    if (!osfAuthed) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     try {
       var osfUrl = new URL(req.url, 'http://localhost');
       var osfSend = osfUrl.searchParams.get('send') === '1';
