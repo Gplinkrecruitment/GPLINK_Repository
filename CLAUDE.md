@@ -44,6 +44,16 @@ verified data shapes, and what is still broken.
   splitting one env var that two features with different Meta scopes share (§4),
   plus restoring the System User token before its 2026-11-16 data-access expiry (§2).
 
+- **Meta ads (campaign structure, cost per lead/booking) / the CAPI stage feed / Calendly
+  booking attribution** →
+  [`docs/superpowers/handovers/2026-09-29-meta-ads-restructure-and-booking-attribution-handover.md`](docs/superpowers/handovers/2026-09-29-meta-ads-restructure-and-booking-attribution-handover.md)
+  — `3eddc57` + `781493d` are live. The Cold/Warm/Hot campaign is running and cost per booking
+  is down to ~AU$96 from ~AU$265. **Read §8 before touching anything in Ads Manager**: every
+  edit to a lead-form ad set fails over the API (error 1815089, owner must use Ads Manager),
+  `ads_update_entity` force-pauses whatever it edits, and a targeting write is a full replace.
+  Open: Cold's cost per lead has doubled and no lead has arrived since 27 Sep (§10.1), and
+  §6.2 — rebuilding Warm around the instant form — is an active disagreement with the owner.
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules
