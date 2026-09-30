@@ -472,24 +472,39 @@ describe('nextConsultNudge', () => {
     expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: bookedAt })).toEqual({ seq: 'booked_no_signup', step: 0 });
     expect(nextConsultNudge({ consult, createdAtMs: t0, nowMs: bookedAt - 1 })).toBe(null);
   });
-  it('booked: touch 1 waits until 20h AFTER the call, not the booking', () => {
+  it('booked: touch 1 fires the MOMENT the call is marked completed (attended); a slot that merely passed defers it', () => {
     const bookedAt = t0;
     const callAt = t0 + 5 * D; // the call is 5 days after they booked
     const consult = { call_booked: true, call_booked_at: new Date(bookedAt).toISOString(), nudges: [{ seq: 'booked_no_signup', step: 0 }] };
     const input = { consult, createdAtMs: t0, callAtMs: callAt };
-    expect(nextConsultNudge({ ...input, nowMs: bookedAt + 3 * D })).toBe(null);        // call not happened yet
-    expect(nextConsultNudge({ ...input, nowMs: callAt + 19 * H })).toBe(null);         // just before 20h post-call
-    expect(nextConsultNudge({ ...input, nowMs: callAt + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 1 });
+    expect(nextConsultNudge({ ...input, nowMs: bookedAt + 3 * D })).toBe(null);          // call not happened yet
+    expect(nextConsultNudge({ ...input, nowMs: callAt + 2 * H })).toBe(null);            // slot passed, no completion ⇒ we cannot say they attended
+    expect(nextConsultNudge({ ...input, nowMs: callAt + 20 * H })).toBe(null);           // the old "day after the slot" rule is gone
+    const completedAt = callAt + 32 * MIN;
+    expect(nextConsultNudge({ ...input, callCompletedMs: completedAt, nowMs: completedAt })).toEqual({ seq: 'booked_no_signup', step: 1 });
+    expect(nextConsultNudge({ ...input, callCompletedMs: completedAt, nowMs: completedAt - 1 })).toBe(null);
   });
-  it('booked: weekly touches 2–4 anchor on the call time (7/14/21 days)', () => {
+  it('booked: weekly touches 2–4 anchor on the COMPLETION time (7/14/21 days) and never bunch up', () => {
     const callAt = t0 + 5 * D;
-    const mk = (steps) => ({ consult: { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: steps.map((s) => ({ seq: 'booked_no_signup', step: s })) }, createdAtMs: t0, callAtMs: callAt });
-    expect(nextConsultNudge({ ...mk([0, 1]), nowMs: callAt + 6 * D })).toBe(null);
-    expect(nextConsultNudge({ ...mk([0, 1]), nowMs: callAt + 7 * D })).toEqual({ seq: 'booked_no_signup', step: 2 });
-    expect(nextConsultNudge({ ...mk([0, 1, 2]), nowMs: callAt + 14 * D })).toEqual({ seq: 'booked_no_signup', step: 3 });
-    expect(nextConsultNudge({ ...mk([0, 1, 2, 3]), nowMs: callAt + 21 * D })).toEqual({ seq: 'booked_no_signup', step: 4 });
+    const done = callAt + 30 * MIN;
+    const mk = (steps, lastSentAt) => ({
+      consult: { call_booked: true, call_booked_at: new Date(t0).toISOString(),
+        nudges: steps.map((s, i) => ({ seq: 'booked_no_signup', step: s, sent_at: i === steps.length - 1 && lastSentAt ? new Date(lastSentAt).toISOString() : undefined })) },
+      createdAtMs: t0, callAtMs: callAt, callCompletedMs: done,
+    });
+    expect(nextConsultNudge({ ...mk([0, 1]), nowMs: done + 6 * D })).toBe(null);
+    expect(nextConsultNudge({ ...mk([0, 1]), nowMs: done + 7 * D })).toEqual({ seq: 'booked_no_signup', step: 2 });
+    expect(nextConsultNudge({ ...mk([0, 1, 2]), nowMs: done + 14 * D })).toEqual({ seq: 'booked_no_signup', step: 3 });
+    expect(nextConsultNudge({ ...mk([0, 1, 2, 3]), nowMs: done + 21 * D })).toEqual({ seq: 'booked_no_signup', step: 4 });
+    // A lead caught up on late: step 2 is overdue but waits 20h after step 1 went.
+    expect(nextConsultNudge({ ...mk([0, 1], done + 10 * D), nowMs: done + 10 * D + 19 * H })).toBe(null);
+    expect(nextConsultNudge({ ...mk([0, 1], done + 10 * D), nowMs: done + 10 * D + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 2 });
     // all five sent → nothing more, ever
-    expect(nextConsultNudge({ ...mk([0, 1, 2, 3, 4]), nowMs: callAt + 400 * D })).toBe(null);
+    expect(nextConsultNudge({ ...mk([0, 1, 2, 3, 4]), nowMs: done + 400 * D })).toBe(null);
+  });
+  it('booked: an unknown completion defers every after-call touch, even with a slot time on record', () => {
+    const consult = { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: [{ seq: 'booked_no_signup', step: 0 }] };
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: t0 + 1 * D, nowMs: t0 + 40 * D })).toBe(null);
   });
   it('booked: an UNQUALIFIED (never-screened direct) booker STILL gets the drip', () => {
     const bookedAt = t0 + 1 * H;
@@ -507,10 +522,13 @@ describe('nextConsultNudge', () => {
     // resurrect the booking-time fallback via NaN comparisons.
     expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: NaN, nowMs: t0 + 20 * H })).toBe(null);
     expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: Date.parse('not-a-date'), nowMs: t0 + 20 * H })).toBe(null);
-    // …and once the call time is known, step 1 schedules off THAT, not the booking.
+    // …a known slot time on its own still fires nothing (the slot passing is not attendance)…
     const callAt = t0 + 3 * D;
     expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: callAt, nowMs: t0 + 20 * H })).toBe(null);
-    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: callAt, nowMs: callAt + 20 * H })).toEqual({ seq: 'booked_no_signup', step: 1 });
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: callAt, nowMs: callAt + 20 * H })).toBe(null);
+    // …and once the call is marked COMPLETED, step 1 schedules off THAT, immediately.
+    const completedAt = callAt + 30 * MIN;
+    expect(nextConsultNudge({ consult, createdAtMs: t0, callAtMs: callAt, callCompletedMs: completedAt, nowMs: completedAt })).toEqual({ seq: 'booked_no_signup', step: 1 });
   });
   it('booked: step 0 still fires with no call time (it is booking-anchored, not call-anchored)', () => {
     const consult = { call_booked: true, call_booked_at: new Date(t0).toISOString(), nudges: [] };

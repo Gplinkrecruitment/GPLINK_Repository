@@ -22226,6 +22226,119 @@ async function stopConsultChaseOnReply(fromPhone) {
   return lead;
 }
 
+// Send one due follow-up step to one lead and record it. Shared by the
+// consult-nudge cron and the instant post-call trigger (afterConsultCallCompleted),
+// so both paths write the same nudges entry and neither can double-send: the
+// entry is the idempotency record. Mutates row.metadata in place. Returns
+// { outcome: 'sent' | 'stopped' | 'skipped' } — 'stopped' means a real
+// unsubscribe/complaint came to light and every channel is now off.
+async function deliverConsultNudgeStep(row, due, waOwed) {
+  let meta = row.metadata;
+  let consult = meta.consult;
+  const spec = consultLead.consultNudgeStepSpec(due.seq, due.step) || { email: true, wa: null };
+  const entry = { seq: due.seq, step: due.step, sent_at: new Date().toISOString(), email: spec.email ? 'sent' : 'none' };
+  if (spec.email && consult.email_bounced === true) {
+    entry.email = 'skipped';
+  } else if (spec.email) {
+    const sendRes = await sendConsultNudgeEmail(row, due);
+    if (sendRes && sendRes.suppressed) {
+      const why = await getEmailSuppressionReason(row.email);
+      if (why !== 'hard_bounce') {
+        // They asked us to stop (or reported us) — every channel stops.
+        const mdUnsub = Object.assign({}, meta, { consult: Object.assign({}, consult, { stopped: 'unsubscribed', unsubscribe_reason: why || 'unknown' }) });
+        await updateSiteEnquiryRow(row.id, { metadata: mdUnsub });
+        row.metadata = mdUnsub;
+        return { outcome: 'stopped' };
+      }
+      // Dead address, live phone: note the bounce and carry on with WhatsApp.
+      consult = Object.assign({}, consult, { email_bounced: true, email_bounced_at: entry.sent_at });
+      meta = Object.assign({}, meta, { consult: consult });
+      entry.email = 'bounced';
+      console.log('[consult-nudge] email bounced for lead', row.id, '— WhatsApp only from here');
+    } else if (!(sendRes && sendRes.ok)) {
+      return { outcome: 'skipped' }; // send failed (e.g. email unconfigured) — try again next run
+    }
+  }
+  const nudges = (Array.isArray(consult.nudges) ? consult.nudges : []).concat([entry]);
+  const mdSent = Object.assign({}, meta, { consult: Object.assign({}, consult, { nudges: nudges }) });
+  await updateSiteEnquiryRow(row.id, { metadata: mdSent });
+  row.metadata = mdSent;
+  // The WhatsApp leg for this step, plus any still owed from earlier ones
+  // (the doctor gets the newest copy; older owed legs are retired).
+  if (spec.wa) await sendOwedConsultWa(row, (Array.isArray(waOwed) ? waOwed : []).concat([spec.wa]));
+  return { outcome: 'sent' };
+}
+
+// Owner rule 2026-09-30: "they should get the create-account email instantly
+// after the call ends, as long as they did attend." Called from the Zoom
+// meeting.ended webhook the moment a CEO consultation is marked completed —
+// that completion is our attendance signal (a no-show never completes; the
+// no-show sweep wipes the booking instead). Finds the lead behind the call,
+// stamps consult.call_completed_at, and delivers the first "after your call"
+// step right away. The 5-minute cron is the backstop (it recovers completed_at
+// from scheduled_calls and sends the same step); the nudges record keeps both
+// paths idempotent. Best-effort: never throws.
+async function afterConsultCallCompleted(callRecord, completedAtIso) {
+  try {
+    if (!callRecord || callRecord.meeting_kind !== 'consultation') return { skipped: 'not_consultation' };
+    // Registration-support calls are the same meeting_kind but belong to app
+    // users who already have an account — the account email is not for them.
+    if (callRecord.host_kind && callRecord.host_kind !== 'ceo') return { skipped: 'not_ceo_call' };
+    const email = String(callRecord.invitee_email || '').trim().toLowerCase();
+    const phone = consultWhatsapp.extractConsultPhone(null, callRecord.invitee_notes || '');
+    let lead = email ? await findSiteEnquiryByEmail(email) : null;
+    if ((!lead || !lead.metadata || !lead.metadata.consult) && phone) lead = await findConsultLeadByPhone(phone);
+    if (!lead || !lead.metadata || !lead.metadata.consult) return { skipped: 'no_lead' };
+    const c = lead.metadata.consult;
+    const completedAt = String(completedAtIso || new Date().toISOString());
+    const patch = {};
+    if (!c.call_completed_at) patch.call_completed_at = completedAt;
+    if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || completedAt; }
+    if (callRecord.scheduled_at && !c.call_at) patch.call_at = String(callRecord.scheduled_at);
+    if (Object.keys(patch).length) {
+      const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
+      const up = await updateSiteEnquiryRow(lead.id, { metadata: md });
+      if (!up) return { skipped: 'write_failed' };
+      lead.metadata = md;
+    }
+    let consult = lead.metadata.consult;
+    if (consult.stopped || consult.screened_out) return { skipped: 'stopped' };
+    // Someone who already has an account does not need the account email; the
+    // cron stamps them signed_up on its next pass.
+    const exists = isSupabaseDbConfigured()
+      ? !!(await getSupabaseUserIdByEmail(lead.email))
+      : !!(dbState.users && dbState.users[String(lead.email || '').toLowerCase()]);
+    if (exists) return { skipped: 'signed_up' };
+    const dueFor = (cons) => consultLead.nextConsultNudge({
+      consult: cons,
+      createdAtMs: Date.parse(lead.created_at),
+      callAtMs: cons.call_at ? Date.parse(cons.call_at) : NaN,
+      callCompletedMs: cons.call_completed_at ? Date.parse(cons.call_completed_at) : NaN,
+      nowMs: Date.now()
+    });
+    let due = dueFor(consult);
+    // The booking-time touch was never sent (booked and spoke within minutes,
+    // or an older lead): sending "you've booked, now create your account" AFTER
+    // the call, seconds before "great speaking with you", reads as a glitch.
+    // Record it as superseded and go straight to the post-call touch.
+    if (due && due.seq === 'booked_no_signup' && due.step === 0) {
+      const superseded = { seq: 'booked_no_signup', step: 0, sent_at: new Date().toISOString(), email: 'superseded' };
+      const md0 = Object.assign({}, lead.metadata, { consult: Object.assign({}, consult, { nudges: (Array.isArray(consult.nudges) ? consult.nudges : []).concat([superseded]) }) });
+      const up0 = await updateSiteEnquiryRow(lead.id, { metadata: md0 });
+      if (!up0) return { skipped: 'write_failed' };
+      lead.metadata = md0; consult = md0.consult;
+      due = dueFor(consult);
+    }
+    if (!due || due.seq !== 'booked_no_signup') return { skipped: 'nothing_due' };
+    const res = await deliverConsultNudgeStep(lead, due, []);
+    console.log('[consult-nudge] post-call account email for lead', lead.id, '→', res.outcome, '(step ' + due.step + ')');
+    return Object.assign({ step: due.step }, res);
+  } catch (e) {
+    console.error('[consult-nudge] afterConsultCallCompleted error:', e && e.message);
+    return { error: e && e.message };
+  }
+}
+
 // Stamp a terminal onboarding-pass marker (completed / window_passed / …) so the
 // cron never re-examines this lead. Distinct from a sent marker: value records why.
 // ── Drop-off nudge ledger + WhatsApp leg (owner rules, 2026-09-01) ──
@@ -26845,8 +26958,16 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
     if (!lead || !lead.metadata || !lead.metadata.consult) return;
     const c = lead.metadata.consult;
     const patch = {};
+    let clearStop = false;
     if (scheduledAt && c.call_at !== scheduledAt) patch.call_at = scheduledAt;
-    if (!c.call_booked) { patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso; }
+    if (!c.call_booked) {
+      patch.call_booked = true; patch.call_booked_at = c.call_booked_at || nowIso;
+      // A booking re-opens the post-call account emails for a lead whose notes had
+      // stopped because they replied on WhatsApp, or because the notes ran out
+      // (owner rule 2026-09-30 — the same two stops the /start booked route lifts).
+      // A real unsubscribe or a signed_up stop still holds.
+      if (c.stopped === 'replied' || c.stopped === 'exhausted') clearStop = true;
+    }
     // Remember the address they actually booked with, so the Meetings row (keyed
     // by invitee_email) and this lead can be joined by a human later.
     if (matchedByPhone && em && String(lead.email || '').trim().toLowerCase() !== em && c.booking_email !== em) {
@@ -26864,8 +26985,10 @@ async function ensureLeadBookedCallAt(email, scheduledAt, nowIso, inviteePhone, 
     // never be unreachable on WhatsApp. Fill ONLY when empty: a number the doctor
     // gave us directly outranks one typed into Calendly.
     if (inviteePhone && !String(lead.phone || '').trim()) rowPatch.phone = inviteePhone;
-    if (Object.keys(patch).length) {
-      const md = Object.assign({}, lead.metadata, { consult: Object.assign({}, c, patch) });
+    if (Object.keys(patch).length || clearStop) {
+      const merged = Object.assign({}, c, patch);
+      if (clearStop) delete merged.stopped;
+      const md = Object.assign({}, lead.metadata, { consult: merged });
       rowPatch.metadata = md;
       lead.metadata = md;
     }
@@ -26920,6 +27043,46 @@ async function backfillLeadCallAtFromCalls(leadRow) {
     return callAt;
   } catch (e) { console.warn('[ConsultNudge] call_at backfill error for', em, ':', e && e.message); return ''; }
 }
+
+// Recover "the call actually happened" for a booked lead from scheduled_calls:
+// a CEO consultation for this doctor (booking email or the lead's own) with
+// status completed and a completed_at — what the Zoom meeting.ended webhook
+// writes. That is the anchor for every "after your call" touch (owner rule
+// 2026-09-30: the account email goes the moment the call ends, and only if
+// they attended). A no-show row never carries completed_at, so a no-show is
+// never stamped. Stamps consult.call_completed_at (and call_at if missing);
+// returns the completion ISO or ''. Best-effort. Backstop for
+// afterConsultCallCompleted, which stamps this directly from the webhook.
+async function backfillLeadCallCompletionFromCalls(leadRow) {
+  if (!isSupabaseDbConfigured()) return '';
+  if (!leadRow || !leadRow.metadata || !leadRow.metadata.consult) return '';
+  const c = leadRow.metadata.consult;
+  const emails = [leadRow.email, c.booking_email]
+    .map((e) => String(e || '').trim().toLowerCase()).filter(Boolean);
+  if (!emails.length) return '';
+  try {
+    const orClause = emails.map((e) => 'invitee_email.eq.' + encodeURIComponent(e)).join(',');
+    const r = await supabaseDbRequest('scheduled_calls',
+      'select=completed_at,scheduled_at&or=(' + orClause + ')&meeting_kind=eq.consultation'
+      + '&status=eq.completed&completed_at=not.is.null&no_show_at=is.null&order=completed_at.desc&limit=1');
+    const row = (r.ok && Array.isArray(r.data) && r.data[0]) ? r.data[0] : null;
+    const completedAt = row ? String(row.completed_at || '') : '';
+    if (!completedAt) return '';
+    const patch = { call_completed_at: completedAt };
+    if (!c.call_at && row.scheduled_at) patch.call_at = String(row.scheduled_at);
+    const md = Object.assign({}, leadRow.metadata, { consult: Object.assign({}, c, patch) });
+    const up = await updateSiteEnquiryRow(leadRow.id, { metadata: md });
+    if (!up) { console.warn('[ConsultNudge] call_completed_at backfill write failed for lead', leadRow.id); return ''; }
+    leadRow.metadata = md;
+    console.log('[ConsultNudge] Backfilled call_completed_at', completedAt, 'for lead', leadRow.id);
+    return completedAt;
+  } catch (e) { console.warn('[ConsultNudge] call_completed_at backfill error for lead', leadRow && leadRow.id, ':', e && e.message); return ''; }
+}
+
+// How long after the booked slot the cron keeps looking for a completion. A
+// call that has not completed a week after its slot was a no-show or a lost
+// cause; looking forever would cost one query per such lead per 5-minute run.
+const CONSULT_CALL_COMPLETION_LOOKUP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 // When a GP signs up (or logs in), attach any prior direct consultation booked with THEIR OWN
 // account email — and its AI summary — to their account so it surfaces on their GP file (which
@@ -27625,6 +27788,13 @@ async function handleZoomMeetingEnded(payload) {
     } catch (e) {
       console.error('[post-interview] handleZoomMeetingEnded send failed:', e && e.message);
     }
+  }
+
+  // The instant a CEO CONSULTATION concludes, the doctor gets the "create your
+  // account" email (owner rule 2026-09-30). Completion is the attendance signal;
+  // the helper is idempotent and never throws.
+  if (callRecord.meeting_kind === 'consultation') {
+    await afterConsultCallCompleted(callRecord, supersedesEarlySummary ? endedAtIso : (callRecord.completed_at || now));
   }
 }
 
@@ -45851,10 +46021,23 @@ async function handleApi(req, res, pathname) {
           if (cnBackfilled) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
         }
         var cnCallAtMs = cnConsult.call_at ? new Date(cnConsult.call_at).getTime() : NaN;
+        // The "after your call" steps anchor on the call having HAPPENED
+        // (scheduled_calls.completed_at, written by the Zoom meeting.ended
+        // webhook), never on the slot time — owner rule 2026-09-30: the account
+        // email goes the moment the call ends, and only if they attended. The
+        // webhook stamps call_completed_at directly; this recovers it when that
+        // was missed, once the slot has passed and for a week after. A no-show
+        // never completes, so a no-show never gets these touches.
+        if (cnConsult.call_booked && !cnConsult.call_completed_at
+          && (!isFinite(cnCallAtMs) || (cnCallAtMs <= Date.now() && Date.now() - cnCallAtMs <= CONSULT_CALL_COMPLETION_LOOKUP_WINDOW_MS))) {
+          var cnCompleted = await backfillLeadCallCompletionFromCalls(cnRow);
+          if (cnCompleted) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; }
+        }
         var cnDue = consultLead.nextConsultNudge({
           consult: cnConsult,
           createdAtMs: new Date(cnRow.created_at).getTime(),
           callAtMs: cnCallAtMs,
+          callCompletedMs: cnConsult.call_completed_at ? new Date(cnConsult.call_completed_at).getTime() : NaN,
           nowMs: Date.now()
         });
         // Nothing due right now. Either the active sequence is fully sent —
@@ -45927,38 +46110,13 @@ async function handleApi(req, res, pathname) {
         // WhatsApp leg. The recorded entry says what the email leg did
         // ('sent' | 'bounced' | 'skipped' | 'none') so the Leads tab counts
         // honestly; the WhatsApp leg records itself in consult.wa / wa_skipped.
-        var cnSpec = consultLead.consultNudgeStepSpec(cnDue.seq, cnDue.step) || { email: true, wa: null };
-        var cnEntry = { seq: cnDue.seq, step: cnDue.step, sent_at: new Date().toISOString(), email: cnSpec.email ? 'sent' : 'none' };
-        if (cnSpec.email && cnConsult.email_bounced === true) {
-          cnEntry.email = 'skipped';
-        } else if (cnSpec.email) {
-          var cnSendRes = await sendConsultNudgeEmail(cnRow, cnDue);
-          if (cnSendRes && cnSendRes.suppressed) {
-            var cnWhy = await getEmailSuppressionReason(cnRow.email);
-            if (cnWhy !== 'hard_bounce') {
-              // They asked us to stop (or reported us) — every channel stops.
-              var cnMetaUnsub = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { stopped: 'unsubscribed', unsubscribe_reason: cnWhy || 'unknown' }) });
-              await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaUnsub });
-              cnStopped++;
-              continue;
-            }
-            // Dead address, live phone: note the bounce and carry on with WhatsApp.
-            cnConsult = Object.assign({}, cnConsult, { email_bounced: true, email_bounced_at: cnEntry.sent_at });
-            cnMeta = Object.assign({}, cnMeta, { consult: cnConsult });
-            cnEntry.email = 'bounced';
-            console.log('[consult-nudge] email bounced for lead', cnRow.id, '— WhatsApp only from here');
-          } else if (!(cnSendRes && cnSendRes.ok)) {
-            cnSkipped++; // send failed (e.g. email unconfigured) — try again next hour
-            continue;
-          }
-        }
-        var cnNudges = (Array.isArray(cnConsult.nudges) ? cnConsult.nudges : []).concat([cnEntry]);
-        var cnMetaSent = Object.assign({}, cnMeta, { consult: Object.assign({}, cnConsult, { nudges: cnNudges }) });
-        await updateSiteEnquiryRow(cnRow.id, { metadata: cnMetaSent });
-        cnRow.metadata = cnMetaSent;
-        // The WhatsApp leg for this step, plus any still owed from earlier ones
-        // (the doctor gets the newest copy; older owed legs are retired).
-        if (cnSpec.wa) await sendOwedConsultWa(cnRow, cnWaOwed.concat([cnSpec.wa]));
+        // deliverConsultNudgeStep is shared with the instant post-call trigger
+        // (afterConsultCallCompleted); the nudges entry it writes is what keeps
+        // the two paths from ever sending the same step twice.
+        cnRow.metadata = cnMeta;
+        var cnDelivered = await deliverConsultNudgeStep(cnRow, cnDue, cnWaOwed);
+        if (cnDelivered.outcome === 'stopped') { cnStopped++; continue; }
+        if (cnDelivered.outcome !== 'sent') { cnSkipped++; continue; }
         cnSent++;
       }
       // ── WhatsApp onboarding pass ─────────────────────────────────────────
@@ -84327,6 +84485,8 @@ module.exports.__testUtils = {
   buildConsultLeadRow,
   captureCalendlyDirectBookerLead,
   normalizeCalendlyBookingUtm,
+  afterConsultCallCompleted,
+  deliverConsultNudgeStep,
   syncMetaLeadStagesForRow,
   sendConsultNudgeEmail,
   sendConsultWhatsAppTemplate,

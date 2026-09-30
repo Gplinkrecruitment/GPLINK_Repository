@@ -304,3 +304,134 @@ describe('owner paging 20 minutes after the 1-hour note', () => {
     }
   });
 });
+
+describe('after the call ends: the account email goes out at once, only for an attended call', () => {
+  // A booked lead whose slot was 45 minutes ago; the booking-time email (step 0) already went.
+  function seedBooked(opts) {
+    const o = opts || {};
+    const created = Date.now() - 3 * 24 * H;
+    const bookedAt = created + 10 * M;
+    const callAt = Date.now() - 45 * M;
+    const lead = seedLead(3 * 24 * H, [], {
+      call_booked: true, call_booked_at: new Date(bookedAt).toISOString(), call_at: new Date(callAt).toISOString(),
+      nudges: o.noStep0 ? [] : [{ seq: 'booked_no_signup', step: 0, sent_at: new Date(bookedAt).toISOString(), email: 'sent' }],
+      wa: { call_booked: { sent_at: 'x' } }
+    });
+    return lead;
+  }
+  const callRecordFor = (lead) => ({
+    id: 'call-' + lead.id, meeting_kind: 'consultation', host_kind: 'ceo',
+    invitee_email: lead.email, scheduled_at: lead.metadata.consult.call_at, invitee_notes: ''
+  });
+  const subjects = () => resendCaptured.map((c) => c.body && c.body.subject);
+
+  it('Zoom says the call ended → "great speaking with you" email immediately, once, and call_completed_at is stamped', async () => {
+    reset();
+    const lead = seedBooked();
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const done = new Date().toISOString();
+    const res = await testUtils.afterConsultCallCompleted(callRecordFor(lead), done);
+    expect(res.outcome).toBe('sent');
+    expect(res.step).toBe(1);
+    expect(resendCaptured.length).toBe(1);
+    expect(subjects()[0]).toMatch(/Great speaking with you/);
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.call_completed_at).toBe(done);
+    expect(row.metadata.consult.nudges[1]).toMatchObject({ seq: 'booked_no_signup', step: 1, email: 'sent' });
+    // The webhook firing twice, or the cron running straight after, sends nothing more.
+    const again = await testUtils.afterConsultCallCompleted(callRecordFor(lead), done);
+    expect(again.skipped).toBe('nothing_due');
+    const cron = await get(CRON, AUTH);
+    expect(cron.json.sent).toBe(0);
+    expect(resendCaptured.length).toBe(1);
+  });
+
+  it('a slot that merely passed (no completion) sends nothing — a no-show never reads "great speaking with you"', async () => {
+    reset();
+    testUtils.__seedSiteEnquiriesForTest([seedBooked()]);
+    const cron = await get(CRON, AUTH);
+    expect(cron.json.sent).toBe(0);
+    expect(resendCaptured.length).toBe(0);
+    expect(readDb().siteEnquiries[0].metadata.consult.nudges.length).toBe(1);
+  });
+
+  it('the cron sends the same post-call email when the completion is on the lead (backstop), and week 1 waits', async () => {
+    reset();
+    const lead = seedBooked();
+    lead.metadata.consult.call_completed_at = new Date(Date.now() - 2 * M).toISOString();
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const cron = await get(CRON, AUTH);
+    expect(cron.json.sent).toBe(1);
+    expect(subjects()[0]).toMatch(/Great speaking with you/);
+    const again = await get(CRON, AUTH);
+    expect(again.json.sent).toBe(0);
+    expect(resendCaptured.length).toBe(1);
+  });
+
+  it('when the booking-time email never went, it is superseded rather than sent after the call', async () => {
+    reset();
+    const lead = seedBooked({ noStep0: true });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const res = await testUtils.afterConsultCallCompleted(callRecordFor(lead), new Date().toISOString());
+    expect(res.outcome).toBe('sent');
+    expect(res.step).toBe(1);
+    expect(resendCaptured.length).toBe(1);
+    expect(subjects()[0]).toMatch(/Great speaking with you/);
+    const n = readDb().siteEnquiries[0].metadata.consult.nudges;
+    expect(n[0]).toMatchObject({ step: 0, email: 'superseded' });
+    expect(n[1]).toMatchObject({ step: 1, email: 'sent' });
+  });
+
+  it('someone who already has an account gets nothing', async () => {
+    reset();
+    const lead = seedBooked();
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    testUtils.__seedUserForTest(lead.email);
+    const res = await testUtils.afterConsultCallCompleted(callRecordFor(lead), new Date().toISOString());
+    expect(res.skipped).toBe('signed_up');
+    expect(resendCaptured.length).toBe(0);
+  });
+
+  it('a lead who replied on WhatsApp and then booked through Calendly is back on the account emails; an unsubscribe still holds', async () => {
+    reset();
+    // Replied during the notes, never booked — the notes are stopped…
+    const lead = seedLead(2 * H, [0, 1], { stopped: 'replied', replied_at: new Date().toISOString(), replied_via: 'whatsapp' });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    // …then Calendly reports a booking (the webhook's stamp path).
+    const slot = new Date(Date.now() + 2 * 24 * H).toISOString();
+    await testUtils.ensureLeadBookedCallAt(lead.email, slot, new Date().toISOString(), lead.phone);
+    let row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.call_booked).toBe(true);
+    expect(row.metadata.consult.stopped).toBeUndefined();
+    // The booking-time account email goes on the next cron tick…
+    resendCaptured.length = 0;
+    const cron = await get(CRON, AUTH);
+    expect(cron.json.sent).toBe(1);
+    row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.nudges[row.metadata.consult.nudges.length - 1]).toMatchObject({ seq: 'booked_no_signup', step: 0, email: 'sent' });
+    // …and the post-call one the moment the call ends.
+    resendCaptured.length = 0;
+    const res = await testUtils.afterConsultCallCompleted({
+      meeting_kind: 'consultation', host_kind: 'ceo', invitee_email: lead.email, scheduled_at: slot, invitee_notes: ''
+    }, new Date().toISOString());
+    expect(res.outcome).toBe('sent');
+    expect(subjects()[0]).toMatch(/Great speaking with you/);
+    // A real unsubscribe is not lifted by a booking.
+    const unsub = seedLead(2 * H, [0, 1], { stopped: 'unsubscribed' });
+    unsub.phone = '+44 7700 900555';
+    testUtils.__seedSiteEnquiriesForTest([unsub]);
+    await testUtils.ensureLeadBookedCallAt(unsub.email, slot, new Date().toISOString(), unsub.phone);
+    expect(readDb().siteEnquiries[0].metadata.consult.stopped).toBe('unsubscribed');
+  });
+
+  it('registration-support calls and interviews never trigger it', async () => {
+    reset();
+    const lead = seedBooked();
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const rso = await testUtils.afterConsultCallCompleted(Object.assign(callRecordFor(lead), { host_kind: 'rso' }), new Date().toISOString());
+    expect(rso.skipped).toBe('not_ceo_call');
+    const interview = await testUtils.afterConsultCallCompleted(Object.assign(callRecordFor(lead), { meeting_kind: 'interview' }), new Date().toISOString());
+    expect(interview.skipped).toBe('not_consultation');
+    expect(resendCaptured.length).toBe(0);
+  });
+});
