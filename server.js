@@ -5760,6 +5760,9 @@ async function _createAhpraS80Bundle(gpCase, emailMeta, currentMsgId, extraction
       // For practice-owned items: the note to the practice manager (drives the request email).
       practice_instructions: item.practice_instructions || '',
       deliverable: item.deliverable || '',
+      // The officer said the practice may send this straight to them ("to me directly"): the
+      // request email then asks the practice to email the officer and copy us.
+      direct_to_officer: item.direct_to_officer === true,
       // Set when two of the officer's requirements were folded into this one item (same document).
       merged_from: Array.isArray(item.merged_from) && item.merged_from.length > 1 ? item.merged_from : null,
       detail: item.detail || item.title,
@@ -5985,12 +5988,31 @@ async function _autoFilePracticeReplyForS80(taskId) {
     if (meta.upload && meta.upload.source_document_id && String(meta.upload.source_document_id) === String(pick.id)) return false;
     var stored = await _storeS80UploadForTask(task, meta, { dataUrl: pick.attachment_url, mime: pick.mime_type, name: pick.filename, sourceDocumentId: pick.id, uploadedBy: 'practice_reply' });
     if (!stored.ok) { console.warn('[AHPRA practice item] could not file the practice reply:', stored.message); return false; }
+    var _afPatch = false;
     if (usable.length > 1) {
       stored.upload.other_attachments = usable.filter(function (d) { return d.id !== pick.id; }).map(function (d) { return d.filename; });
+      _afPatch = true;
+    }
+    // A reply-all that also went to the AHPRA officer means the document is already with AHPRA:
+    // remember it so the card offers "Accept (already with AHPRA)" instead of a second send.
+    try {
+      var _afOfficerEmail = String((meta.officer && meta.officer.email) || '').trim();
+      if (_afOfficerEmail && pick.message_id) {
+        var _afMsgRes = await supabaseDbRequest('task_messages', 'select=recipient,cc&id=eq.' + encodeURIComponent(pick.message_id) + '&limit=1');
+        var _afMsg = (_afMsgRes.ok && Array.isArray(_afMsgRes.data) && _afMsgRes.data[0]) ? _afMsgRes.data[0] : null;
+        if (_afMsg && ahpraS80.officerCopiedOnEmail({ recipient: _afMsg.recipient, cc: _afMsg.cc }, _afOfficerEmail)) {
+          stored.upload.delivered_to_officer = true;
+          stored.upload.delivered_to_officer_email = _afOfficerEmail;
+          stored.upload.delivered_to_officer_at = new Date().toISOString();
+          _afPatch = true;
+        }
+      }
+    } catch (e) { /* fail-open: the RSO can still forward it by hand */ }
+    if (_afPatch) {
       meta.upload = stored.upload;
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() } });
     }
-    await _logCaseEvent(task.case_id, taskId, 'status_change', 'Practice replied with the AHPRA document', (pick.filename || 'document') + ' filed for review' + (usable.length > 1 ? ' (' + (usable.length - 1) + ' other attachment(s) on the reply)' : ''), 'system');
+    await _logCaseEvent(task.case_id, taskId, 'status_change', stored.upload.delivered_to_officer ? 'Practice sent the AHPRA document straight to the officer and copied us' : 'Practice replied with the AHPRA document', (pick.filename || 'document') + ' filed for review' + (usable.length > 1 ? ' (' + (usable.length - 1) + ' other attachment(s) on the reply)' : ''), 'system');
     return true;
   } catch (e) {
     console.error('[AHPRA practice item] auto-file failed (non-fatal):', e && e.message);
@@ -6168,8 +6190,16 @@ async function _detectPracticeUploadFromEmail(ctx) {
       meta.upload.sender_verified = (trust === 'requested' || trust === 'contact');
       var others = live.filter(function (a) { return a.index !== chosen.index; }).map(function (a) { return a.filename; }).filter(Boolean);
       if (others.length) meta.upload.other_attachments = others;
+      // The practice emailed the officer directly and copied us: the file is already with AHPRA,
+      // so the card offers "Accept (already with AHPRA)" instead of forwarding it a second time.
+      var _dpOfficerEmail = String((meta.officer && meta.officer.email) || '').trim();
+      if (_dpOfficerEmail && ahpraS80.officerCopiedOnEmail({ to: emailMeta.to, cc: emailMeta.cc }, _dpOfficerEmail)) {
+        meta.upload.delivered_to_officer = true;
+        meta.upload.delivered_to_officer_email = _dpOfficerEmail;
+        meta.upload.delivered_to_officer_at = new Date().toISOString();
+      }
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), { method: 'PATCH', body: { metadata: meta, updated_at: new Date().toISOString() } });
-      await _logCaseEvent(caseId, task.id, 'status_change', 'Practice sent the AHPRA document by email',
+      await _logCaseEvent(caseId, task.id, 'status_change', meta.upload.delivered_to_officer ? 'Practice sent the AHPRA document straight to the officer and copied us' : 'Practice sent the AHPRA document by email',
         (chosen.filename || 'document') + ' from ' + sender + ' — recognised by ' + (decision.reason === 'ai_match' ? 'the AI check' : decision.reason === 'filename' ? 'its file name' : 'being the one file we asked this sender for') + (meta.upload.sender_verified ? '' : ' (sender not on file — check before accepting)'), 'system');
       try {
         await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: ctx.currentMsgId || '', email_address: ctx.emailAddress || '', sender: emailMeta.sender, subject: emailMeta.subject, result: 'ahpra_practice_upload_matched', matched_task_id: task.id, processed_at: new Date().toISOString() }] });
@@ -67351,7 +67381,23 @@ Return ONLY valid JSON with no markdown formatting:
         pdPriorConflict = ahpraConflictLetterLib.formatLetterDate(pdClMeta.confirmed_at || pdClRows[pdI].completed_at);
       }
     } catch (e) { pdPriorConflict = ''; }
-    var pdOpts = { gpName: pdCtx.gpName, contactName: pdCtx.contactName, practiceName: pdCtx.practiceName, itemTitle: pdTask.title, practiceInstructions: pdMeta.practice_instructions || '', requirement: pdMeta.detail || '', reference: pdMeta.reference || '', deadline: pdDeadline, senderName: pdCtx.senderName, priorConflictConfirmedAt: pdPriorConflict };
+    // "Dr Ranatunga can email a brief statement to me directly": when the officer said so, the
+    // request asks the practice to email the officer and copy our mailbox (owner, 2026-09-30).
+    var pdDirect = pdMeta.direct_to_officer === true || ahpraS80.detectDirectToOfficer(pdMeta.detail || '');
+    var pdOfficer = (pdMeta.officer && typeof pdMeta.officer === 'object') ? pdMeta.officer : {};
+    var pdOfficerEmail = String(pdOfficer.email || '').trim();
+    var pdOfficerName = String(pdOfficer.name || '').trim();
+    if (!pdOfficerEmail) {
+      try {
+        var pdCaseRes = await supabaseDbRequest('registration_cases', 'select=ahpra_officer_name,ahpra_officer_email&id=eq.' + encodeURIComponent(pdTask.case_id) + '&limit=1');
+        var pdCaseRow = (pdCaseRes.ok && Array.isArray(pdCaseRes.data) && pdCaseRes.data[0]) ? pdCaseRes.data[0] : {};
+        pdOfficerEmail = String(pdCaseRow.ahpra_officer_email || '').trim();
+        if (!pdOfficerName) pdOfficerName = String(pdCaseRow.ahpra_officer_name || '').trim();
+      } catch (e) { /* keep blanks */ }
+    }
+    var pdCcEmail = '';
+    if (pdDirect) { try { pdCcEmail = await resolveCaseSenderEmail(pdTask.case_id); } catch (e) { pdCcEmail = ''; } }
+    var pdOpts = { gpName: pdCtx.gpName, contactName: pdCtx.contactName, practiceName: pdCtx.practiceName, itemTitle: pdTask.title, practiceInstructions: pdMeta.practice_instructions || '', requirement: pdMeta.detail || '', reference: pdMeta.reference || '', deadline: pdDeadline, senderName: pdCtx.senderName, priorConflictConfirmedAt: pdPriorConflict, directToOfficer: pdDirect, officerName: pdOfficerName, officerEmail: pdOfficerEmail, ccEmail: pdCcEmail };
     var pdTemplate = ahpraS80.buildPracticeRequestDraft(pdOpts);
     var pdBody = '';
     var pdAi = false;
@@ -67373,7 +67419,7 @@ Return ONLY valid JSON with no markdown formatting:
     var _pdEsc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
     var pdBodyHtml = pdBody.split('\n').map(function (ln) { return _pdEsc(ln); }).join('<br>');
     var pdPrev = pdMeta.practice_request || null;
-    sendJson(res, 200, { ok: true, to: (pdPrev && pdPrev.to) || pdCtx.contactEmail || '', cc: '', subject: (pdPrev && pdPrev.subject) || pdTemplate.subject, bodyHtml: pdBodyHtml, ai_drafted: pdAi, practice_name: pdCtx.practiceName, contact_name: pdCtx.contactName, already_sent: !!(pdPrev && pdPrev.sent_at) });
+    sendJson(res, 200, { ok: true, direct_to_officer: pdDirect, officer_email: pdOfficerEmail, officer_name: pdOfficerName, cc_email: pdCcEmail, to: (pdPrev && pdPrev.to) || pdCtx.contactEmail || '', cc: '', subject: (pdPrev && pdPrev.subject) || pdTemplate.subject, bodyHtml: pdBodyHtml, ai_drafted: pdAi, practice_name: pdCtx.practiceName, contact_name: pdCtx.contactName, already_sent: !!(pdPrev && pdPrev.sent_at) });
     return;
   }
 
