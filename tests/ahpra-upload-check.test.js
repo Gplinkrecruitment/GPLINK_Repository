@@ -21,3 +21,20 @@ describe('ahpra-upload-check', () => {
     expect(chk.parseUploadCheck('{"verdict":"possible_issue","summary":"Not signed."}').verdict).toBe('possible_issue');
   });
 });
+
+describe('ahpra-upload-check — CV work-history rules', () => {
+  const p = chk.buildUploadCheckPrompt({ title: 'Evidence of meeting English language skills registration standard', detail: 'PLAB older than two years; show continuous employment on the CV' });
+  it('accepts breaks of 12 months or less without an explanation', () => {
+    expect(p).toMatch(/12 months or LESS is acceptable and needs NO explanation/);
+    expect(p).toMatch(/LONGER than 12 months needs a written explanation/);
+  });
+  it('treats listed leave as covered time, not a gap', () => {
+    expect(p).toMatch(/maternity/i);
+  });
+  it('does not treat a job starting before PLAB as an overlap', () => {
+    expect(p).toMatch(/started BEFORE an exam, test or registration date[^\n]*PLAB[^\n]*NOT an overlap/);
+  });
+  it('does not demand an FTE / weekly pattern unless the officer asked', () => {
+    expect(p).toMatch(/Do not require the CV to state hours, FTE/);
+  });
+});
