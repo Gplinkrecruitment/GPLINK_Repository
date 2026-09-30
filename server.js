@@ -2916,9 +2916,11 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
         }
       }
       if (!practiceEmail) { console.warn('[ahpra-conflict-letter] skipped — no practice email for case', caseId); return null; }
-      // 6) RSO CC mailbox + signoff name (same helpers as alt-CV path).
+      // 6) "CC us" mailbox + signoff name. The CC is the address the letter goes OUT from and
+      //    that is watched (the registration hub, registration@), never the RSO's own mailbox
+      //    (owner correction, 2026-09-30 — the 8 Sep letter said hazel@).
       var ccEmail = '';
-      try { ccEmail = await resolveCaseSenderEmail(caseId); } catch (e) {}
+      try { ccEmail = String(((await resolveCaseSenderInfo(caseId)) || {}).from || '').trim(); } catch (e) {}
       var rsoSignoffName2 = '';
       try { rsoSignoffName2 = await resolveCaseSenderName(caseId); } catch (e) {}
       // 7) Build suggested email + create admin task.
@@ -67395,8 +67397,10 @@ Return ONLY valid JSON with no markdown formatting:
         if (!pdOfficerName) pdOfficerName = String(pdCaseRow.ahpra_officer_name || '').trim();
       } catch (e) { /* keep blanks */ }
     }
+    // "Copy us" means the mailbox these emails go OUT from and that is watched (the registration
+    // hub, registration@), never the RSO's personal mailbox (owner correction, 2026-09-30).
     var pdCcEmail = '';
-    if (pdDirect) { try { pdCcEmail = await resolveCaseSenderEmail(pdTask.case_id); } catch (e) { pdCcEmail = ''; } }
+    if (pdDirect) { try { pdCcEmail = String(((await resolveCaseSenderInfo(pdTask.case_id)) || {}).from || '').trim(); } catch (e) { pdCcEmail = ''; } }
     var pdOpts = { gpName: pdCtx.gpName, contactName: pdCtx.contactName, practiceName: pdCtx.practiceName, itemTitle: pdTask.title, practiceInstructions: pdMeta.practice_instructions || '', requirement: pdMeta.detail || '', reference: pdMeta.reference || '', deadline: pdDeadline, senderName: pdCtx.senderName, priorConflictConfirmedAt: pdPriorConflict, directToOfficer: pdDirect, officerName: pdOfficerName, officerEmail: pdOfficerEmail, ccEmail: pdCcEmail };
     var pdTemplate = ahpraS80.buildPracticeRequestDraft(pdOpts);
     var pdBody = '';

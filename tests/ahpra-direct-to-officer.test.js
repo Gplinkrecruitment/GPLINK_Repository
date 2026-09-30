@@ -96,7 +96,10 @@ describe('server.js + admin.html wiring', () => {
   });
   it('the practice-request draft resolves the officer and our mailbox and passes them to the builders', () => {
     expect(src).toMatch(/var pdDirect = pdMeta\.direct_to_officer === true \|\| ahpraS80\.detectDirectToOfficer\(pdMeta\.detail \|\| ''\);/);
-    expect(src).toMatch(/if \(pdDirect\) \{ try \{ pdCcEmail = await resolveCaseSenderEmail\(pdTask\.case_id\); \}/);
+    // "Copy us" = the hub the email goes out from (registration@), never the RSO's own mailbox.
+    expect(src).toMatch(/if \(pdDirect\) \{ try \{ pdCcEmail = String\(\(\(await resolveCaseSenderInfo\(pdTask\.case_id\)\) \|\| \{\}\)\.from \|\| ''\)\.trim\(\); \}/);
+    expect(src).not.toMatch(/pdCcEmail = await resolveCaseSenderEmail\(/);
+    expect(src).toMatch(/ccEmail = String\(\(\(await resolveCaseSenderInfo\(caseId\)\) \|\| \{\}\)\.from \|\| ''\)\.trim\(\);/);
     expect(src).toMatch(/directToOfficer: pdDirect, officerName: pdOfficerName, officerEmail: pdOfficerEmail, ccEmail: pdCcEmail \}/);
     expect(src).toMatch(/direct_to_officer: pdDirect, officer_email: pdOfficerEmail, officer_name: pdOfficerName, cc_email: pdCcEmail,/);
   });
