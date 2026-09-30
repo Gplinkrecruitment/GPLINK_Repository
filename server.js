@@ -256,7 +256,8 @@ const emailSignatureName = require('./lib/email-signature-name.js');
 // lib/ai-text-safety.js. Installed once, here, so no call site has to remember.
 aiTextSafety.installAnthropicRequestGuard(globalThis);
 const agreementVariants = require('./lib/agreement-variants.js');
-const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem } = require('./lib/ahpra-conflict-letter.js');
+const ahpraConflictLetterLib = require('./lib/ahpra-conflict-letter.js');
+const { buildConflictLetterEmail, isConflictLetterConfirmation, shouldEnsureConflictLetter, isConflictOfInterestItem, isConflictFollowupEmail } = ahpraConflictLetterLib;
 const onboardingNudge = require('./lib/onboarding-nudge.js');
 const dropoffNudges = require('./lib/dropoff-nudges.js');
 const docAiReview = require('./lib/doc-ai-review.js');
@@ -2838,22 +2839,36 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
   }
   var _clPromise = (async function () {
     try {
-      // 1) Reuse any existing open task (idempotency guard).
+      // 1) Reuse any existing OPEN task (idempotency guard). A COMPLETED one is remembered too:
+      //    once the practice has confirmed, the static template is never re-issued. A trigger with
+      //    no officer text (officer assigned, SPPA re-scan) then creates nothing; an officer email
+      //    that genuinely asks again creates a FOLLOW-UP letter that says the confirmation is on
+      //    file and quotes the officer's new words.
       var existingTask = await supabaseDbRequest('registration_tasks',
-        'select=id,metadata,status&case_id=eq.' + encodeURIComponent(caseId) +
-        '&task_type=eq.ahpra_conflict_letter&status=neq.completed&limit=1');
-      if (existingTask.ok && Array.isArray(existingTask.data) && existingTask.data[0]) {
-        var existingTask0 = existingTask.data[0];
-        var existingMeta = existingTask0.metadata;
-        if (typeof existingMeta === 'string') { try { existingMeta = JSON.parse(existingMeta); } catch (e) { existingMeta = {}; } }
-        existingMeta = existingMeta || {};
+        'select=id,metadata,status,completed_at&case_id=eq.' + encodeURIComponent(caseId) +
+        '&task_type=eq.ahpra_conflict_letter&order=created_at.desc&limit=5');
+      var existingRows = (existingTask.ok && Array.isArray(existingTask.data)) ? existingTask.data : [];
+      var _parseClMeta = function (m) { if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { m = {}; } } return m || {}; };
+      var openTask0 = existingRows.filter(function (t) { return t.status !== 'completed'; })[0] || null;
+      if (openTask0) {
+        var existingMeta = _parseClMeta(openTask0.metadata);
         if (opts.officerRequestMessageId && !existingMeta.officer_request_message_id) {
           existingMeta.officer_request_message_id = opts.officerRequestMessageId;
-          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existingTask0.id),
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(openTask0.id),
             { method: 'PATCH', body: { metadata: existingMeta } });
         }
-        return existingTask0;
+        return openTask0;
       }
+      var priorConfirmed = existingRows.filter(function (t) {
+        var m = _parseClMeta(t.metadata);
+        return t.status === 'completed' && !!(m.confirmed_at || m.confirmed_via);
+      })[0] || null;
+      var officerRequestText = String(opts.officerRequestText || '').trim();
+      if (priorConfirmed && !officerRequestText) {
+        console.log('[ahpra-conflict-letter] already confirmed for case', caseId, '— not re-created without a new officer request');
+        return null;
+      }
+      var priorConfirmedAt = priorConfirmed ? (_parseClMeta(priorConfirmed.metadata).confirmed_at || priorConfirmed.completed_at || '') : '';
       // 2) Read conflict flag + supervisor name from the SPPA-00 task.
       var sppaRes = await supabaseDbRequest('registration_tasks',
         'select=metadata&case_id=eq.' + encodeURIComponent(caseId) +
@@ -2868,7 +2883,17 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
         'select=user_id,practice_name&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
       var cRow = (caseRow2.ok && caseRow2.data && caseRow2.data[0]) ? caseRow2.data[0] : {};
       var userId = cRow.user_id || null;
-      var practiceName = String(cRow.practice_name || sMeta.practice_owner_name || '').trim();
+      // The practice's NAME comes from the placement (career_roles / practices). The case column is
+      // a fallback only, and sMeta.practice_owner_name is a PERSON (the supervisor) — printing it as
+      // the practice is how the 8 Sep letter read "owner/principal of Chamira Gehan Ranatunga".
+      var practiceName = '';
+      if (userId) {
+        try {
+          var placedProf = await resolvePlacedPracticeProfile(userId);
+          if (placedProf && placedProf.practiceName) practiceName = String(placedProf.practiceName).trim();
+        } catch (e) { practiceName = ''; }
+      }
+      if (!practiceName) practiceName = String(cRow.practice_name || '').trim();
       // 4) GP display name from user_profiles (mirror alt-CV path).
       var gpName = '';
       if (userId) {
@@ -2901,7 +2926,8 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
       var conflictEmail = buildConflictLetterEmail({
         gpName: gpName, supervisorName: sMeta.supervisor_name || '',
         practiceName: practiceName, contactName: practiceContactName,
-        officerName: officerName, officerEmail: officerEmail, ccEmail: ccEmail, rsoSignoffName: rsoSignoffName2
+        officerName: officerName, officerEmail: officerEmail, ccEmail: ccEmail, rsoSignoffName: rsoSignoffName2,
+        priorConfirmedAt: priorConfirmedAt, officerRequestText: priorConfirmed ? officerRequestText : ''
       });
       var conflictTaskMeta = {
         suggested_subject: conflictEmail.subject, suggested_body: conflictEmail.bodyHtml,
@@ -2911,9 +2937,14 @@ async function _ensureAhpraConflictLetter(caseId, opts) {
         practice_name: practiceName
       };
       if (opts.officerRequestMessageId) conflictTaskMeta.officer_request_message_id = opts.officerRequestMessageId;
+      if (priorConfirmed) {
+        conflictTaskMeta.follow_up_of_task_id = priorConfirmed.id;
+        conflictTaskMeta.prior_confirmed_at = priorConfirmedAt;
+        conflictTaskMeta.officer_request_excerpt = officerRequestText.replace(/\s+/g, ' ').slice(0, 700);
+      }
       var conflictTask = await _createRegTask(caseId, {
         task_type: 'ahpra_conflict_letter',
-        title: 'Conflict of interest — ask practice to email AHPRA officer',
+        title: priorConfirmed ? 'Conflict of interest follow-up — AHPRA has asked again' : 'Conflict of interest — ask practice to email AHPRA officer',
         source_trigger: opts.officerRequestMessageId ? 'officer_request' : 'officer_assigned',
         related_stage: 'ahpra', related_document_key: 'sppa_00', status: 'open', priority: 'high',
         metadata: conflictTaskMeta, _actor: 'system'
@@ -21049,16 +21080,21 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
     }
 
     // Task 5: Route officer conflict requests to the single ahpra_conflict_letter task.
-    // If the triage flags this as a conflict followup, ensure/return the conflict-letter task
-    // and suppress the generic ahpra_correspondence creation below.
-    var isConflictFollowup = triage.category === 'conflict_followup' || triage.response_type === 'request_from_practice';
+    // ONLY when the officer's words are about the conflict of interest (isConflictFollowupEmail).
+    // "request_from_practice" on its own covers every document the practice must supply, and it
+    // once turned AHPRA's request for the supervisor's hours statement (Dr Obanimoh, 2026-09-29)
+    // into a second copy of the conflict letter that the practice had already answered. Any other
+    // practice-supplied item now goes to the s80 Who/How tray below, where the AI names the actual
+    // document and drafts the request email to the practice from the officer's real wording.
+    var isConflictFollowup = isConflictFollowupEmail(triage, emailMeta);
     var suppressedByConflictLetter = false;
     if (isConflictFollowup) {
       try {
         var _clRouteTask = await _ensureAhpraConflictLetter(caseId, {
           officerName: triage.officer_name || '',
           officerEmail: triage.officer_email || emailMeta.sender,
-          officerRequestMessageId: sourceMsgId || emailMeta.messageId || null
+          officerRequestMessageId: sourceMsgId || emailMeta.messageId || null,
+          officerRequestText: emailMeta.bodyText || ''
         });
         if (_clRouteTask) {
           suppressedByConflictLetter = true;
@@ -21069,14 +21105,15 @@ async function _processAhpraEmail(emailMeta, sourceMsgId, preMatchedCase) {
       }
     }
 
-    // ── Option A: an AHPRA "provide documents / further information" notice (request_from_gp) is
+    // ── Option A: an AHPRA "provide documents / further information" notice (request_from_gp, or
+    // request_from_practice — a statement or document only the supervising practice can supply) is
     // AI-split into the editable Who/How review tray (s80 pending_review, renderS80Tray) — NOT a
-    // single lumped correspondence card. The RSO edits Who (GP/Team) + How (upload/request/team) per
-    // box, removes any, then "Release to GP & team". The other 5 response types keep their card below.
+    // single lumped correspondence card. The RSO edits Who (GP/Team/Practice) + How per box, removes
+    // any, then "Release to GP & team". The other response types keep their card below.
     // extractAhpraActionItems now runs on the fast model, so this is safe to do synchronously at
     // inbound. _createAhpraS80Bundle's fail-loud path always leaves at least one tray entry, so a
     // notice is never lost; we only fall through to a card if the bundle genuinely created nothing.
-    if (!suppressedByConflictLetter && triage.response_type === 'request_from_gp') {
+    if (!suppressedByConflictLetter && (triage.response_type === 'request_from_gp' || triage.response_type === 'request_from_practice')) {
       try {
         var _s80Country = await _resolveGpCountry(matchedGp.user_id);
         var _s80Officer = (triage.officer_name || triage.officer_email || emailMeta.sender)
@@ -67299,7 +67336,22 @@ Return ONLY valid JSON with no markdown formatting:
     var pdCtx = await _s80PracticeContext(pdTask.case_id);
     var pdDeadline = '';
     try { var pdD = pdTask.ahpra_deadline || pdTask.due_date; if (pdD) pdDeadline = new Date(pdD + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); } catch (e) { pdDeadline = ''; }
-    var pdOpts = { gpName: pdCtx.gpName, contactName: pdCtx.contactName, practiceName: pdCtx.practiceName, itemTitle: pdTask.title, practiceInstructions: pdMeta.practice_instructions || '', requirement: pdMeta.detail || '', reference: pdMeta.reference || '', deadline: pdDeadline, senderName: pdCtx.senderName };
+    // If this practice already sent AHPRA its conflict-of-interest confirmation, the request says
+    // so (earliest confirmation on the case), so the practice is never asked twice for something
+    // already on file — owner rule 2026-09-30 after Dr Obanimoh's practice was.
+    var pdPriorConflict = '';
+    try {
+      var pdClRes = await supabaseDbRequest('registration_tasks', 'select=metadata,completed_at&case_id=eq.' + encodeURIComponent(pdTask.case_id) + '&task_type=eq.ahpra_conflict_letter&status=eq.completed&order=created_at.asc&limit=5');
+      var pdClRows = (pdClRes.ok && Array.isArray(pdClRes.data)) ? pdClRes.data : [];
+      for (var pdI = 0; pdI < pdClRows.length && !pdPriorConflict; pdI++) {
+        var pdClMeta = pdClRows[pdI].metadata;
+        if (typeof pdClMeta === 'string') { try { pdClMeta = JSON.parse(pdClMeta); } catch (e) { pdClMeta = {}; } }
+        pdClMeta = pdClMeta || {};
+        if (!pdClMeta.confirmed_at && !pdClMeta.confirmed_via) continue;
+        pdPriorConflict = ahpraConflictLetterLib.formatLetterDate(pdClMeta.confirmed_at || pdClRows[pdI].completed_at);
+      }
+    } catch (e) { pdPriorConflict = ''; }
+    var pdOpts = { gpName: pdCtx.gpName, contactName: pdCtx.contactName, practiceName: pdCtx.practiceName, itemTitle: pdTask.title, practiceInstructions: pdMeta.practice_instructions || '', requirement: pdMeta.detail || '', reference: pdMeta.reference || '', deadline: pdDeadline, senderName: pdCtx.senderName, priorConflictConfirmedAt: pdPriorConflict };
     var pdTemplate = ahpraS80.buildPracticeRequestDraft(pdOpts);
     var pdBody = '';
     var pdAi = false;
