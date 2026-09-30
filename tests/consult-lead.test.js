@@ -420,38 +420,51 @@ describe('nextConsultNudge', () => {
   // Both touches are CHASES: the magic link now goes out on qualification from
   // the FB webhook, because Meta gives us no way to identify a GP who taps the
   // thank-you button, so the email is the only zero-typing route to a booking.
-  it('not-booked: fires step 0 at 2h, step 1 at 48h, step 2 (WhatsApp only) at day 5, one per pass, never repeats', () => {
+  it('not-booked: fires step 0 at 5 min (WhatsApp only), step 1 at 1h, step 2 at 24h, one per pass, never repeats', () => {
     const base = { consult: { call_booked: false, nudges: [] }, createdAtMs: t0 };
-    expect(nextConsultNudge({ ...base, nowMs: t0 + 45 * MIN })).toBe(null);
-    expect(nextConsultNudge({ ...base, nowMs: t0 + 1 * H })).toBe(null);
-    expect(nextConsultNudge({ ...base, nowMs: t0 + 3 * H })).toEqual({ seq: 'not_booked', step: 0, email: true, wa: 'not_booked' });
-    // after step 0 recorded, step 1 not due until 48h even if 3h elapsed
-    const afterStep0 = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] }, createdAtMs: t0 };
-    expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 3 * H })).toBe(null);
-    expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 49 * H })).toEqual({ seq: 'not_booked', step: 1, email: true, wa: 'not_booked_2' });
-    // step 2 is the WhatsApp-only "last note", day 5
-    const afterStep1 = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }, { seq: 'not_booked', step: 1 }] }, createdAtMs: t0 };
-    expect(nextConsultNudge({ ...afterStep1, nowMs: t0 + 4 * D })).toBe(null);
-    expect(nextConsultNudge({ ...afterStep1, nowMs: t0 + 5 * D })).toEqual({ seq: 'not_booked', step: 2, email: false, wa: 'not_booked_3' });
+    expect(nextConsultNudge({ ...base, nowMs: t0 + 4 * MIN })).toBe(null);
+    expect(nextConsultNudge({ ...base, nowMs: t0 + 5 * MIN })).toEqual({ seq: 'not_booked', step: 0, email: false, wa: 'hello_5m' });
+    expect(nextConsultNudge({ ...base, nowMs: t0 + 3 * H })).toEqual({ seq: 'not_booked', step: 0, email: false, wa: 'hello_5m' });
+    // after step 0 recorded (at 5 min), step 1 is not due until the hour
+    const afterStep0 = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0, sent_at: new Date(t0 + 5 * MIN).toISOString() }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 59 * MIN })).toBe(null);
+    expect(nextConsultNudge({ ...afterStep0, nowMs: t0 + 1 * H })).toEqual({ seq: 'not_booked', step: 1, email: true, wa: 'check_in_1h' });
+    // step 2 is the day-after note, email + WhatsApp, at 24h
+    const afterStep1 = { consult: { call_booked: false, nudges: [
+      { seq: 'not_booked', step: 0, sent_at: new Date(t0 + 5 * MIN).toISOString() },
+      { seq: 'not_booked', step: 1, sent_at: new Date(t0 + 1 * H).toISOString() },
+    ] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...afterStep1, nowMs: t0 + 23 * H })).toBe(null);
+    expect(nextConsultNudge({ ...afterStep1, nowMs: t0 + 24 * H })).toEqual({ seq: 'not_booked', step: 2, email: true, wa: 'day_after_24h' });
     const done = { consult: { call_booked: false, nudges: [0, 1, 2].map((s) => ({ seq: 'not_booked', step: s })) }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...done, nowMs: t0 + 90 * D })).toBe(null);
   });
-  it('not-booked: catch-up steps are spaced by the 20h floor, never sent back to back', () => {
+  it('not-booked: a WhatsApp reply stops the notes (stopped:"replied") like any other stop', () => {
+    const replied = { consult: { call_booked: false, stopped: 'replied', nudges: [] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...replied, nowMs: t0 + 3 * H })).toBe(null);
+  });
+  it('not-booked: catch-up steps are spaced by per-step floors (40 min, then 12h), never sent back to back', () => {
     // A lead repaired (or a cron that was down) 10 days in: step 0 goes now…
     const late = t0 + 10 * D;
     const fresh = { consult: { call_booked: false, nudges: [] }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...fresh, nowMs: late })).toMatchObject({ step: 0 });
     // …step 1 is long overdue by the schedule but waits for the floor after step 0…
     const step0Just = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0, sent_at: new Date(late).toISOString() }] }, createdAtMs: t0 };
-    expect(nextConsultNudge({ ...step0Just, nowMs: late + 1 * H })).toBe(null);
-    expect(nextConsultNudge({ ...step0Just, nowMs: late + 19 * H })).toBe(null);
-    expect(nextConsultNudge({ ...step0Just, nowMs: late + 20 * H })).toMatchObject({ step: 1 });
+    expect(nextConsultNudge({ ...step0Just, nowMs: late + 39 * MIN })).toBe(null);
+    expect(nextConsultNudge({ ...step0Just, nowMs: late + 40 * MIN })).toMatchObject({ step: 1 });
+    // …and step 2, also overdue, waits 12h after step 1 (one note a day, not three in an hour)…
+    const step1Just = { consult: { call_booked: false, nudges: [
+      { seq: 'not_booked', step: 0, sent_at: new Date(late).toISOString() },
+      { seq: 'not_booked', step: 1, sent_at: new Date(late + 40 * MIN).toISOString() },
+    ] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...step1Just, nowMs: late + 40 * MIN + 11 * H })).toBe(null);
+    expect(nextConsultNudge({ ...step1Just, nowMs: late + 40 * MIN + 12 * H })).toMatchObject({ step: 2 });
     // …and a step recorded without a readable sent_at (older rows) never blocks.
     const step0NoTime = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0 }] }, createdAtMs: t0 };
     expect(nextConsultNudge({ ...step0NoTime, nowMs: late })).toMatchObject({ step: 1 });
-    // The normal cadence is untouched: 2h → 48h is 46h apart, 48h → day 5 is 72h apart.
-    const step0OnTime = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0, sent_at: new Date(t0 + 2 * H).toISOString() }] }, createdAtMs: t0 };
-    expect(nextConsultNudge({ ...step0OnTime, nowMs: t0 + 48 * H })).toMatchObject({ step: 1 });
+    // The normal cadence is untouched: 5 min → 1h is 55 min apart, 1h → 24h is 23h apart.
+    const step0OnTime = { consult: { call_booked: false, nudges: [{ seq: 'not_booked', step: 0, sent_at: new Date(t0 + 5 * MIN).toISOString() }] }, createdAtMs: t0 };
+    expect(nextConsultNudge({ ...step0OnTime, nowMs: t0 + 1 * H })).toMatchObject({ step: 1 });
   });
   it('booked: touch 0 fires right after booking (anchored at call_booked_at)', () => {
     const bookedAt = t0 + 1 * H;
@@ -554,9 +567,9 @@ describe('not_booked step channels + owed WhatsApp legs', () => {
   const ago = (ms) => new Date(now - ms).toISOString();
 
   it('each not_booked step names its channels; booked_no_signup steps are email-only', () => {
-    expect(consultNudgeStepSpec('not_booked', 0)).toEqual({ email: true, wa: 'not_booked' });
-    expect(consultNudgeStepSpec('not_booked', 1)).toEqual({ email: true, wa: 'not_booked_2' });
-    expect(consultNudgeStepSpec('not_booked', 2)).toEqual({ email: false, wa: 'not_booked_3' });
+    expect(consultNudgeStepSpec('not_booked', 0)).toEqual({ email: false, wa: 'hello_5m' });
+    expect(consultNudgeStepSpec('not_booked', 1)).toEqual({ email: true, wa: 'check_in_1h' });
+    expect(consultNudgeStepSpec('not_booked', 2)).toEqual({ email: true, wa: 'day_after_24h' });
     expect(consultNudgeStepSpec('not_booked', 3)).toBe(null);
     expect(consultNudgeStepSpec('booked_no_signup', 0)).toEqual({ email: true, wa: null });
   });
@@ -566,10 +579,13 @@ describe('not_booked step channels + owed WhatsApp legs', () => {
       { seq: 'not_booked', step: 0, sent_at: ago(2 * D) },
       { seq: 'not_booked', step: 1, sent_at: ago(1 * H) },
     ] };
-    expect(pendingConsultWaKinds(c, now)).toEqual(['not_booked', 'not_booked_2']);
+    expect(pendingConsultWaKinds(c, now)).toEqual(['hello_5m', 'check_in_1h']);
     // sent → no longer owed; skipped (no phone etc.) → no longer owed
-    expect(pendingConsultWaKinds({ ...c, wa: { not_booked: { sent_at: 'x' } } }, now)).toEqual(['not_booked_2']);
-    expect(pendingConsultWaKinds({ ...c, wa_skipped: { not_booked_2: { reason: 'no_phone' } } }, now)).toEqual(['not_booked']);
+    expect(pendingConsultWaKinds({ ...c, wa: { hello_5m: { sent_at: 'x' } } }, now)).toEqual(['check_in_1h']);
+    expect(pendingConsultWaKinds({ ...c, wa_skipped: { check_in_1h: { reason: 'no_phone' } } }, now)).toEqual(['hello_5m']);
+    // a step the RETIRED chase already covered (old kind sent or ruled out) is not owed the new copy
+    expect(pendingConsultWaKinds({ ...c, wa: { not_booked: { sent_at: 'x' } } }, now)).toEqual(['check_in_1h']);
+    expect(pendingConsultWaKinds({ ...c, wa_skipped: { not_booked_2: { reason: 'superseded' } } }, now)).toEqual(['hello_5m']);
     // the retry window closes
     const old = { qualified: true, nudges: [{ seq: 'not_booked', step: 0, sent_at: ago(CONSULT_WA_RETRY_WINDOW_MS + H) }] };
     expect(pendingConsultWaKinds(old, now)).toEqual([]);

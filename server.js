@@ -402,6 +402,11 @@ const DOUBLETICK_RSO_WELCOME_TEMPLATE = { templateName: 'gp_link_app_rso_welcome
 // switch the whole feature off without a deploy of code. Sends still no-op when
 // DOUBLETICK_API_KEY is absent, and fail soft while templates await approval.
 const CONSULT_WHATSAPP_ENABLED = String(process.env.CONSULT_WHATSAPP_ENABLED || 'true').trim().toLowerCase() !== 'false';
+// Owner paging for the consult funnel (owner rule 2026-09-30): the WhatsApp
+// number that is told "this lead has not booked 20 minutes after the 1-hour
+// note", with the lead's name, answers and phone. E.164 (+61…). Empty = paging
+// off — the notes to the doctor still run.
+const CONSULT_OWNER_ALERT_PHONE = String(process.env.CONSULT_OWNER_ALERT_PHONE || '').trim();
 // Direct text messages used while templates are pending approval
 const DOUBLETICK_STAGE_MESSAGES = {
   myintealth: 'Hi {{name}}, welcome to GP Link! 🎉 Your first step is creating your MyIntealth account. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
@@ -11345,7 +11350,11 @@ const CRON_SCHEDULES = {
   'recompute-intent': { schedule: '0 2 * * *', cadenceMinutes: 1440 },
   'organize-drive': { schedule: '0 3 * * *', cadenceMinutes: 1440 },
   'onboarding-nudge': { schedule: '0 * * * *', cadenceMinutes: 60 },
-  'consult-nudge': { schedule: '20 * * * *', cadenceMinutes: 60 },
+  // Every 5 min (was hourly): the first note to a new Meta lead is due 5 minutes
+  // after the form (owner rule 2026-09-30), which an hourly tick would land
+  // anywhere up to an hour late. Cheap — one list query per run; per-lead work
+  // happens only when a step is actually due. Keep in sync with vercel.json.
+  'consult-nudge': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
   // Meta Conversions API for CRM: report bookings/signups back to Meta (lib/meta-capi.js).
   'meta-lead-stages': { schedule: '50 * * * *', cadenceMinutes: 60 },
   // Post-onboarding drop-off chase (career_start / career_cv), both channels.
@@ -15977,6 +15986,13 @@ async function handleDoubleTickWebhook(req, res) {
   // already know decides whether the classifier is allowed to drop her message.
   let knownGpCaseId = null;
 
+  // A consult-funnel lead writing back ends the automated notes right here (owner
+  // rule 2026-09-30: "stop the flow the moment they reply or book"), and counts as
+  // a known person below — never a stranger the classifier may drop. Best-effort:
+  // a lookup failure must not cost the message its normal handling.
+  const consultLeadReply = await stopConsultChaseOnReply(fromPhone)
+    .catch((e) => { console.warn('[doubletick-webhook] consult reply-stop failed:', e && e.message); return null; });
+
   // Store message for reconciliation
   if (isSupabaseDbConfigured()) {
     const phoneClean = fromPhone.replace(/[^0-9]/g, '');
@@ -16042,7 +16058,7 @@ async function handleDoubleTickWebhook(req, res) {
   // dashboard stays honest about which is which.
   const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
   const isSocialFromKnownGp = !isHelpRequest && !!knownGpCaseId;
-  if (!isHelpRequest && !knownGpCaseId) {
+  if (!isHelpRequest && !knownGpCaseId && !consultLeadReply) {
     sendJson(res, 200, { ok: true, action: 'ignored' });
     return;
   }
@@ -16139,7 +16155,7 @@ async function handleDoubleTickWebhook(req, res) {
 
     const gpName = gpProfile
       ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim()
-      : (contactName || '');
+      : (contactName || (consultLeadReply && consultLeadReply.name) || '');
 
     // Check for pending nudges — if GP is replying after a nudge, activate the chat and record the reply
     let isNudgeReply = false;
@@ -22019,11 +22035,16 @@ async function sendConsultWhatsAppTemplate(toPhone, message) {
       headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' },
       body: reqBody
     });
-    if (!resp.ok) {
-      const t = await resp.text().catch(function () { return ''; });
-      console.warn('[consult-wa] send failed', message.templateName, resp.status, String(t).slice(0, 200),
+    // DoubleTick answers 200 even when the message FAILED (e.g. "Template with
+    // given name and language not found" while it awaits approval) — the truth
+    // is the per-message status in the body. Trusting the bare 200 stamped a
+    // sent-marker for a message nobody received.
+    const raw = await resp.text().catch(function () { return ''; });
+    const outcome = doubleTickBatchOutcome(resp.ok, raw);
+    if (!outcome.ok) {
+      console.warn('[consult-wa] send failed', message.templateName, resp.status, String(outcome.error || raw).slice(0, 200),
         '(template may be pending WhatsApp approval)');
-      return { ok: false, status: resp.status };
+      return { ok: false, status: resp.status, error: outcome.error || '' };
     }
     console.log('[consult-wa] sent', message.templateName, 'to', maskPhone(phone));
     return { ok: true };
@@ -22110,6 +22131,99 @@ async function sendOwedConsultWa(row, kinds) {
     if (!alreadySent) await markConsultWaSkipped(row, latest, res.reason || 'skipped');
   }
   return res;
+}
+
+// ── Owner paging (owner rule 2026-09-30) ─────────────────────────────────────
+// "If a lead has not booked 20 minutes after the hourly WhatsApp, message me
+// their name, lead answers and phone number so I can personally follow up."
+// The decision is pure (lib/consult-lead.js consultOwnerAlertDecision); this is
+// the send. WhatsApp template to CONSULT_OWNER_ALERT_PHONE first; if that cannot
+// go (template still awaiting approval, DoubleTick down) the page falls back to
+// the owner mailbox rather than being lost, and says why. The marker
+// consult.owner_alert = { sent_at, via } is stamped only after one channel
+// succeeded, so a failed page is retried next run (inside the 48h window).
+function isConsultOwnerAlertConfigured() {
+  return !!normalizePhone(CONSULT_OWNER_ALERT_PHONE);
+}
+
+async function sendConsultOwnerLeadAlert(row) {
+  try {
+    if (!row || !row.id || !row.metadata || !row.metadata.consult) return { ok: false, skipped: true, reason: 'no_consult' };
+    const toPhone = normalizePhone(CONSULT_OWNER_ALERT_PHONE);
+    if (!toPhone) return { ok: false, skipped: true, reason: 'not_configured' };
+    const summary = consultLead.consultOwnerAlertSummary(row, { nowMs: Date.now() });
+    let via = '';
+    let waError = '';
+    const message = consultWhatsapp.buildConsultWaMessage('owner_lead_alert', { summary: summary });
+    if (message && CONSULT_WHATSAPP_ENABLED) {
+      const sent = await sendConsultWhatsAppTemplate(toPhone, message);
+      if (sent && sent.ok) via = 'whatsapp';
+      else waError = String((sent && (sent.error || sent.reason)) || 'send failed');
+    } else {
+      waError = CONSULT_WHATSAPP_ENABLED ? 'no message' : 'consult WhatsApp disabled';
+    }
+    if (!via) {
+      const notifyTo = String(process.env.SITE_ENQUIRY_NOTIFY_EMAIL || '').trim() || GP_OWNER_EMAIL;
+      const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const lines = [
+        'A lead needs a personal follow-up. (The WhatsApp page could not be sent: ' + waError + ' — this email is the fallback.)',
+        'Name: ' + summary.name,
+        'Phone: ' + summary.phone,
+        'Answers: ' + summary.answers,
+        'Status: ' + summary.status
+      ];
+      const em = await sendEmail({
+        to: notifyTo,
+        subject: 'Lead needs a personal follow-up: ' + summary.name,
+        html: lines.map((l) => '<p>' + esc(l) + '</p>').join(''),
+        text: lines.join('\n')
+      });
+      if (em && em.ok) via = 'email';
+    }
+    if (!via) {
+      console.warn('[consult-owner-alert] page not delivered for lead', row.id, '—', waError);
+      return { ok: false, error: waError };
+    }
+    const consult = row.metadata.consult;
+    const md = Object.assign({}, row.metadata, {
+      consult: Object.assign({}, consult, { owner_alert: { sent_at: new Date().toISOString(), via: via } })
+    });
+    const up = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (up) row.metadata = md;
+    else console.warn('[consult-owner-alert] marker write failed for lead', row.id, '(page WAS sent via ' + via + ')');
+    console.log('[consult-owner-alert] paged owner about lead', row.id, 'via', via);
+    return { ok: true, via: via };
+  } catch (err) {
+    console.error('[consult-owner-alert] error:', err && err.message);
+    return { ok: false, error: err && err.message };
+  }
+}
+
+// A consult-funnel lead answering on WhatsApp ends the automated notes (owner
+// rule 2026-09-30: "stop the flow the moment they reply or book"). Called by the
+// DoubleTick webhook for every inbound message. Stamps stopped:'replied' on a
+// lead still inside the pre-booking sequence; a booked, stopped or screened-out
+// lead is left as is. Returns the lead row whenever the number belongs to a
+// known lead (stopped just now or not) so the webhook knows this is not a
+// stranger the classifier may drop; null when the number matches no lead.
+async function stopConsultChaseOnReply(fromPhone) {
+  const lead = await findConsultLeadByPhone(fromPhone);
+  if (!lead || !lead.metadata || !lead.metadata.consult) return null;
+  const c = lead.metadata.consult;
+  if (c.call_booked || c.stopped || c.screened_out) return lead;
+  const md = Object.assign({}, lead.metadata, {
+    consult: Object.assign({}, c, {
+      stopped: 'replied',
+      replied_at: new Date().toISOString(),
+      replied_via: 'whatsapp'
+    })
+  });
+  const up = await updateSiteEnquiryRow(lead.id, { metadata: md });
+  if (up) {
+    lead.metadata = md;
+    console.log('[consult-nudge] lead', lead.id, 'replied on WhatsApp — automated notes stopped');
+  }
+  return lead;
 }
 
 // Stamp a terminal onboarding-pass marker (completed / window_passed / …) so the
@@ -29783,7 +29897,9 @@ async function sendConsultNudgeEmail(row, due) {
     }),
     text: copy.body + '\n\n' + copy.ctaText + ': ' + copy.ctaUrl + '\n\nUnsubscribe: ' + unsubUrl,
     category: 'marketing',
-    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+    // The pre-booking notes are written in the owner's first person (owner rule
+    // 2026-09-30), so they arrive from a person, not a brand.
+    from: { email: GP_OWNER_EMAIL, name: 'Khaleed at GP Link' }
   });
 }
 
@@ -45577,7 +45693,9 @@ async function handleApi(req, res, pathname) {
   // Meta-ads GP funnel plan). Two independent sequences per lead, both driven
   // by lib/consult-lead.js's nextConsultNudge():
   //  - not_booked: started the consult flow (qualified lead row created) but
-  //    never booked a call — anchored at lead created_at, nudges at 2h/48h.
+  //    never booked a call — anchored at lead created_at, notes at 5 min / 1h / 24h
+  //    (owner rule 2026-09-30); stops on booking or a WhatsApp reply, and pages
+  //    the owner 20 min after the 1h note if still unbooked.
   //  - booked_no_signup: booked a call but never created a GP Link account —
   //    anchored at call_booked_at, nudges at 3d/7d.
   // Stops forever once the lead's email shows up in dbState.users/Supabase
@@ -45634,7 +45752,7 @@ async function handleApi(req, res, pathname) {
     if (!cnSecret || cnAuth !== 'Bearer ' + cnSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
     var cnStart = Date.now();
     var CN_TIME_BUDGET_MS = 45000;
-    var cnScanned = 0, cnSent = 0, cnStopped = 0, cnSkipped = 0, cnPartial = false;
+    var cnScanned = 0, cnSent = 0, cnStopped = 0, cnSkipped = 0, cnPaged = 0, cnPartial = false;
     // Spec §3.6: "a person who submits twice gets one sequence; newest row
     // wins." listSiteEnquiryRows orders created_at desc, so the first row
     // seen per (lowercased) email in this pass is the newest — track seen
@@ -45706,6 +45824,22 @@ async function handleApi(req, res, pathname) {
         // OR a never-screened direct Calendly booker) gets the signup drip regardless of
         // qualification — booking a call is the strongest intent there is. screened_out (an
         // explicit "not a GP") still stops them.
+        // ── Page the owner (owner rule 2026-09-30) ────────────────────────────
+        // No booking 20 minutes after the 1-hour note ⇒ a human picks up. This
+        // runs BEFORE the stopped-skip below on purpose: a lead who REPLIED on
+        // WhatsApp (stopped:'replied') is exactly who the owner wants to hear
+        // about, and the decision itself refuses every other stop, bookings and
+        // leads the funnel never admitted. Once per lead (consult.owner_alert);
+        // a page that could not be delivered is retried next run.
+        if (isConsultOwnerAlertConfigured()) {
+          var cnPage = consultLead.consultOwnerAlertDecision({
+            consult: cnConsult, createdAtMs: new Date(cnRow.created_at).getTime(), nowMs: Date.now()
+          });
+          if (cnPage.action === 'send') {
+            var cnPageRes = await sendConsultOwnerLeadAlert(cnRow);
+            if (cnPageRes && cnPageRes.ok) { cnMeta = cnRow.metadata; cnConsult = cnMeta.consult; cnPaged++; }
+          }
+        }
         if (cnConsult.stopped || cnConsult.screened_out || (cnConsult.qualified !== true && !cnConsult.call_booked)) { cnSkipped++; continue; }
         // A booked lead with no call_at can't have its "after your call" steps scheduled
         // (nextConsultNudge defers them), so recover the slot from scheduled_calls first.
@@ -45788,7 +45922,7 @@ async function handleApi(req, res, pathname) {
         }
         // ── The step's channels ─────────────────────────────────────────────
         // A not_booked step carries email and/or WhatsApp (lib/consult-lead.js
-        // schedule: 2h email+WA, 48h email+WA, day 5 WA only); booked_no_signup
+        // schedule: 5 min WA only, 1h email+WA, 24h email+WA); booked_no_signup
         // steps are email-only. A lead whose address hard-bounced keeps just the
         // WhatsApp leg. The recorded entry says what the email leg did
         // ('sent' | 'bounced' | 'skipped' | 'none') so the Leads tab counts
@@ -45867,7 +46001,7 @@ async function handleApi(req, res, pathname) {
         var cnObRes = await maybeSendConsultWa(cnObRow, 'onboarding_incomplete');
         if (cnObRes && cnObRes.ok) { cnSent++; cnObSent++; }
       }
-      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, partial: cnPartial });
+      sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, paged: cnPaged, partial: cnPartial });
     } catch (e) {
       console.error('[ConsultNudge] cron failed:', e.message);
       sendJson(res, 500, { ok: false, error: 'Internal error' });
@@ -51925,10 +52059,11 @@ async function handleApi(req, res, pathname) {
       call_booked_at: metadata.consult.call_booked_at || new Date().toISOString()
     });
     if (question) metadata.consult.call_question = question;
-    // A late booking after the not_booked sequence exhausted itself should
-    // re-open booked_no_signup rather than stay stopped forever — but a real
-    // unsubscribe/signed_up stop must still hold, so only 'exhausted' clears.
-    if (metadata.consult.stopped === 'exhausted') delete metadata.consult.stopped;
+    // A late booking after the not_booked sequence exhausted itself — or after
+    // the doctor replied on WhatsApp and the notes stopped — should re-open
+    // booked_no_signup rather than stay stopped forever. A real unsubscribe or
+    // signed_up stop must still hold, so only those two clear.
+    if (metadata.consult.stopped === 'exhausted' || metadata.consult.stopped === 'replied') delete metadata.consult.stopped;
     const patch = { status: 'contacted', metadata };
     // Also surface it as the row's own message so the owner sees it in the
     // lead browser, but never clobber a question already captured at signup.

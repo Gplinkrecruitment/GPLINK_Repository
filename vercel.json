@@ -71,7 +71,7 @@
     },
     {
       "path": "/api/cron/consult-nudge",
-      "schedule": "20 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/meta-lead-stages",

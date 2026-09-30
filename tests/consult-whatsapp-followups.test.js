@@ -30,6 +30,7 @@ const CRON = '/api/cron/consult-nudge';
 const AUTH = { Authorization: 'Bearer test-cron-secret' };
 const H = 3600 * 1000;
 const D = 24 * H;
+const M = 60 * 1000;
 
 function get(path, headers) {
   return new Promise((resolve, reject) => {
@@ -138,19 +139,30 @@ function lastWaMessage() {
 
 describe('lib/consult-whatsapp pure logic', () => {
   it('eligibility mirrors the funnel gates and the sent-marker is terminal', () => {
-    expect(waLib.consultWaEligible('not_booked', { qualified: true })).toBe(true);
-    expect(waLib.consultWaEligible('not_booked', { qualified: true, call_booked: true })).toBe(false);
-    expect(waLib.consultWaEligible('not_booked', { qualified: false })).toBe(false);
-    expect(waLib.consultWaEligible('not_booked', { qualified: true, stopped: 'exhausted' })).toBe(false);
-    expect(waLib.consultWaEligible('not_booked', { qualified: true, screened_out: true })).toBe(false);
-    expect(waLib.consultWaEligible('not_booked', { qualified: true, wa: { not_booked: { sent_at: 'x' } } })).toBe(false);
-    // Touches 2 and 3 of the pre-booking chase follow the same gates, each with
-    // its own marker — the first touch having gone does not block the second.
-    expect(waLib.NOT_BOOKED_WA_KINDS).toEqual(['not_booked', 'not_booked_2', 'not_booked_3']);
-    expect(waLib.consultWaEligible('not_booked_2', { qualified: true, wa: { not_booked: { sent_at: 'x' } } })).toBe(true);
-    expect(waLib.consultWaEligible('not_booked_2', { qualified: true, wa: { not_booked_2: { sent_at: 'x' } } })).toBe(false);
-    expect(waLib.consultWaEligible('not_booked_3', { qualified: true, call_booked: true })).toBe(false);
-    expect(waLib.consultWaEligible('not_booked_3', { qualified: true, stopped: 'exhausted' })).toBe(false);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true })).toBe(true);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true, call_booked: true })).toBe(false);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: false })).toBe(false);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true, stopped: 'exhausted' })).toBe(false);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true, stopped: 'replied' })).toBe(false);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true, screened_out: true })).toBe(false);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true, wa: { hello_5m: { sent_at: 'x' } } })).toBe(false);
+    // The three notes follow the same gates, each with its own marker — the
+    // first having gone does not block the second…
+    expect(waLib.NOT_BOOKED_WA_KINDS).toEqual(['hello_5m', 'check_in_1h', 'day_after_24h']);
+    expect(waLib.consultWaEligible('check_in_1h', { qualified: true, wa: { hello_5m: { sent_at: 'x' } } })).toBe(true);
+    expect(waLib.consultWaEligible('check_in_1h', { qualified: true, wa: { check_in_1h: { sent_at: 'x' } } })).toBe(false);
+    expect(waLib.consultWaEligible('day_after_24h', { qualified: true, call_booked: true })).toBe(false);
+    expect(waLib.consultWaEligible('day_after_24h', { qualified: true, stopped: 'exhausted' })).toBe(false);
+    // …but a step the RETIRED chase already covered for this doctor never gets the new copy on top.
+    expect(waLib.LEGACY_NOT_BOOKED_WA_KINDS).toEqual(['not_booked', 'not_booked_2', 'not_booked_3']);
+    expect(waLib.consultWaEligible('hello_5m', { qualified: true, wa: { not_booked: { sent_at: 'x' } } })).toBe(false);
+    expect(waLib.consultWaEligible('check_in_1h', { qualified: true, wa: { not_booked_2: { sent_at: 'x' } } })).toBe(false);
+    expect(waLib.consultWaEligible('check_in_1h', { qualified: true, wa: { not_booked: { sent_at: 'x' } } })).toBe(true);
+    // The owner page ignores the lead's stops (a reply is the point) but never follows a booking.
+    expect(waLib.consultWaEligible('owner_lead_alert', { qualified: true, stopped: 'replied' })).toBe(true);
+    expect(waLib.consultWaEligible('owner_lead_alert', { qualified: true, call_booked: true })).toBe(false);
+    expect(waLib.consultWaEligible('owner_lead_alert', { qualified: true, owner_alert: { sent_at: 'x' } })).toBe(false);
+    expect(waLib.consultWaEligible('owner_lead_alert', { qualified: false })).toBe(false);
     // A booking confirmation survives a signed_up stop but never an unsubscribe.
     expect(waLib.consultWaEligible('call_booked', { call_booked: true, stopped: 'signed_up' })).toBe(true);
     expect(waLib.consultWaEligible('call_booked', { call_booked: true, stopped: 'unsubscribed' })).toBe(false);
@@ -163,17 +175,28 @@ describe('lib/consult-whatsapp pure logic', () => {
     expect(booked.placeholders[0]).toBe('Louise');
     expect(booked.placeholders[1]).toContain('(UK time)');
     expect(booked.placeholders[1]).toContain('August');
-    const nudge = waLib.buildConsultWaMessage('not_booked', { name: '', bookUrl: 'https://x/start?lead=T#book' });
+    const nudge = waLib.buildConsultWaMessage('hello_5m', { name: '', bookUrl: 'https://x/start?lead=T#book' });
+    expect(nudge.templateName).toBe('gp_link_consult_hello_5m');
     expect(nudge.placeholders).toEqual(['there', 'https://x/start?lead=T#book']);
-    expect(waLib.buildConsultWaMessage('not_booked', { name: 'A' })).toBe(null);
+    expect(waLib.buildConsultWaMessage('hello_5m', { name: 'A' })).toBe(null);
     expect(waLib.buildConsultWaMessage('signed_up', { name: 'Priya Patel' }).placeholders).toEqual(['Priya']);
-    // Same shape, different template, for the later chase touches.
-    const second = waLib.buildConsultWaMessage('not_booked_2', { name: 'Aisha Khan', bookUrl: 'https://x/start?lead=T#book' });
-    expect(second.templateName).toBe('gp_link_consult_book_nudge_2');
+    // Same shape, different template, for the later notes.
+    const second = waLib.buildConsultWaMessage('check_in_1h', { name: 'Aisha Khan', bookUrl: 'https://x/start?lead=T#book' });
+    expect(second.templateName).toBe('gp_link_consult_check_in_1h');
     expect(second.placeholders).toEqual(['Aisha', 'https://x/start?lead=T#book']);
-    const third = waLib.buildConsultWaMessage('not_booked_3', { name: 'Aisha Khan', bookUrl: 'https://x/start?lead=T#book' });
-    expect(third.templateName).toBe('gp_link_consult_book_nudge_3');
-    expect(waLib.buildConsultWaMessage('not_booked_3', { name: 'A' })).toBe(null);
+    const third = waLib.buildConsultWaMessage('day_after_24h', { name: 'Aisha Khan', bookUrl: 'https://x/start?lead=T#book' });
+    expect(third.templateName).toBe('gp_link_consult_day_after_24h');
+    expect(waLib.buildConsultWaMessage('day_after_24h', { name: 'A' })).toBe(null);
+    // The retired chase kinds build nothing any more.
+    expect(waLib.buildConsultWaMessage('not_booked', { name: 'A', bookUrl: 'https://x' })).toBe(null);
+    // The owner page: four single-line slots, every one non-empty.
+    const page = waLib.buildConsultWaMessage('owner_lead_alert', { summary: {
+      name: 'Aisha Khan', phone: '+44 7700 900123', answers: 'Country: UK', status: 'No booking 1h 22m after the form, and no reply yet'
+    } });
+    expect(page.templateName).toBe('gp_link_owner_lead_alert');
+    expect(page.placeholders).toEqual(['Aisha Khan', '+44 7700 900123', 'Country: UK', 'No booking 1h 22m after the form, and no reply yet']);
+    expect(waLib.buildConsultWaMessage('owner_lead_alert', {}).placeholders)
+      .toEqual(['Unknown name', 'no phone on the lead', 'no answers recorded', 'No booking yet']);
   });
 
   it('onboarding decision: waits 24h, sends inside the window, terminal-marks the rest', () => {
@@ -194,7 +217,7 @@ describe('lib/consult-whatsapp pure logic', () => {
 // numbers, each stamped at a plausible time for a lead created `ageMs` ago.
 function seedMidSequence(ageMs, steps, extraConsult) {
   const created = Date.now() - ageMs;
-  const at = { 0: created + 2 * H, 1: created + 48 * H, 2: created + 5 * D };
+  const at = { 0: created + 5 * M, 1: created + 1 * H, 2: created + 24 * H };
   const lead = seedLead({ created_at: new Date(created).toISOString() });
   lead.metadata.consult.nudges = steps.map((s) => ({ seq: 'not_booked', step: s, sent_at: new Date(at[s]).toISOString() }));
   Object.assign(lead.metadata.consult, extraConsult || {});
@@ -202,17 +225,17 @@ function seedMidSequence(ageMs, steps, extraConsult) {
 }
 
 describe('cron wiring', () => {
-  it('rides WhatsApp along on the first due not_booked email touch, once per step', async () => {
+  it('sends the 5-minute hello on WhatsApp alone (no email leg), once per step', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
     const lead = seedLead();
     testUtils.__seedSiteEnquiriesForTest([lead]);
     const res = await get(CRON, AUTH);
     expect(res.status).toBe(200);
-    expect(resendCaptured.length).toBe(1); // the email still goes out
+    expect(resendCaptured.length).toBe(0); // no email at 5 min — the magic link went out at 0
     expect(waSends().length).toBe(1);
     const msg = lastWaMessage();
     expect(msg.to).toBe('+447700900123');
-    expect(msg.content.templateName).toBe('gp_link_consult_book_nudge');
+    expect(msg.content.templateName).toBe('gp_link_consult_hello_5m');
     expect(msg.content.templateData.body.placeholders[0]).toBe('Aisha');
     expect(msg.content.templateData.body.placeholders[1]).toContain('/start?lead=' + lead.metadata.consult.token);
     // The DoubleTick contact is named with the candidate's FULL name before
@@ -221,51 +244,69 @@ describe('cron wiring', () => {
     expect(nameSaves.length).toBe(1);
     expect(nameSaves[0].body).toEqual({ phone: '447700900123', name: 'Aisha Khan', wabaNumber: '61494391968' });
     const row = readDb().siteEnquiries[0];
-    expect(row.metadata.consult.wa.not_booked.sent_at).toEqual(expect.any(String));
-    expect(row.metadata.consult.nudges[0]).toMatchObject({ step: 0, email: 'sent' });
-    // Rerun: nothing due, marker holds — no second WhatsApp.
+    expect(row.metadata.consult.wa.hello_5m.sent_at).toEqual(expect.any(String));
+    expect(row.metadata.consult.nudges[0]).toMatchObject({ step: 0, email: 'none' });
+    // Rerun: the 1-hour note is due by the clock (the lead is 3h old) but waits
+    // 40 minutes after the hello — no second WhatsApp on the very next tick.
     await get(CRON, AUTH);
     expect(waSends().length).toBe(1);
+    expect(resendCaptured.length).toBe(0);
   });
 
-  it('touch 2 (48h) sends the second template with its email; touch 3 (day 5) is WhatsApp only', async () => {
+  it('the 1-hour note goes out with its email; the day-after note too; then the sequence is exhausted', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    // 49h old, step 0 recorded at 2h with its WhatsApp sent → step 1 is due.
-    const lead = seedMidSequence(49 * H, [0], { wa: { not_booked: { sent_at: 'x' } } });
+    // 2h old, hello recorded at 5 min with its WhatsApp sent → the 1-hour note is due.
+    const lead = seedMidSequence(2 * H, [0], { wa: { hello_5m: { sent_at: 'x' } } });
     testUtils.__seedSiteEnquiriesForTest([lead]);
     let res = await get(CRON, AUTH);
     expect(res.json.sent).toBe(1);
     expect(resendCaptured.length).toBe(1);
+    expect(JSON.stringify(resendCaptured[0].body.from)).toContain('Khaleed');
     expect(waSends().length).toBe(1);
-    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_book_nudge_2');
+    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_check_in_1h');
     let row = readDb().siteEnquiries[0];
-    expect(row.metadata.consult.wa.not_booked_2.sent_at).toEqual(expect.any(String));
+    expect(row.metadata.consult.wa.check_in_1h.sent_at).toEqual(expect.any(String));
     expect(row.metadata.consult.nudges[1]).toMatchObject({ step: 1, email: 'sent' });
 
-    // Day 6, steps 0 and 1 done → the last note goes out on WhatsApp alone.
+    // 25h old, steps 0 and 1 done → the day-after note, email + WhatsApp.
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const late = seedMidSequence(6 * D, [0, 1], { wa: { not_booked: { sent_at: 'x' }, not_booked_2: { sent_at: 'y' } } });
+    const late = seedMidSequence(25 * H, [0, 1], { wa: { hello_5m: { sent_at: 'x' }, check_in_1h: { sent_at: 'y' } } });
     testUtils.__seedSiteEnquiriesForTest([late]);
     res = await get(CRON, AUTH);
     expect(res.json.sent).toBe(1);
-    expect(resendCaptured.length).toBe(0);
+    expect(resendCaptured.length).toBe(1);
     expect(waSends().length).toBe(1);
-    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_book_nudge_3');
+    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_day_after_24h');
     row = readDb().siteEnquiries[0];
-    expect(row.metadata.consult.nudges[2]).toMatchObject({ step: 2, email: 'none' });
-    expect(row.metadata.consult.wa.not_booked_3.sent_at).toEqual(expect.any(String));
+    expect(row.metadata.consult.nudges[2]).toMatchObject({ step: 2, email: 'sent' });
+    expect(row.metadata.consult.wa.day_after_24h.sent_at).toEqual(expect.any(String));
     // All three steps sent and nothing owed → exhausted on the next pass, and no more messages.
     res = await get(CRON, AUTH);
     expect(res.json.stopped).toBe(1);
     expect(readDb().siteEnquiries[0].metadata.consult.stopped).toBe('exhausted');
     expect(waSends().length).toBe(1);
+    expect(resendCaptured.length).toBe(1);
+  });
+
+  it('a lead already mid-way through the RETIRED chase is not re-sent the new copy for a step it had', async () => {
+    resendCaptured.length = 0; dtCaptured.length = 0;
+    // Old world: step 0 (the 2h chase) went out with the old template. New world
+    // says step 1 is due — it goes, as the new copy — but hello_5m is never owed.
+    const lead = seedMidSequence(3 * H, [0], { wa: { not_booked: { sent_at: 'x' } } });
+    testUtils.__seedSiteEnquiriesForTest([lead]);
+    const res = await get(CRON, AUTH);
+    expect(res.json.sent).toBe(1);
+    expect(waSends().map((s) => s.body.messages[0].content.templateName)).toEqual(['gp_link_consult_check_in_1h']);
+    const row = readDb().siteEnquiries[0];
+    expect(row.metadata.consult.wa.hello_5m).toBeUndefined();
+    expect(row.metadata.consult.wa_skipped && row.metadata.consult.wa_skipped.hello_5m).toBeUndefined();
   });
 
   it('a WhatsApp template that is refused (pending approval) is owed and retried, and holds off the exhausted stop', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    dtRejectTemplate = 'gp_link_consult_book_nudge_2';
+    dtRejectTemplate = 'gp_link_consult_check_in_1h';
     try {
-      const lead = seedMidSequence(49 * H, [0], { wa: { not_booked: { sent_at: 'x' } } });
+      const lead = seedMidSequence(2 * H, [0], { wa: { hello_5m: { sent_at: 'x' } } });
       testUtils.__seedSiteEnquiriesForTest([lead]);
       let res = await get(CRON, AUTH);
       expect(res.json.sent).toBe(1);           // the email leg went…
@@ -273,7 +314,7 @@ describe('cron wiring', () => {
       expect(waSends().length).toBe(0);        // …the WhatsApp leg was refused
       let row = readDb().siteEnquiries[0];
       expect(row.metadata.consult.nudges.length).toBe(2);
-      expect(row.metadata.consult.wa.not_booked_2).toBeUndefined();
+      expect(row.metadata.consult.wa.check_in_1h).toBeUndefined();
       expect(row.metadata.consult.wa_skipped).toBeUndefined();
       // Still refused next hour: nothing sent, still owed, no stop.
       res = await get(CRON, AUTH);
@@ -285,17 +326,18 @@ describe('cron wiring', () => {
       res = await get(CRON, AUTH);
       expect(resendCaptured.length).toBe(0);
       expect(waSends().length).toBe(1);
-      expect(lastWaMessage().content.templateName).toBe('gp_link_consult_book_nudge_2');
+      expect(lastWaMessage().content.templateName).toBe('gp_link_consult_check_in_1h');
       row = readDb().siteEnquiries[0];
-      expect(row.metadata.consult.wa.not_booked_2.sent_at).toEqual(expect.any(String));
+      expect(row.metadata.consult.wa.check_in_1h.sent_at).toEqual(expect.any(String));
     } finally {
       dtRejectTemplate = '';
     }
   });
 
-  it('a hard-bounced email keeps the WhatsApp chase going and is never filed as an unsubscribe', async () => {
+  it('a hard-bounced email keeps the WhatsApp notes going and is never filed as an unsubscribe', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedLead();
+    // The 1-hour note is the first step with an email leg; the address bounces there.
+    const lead = seedMidSequence(2 * H, [0], { wa: { hello_5m: { sent_at: 'x' } } });
     await testUtils.suppressEmail(lead.email, 'hard_bounce', 'resend_webhook');
     testUtils.__seedSiteEnquiriesForTest([lead]);
     const res = await get(CRON, AUTH);
@@ -303,25 +345,26 @@ describe('cron wiring', () => {
     expect(res.json.stopped).toBe(0);
     expect(resendCaptured.length).toBe(0);   // dead address: no email attempt reaches Resend
     expect(waSends().length).toBe(1);        // live phone: the WhatsApp still goes
-    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_book_nudge');
+    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_check_in_1h');
     const row = readDb().siteEnquiries[0];
     expect(row.metadata.consult.stopped).toBeUndefined();
     expect(row.metadata.consult.email_bounced).toBe(true);
-    expect(row.metadata.consult.nudges[0]).toMatchObject({ step: 0, email: 'bounced' });
+    expect(row.metadata.consult.nudges[1]).toMatchObject({ step: 1, email: 'bounced' });
     // Later steps skip the email leg outright and record that they did.
-    const later = seedMidSequence(49 * H, [0], { email_bounced: true, wa: { not_booked: { sent_at: 'x' } } });
+    const later = seedMidSequence(25 * H, [0, 1], { email_bounced: true, wa: { hello_5m: { sent_at: 'x' }, check_in_1h: { sent_at: 'y' } } });
     testUtils.__seedSiteEnquiriesForTest([later]);
     resendCaptured.length = 0; dtCaptured.length = 0;
     await get(CRON, AUTH);
     expect(resendCaptured.length).toBe(0);
     expect(waSends().length).toBe(1);
-    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_book_nudge_2');
-    expect(readDb().siteEnquiries[0].metadata.consult.nudges[1]).toMatchObject({ step: 1, email: 'skipped' });
+    expect(lastWaMessage().content.templateName).toBe('gp_link_consult_day_after_24h');
+    expect(readDb().siteEnquiries[0].metadata.consult.nudges[2]).toMatchObject({ step: 2, email: 'skipped' });
   });
 
   it('a real unsubscribe (or spam complaint) still stops every channel, with the reason recorded', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const lead = seedLead();
+    // The suppression list is consulted on the first email leg, i.e. the 1-hour note.
+    const lead = seedMidSequence(2 * H, [0], { wa: { hello_5m: { sent_at: 'x' } } });
     await testUtils.suppressEmail(lead.email, 'unsubscribe', 'marketing');
     testUtils.__seedSiteEnquiriesForTest([lead]);
     const res = await get(CRON, AUTH);
@@ -349,10 +392,10 @@ describe('cron wiring', () => {
     expect(res.json.sent).toBe(1);
     const rows = readDb().siteEnquiries;
     const byEmail = Object.fromEntries(rows.map((r) => [r.email, r]));
-    // The bounced one resumes on WhatsApp: stop lifted, first touch out, email leg skipped.
+    // The bounced one resumes on WhatsApp: stop lifted, the hello goes out (it has no email leg).
     expect(byEmail[bounced.email].metadata.consult.stopped).toBeUndefined();
     expect(byEmail[bounced.email].metadata.consult.email_bounced).toBe(true);
-    expect(byEmail[bounced.email].metadata.consult.nudges[0]).toMatchObject({ step: 0, email: 'skipped' });
+    expect(byEmail[bounced.email].metadata.consult.nudges[0]).toMatchObject({ step: 0, email: 'none' });
     expect(waSends().length).toBe(1);
     expect(lastWaMessage().to).toBe('+447700900123');
     expect(resendCaptured.length).toBe(0);
@@ -446,7 +489,9 @@ describe('cron wiring', () => {
 
   it('does not WhatsApp an unqualified or phone-less lead', async () => {
     resendCaptured.length = 0; dtCaptured.length = 0;
-    const noPhone = seedLead({ phone: '' });
+    // At the 1-hour note (which has an email leg) a phone-less lead still gets the email, no WhatsApp.
+    const noPhone = seedMidSequence(2 * H, [0], { wa_skipped: { hello_5m: { reason: 'no_phone' } } });
+    noPhone.phone = '';
     testUtils.__seedSiteEnquiriesForTest([noPhone]);
     await get(CRON, AUTH);
     expect(resendCaptured.length).toBe(1); // email path unaffected

@@ -37,15 +37,20 @@ beforeAll(() => {
 });
 
 describe('the classifier may not decide whether a human sees a known doctor', () => {
-  it('only ignores a message when the number is NOT a known GP with a case', () => {
-    expect(webhookBody).toMatch(/if \(!isHelpRequest && !knownGpCaseId\) \{/);
+  it('only ignores a message when the number is NOT a known GP with a case, and NOT a consult lead', () => {
+    // Owner rule 2026-09-30 widened the gate: a Meta-ads consult lead who writes
+    // back is a known person too (and their automated notes stop right there).
+    expect(webhookBody).toMatch(/if \(!isHelpRequest && !knownGpCaseId && !consultLeadReply\) \{/);
   });
 
-  it('resolves whether the sender is a known GP BEFORE that gate', () => {
+  it('resolves whether the sender is a known GP — or a consult lead — BEFORE that gate', () => {
     const resolvedAt = webhookBody.indexOf('knownGpCaseId = dtCaseId');
-    const gateAt = webhookBody.indexOf('if (!isHelpRequest && !knownGpCaseId)');
+    const leadResolvedAt = webhookBody.indexOf('const consultLeadReply = await stopConsultChaseOnReply(fromPhone)');
+    const gateAt = webhookBody.indexOf('if (!isHelpRequest && !knownGpCaseId && !consultLeadReply)');
     expect(resolvedAt, 'knownGpCaseId must be assigned').toBeGreaterThan(-1);
+    expect(leadResolvedAt, 'consultLeadReply must be resolved').toBeGreaterThan(-1);
     expect(gateAt).toBeGreaterThan(resolvedAt);
+    expect(gateAt).toBeGreaterThan(leadResolvedAt);
   });
 
   it('marks a known GP\'s non-question message as a message, not a help request', () => {
@@ -65,19 +70,22 @@ describe('the classifier may not decide whether a human sees a known doctor', ()
 // storage block is inside `if (isSupabaseDbConfigured())`), so this pins the logic while
 // the assertions above pin the wiring.
 describe('the rule, as a table', () => {
-  function reaches(isHelpRequest, knownGpCaseId) {
-    return !(!isHelpRequest && !knownGpCaseId);
+  function reaches(isHelpRequest, knownGpCaseId, consultLeadReply) {
+    return !(!isHelpRequest && !knownGpCaseId && !consultLeadReply);
   }
   it('a question from anyone reaches a human', () => {
-    expect(reaches(true, null)).toBe(true);
-    expect(reaches(true, 'case-1')).toBe(true);
+    expect(reaches(true, null, null)).toBe(true);
+    expect(reaches(true, 'case-1', null)).toBe(true);
   });
   it('a status update from a doctor we know reaches a human', () => {
     // The exact case that failed: "I have sent back the SPPA-00 form, signed".
-    expect(reaches(false, 'case-1')).toBe(true);
+    expect(reaches(false, 'case-1', null)).toBe(true);
+  });
+  it('a reply from a consult lead ("ok thanks") reaches a human — they just stopped the automated notes', () => {
+    expect(reaches(false, null, { id: 'lead-1' })).toBe(true);
   });
   it('small talk from an unknown number is still ignored', () => {
-    expect(reaches(false, null)).toBe(false);
+    expect(reaches(false, null, null)).toBe(false);
   });
 });
 
