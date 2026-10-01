@@ -2874,9 +2874,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html+='<div style="font-size:12px;color:var(--muted);margin-top:4px;white-space:pre-wrap;line-height:1.5;">'+esc(m.team_instructions||m.detail||'')+'</div>'+renderS80SubItems(m);
         if(up&&up.status==='under_review'){
           html+='<div style="font-size:12px;margin-top:6px;color:#b45309;">⏳ '+(isPr?(up.uploaded_by==='admin_upload'?'Filed by hand: ':'Practice sent: '):'GP uploaded: ')+esc(up.file_name||'file')+(Array.isArray(up.other_attachments)&&up.other_attachments.length?' <span style="color:var(--muted);">(their email also had: '+esc(up.other_attachments.join(', '))+')</span>':'')+'</div>';
+          // The practice typed the statement into the email itself (no file): show the text here.
+          var upStmt=isPr&&up.kind==='email_statement';
+          if(upStmt) html+='<details open style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;color:var(--muted);">✉️ The statement is in the email itself, no file attached'+(up.received_at?' · received '+esc(fmtD(up.received_at)):'')+'</summary><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.5;color:var(--ink);background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;max-height:260px;overflow:auto;">'+esc(up.statement_text||'')+'</pre></details>';
           if(isPr&&up.detected_from){
             var df=up.detected_from;
-            html+='<div style="font-size:12px;margin-top:4px;color:var(--muted);">📨 Found in an email from '+esc(df.sender||'the practice')+(df.subject?' · “'+esc(df.subject)+'”':'')+(df.reason==='ai_match'?' · recognised by the AI check':df.reason==='filename'?' · matched by file name':' · the one file we asked them for')+'</div>';
+            html+='<div style="font-size:12px;margin-top:4px;color:var(--muted);">📨 Found in an email from '+esc(df.sender||'the practice')+(df.subject?' · “'+esc(df.subject)+'”':'')+(df.reason==='ai_match'?' · recognised by the AI check':df.reason==='filename'?' · matched by file name':df.reason==='email_body'?' · typed into the email, read by the AI check':df.reason==='rso_pick'?' · chosen by the team as the statement':' · the one file we asked them for')+'</div>';
             if(up.sender_verified===false) html+='<div style="font-size:12px;margin-top:4px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;font-weight:600;">⚠ The sender is not the practice contact on file. Check it really is the right document before accepting.</div>';
           }
           html+=s80VerdictChip(m);
@@ -2884,7 +2887,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           // the document is already with AHPRA, so accepting here must not send it a second time.
           var upDirect=!!(isPr&&up.delivered_to_officer);
           if(upDirect) html+='<div style="font-size:12px;margin-top:6px;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:6px 9px;font-weight:600;">✅ The practice emailed this straight to '+esc(up.delivered_to_officer_email||'the AHPRA officer')+' and copied us. It is already with AHPRA, so accept it here without forwarding it again.</div>';
-          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener"'+(/\.docx?$/i.test(up.file_name||'')||/word/i.test(up.mime_type||'')?' data-s80-viewfile="'+esc(t.id)+'" data-s80-fname="'+esc(up.file_name||'document')+'"':'')+' style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">View file</a>'
+          html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><a href="/api/admin/ahpra/item/file?task_id='+esc(t.id)+'" target="_blank" rel="noopener"'+(!upStmt&&(/\.docx?$/i.test(up.file_name||'')||/word/i.test(up.mime_type||''))?' data-s80-viewfile="'+esc(t.id)+'" data-s80-fname="'+esc(up.file_name||'document')+'"':'')+' style="background:#f1f5f9;color:#334155;border:1px solid var(--border);padding:7px 13px;border-radius:8px;font-weight:600;font-size:13px;text-decoration:none;">'+(upStmt?'View statement':'View file')+'</a>'
             +(upDirect
               ?'<button type="button" data-s80-review="'+esc(t.id)+'" data-s80-decision="approve" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept (already with AHPRA)</button>'
               :'<button type="button" data-s80-officer-accept="'+esc(t.id)+'" data-s80-case="'+esc(c.id)+'" style="background:#16a34a;color:#fff;border:none;padding:7px 13px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Accept &amp; email AHPRA</button>')
@@ -2897,6 +2900,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='<div style="font-size:12px;margin-top:6px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:6px 9px;">📤 Request emailed to '+esc(pr.to||'the practice')+' on '+esc(fmtD(pr.sent_at))+(pr.send_count>1?' ('+pr.send_count+' times)':'')+'. Waiting on the practice to reply with the document. When they reply to that email, the attachment lands here automatically.</div>';
           } else {
             html+='<div style="font-size:12px;margin-top:6px;color:var(--muted);">Not yet requested from the practice.</div>';
+          }
+          // The practice wrote back without a file and the AI did not read the text as the
+          // statement: show what they said, with one click to use it as the statement anyway.
+          var prr=m.practice_reply||null;
+          if(prr&&prr.excerpt){
+            html+='<div style="font-size:12px;margin-top:6px;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 9px;">✉️ '+esc(prr.sender||'The practice')+' replied'+(prr.received_at?' on '+esc(fmtD(prr.received_at)):'')+(prr.officer_copied?' (sent to '+esc(prr.officer_email||'the AHPRA officer')+', us copied)':'')+', but the AI did not read it as the requested statement'+(prr.ai_check&&prr.ai_check.summary?' ('+esc(prr.ai_check.summary)+')':'')+':'
+              +'<div style="margin-top:4px;color:var(--ink);white-space:pre-wrap;">“'+esc(prr.excerpt)+'”</div>'
+              +(prr.message_id?'<div style="margin-top:6px;"><button type="button" data-s80-practice-usestatement="'+esc(t.id)+'" data-s80-msg="'+esc(prr.message_id)+'" style="background:#16a34a;color:#fff;border:none;padding:5px 11px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;">Use this email as the statement</button></div>':'')
+              +'</div>';
           }
           html+='<div data-s80-practice-docs="'+esc(t.id)+'" style="margin-top:6px;"></div>';
           html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
@@ -7130,6 +7142,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(s80Book){ e.preventDefault();
         scheduleCallFromTask(s80Book.getAttribute("data-s80-book-call"), s80Book.getAttribute("data-s80-case"), 'ahpra'); return;
       }
+      var s80UseStmt=e.target.closest("[data-s80-practice-usestatement]");
+      if(s80UseStmt){ e.preventDefault();
+        var ustid=s80UseStmt.getAttribute("data-s80-practice-usestatement"), usmid=s80UseStmt.getAttribute("data-s80-msg");
+        s80UseStmt.disabled=true;
+        try{ var ur=await fetch('/api/admin/ahpra/item/practice-statement',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({task_id:ustid,message_id:usmid})}); var ud=await ur.json().catch(()=>({})); if(!ud.ok){alert(ud.message||'Failed.');s80UseStmt.disabled=false;return;} }catch(err){alert('Failed.');s80UseStmt.disabled=false;return;}
+        await loadAll(true); return;
+      }
       var s80Rev=e.target.closest("[data-s80-review]");
       if(s80Rev){ e.preventDefault();
         var vid=s80Rev.getAttribute("data-s80-review"), dec=s80Rev.getAttribute("data-s80-decision"), reason='';
@@ -7155,7 +7174,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-oreply-to="'+esc(atid)+'" value="'+esc(dr.to||'')+'" style="width:100%"/></div>'
             +'<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-oreply-cc="'+esc(atid)+'" value="'+esc(dr.cc||'')+'" style="width:100%"/></div>'
             +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-oreply-subject="'+esc(atid)+'" value="'+esc(dr.subject||'')+'" style="width:100%"/></div>'
-            +'<div style="font-size:11px;color:var(--muted);margin:4px 0;">'+(dr.mode==='reply'?(dr.threaded?'Sent as a reply on the original AHPRA thread':'Sent as a new email (the original AHPRA email was not found)'):'📎 '+esc(dr.file_name||'the uploaded document')+' will be attached · sent as a reply on the AHPRA thread')+'</div>'
+            +'<div style="font-size:11px;color:var(--muted);margin:4px 0;">'+(dr.mode==='reply'?(dr.threaded?'Sent as a reply on the original AHPRA thread':'Sent as a new email (the original AHPRA email was not found)'):dr.statement?'✉️ The practice’s statement is written into the email body (nothing to attach) · sent as a reply on the AHPRA thread':'📎 '+esc(dr.file_name||'the uploaded document')+' will be attached · sent as a reply on the AHPRA thread')+'</div>'
             +'<div data-oreply-body="'+esc(atid)+'" contenteditable="true" style="min-height:120px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff;font-size:13px;">'+(dr.bodyHtml||'')+'</div>'
             +'<div data-oreply-err="'+esc(atid)+'" style="display:none;margin-top:8px;font-size:12px;font-weight:600;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:6px 9px;"></div>'
             +'<div style="margin-top:8px;text-align:right;"><button type="button" data-oreply-send="'+esc(atid)+'" style="background:#16a34a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">Send to AHPRA officer</button></div>';

@@ -103,11 +103,14 @@ describe('server.js + admin.html wiring', () => {
     expect(src).toMatch(/directToOfficer: pdDirect, officerName: pdOfficerName, officerEmail: pdOfficerEmail, ccEmail: pdCcEmail \}/);
     expect(src).toMatch(/direct_to_officer: pdDirect, officer_email: pdOfficerEmail, officer_name: pdOfficerName, cc_email: pdCcEmail,/);
   });
-  it('both inbound filing paths recognise a practice email that went to the officer with us copied', () => {
+  it('all three inbound filing paths recognise a practice email that went to the officer with us copied', () => {
+    // Reply attachment, fresh email with attachment, and (since 2026-10-02) a statement typed
+    // into the email body — see tests/ahpra-email-statement-to-officer.test.js.
     const hits = src.match(/delivered_to_officer = true;/g) || [];
-    expect(hits.length).toBe(2);
+    expect(hits.length).toBe(3);
     expect(src).toMatch(/ahpraS80\.officerCopiedOnEmail\(\{ to: emailMeta\.to, cc: emailMeta\.cc \}, _dpOfficerEmail\)/);
     expect(src).toMatch(/ahpraS80\.officerCopiedOnEmail\(\{ recipient: _afMsg\.recipient, cc: _afMsg\.cc \}, _afOfficerEmail\)/);
+    expect(src).toMatch(/ahpraS80\.officerCopiedOnEmail\(\{ to: emailMeta\.to, cc: emailMeta\.cc, recipient: emailMeta\.recipient \}, officerEmail\)/);
     expect(src).toMatch(/Practice sent the AHPRA document straight to the officer and copied us/);
   });
   it('the card accepts an already-delivered file without emailing AHPRA again, and explains the direct route on the composer', () => {
