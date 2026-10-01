@@ -153,16 +153,33 @@
   }
   // Deep-link: #candidates | #jobs | #practices | #registration, plus drill-ins
   // #candidate=<id> | #board=<jobId> | #practice=<id>. Returns true if handled.
+  // #candidate=<id>&focus=<register|docs> (the review popup's "Review now")
+  // opens the profile and scrolls to + highlights that section.
+  function parseCandidateHash(h) {
+    var parts = String(h || '').replace(/^candidate=/, '').split('&');
+    var out = { id: '', focus: '' };
+    try { out.id = decodeURIComponent(parts[0] || ''); } catch (e) { out.id = parts[0] || ''; }
+    for (var i = 1; i < parts.length; i++) {
+      var kv = parts[i].split('=');
+      if (kv[0] === 'focus') { try { out.focus = decodeURIComponent(kv[1] || ''); } catch (e2) { out.focus = kv[1] || ''; } }
+    }
+    out.focus = /^[a-z_]{1,32}$/.test(out.focus) ? out.focus : '';
+    return out;
+  }
   function applyHash() {
     var h = ('' + (location.hash || '')).replace(/^#/, '');
     if (!h) return false;
-    function drill(tab, opener, arg) {
+    function drill(tab, opener, arg, opts) {
       setActiveTab(tab, true);
       var fn = window[opener];
-      if (typeof fn === 'function') { try { fn(arg); } catch (e) { console.error('[ATS] deep-link failed', opener, e); } }
+      if (typeof fn === 'function') { try { if (opts) fn(arg, opts); else fn(arg); } catch (e) { console.error('[ATS] deep-link failed', opener, e); } }
       if (window.scrollTo) window.scrollTo({ top: 0 });
     }
-    if (h.indexOf('candidate=') === 0) { drill('candidates', 'atsOpenCandidate', h.split('=')[1]); return true; }
+    if (h.indexOf('candidate=') === 0) {
+      var ch = parseCandidateHash(h);
+      drill('candidates', 'atsOpenCandidate', ch.id, ch.focus ? { focus: ch.focus } : null);
+      return true;
+    }
     if (h.indexOf('board=') === 0) { drill('jobs', 'atsOpenJobBoard', h.split('=')[1]); return true; }
     if (h.indexOf('practice=') === 0) { drill('practices', 'atsOpenPractice', h.split('=')[1]); return true; }
     if (h === 'meetings') { setActiveTab('meetings', false); return true; }
@@ -214,6 +231,8 @@
     applyHash();
   }
   window.ATS.showMaster = showMaster;
+  window.ATS.applyHash = applyHash;
+  window.ATS.parseCandidateHash = parseCandidateHash;
   // Final-review fix (Finding 3): exposes the skipLoad-capable tab switch so a
   // drill-in opener (e.g. the Matching board's onOpenPractice/onOpenCandidate/
   // onOpenJob) can activate the tab WITHOUT triggering its list loader — the

@@ -275,6 +275,7 @@ const careerIntro = require('./lib/career-intro.js');
 const practiceSubmissionWa = require('./lib/practice-submission-whatsapp.js');
 const registerVerification = require('./lib/register-verification.js');
 const registerLookup = require('./lib/register-lookup.js');
+const ceoReviewQueue = require('./lib/ceo-review-queue.js');
 const { identityRetentionDue } = require('./lib/identity-retention.js');
 const REGISTRATION_HUB_EMAIL = String(process.env.REGISTRATION_HUB_EMAIL || '').trim().toLowerCase();
 const GP_OWNER_EMAIL = 'hello@mygplink.com.au';
@@ -37821,6 +37822,56 @@ async function atsCandidateDocReviews(caseId) {
       created_at: t.created_at || null
     };
   });
+}
+
+// CEO review queue (owner 2026-10-01): everything waiting on the CEO — register
+// numbers the automatic check could not confirm, register mismatches, and
+// documents the AI could not decide — in ONE list. Drives the review popup,
+// the Candidates-tab "!", the profile banner and the candidate row chips
+// (lib/ceo-review-queue.js holds the pure eligibility rules, including the
+// archived / test-account exclusions). Four reads at most: flagged profiles,
+// open doc tasks, their cases and the doc owners' profiles — every id list
+// chunked. Only real user_profiles columns are selected: one unknown column
+// 400s the whole read and the queue would silently look empty.
+var CEO_REVIEW_PROFILE_SELECT = 'user_id,email,first_name,last_name,register_body,register_number,register_status,register_auto_checked_at,register_verified_at,account_status,archived_at,created_at,updated_at';
+async function loadCeoReviewQueue() {
+  var empty = ceoReviewQueue.buildReviewQueue({});
+  if (!isSupabaseDbConfigured()) return Object.assign({ degraded: true }, empty);
+  var profRes = await supabaseDbRequest('user_profiles',
+    'select=' + CEO_REVIEW_PROFILE_SELECT +
+    '&register_status=in.(pending_verification,mismatch)' +
+    '&limit=2000');
+  var degraded = !profRes.ok;
+  var profiles = (profRes.ok && Array.isArray(profRes.data)) ? profRes.data.slice() : [];
+  var docRes = await supabaseDbRequest('registration_tasks',
+    'select=id,case_id,created_at&' + ATS_DOC_REVIEW_OPEN_FILTER + '&limit=2000');
+  if (!docRes.ok) degraded = true;
+  var docTasks = (docRes.ok && Array.isArray(docRes.data)) ? docRes.data : [];
+  var flaggedUids = profiles.map(function (p) { return p && p.user_id; }).filter(Boolean);
+  var docCaseIds = docTasks.map(function (t) { return t && t.case_id; }).filter(Boolean);
+  var cases = [];
+  if (flaggedUids.length) {
+    cases = cases.concat(await supabaseDbRequestByIds('registration_cases', flaggedUids, function (inList) {
+      return 'select=id,user_id,status&user_id=in.(' + inList + ')&limit=2000';
+    }));
+  }
+  if (docCaseIds.length) {
+    cases = cases.concat(await supabaseDbRequestByIds('registration_cases', docCaseIds, function (inList) {
+      return 'select=id,user_id,status&id=in.(' + inList + ')&limit=2000';
+    }));
+  }
+  // Names + archived state for doctors who only have documents waiting.
+  var haveProf = {};
+  profiles.forEach(function (p) { if (p && p.user_id) haveProf[p.user_id] = true; });
+  var missingUids = cases.map(function (c) { return c && c.user_id; }).filter(function (u) { return u && !haveProf[u]; });
+  if (missingUids.length) {
+    profiles = profiles.concat(await supabaseDbRequestByIds('user_profiles', missingUids, function (inList) {
+      return 'select=user_id,email,first_name,last_name,account_status,archived_at&user_id=in.(' + inList + ')&limit=2000';
+    }));
+  }
+  var built = ceoReviewQueue.buildReviewQueue({ profiles: profiles, docTasks: docTasks, cases: cases, nowMs: Date.now() });
+  if (degraded) built.degraded = true;
+  return built;
 }
 
 function atsNowIso() { return new Date().toISOString(); }
@@ -81935,6 +81986,24 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ---- Candidates ----------------------------------------------------------
+  // GET /api/ceo/review-queue — everything waiting on the CEO (owner
+  // 2026-10-01: "I should always get a popup when something needs reviewing
+  // with a CTA that takes me to the action"). CEO-only, like the dashboard
+  // feed that used to carry the doc-review count; never cached (sendJson is
+  // no-store and the client fetches it fresh, not through SWR).
+  if (pathname === '/api/ceo/review-queue' && req.method === 'GET') {
+    var ctxRQ = requireCeoSession(req, res); if (!ctxRQ) return;
+    var rq = await loadCeoReviewQueue();
+    sendJson(res, 200, {
+      ok: true,
+      items: rq.items,
+      counts: rq.counts,
+      degraded: !!rq.degraded,
+      generated_at: new Date().toISOString()
+    });
+    return;
+  }
+
   if (pathname === '/api/ceo/candidates' && req.method === 'GET') {
     var ctxCL = requireAtsSession(req, res); if (!ctxCL) return;
     var clQ = (url.searchParams.get('q') || '').toLowerCase();
@@ -82115,6 +82184,19 @@ Return ONLY valid JSON with no markdown formatting:
     });
     rows.forEach(function (r) {
       r.doc_reviews_pending = (r.case_id && drByCase[r.case_id]) || 0;
+    });
+    // CEO review queue (owner 2026-10-01): "! GMC check" / "! Register
+    // mismatch" row chips. Built by the SAME loader as
+    // /api/ceo/review-queue (lib/ceo-review-queue.js eligibility rules), so a
+    // row chip and the review popup can never disagree. Merged by user_id.
+    var rqFlags = {};
+    try {
+      rqFlags = ceoReviewQueue.flagsByUser((await loadCeoReviewQueue()).items);
+    } catch (rqErr) { console.error('[ceo candidates] review-queue merge failed:', rqErr && rqErr.message); }
+    rows.forEach(function (r) {
+      var f = (r.user_id && rqFlags[r.user_id]) || null;
+      r.review_register = f ? f.register : '';
+      r.review_register_label = f ? f.register_label : '';
     });
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
     // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.

@@ -897,3 +897,44 @@ textarea.ats-modal-input { resize:vertical; }
 /* Matching board: "Run AI ranking" offered inline next to live pipeline nodes
    (a GP/position with something in flight but no ranking yet). */
 .ats-mb-runbtn--inline { align-self: center; margin-left: 8px; white-space: nowrap; }
+
+/* ---------- CEO review queue (owner 2026-10-01) ----------
+   "I should always get a popup when something needs reviewing with a CTA that
+   takes me to the action as well as it being visible on her profile and tab
+   as an exclamation mark icon." */
+/* Profile banner — what is waiting on the CEO for this doctor. */
+.ats-review-banner { margin:0 0 16px; padding:14px 16px; border:1px solid rgba(239,68,68,0.35); border-radius:var(--ats-radius-lg,14px); background:linear-gradient(180deg,rgba(239,68,68,0.10),rgba(239,68,68,0.04)); }
+.ats-review-banner-head { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:800; color:var(--ats-red,#ef4444); margin-bottom:8px; }
+.ats-review-banner-row { display:flex; align-items:center; gap:12px; padding:9px 0; border-top:1px solid rgba(239,68,68,0.15); }
+.ats-review-banner-row:first-of-type { border-top:none; }
+.ats-review-banner-title { font-size:13px; font-weight:700; color:var(--ats-text,#e2e8f0); }
+.ats-review-banner-detail { font-size:12px; color:var(--ats-muted,rgba(255,255,255,0.5)); margin-top:2px; overflow-wrap:anywhere; }
+.ats-register-alert { vertical-align:1px; margin-right:4px; }
+@media (max-width: 600px) {
+  .ats-review-banner-row { flex-wrap:wrap; }
+  .ats-review-banner-row .ats-review-jump { width:100%; }
+}
+/* "Review now" / "Go to it" lands here: a short red pulse around the section. */
+.ats-focus-pulse { outline:2px solid var(--ats-red,#ef4444); outline-offset:3px; border-radius:10px; animation:atsFocusPulse 1s ease-out 2; }
+@keyframes atsFocusPulse { 0%,100% { box-shadow:0 0 0 0 rgba(239,68,68,0); } 50% { box-shadow:0 0 0 8px rgba(239,68,68,0.18); } }
+@media (prefers-reduced-motion: reduce) { .ats-focus-pulse { animation:none; } }
+
+/* "Needs your review" popup — rendered in the dashboard's #modalBox, which
+   sits outside .ats-scope, so it uses the page's own :root tokens. */
+#modalBox:has(.rq-modal) { max-width:560px; }
+.rq-title { display:flex; align-items:center; gap:9px; margin-bottom:6px; }
+.rq-title-dot { display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:100px; background:var(--red,#ef4444); color:#fff; font-size:12px; font-weight:800; }
+.rq-intro { font-size:12.5px; color:var(--text-muted,rgba(255,255,255,0.5)); margin-bottom:12px; }
+.rq-list { display:flex; flex-direction:column; gap:8px; }
+.rq-item { display:flex; align-items:flex-start; gap:12px; padding:12px; border:1px solid rgba(239,68,68,0.25); border-radius:10px; background:var(--red-dim,rgba(239,68,68,0.12)); }
+.rq-item-ico { flex-shrink:0; width:22px; height:22px; border-radius:100px; display:flex; align-items:center; justify-content:center; background:var(--red,#ef4444); color:#fff; font-size:12px; font-weight:800; margin-top:1px; }
+.rq-item-body { flex:1; min-width:0; }
+.rq-item-name { font-size:13.5px; font-weight:700; color:var(--text,#e2e8f0); }
+.rq-item-title { font-size:12.5px; font-weight:700; color:var(--red,#ef4444); margin-top:2px; }
+.rq-item-detail { font-size:12px; color:var(--text-muted,rgba(255,255,255,0.5)); margin-top:2px; overflow-wrap:anywhere; }
+.rq-item-when { font-size:11px; color:var(--text-dim,rgba(255,255,255,0.3)); margin-top:3px; }
+.rq-item .rq-review-now { flex-shrink:0; align-self:center; }
+@media (max-width: 520px) {
+  .rq-item { flex-wrap:wrap; }
+  .rq-item .rq-review-now { width:100%; justify-content:center; }
+}

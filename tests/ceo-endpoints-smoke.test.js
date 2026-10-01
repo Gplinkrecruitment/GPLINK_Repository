@@ -145,6 +145,20 @@ describe('CEO endpoints runtime smoke (no 500 / correct shape)', () => {
     }
   });
 
+  it('GET /api/ceo/review-queue -> 200 with items/counts (degrades, never 500s)', async () => {
+    const cookie = superCookie();
+    const r = await getWithHost('/api/ceo/review-queue', { host: SUPER_HOST, cookie });
+    expect(r.status).not.toBe(500);
+    expect(r.raw).not.toMatch(/Internal Server Error/i);
+    expect(r.status).toBe(200);
+    const body = parseBody(r.raw);
+    expect(body).toBeTypeOf('object');
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.items), 'items should be an array').toBe(true);
+    expect(body.counts).toHaveProperty('total');
+    expect(body).toHaveProperty('generated_at');
+  });
+
   it('GET /api/ceo/rsos -> 200 with rsos array', async () => {
     const cookie = superCookie();
     const r = await getWithHost('/api/ceo/rsos', { host: SUPER_HOST, cookie });

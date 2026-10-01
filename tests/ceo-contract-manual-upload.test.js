@@ -608,9 +608,9 @@ describe('CEO manual contract upload — dashboard wiring (source assertions)', 
   });
 
   it('bumps the candidates, contracts and CSS cache-busters (CSS must be ≥ the candidates JS)', () => {
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20260914c');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261001a');
     expect(dash).toContain('/js/ceo-ats-contracts.js?v=20260914b');
-    expect(dash).toContain('/css/ceo-ats.css?v=20260914c');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261001a');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260910a');
     expect(dash).not.toContain('/js/ceo-ats-contracts.js?v=20260805d');
   });

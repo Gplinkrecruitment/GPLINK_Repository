@@ -739,16 +739,93 @@
         (c.doc_reviews_pending > 0
           ? '<span class="ats-pill red" title="Documents waiting on a manual review — open this doctor to review them">Docs · ' + c.doc_reviews_pending + ' to review</span>'
           : '') +
+        reviewRowChip(c) +
       '</div>' +
       '</div>' +
       strips +
     '</div>';
   }
 
+  // Owner 2026-10-01: a register number waiting on the CEO must be visible on
+  // the candidate row too. review_register comes from /api/ceo/candidates,
+  // built by the same rules as the review popup (lib/ceo-review-queue.js), so
+  // the chip and the popup always agree.
+  function reviewRowChip(c) {
+    if (c.review_register === 'pending_verification') {
+      return '<span class="ats-pill red" title="Register number waiting on your check — open this doctor to review it">! ' + ATS.esc(c.review_register_label || 'Register') + ' check</span>';
+    }
+    if (c.review_register === 'mismatch') {
+      return '<span class="ats-pill red" title="The register number did not match the public register — follow up with the doctor">! Register mismatch</span>';
+    }
+    return '';
+  }
+
+  /* =====================================================================
+   *  REVIEW QUEUE — profile banner + "Review now" focus (owner 2026-10-01)
+   * ===================================================================== */
+  var REVIEW_FOCUS_TARGETS = { register: '#ats-register-row', docs: '#ats-cand-doc-reviews' };
+  function reviewItemsFor(c) {
+    if (!c || !window.CeoReviewQueue || typeof window.CeoReviewQueue.itemsFor !== 'function') return [];
+    return window.CeoReviewQueue.itemsFor(c.user_id, c.case_id) || [];
+  }
+  function reviewBannerInner(c) {
+    var items = reviewItemsFor(c);
+    if (!items.length) return '';
+    var rows = items.map(function (it) {
+      return '<div class="ats-review-banner-row">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="ats-review-banner-title">' + ATS.esc(it.title || '') + '</div>' +
+          '<div class="ats-review-banner-detail">' + ATS.esc(it.detail || '') + '</div>' +
+        '</div>' +
+        (it.focus ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-review-jump" data-focus="' + ATS.escAttr(it.focus) + '">Go to it</button>' : '') +
+      '</div>';
+    }).join('');
+    return '<div class="ats-review-banner" role="alert">' +
+      '<div class="ats-review-banner-head"><span class="ats-alert-dot" data-count="' + items.length + '">!</span> Needs your review' +
+        (items.length > 1 ? ' <span class="ats-pill red" style="margin-left:6px">' + items.length + '</span>' : '') + '</div>' +
+      rows +
+    '</div>';
+  }
+  function renderReviewBanner(c) {
+    var slot = document.getElementById('ats-review-banner-slot');
+    if (slot) slot.innerHTML = reviewBannerInner(c);
+  }
+  // Scroll to the section a review item points at and pulse it for ~2s.
+  function focusReviewSection(focus) {
+    var sel = REVIEW_FOCUS_TARGETS[focus] || '';
+    var el = sel ? document.querySelector(sel) : null;
+    if (!el) {
+      var banner = document.querySelector('#ats-review-banner-slot .ats-review-banner');
+      el = banner || document.querySelector('.ats-profile-hero');
+    }
+    if (!el) return false;
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) { /* ignore */ } }
+    el.classList.remove('ats-focus-pulse');
+    void el.offsetWidth; // restart the animation on a repeat jump
+    el.classList.add('ats-focus-pulse');
+    setTimeout(function () { el.classList.remove('ats-focus-pulse'); }, 2200);
+    return true;
+  }
+  window.atsFocusReviewSection = focusReviewSection;
+  // The queue refreshes on its own (boot, every 30s, after a review action):
+  // keep an open profile's banner in step with it.
+  window.addEventListener('gp:review-queue', function () {
+    if (currentCandidate && document.getElementById('ats-review-banner-slot')) renderReviewBanner(currentCandidate);
+  });
+  function refreshReviewQueue() {
+    if (window.CeoReviewQueue && typeof window.CeoReviewQueue.refresh === 'function') {
+      try { window.CeoReviewQueue.refresh(); } catch (e) { /* ignore */ }
+    }
+  }
+
   /* =====================================================================
    *  DETAIL VIEW
    * ===================================================================== */
-  window.atsOpenCandidate = function (caseId) {
+  // opts.focus ('register' | 'docs') — set by the review popup's deep link
+  // (#candidate=<id>&focus=<x>): after the profile renders, scroll to that
+  // section and highlight it. Every existing caller passes caseId only.
+  window.atsOpenCandidate = function (caseId, opts) {
+    var focus = (opts && opts.focus) || '';
     var el = panel();
     if (!el) return;
     el.innerHTML = ATS.loadingHtml('Loading candidate…');
@@ -766,7 +843,9 @@
       currentCandidate = d.candidate;
       host.innerHTML = detailHtml(d.candidate);
       wireDetailEvents(host, d.candidate);
-      if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (focus) {
+        setTimeout(function () { if (!focusReviewSection(focus) && window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' }); }, 60);
+      } else if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     ATS.api('/api/ceo/candidate?case_id=' + encodeURIComponent(caseId)).then(function (d) {
       if (d && d.ok && d.candidate) { render(d); return; }
@@ -799,6 +878,9 @@
             '<button class="ats-btn ats-btn-primary ats-btn-sm" id="ats-cand-schedule">＋ Schedule call</button>') +
         '</div>' +
       '</div>' +
+      // Owner 2026-10-01: what is waiting on the CEO for THIS doctor, at the
+      // top of the profile, each with a jump to the section that resolves it.
+      '<div id="ats-review-banner-slot">' + reviewBannerInner(c) + '</div>' +
       '<div class="ats-cand-profile-grid">' +
         '<div>' +
           '<div class="ats-card" style="margin-bottom:16px">' + profileCardInner(c) + '</div>' +
@@ -2050,6 +2132,10 @@
     btn.disabled = true;
     if (action === 'auto') btn.textContent = 'Checking…';
     ATS.api('/api/ats/candidate/register-verification', { method: 'POST', body: { userId: userId, action: action } }).then(function (res) {
+      // Any outcome can change the review queue (verified clears it; an
+      // inconclusive auto-check stamps register_auto_checked_at) — refresh
+      // the popup list, the tab "!", the row chips and this profile's banner.
+      if (res && res.ok) refreshReviewQueue();
       if (res && res.ok) {
         if (res.register_status && c.onboarding) c.onboarding.registerStatus = res.register_status;
         var row = document.getElementById('ats-register-row');
@@ -2096,9 +2182,15 @@
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="verified"' + uid + '>&#10003; Verified</button>' +
         (status === 'mismatch' ? '' : '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-verify" data-action="mismatch"' + uid + '>Mismatch</button>');
     }
+    // Owner 2026-10-01: a number still waiting on a person gets the same red
+    // "!" as the Candidates tab, right next to the label.
+    var needsReview = status === 'pending_verification' || status === 'mismatch';
+    var bang = needsReview
+      ? '<span class="ats-alert-dot ats-register-alert" data-count="1" title="' + (status === 'mismatch' ? 'Register mismatch — follow up with the doctor' : 'Needs your review') + '">!</span> '
+      : '';
     return '<div class="ats-doc-line" id="ats-register-row">' +
       '<div class="ats-doc-ico ' + (status === 'verified' ? 'yes' : 'no') + '">' + (status === 'verified' ? '✓' : '○') + '</div>' +
-      '<div style="flex:1"><div class="dl-name">' + ATS.esc(label) + ' register: ' + ATS.esc(ob.registerNumber) + '</div>' +
+      '<div style="flex:1"><div class="dl-name">' + bang + ATS.esc(label) + ' register: ' + ATS.esc(ob.registerNumber) + '</div>' +
       '<div class="dl-sub">Check the number and name on the public register, then record the outcome.</div></div>' +
       pill +
       (ob.registerSearchUrl ? '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + ATS.escAttr(ob.registerSearchUrl) + '" target="_blank" rel="noopener">Open register</a>' : '') +
@@ -2172,6 +2264,8 @@
     }
     window.ceoReviewFlaggedDoc(taskId, {
       task: task,
+      // The review queue (popup list, tab "!", this banner) refreshes via
+      // the decision path's own refreshDashboard() call.
       onDone: function () { if (c && c.case_id) window.atsOpenCandidate(c.case_id); }
     });
   }
@@ -2532,6 +2626,9 @@
       // Record the outcome of the staff check against the public register.
       var regBtn = e.target.closest('.ats-register-verify');
       if (regBtn) { recordRegisterVerification(regBtn, c); return; }
+      // Review banner: jump to (and highlight) the section that resolves it.
+      var jumpBtn = e.target.closest('.ats-review-jump');
+      if (jumpBtn) { focusReviewSection(jumpBtn.getAttribute('data-focus')); return; }
     });
     // Render slot pickers for any application that is awaiting a GP slot pick.
     var pickEls = host.querySelectorAll('.ats-app-slot-pick[data-slot-pick-id]');
