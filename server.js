@@ -80429,8 +80429,57 @@ Return ONLY valid JSON with no markdown formatting:
     try { rvBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const rvUserId = String(rvBody && rvBody.userId || '').trim();
     const rvAction = String(rvBody && rvBody.action || '').trim();
-    if (!rvUserId || (rvAction !== 'verified' && rvAction !== 'mismatch' && rvAction !== 'auto')) {
-      sendJson(res, 400, { ok: false, message: 'userId and action (verified | mismatch | auto) are required.' });
+    if (!rvUserId || (rvAction !== 'verified' && rvAction !== 'mismatch' && rvAction !== 'auto' && rvAction !== 'update_number')) {
+      sendJson(res, 400, { ok: false, message: 'userId and action (verified | mismatch | auto | update_number) are required.' });
+      return;
+    }
+    // Owner 2026-10-12: staff can correct the number itself (a doctor typed it
+    // wrong, or sent the right one later). A new number throws away the old
+    // verdict entirely — same reset the onboarding precheck stamps — then the
+    // automated check runs on it straight away, so a UK number usually comes
+    // back verified with no extra click.
+    if (rvAction === 'update_number') {
+      const unProfRes = await supabaseDbRequest('user_profiles', `select=register_body,register_number,register_status,qualification_country,registration_country&user_id=eq.${encodeURIComponent(rvUserId)}&limit=1`);
+      const unProf = (unProfRes.ok && Array.isArray(unProfRes.data) && unProfRes.data[0]) ? unProfRes.data[0] : null;
+      if (!unProf) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
+      const unRegBody = unProf.register_body
+        || registerVerification.registerBodyForCountry(unProf.qualification_country)
+        || registerVerification.registerBodyForCountry(unProf.registration_country);
+      const unCheck = registerVerification.validateRegisterDetails(unRegBody, rvBody && rvBody.registerNumber);
+      if (!unCheck.ok) { sendJson(res, 422, { ok: false, message: unCheck.message }); return; }
+      if (unCheck.number === unProf.register_number && unCheck.body === unProf.register_body) {
+        sendJson(res, 200, { ok: true, unchanged: true, register_body: unCheck.body, register_number: unCheck.number, register_status: unProf.register_status || 'pending_verification' });
+        return;
+      }
+      const unStamp = await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(rvUserId)}`, {
+        method: 'PATCH',
+        body: { register_body: unCheck.body, register_number: unCheck.number, register_status: 'pending_verification', register_verified_at: null, register_verified_by: null, register_name: null, register_auto_checked_at: null }
+      });
+      if (!unStamp.ok) { sendJson(res, 502, { ok: false, message: 'Could not save the registration number.' }); return; }
+      try {
+        const unCase = await _ensureRegCase(rvUserId);
+        if (unCase) {
+          const unMeta = registerVerification.registerBodyMeta(unCheck.body) || { label: 'register' };
+          await _logCaseEvent(
+            unCase.id, null, 'system',
+            'Medical register number changed',
+            unMeta.label + ' number changed from ' + (unProf.register_number || 'none') + ' to ' + unCheck.number + ' by ' + (rvAdmin.email || 'staff') + ' — back to pending verification.',
+            rvAdmin.email || 'system'
+          );
+        }
+      } catch (unEvtErr) { /* best-effort audit trail */ }
+      const unAuto = await attemptAutomaticRegisterVerification(rvUserId);
+      const unMetaOut = registerVerification.registerBodyMeta(unCheck.body) || {};
+      sendJson(res, 200, {
+        ok: true,
+        register_body: unCheck.body,
+        register_number: unCheck.number,
+        register_label: unMetaOut.label || '',
+        register_search_url: unMetaOut.searchUrl || '',
+        register_status: unAuto.outcome === 'verified' ? 'verified' : 'pending_verification',
+        outcome: unAuto.outcome,
+        evidence: unAuto.evidence
+      });
       return;
     }
     if (rvAction === 'auto') {

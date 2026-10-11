@@ -248,6 +248,69 @@ describe('POST /api/ats/candidate/register-verification (staff check)', () => {
     });
     expect(anon.status).toBe(401);
   });
+
+  // Owner 2026-10-12: staff can re-enter the number from the drawer.
+  it('update_number replaces the number, drops the old verdict and logs who changed it', async () => {
+    const before = db.user_profiles.find((p) => p.user_id === 'u-reg-1');
+    expect(before.register_status).toBe('verified');
+    const res = await httpReq('POST', '/api/ats/candidate/register-verification', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-reg-1', action: 'update_number', registerNumber: '7 111-222' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.register_number).toBe('7111222');
+    expect(res.body.register_status).toBe('pending_verification');
+    expect(res.body.register_label).toBe('GMC');
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-reg-1');
+    expect(prof.register_number).toBe('7111222');
+    expect(prof.register_body).toBe('gmc');
+    expect(prof.register_status).toBe('pending_verification');
+    expect(prof.register_verified_by).toBeNull();
+    expect(prof.register_verified_at).toBeNull();
+    const evt = (db.task_timeline || []).find((e) => e.title === 'Medical register number changed');
+    expect(evt).toBeTruthy();
+    expect(JSON.stringify(evt)).toContain('7654321');
+    expect(JSON.stringify(evt)).toContain('7111222');
+  });
+
+  it('update_number refuses a malformed number and leaves the old one in place', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/register-verification', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-reg-1', action: 'update_number', registerNumber: '12345' }
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.message).toMatch(/GMC/);
+    expect(db.user_profiles.find((p) => p.user_id === 'u-reg-1').register_number).toBe('7111222');
+  });
+
+  it('update_number can add a first number, taking the register from the doctor\'s country', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/register-verification', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-noreg-2', action: 'update_number', registerNumber: '7222333' }
+    });
+    expect(res.status).toBe(200);
+    const prof = db.user_profiles.find((p) => p.user_id === 'u-noreg-2');
+    expect(prof.register_body).toBe('gmc');
+    expect(prof.register_number).toBe('7222333');
+    expect(prof.register_status).toBe('pending_verification');
+  });
+
+  it('update_number needs a staff session', async () => {
+    const anon = await httpReq('POST', '/api/ats/candidate/register-verification', {
+      body: { userId: 'u-reg-1', action: 'update_number', registerNumber: '7000001' }
+    });
+    expect(anon.status).toBe(401);
+    expect(db.user_profiles.find((p) => p.user_id === 'u-reg-1').register_number).toBe('7111222');
+  });
+
+  it('the drawer row offers Edit number wired to update_number', () => {
+    const fs = requireCjs('node:fs');
+    const src = fs.readFileSync(new URL('../js/ceo-ats-candidates.js', import.meta.url), 'utf8');
+    expect(src).toContain('ats-register-edit');
+    expect(src).toContain("action: 'update_number'");
+    expect(src).toMatch(/closest\('\.ats-register-edit'\)/);
+    expect(src).toMatch(/closest\('\.ats-register-edit-save'\)/);
+  });
 });
 
 describe('the verified chip in the candidate intro', () => {

@@ -2195,7 +2195,78 @@
       pill +
       (ob.registerSearchUrl ? '<a class="ats-btn ats-btn-ghost ats-btn-sm" href="' + ATS.escAttr(ob.registerSearchUrl) + '" target="_blank" rel="noopener">Open register</a>' : '') +
       actions +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-edit"' + uid + ' title="Correct the number on file">Edit number</button>' +
     '</div>';
+  }
+
+  // Owner 2026-10-12: staff can re-enter the register number from the drawer
+  // (the doctor typed it wrong, or sent the right one later). Saving resets
+  // the check to pending and the server runs the automated lookup on the new
+  // number straight away.
+  function replaceRegisterRow(html) {
+    var row = document.getElementById('ats-register-row');
+    if (!row) return;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    if (wrap.firstChild) row.replaceWith(wrap.firstChild);
+  }
+
+  function openRegisterEdit(btn, c) {
+    var ob = c.onboarding || {};
+    var label = ob.registerLabel || 'Register';
+    var uid = ' data-user-id="' + ATS.escAttr(String(btn.getAttribute('data-user-id') || c.user_id || '')) + '"';
+    replaceRegisterRow(
+      '<div class="ats-doc-line" id="ats-register-row">' +
+        '<div class="ats-doc-ico no">○</div>' +
+        '<div style="flex:1"><div class="dl-name">' + ATS.esc(label) + ' register number</div>' +
+        '<div class="dl-sub">Enter the new number. It goes back to pending and is checked again automatically.</div>' +
+        '<input type="text" id="ats-register-input" inputmode="numeric" autocomplete="off" style="margin-top:6px;width:200px;max-width:100%;background:var(--ats-panel);border:1px solid var(--ats-border-hover);border-radius:8px;color:var(--ats-text);font:inherit;font-size:13px;padding:7px 10px;outline:none" value="' + ATS.escAttr(ob.registerNumber || '') + '"></div>' +
+        '<button type="button" class="ats-btn ats-btn-sm ats-register-edit-save"' + uid + '>Save</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-register-edit-cancel">Cancel</button>' +
+      '</div>'
+    );
+    var input = document.getElementById('ats-register-input');
+    if (input) {
+      input.focus();
+      input.select();
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); var s = document.querySelector('#ats-register-row .ats-register-edit-save'); if (s) s.click(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); replaceRegisterRow(registerRowInner(c)); }
+      });
+    }
+  }
+
+  function saveRegisterNumber(btn, c) {
+    var userId = btn.getAttribute('data-user-id');
+    var input = document.getElementById('ats-register-input');
+    var value = input ? String(input.value || '').trim() : '';
+    if (!userId) return;
+    if (!value) { ATS.toast('Enter the register number.'); return; }
+    btn.disabled = true;
+    btn.textContent = 'Saving & checking…';
+    ATS.api('/api/ats/candidate/register-verification', { method: 'POST', body: { userId: userId, action: 'update_number', registerNumber: value } }).then(function (res) {
+      if (res && res.ok) {
+        var ob = c.onboarding || (c.onboarding = {});
+        ob.registerNumber = res.register_number || value;
+        if (res.register_body) ob.registerBody = res.register_body;
+        if (res.register_label) ob.registerLabel = res.register_label;
+        if (res.register_search_url) ob.registerSearchUrl = res.register_search_url;
+        if (res.register_status) ob.registerStatus = res.register_status;
+        replaceRegisterRow(registerRowInner(c));
+        refreshReviewQueue();
+        if (res.unchanged) ATS.toast('That is already the number on file.');
+        else if (res.outcome === 'verified') ATS.toast('Number updated and verified against the official register.');
+        else ATS.toast('Number updated — pending check.' + (res.evidence ? ' ' + res.evidence : ''));
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Save';
+        ATS.toast((res && (res.error || res.message)) || 'Could not save the number.');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      btn.textContent = 'Save';
+      ATS.toast('Could not save the number.');
+    });
   }
 
   /* Owner 2026-09-01 / 2026-09-04: the row chip says "Docs · N to review", so
@@ -2626,6 +2697,11 @@
       // Record the outcome of the staff check against the public register.
       var regBtn = e.target.closest('.ats-register-verify');
       if (regBtn) { recordRegisterVerification(regBtn, c); return; }
+      var regEditBtn = e.target.closest('.ats-register-edit');
+      if (regEditBtn) { openRegisterEdit(regEditBtn, c); return; }
+      var regSaveBtn = e.target.closest('.ats-register-edit-save');
+      if (regSaveBtn) { saveRegisterNumber(regSaveBtn, c); return; }
+      if (e.target.closest('.ats-register-edit-cancel')) { replaceRegisterRow(registerRowInner(c)); return; }
       // Review banner: jump to (and highlight) the section that resolves it.
       var jumpBtn = e.target.closest('.ats-review-jump');
       if (jumpBtn) { focusReviewSection(jumpBtn.getAttribute('data-focus')); return; }
