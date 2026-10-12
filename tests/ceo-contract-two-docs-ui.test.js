@@ -239,9 +239,9 @@ describe('highlighter keeps discrepancy indexes when a quote belongs to the othe
 
 describe('cache-busters', () => {
   it('bumps candidates JS, contracts JS and the ATS CSS to 20260914b (CSS ≥ candidates JS)', () => {
-    expect(DASH).toContain('/js/ceo-ats-candidates.js?v=20261012a');
+    expect(DASH).toContain('/js/ceo-ats-candidates.js?v=20261012b');
     expect(DASH).toContain('/js/ceo-ats-contracts.js?v=20260914b');
-    expect(DASH).toContain('/css/ceo-ats.css?v=20261012a');
+    expect(DASH).toContain('/css/ceo-ats.css?v=20261012b');
     expect(DASH).not.toContain('/js/ceo-ats-candidates.js?v=20260914a');
     expect(DASH).not.toContain('/js/ceo-ats-contracts.js?v=20260914a');
     expect(DASH).not.toContain('/css/ceo-ats.css?v=20260914a');

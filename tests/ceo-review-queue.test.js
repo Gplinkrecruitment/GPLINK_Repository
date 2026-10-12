@@ -184,8 +184,8 @@ describe('lib/ceo-review-queue buildReviewQueue', () => {
     const mm = { ...shakeema, user_id: 'u-mm', register_status: 'mismatch' };
     const out = rq.buildReviewQueue({ profiles: [shakeema, mm], nowMs: NOW_MS });
     const flags = rq.flagsByUser(out.items);
-    expect(flags['u-shakeema']).toEqual({ register: 'pending_verification', register_label: 'GMC' });
-    expect(flags['u-mm']).toEqual({ register: 'mismatch', register_label: 'GMC' });
+    expect(flags['u-shakeema']).toEqual({ register: 'pending_verification', register_label: 'GMC', account: '' });
+    expect(flags['u-mm']).toEqual({ register: 'mismatch', register_label: 'GMC', account: '' });
   });
 });
 
@@ -548,10 +548,10 @@ describe('review queue wiring', () => {
   const server = read('server.js');
 
   it('the dashboard loads the queue script (cache-busted) and bumps every changed file', () => {
-    expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261001a"></script>');
+    expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261012a"></script>');
     expect(dash).toContain('/js/ceo-ats-shared.js?v=20261001a');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261012a');
-    expect(dash).toContain('/css/ceo-ats.css?v=20261012a');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261012b');
+    expect(dash).toContain('/css/ceo-ats.css?v=20261012b');
     expect(dash).not.toContain('/js/ceo-ats-shared.js?v=20260816b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260914c');
     expect(dash).not.toContain('/css/ceo-ats.css?v=20260914c');
@@ -590,7 +590,7 @@ describe('review queue wiring', () => {
     expect(cands).toContain('window.atsOpenCandidate = function (caseId, opts)');
     expect(cands).toContain('id="ats-review-banner-slot"');
     expect(cands).toContain('Needs your review');
-    expect(cands).toContain("REVIEW_FOCUS_TARGETS = { register: '#ats-register-row', docs: '#ats-cand-doc-reviews' }");
+    expect(cands).toContain("REVIEW_FOCUS_TARGETS = { register: '#ats-register-row', docs: '#ats-cand-doc-reviews', account: '#ats-account-review' }");
     expect(cands).toContain("el.classList.add('ats-focus-pulse')");
     expect(cands).toContain("window.addEventListener('gp:review-queue'");
     expect(cands).toMatch(/needsReview = status === 'pending_verification' \|\| status === 'mismatch'/);
@@ -611,5 +611,56 @@ describe('review queue wiring', () => {
     expect(reviewRowChip({ review_register: 'mismatch' })).toContain('! Register mismatch');
     expect(reviewRowChip({ review_register: '' })).toBe('');
     expect(cands).toContain('reviewRowChip(c) +');
+  });
+});
+
+// Owner 2026-10-12: Dr Naila Said's account sat "under review" (expired-ID
+// flag, she asked support) with no alert anywhere — and it silently blocked
+// her from matching. Accounts held under review are now a review item.
+describe('account_review items (accounts held under review)', () => {
+  const profiles = [
+    { user_id: 'u-acct', email: 'naila@example.com', first_name: 'Naila', last_name: 'Said', account_status: 'active' },
+    { user_id: 'u-test', email: 'khaleedmahmoud1211@gmail.com', first_name: 'Test', last_name: 'Owner' }
+  ];
+  const cases = [{ id: 'case-acct', user_id: 'u-acct', status: 'active' }];
+
+  it('turns an under-review account into one item that deep-links to the account row', () => {
+    const out = rq.buildReviewQueue({
+      profiles, cases, nowMs: NOW_MS,
+      accountReviews: [{ user_id: 'u-acct', since: iso(3 * H), reason: 'ID check (doctor asked for help): This document expired on 2026-09-15.' }]
+    });
+    expect(out.items).toHaveLength(1);
+    const it0 = out.items[0];
+    expect(it0.kind).toBe('account_review');
+    expect(it0.key).toBe('account:u-acct:under_review');
+    expect(it0.case_id).toBe('case-acct');
+    expect(it0.focus).toBe('account');
+    expect(it0.detail).toContain('Dr Naila Said');
+    expect(it0.detail).toContain('blocked from matching');
+    expect(out.counts.account).toBe(1);
+    expect(out.counts.total).toBe(1);
+    expect(rq.flagsByUser(out.items)['u-acct'].account).toBe('under_review');
+  });
+
+  it('never raises one for the owner\'s test accounts', () => {
+    const out = rq.buildReviewQueue({ profiles, cases, nowMs: NOW_MS, accountReviews: [{ user_id: 'u-test', since: iso(H) }] });
+    expect(out.items).toHaveLength(0);
+  });
+
+  it('accountReviewReason reads the ID check from the onboarding blob (string or object)', () => {
+    const ob = { idVerification: { status: 'support_requested', issues: ['This document expired on 2026-09-15.'] } };
+    expect(rq.accountReviewReason(ob)).toBe('ID check (doctor asked for help): This document expired on 2026-09-15.');
+    expect(rq.accountReviewReason(JSON.stringify(ob))).toContain('ID check');
+    expect(rq.accountReviewReason({ idVerification: { status: 'verified' } })).toBe('');
+    expect(rq.accountReviewReason(null)).toBe('');
+  });
+
+  it('the profile shows a reviewable account row with a release button, and the popup counts it', () => {
+    const cand = read('js/ceo-ats-candidates.js');
+    expect(cand).toContain("account: '#ats-account-review'");
+    expect(cand).toContain('ats-account-approve');
+    expect(cand).toContain("'/api/ats/candidate/account-review'");
+    expect(cand).toContain("c.review_account === 'under_review'");
+    expect(read('js/ceo-review-queue.js')).toContain("it.kind === 'account_review'");
   });
 });

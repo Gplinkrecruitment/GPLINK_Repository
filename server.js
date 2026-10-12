@@ -37980,7 +37980,17 @@ async function loadCeoReviewQueue() {
     'select=id,case_id,created_at&' + ATS_DOC_REVIEW_OPEN_FILTER + '&limit=2000');
   if (!docRes.ok) degraded = true;
   var docTasks = (docRes.ok && Array.isArray(docRes.data)) ? docRes.data : [];
-  var flaggedUids = profiles.map(function (p) { return p && p.user_id; }).filter(Boolean);
+  // Accounts held under review: the gate lives on the doctor's user_state
+  // (the matching board and the GP app both read it there), not user_profiles.
+  var acctRes = await supabaseDbRequest('user_state',
+    'select=user_id,updated_at,account_status:state->>account_status,gp_onboarding:state->gp_onboarding' +
+    '&state->>account_status=eq.under_review&limit=2000');
+  if (!acctRes.ok) degraded = true;
+  var accountReviews = ((acctRes.ok && Array.isArray(acctRes.data)) ? acctRes.data : []).map(function (r) {
+    return { user_id: r.user_id, since: r.updated_at, reason: ceoReviewQueue.accountReviewReason(r.gp_onboarding) };
+  });
+  var flaggedUids = profiles.map(function (p) { return p && p.user_id; }).filter(Boolean)
+    .concat(accountReviews.map(function (r) { return r.user_id; }).filter(Boolean));
   var docCaseIds = docTasks.map(function (t) { return t && t.case_id; }).filter(Boolean);
   var cases = [];
   if (flaggedUids.length) {
@@ -38002,7 +38012,16 @@ async function loadCeoReviewQueue() {
       return 'select=user_id,email,first_name,last_name,account_status,archived_at&user_id=in.(' + inList + ')&limit=2000';
     }));
   }
-  var built = ceoReviewQueue.buildReviewQueue({ profiles: profiles, docTasks: docTasks, cases: cases, nowMs: Date.now() });
+  missingUids.forEach(function (u) { haveProf[u] = true; });
+  // Names for doctors held under review with no case / flag of their own yet.
+  var acctMissing = accountReviews.map(function (r) { return r.user_id; }).filter(function (u) { return u && !haveProf[u]; });
+  acctMissing.forEach(function (u) { haveProf[u] = true; });
+  if (acctMissing.length) {
+    profiles = profiles.concat(await supabaseDbRequestByIds('user_profiles', acctMissing, function (inList) {
+      return 'select=user_id,email,first_name,last_name,account_status,archived_at&user_id=in.(' + inList + ')&limit=2000';
+    }));
+  }
+  var built = ceoReviewQueue.buildReviewQueue({ profiles: profiles, docTasks: docTasks, cases: cases, accountReviews: accountReviews, nowMs: Date.now() });
   if (degraded) built.degraded = true;
   return built;
 }
@@ -43599,7 +43618,20 @@ async function atsProdCandidateFacts(regCase) {
       target: prof.target_arrival_date || ob.targetDate || 'Not set',
       city: prof.preferred_city || ob.preferredCity || '',
       family: ob.whoMoving || (prof.who_moving || ''),
-      idVerified: !!(ob.idVerification && ob.idVerification.status === 'verified') || !!docs.idDoc,
+      // A file on record only counts as verified when the onboarding scan did
+      // not leave the ID in a review state (Naila Said 2026-10-12 showed "Yes"
+      // while her ID check sat in support_requested).
+      idVerified: (function () {
+        var idSt = String((ob.idVerification && ob.idVerification.status) || '');
+        if (idSt === 'verified' || idSt === 'approved') return true;
+        return !idSt && !!docs.idDoc;
+      })(),
+      idNeedsReview: (function () {
+        var idSt = String((ob.idVerification && ob.idVerification.status) || '');
+        return !!idSt && idSt !== 'verified' && idSt !== 'approved' && idSt !== 'scanning';
+      })(),
+      idExpired: !!(ob.idVerification && ob.idVerification.expired),
+      accountReviewReason: ceoReviewQueue.accountReviewReason(ob),
       // Medical-register verification (owner decision 2026-08-31): the drawer
       // shows the number + status with a one-click live-register check.
       registerBody: prof.register_body || '',
@@ -61922,19 +61954,18 @@ YOUR ONLY JOB:
 1. Identify whether this is a passport or driver's licence.
 2. Extract the full name on the document.
 3. Check if the document is legible.
-4. Check if the document has expired. Look for an expiry date / date of expiry / valid until field. Today's date is ${new Date().toISOString().slice(0, 10)}.
+4. Read the expiry date if one is printed (expiry date / date of expiry / valid until). Today's date is ${new Date().toISOString().slice(0, 10)}. An EXPIRED document is still ACCEPTED (owner 2026-10-12) — it proves who the person is; just report the date and set "expired".
 
 IMPORTANT RULES:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing identity documents. This is an authorized verification system.
 - Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
-- If the document has expired, mark verified as false and include the expiry date in the issues.
-- If it is a passport or driver's licence, mark verified as true as long as you can read the name AND the document is not expired.
-- Mark verified as false if it is NOT a passport or driver's licence, or if the name is completely unreadable, or if the document has expired.
+- Never mark verified as false because the document has expired, and never list the expiry as an issue.
+- If it is a passport or driver's licence, mark verified as true as long as you can read the name.
+- Mark verified as false if it is NOT a passport or driver's licence, or if the name is completely unreadable.
 - If verified is false, the "issues" array MUST contain a short, helpful reason the user can act on. Examples:
   - "This appears to be a medical certificate, not a passport or driver's licence."
   - "The name on the document is not readable. Please upload a clearer photo."
   - "This does not appear to be an identity document."
-  - "This document expired on 2024-03-15. Please upload a valid, non-expired ID."
 - Never include warnings about privacy, security, or data sharing in the issues.
 
 ${PHOTO_FRAMING_PROMPT_RULE}
@@ -62013,17 +62044,22 @@ Return ONLY valid JSON with no markdown formatting:
         verification.issues.push('Please upload a passport or driver\'s licence. This appears to be: ' + (verification.documentType || 'unknown'));
       }
 
-      // Server-side expiry enforcement — don't trust AI alone
-      if (verification.verified && verification.expiryDate) {
-        try {
-          const expiry = new Date(verification.expiryDate);
-          if (!isNaN(expiry.getTime()) && expiry < new Date()) {
-            verification.verified = false;
-            verification.expired = true;
-            verification.issues = verification.issues || [];
-            verification.issues.push('This document expired on ' + verification.expiryDate + '. Please upload a valid, non-expired ID.');
-          }
-        } catch (e) { /* non-critical — AI flagging is the fallback */ }
+      // Owner 2026-10-12: an EXPIRED ID is accepted — it still proves who the
+      // doctor is. Record the fact (expired:true) for staff, never fail on it,
+      // and strip any expiry complaint the model adds despite the prompt.
+      if (verification.expiryDate) {
+        const expiry = new Date(verification.expiryDate);
+        if (!isNaN(expiry.getTime()) && expiry < new Date()) verification.expired = true;
+      }
+      if (Array.isArray(verification.issues) && verification.issues.length) {
+        const nonExpiryIssues = verification.issues.filter((iss) => !/expir/i.test(String(iss || '')));
+        // Expiry was the model's ONLY objection: overrule it, as long as the
+        // name is readable (the type/framing checks above push their own,
+        // non-expiry issues, so they still fail the document).
+        if (!verification.verified && nonExpiryIssues.length === 0 && verification.nameFound && verification.legible !== false) {
+          verification.verified = true;
+        }
+        verification.issues = nonExpiryIssues;
       }
 
       // Name matching against profile, qualification name, AND previously verified documents
@@ -80514,6 +80550,63 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // POST /api/ats/candidate/account-review — staff release a doctor whose app
+  // account is held "under review" (owner 2026-10-12: Naila Said's account was
+  // held over an expired-ID flag with nowhere to act on it). Body
+  // { userId, action: 'approve' }. Approving accepts the ID on file as it is
+  // (expired IDs are accepted), clears the onboarding review flag and sets the
+  // account active — the same end state as the admin set-status release,
+  // including the doctor's "account activated" email.
+  if (pathname === '/api/ats/candidate/account-review' && req.method === 'POST') {
+    const arAdmin = requireAtsSession(req, res);
+    if (!arAdmin) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' }); return; }
+    let arBody;
+    try { arBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
+    const arUserId = String(arBody && arBody.userId || '').trim();
+    const arAction = String(arBody && arBody.action || '').trim();
+    if (!arUserId || arAction !== 'approve') { sendJson(res, 400, { ok: false, message: 'userId and action (approve) are required.' }); return; }
+    const arStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(arUserId)}&limit=1`);
+    const arRow = (arStateRes.ok && Array.isArray(arStateRes.data) && arStateRes.data[0]) ? arStateRes.data[0] : null;
+    if (!arRow) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
+    const arState = (arRow.state && typeof arRow.state === 'object') ? arRow.state : {};
+    if (arState.account_status !== 'under_review') {
+      sendJson(res, 409, { ok: false, message: 'This account is not under review.', account_status: arState.account_status || 'active' });
+      return;
+    }
+    const arNowIso = new Date().toISOString();
+    const arObWasString = typeof arState.gp_onboarding === 'string';
+    const arOb = arState.gp_onboarding ? _parseStateVal(arState.gp_onboarding) : null;
+    if (arOb && typeof arOb === 'object') {
+      if (arOb.idVerification && typeof arOb.idVerification === 'object' && arOb.idVerification.status !== 'verified') {
+        arOb.idVerification.status = 'approved';
+        arOb.idVerification.approvedBy = arAdmin.email || 'staff';
+        arOb.idVerification.approvedAt = arNowIso;
+      }
+      arOb.accountReviewFlag = false;
+      arState.gp_onboarding = arObWasString ? JSON.stringify(arOb) : arOb;
+    }
+    arState.account_status = 'active';
+    const arSaved = await upsertSupabaseUserState(arUserId, arState, arNowIso);
+    if (arSaved === false) { sendJson(res, 502, { ok: false, message: 'Could not release the account.' }); return; }
+    await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(arUserId)}&account_status=eq.under_review`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { account_status: 'active' }
+    }).catch(() => {});
+    try {
+      const arCase = await _ensureRegCase(arUserId);
+      if (arCase) {
+        await _logCaseEvent(arCase.id, null, 'system', 'Account review approved',
+          'Account released from review by ' + (arAdmin.email || 'staff') + ' — ID on file accepted.', arAdmin.email || 'system');
+      }
+    } catch (arEvtErr) { /* best-effort audit trail */ }
+    try {
+      await logAdminAction(req, arAdmin, 'admin_account_status_changed', { targetType: 'gp', targetId: arUserId, detail: { status: 'active', via: 'account_review_approve' } });
+    } catch (arAuditErr) { /* best-effort */ }
+    sendAccountActivatedEmail(arUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
+    sendJson(res, 200, { ok: true, account_status: 'active' });
+    return;
+  }
+
   if ((pathname === '/api/ats/candidate/document' || pathname === '/api/ats/candidate/career-cv') && req.method === 'POST') {
     var ctxCCV = requireAtsSession(req, res); if (!ctxCCV) return;
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -82432,6 +82525,7 @@ Return ONLY valid JSON with no markdown formatting:
       var f = (r.user_id && rqFlags[r.user_id]) || null;
       r.review_register = f ? f.register : '';
       r.review_register_label = f ? f.register_label : '';
+      r.review_account = f ? (f.account || '') : '';
     });
     // Not-yet-onboarded GPs are NOT candidates: they live in Waitlist -> Onboarding
     // incomplete (see /api/ceo/onboarding-incomplete), not in the Unassociated bucket.

@@ -146,7 +146,7 @@ describe('CEO board: gone-quiet tile and tracker', () => {
     expect(js.match(/state\.waiting = false; state\.stalled = (false|true);/g).length).toBe(resets);
   });
   it('the dashboard ships the bumped buster', () => {
-    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-candidates.js?v=20261012a');
+    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-candidates.js?v=20261012b');
   });
 });
 

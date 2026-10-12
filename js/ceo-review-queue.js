@@ -90,7 +90,7 @@
     var parts = [];
     var regByLabel = {};
     var regOrder = [];
-    var mismatch = 0, docs = 0;
+    var mismatch = 0, docs = 0, accounts = 0;
     items.forEach(function (it) {
       if (it.kind === 'register_pending') {
         var l = it.register_label || 'register';
@@ -98,10 +98,12 @@
         regByLabel[l]++;
       } else if (it.kind === 'register_mismatch') mismatch++;
       else if (it.kind === 'docs') docs += (it.count || 1);
+      else if (it.kind === 'account_review') accounts++;
     });
     regOrder.forEach(function (l) { parts.push(plural(regByLabel[l], l + ' check', l + ' checks')); });
     if (mismatch) parts.push(plural(mismatch, 'register mismatch', 'register mismatches'));
     if (docs) parts.push(plural(docs, 'document review', 'document reviews'));
+    if (accounts) parts.push(plural(accounts, 'account review', 'account reviews'));
     return items.length + (items.length === 1 ? ' needs' : ' need') + ' your review: ' + parts.join(', ');
   }
 

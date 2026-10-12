@@ -757,13 +757,16 @@
     if (c.review_register === 'mismatch') {
       return '<span class="ats-pill red" title="The register number did not match the public register — follow up with the doctor">! Register mismatch</span>';
     }
+    if (c.review_account === 'under_review') {
+      return '<span class="ats-pill red" title="Account held under review — blocked from matching until you release it">! Account review</span>';
+    }
     return '';
   }
 
   /* =====================================================================
    *  REVIEW QUEUE — profile banner + "Review now" focus (owner 2026-10-01)
    * ===================================================================== */
-  var REVIEW_FOCUS_TARGETS = { register: '#ats-register-row', docs: '#ats-cand-doc-reviews' };
+  var REVIEW_FOCUS_TARGETS = { register: '#ats-register-row', docs: '#ats-cand-doc-reviews', account: '#ats-account-review' };
   function reviewItemsFor(c) {
     if (!c || !window.CeoReviewQueue || typeof window.CeoReviewQueue.itemsFor !== 'function') return [];
     return window.CeoReviewQueue.itemsFor(c.user_id, c.case_id) || [];
@@ -2115,8 +2118,11 @@
         field('Preferred city', ATS.esc(ob.city || '—')) +
         field("Family / who's moving", ATS.esc(ob.family || '—')) +
         '<div class="ats-detail-field"><div class="df-lbl">Identity verified</div><div class="df-val">' +
-          (ob.idVerified ? '<span class="ats-pill green">Yes</span>' : '<span class="ats-pill amber">Pending</span>') + '</div></div>' +
+          (ob.idVerified
+            ? '<span class="ats-pill green">Yes</span>' + (ob.idExpired ? ' <span class="ats-pill amber" title="Expired IDs are accepted">Expired ID</span>' : '')
+            : (ob.idNeedsReview ? '<span class="ats-pill red">Needs review</span>' : '<span class="ats-pill amber">Pending</span>')) + '</div></div>' +
       '</div>' +
+      accountReviewRowInner(c) +
       registerRowInner(c);
   }
 
@@ -2161,6 +2167,48 @@
       btn.disabled = false;
       if (action === 'auto') btn.innerHTML = '&#9889; Auto-check';
       ATS.toast('Could not run the check.');
+    });
+  }
+
+  // Owner 2026-10-12: an account held "under review" (set by onboarding when a
+  // check — usually the ID scan — was flagged) blocks the doctor from matching
+  // and from parts of their app. It must be reviewable right here, not only
+  // visible as a chip: show why, the ID, and a one-click release.
+  function accountReviewRowInner(c) {
+    if (String(c.account_status || '') !== 'under_review') return '';
+    var ob = c.onboarding || {};
+    var docs = c.docs || {};
+    var ids = ' data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    return '<div class="ats-doc-line" id="ats-account-review">' +
+      '<div class="ats-doc-ico no">○</div>' +
+      '<div style="flex:1"><div class="dl-name"><span class="ats-alert-dot ats-register-alert" data-count="1" title="Needs your review">!</span> Account under review</div>' +
+      '<div class="dl-sub">' + ATS.esc(ob.accountReviewReason || 'Flagged during onboarding.') + ' Blocked from matching until released.</div></div>' +
+      '<span class="ats-pill amber">Under review</span>' +
+      (docs.idDoc ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view"' + ids + '>View ID</button>' : '') +
+      '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-account-approve"' + ids + ' title="Accept the ID on file and release the account">&#10003; Approve &amp; release</button>' +
+    '</div>';
+  }
+
+  function approveAccountReview(btn, c) {
+    var userId = btn.getAttribute('data-user-id');
+    if (!userId) return;
+    if (!window.confirm('Approve and release this account? The ID on file is accepted, the doctor can be matched, and they get an "account activated" email.')) return;
+    btn.disabled = true;
+    btn.textContent = 'Releasing…';
+    ATS.api('/api/ats/candidate/account-review', { method: 'POST', body: { userId: userId, action: 'approve' } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('Account released — the doctor can now be matched.');
+        refreshReviewQueue();
+        window.atsOpenCandidate(c.case_id || c.user_id);
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '&#10003; Approve &amp; release';
+        ATS.toast((res && (res.error || res.message)) || 'Could not release the account.');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      btn.innerHTML = '&#10003; Approve &amp; release';
+      ATS.toast('Could not release the account.');
     });
   }
 
@@ -2697,6 +2745,8 @@
       // Record the outcome of the staff check against the public register.
       var regBtn = e.target.closest('.ats-register-verify');
       if (regBtn) { recordRegisterVerification(regBtn, c); return; }
+      var acctApproveBtn = e.target.closest('.ats-account-approve');
+      if (acctApproveBtn) { approveAccountReview(acctApproveBtn, c); return; }
       var regEditBtn = e.target.closest('.ats-register-edit');
       if (regEditBtn) { openRegisterEdit(regEditBtn, c); return; }
       var regSaveBtn = e.target.closest('.ats-register-edit-save');

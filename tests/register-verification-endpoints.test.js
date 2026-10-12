@@ -16,11 +16,13 @@ let server, port, sbServer;
 const db = {
   user_profiles: [
     { user_id: 'u-reg-1', email: 'reg-gp@example.com', first_name: 'Reggie', last_name: 'Sterton', registration_country: 'uk' },
-    { user_id: 'u-noreg-2', email: 'noreg-gp@example.com', first_name: 'Nora', last_name: 'Number', registration_country: 'uk' }
+    { user_id: 'u-noreg-2', email: 'noreg-gp@example.com', first_name: 'Nora', last_name: 'Number', registration_country: 'uk' },
+    { user_id: 'u-held-3', email: 'held-gp@example.com', first_name: 'Hela', last_name: 'Held', registration_country: 'uk', account_status: 'active' }
   ],
   user_state: [
     { user_id: 'u-reg-1', state: {} },
-    { user_id: 'u-noreg-2', state: {} }
+    { user_id: 'u-noreg-2', state: {} },
+    { user_id: 'u-held-3', state: { account_status: 'under_review', gp_onboarding: JSON.stringify({ country: 'GB', accountReviewFlag: true, idVerification: { status: 'support_requested', issues: ['This document expired on 2026-09-15.'] } }) } }
   ],
   user_documents: [],
   registration_cases: [],
@@ -320,5 +322,49 @@ describe('the verified chip in the candidate intro', () => {
     expect(withChip.facts.some((f) => f.label === 'GMC registration verified')).toBe(true);
     const withoutChip = intro.buildCandidateIntro({ gpName: 'Reggie Sterton', countryCode: 'uk' });
     expect(withoutChip.facts.some((f) => /registration verified/.test(f.label))).toBe(false);
+  });
+});
+
+// Owner 2026-10-12: an account held under review must be releasable from the
+// candidate profile, and an expired ID is acceptable.
+describe('POST /api/ats/candidate/account-review (release an account held under review)', () => {
+  it('approves: account active, ID accepted, review flag cleared, audit row logged', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-held-3', action: 'approve' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.account_status).toBe('active');
+    const st = db.user_state.find((r) => r.user_id === 'u-held-3').state;
+    expect(st.account_status).toBe('active');
+    const ob = typeof st.gp_onboarding === 'string' ? JSON.parse(st.gp_onboarding) : st.gp_onboarding;
+    expect(typeof st.gp_onboarding).toBe('string'); // kept in the shape it arrived in
+    expect(ob.accountReviewFlag).toBe(false);
+    expect(ob.idVerification.status).toBe('approved');
+    expect(ob.idVerification.approvedBy).toBe('ceo@gplink-test.local');
+    expect((db.task_timeline || []).some((e) => e.title === 'Account review approved')).toBe(true);
+  });
+
+  it('refuses an account that is not under review, a bad action and an anonymous call', async () => {
+    const again = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'), body: { userId: 'u-held-3', action: 'approve' }
+    });
+    expect(again.status).toBe(409);
+    const bad = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'), body: { userId: 'u-held-3', action: 'reject' }
+    });
+    expect(bad.status).toBe(400);
+    const anon = await httpReq('POST', '/api/ats/candidate/account-review', { body: { userId: 'u-held-3', action: 'approve' } });
+    expect(anon.status).toBe(401);
+  });
+});
+
+describe('ID verification accepts an expired ID', () => {
+  it('the prompt and the server check no longer fail a document for being expired', () => {
+    const fs = requireCjs('node:fs');
+    const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    expect(src).not.toContain('Please upload a valid, non-expired ID.');
+    expect(src).not.toContain('or if the document has expired.');
+    expect(src).toContain('Never mark verified as false because the document has expired');
   });
 });
