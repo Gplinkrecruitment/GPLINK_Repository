@@ -37622,15 +37622,43 @@ async function sendTicketReplyEmail(userId, ticketTitle) {
 }
 
 // 12. Account Activated — after review
+// Owner 2026-10-13: a released doctor must hear about it by email AND
+// WhatsApp, each with a button straight to the job board — the hold had
+// locked them out of it (Naila Said sat two days behind the "Account Under
+// Review" popup). Email CTA deep-links through sign-in so it lands on the
+// board whether or not they are signed in on that device.
+var ACCOUNT_RELEASED_WA_TEMPLATE = 'gp_link_account_released'; // {{1}} first name + static URL button → /pages/career
+function accountReleasedJobBoardUrl() {
+  return APP_BASE_URL + '/pages/signin?next=' + encodeURIComponent('/pages/career');
+}
 async function sendAccountActivatedEmail(userId) {
   await sendGpNotificationEmail(userId,
-    'Account Activated, GP Link',
-    'Your account is ready, {{name}}!',
-    'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.',
-    'Go to Dashboard',
-    APP_BASE_URL + '/pages/index.html',
-    ''
+    'Your account is released — the job board is open, GP Link',
+    'You\'re in, {{name}}!',
+    'Your GP Link account has been reviewed and released. You now have full access, including the job board.\n\nHave a look at the practices looking for GPs right now — we start matching you as soon as you have browsed.',
+    'Browse the job board',
+    accountReleasedJobBoardUrl(),
+    'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
   );
+}
+async function sendAccountReleasedWhatsApp(userId) {
+  var wa = await lookupGpPhoneAndFirstName(userId);
+  if (!wa.phone) return { ok: false, skipped: 'no_phone' };
+  var r = await sendDoubleTickTemplateTo(wa.phone, ACCOUNT_RELEASED_WA_TEMPLATE, [wa.firstName || 'Doctor']);
+  var masked = maskPhone(normalizePhone(wa.phone) || wa.phone);
+  if (r && r.ok) console.log('[account-whatsapp] ' + ACCOUNT_RELEASED_WA_TEMPLATE + ' sent to ' + masked);
+  else console.warn('[account-whatsapp] ' + ACCOUNT_RELEASED_WA_TEMPLATE + ' failed for ' + masked, JSON.stringify(r));
+  return r;
+}
+// Both legs, each failing soft on its own — a WhatsApp outage must never
+// cost the doctor the email, or vice versa.
+async function sendAccountReleasedNotifications(userId) {
+  var out = { email: { ok: false }, whatsapp: { ok: false } };
+  try { await sendAccountActivatedEmail(userId); out.email.ok = true; }
+  catch (err) { console.error('[Email] Account activated failed:', err && err.message); }
+  try { out.whatsapp = await sendAccountReleasedWhatsApp(userId) || out.whatsapp; }
+  catch (err) { console.error('[account-whatsapp] error:', err && err.message); }
+  return out;
 }
 
 // 13. Practice Pack Documents Needed — after career secured
@@ -61741,7 +61769,7 @@ Classify this document.`;
     // Send account activated email when status changes to active
     if (status === 'active') {
       const activatedUserId = await getSupabaseUserIdByEmail(targetEmail);
-      if (activatedUserId) sendAccountActivatedEmail(activatedUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
+      if (activatedUserId) sendAccountReleasedNotifications(activatedUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
     }
 
     // If setting to under_review, auto-revert to active after 5 minutes
@@ -72754,7 +72782,7 @@ Return ONLY valid JSON with no markdown formatting:
           if (curState && curState.account_status === 'under_review') {
             curState.account_status = 'active';
             await upsertSupabaseUserState(rfUserId, curState, new Date().toISOString());
-            sendAccountActivatedEmail(rfUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
+            sendAccountReleasedNotifications(rfUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
             await _logCaseEvent(rfTask.case_id, rfTaskId, 'status_change', 'Account restriction lifted — all flagged qualifications verified', 'account_status set to active', adminCtx.email);
           }
         }
@@ -80652,8 +80680,10 @@ Return ONLY valid JSON with no markdown formatting:
     try {
       await logAdminAction(req, arAdmin, 'admin_account_status_changed', { targetType: 'gp', targetId: arUserId, detail: { status: 'active', via: 'account_review_approve' } });
     } catch (arAuditErr) { /* best-effort */ }
-    sendAccountActivatedEmail(arUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
-    sendJson(res, 200, { ok: true, account_status: 'active' });
+    // Awaited: serverless must not respond before the sends complete, and the
+    // CEO's toast can say which channels actually went out.
+    const arNotify = await sendAccountReleasedNotifications(arUserId);
+    sendJson(res, 200, { ok: true, account_status: 'active', notified: arNotify });
     return;
   }
 

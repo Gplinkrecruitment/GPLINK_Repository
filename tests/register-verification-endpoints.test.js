@@ -422,3 +422,34 @@ describe('POST /api/ats/candidate/account-review action=decline (ask the doctor 
     expect(branch).toContain('staffUploadedAt');
   });
 });
+
+// Owner 2026-10-13: "will she be notified via email and whatsapp template
+// with cta that takes her straight to the job board?"
+describe('releasing an account notifies by email AND WhatsApp, both pointing at the job board', () => {
+  it('every release path sends both legs, and the CTAs go to the careers page', () => {
+    const fs = requireCjs('node:fs');
+    const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    // Three places lift the hold: the account-review Approve, the admin
+    // set-status tool, and approving the last flagged qualification.
+    expect(src.split('sendAccountReleasedNotifications(').length - 1).toBeGreaterThanOrEqual(4); // 3 callers + the definition
+    expect(src).not.toMatch(/sendAccountActivatedEmail\((activatedUserId|rfUserId|arUserId)\)/);
+    expect(src).toContain("var ACCOUNT_RELEASED_WA_TEMPLATE = 'gp_link_account_released'");
+    expect(src).toContain("sendDoubleTickTemplateTo(wa.phone, ACCOUNT_RELEASED_WA_TEMPLATE, [wa.firstName || 'Doctor'])");
+    expect(src).toContain("'/pages/signin?next=' + encodeURIComponent('/pages/career')");
+    expect(src).toContain("'Browse the job board'");
+  });
+
+  it('the Approve response reports which channels went out', async () => {
+    db.user_profiles.push({ user_id: 'u-held-5', email: 'held3-gp@example.com', first_name: 'Hope', last_name: 'Held', registration_country: 'uk', phone: '+44 7000 000000' });
+    db.user_state.push({ user_id: 'u-held-5', state: { account_status: 'under_review', gp_onboarding: { accountReviewFlag: true, idVerification: { status: 'failed', issues: ['x'] } } } });
+    const res = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'), body: { userId: 'u-held-5', action: 'approve' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.account_status).toBe('active');
+    // No email / DoubleTick keys in the test boot: both legs report, neither throws.
+    expect(res.body.notified).toBeTruthy();
+    expect(typeof res.body.notified.email.ok).toBe('boolean');
+    expect(typeof res.body.notified.whatsapp.ok).toBe('boolean');
+  });
+});

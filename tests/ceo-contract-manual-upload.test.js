@@ -608,7 +608,7 @@ describe('CEO manual contract upload — dashboard wiring (source assertions)', 
   });
 
   it('bumps the candidates, contracts and CSS cache-busters (CSS must be ≥ the candidates JS)', () => {
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261012c');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261012d');
     expect(dash).toContain('/js/ceo-ats-contracts.js?v=20260914b');
     expect(dash).toContain('/css/ceo-ats.css?v=20261012b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260910a');

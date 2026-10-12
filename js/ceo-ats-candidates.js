@@ -2250,7 +2250,13 @@
     btn.textContent = 'Releasing…';
     ATS.api('/api/ats/candidate/account-review', { method: 'POST', body: { userId: userId, action: 'approve' } }).then(function (res) {
       if (res && res.ok) {
-        ATS.toast('Account released — the doctor can now be matched.');
+        // Say which channels actually went out (owner 2026-10-13: the doctor
+        // must get an email AND a WhatsApp, both pointing at the job board).
+        var n = res.notified || {};
+        var legs = [];
+        legs.push('Email ' + (n.email && n.email.ok ? '✓' : '✗'));
+        legs.push('WhatsApp ' + (n.whatsapp && n.whatsapp.ok ? '✓' : ('✗' + (n.whatsapp && (n.whatsapp.skipped || n.whatsapp.error) ? ' (' + (n.whatsapp.skipped || n.whatsapp.error) + ')' : ''))));
+        ATS.toast('Account released — the doctor can now be matched. ' + legs.join(' · '));
         refreshReviewQueue();
         window.atsOpenCandidate(c.case_id || c.user_id);
       } else {
