@@ -601,12 +601,20 @@ describe('viewer timezone: availability windows + booking labels', () => {
   });
 
   it('(c)+(d) booking with viewer_tz persists it on the row; GP email renders in it; practice email prefers the availability tz', async () => {
-    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-nsw', GP);
+    // Fetch the slots in the SAME tz the booking sends, exactly as the GP's
+    // picker does (js/interview-popup.js passes viewer_tz to both calls) —
+    // the book endpoint re-checks the slot in that tz. The viewer is Tokyo
+    // (UTC+9, no DST): the practice window (18:00–20:00 Perth = 10:00–12:00Z)
+    // is 19:00–21:00 there, inside the GP's 06:00–23:00 day all year round.
+    // It used to be Auckland, and went red when NZ daylight saving began
+    // (2026-09-27): 10:00Z became 23:00 NZDT, past the GP day, so the slot was
+    // "taken" and the test failed CI — blocking every production deploy.
+    const slotsRes = await gpGet('/api/career/interview/slots?applicationId=app-int-nsw&viewer_tz=Asia%2FTokyo', GP);
     expect(slotsRes.body.slots.length).toBeGreaterThan(0);
     const slot = slotsRes.body.slots[0];
 
     const before = resendCalls.length;
-    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-nsw', slot_start_utc: slot.startUtc, viewer_tz: 'Pacific/Auckland' }, GP);
+    const r = await gpPost('/api/career/interview/book', { applicationId: 'app-int-nsw', slot_start_utc: slot.startUtc, viewer_tz: 'Asia/Tokyo' }, GP);
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
 
@@ -615,15 +623,15 @@ describe('viewer timezone: availability windows + booking labels', () => {
     // reminder cron already reads for the GP reminder label. No new column.
     const row = db.scheduled_calls.find((c) => c.application_id === 'app-int-nsw' && c.meeting_kind === 'interview');
     expect(row.status).toBe('booked');
-    expect(row.timezone).toBe('Pacific/Auckland');
+    expect(row.timezone).toBe('Asia/Tokyo');
 
     const sends = resendCalls.slice(before);
     const gpSend = sends.find((c) => toOf(c).includes(GP.email));
     expect(gpSend).toBeTruthy();
-    // GP confirmation speaks the tz the GP actually booked in (NZST/NZDT), not
-    // the registration-country guess (Europe/London → BST/GMT).
-    expect(gpSend.body.text).toMatch(/NZ[SD]T/);
-    expect(gpSend.body.text).not.toMatch(/\bBST\b|\bGMT\b/);
+    // GP confirmation speaks the tz the GP actually booked in (Tokyo, GMT+9),
+    // not the registration-country guess (Europe/London → BST/GMT).
+    expect(gpSend.body.text).toContain('GMT+9');
+    expect(gpSend.body.text).not.toMatch(/\bBST\b|\bGMT\b(?!\+)/);
 
     // (d) practice confirmation prefers the stored availability tz (Perth),
     // not the NSW state guess (AEST/AEDT).
