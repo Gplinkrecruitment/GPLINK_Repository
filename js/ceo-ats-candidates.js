@@ -775,12 +775,17 @@
     var items = reviewItemsFor(c);
     if (!items.length) return '';
     var rows = items.map(function (it) {
+      // Account holds carry their own review / accept / decline right here —
+      // nothing to scroll to first. Other kinds still deep-link to their row.
+      var actions = it.kind === 'account_review'
+        ? accountReviewButtonsHtml(c)
+        : (it.focus ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-review-jump" data-focus="' + ATS.escAttr(it.focus) + '">Go to it</button>' : '');
       return '<div class="ats-review-banner-row">' +
         '<div style="flex:1;min-width:0">' +
           '<div class="ats-review-banner-title">' + ATS.esc(it.title || '') + '</div>' +
           '<div class="ats-review-banner-detail">' + ATS.esc(it.detail || '') + '</div>' +
         '</div>' +
-        (it.focus ? '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-review-jump" data-focus="' + ATS.escAttr(it.focus) + '">Go to it</button>' : '') +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + actions + '</div>' +
       '</div>';
     }).join('');
     return '<div class="ats-review-banner" role="alert">' +
@@ -800,6 +805,10 @@
     if (!el) {
       var banner = document.querySelector('#ats-review-banner-slot .ats-review-banner');
       el = banner || document.querySelector('.ats-profile-hero');
+      // The section this item points at is not on the page: the dashboard
+      // script is older than the server (tab opened before a deploy). Say so —
+      // a silent scroll to the banner reads as "the button does nothing".
+      if (sel && window.ATS && ATS.toast) ATS.toast('This review needs the latest dashboard — reload the page (⌘R / Ctrl+R).');
     }
     if (!el) return false;
     try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) { /* ignore */ } }
@@ -2174,19 +2183,63 @@
   // check — usually the ID scan — was flagged) blocks the doctor from matching
   // and from parts of their app. It must be reviewable right here, not only
   // visible as a chip: show why, the ID, and a one-click release.
-  function accountReviewRowInner(c) {
-    if (String(c.account_status || '') !== 'under_review') return '';
+  function shortDate(iso) {
+    var t = Date.parse(iso || '');
+    if (!isFinite(t)) return '';
+    try { return new Date(t).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); } catch (e) { return ''; }
+  }
+  // The review / accept / decline controls for an account held under review —
+  // ONE builder used by the profile row AND the "Needs your review" banner, so
+  // the action is wherever the CEO is looking (owner 2026-10-13: "Go to it"
+  // did nothing in a tab that pre-dated the deploy, and the only button was
+  // further down the page).
+  function accountReviewButtonsHtml(c) {
     var ob = c.onboarding || {};
     var docs = c.docs || {};
     var ids = ' data-case-id="' + ATS.escAttr(String(c.case_id || '')) + '" data-user-id="' + ATS.escAttr(String(c.user_id || '')) + '"';
+    var waiting = ob.idStatus === 'rejected';
+    return (docs.idDoc ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view"' + ids + '>View ID</button>' : '') +
+      '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-account-approve"' + ids + ' title="Accept the ID on file and release the account">&#10003; Approve &amp; release</button>' +
+      '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-account-decline"' + ids + ' title="Keep the account on hold and email the doctor for a new ID">' + (waiting ? 'Re-send request' : '&#10007; Decline · ask for new ID') + '</button>';
+  }
+  function accountReviewRowInner(c) {
+    if (String(c.account_status || '') !== 'under_review') return '';
+    var ob = c.onboarding || {};
+    var waiting = ob.idStatus === 'rejected';
+    var sub = waiting
+      ? ('New ID requested from the doctor' + (ob.idRequestedAt ? ' on ' + shortDate(ob.idRequestedAt) : '') + (ob.idRejectReason ? ' — ' + ob.idRejectReason : '') + '. When it arrives, file it with Replace on the Identity document row and it comes back here for review.')
+      : ((ob.accountReviewReason || 'Flagged during onboarding.') + ' Blocked from matching until released.');
     return '<div class="ats-doc-line" id="ats-account-review">' +
       '<div class="ats-doc-ico no">○</div>' +
-      '<div style="flex:1"><div class="dl-name"><span class="ats-alert-dot ats-register-alert" data-count="1" title="Needs your review">!</span> Account under review</div>' +
-      '<div class="dl-sub">' + ATS.esc(ob.accountReviewReason || 'Flagged during onboarding.') + ' Blocked from matching until released.</div></div>' +
-      '<span class="ats-pill amber">Under review</span>' +
-      (docs.idDoc ? '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-id-view"' + ids + '>View ID</button>' : '') +
-      '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-account-approve"' + ids + ' title="Accept the ID on file and release the account">&#10003; Approve &amp; release</button>' +
+      '<div style="flex:1"><div class="dl-name">' + (waiting ? '' : '<span class="ats-alert-dot ats-register-alert" data-count="1" title="Needs your review">!</span> ') + 'Account under review</div>' +
+      '<div class="dl-sub">' + ATS.esc(sub) + '</div></div>' +
+      (waiting ? '<span class="ats-pill amber">Waiting on doctor</span>' : '<span class="ats-pill red">Under review</span>') +
+      accountReviewButtonsHtml(c) +
     '</div>';
+  }
+
+  function declineAccountReview(btn, c) {
+    var userId = btn.getAttribute('data-user-id');
+    if (!userId) return;
+    var reason = window.prompt('Why can\'t this ID be accepted? This line is emailed to the doctor (leave blank to skip).', (c.onboarding && c.onboarding.idRejectReason) || '');
+    if (reason === null) return; // cancelled
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    ATS.api('/api/ats/candidate/account-review', { method: 'POST', body: { userId: userId, action: 'decline', reason: String(reason || '').trim() } }).then(function (res) {
+      if (res && res.ok) {
+        ATS.toast('New ID requested — the doctor has been emailed. The account stays on hold.');
+        refreshReviewQueue();
+        window.atsOpenCandidate(c.case_id || c.user_id);
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '&#10007; Decline · ask for new ID';
+        ATS.toast((res && (res.error || res.message)) || 'Could not record the decision.');
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      btn.innerHTML = '&#10007; Decline · ask for new ID';
+      ATS.toast('Could not record the decision.');
+    });
   }
 
   function approveAccountReview(btn, c) {
@@ -2747,6 +2800,8 @@
       if (regBtn) { recordRegisterVerification(regBtn, c); return; }
       var acctApproveBtn = e.target.closest('.ats-account-approve');
       if (acctApproveBtn) { approveAccountReview(acctApproveBtn, c); return; }
+      var acctDeclineBtn = e.target.closest('.ats-account-decline');
+      if (acctDeclineBtn) { declineAccountReview(acctDeclineBtn, c); return; }
       var regEditBtn = e.target.closest('.ats-register-edit');
       if (regEditBtn) { openRegisterEdit(regEditBtn, c); return; }
       var regSaveBtn = e.target.closest('.ats-register-edit-save');

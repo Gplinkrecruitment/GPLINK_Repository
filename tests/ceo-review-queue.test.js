@@ -449,6 +449,9 @@ function loadClient({ role = 'super_admin', payloads = [] } = {}) {
     dispatchEvent: (ev) => events.push(ev),
     CustomEvent: function (type, init) { this.type = type; this.detail = init && init.detail; },
     fetch: (url) => {
+      // The deploy watch pings /api/health on every poll — a constant commit,
+      // never counted as a queue read.
+      if (String(url).indexOf('/api/health') === 0) return Promise.resolve({ json: () => Promise.resolve({ ok: true, commit: 'abc123' }) });
       fetchCount++;
       const p = payloads.length > 1 ? payloads.shift() : payloads[0];
       return Promise.resolve({ json: () => Promise.resolve(p) });
@@ -548,9 +551,9 @@ describe('review queue wiring', () => {
   const server = read('server.js');
 
   it('the dashboard loads the queue script (cache-busted) and bumps every changed file', () => {
-    expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261012a"></script>');
+    expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261012b"></script>');
     expect(dash).toContain('/js/ceo-ats-shared.js?v=20261001a');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261012b');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261012c');
     expect(dash).toContain('/css/ceo-ats.css?v=20261012b');
     expect(dash).not.toContain('/js/ceo-ats-shared.js?v=20260816b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260914c');
@@ -653,6 +656,34 @@ describe('account_review items (accounts held under review)', () => {
     expect(rq.accountReviewReason(JSON.stringify(ob))).toContain('ID check');
     expect(rq.accountReviewReason({ idVerification: { status: 'verified' } })).toBe('');
     expect(rq.accountReviewReason(null)).toBe('');
+  });
+
+  it('a hold that is waiting on the doctor (ID declined, new one requested) leaves the queue', () => {
+    const out = rq.buildReviewQueue({
+      profiles, cases, nowMs: NOW_MS,
+      accountReviews: [
+        { user_id: 'u-acct', since: iso(3 * H), reason: 'New ID requested from the doctor — waiting on them', waiting_on_doctor: true }
+      ]
+    });
+    expect(out.items).toHaveLength(0);
+    expect(out.counts.account).toBe(0);
+    expect(rq.accountReviewWaitingOnDoctor({ idVerification: { status: 'rejected' } })).toBe(true);
+    expect(rq.accountReviewWaitingOnDoctor({ idVerification: { status: 'support_requested' } })).toBe(false);
+    expect(rq.accountReviewReason({ idVerification: { status: 'rejected', rejectReason: 'Blurry' } })).toBe('New ID requested from the doctor (Blurry) — waiting on them');
+    expect(rq.accountReviewReason({ idVerification: { status: 'manual_review', staffUploadedAt: '2026-10-13T00:00:00Z' } })).toBe('New ID filed by staff — check it');
+  });
+
+  it('the banner carries review / accept / decline for an account hold, and a stale tab is told to reload', () => {
+    const cand = read('js/ceo-ats-candidates.js');
+    expect(cand).toContain('function accountReviewButtonsHtml(c)');
+    expect(cand).toContain("it.kind === 'account_review'\n        ? accountReviewButtonsHtml(c)");
+    expect(cand).toContain('ats-account-decline');
+    expect(cand).toContain("action: 'decline'");
+    expect(cand).toContain('reload the page');
+    const rqjs = read('js/ceo-review-queue.js');
+    expect(rqjs).toContain("fetch('/api/health'");
+    expect(rqjs).toContain('gp-dash-reload-bar');
+    expect(rqjs).toContain('checkVersion();');
   });
 
   it('the profile shows a reviewable account row with a release button, and the popup counts it', () => {

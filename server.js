@@ -37987,7 +37987,11 @@ async function loadCeoReviewQueue() {
     '&state->>account_status=eq.under_review&limit=2000');
   if (!acctRes.ok) degraded = true;
   var accountReviews = ((acctRes.ok && Array.isArray(acctRes.data)) ? acctRes.data : []).map(function (r) {
-    return { user_id: r.user_id, since: r.updated_at, reason: ceoReviewQueue.accountReviewReason(r.gp_onboarding) };
+    return {
+      user_id: r.user_id, since: r.updated_at,
+      reason: ceoReviewQueue.accountReviewReason(r.gp_onboarding),
+      waiting_on_doctor: ceoReviewQueue.accountReviewWaitingOnDoctor(r.gp_onboarding)
+    };
   });
   var flaggedUids = profiles.map(function (p) { return p && p.user_id; }).filter(Boolean)
     .concat(accountReviews.map(function (r) { return r.user_id; }).filter(Boolean));
@@ -43631,6 +43635,10 @@ async function atsProdCandidateFacts(regCase) {
         return !!idSt && idSt !== 'verified' && idSt !== 'approved' && idSt !== 'scanning';
       })(),
       idExpired: !!(ob.idVerification && ob.idVerification.expired),
+      idStatus: String((ob.idVerification && ob.idVerification.status) || ''),
+      idRequestedAt: (ob.idVerification && ob.idVerification.rejectedAt) || '',
+      idRejectReason: (ob.idVerification && ob.idVerification.rejectReason) || '',
+      idStaffUploadedAt: (ob.idVerification && ob.idVerification.staffUploadedAt) || '',
       accountReviewReason: ceoReviewQueue.accountReviewReason(ob),
       // Medical-register verification (owner decision 2026-08-31): the drawer
       // shows the number + status with a one-click live-register check.
@@ -80565,7 +80573,7 @@ Return ONLY valid JSON with no markdown formatting:
     try { arBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
     const arUserId = String(arBody && arBody.userId || '').trim();
     const arAction = String(arBody && arBody.action || '').trim();
-    if (!arUserId || arAction !== 'approve') { sendJson(res, 400, { ok: false, message: 'userId and action (approve) are required.' }); return; }
+    if (!arUserId || (arAction !== 'approve' && arAction !== 'decline')) { sendJson(res, 400, { ok: false, message: 'userId and action (approve | decline) are required.' }); return; }
     const arStateRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(arUserId)}&limit=1`);
     const arRow = (arStateRes.ok && Array.isArray(arStateRes.data) && arStateRes.data[0]) ? arStateRes.data[0] : null;
     if (!arRow) { sendJson(res, 404, { ok: false, message: 'Doctor not found.' }); return; }
@@ -80577,6 +80585,48 @@ Return ONLY valid JSON with no markdown formatting:
     const arNowIso = new Date().toISOString();
     const arObWasString = typeof arState.gp_onboarding === 'string';
     const arOb = arState.gp_onboarding ? _parseStateVal(arState.gp_onboarding) : null;
+    // Decline = "ask for a new ID". The account STAYS under review (the hold is
+    // the point), the ID on file is marked rejected with the reason, the doctor
+    // is emailed to send a readable passport / driver's licence by reply or
+    // WhatsApp (staff file it with "Replace", which brings the review back),
+    // and the review item leaves the CEO queue while it waits on the doctor.
+    if (arAction === 'decline') {
+      const arReason = sanitizeUserString(arBody && arBody.reason, 300) || '';
+      if (arOb && typeof arOb === 'object') {
+        arOb.idVerification = (arOb.idVerification && typeof arOb.idVerification === 'object') ? arOb.idVerification : {};
+        arOb.idVerification.status = 'rejected';
+        arOb.idVerification.rejectedAt = arNowIso;
+        arOb.idVerification.rejectedBy = arAdmin.email || 'staff';
+        arOb.idVerification.rejectReason = arReason;
+        arOb.idVerification.issues = arReason ? [arReason] : [];
+        arOb.accountReviewFlag = true;
+        arState.gp_onboarding = arObWasString ? JSON.stringify(arOb) : arOb;
+      }
+      const arDeclSaved = await upsertSupabaseUserState(arUserId, arState, arNowIso);
+      if (arDeclSaved === false) { sendJson(res, 502, { ok: false, message: 'Could not record the decision.' }); return; }
+      try {
+        const arCase = await _ensureRegCase(arUserId);
+        if (arCase) {
+          await _logCaseEvent(arCase.id, null, 'system', 'Account review — new ID requested',
+            (arAdmin.email || 'staff') + ' declined the ID on file' + (arReason ? ' (' + arReason + ')' : '') + ' and asked the doctor for a new one. Account stays under review.', arAdmin.email || 'system');
+        }
+      } catch (arEvtErr) { /* best-effort audit trail */ }
+      try {
+        await logAdminAction(req, arAdmin, 'admin_account_review_declined', { targetType: 'gp', targetId: arUserId, detail: { reason: arReason } });
+      } catch (arAuditErr) { /* best-effort */ }
+      sendGpNotificationEmail(arUserId,
+        'We need a new copy of your ID, GP Link',
+        'We need a new copy of your ID, {{name}}',
+        'We have looked at the identity document you uploaded and could not accept it' + (arReason ? ': ' + arReason : '') + '.\n\n' +
+        'Please reply to this email, or message us on WhatsApp at +61 494 391 968, with a clear photo of your passport or driver\'s licence. An expired document is fine as long as every detail is readable.\n\n' +
+        'We will add it to your file and release your account straight away.',
+        'Message us on WhatsApp',
+        'https://wa.me/61494391968',
+        ''
+      ).catch(err => console.error('[Email] Account review decline failed:', err && err.message));
+      sendJson(res, 200, { ok: true, account_status: 'under_review', id_status: 'rejected', requested_at: arNowIso });
+      return;
+    }
     if (arOb && typeof arOb === 'object') {
       if (arOb.idVerification && typeof arOb.idVerification === 'object' && arOb.idVerification.status !== 'verified') {
         arOb.idVerification.status = 'approved';
@@ -80770,6 +80820,31 @@ Return ONLY valid JSON with no markdown formatting:
         mimeType: ccvEffectiveMime,
         fileSize: ccvBuffer.length
       });
+      // A replacement ID filed on an account held under review is the doctor's
+      // answer to "send us a new one": put the ID check back in front of the
+      // CEO (status manual_review, old issues cleared) so the review item
+      // returns to the queue. Best-effort — never fails the upload.
+      if (ccvSaved) {
+        try {
+          const idStRes = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(ccvUserId)}&limit=1`);
+          const idStRow = (idStRes.ok && Array.isArray(idStRes.data) && idStRes.data[0]) ? idStRes.data[0] : null;
+          const idSt = (idStRow && idStRow.state && typeof idStRow.state === 'object') ? idStRow.state : null;
+          if (idSt && idSt.account_status === 'under_review' && idSt.gp_onboarding) {
+            const idObWasString = typeof idSt.gp_onboarding === 'string';
+            const idOb = _parseStateVal(idSt.gp_onboarding);
+            if (idOb && typeof idOb === 'object') {
+              idOb.idVerification = (idOb.idVerification && typeof idOb.idVerification === 'object') ? idOb.idVerification : {};
+              idOb.idVerification.status = 'manual_review';
+              idOb.idVerification.issues = [];
+              idOb.idVerification.fileName = ccvFileName;
+              idOb.idVerification.staffUploadedAt = new Date().toISOString();
+              idOb.idVerification.staffUploadedBy = ctxCCV.email || 'staff';
+              idSt.gp_onboarding = idObWasString ? JSON.stringify(idOb) : idOb;
+              await upsertSupabaseUserState(ccvUserId, idSt, new Date().toISOString());
+            }
+          }
+        } catch (idStErr) { console.warn('[ats candidate-doc] ID re-review mark failed (tolerated):', idStErr && idStErr.message); }
+      }
     }
     if (!ccvSaved) { sendJson(res, 502, { ok: false, message: 'Could not save the ' + ccvSlotMeta.label + ' — please try again.' }); return; }
 

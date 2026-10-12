@@ -31,8 +31,40 @@
     pendingShow: false,
     again: false,
     deferTimer: null,
-    lastFetchAt: 0
+    lastFetchAt: 0,
+    commit: '',          // deployed commit seen at boot (from /api/health)
+    reloadBarShown: false
   };
+
+  // Owner 2026-10-13: a dashboard tab opened BEFORE a deploy keeps the old
+  // scripts while the server (and the review queue) move on — "Go to it"
+  // pointed at a section the old script could not render, so it looked
+  // broken. Watch the deployed commit alongside the queue poll and, the
+  // moment it changes, ask for a reload. /api/health is public and tiny.
+  function checkVersion() {
+    fetch('/api/health', { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var commit = String((d && d.commit) || '');
+        if (!commit) return;
+        if (!state.commit) { state.commit = commit; return; }
+        if (commit !== state.commit) showReloadBar();
+      })
+      .catch(function () { /* offline / cold start — try again next poll */ });
+  }
+  function showReloadBar() {
+    if (state.reloadBarShown || document.getElementById('gp-dash-reload-bar')) return;
+    state.reloadBarShown = true;
+    var bar = document.createElement('div');
+    bar.id = 'gp-dash-reload-bar';
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:12px;padding:9px 16px;background:#1d4ed8;color:#fff;font:600 13px/1.3 system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35)';
+    bar.innerHTML = '<span>The dashboard was just updated — reload to get the latest version.</span>' +
+      '<button type="button" id="gp-dash-reload-btn" style="background:#fff;color:#1d4ed8;border:none;border-radius:6px;padding:5px 12px;font:700 12px/1 system-ui,sans-serif;cursor:pointer">Reload now</button>';
+    document.body.appendChild(bar);
+    var btn = document.getElementById('gp-dash-reload-btn');
+    if (btn) btn.addEventListener('click', function () { window.location.reload(); });
+  }
 
   function esc(s) {
     if (window.ATS && window.ATS.esc) return window.ATS.esc(s);
@@ -257,6 +289,7 @@
   function refresh() {
     if (!isCeo()) return Promise.resolve(null);
     if (state.inflight) { state.again = true; return state.inflight; }
+    checkVersion();
     state.inflight = fetchQueue().then(function (d) {
       state.inflight = null;
       state.lastFetchAt = Date.now();

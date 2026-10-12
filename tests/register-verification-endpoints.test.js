@@ -17,12 +17,14 @@ const db = {
   user_profiles: [
     { user_id: 'u-reg-1', email: 'reg-gp@example.com', first_name: 'Reggie', last_name: 'Sterton', registration_country: 'uk' },
     { user_id: 'u-noreg-2', email: 'noreg-gp@example.com', first_name: 'Nora', last_name: 'Number', registration_country: 'uk' },
-    { user_id: 'u-held-3', email: 'held-gp@example.com', first_name: 'Hela', last_name: 'Held', registration_country: 'uk', account_status: 'active' }
+    { user_id: 'u-held-3', email: 'held-gp@example.com', first_name: 'Hela', last_name: 'Held', registration_country: 'uk', account_status: 'active' },
+    { user_id: 'u-held-4', email: 'held2-gp@example.com', first_name: 'Hana', last_name: 'Holden', registration_country: 'uk', account_status: 'active' }
   ],
   user_state: [
     { user_id: 'u-reg-1', state: {} },
     { user_id: 'u-noreg-2', state: {} },
-    { user_id: 'u-held-3', state: { account_status: 'under_review', gp_onboarding: JSON.stringify({ country: 'GB', accountReviewFlag: true, idVerification: { status: 'support_requested', issues: ['This document expired on 2026-09-15.'] } }) } }
+    { user_id: 'u-held-3', state: { account_status: 'under_review', gp_onboarding: JSON.stringify({ country: 'GB', accountReviewFlag: true, idVerification: { status: 'support_requested', issues: ['This document expired on 2026-09-15.'] } }) } },
+    { user_id: 'u-held-4', state: { account_status: 'under_review', gp_onboarding: { country: 'GB', accountReviewFlag: true, idVerification: { status: 'failed', issues: ['The name on the document is not readable.'] } } } }
   ],
   user_documents: [],
   registration_cases: [],
@@ -366,5 +368,57 @@ describe('ID verification accepts an expired ID', () => {
     expect(src).not.toContain('Please upload a valid, non-expired ID.');
     expect(src).not.toContain('or if the document has expired.');
     expect(src).toContain('Never mark verified as false because the document has expired');
+  });
+});
+
+// Owner 2026-10-13: "ensure anything that could and may be reviews has a way
+// for admin to review, accept or decline" — the decline half.
+describe('POST /api/ats/candidate/account-review action=decline (ask the doctor for a new ID)', () => {
+  it('keeps the hold, marks the ID rejected with the reason, logs it, and the account can still be approved later', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'),
+      body: { userId: 'u-held-4', action: 'decline', reason: 'The photo is too blurry to read your name.' }
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.account_status).toBe('under_review');
+    expect(res.body.id_status).toBe('rejected');
+    const st = db.user_state.find((r) => r.user_id === 'u-held-4').state;
+    expect(st.account_status).toBe('under_review');
+    expect(typeof st.gp_onboarding).toBe('object'); // kept in the shape it arrived in
+    expect(st.gp_onboarding.accountReviewFlag).toBe(true);
+    expect(st.gp_onboarding.idVerification.status).toBe('rejected');
+    expect(st.gp_onboarding.idVerification.rejectReason).toBe('The photo is too blurry to read your name.');
+    expect(st.gp_onboarding.idVerification.rejectedBy).toBe('ceo@gplink-test.local');
+    expect((db.task_timeline || []).some((e) => e.title === 'Account review — new ID requested')).toBe(true);
+
+    // Declined is waiting on the DOCTOR — it leaves the CEO queue.
+    const rq = requireCjs('../lib/ceo-review-queue.js');
+    expect(rq.accountReviewWaitingOnDoctor(st.gp_onboarding)).toBe(true);
+    expect(rq.accountReviewReason(st.gp_onboarding)).toContain('New ID requested from the doctor');
+
+    // The CEO can still accept what is on file afterwards.
+    const ok = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'), body: { userId: 'u-held-4', action: 'approve' }
+    });
+    expect(ok.status).toBe(200);
+    expect(db.user_state.find((r) => r.user_id === 'u-held-4').state.account_status).toBe('active');
+  });
+
+  it('cannot decline an account that is not under review', async () => {
+    const res = await httpReq('POST', '/api/ats/candidate/account-review', {
+      cookie: adminCookie('ceo@gplink-test.local'), body: { userId: 'u-held-4', action: 'decline', reason: 'x' }
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it('a replacement ID filed by staff on a held account puts the check back in front of the CEO', () => {
+    const fs = requireCjs('node:fs');
+    const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    const idx = src.indexOf("ccvSlot === 'idDoc'");
+    expect(idx).toBeGreaterThan(0);
+    const branch = src.slice(idx, idx + 2500);
+    expect(branch).toContain("idSt.account_status === 'under_review'");
+    expect(branch).toContain("idOb.idVerification.status = 'manual_review'");
+    expect(branch).toContain('staffUploadedAt');
   });
 });
