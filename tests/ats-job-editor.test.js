@@ -310,6 +310,36 @@ describe('POST /api/ats/jobs — full manual creation via intake', () => {
     expect(parse(badIntake.raw).message).toContain('suburb');
   });
 
+  // Owner report 2026-10-13: the CEO "Add a job" form picks the practice from
+  // a list and never types its name or website, yet the shared validator
+  // rejected every submit with "practice_name is required". The practice row
+  // is the source of truth for both, so the server fills them in.
+  it('fills practice_name + website from the chosen practice when the form sends neither', async () => {
+    const { practice_name, website, ...fromForm } = FULL_INTAKE;
+    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { practice_id: 'p1', intake: fromForm } });
+    expect(r.status).toBe(200);
+    const b = parse(r.raw);
+    expect(b.ok).toBe(true);
+    const row = dbJob(b.job.id);
+    expect(row.practice_id).toBe('p1');
+    expect(row.practice_name).toBe('Greenslopes Family Medical');
+    expect(row.source_payload.intake.practice_name).toBe('Greenslopes Family Medical');
+    expect(row.approval_status).toBe('pending');
+    expect(row.is_active).toBe(false);
+  });
+
+  it('a blank website never blocks a staff-created job (the practice may not have one)', async () => {
+    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { practice_id: 'p1', intake: { ...FULL_INTAKE, website: '' } } });
+    expect(r.status).toBe(200);
+    expect(parse(r.raw).ok).toBe(true);
+  });
+
+  it('every other practice-form rule still applies to the staff form', async () => {
+    const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { practice_id: 'p1', intake: { ...FULL_INTAKE, urgency: '' } } });
+    expect(r.status).toBe(400);
+    expect(parse(r.raw).message).toContain('urgency');
+  });
+
   it('legacy minimal POST is unchanged', async () => {
     const r = await req('POST', '/api/ats/jobs', { host: SUPER_HOST, cookie: superCookie(), body: { title: 'GP — Legacy Minimal', practice_id: 'p1', city: 'Cairns', state: 'QLD', type: 'Locum', billing: 'Mixed billing' } });
     expect(r.status).toBe(200);

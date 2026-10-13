@@ -146,6 +146,17 @@ describe('validatePracticeIntakePayload', () => {
     expect(result.error).toBeTruthy();
   });
 
+  it('options.optional waives a required field for that call only', () => {
+    // Default rules: the practice-facing form must give a website.
+    expect(validatePracticeIntakePayload(validPayload({ website: '' })).ok).toBe(false);
+    // The staff "Add a job" path waives it; the key still comes back (blank).
+    const waived = validatePracticeIntakePayload(validPayload({ website: '' }), { optional: ['website'] });
+    expect(waived.ok).toBe(true);
+    expect(waived.value.website).toBe('');
+    // Only the named key is waived — everything else keeps its rule.
+    expect(validatePracticeIntakePayload(validPayload({ suburb: '' }), { optional: ['website'] }).ok).toBe(false);
+  });
+
   it('coerces boolean-like strings for boolean fields', () => {
     const result = validatePracticeIntakePayload(
       validPayload({ dpa: 'yes', visa_sponsorship: 'true', nursing_on_site: 'false' })
