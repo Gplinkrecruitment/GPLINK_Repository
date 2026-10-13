@@ -120,6 +120,35 @@ describe('CEO Jobs tab UI (Phase 3 Task 4)', () => {
   });
 
   it('ceo-dashboard.html loads the bumped script', () => {
-    expect(ceo).toContain('/js/ceo-ats-jobs.js?v=20260901a');
+    expect(ceo).toContain('/js/ceo-ats-jobs.js?v=20261013a');
+  });
+});
+
+// Owner report 2026-10-13: "Create job" was rejected server-side with
+// "practice_name is required" because the manual form never asked for the
+// fields the shared intake validator requires. The form must ask for the
+// three job-level ones and send them; the practice name comes from the row.
+describe('Add a job — asks for every field the intake validator requires', () => {
+  it('renders the urgency, employment type, GPs-needed and website inputs', () => {
+    expect(src).toMatch(/id="atsNjUrgency"/);
+    expect(src).toMatch(/id="atsNjEmployment"/);
+    expect(src).toMatch(/id="atsNjGpsNeeded"/);
+    expect(src).toMatch(/id="atsNjWebsite"/);
+  });
+
+  it('submits them under the validator\'s keys', () => {
+    expect(addJob).toMatch(/employment_type:\s*employmentType/);
+    expect(addJob).toMatch(/urgency:\s*urgency/);
+    expect(addJob).toMatch(/gps_needed:\s*gpsNeeded/);
+    expect(addJob).toMatch(/website:/);
+    // The practice name is never typed here — the server takes it from the
+    // chosen practice row, so the form must not invent one.
+    expect(addJob).not.toMatch(/practice_name:/);
+  });
+
+  it('scrolls a rejection into view so a failed submit never looks like a dead button', () => {
+    const errStart = src.indexOf('function njError');
+    const errEnd = src.indexOf('function submitAddJob');
+    expect(src.slice(errStart, errEnd)).toMatch(/scrollIntoView/);
   });
 });

@@ -78710,20 +78710,33 @@ Return ONLY valid JSON with no markdown formatting:
     if (bodyJ && bodyJ.intake && typeof bodyJ.intake === 'object') {
       var jiPid = String(bodyJ.practice_id || '').trim();
       if (!jiPid) { sendJson(res, 400, { ok: false, message: 'Choose a practice before creating a job from full details.' }); return; }
-      var jiVal = practicePipeline.validatePracticeIntakePayload(bodyJ.intake);
-      if (!jiVal.ok) { sendJson(res, 400, { ok: false, message: jiVal.error }); return; }
       var jiParsed = atsParsePracticeId(jiPid);
       var jiRow = null;
       if (jiParsed.name) {
-        // Synthetic name-id (job-derived practice with no stored row) — upsert
-        // a real row first, same as PATCH /api/ats/practice.
+        // Synthetic name-id (job-derived practice with no stored row) — look
+        // for a real row now; the upsert waits until the intake has passed
+        // validation so a rejected form never leaves a stray practice behind.
         var jiStored = await atsListPracticeRows();
         jiRow = jiStored.find(function (p) { return String(p.name || '').trim().toLowerCase() === jiParsed.name.toLowerCase(); }) || null;
-        if (!jiRow) {
-          jiRow = await atsInsertPracticeRow({ name: jiParsed.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxJC.email || '' });
-        }
       } else {
         jiRow = await atsGetPracticeRow(jiParsed.rowId);
+        if (!jiRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
+      }
+      // The CEO form picks the practice from a list and never types its name or
+      // website — the practice row is the source of truth for both. Fill them
+      // in from the row BEFORE the full-intake validation this path shares with
+      // the practice-facing form, which otherwise rejects every staff-created
+      // job with "practice_name is required" (owner report 2026-10-13). The
+      // website stays optional here: staff may not have it, and a blank must
+      // not block the job.
+      var jiIntake = Object.assign({}, bodyJ.intake);
+      if (!String(jiIntake.practice_name || '').trim()) jiIntake.practice_name = String((jiRow && jiRow.name) || jiParsed.name || '').trim();
+      if (!String(jiIntake.website || '').trim()) jiIntake.website = String((jiRow && jiRow.website) || '').trim();
+      var jiVal = practicePipeline.validatePracticeIntakePayload(jiIntake, { optional: ['website'] });
+      if (!jiVal.ok) { sendJson(res, 400, { ok: false, message: jiVal.error }); return; }
+      if (!jiRow) {
+        // Same upsert PATCH /api/ats/practice performs for a name-only id.
+        jiRow = await atsInsertPracticeRow({ name: jiParsed.name, location_country: 'Australia', source: 'manual', is_active: true, created_by: ctxJC.email || '' });
       }
       if (!jiRow) { sendJson(res, 404, { ok: false, message: 'Practice not found.' }); return; }
       var jiCreated = await createPendingJobFromIntake(jiRow, jiVal.value);

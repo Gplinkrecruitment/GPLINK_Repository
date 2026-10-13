@@ -50,6 +50,19 @@
     { value: 'MM4', label: 'MM4' }, { value: 'MM5', label: 'MM5' }, { value: 'MM6', label: 'MM6' },
     { value: 'MM7', label: 'MM7' }
   ];
+  // The practice answers these three on its own intake form and the shared
+  // validator requires them, so the manual "Add a job" form must ask too —
+  // without them every staff-created job was rejected server-side.
+  var URGENCY_OPTS = [
+    { value: 'asap', label: 'As soon as possible' },
+    { value: '3_6m', label: 'In 3 to 6 months' },
+    { value: '12m', label: 'Within 12 months' }
+  ];
+  var EMPLOYMENT_OPTS = [
+    { value: 'full_time', label: 'Full time' },
+    { value: 'part_time', label: 'Part time' },
+    { value: 'either', label: 'Either' }
+  ];
   // Optional booleans (visa sponsorship, nursing on site) allow a blank
   // "unknown" — the server stores that as null (not a confirmed "no").
   var TRISTATE_OPTS = [
@@ -1321,7 +1334,13 @@
             '<label>' + req('Job title') + '</label>' +
             '<input type="text" id="atsNjTitle" placeholder="e.g. General Practitioner — VR" />' +
             '<label>About the role (shown to doctors)</label>' +
-            '<textarea id="atsNjSummary" rows="3" placeholder="A short, friendly description of the practice and the role…"></textarea>'
+            '<textarea id="atsNjSummary" rows="3" placeholder="A short, friendly description of the practice and the role…"></textarea>' +
+            '<div class="ats-form-row" style="margin-top:12px">' +
+              '<div><label>' + req('Full-time or part-time?') + '</label><select id="atsNjEmployment">' + valueOptions(EMPLOYMENT_OPTS, 'full_time') + '</select></div>' +
+              '<div><label>' + req('How many GPs are needed?') + '</label><input type="text" id="atsNjGpsNeeded" value="1" placeholder="1" /></div>' +
+            '</div>' +
+            '<label>' + req('When is the GP needed?') + '</label>' +
+            '<select id="atsNjUrgency">' + valueOptions(URGENCY_OPTS, 'asap') + '</select>'
           ) +
           formSection('Location',
             '<div class="ats-form-row">' +
@@ -1360,7 +1379,9 @@
               '<div><label>Years operating</label><input type="text" id="atsNjYears" placeholder="12" /></div>' +
               '<div><label>Nursing on site</label>' + boolSelect('atsNjNursing', null) + '</div>' +
             '</div>' +
-            '<label>Visa sponsorship offered</label>' + boolSelect('atsNjVisa', null)
+            '<label>Visa sponsorship offered</label>' + boolSelect('atsNjVisa', null) +
+            '<label style="margin-top:12px">Practice website</label>' +
+            '<input type="text" id="atsNjWebsite" placeholder="https://… (optional — the practice\'s saved website is used when blank)" />'
           ) +
           formSection('Introduction',
             '<label>Introduction text</label>' +
@@ -1379,7 +1400,13 @@
 
   function njError(msg) {
     var e = el('atsNjError');
-    if (e) { e.textContent = msg; e.style.display = msg ? 'block' : 'none'; }
+    if (!e) return;
+    e.textContent = msg;
+    e.style.display = msg ? 'block' : 'none';
+    // The message sits at the top of a long, scrolling form and the Create
+    // button at the bottom — bring it into view, or a rejected submit looks
+    // like the button did nothing (owner report 2026-10-13).
+    if (msg) { try { e.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (x) { /* older browsers */ } }
   }
 
   function submitAddJob() {
@@ -1393,10 +1420,16 @@
     var nearestCity = (val('atsNjNearestCity') || '').trim();
     var state = val('atsNjState');
     var address = (val('atsNjAddress') || '').trim();
+    var employmentType = val('atsNjEmployment');
+    var urgency = val('atsNjUrgency');
+    var gpsNeeded = (val('atsNjGpsNeeded') || '').trim();
 
     // Client-side required checks, in plain language, before the round-trip.
     if (!practiceId) { njError('Choose a practice for this job.'); return; }
     if (!title) { njError('Enter a job title.'); return; }
+    if (!employmentType) { njError('Choose full-time, part-time or either.'); return; }
+    if (!/\d/.test(gpsNeeded)) { njError('Enter how many GPs are needed (a number).'); return; }
+    if (!urgency) { njError('Choose when the GP is needed.'); return; }
     if (!billingStyle) { njError('Choose a billing style.'); return; }
     if (dpa === null) { njError('Choose whether this job is DPA eligible.'); return; }
     if (!pctSplit) { njError('Enter the percentage split.'); return; }
@@ -1408,6 +1441,11 @@
     var intake = {
       role_title: title,
       role_summary: (val('atsNjSummary') || '').trim(),
+      employment_type: employmentType,
+      urgency: urgency,
+      gps_needed: gpsNeeded,
+      // Blank = the server uses the practice's saved website (never required here).
+      website: (val('atsNjWebsite') || '').trim(),
       billing_style: billingStyle,
       dpa: dpa,
       percentage_split: pctSplit,
