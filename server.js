@@ -22981,8 +22981,13 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const _gpFirstName = _gpProfile ? (_gpProfile.first_name || '') : '';
     console.log('[task-automation] profile:', JSON.stringify({ phone: _gpPhone, firstName: _gpFirstName, profileFound: !!_gpProfile }));
 
-    console.log('[task-automation] prevState.gp_epic_progress type:', typeof prevState.gp_epic_progress, 'value:', JSON.stringify(prevState.gp_epic_progress).slice(0, 200));
-    console.log('[task-automation] nextState.gp_epic_progress type:', typeof nextState.gp_epic_progress, 'value:', JSON.stringify(nextState.gp_epic_progress).slice(0, 200));
+    // String(...) because JSON.stringify(undefined) is undefined, and a doctor
+    // who has never opened MyIntealth has NO gp_epic_progress key at all — the
+    // bare .slice() threw here and the catch below swallowed it, so EVERY hook
+    // in this function (practice pack, Section G, stage templates) silently
+    // never ran for such a doctor (Dr Akkas, 2026-10-14).
+    console.log('[task-automation] prevState.gp_epic_progress type:', typeof prevState.gp_epic_progress, 'value:', String(JSON.stringify(prevState.gp_epic_progress)).slice(0, 200));
+    console.log('[task-automation] nextState.gp_epic_progress type:', typeof nextState.gp_epic_progress, 'value:', String(JSON.stringify(nextState.gp_epic_progress)).slice(0, 200));
 
     const prev = {
       epic: _parseStateVal(prevState.gp_epic_progress),
@@ -23299,7 +23304,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       }
     }
   } catch (err) {
-    // Non-blocking: do not fail the state update
+    // Non-blocking: do not fail the state update — but never silent. A swallowed
+    // throw here hid a crash on the first debug line for weeks.
+    console.error('[task-automation] aborted for user', userId, ':', (err && err.stack) || (err && err.message) || String(err));
   }
 }
 

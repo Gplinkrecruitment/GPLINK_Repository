@@ -225,6 +225,32 @@ describe('career-secured hooks fire even when the client mirror already said "se
   });
 });
 
+describe('processRegistrationTaskAutomation survives a doctor with no progress blobs', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const start = src.indexOf('async function processRegistrationTaskAutomation(');
+  const fn = src.slice(start, start + 40000);
+
+  it('never calls .slice() on a bare JSON.stringify of a state key (undefined for a missing key)', () => {
+    expect(fn).not.toMatch(/JSON\.stringify\((prev|next)State\.[a-z_]+\)\.slice\(/);
+    expect(fn).toMatch(/String\(JSON\.stringify\(prevState\.gp_epic_progress\)\)\.slice\(0, 200\)/);
+    expect(fn).toMatch(/String\(JSON\.stringify\(nextState\.gp_epic_progress\)\)\.slice\(0, 200\)/);
+  });
+
+  it('the outer catch logs the abort instead of swallowing it', () => {
+    // The function's own outer catch is the one right after the support-ticket
+    // dual-write block; sibling functions further down keep the old silent shape.
+    const fnEnd = fn.indexOf('\n}\n', fn.indexOf('[SupportTickets] dual-write error'));
+    const own = fn.slice(0, fnEnd);
+    expect(own).toMatch(/console\.error\('\[task-automation\] aborted for user'/);
+  });
+
+  it('a missing key really does make the old expression throw (the regression this guards)', () => {
+    const state = {};
+    expect(() => JSON.stringify(state.gp_epic_progress).slice(0, 200)).toThrow(TypeError);
+    expect(String(JSON.stringify(state.gp_epic_progress)).slice(0, 200)).toBe('undefined');
+  });
+});
+
 describe('PUT /api/admin/case — the ops key may drive an RSO reassignment only', () => {
   const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const start = src.indexOf("pathname === '/api/admin/case' && req.method === 'PUT'");
