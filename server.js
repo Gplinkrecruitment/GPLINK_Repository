@@ -42247,6 +42247,51 @@ async function notifyGpInterviewInvitationAccepted(userId, applicationId) {
 //   opts.commencementDate   — optional YYYY-MM-DD start/commencement override
 // Returns { acceptedOffer, storedStage, nextStage, caseId } for the caller's
 // response. Never throws for best-effort steps (each is individually guarded).
+// Shared by POST /api/ats/offer and the ops record-placement endpoint: decode
+// a data-URL contract, copy it into Supabase Storage (the signable path that
+// makes /api/prepared-documents/download resolve), deliver it into the GP's
+// My Documents WITHOUT the per-document email, persist the download
+// references and record the prepared-docs "Ready" state. Returns
+// { ok:true, delivered } normally, { ok:false, code:'unreadable'|'too_large' }
+// for a bad payload. A delivery failure is logged and reported as
+// delivered:false — the caller still saves the offer, exactly as before.
+async function deliverOfferContractForApplication(ofCtx, contractDataUrl, fileNameRaw, logTag) {
+  var tag = logTag || '[ats offer]';
+  var dataUrl = typeof contractDataUrl === 'string' ? contractDataUrl.trim() : '';
+  if (!dataUrl) return { ok: true, delivered: false };
+  var parsed = parseDataUrlPayload(dataUrl);
+  if (!parsed) return { ok: false, code: 'unreadable' };
+  if (parsed.buffer.length > 10 * 1024 * 1024) return { ok: false, code: 'too_large' };
+  if (!ofCtx || !ofCtx.userId) return { ok: true, delivered: false };
+  var fileName = sanitizeUserString(String(fileNameRaw || ''), 240) || 'Offer-Contract.pdf';
+  var delivered = false;
+  var driveFile = null;
+  var storagePath = '';
+  try {
+    if (isSupabaseDbConfigured()) {
+      var objPath = ['users', sanitizeStoragePathSegment(ofCtx.userId, 80), 'offer-documents', 'offer_contract', 'current'].join('/');
+      var uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, objPath, dataUrl, parsed.mimeType);
+      if (uploaded) storagePath = objPath;
+    }
+    var delivery = await deliverToMyDocuments(ofCtx.userId, ofCtx.caseId, 'offer_contract', fileName, parsed.buffer, parsed.mimeType, { notifyGp: false });
+    delivered = true;
+    driveFile = (delivery && delivery.driveFile) || null;
+    var docPatch = {};
+    if (storagePath) docPatch.file_url = storagePath;
+    if (driveFile) docPatch.google_drive_file_id = driveFile;
+    if (isSupabaseDbConfigured() && Object.keys(docPatch).length > 0) {
+      await supabaseDbRequest('user_documents',
+        'user_id=eq.' + encodeURIComponent(ofCtx.userId) + '&document_key=eq.offer_contract',
+        { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: docPatch });
+    }
+    try { await _updatePreparedDocsState(ofCtx.userId, 'offer_contract', driveFile, fileName); }
+    catch (stateErr) { console.error(tag + ' gp_prepared_docs update error:', stateErr && stateErr.message); }
+  } catch (e) {
+    console.error(tag + ' contract delivery failed for app', ofCtx.app && ofCtx.app.id, ':', e && e.message);
+  }
+  return { ok: true, delivered: delivered, storagePath: storagePath, driveFile: driveFile };
+}
+
 async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
   var options = opts && typeof opts === 'object' ? opts : {};
   var isResume = !!options.isResume;
@@ -42391,8 +42436,12 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
       console.error('[placement] sender notify failed for app', targetApp.id, ':', senderErr && senderErr.message);
     }
     try {
-      var hasInterview = false;
-      if (isSupabaseDbConfigured()) {
+      // A staff-recorded placement (opts.placementConfirmed) IS the practice's
+      // final decision — never send the doctor off to "book your interview"
+      // for a job they have already been placed in. The GP self-accept path
+      // still looks the booked interview up.
+      var hasInterview = !!options.placementConfirmed;
+      if (!hasInterview && isSupabaseDbConfigured()) {
         var ivRes = await supabaseDbRequest('scheduled_calls',
           'select=id&meeting_kind=eq.interview&status=eq.booked&application_id=eq.' + encodeURIComponent(String(targetApp.id)) + '&limit=1');
         hasInterview = !!(ivRes.ok && Array.isArray(ivRes.data) && ivRes.data.length);
@@ -76080,6 +76129,169 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Internal ops: record an OFF-PLATFORM placement end to end — the offer
+  // of record (terms + the signed contract into the doctor's documents), then
+  // the SAME finalisation the doctor's in-app accept and the CEO's "Mark
+  // placement secured" run (offer accepted, kanban hired, status
+  // placement_secured, career state, practice pack + task automation,
+  // placements row, internal job filled, placement emails to the doctor and
+  // the practice). Exists because every drawer button is gated on the
+  // stage/offer state a card only reaches by walking the pipeline, and a
+  // hand-written DB placement skips every one of those hooks (Dr Mercy,
+  // 2026-07). Auth: admin session OR the Supabase service-role key via
+  // x-gp-ops-key (a server-side secret that already grants full DB access, so
+  // this adds no privilege). Body: application_id (required);
+  // commencement_date YYYY-MM-DD; job_title (renames the internal job FIRST so
+  // the right name reaches the offer row and every email); offer {
+  // billing_split, sessions_per_week, compensation_range, relocation_package,
+  // start_date, notes, sent_by }; contract_data_url + contract_file_name;
+  // notify_offer (default false — the placement email is the one
+  // notification); dry_run (resolve everything, write nothing).
+  if (pathname === '/api/admin/ops/record-placement' && req.method === 'POST') {
+    var rpOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    var rpViaServiceKey = !!(rpOpsKey && SUPABASE_SERVICE_ROLE_KEY && rpOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    var rpActor = 'ops:service-key';
+    if (!rpViaServiceKey) {
+      var rpAdmin = requireAdminSession(req, res); if (!rpAdmin) return;
+      rpActor = String((rpAdmin && rpAdmin.email) || 'admin');
+    }
+    var rpBody;
+    try { rpBody = await readJsonBody(req); } catch (e) {
+      var rpTooBig = /too large/i.test(String(e && e.message || ''));
+      sendJson(res, 400, { ok: false, message: rpTooBig ? 'That contract file is too large — attach one under 8 MB.' : 'Invalid body.' });
+      return;
+    }
+    var rpAppId = (rpBody && rpBody.application_id != null) ? String(rpBody.application_id).trim() : '';
+    if (!rpAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var rpDryRun = !!(rpBody && rpBody.dry_run === true);
+    var rpCtx = await atsGetApplicationContext(rpAppId);
+    if (!rpCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    var rpApp = rpCtx.app;
+    var rpExisting = await atsOffersStore.getAtsOfferByApplication(rpAppId);
+    var rpExistingStatus = rpExisting ? String(rpExisting.status || '').trim().toLowerCase() : '';
+    var rpAppStatus = String(rpApp.status || '').trim().toLowerCase();
+    if (rpExistingStatus === 'accepted' && rpAppStatus === 'placement_secured') {
+      sendJson(res, 409, { ok: false, code: 'already_secured', message: 'This placement is already secured.' });
+      return;
+    }
+    var rpRole = null;
+    if (rpCtx.careerRoleId) {
+      rpRole = isSupabaseDbConfigured()
+        ? await getCareerRoleRowById(rpCtx.careerRoleId)
+        : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(rpCtx.careerRoleId); }) || null);
+    }
+    var rpOfferIn = (rpBody && rpBody.offer && typeof rpBody.offer === 'object') ? rpBody.offer : {};
+    var rpJobTitle = sanitizeUserString(String((rpBody && rpBody.job_title) || ''), 200);
+    var rpCommence = /^\d{4}-\d{2}-\d{2}$/.test(String((rpBody && rpBody.commencement_date) || '').trim())
+      ? String(rpBody.commencement_date).trim() : null;
+    var rpStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(rpOfferIn.start_date || '').trim())
+      ? String(rpOfferIn.start_date).trim()
+      : (rpCommence || (rpExisting && rpExisting.start_date) || null);
+    var rpContractUrl = (rpBody && typeof rpBody.contract_data_url === 'string') ? rpBody.contract_data_url.trim() : '';
+    var rpSentBy = sanitizeUserString(String(rpOfferIn.sent_by || ''), 320) || rpActor;
+    var rpPickTerm = function (key, max) {
+      var fromBody = rpOfferIn[key];
+      var v = (fromBody != null && String(fromBody).trim() !== '') ? fromBody : ((rpExisting && rpExisting[key]) || '');
+      return sanitizeUserString(String(v || ''), max);
+    };
+    if (rpDryRun) {
+      sendJson(res, 200, {
+        ok: true, dry_run: true,
+        application: { id: rpAppId, status: rpApp.status || null, ats_stage: rpApp.ats_stage || null, user_id: rpCtx.userId || null, case_id: rpCtx.caseId || null },
+        gp: { name: rpCtx.gpName || '', email: rpCtx.gpEmail || '' },
+        practice: { name: rpCtx.practiceName || '', email: rpCtx.practiceEmail || '' },
+        job: rpRole ? { id: rpRole.id, title: rpRole.title || '', job_status: rpRole.job_status || null, provider: rpRole.provider || null } : null,
+        existing_offer: rpExisting ? { status: rpExistingStatus, contract_document_key: rpExisting.contract_document_key || null } : null,
+        would: {
+          rename_job: !!(rpJobTitle && rpRole && rpJobTitle !== String(rpRole.title || '')),
+          deliver_contract: !!rpContractUrl,
+          start_date: rpStartDate, commencement_date: rpCommence,
+          resume: rpExistingStatus === 'accepted',
+          notify_offer: rpBody.notify_offer === true
+        }
+      });
+      return;
+    }
+    // (0) Rename the internal job FIRST — the title flows into the offer row,
+    // the placement payload and every email below.
+    var rpRenamed = false;
+    if (rpJobTitle && rpRole && rpJobTitle !== String(rpRole.title || '')) {
+      var rpRoleUpd = await atsUpdateJobRow(rpRole.id, { title: rpJobTitle });
+      if (rpRoleUpd) { rpRole = rpRoleUpd; rpRenamed = true; }
+    }
+    var rpJobTitleFinal = (rpRole && rpRole.title) || rpApp.job_title || '';
+    var rpPracticeName = rpCtx.practiceName || (rpRole && rpRole.practice_name) || '';
+    // (1) The signed contract into the doctor's documents (no per-document email).
+    var rpContractDelivered = false;
+    if (rpContractUrl) {
+      var rpDeliveryRes = await deliverOfferContractForApplication(rpCtx, rpContractUrl, rpBody.contract_file_name, '[ops record-placement]');
+      if (!rpDeliveryRes.ok) {
+        sendJson(res, 400, { ok: false, message: rpDeliveryRes.code === 'too_large' ? 'The contract file is too large (10 MB max).' : 'The contract file could not be read.' });
+        return;
+      }
+      rpContractDelivered = !!rpDeliveryRes.delivered;
+    }
+    // (2) The offer of record — an already-accepted offer resumes untouched;
+    // otherwise write/refresh it as 'sent' exactly as POST /api/ats/offer does.
+    var rpIsResume = rpExistingStatus === 'accepted';
+    var rpOffer = rpExisting;
+    if (!rpIsResume) {
+      rpOffer = await atsOffersStore.saveAtsOffer({
+        application_id: rpAppId,
+        user_id: rpCtx.userId || null,
+        career_role_id: rpCtx.careerRoleId || null,
+        practice_id: (rpRole && rpRole.practice_id) || null,
+        job_title: rpJobTitleFinal,
+        practice_name: rpPracticeName,
+        billing_split: rpPickTerm('billing_split', 120),
+        sessions_per_week: rpPickTerm('sessions_per_week', 120),
+        relocation_package: rpPickTerm('relocation_package', 120),
+        compensation_range: rpPickTerm('compensation_range', 160),
+        start_date: rpStartDate,
+        notes: rpPickTerm('notes', 4000),
+        contract_document_key: rpContractDelivered ? 'offer_contract' : ((rpExisting && rpExisting.contract_document_key) || null),
+        status: 'sent',
+        sent_by: rpSentBy,
+        sent_at: atsNowIso(),
+        responded_at: null
+      });
+      if (!rpOffer) { sendJson(res, 502, { ok: false, message: 'Could not save the offer.' }); return; }
+      if (rpBody.notify_offer === true && rpCtx.userId) {
+        await notifyGpOfferSent(rpCtx.userId, rpAppId, rpJobTitleFinal, rpPracticeName)
+          .catch(function (e) { console.error('[ops record-placement] offer notify failed for app', rpAppId, ':', e && e.message); });
+      }
+    }
+    // (3) The same finalisation as the doctor's accept / "Mark placement secured".
+    var rpResult = await finalizeInAppPlacement(rpApp, rpOffer, rpCtx.userId, rpCtx.gpEmail, {
+      isResume: rpIsResume, commencementDate: rpCommence, placementConfirmed: true
+    });
+    await logAdminAction(req, { email: rpActor }, 'ats_placement_recorded', {
+      targetType: 'application', targetId: rpAppId,
+      detail: { commencement_date: rpCommence || null, resume: rpIsResume, via: 'ops', contract_attached: rpContractDelivered, job_renamed: rpRenamed }
+    });
+    var rpJobAfter = null;
+    if (rpCtx.careerRoleId) {
+      try {
+        rpJobAfter = isSupabaseDbConfigured()
+          ? await getCareerRoleRowById(rpCtx.careerRoleId)
+          : ((dbState.atsJobs || []).find(function (j) { return String(j.id) === String(rpCtx.careerRoleId); }) || null);
+      } catch (e) { rpJobAfter = null; }
+    }
+    var rpAppAfter = null;
+    try { var rpCtxAfter = await atsGetApplicationContext(rpAppId); rpAppAfter = rpCtxAfter ? rpCtxAfter.app : null; } catch (e) { rpAppAfter = null; }
+    var rpAcceptedOffer = (rpResult && rpResult.acceptedOffer) || rpOffer || {};
+    sendJson(res, 200, {
+      ok: true,
+      application: { id: rpAppId, status: (rpAppAfter && rpAppAfter.status) || null, ats_stage: (rpAppAfter && rpAppAfter.ats_stage) || null },
+      offer: { status: rpAcceptedOffer.status || 'accepted', contract_document_key: rpAcceptedOffer.contract_document_key || null, start_date: rpStartDate },
+      contract_delivered: rpContractDelivered,
+      job: rpJobAfter ? { id: rpJobAfter.id, title: rpJobAfter.title || '', job_status: rpJobAfter.job_status || null, renamed: rpRenamed } : null,
+      resume: rpIsResume,
+      case_id: (rpResult && rpResult.caseId) || rpCtx.caseId || null
+    });
+    return;
+  }
+
   // ── Internal ops: re-send the rejection email for a rejected document. Used
   // when a previously-sent rejection email carried a broken/outdated link (e.g.
   // onboarding rejections that pointed at My Documents before the onboarding
@@ -80333,45 +80545,21 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var ofJobTitle = (ofRole && ofRole.title) || ofCtx.app.job_title || '';
     var ofPracticeName = ofCtx.practiceName || (ofRole && ofRole.practice_name) || '';
-    // Optional contract: decode the data URL (decoded cap 10MB; the 12MB JSON
-    // body cap upstream already bounds the raw payload) and deliver it into the
-    // GP's documents WITHOUT the per-document delivery email — the offer email
-    // below is the single notification and deep-links to the offer instead.
+    // Optional contract: decoded + delivered by the shared helper (decoded cap
+    // 10MB; the 12MB JSON body cap upstream already bounds the raw payload)
+    // WITHOUT the per-document delivery email — the offer email below is the
+    // single notification and deep-links to the offer instead.
     var ofContractDelivered = false;
     var ofContractUrl = typeof bodyOF.contract_data_url === 'string' ? bodyOF.contract_data_url.trim() : '';
     if (ofContractUrl) {
-      var ofParsed = parseDataUrlPayload(ofContractUrl);
-      if (!ofParsed) { sendJson(res, 400, { ok: false, message: 'The contract file could not be read — please attach it again.' }); return; }
-      if (ofParsed.buffer.length > 10 * 1024 * 1024) { sendJson(res, 400, { ok: false, message: 'The contract file is too large (10 MB max).' }); return; }
-      if (ofCtx.userId) {
-        var ofFileName = sanitizeUserString(String(bodyOF.contract_file_name || ''), 240) || 'Offer-Contract.pdf';
-        try {
-          // Supabase Storage copy FIRST so the row carries a signable storage
-          // path — that's what makes /api/prepared-documents/download resolve
-          // (deliverToMyDocuments alone stores no downloadable reference).
-          var ofStoragePath = '';
-          if (isSupabaseDbConfigured()) {
-            var ofPath = ['users', sanitizeStoragePathSegment(ofCtx.userId, 80), 'offer-documents', 'offer_contract', 'current'].join('/');
-            var ofUploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, ofPath, ofContractUrl, ofParsed.mimeType);
-            if (ofUploaded) ofStoragePath = ofPath;
-          }
-          var ofDelivery = await deliverToMyDocuments(ofCtx.userId, ofCtx.caseId, 'offer_contract', ofFileName, ofParsed.buffer, ofParsed.mimeType, { notifyGp: false });
-          ofContractDelivered = true;
-          // Persist the download references deliverToMyDocuments doesn't write.
-          var ofDocPatch = {};
-          if (ofStoragePath) ofDocPatch.file_url = ofStoragePath;
-          if (ofDelivery && ofDelivery.driveFile) ofDocPatch.google_drive_file_id = ofDelivery.driveFile;
-          if (isSupabaseDbConfigured() && Object.keys(ofDocPatch).length > 0) {
-            await supabaseDbRequest('user_documents',
-              'user_id=eq.' + encodeURIComponent(ofCtx.userId) + '&document_key=eq.offer_contract',
-              { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: ofDocPatch });
-          }
-          // Record the "Ready" prepared-docs state so My Documents + the
-          // Drive-URL download fallback both work.
-          try { await _updatePreparedDocsState(ofCtx.userId, 'offer_contract', (ofDelivery && ofDelivery.driveFile) || null, ofFileName); }
-          catch (ofStateErr) { console.error('[ats offer] gp_prepared_docs update error:', ofStateErr && ofStateErr.message); }
-        } catch (e) { console.error('[ats offer] contract delivery failed for app', ofAppId, ':', e && e.message); }
+      var ofDeliveryRes = await deliverOfferContractForApplication(ofCtx, ofContractUrl, bodyOF.contract_file_name, '[ats offer]');
+      if (!ofDeliveryRes.ok) {
+        sendJson(res, 400, { ok: false, message: ofDeliveryRes.code === 'too_large'
+          ? 'The contract file is too large (10 MB max).'
+          : 'The contract file could not be read — please attach it again.' });
+        return;
       }
+      ofContractDelivered = !!ofDeliveryRes.delivered;
     }
     // start_date feeds a DATE column once the migration lands — only accept the
     // <input type="date"> shape so a bad value can't start failing inserts later.
@@ -81054,7 +81242,7 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var plcIsResume = plcOfferStatus === 'accepted';
     var plcResult = await finalizeInAppPlacement(plcApp, plcOffer, plcCtx.userId, plcCtx.gpEmail, {
-      isResume: plcIsResume, commencementDate: plcCommence
+      isResume: plcIsResume, commencementDate: plcCommence, placementConfirmed: true
     });
     // C3 audit breadth: WHO manually recorded the placement.
     await logAdminAction(req, ctxPlc, 'ats_placement_recorded', {
