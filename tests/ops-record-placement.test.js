@@ -200,6 +200,31 @@ describe('staff-recorded placements never tell the doctor to book an interview',
   });
 });
 
+describe('career-secured hooks fire even when the client mirror already said "secured"', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+
+  it('finalizeInAppPlacement forces the "before" career state to unsecured', () => {
+    const start = src.indexOf('async function finalizeInAppPlacement(');
+    const body = src.slice(start, start + 12000);
+    expect(body).toMatch(/prevState\.gp_career_state = careerStateForcedUnsecured\(prevState\.gp_career_state\);/);
+    expect(src).toMatch(/function careerStateForcedUnsecured\(careerBlob\)/);
+  });
+
+  it('POST /api/admin/ops/replay-career-secured exists, needs Supabase, and is key- or session-gated', async () => {
+    const noAuth = await req('POST', '/api/admin/ops/replay-career-secured', { body: { user_id: 'u' } });
+    // Local mode answers 503 before auth (the replay is prod-only by nature).
+    expect(noAuth.status).toBe(503);
+    const withKey = await req('POST', '/api/admin/ops/replay-career-secured', { headers: OPS, body: { user_id: 'u' } });
+    expect(withKey.status).toBe(503);
+    const start = src.indexOf("pathname === '/api/admin/ops/replay-career-secured' && req.method === 'POST'");
+    const handler = src.slice(start, start + 5000);
+    expect(handler).toMatch(/x-gp-ops-key/);
+    expect(handler).toMatch(/requireAdminSession\(req, res\)/);
+    expect(handler).toMatch(/careerStateForcedUnsecured\(rcPrev\.gp_career_state\)/);
+    expect(handler).toMatch(/processRegistrationTaskAutomation\(rcUserId, rcEmail, rcPrev, rcState\)/);
+  });
+});
+
 describe('PUT /api/admin/case — the ops key may drive an RSO reassignment only', () => {
   const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   const start = src.indexOf("pathname === '/api/admin/case' && req.method === 'PUT'");

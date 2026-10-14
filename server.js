@@ -42247,6 +42247,32 @@ async function notifyGpInterviewInvitationAccepted(userId, applicationId) {
 //   opts.commencementDate   — optional YYYY-MM-DD start/commencement override
 // Returns { acceptedOffer, storedStage, nextStage, caseId } for the caller's
 // response. Never throws for best-effort steps (each is individually guarded).
+// The task automation fires the career-secured hooks (practice pack, pack
+// email, Drive folder, Section G) ONLY on a false→true transition of the
+// career-state MIRROR in user_state. That mirror is client-synced from
+// /api/career/applications, which already reports a kanban-hired card as
+// secured — so a card dragged to Hired before the placement is recorded
+// leaves the mirror pre-secured and the hooks never fire (Dr Akkas,
+// 2026-10-14: placement recorded, no pack, no Section G). Callers that KNOW
+// they are securing the placement rewrite the "before" career state with this
+// so the diff says so. Every hook behind the transition is marker-guarded or
+// per-key idempotent, so an extra firing never duplicates anything.
+function careerStateForcedUnsecured(careerBlob) {
+  var career = _parseStateVal(careerBlob);
+  var out = Object.assign({}, career, { career_secured: false, secured: false });
+  if (Array.isArray(career.applications)) {
+    out.applications = career.applications.map(function (a) {
+      if (!a || typeof a !== 'object') return a;
+      var st = String(a.status || '').trim().toLowerCase();
+      return Object.assign({}, a, {
+        isPlacementSecured: false,
+        status: (st === 'placement_secured' || st === 'secured') ? 'applied' : a.status
+      });
+    });
+  }
+  return out;
+}
+
 // Shared by POST /api/ats/offer and the ops record-placement endpoint: decode
 // a data-URL contract, copy it into Supabase Storage (the signable path that
 // makes /api/prepared-documents/download resolve), deliver it into the GP's
@@ -42361,6 +42387,10 @@ async function finalizeInAppPlacement(targetApp, offer, userId, email, opts) {
   var currentState = isSupabaseDbConfigured() ? await readUserStateForMerge(userId, 'placement career-state') : null;
   if (currentState) {
     var prevState = JSON.parse(JSON.stringify(currentState));
+    // This call IS the securing of the authoritative application — make the
+    // automation's before/after diff say so even when the client-synced mirror
+    // already claimed "secured" (see careerStateForcedUnsecured).
+    prevState.gp_career_state = careerStateForcedUnsecured(prevState.gp_career_state);
     var careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
     var stateApps = Array.isArray(careerState.applications) ? careerState.applications : [];
     var appIdx = stateApps.findIndex(function (a) { return a && String(a.id) === String(targetApp.id); });
@@ -76143,6 +76173,60 @@ Return ONLY valid JSON with no markdown formatting:
     const rdaResult = await syncCaseChatAssignment({ gpPhone: rdaGpPhone, assignedVaUserId: rdaRow.assigned_va });
     const rdaOk = !!(rdaResult && rdaResult.ok);
     sendJson(res, rdaOk ? 200 : 502, { ok: rdaOk, assigned_va: rdaRow.assigned_va, result: rdaResult, welcome: rdaWelcome });
+    return;
+  }
+
+  // ── Internal ops: replay the career-secured hooks for a GP whose placement
+  // was recorded while the career-state mirror already said "secured" (a card
+  // dragged to Hired before the placement, a hand-written row, a failed first
+  // pass). Runs processRegistrationTaskAutomation with the live state as
+  // "after" and a copy forced to NOT secured as "before" — every hook behind
+  // that transition is marker-guarded / per-key idempotent (practice pack,
+  // pack email, Drive folder, Section G), so a replay never duplicates. Auth:
+  // admin session OR the service-role key via x-gp-ops-key. Body: user_id.
+  if (pathname === '/api/admin/ops/replay-career-secured' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var rcOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    var rcViaServiceKey = !!(rcOpsKey && SUPABASE_SERVICE_ROLE_KEY && rcOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    if (!rcViaServiceKey) { var rcAdmin = requireAdminSession(req, res); if (!rcAdmin) return; }
+    var rcBody; try { rcBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var rcUserId = String((rcBody && rcBody.user_id) || '').trim();
+    if (!rcUserId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
+    var rcState = await readUserStateForMerge(rcUserId, 'ops replay-career-secured');
+    if (!rcState) { sendJson(res, 404, { ok: false, message: 'No user_state for that user.' }); return; }
+    var rcNextCareer = _parseStateVal(rcState.gp_career_state);
+    var rcNextSecured = rcNextCareer.career_secured === true || rcNextCareer.secured === true
+      || (Array.isArray(rcNextCareer.applications) && rcNextCareer.applications.some(function (a) { return a && a.isPlacementSecured === true; }));
+    if (!rcNextSecured) { sendJson(res, 409, { ok: false, code: 'not_secured', message: 'The career state is not secured — nothing to replay.' }); return; }
+    var rcPrev = JSON.parse(JSON.stringify(rcState));
+    rcPrev.gp_career_state = careerStateForcedUnsecured(rcPrev.gp_career_state);
+    var rcEmail = '';
+    try {
+      var rcProf = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(rcUserId) + '&limit=1');
+      rcEmail = (rcProf.ok && rcProf.data && rcProf.data[0] && rcProf.data[0].email) ? String(rcProf.data[0].email) : '';
+    } catch (e) { rcEmail = ''; }
+    var rcError = null;
+    try {
+      await processRegistrationTaskAutomation(rcUserId, rcEmail, rcPrev, rcState);
+    } catch (rcErr) {
+      rcError = (rcErr && rcErr.message) || String(rcErr);
+      console.error('[ops replay-career-secured] automation failed for user', rcUserId, ':', rcError);
+    }
+    var rcCaseId = null;
+    var rcPack = [];
+    try {
+      var rcCaseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(rcUserId) + '&limit=1');
+      rcCaseId = (rcCaseRes.ok && rcCaseRes.data && rcCaseRes.data[0]) ? rcCaseRes.data[0].id : null;
+      if (rcCaseId) {
+        var rcPackRes = await supabaseDbRequest('registration_tasks',
+          'select=title,status,related_document_key&case_id=eq.' + encodeURIComponent(rcCaseId) + '&task_type=eq.practice_pack_child&order=created_at');
+        rcPack = (rcPackRes.ok && Array.isArray(rcPackRes.data)) ? rcPackRes.data : [];
+      }
+    } catch (e) { /* report what we have */ }
+    await logAdminAction(req, { email: rcViaServiceKey ? 'ops:service-key' : String((rcAdmin && rcAdmin.email) || 'admin') }, 'career_secured_replayed', {
+      targetType: 'gp', targetId: rcUserId, detail: { case_id: rcCaseId, pack_tasks: rcPack.length, error: rcError }
+    });
+    sendJson(res, rcError ? 502 : 200, { ok: !rcError, error: rcError, case_id: rcCaseId, practice_pack_tasks: rcPack });
     return;
   }
 
