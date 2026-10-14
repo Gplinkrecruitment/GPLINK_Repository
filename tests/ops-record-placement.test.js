@@ -199,3 +199,29 @@ describe('staff-recorded placements never tell the doctor to book an interview',
     expect(src.slice(offerStart, offerStart + 6000)).not.toMatch(/supabaseStorageUploadObject\(/);
   });
 });
+
+describe('PUT /api/admin/case — the ops key may drive an RSO reassignment only', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+  const start = src.indexOf("pathname === '/api/admin/case' && req.method === 'PUT'");
+  const handler = src.slice(start, start + 4000);
+
+  it('accepts the service-role key as the actor for assigned_rso / assigned_va, nothing else', () => {
+    expect(handler).toMatch(/x-gp-ops-key/);
+    expect(handler).toMatch(/ucViaServiceKey\s*\?\s*\{ email: 'ops:service-key'/);
+    expect(handler).toMatch(/k !== 'assigned_rso' && k !== 'assigned_va'/);
+    // The session-only case-access check is skipped for the key, never for a session.
+    expect(handler).toMatch(/!ucViaServiceKey && !\(await ensureAdminCaseAccess\(/);
+  });
+
+  it('still needs Supabase (local mode 503s before any auth), so the key path is prod-only', async () => {
+    const r = await req('PUT', '/api/admin/case?id=any', { headers: OPS, body: { assigned_va: 'x' } });
+    expect(r.status).toBe(503);
+  });
+
+  it('the reassignment side effects stay on the same handler (welcome template, chat hand-off, mailbox transfer)', () => {
+    const wide = src.slice(start, start + 20000);
+    expect(wide).toMatch(/ensureRsoWelcomeSent\(/);
+    expect(wide).toMatch(/syncCaseChatAssignment\(/);
+    expect(wide).toMatch(/transferCaseEmailOwnership\(/);
+  });
+});

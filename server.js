@@ -66506,12 +66506,29 @@ Return ONLY valid JSON with no markdown formatting:
   // ── Update case ──
   if (pathname === '/api/admin/case' && req.method === 'PUT') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    const adminCtx = requireAdminSession(req, res);
+    // Ops: the Supabase service-role key (x-gp-ops-key, a server-side secret
+    // that already grants full DB access) may drive an RSO REASSIGNMENT ONLY —
+    // assigned_rso / assigned_va — so a case fixed from a script still gets the
+    // welcome template, the DoubleTick chat hand-off and the mailbox transfer an
+    // admin-page reassignment gets. A direct DB write skips all three (Dr Mercy
+    // 2026-07, Dr Akkas 2026-10). Every other field still needs a real session.
+    const ucOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    const ucViaServiceKey = !!(ucOpsKey && SUPABASE_SERVICE_ROLE_KEY && ucOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    const adminCtx = ucViaServiceKey
+      ? { email: 'ops:service-key', adminRole: 'super_admin', role: 'super_admin', viaServiceKey: true }
+      : requireAdminSession(req, res);
     if (!adminCtx) return;
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
-    if (!(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
+    if (!ucViaServiceKey && !(await ensureAdminCaseAccess(adminCtx, await fetchCaseAssignmentById(caseId), res))) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    if (ucViaServiceKey) {
+      const ucKeys = Object.keys(body && typeof body === 'object' ? body : {});
+      if (!ucKeys.length || ucKeys.some(function (k) { return k !== 'assigned_rso' && k !== 'assigned_va'; })) {
+        sendJson(res, 400, { ok: false, message: 'The ops key may only reassign the RSO (assigned_rso / assigned_va).' });
+        return;
+      }
+    }
     const allowed = ['assigned_va', 'assigned_rso', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
