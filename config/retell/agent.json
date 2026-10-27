@@ -21,7 +21,7 @@
     "volume": 1.0,
     "enable_dynamic_voice_speed": true,
     "responsiveness": 1.0,
-    "interruption_sensitivity": 0.8,
+    "interruption_sensitivity": 0.55,
     "enable_dynamic_responsiveness": true,
     "voicemail_option": {
       "action": {
