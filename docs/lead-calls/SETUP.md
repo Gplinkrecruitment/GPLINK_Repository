@@ -14,9 +14,11 @@ to hand back.
 ## 2. Retell account (10 minutes)
 
 1. Sign up at https://www.retellai.com and add prepaid credit (Billing).
-2. Dashboard → **API Keys** → create a key. Retell uses one key to sign its
-   webhooks; make sure the key you create is the one carrying the **webhook**
-   badge in that list (or set it as the webhook key there).
+2. Dashboard → **API Keys** → create a key, select it and click **"Set as
+   Webhook Key"**. Retell signs every webhook AND every mid-call tool request
+   with whichever key carries the webhook badge — if that is not the key in
+   `RETELL_API_KEY`, the app answers 401 "Invalid signature" and Hazel cannot
+   check the diary or book (seen live 2026-10-27).
 3. Hand back: the key, as `RETELL_API_KEY=...` in the app's `.env`
    (`/Users/gplinkrecruitment/Downloads/GP LINK APP (Visual Studio) copy/.env`).
 

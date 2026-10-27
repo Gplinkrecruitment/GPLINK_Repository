@@ -1,5 +1,5 @@
 {
-  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`.",
+  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet.",
   "agent_name": "Hazel — GP Link leads",
   "agent": {
     "voice_id": "",
@@ -7,14 +7,20 @@
     "language": "en-GB",
     "enable_backchannel": true,
     "backchannel_frequency": 0.6,
-    "backchannel_words": ["mm-hm", "yeah", "right", "okay", "sure"],
+    "backchannel_words": [
+      "mm-hm",
+      "yeah",
+      "right",
+      "okay",
+      "sure"
+    ],
     "ambient_sound": null,
     "ambient_sound_volume": 0.5,
     "voice_temperature": 1.0,
     "voice_speed": 1.0,
     "volume": 1.0,
     "enable_dynamic_voice_speed": true,
-    "responsiveness": 0.8,
+    "responsiveness": 1.0,
     "interruption_sensitivity": 0.8,
     "enable_dynamic_responsiveness": true,
     "voicemail_option": {
@@ -29,16 +35,31 @@
     "ring_duration_ms": 30000,
     "enable_dnc_detection": true,
     "denoising_mode": "noise-and-background-speech-cancellation",
-    "stt_mode": "accurate",
+    "stt_mode": "fast",
     "vocab_specialization": "medical",
-    "boosted_keywords": ["GP Link", "Hazel", "AHPRA", "Medicare", "RACGP", "MRCGP", "Calendly", "Zoom", "locum", "Brisbane", "Perth", "Adelaide"],
     "data_storage_setting": "everything",
     "reminder_trigger_ms": 8000,
     "reminder_max_count": 2,
-    "timezone": "Europe/London"
+    "timezone": "Europe/London",
+    "fallback_voice_ids": [
+      "cartesia-Willa"
+    ],
+    "contact_memory_config": {
+      "enable_read": true,
+      "enable_update": true
+    }
   },
   "llm": {
-    "model_config": { "type": "cascading", "primary": { "model": "claude-5.5-sonnet" }, "backup": { "model": "claude-5.5-haiku" }, "temperature": 0.5 },
+    "model_config": {
+      "type": "cascading",
+      "primary": {
+        "model": "claude-5.5-sonnet"
+      },
+      "backup": {
+        "model": "claude-5.5-haiku"
+      },
+      "temperature": 0.5
+    },
     "start_speaker": "user",
     "begin_after_user_silence_ms": 2500,
     "tool_call_strict_mode": true,
@@ -57,6 +78,13 @@
       "enquiry_question": "",
       "attempt": "1",
       "system_timezone": "Europe/London"
+    },
+    "knowledge_base_ids": [
+      "knowledge_base_739075eafc9595c7"
+    ],
+    "kb_config": {
+      "top_k": 3,
+      "filter_score": 0.6
     }
   },
   "post_call_analysis_data": [
@@ -64,31 +92,56 @@
       "type": "enum",
       "name": "outcome",
       "description": "How the call ended. booked = a consultation was booked on the call via the booking tool; link_sent = the booking link was sent instead; callback_requested = they asked to be rung back; not_interested = they declined; not_a_gp = not a doctor / not a GP; wrong_number = wrong person; already_booked = they had already booked; voicemail = voicemail or answering machine; no_answer = nobody spoke; unclear = a person spoke but none of the above clearly applies.",
-      "choices": ["booked", "link_sent", "callback_requested", "not_interested", "not_a_gp", "wrong_number", "already_booked", "voicemail", "no_answer", "unclear"]
+      "choices": [
+        "booked",
+        "link_sent",
+        "callback_requested",
+        "not_interested",
+        "not_a_gp",
+        "wrong_number",
+        "already_booked",
+        "voicemail",
+        "no_answer",
+        "unclear"
+      ]
     },
     {
       "type": "string",
       "name": "callback_time",
       "description": "If they asked to be called back, when, in their own words. Empty otherwise.",
-      "examples": ["tomorrow after 2pm", "next week, evenings"]
+      "examples": [
+        "tomorrow after 2pm",
+        "next week, evenings"
+      ]
     },
     {
       "type": "enum",
       "name": "gp_status",
       "description": "Whether they are a fully qualified GP (gp), still in GP training (trainee), not a GP at all (not_a_gp), or it never came up (unknown).",
-      "choices": ["gp", "trainee", "not_a_gp", "unknown"]
+      "choices": [
+        "gp",
+        "trainee",
+        "not_a_gp",
+        "unknown"
+      ]
     },
     {
       "type": "string",
       "name": "timeframe",
       "description": "When they said they want to move to Australia, in their words. Empty if not discussed.",
-      "examples": ["early next year", "as soon as possible", "in two years once the kids finish school"]
+      "examples": [
+        "early next year",
+        "as soon as possible",
+        "in two years once the kids finish school"
+      ]
     },
     {
       "type": "string",
       "name": "notes",
       "description": "One or two sentences a human recruiter needs before the consultation: family situation, preferred locations, concerns raised, questions left unanswered.",
-      "examples": ["Partner is a nurse, two kids, wants Queensland coast. Asked about school fees, not answered."]
+      "examples": [
+        "Partner is a nurse, two kids, wants Queensland coast. Asked about school fees, not answered."
+      ]
     }
   ]
 }
