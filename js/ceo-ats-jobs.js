@@ -1004,13 +1004,14 @@
           // "Practice accepted" (Task 12) — hidden once the acceptance is
           // already recorded (revealed / client_approved / interview_ready),
           // mirroring ceo-ats-candidates.js's gating.
-          // Owner 2026-10-27: an OPTIONAL interview time next to it (the
-          // practice's local time). Filled in, the accept books the interview
-          // on the spot instead of emailing the practice for availability —
-          // same body the candidates drawer sends (interview_local).
+          // Owner 2026-10-27: an OPTIONAL interview time next to it, in the
+          // OPERATOR's local time (device zone read fresh here — the owner
+          // travels). Filled in, the accept books the interview on the spot
+          // instead of emailing the practice for availability — same body
+          // the candidates drawer sends (interview_local + interview_tz).
           (c.revealed === true || c.practice_submission_status === 'client_approved' || c.practice_submission_status === 'interview_ready'
             ? ''
-            : '<label for="atsJobAcceptWhen">Interview date &amp; time (optional, practice local time)</label>' +
+            : '<label for="atsJobAcceptWhen"' + (atsBrowserTzInfo().name ? ' title="' + A.esc(atsBrowserTzInfo().name) + '"' : '') + '>Interview date &amp; time (optional, ' + (atsBrowserTzInfo().name ? 'your local time · ' + A.esc(atsBrowserTzInfo().label) : 'practice local time') + ')</label>' +
               '<input type="datetime-local" id="atsJobAcceptWhen" step="900">' +
               '<div class="cc-sub" style="font-size:11px;margin:-4px 0 8px">Leave blank to ask the practice for availability as usual; enter it to book the interview now and skip that email.</div>' +
               '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>') +
@@ -1092,6 +1093,21 @@
   }
 
   /* -------------------- practice accepted → reveal + congratulate -------------------- */
+  // The operator's CURRENT device zone, read fresh on every call (never
+  // stored) — the owner travels, so the accept form must follow the laptop.
+  // Same helper as ceo-ats-candidates.js; kept local so this file never
+  // depends on load order.
+  function atsBrowserTzInfo() {
+    var name = '', shortName = '';
+    try { name = String(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (e) { name = ''; }
+    try {
+      new Intl.DateTimeFormat('en-AU', { timeZoneName: 'short' }).formatToParts(new Date()).forEach(function (p) {
+        if (p.type === 'timeZoneName') shortName = p.value;
+      });
+    } catch (e) { shortName = ''; }
+    return { name: name, label: shortName || name };
+  }
+
   function onAcceptApplication() {
     if (!drawerCardId) return;
     var whenEl = document.getElementById('atsJobAcceptWhen');
@@ -1100,12 +1116,13 @@
     if (interviewLocal) {
       try { whenLabel = new Date(interviewLocal).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); } catch (e) { whenLabel = interviewLocal; }
     }
+    var tz = atsBrowserTzInfo();
     var confirmMsg = interviewLocal
-      ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + ' (practice local time). The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
+      ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + (tz.name ? ' (your local time, ' + tz.label + ')' : ' (practice local time)') + '. The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
       : 'This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?';
     if (!window.confirm(confirmMsg)) return;
     var opts = { method: 'POST' };
-    if (interviewLocal) opts.body = { interview_local: interviewLocal };
+    if (interviewLocal) opts.body = { interview_local: interviewLocal, interview_tz: tz.name };
     A.api('/api/ats/application/accept?id=' + encodeURIComponent(drawerCardId), opts).then(function (d) {
       if (!d || !d.ok) { A.toast((d && (d.message || d.error)) || 'Could not record the practice\'s acceptance'); return; }
       var iv = d.interview;

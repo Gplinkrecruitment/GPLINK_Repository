@@ -1392,12 +1392,28 @@
   // Owner 2026-10-27: "I should be able to approve manually and have the
   // option to also enter the interview date, which then bypasses the email
   // asking for interview availabilities." The button opens a small inline
-  // form: an OPTIONAL date-and-time (the practice's local time — the time the
-  // practice actually said) plus Confirm / Cancel. Left blank, the accept is
-  // exactly what it always was (record the acceptance, then wait on the
-  // practice's availability). Filled in, the server books the interview on
-  // the spot: no availability request to the practice, no "pick a time" step
-  // for the doctor — both receive the booking confirmation instead.
+  // form: an OPTIONAL date-and-time plus Confirm / Cancel. Left blank, the
+  // accept is exactly what it always was (record the acceptance, then wait on
+  // the practice's availability). Filled in, the server books the interview
+  // on the spot: no availability request to the practice, no "pick a time"
+  // step for the doctor — both receive the booking confirmation instead.
+  //
+  // The time is the OPERATOR's local time — "always local time for me, and
+  // dynamic, as I travel a lot" (owner, same day). The device zone is read
+  // fresh every time the form renders (never stored) and posted alongside
+  // the time as interview_tz, so the server anchors it on the clock the
+  // owner is actually looking at, wherever that is.
+  function atsBrowserTzInfo() {
+    var name = '', shortName = '';
+    try { name = String(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch (e) { name = ''; }
+    try {
+      new Intl.DateTimeFormat('en-AU', { timeZoneName: 'short' }).formatToParts(new Date()).forEach(function (p) {
+        if (p.type === 'timeZoneName') shortName = p.value;
+      });
+    } catch (e) { shortName = ''; }
+    return { name: name, label: shortName || name };
+  }
+
   function openAcceptForm(appId) {
     var box = acceptBoxFor(appId);
     if (!box) return;
@@ -1405,9 +1421,11 @@
     // datetime-local input has no notion of zones; the server does).
     var minLocal = '';
     try { minLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); } catch (e) { minLocal = ''; }
+    var tz = atsBrowserTzInfo();
+    var tzNote = tz.name ? 'your local time · ' + ATS.esc(tz.label) : 'practice local time';
     box.innerHTML =
       '<div class="ats-accept-form" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:8px">' +
-        '<label style="font-size:11px;color:var(--ats-dim);display:flex;align-items:center;gap:6px">Interview date &amp; time (optional, practice local time)' +
+        '<label style="font-size:11px;color:var(--ats-dim);display:flex;align-items:center;gap:6px"' + (tz.name ? ' title="' + ATS.escAttr(tz.name) + '"' : '') + '>Interview date &amp; time (optional, ' + tzNote + ')' +
           '<input type="datetime-local" class="ats-accept-when" step="900"' + (minLocal ? ' min="' + ATS.escAttr(minLocal) + '"' : '') + ' style="font-size:12px"></label>' +
         '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-accept-confirm" data-app-id="' + ATS.escAttr(String(appId)) + '">Confirm practice accepted</button>' +
         '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-accept-cancel" data-app-id="' + ATS.escAttr(String(appId)) + '">Cancel</button>' +
@@ -1430,14 +1448,15 @@
     if (interviewLocal) {
       try { whenLabel = new Date(interviewLocal).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); } catch (e) { whenLabel = interviewLocal; }
     }
+    var tz = atsBrowserTzInfo();
     var confirmMsg = interviewLocal
-      ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + ' (practice local time). The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
+      ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + (tz.name ? ' (your local time, ' + tz.label + ')' : ' (practice local time)') + '. The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
       : 'This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?';
     if (!window.confirm(confirmMsg)) return;
     var confirmBtn = box ? box.querySelector('.ats-accept-confirm') : null;
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…'; }
     var opts = { method: 'POST' };
-    if (interviewLocal) opts.body = { interview_local: interviewLocal };
+    if (interviewLocal) opts.body = { interview_local: interviewLocal, interview_tz: tz.name };
     ATS.api('/api/ats/application/accept?id=' + encodeURIComponent(appId), opts).then(function (res) {
       if (res && res.ok) {
         var iv = res.interview;

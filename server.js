@@ -43303,25 +43303,38 @@ async function resolveFullInterviewRow(ref) {
 // no "your times are ready" email to the doctor; both get the usual booking
 // confirmations (Zoom link + calendar invite) instead.
 //
-// Two body shapes:
+// Body shapes:
 //   interview_local — "YYYY-MM-DDTHH:MM" from the drawer's datetime-local
-//                     field, read as the PRACTICE's wall-clock time (the time
-//                     the practice said), anchored in the practice's zone the
-//                     same way its availability windows are;
+//                     field: a wall-clock time, anchored in `interview_tz`;
+//   interview_tz    — the IANA zone that wall-clock time was typed in. The
+//                     drawers send the operator's CURRENT browser zone, read
+//                     fresh on every render (owner 2026-10-27: "the input
+//                     time should always be local time for me — dynamic, as
+//                     I travel a lot"). Absent, the practice's zone is used
+//                     (API callers). Sent but unreadable → 400, never a
+//                     silent re-anchor onto a different hour;
 //   interview_at    — an ISO instant, for API callers.
-// No body / neither field = the classic accept, unchanged.
+// No body / no time = the classic accept, unchanged.
 //
 // Resolves { ok:true, slotStartUtc:'' } when no time was sent,
-// { ok:true, slotStartUtc, practiceTz, when } when it parses, and
-// { ok:false, status, error, message } for a bad time or a doctor at the
-// monthly interview cap (checked HERE, before anything is written, the same
-// rule as POST /api/ats/interview/book).
+// { ok:true, slotStartUtc, practiceTz, entryTz, when } when it parses, and
+// { ok:false, status, error, message } for a bad time/zone or a doctor at
+// the monthly interview cap (checked HERE, before anything is written, the
+// same rule as POST /api/ats/interview/book).
 function parseManualInterviewTime(body, ctx, nowMs) {
   var practiceTz = interviewMeetings.practiceTzForLocation(
     (ctx && ctx.practiceName) || '', ctx && ctx.practiceState, ctx && ctx.practiceCity);
   var rawAt = (body && body.interview_at != null) ? String(body.interview_at).trim() : '';
   var rawLocal = (body && body.interview_local != null) ? String(body.interview_local).trim() : '';
-  if (!rawAt && !rawLocal) return { ok: true, slotStartUtc: '', practiceTz: practiceTz };
+  var rawTz = (body && body.interview_tz != null) ? String(body.interview_tz).trim() : '';
+  if (!rawAt && !rawLocal) return { ok: true, slotStartUtc: '', practiceTz: practiceTz, entryTz: practiceTz };
+  var entryTz = practiceTz;
+  if (rawTz) {
+    entryTz = interviewMeetings.sanitizeViewerTz(rawTz);
+    if (!entryTz) {
+      return { ok: false, status: 400, error: 'invalid_interview_time', message: 'Your device\'s timezone could not be read (' + rawTz.slice(0, 40) + ') — please reload and try again.' };
+    }
+  }
   var unreadable = { ok: false, status: 400, error: 'invalid_interview_time', message: 'That interview time could not be read — please enter the date and time again.' };
   var when = null;
   if (rawAt) {
@@ -43331,7 +43344,7 @@ function parseManualInterviewTime(body, ctx, nowMs) {
     if (!m) return unreadable;
     var hh = Number(m[2]), mm = Number(m[3]);
     if (hh > 23 || mm > 59) return unreadable;
-    try { when = interviewScheduler.wallTimeToUtc(m[1], hh * 60 + mm, practiceTz); } catch (e) { when = null; }
+    try { when = interviewScheduler.wallTimeToUtc(m[1], hh * 60 + mm, entryTz); } catch (e) { when = null; }
   }
   if (!when || !Number.isFinite(when.getTime())) return unreadable;
   var now = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -43341,7 +43354,7 @@ function parseManualInterviewTime(body, ctx, nowMs) {
   if (when.getTime() > now + 366 * 86400000) {
     return { ok: false, status: 400, error: 'invalid_interview_time', message: 'That interview is more than a year away — please check the date.' };
   }
-  return { ok: true, slotStartUtc: when.toISOString(), practiceTz: practiceTz, when: when };
+  return { ok: true, slotStartUtc: when.toISOString(), practiceTz: practiceTz, entryTz: entryTz, when: when };
 }
 
 async function prepareManualInterviewForAccept(body, ctx, nowMs) {
@@ -43359,8 +43372,10 @@ async function prepareManualInterviewForAccept(body, ctx, nowMs) {
   return parsed;
 }
 
-// Readable label for the drawer's toast — the time in the practice's zone,
-// which is the time staff typed.
+// Readable label for the drawer's toast — `when_label` is in the zone the
+// time was typed in (the operator's), so the toast reads back exactly what
+// they entered; `practice_when_label` is the same instant on the practice's
+// clock.
 function _manualInterviewWhenLabel(slotStartUtc, tz) {
   try {
     return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(slotStartUtc));
@@ -43385,10 +43400,12 @@ async function bookManualInterviewForAcceptedApplication(appId, ctx, manual, act
     var ref = await ensureInterviewRowForApplication(appId, ctx, 'practice_accept');
     var row = await resolveFullInterviewRow(ref);
     if (!row) return { ok: false, error: 'interview_row', message: fallbackMsg };
+    var entryTz = manual.entryTz || manual.practiceTz;
     if (_interviewRowIsAlreadyBooked(row)) {
       return {
         ok: true, already: true, interview_id: row.id, scheduled_at: row.scheduled_at, zoom_join_url: row.zoom_join_url || '',
-        when_label: _manualInterviewWhenLabel(row.scheduled_at, manual.practiceTz)
+        when_label: _manualInterviewWhenLabel(row.scheduled_at, entryTz),
+        practice_when_label: _manualInterviewWhenLabel(row.scheduled_at, manual.practiceTz)
       };
     }
     var booked = await _bookInterviewSlot(row, ctx, manual.slotStartUtc, Date.now(), actorEmail || '', { manual: true });
@@ -43398,7 +43415,8 @@ async function bookManualInterviewForAcceptedApplication(appId, ctx, manual, act
     await booked.notifyPromise;
     return {
       ok: true, already: false, interview_id: row.id, scheduled_at: booked.booked.scheduled_at, zoom_join_url: booked.booked.zoom_join_url || '',
-      when_label: _manualInterviewWhenLabel(booked.booked.scheduled_at, manual.practiceTz)
+      when_label: _manualInterviewWhenLabel(booked.booked.scheduled_at, entryTz),
+      practice_when_label: _manualInterviewWhenLabel(booked.booked.scheduled_at, manual.practiceTz)
     };
   } catch (e) {
     console.error('[ats accept] manual interview booking failed for app', appId, ':', e && e.message);

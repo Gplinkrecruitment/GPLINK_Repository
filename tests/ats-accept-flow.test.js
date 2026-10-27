@@ -107,6 +107,8 @@ const db = {
     { id: 'app-acc-2', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'pending_va_submission' },
     // Owner 2026-10-27: accept + agreed interview time in one go.
     { id: 'app-acc-manual', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
+    // …and the same with the operator's own zone sent alongside (interview_tz).
+    { id: 'app-acc-manual-tz', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     // Hardening fixtures (review round):
     { id: 'app-acc-hired', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rh', status: 'placement_secured', ats_stage: 'hired', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     { id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rs', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
@@ -472,19 +474,51 @@ describe('Admin apply (POST /api/ats/application) auto-reveals + records offer (
 
 // Owner 2026-10-27: "I should be able to approve manually and have the option
 // to also enter the interview date, which then bypasses the email sent asking
-// for interview availabilities." The accept takes an optional practice-local
-// time (interview_local, the datetime-local shape) and books the interview on
-// the spot — no "Interview availability — Dr …" request to the practice, no
-// "your times are ready" invite to the doctor; both get the booking
-// confirmation instead. Role-1 sits in Brisbane (QLD, no DST), so 10:00
-// practice-local is 00:00Z on the same date.
+// for interview availabilities." The accept takes an optional wall-clock time
+// (interview_local, the datetime-local shape) plus the zone it was typed in
+// (interview_tz — the operator's CURRENT browser zone: "always local time for
+// me, dynamic, as I travel a lot") and books the interview on the spot — no
+// "Interview availability — Dr …" request to the practice, no "your times are
+// ready" invite to the doctor; both get the booking confirmation instead.
+// Without interview_tz (API callers) the practice's zone applies: role-1 sits
+// in Brisbane (QLD, no DST), so 10:00 practice-local is 00:00Z on the same
+// date. With interview_tz Asia/Tokyo (UTC+9, no DST) 10:00 is 01:00Z.
 describe('accept WITH the agreed interview time — books it, skips the availability request', () => {
   const inTenDays = new Date(Date.now() + 10 * 86400000);
   const ymd = inTenDays.toISOString().slice(0, 10);
   const interviewLocal = ymd + 'T10:00';
   const expectedUtc = ymd + 'T00:00:00.000Z';
+  const expectedTokyoUtc = ymd + 'T01:00:00.000Z';
   const manualApp = () => db.gp_applications.find((a) => a.id === 'app-acc-manual');
   const manualCalls = () => db.scheduled_calls.filter((s) => s.application_id === 'app-acc-manual' && s.meeting_kind === 'interview');
+  const tzApp = () => db.gp_applications.find((a) => a.id === 'app-acc-manual-tz');
+  const tzCalls = () => db.scheduled_calls.filter((s) => s.application_id === 'app-acc-manual-tz' && s.meeting_kind === 'interview');
+
+  it('refuses a sent-but-unreadable interview_tz with 400 and writes nothing — never re-anchors onto the wrong hour', async () => {
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-manual-tz', { interview_local: interviewLocal, interview_tz: 'Mars/OlympusMons' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('invalid_interview_time');
+    expect(String(r.body.message)).toContain('timezone');
+    expect(tzApp().revealed).toBe(false);
+    expect(tzCalls().length).toBe(0);
+  });
+
+  it("books at the OPERATOR's local time when interview_tz is sent (10:00 Tokyo = 01:00Z), labels in that zone", async () => {
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-manual-tz', { interview_local: interviewLocal, interview_tz: 'Asia/Tokyo' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.interview.ok).toBe(true);
+    expect(r.body.interview.scheduled_at).toBe(expectedTokyoUtc);
+    // The toast reads back what was typed, in the typist's zone …
+    expect(String(r.body.interview.when_label)).toContain('10:00');
+    expect(String(r.body.interview.when_label)).toMatch(/GMT\+9|JST/);
+    // … and the practice's clock is given too (Brisbane is UTC+10 → 11:00).
+    expect(String(r.body.interview.practice_when_label)).toContain('11:00');
+    expect(tzApp().revealed).toBe(true);
+    expect(tzCalls().length).toBe(1);
+    expect(tzCalls()[0].status).toBe('booked');
+    expect(tzCalls()[0].scheduled_at).toBe(expectedTokyoUtc);
+  });
 
   it('refuses an unreadable time with 400 and writes nothing', async () => {
     const before = resendCalls.length;
@@ -507,7 +541,7 @@ describe('accept WITH the agreed interview time — books it, skips the availabi
     expect(manualCalls().length).toBe(0);
   });
 
-  it('records the acceptance AND books the interview at the practice-local time — confirmations out, no availability request', async () => {
+  it('records the acceptance AND books the interview (no interview_tz → practice-local fallback) — confirmations out, no availability request', async () => {
     const before = resendCalls.length;
     const r = await atsPost('/api/ats/application/accept?id=app-acc-manual', { interview_local: interviewLocal });
     expect(r.status).toBe(200);
@@ -577,24 +611,30 @@ describe('accept WITH the agreed interview time — books it, skips the availabi
     expect(db.scheduled_calls.filter((s) => s.application_id === 'app-acc-1' && s.created_by === 'practice_accept').length).toBe(0);
   });
 
-  it('both CEO drawers offer the optional time and post it as interview_local', () => {
+  it("both CEO drawers offer the optional time in the operator's CURRENT device zone and post interview_local + interview_tz", () => {
     const read = (rel) => fs.readFileSync(new URL('../' + rel, import.meta.url), 'utf8');
     const cand = read('js/ceo-ats-candidates.js');
     expect(cand).toContain('function openAcceptForm');
     expect(cand).toContain('class="ats-accept-when"');
     expect(cand).toContain('type="datetime-local"');
-    expect(cand).toMatch(/function acceptApplication\(appId, c\)[\s\S]{0,2500}interview_local: interviewLocal/);
+    // The zone is read from the browser at render time (never a stored
+    // setting) — the owner travels, so the form must follow the laptop.
+    expect(cand).toContain('Intl.DateTimeFormat().resolvedOptions().timeZone');
+    expect(cand).toMatch(/function openAcceptForm[\s\S]{0,1200}your local time/);
+    expect(cand).toMatch(/function acceptApplication\(appId, c\)[\s\S]{0,2500}interview_local: interviewLocal, interview_tz: tz\.name/);
+    expect(cand).not.toMatch(/localStorage[\s\S]{0,80}(tz|timezone)/i);
     expect(cand).toContain("closest('.ats-accept-confirm')");
     expect(cand).toContain("closest('.ats-accept-cancel')");
     const jobs = read('js/ceo-ats-jobs.js');
     expect(jobs).toContain('id="atsJobAcceptWhen"');
-    expect(jobs).toMatch(/function onAcceptApplication\(\)[\s\S]{0,2500}interview_local: interviewLocal/);
+    expect(jobs).toContain('Intl.DateTimeFormat().resolvedOptions().timeZone');
+    expect(jobs).toMatch(/function onAcceptApplication\(\)[\s\S]{0,2500}interview_local: interviewLocal, interview_tz: tz\.name/);
     // Both scripts changed → both cache keys bumped (and the CSS key may never
     // fall behind the candidates key — see tests/ats-endpoints.test.js).
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027a');
-    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261027a');
-    expect(html).toContain('/css/ceo-ats.css?v=20261027a');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027b');
+    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261027b');
+    expect(html).toContain('/css/ceo-ats.css?v=20261027b');
   });
 });
 
