@@ -44,9 +44,12 @@ const db = {
     { user_id: 'u-pr3', email: 'pr3@gplink-test.local', first_name: 'Pam', last_name: 'Three' },
     { user_id: 'u-of1', email: 'of1@gplink-test.local', first_name: 'Otis', last_name: 'Case' },
     { user_id: 'u-of2', email: 'of2@gplink-test.local', first_name: 'Odin', last_name: 'Case' },
-    { user_id: 'u-gp1', email: GP_STALLED, first_name: 'Stella', last_name: 'Stalled' },
-    { user_id: 'u-gp2', email: 'fresh-gp@gplink-test.local', first_name: 'Frank', last_name: 'Fresh' },
-    { user_id: 'u-gp3', email: GP_MYINTEALTH, first_name: 'Mila', last_name: 'Myintealth' }
+    // Stall-chase GPs are past the onboarding wizard by definition (a GP on
+    // ahpra/pbs finished it long ago); the chase resolves the real position
+    // from this column + user_state, so the fixture states it explicitly.
+    { user_id: 'u-gp1', email: GP_STALLED, first_name: 'Stella', last_name: 'Stalled', onboarding_completed_at: iso(-35) },
+    { user_id: 'u-gp2', email: 'fresh-gp@gplink-test.local', first_name: 'Frank', last_name: 'Fresh', onboarding_completed_at: iso(-35) },
+    { user_id: 'u-gp3', email: GP_MYINTEALTH, first_name: 'Mila', last_name: 'Myintealth', onboarding_completed_at: iso(-35) }
   ],
   registration_cases: [
     // Practice-chase cases (GPs recently active so pass C ignores them)

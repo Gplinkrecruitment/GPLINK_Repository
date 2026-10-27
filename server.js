@@ -19889,6 +19889,101 @@ function _deriveSubstageFromState(state, stage) {
   return null;
 }
 
+// ── Where a GP actually is in the app (stall chasing reads THIS, not the case row) ──
+// Every GP gets a registration_cases row with stage 'myintealth' the moment
+// they sign up (_ensureRegCase), before the onboarding wizard is finished, and
+// that column only moves when the state-sync hook next runs. Reading it raw for
+// a "you haven't made progress on X" email is how a doctor still on wizard
+// slide 1 was told to "Continue MyIntealth" (2026-10-27), and how a doctor whose
+// MyIntealth is already verified in the app kept being nudged about MyIntealth.
+// This resolves the position from the live sources the app itself renders:
+//   onboarding complete?  user_profiles.onboarding_completed_at OR the wizard
+//                         state's completedAt / gp_onboarding_complete (the same
+//                         rule enumerateIncompleteOnboardingGps applies)
+//   not complete       -> { phase:'onboarding', step } (the wizard slide they left on)
+//   complete           -> { phase:'registration', stage } where stage is the further
+//                         along of the stored case stage and the stage derived from
+//                         user_state (an admin "reset to AHPRA" or a secured
+//                         placement pushes the row ahead of what the state alone
+//                         derives, and the client unlocks up to it).
+// Always returns an object; `unresolved: true` when the profile cannot be loaded
+// (the caller then falls back to the stored stage, exactly as before).
+var GP_JOURNEY_STAGE_ORDER = ['placement', 'myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement'];
+function furthestJourneyStage(a, b) {
+  var ia = GP_JOURNEY_STAGE_ORDER.indexOf(String(a || ''));
+  var ib = GP_JOURNEY_STAGE_ORDER.indexOf(String(b || ''));
+  if (ia < 0) return ib < 0 ? 'myintealth' : b;
+  if (ib < 0) return a;
+  return ib > ia ? b : a;
+}
+function _stateFlag(v) {
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = (v.trim().toLowerCase() === 'true'); } }
+  return !!v;
+}
+// Pure: builds the position from already-loaded records (unit-testable).
+function journeyPositionFromRecords(userId, prof, state, storedStage, storedSubstage) {
+  var st = (state && typeof state === 'object') ? state : {};
+  var ob = _parseStateVal(st.gp_onboarding);
+  var completed = !!(ob.completedAt || _stateFlag(st.gp_onboarding_complete) || (prof && prof.onboarding_completed_at));
+  var pos = {
+    userId: userId,
+    email: String((prof && prof.email) || '').trim().toLowerCase(),
+    firstName: (prof && prof.first_name) || '',
+    name: [((prof && prof.first_name) || ''), ((prof && prof.last_name) || '')].join(' ').trim()
+  };
+  if (!completed) {
+    var lastSlide = onboardingNudge.ONBOARDING_STEP_LABELS.length - 1;
+    var step = Math.min(Math.max(Math.floor(Number(ob.currentStep) || 0), 0), lastSlide);
+    pos.phase = 'onboarding';
+    pos.stage = 'onboarding';
+    pos.step = step;
+    pos.stepLabel = onboardingNudge.ONBOARDING_STEP_LABELS[step];
+    pos.substage = dropoffNudges.onboardingStepNudgeKey(step);
+    return pos;
+  }
+  var stage = furthestJourneyStage(storedStage, _deriveStageFromState(st));
+  pos.phase = 'registration';
+  pos.stage = stage;
+  pos.substage = (stage === storedStage && storedSubstage) ? storedSubstage : (_deriveSubstageFromState(st, stage) || null);
+  return pos;
+}
+async function resolveGpJourneyPosition(userId, storedStage, storedSubstage) {
+  var fallback = { userId: userId, phase: 'registration', stage: storedStage || 'myintealth', substage: storedSubstage || null, unresolved: true };
+  if (!isSupabaseDbConfigured() || !userId) return fallback;
+  try {
+    var profRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,onboarding_completed_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var prof = (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) ? profRes.data[0] : null;
+    if (!prof) return fallback;
+    var stRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var state = (stRes.ok && Array.isArray(stRes.data) && stRes.data[0]) ? stRes.data[0].state : null;
+    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = null; } }
+    return journeyPositionFromRecords(userId, prof, state, storedStage, storedSubstage);
+  } catch (e) {
+    console.error('[JourneyPosition] resolve failed for ' + userId + ':', e && e.message);
+    return fallback;
+  }
+}
+
+// Chase-task wording for a stalled GP, from their real position.
+function stalledChaseDescriptor(pos, days) {
+  var d = Number(days) || 14;
+  if (pos && pos.phase === 'onboarding') {
+    return {
+      title: 'GP stalled ≥' + d + ' days in onboarding (step ' + (pos.step + 1) + ' of ' + onboardingNudge.ONBOARDING_STEP_LABELS.length + ': ' + pos.stepLabel + ')',
+      description: 'Signed up but never finished the onboarding wizard, no activity for ≥' + d + ' days. The step-accurate onboarding email was sent (once per step). Reach out via WhatsApp if it stays quiet.',
+      stage: 'onboarding',
+      substage: pos.substage || null
+    };
+  }
+  var stage = (pos && pos.stage) || 'myintealth';
+  return {
+    title: 'GP stalled ≥' + d + ' days on ' + stage,
+    description: 'No GP activity for ≥' + d + ' days on the ' + stage + ' stage. An automatic nudge email was sent. Follow up via WhatsApp if it stays quiet.',
+    stage: stage,
+    substage: (pos && pos.substage) || null
+  };
+}
+
 // ── Admin/VA user detection (cached) ──
 // Returns a Set of user_ids that are admin/VA (not GPs). Cached for 2 minutes.
 var _adminUserIdsCache = { set: null, expiresAt: 0 };
@@ -37483,18 +37578,69 @@ async function sendAhpraCompleteEmail(userId) {
   );
 }
 
-// 6. Stalled GP Reminder (7+ days)
+// 6. Stalled GP Reminder (14+ days without progress on a registration stage).
+// `stage` must be where the GP actually is (resolveGpJourneyPosition), never
+// registration_cases.stage read raw. The button opens that stage's own page.
+const STALLED_STAGE_PAGES = { myintealth: '/pages/myinthealth.html', amc: '/pages/amc.html', career: '/pages/career.html', ahpra: '/pages/ahpra.html' };
 async function sendStalledReminderEmail(userId, stage) {
   const stageLabels = { myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS' };
   const label = stageLabels[stage] || 'your current step';
-  await sendGpNotificationEmail(userId,
+  return sendGpNotificationEmail(userId,
     'Need a hand? | GP Link',
     'How are you going, {{name}}?',
     'We noticed you haven\'t made progress on ' + label + ' recently. No rush, but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.',
     'Continue ' + label,
-    APP_BASE_URL + '/pages/index.html',
+    APP_BASE_URL + (STALLED_STAGE_PAGES[stage] || '/pages/index.html'),
     'If you\'re waiting on something external (like a verification), no action needed, we\'ll follow up when there\'s an update.'
   );
+}
+
+// Which email a stalled GP gets, decided from where they actually are (see
+// resolveGpJourneyPosition). An onboarding dropout gets the step-accurate
+// wizard email (once per step per GP via gp_nudge_log; honours the reminder
+// unsubscribe and the in-app nudge preference, exactly like the on-demand
+// step follow-up). Everyone else gets the stage reminder for the stage they
+// are really on.
+async function sendStalledNudgeForPosition(pos) {
+  if (!pos || !pos.userId) return { ok: false, skipped: 'no_position' };
+  if (pos.phase === 'onboarding') {
+    var unsubRes = await supabaseDbRequest('onboarding_reminders', 'select=unsubscribed&user_id=eq.' + encodeURIComponent(pos.userId) + '&limit=1');
+    if (unsubRes.ok && Array.isArray(unsubRes.data) && unsubRes.data[0] && unsubRes.data[0].unsubscribed) return { ok: false, skipped: 'unsubscribed' };
+    return maybeSendOnboardingStepEmail(
+      { userId: pos.userId, email: pos.email, name: pos.name, lastStep: pos.step },
+      dropoffNudges.onboardingStepNudgeKey(pos.step)
+    );
+  }
+  return sendStalledReminderEmail(pos.userId, pos.stage);
+}
+
+// One stalled-case chase, shared by the daily weekly-sweep cron, the admin
+// "Weekly check-in sweep" button and chase-nonresponders' GP pass: resolve the
+// GP's real position, open the chase task with an honest label, send the
+// matching email (awaited, so it survives the serverless freeze at sendJson).
+// opts: { days, sourceTrigger, titlePrefix, actor }. Returns { position, email };
+// a failed send never throws, the caller decides whether to report it.
+async function chaseStalledCase(c, opts) {
+  var o = opts || {};
+  var pos = await resolveGpJourneyPosition(c.user_id, c.stage, c.substage);
+  var d = stalledChaseDescriptor(pos, o.days);
+  await _createRegTask(c.id, {
+    task_type: 'chase',
+    title: (o.titlePrefix || '') + d.title,
+    description: d.description,
+    priority: 'high',
+    source_trigger: o.sourceTrigger || 'weekly_checkin',
+    related_stage: d.stage,
+    related_substage: d.substage,
+    _actor: o.actor || 'system'
+  });
+  var email;
+  try { email = await sendStalledNudgeForPosition(pos); }
+  catch (err) {
+    console.error('[Email] Stalled reminder failed:', err && err.message);
+    email = { ok: false, skipped: 'error' };
+  }
+  return { position: pos, email: email };
 }
 
 // Chase reminder transport (Phase 6 G1/R2). Prefer the case's Gmail mailbox so
@@ -46929,17 +47075,10 @@ async function handleApi(req, res, pathname) {
           'select=id,created_at&case_id=eq.' + encodeURIComponent(wsC.id) +
           '&task_type=eq.chase&source_trigger=eq.weekly_checkin&created_at=gte.' + encodeURIComponent(wsSevenDaysAgo) + '&limit=1');
         if (wsExisting.ok && Array.isArray(wsExisting.data) && wsExisting.data.length > 0) { wsSkipped++; continue; }
-        await _createRegTask(wsC.id, {
-          task_type: 'chase',
-          title: 'Weekly check-in \u2014 GP stalled \u226514 days on ' + wsC.stage,
-          description: 'GP has not progressed in \u226514 days. Reach out via WhatsApp or send an in-app nudge.',
-          priority: 'high',
-          source_trigger: 'weekly_checkin',
-          related_stage: wsC.stage,
-          related_substage: wsC.substage || null,
-          _actor: 'system'
-        });
-        sendStalledReminderEmail(wsC.user_id, wsC.stage).catch(function(err) { console.error('[Email] Stalled reminder failed:', err.message); });
+        // Resolve where the GP really is before opening the task and emailing:
+        // the stored stage is 'myintealth' from signup even for a doctor who
+        // never finished the onboarding wizard (see resolveGpJourneyPosition).
+        await chaseStalledCase(wsC, { days: 14, sourceTrigger: 'weekly_checkin', titlePrefix: 'Weekly check-in \u2014 ', actor: 'system' });
         wsCreated++;
       }
 
@@ -47418,19 +47557,11 @@ async function handleApi(req, res, pathname) {
             'select=id&case_id=eq.' + encodeURIComponent(stCase.id) +
             '&task_type=eq.chase&source_trigger=eq.stall_chase&created_at=gte.' + encodeURIComponent(chStallCutoffIso) + '&limit=1');
           if (stExisting.ok && Array.isArray(stExisting.data) && stExisting.data.length > 0) continue;
-          await _createRegTask(stCase.id, {
-            task_type: 'chase',
-            title: 'GP stalled ≥' + chStallDays + ' days on ' + stCase.stage,
-            description: 'No GP activity for ≥' + chStallDays + ' days on the ' + stCase.stage + ' stage. An automatic nudge email was sent — follow up via WhatsApp if it stays quiet.',
-            priority: 'high',
-            source_trigger: 'stall_chase',
-            related_stage: stCase.stage,
-            related_substage: stCase.substage || null,
-            _actor: 'system:chase'
-          });
-          // Transactional nudge — registration-critical, never pref-gated.
-          try { await sendStalledReminderEmail(stCase.user_id, stCase.stage); }
-          catch (stMailErr) { chErrors.push('gp_mail:' + stCase.id); }
+          // Transactional nudge for registration stages (never pref-gated), sent
+          // for the stage the GP is REALLY on; an onboarding dropout gets the
+          // step-accurate wizard email instead (see chaseStalledCase).
+          var stRun = await chaseStalledCase(stCase, { days: chStallDays, sourceTrigger: 'stall_chase', actor: 'system:chase' });
+          if (!stRun.email || (!stRun.email.ok && !stRun.email.skipped)) chErrors.push('gp_mail:' + stCase.id);
           chChased.gp++;
         }
       } catch (chCErr) { chErrors.push('gp_pass:' + String(chCErr && chCErr.message)); }
@@ -70439,17 +70570,9 @@ Return ONLY valid JSON with no markdown formatting:
         'select=id,created_at&case_id=eq.' + encodeURIComponent(c.id) +
         '&task_type=eq.chase&source_trigger=eq.weekly_checkin&created_at=gte.' + encodeURIComponent(sevenDaysAgo) + '&limit=1');
       if (existingRes.ok && Array.isArray(existingRes.data) && existingRes.data.length > 0) { skipped++; continue; }
-      await _createRegTask(c.id, {
-        task_type: 'chase',
-        title: 'Weekly check-in — GP stalled ≥14 days on ' + c.stage,
-        description: 'GP has not progressed in ≥14 days. Reach out via WhatsApp or send an in-app nudge.',
-        priority: 'high',
-        source_trigger: 'weekly_checkin',
-        related_stage: c.stage,
-        related_substage: c.substage || null,
-        _actor: 'system'
-      });
-      sendStalledReminderEmail(c.user_id, c.stage).catch(err => console.error('[Email] Stalled reminder failed:', err.message));
+      // Same chase as the daily cron: resolve the GP's real position first so an
+      // onboarding dropout is never told to "Continue MyIntealth".
+      await chaseStalledCase(c, { days: 14, sourceTrigger: 'weekly_checkin', titlePrefix: 'Weekly check-in — ', actor: 'system' });
       created++;
     }
     // Auto-escalate tasks 3+ days past due
