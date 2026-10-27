@@ -40,7 +40,7 @@ describe('server: WhatsApp confirmation when a match is accepted', () => {
     expect(fn(false, 'Unauthorized').ok).toBe(false);
     // both senders use it
     expect(fn(true, '{"messages":[{"status":"FAILED"},{"status":"SENT"}]}').ok).toBe(true); // partial batch still counts as sent
-    expect(server.split('doubleTickBatchOutcome(resp.ok, ').length - 1).toBe(5); // match invitation, match accepted, interview templates, main's sendInterviewWhatsappTemplate (release merge 2026-09-10), consult-funnel templates (2026-09-30)
+    expect(server.split('doubleTickBatchOutcome(resp.ok, ').length - 1).toBe(6); // match invitation, match accepted, interview templates, main's sendInterviewWhatsappTemplate (release merge 2026-09-10), consult-funnel templates (2026-09-30), the interview-link re-send note (2026-10-27))
   });
   it('the plain-text wording names the practice and sets the interview expectation', () => {
     const start = server.indexOf('function buildMatchAcceptedWhatsAppText(firstName, practiceName) {');
@@ -85,7 +85,9 @@ describe('DoubleTick plain-text requests use the one shape the API accepts', () 
     expect(JSON.parse(req.body)).toEqual({ to: '+61400000000', from: '+61494391968', content: { text: 'hello' } });
   });
   it('every plain-text send site goes through it — no { to, body } or batch-shaped text bodies remain', () => {
-    expect(server.split("DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(").length - 1).toBe(5);
+    // 6 since 2026-10-27: + sendInterviewWhatsappNoteAndTemplate (the
+    // "ignore the earlier email, use this link" re-send).
+    expect(server.split("DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(").length - 1).toBe(6);
     expect(server).not.toMatch(/JSON\.stringify\(\{ to: [A-Za-z]+, body: /);
     expect(server).not.toMatch(/'Bearer ' \+ process\.env\.DOUBLETICK_API_KEY/);
   });

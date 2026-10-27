@@ -77282,6 +77282,53 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Internal ops: re-send the interview link (owner 2026-10-27) ──────────
+  // After the double-booked confirmation (two Zoom meetings, two different
+  // links in the doctor's and the practice's inboxes) the owner asked for one
+  // corrective message on every channel: "ignore the earlier email, use the
+  // link in this one". Re-sends the booking confirmation for a BOOKED
+  // interview with the link stored on its row — see resendInterviewConfirmation
+  // (email + updated calendar invite; WhatsApp note + approved template).
+  // Changes nothing on the row; reusable whenever a link must be re-issued.
+  // Auth: admin session OR x-gp-ops-key (service-role key), like the other
+  // ops routes. Body: application_id (required); include_gp /
+  // include_practice (default true); whatsapp (default true); dry_run
+  // (resolve + echo the plan, send nothing). ALWAYS dry_run first.
+  if (pathname === '/api/admin/ops/resend-interview-confirmation' && req.method === 'POST') {
+    var rlOpsKey = String(req.headers['x-gp-ops-key'] || '');
+    var rlViaServiceKey = !!(rlOpsKey && SUPABASE_SERVICE_ROLE_KEY && rlOpsKey === SUPABASE_SERVICE_ROLE_KEY);
+    var rlActor = 'ops:service-key';
+    if (!rlViaServiceKey) {
+      var rlAdmin = requireAdminSession(req, res); if (!rlAdmin) return;
+      rlActor = String((rlAdmin && rlAdmin.email) || 'admin');
+    }
+    var rlBody; try { rlBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    var rlAppId = (rlBody && rlBody.application_id != null) ? String(rlBody.application_id).trim() : '';
+    if (!rlAppId) { sendJson(res, 400, { ok: false, message: 'application_id required.' }); return; }
+    var rlDryRun = !!(rlBody && rlBody.dry_run === true);
+    var rlCtx = await atsGetApplicationContext(rlAppId);
+    if (!rlCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    var rlRef = await findInterviewForApplication(rlAppId);
+    var rlRow = rlRef ? await resolveFullInterviewRow(rlRef) : null;
+    if (!rlRow || !_interviewRowIsAlreadyBooked(rlRow)) {
+      sendJson(res, 409, { ok: false, code: 'not_booked', message: 'No booked interview on this application — there is no link to re-send.' });
+      return;
+    }
+    var rlResult = await resendInterviewConfirmation(rlRow, rlCtx, {
+      dryRun: rlDryRun,
+      includeGp: !(rlBody && rlBody.include_gp === false),
+      includePractice: !(rlBody && rlBody.include_practice === false),
+      whatsapp: !(rlBody && rlBody.whatsapp === false)
+    });
+    if (!rlDryRun) {
+      await logAdminAction(req, { email: rlActor }, 'interview_confirmation_resent', {
+        targetType: 'application', targetId: rlAppId, detail: { interview_id: rlRow.id, sent: rlResult.sent, link: rlResult.link }
+      }).catch(function () {});
+    }
+    sendJson(res, 200, Object.assign({ ok: true, dry_run: rlDryRun, interview_id: rlRow.id }, rlResult));
+    return;
+  }
+
   // ── Internal ops: record an OFF-PLATFORM placement end to end — the offer
   // of record (terms + the signed contract into the doctor's documents), then
   // the SAME finalisation the doctor's in-app accept and the CEO's "Mark
@@ -85611,6 +85658,170 @@ async function _interviewRowCurrent(row) {
   if (!isSupabaseDbConfigured()) return row;
   var fresh = await resolveFullInterviewRow({ id: row.id });
   return fresh || row;
+}
+
+// WhatsApp a custom note AND the approved template (owner 2026-10-27).
+// Free text only reaches a number inside WhatsApp's 24-hour session window,
+// and DoubleTick accepts it synchronously either way — the rejection, when it
+// comes, arrives later by webhook — so a "text first, template on failure"
+// scheme cannot be trusted to deliver. The template is the guaranteed leg
+// (it always delivers and carries the same link); the text is the extra that
+// says WHY, when it can get through. Both fail-soft; returns what happened.
+async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, placeholders) {
+  var to = normalizePhone(toPhone);
+  if (!to) return { ok: false, skipped: 'no_phone' };
+  if (!DOUBLETICK_API_KEY) return { ok: false, skipped: 'not_configured' };
+  var textOut = { ok: false, error: '' };
+  try {
+    var resp = await guardedNotifyFetch('whatsapp', DOUBLETICK_BASE_URL + '/whatsapp/message/text', doubleTickTextRequest(to, text, AbortSignal.timeout(15000)));
+    var raw = await resp.text();
+    textOut = doubleTickBatchOutcome(resp.ok, raw);
+  } catch (e) { textOut = { ok: false, error: String(e && e.message || '') }; }
+  var tpl = await sendInterviewWhatsappTemplate(to, templateKey, placeholders);
+  return { ok: !!(tpl && tpl.ok) || !!textOut.ok, text_accepted: !!textOut.ok, text_error: textOut.error || '', template_sent: !!(tpl && tpl.ok), template_error: (tpl && (tpl.error || tpl.status)) || '' };
+}
+
+// Re-send the booking confirmation for a BOOKED interview with the link stored
+// on its row (owner 2026-10-27: after the double-booked confirmation left two
+// different Zoom links in the doctor's and the practice's inboxes, one
+// corrective message on every channel — "ignore the earlier email, use the
+// link in this one"). Email carries an UPDATED calendar invite (same UID as
+// the original, SEQUENCE 1) so the recipient's calendar replaces the earlier
+// event's link instead of adding a second event; WhatsApp goes as note +
+// template (see sendInterviewWhatsappNoteAndTemplate). Changes nothing on the
+// row. opts: { dryRun, includeGp, includePractice, whatsapp }.
+async function resendInterviewConfirmation(row, ctx, opts) {
+  opts = opts || {};
+  var dryRun = opts.dryRun === true;
+  var includeGp = opts.includeGp !== false;
+  var includePractice = opts.includePractice !== false;
+  var withWhatsapp = opts.whatsapp !== false;
+  var _esc = function (v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var _mask = function (v) { var s = String(v || ''); return s.indexOf('@') > 0 ? s.replace(/^(.).*@/, '$1***@') : (s ? s.slice(0, 3) + '***' : ''); };
+
+  var startUtc = String(row.scheduled_at || '');
+  var durationMin = interviewMeetings.interviewDurationMinutes(row);
+  var joinUrl = resolveInterviewJoinUrl(row.zoom_join_url);
+  var availWindows = Array.isArray(row.practice_availability_windows) ? row.practice_availability_windows : [];
+  var availTz = availWindows.length ? interviewMeetings.sanitizeViewerTz(availWindows[0] && availWindows[0].tz) : '';
+  var practiceTz = availTz || interviewMeetings.practiceTzForLocation(ctx.practiceName || '', ctx.practiceState, ctx.practiceCity);
+  var gpTz = interviewMeetings.sanitizeViewerTz(row.timezone) || interviewMeetings.gpTzForCountry(ctx.gpCountry);
+  var fmtWhen = function (tz) {
+    try {
+      return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(startUtc));
+    } catch (e) { return new Date(startUtc).toUTCString(); }
+  };
+  var gpWhen = fmtWhen(gpTz), practiceWhen = fmtWhen(practiceTz);
+  var meetingId = String(row.zoom_meeting_id || '').replace(/\D/g, '');
+  var meetingIdLabel = meetingId.length === 11 ? meetingId.replace(/^(\d{3})(\d{4})(\d{4})$/, '$1 $2 $3') : meetingId;
+  var gpFirst = String(ctx.gpFirstName || '').trim() || String(ctx.gpName || '').trim().split(/\s+/)[0] || 'there';
+  var gpName = String(ctx.gpName || '').trim() || 'the doctor';
+  var practiceLabel = String(ctx.practiceName || '').trim() || 'the practice';
+  var roleTitle = '';
+  try { roleTitle = ctx.careerRoleId ? String(await careerRoleTitleForApplication(ctx.careerRoleId) || '').trim() : ''; } catch (e) { roleTitle = ''; }
+  var practiceWhere = practiceLabel + (roleTitle && roleTitle.toLowerCase() !== practiceLabel.toLowerCase() ? ' (' + roleTitle + ')' : '');
+  var fromAddr = { email: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au', name: 'GP Link' };
+  var appIdStr = String((ctx.app && ctx.app.id) || '');
+  var waJoin = joinUrl || (APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(appIdStr));
+  var gpFallbackUrl = APP_BASE_URL + '/pages/application-detail?id=' + encodeURIComponent(appIdStr);
+
+  var plan = {
+    link: joinUrl, meeting_id: meetingIdLabel, scheduled_at: startUtc,
+    gp_when: gpWhen, practice_when: practiceWhen,
+    recipients: {
+      gp: includeGp ? { name: gpName, email: _mask(ctx.gpEmail), phone: _mask(ctx.gpPhone) } : null,
+      practice: includePractice ? { name: practiceLabel, contact: ctx.practiceContactName || '', email: _mask(ctx.practiceEmail), phone: _mask(ctx.practicePhone) } : null
+    },
+    sent: { gp: {}, practice: {} }
+  };
+  if (!joinUrl) { plan.warning = 'No meeting link is stored on this interview (no Zoom link and no INTERVIEW_MEETING_URL) — the email would point at the app instead.'; }
+  if (dryRun) return plan;
+
+  // One calendar invite body for everyone: the ORIGINAL UID with a higher
+  // SEQUENCE replaces the first invite's link in Apple/Outlook/Google.
+  var calDesc = 'GP Link interview: ' + gpName + ' with ' + practiceLabel + '.' + (joinUrl ? ' Join: ' + joinUrl : '');
+  var ics = null;
+  try {
+    ics = interviewIcs.icsAttachment({
+      uid: _interviewIcsUid(row.id), start: startUtc, durationMins: durationMin,
+      summary: 'Interview — ' + gpName + ' @ ' + practiceLabel, description: calDesc, location: joinUrl || '',
+      organizerEmail: REGISTRATION_HUB_EMAIL || 'hello@mygplink.com.au',
+      attendeeEmails: [ctx.gpEmail || '', ctx.practiceEmail || ''].filter(Boolean),
+      method: 'REQUEST', sequence: 1, status: 'CONFIRMED'
+    });
+  } catch (icsErr) { console.warn('[interview-resend] .ics build failed (ignored):', icsErr && icsErr.message); }
+  var footerId = meetingIdLabel ? 'Meeting ID ' + meetingIdLabel + '. ' : '';
+
+  if (includeGp) {
+    if (ctx.gpEmail && isEmailConfigured()) {
+      try {
+        var gpCalUrl = buildGoogleCalendarUrl({ startUtc: startUtc, durationMin: durationMin, summary: 'GP Link interview — ' + practiceLabel, description: calDesc, location: joinUrl || 'Video call' });
+        var gpBody = 'A quick correction from us. You received two confirmation emails for your interview with <strong>' + _esc(practiceWhere) + '</strong> on <strong>' + _esc(gpWhen) + '</strong>. '
+          + 'A hiccup on our side created two meeting links. Please ignore the earlier emails and use only the link in this one.<br><br>'
+          + 'Everything else is unchanged: same day, same time, and your Registration Support Officer will join you. Tap Join Meeting below, and use Add to Calendar so the correct link replaces the earlier one in your calendar.';
+        var gpRes = await sendEmail({
+          to: ctx.gpEmail,
+          subject: 'Your interview link — please use this one',
+          html: buildCareerEmailHtml({
+            title: 'One link for your interview, ' + _esc(gpFirst),
+            body: gpBody,
+            ctaText: joinUrl ? 'Join Meeting' : 'View my interview',
+            ctaUrl: joinUrl || gpFallbackUrl,
+            secondaryCtaText: 'Add to Calendar',
+            secondaryCtaUrl: gpCalUrl,
+            footer: footerId + 'Questions? Reply to this email or WhatsApp us on +61 494 391 968.'
+          }),
+          text: 'A quick correction from GP Link: please ignore the earlier confirmation emails for your interview with ' + practiceWhere + ' on ' + gpWhen + ' and use only this link: ' + (joinUrl || gpFallbackUrl) + '. Same day and time — nothing else has changed.' + (meetingIdLabel ? ' Meeting ID ' + meetingIdLabel + '.' : ''),
+          from: fromAddr,
+          attachments: ics ? [ics] : undefined
+        });
+        plan.sent.gp.email = !!(gpRes && gpRes.ok);
+      } catch (e) { plan.sent.gp.email = false; plan.sent.gp.email_error = String(e && e.message || ''); }
+    } else {
+      plan.sent.gp.email = false; plan.sent.gp.email_error = ctx.gpEmail ? 'email not configured' : 'no email on file';
+    }
+    if (withWhatsapp) {
+      var gpText = 'Hi ' + gpFirst + ', a quick correction from GP Link: please ignore the earlier messages about your interview with ' + practiceLabel
+        + ' and use only this link for ' + gpWhen + ': ' + waJoin + '. Same day and time, nothing else has changed.';
+      plan.sent.gp.whatsapp = await sendInterviewWhatsappNoteAndTemplate(ctx.gpPhone, gpText, 'confirmed_gp', [gpFirst, practiceLabel, gpWhen, waJoin]);
+    }
+  }
+
+  if (includePractice) {
+    if (ctx.practiceEmail && isEmailConfigured()) {
+      try {
+        var prCalUrl = buildGoogleCalendarUrl({ startUtc: startUtc, durationMin: durationMin, summary: 'Interview — ' + gpName, description: calDesc, location: joinUrl || 'Video call' });
+        var prBody = 'A quick correction: our system sent two confirmations for your interview with <strong>' + _esc(gpName) + '</strong> on <strong>' + _esc(practiceWhen) + '</strong>, each with a different Zoom link. '
+          + 'Please disregard the earlier emails and use only the link below. Day, time and format are unchanged.';
+        var prRes = await sendEmail({
+          to: ctx.practiceEmail,
+          subject: 'Interview link for ' + gpName + ' — please use this one',
+          html: buildCareerEmailHtml({
+            title: 'Updated link for the interview',
+            body: prBody,
+            ctaText: joinUrl ? 'Join Meeting' : 'View interview',
+            ctaUrl: joinUrl || APP_BASE_URL,
+            secondaryCtaText: 'Add to Calendar',
+            secondaryCtaUrl: prCalUrl,
+            footer: footerId + 'Need to reschedule? Just reply to this email and the GP Link team will help.'
+          }),
+          text: 'A quick correction from GP Link: please disregard the earlier confirmation emails for the interview with ' + gpName + ' on ' + practiceWhen + ' and use only this link: ' + (joinUrl || APP_BASE_URL) + '. Day, time and format are unchanged.' + (meetingIdLabel ? ' Meeting ID ' + meetingIdLabel + '.' : ''),
+          from: fromAddr,
+          attachments: ics ? [ics] : undefined
+        });
+        plan.sent.practice.email = !!(prRes && prRes.ok);
+      } catch (e) { plan.sent.practice.email = false; plan.sent.practice.email_error = String(e && e.message || ''); }
+    } else {
+      plan.sent.practice.email = false; plan.sent.practice.email_error = ctx.practiceEmail ? 'email not configured' : 'no practice email on file';
+    }
+    if (withWhatsapp) {
+      var prFirst = String(ctx.practiceContactName || '').trim().split(/\s+/)[0] || 'there';
+      var prText = 'Hi ' + prFirst + ', a quick correction from GP Link: please ignore the earlier messages about ' + gpName + '\'s interview and use only this link for '
+        + practiceWhen + ': ' + waJoin + '. Same day and time, nothing else has changed.';
+      plan.sent.practice.whatsapp = await sendInterviewWhatsappNoteAndTemplate(ctx.practicePhone, prText, 'confirmed_practice', [ctx.practiceContactName || 'there', gpName, practiceWhen, waJoin]);
+    }
+  }
+  return plan;
 }
 
 async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail, bookOpts) {

@@ -31,7 +31,13 @@ describe('interview WhatsApp templates', () => {
     expect(wa).toBeGreaterThan(gpEmail);
     expect(s.slice(wa, wa + 600)).toContain("'confirmed_practice'");
     expect(s).not.toContain('INTERVIEW_WA_TEMPLATES.confirmedGp');
-    expect(s.split("'confirmed_gp'").length - 1).toBe(1);
+    // Two since 2026-10-27: the booking send above, and the ops "re-send the
+    // interview link" (resendInterviewConfirmation), which re-issues the same
+    // template with the link STORED on the row. Neither books anything twice.
+    expect(s.split("'confirmed_gp'").length - 1).toBe(2);
+    const resend = s.indexOf('async function resendInterviewConfirmation(');
+    expect(resend).toBeGreaterThan(0);
+    expect(s.slice(resend, resend + 9000)).toContain("'confirmed_gp', [gpFirst, practiceLabel, gpWhen, waJoin]");
   });
   it("main's WhatsApp helper is guarded by the test allowlist and treats a FAILED row as a failure", () => {
     const h = s.slice(s.indexOf('async function sendInterviewWhatsappTemplate('), s.indexOf('async function sendInterviewWhatsappTemplate(') + 3000);

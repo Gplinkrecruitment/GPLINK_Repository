@@ -296,6 +296,20 @@ function httpReq(method, p, { cookie, body, host } = {}) {
 }
 
 const atsPost = (p, body) => httpReq('POST', p, { host: SUPER_HOST, cookie: superCookie(), body });
+// Ops-key call (x-gp-ops-key = the service-role key), the way a script hits
+// the /api/admin/ops/* routes in production.
+function opsPost(p, body, key) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body || {});
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), Host: SUPER_HOST };
+    if (key) headers['x-gp-ops-key'] = key;
+    const r = http.request({ host: '127.0.0.1', port, path: p, method: 'POST', headers }, (res) => {
+      const c = []; res.on('data', (x) => c.push(x));
+      res.on('end', () => { let parsed = null; try { parsed = JSON.parse(Buffer.concat(c).toString('utf8')); } catch {} resolve({ status: res.statusCode, body: parsed }); });
+    });
+    r.on('error', reject); r.end(data);
+  });
+}
 const gpGet = (p, who = GP) => httpReq('GET', p, { cookie: userCookie(who.email, who.userId) });
 
 let realFetch;
@@ -726,6 +740,91 @@ describe('two accepts for the same interview at the same instant book ONCE and m
     expect(srv).toContain("if (cbBooked.error === 'already_booked') {");
     // And the interview-row creator converges a racing duplicate insert.
     expect(srv).toContain('return await _dedupeInterviewRowForApplication(appId, saved);');
+  });
+});
+
+// Owner 2026-10-27, after the double booking: "send a new notification through
+// all the channels saying to ignore the previous email and use the link in
+// this one". POST /api/admin/ops/resend-interview-confirmation re-sends the
+// booking confirmation with the link STORED on the interview row (never a
+// fresh Zoom meeting), to the doctor and the practice, with an updated
+// calendar invite (same UID, SEQUENCE 1) that replaces the earlier event's
+// link. Ops-key or admin-session gated; dry_run echoes the plan and sends
+// nothing. app-acc-manual was booked earlier in this file.
+describe('ops: re-send the interview link (POST /api/admin/ops/resend-interview-confirmation)', () => {
+  const OPS_KEY = 'test-service-role-key';
+  const LINK = 'https://us06web.zoom.us/j/88443739580?pwd=test';
+  const bookedRow = () => db.scheduled_calls.find((s) => s.application_id === 'app-acc-manual' && s.meeting_kind === 'interview' && s.status === 'booked');
+
+  it('refuses without the ops key or an admin session', async () => {
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual' }, '');
+    expect([401, 403]).toContain(r.status);
+  });
+
+  it('409s an application with no booked interview, 404s an unknown one', async () => {
+    const r1 = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-2', dry_run: true }, OPS_KEY);
+    expect(r1.status).toBe(409);
+    expect(r1.body.code).toBe('not_booked');
+    const r2 = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'nope-9', dry_run: true }, OPS_KEY);
+    expect(r2.status).toBe(404);
+  });
+
+  it('dry_run echoes the stored link, both times and both recipients — and sends nothing', async () => {
+    const row = bookedRow();
+    expect(row).toBeTruthy();
+    row.zoom_join_url = LINK; row.zoom_meeting_id = '88443739580';
+    const before = resendCalls.length;
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual', dry_run: true }, OPS_KEY);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.dry_run).toBe(true);
+    expect(r.body.link).toBe(LINK);
+    expect(r.body.meeting_id).toBe('884 4373 9580');
+    expect(r.body.scheduled_at).toBe(row.scheduled_at);
+    expect(String(r.body.gp_when)).toMatch(/GMT|BST/);       // 00:00Z shown in the GP's zone (London)
+    expect(String(r.body.practice_when)).toContain('10:00'); // Brisbane: 00:00Z = 10:00 am
+    expect(r.body.recipients.gp.email).toMatch(/^m\*\*\*@/);
+    expect(r.body.recipients.practice.email).toMatch(/^a\*\*\*@/);
+    expect(resendCalls.length).toBe(before);
+    expect(bookedRow().status).toBe('booked');
+  });
+
+  it('for real: one corrective email to the doctor and one to the practice, both carrying the stored link and an updated (SEQUENCE:1) invite; the row is untouched', async () => {
+    const before = resendCalls.length;
+    const rowBefore = JSON.stringify(bookedRow());
+    const r = await opsPost('/api/admin/ops/resend-interview-confirmation', { application_id: 'app-acc-manual' }, OPS_KEY);
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.dry_run).toBe(false);
+    expect(r.body.sent.gp.email).toBe(true);
+    expect(r.body.sent.practice.email).toBe(true);
+    // No phone on the fixture (and no DoubleTick key in tests) → WhatsApp
+    // reports why it was skipped, and never throws.
+    expect(['no_phone', 'not_configured']).toContain(r.body.sent.gp.whatsapp.skipped);
+
+    const sends = resendCalls.slice(before).map((c) => c.body || {});
+    expect(sends.length).toBe(2);
+    const gpMail = sends.find((b) => [].concat(b.to).includes(GP5.email));
+    const prMail = sends.find((b) => [].concat(b.to).includes('anna@greenslopes-test.local'));
+    expect(gpMail).toBeTruthy();
+    expect(prMail).toBeTruthy();
+    expect(gpMail.subject).toBe('Your interview link — please use this one');
+    expect(prMail.subject).toBe('Interview link for Manual Doctor — please use this one');
+    for (const m of [gpMail, prMail]) {
+      expect(String(m.html)).toContain(LINK);
+      expect(String(m.html)).toMatch(/(ignore|disregard) the earlier emails/);
+      expect(String(m.html)).toContain('884 4373 9580');
+      expect(String(m.html)).not.toContain('zoom.local');
+      expect(Array.isArray(m.attachments) && m.attachments.length).toBe(1);
+      const ics = Buffer.from(m.attachments[0].content, 'base64').toString('utf8');
+      expect(ics).toContain('SEQUENCE:1');
+      expect(ics).toContain('UID:gplink-interview-' + bookedRow().id + '@mygplink.com.au');
+      expect(ics).toContain('METHOD:REQUEST');
+    }
+    expect(String(gpMail.html)).toContain('One link for your interview, Manual');
+    expect(String(prMail.html)).toContain('disregard the earlier emails');
+    // Nothing on the booking changed.
+    expect(JSON.stringify(bookedRow())).toBe(rowBefore);
   });
 });
 
