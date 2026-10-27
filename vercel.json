@@ -74,6 +74,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/lead-calls",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/meta-lead-stages",
       "schedule": "50 * * * *"
     },

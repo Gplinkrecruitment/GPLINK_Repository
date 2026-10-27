@@ -27,3 +27,6 @@ agents-output/
 .superpowers/
 tmp/
 data/practice-agreements/
+
+# Retell provisioning ids written by scripts/retell-setup.js (ids only, per-environment)
+config/retell/state.json

@@ -40,7 +40,10 @@
   var STOPPED_LABELS = {
     signed_up:    'stopped — they signed up',
     unsubscribed: 'stopped — they unsubscribed',
-    exhausted:    'stopped — every email sent'
+    exhausted:    'stopped — every email sent',
+    // Hazel's outbound call ended the chase (lib/lead-calls.js STOPPED_LABELS).
+    do_not_call:  'stopped — asked not to be called',
+    not_interested: 'stopped — not interested'
   };
 
   // The lead's state as ONE badge, most-decisive fact first.
@@ -234,6 +237,18 @@
           ATS.esc(l.call_question) + '</div>'
       : '';
 
+    // Hazel's outbound call: what happened, which attempt, how long, when —
+    // and her one-line summary once Retell analysed the call.
+    var aiCallHtml = '';
+    if (l.ai_call) {
+      var ac = l.ai_call;
+      var acText = 'AI call: ' + (ac.outcome_label || ac.status || 'placed') + ' · attempt ' + (ac.attempt || 1);
+      if (ac.duration_s) acText += ' · ' + Math.max(1, Math.round(ac.duration_s / 60)) + 'm';
+      if (ac.last_at) acText += ' · ' + localTime(ac.last_at);
+      if (ac.summary) acText += ' — ' + ac.summary;
+      aiCallHtml = '<div class="lead-nudges lead-ai-call">' + ATS.esc(acText) + '</div>';
+    }
+
     return '<div class="lead-row">' +
       '<div class="lead-row-main">' +
         '<div class="lead-name">' + ATS.esc(l.name || '—') + '</div>' +
@@ -245,6 +260,7 @@
           bookedHtml +
         '</div>' +
         '<div class="lead-nudges">' + ATS.esc(nudgeText) + '</div>' +
+        aiCallHtml +
         questionHtml +
       '</div>' +
       '<div class="lead-row-right">' +

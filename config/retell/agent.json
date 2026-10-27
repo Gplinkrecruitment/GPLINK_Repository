@@ -1,0 +1,94 @@
+{
+  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`.",
+  "agent_name": "Hazel — GP Link leads",
+  "agent": {
+    "voice_id": "",
+    "voice_model": "eleven_v4_turbo",
+    "language": "en-GB",
+    "enable_backchannel": true,
+    "backchannel_frequency": 0.6,
+    "backchannel_words": ["mm-hm", "yeah", "right", "okay", "sure"],
+    "ambient_sound": null,
+    "ambient_sound_volume": 0.5,
+    "voice_temperature": 1.0,
+    "voice_speed": 1.0,
+    "volume": 1.0,
+    "enable_dynamic_voice_speed": true,
+    "responsiveness": 0.8,
+    "interruption_sensitivity": 0.8,
+    "enable_dynamic_responsiveness": true,
+    "voicemail_option": {
+      "action": {
+        "type": "static_text",
+        "text": "Hi, it's Hazel from GP Link, sorry I've missed you. You'd enquired with us about GP work in Australia. I'll try you again, or you can grab a time with us using the link we emailed. Speak soon, bye."
+      }
+    },
+    "end_call_after_silence_ms": 20000,
+    "max_call_duration_ms": 480000,
+    "begin_message_delay_ms": 0,
+    "ring_duration_ms": 30000,
+    "enable_dnc_detection": true,
+    "denoising_mode": "noise-and-background-speech-cancellation",
+    "stt_mode": "accurate",
+    "vocab_specialization": "medical",
+    "boosted_keywords": ["GP Link", "Hazel", "AHPRA", "Medicare", "RACGP", "MRCGP", "Calendly", "Zoom", "locum", "Brisbane", "Perth", "Adelaide"],
+    "data_storage_setting": "everything",
+    "reminder_trigger_ms": 8000,
+    "reminder_max_count": 2,
+    "timezone": "Europe/London"
+  },
+  "llm": {
+    "model_config": { "type": "cascading", "primary": { "model": "claude-5.5-sonnet" }, "backup": { "model": "claude-5.5-haiku" }, "temperature": 0.5 },
+    "start_speaker": "user",
+    "begin_after_user_silence_ms": 2500,
+    "tool_call_strict_mode": true,
+    "default_dynamic_variables": {
+      "agent_name": "Hazel",
+      "director_name": "our director",
+      "first_name": "there",
+      "full_name": "Doctor",
+      "country_spoken": "your country",
+      "lead_timezone": "Europe/London",
+      "local_time_now": "now",
+      "email_on_file": "",
+      "phone_on_file": "",
+      "enquiry_when": "recently",
+      "enquiry_source": "our website",
+      "enquiry_question": "",
+      "attempt": "1",
+      "system_timezone": "Europe/London"
+    }
+  },
+  "post_call_analysis_data": [
+    {
+      "type": "enum",
+      "name": "outcome",
+      "description": "How the call ended. booked = a consultation was booked on the call via the booking tool; link_sent = the booking link was sent instead; callback_requested = they asked to be rung back; not_interested = they declined; not_a_gp = not a doctor / not a GP; wrong_number = wrong person; already_booked = they had already booked; voicemail = voicemail or answering machine; no_answer = nobody spoke; unclear = a person spoke but none of the above clearly applies.",
+      "choices": ["booked", "link_sent", "callback_requested", "not_interested", "not_a_gp", "wrong_number", "already_booked", "voicemail", "no_answer", "unclear"]
+    },
+    {
+      "type": "string",
+      "name": "callback_time",
+      "description": "If they asked to be called back, when, in their own words. Empty otherwise.",
+      "examples": ["tomorrow after 2pm", "next week, evenings"]
+    },
+    {
+      "type": "enum",
+      "name": "gp_status",
+      "description": "Whether they are a fully qualified GP (gp), still in GP training (trainee), not a GP at all (not_a_gp), or it never came up (unknown).",
+      "choices": ["gp", "trainee", "not_a_gp", "unknown"]
+    },
+    {
+      "type": "string",
+      "name": "timeframe",
+      "description": "When they said they want to move to Australia, in their words. Empty if not discussed.",
+      "examples": ["early next year", "as soon as possible", "in two years once the kids finish school"]
+    },
+    {
+      "type": "string",
+      "name": "notes",
+      "description": "One or two sentences a human recruiter needs before the consultation: family situation, preferred locations, concerns raised, questions left unanswered.",
+      "examples": ["Partner is a nurse, two kids, wants Queensland coast. Asked about school fees, not answered."]
+    }
+  ]
+}

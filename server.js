@@ -264,6 +264,7 @@ const docAiReview = require('./lib/doc-ai-review.js');
 var consultLead = require('./lib/consult-lead.js');
 var metaCapi = require('./lib/meta-capi.js');
 var consultWhatsapp = require('./lib/consult-whatsapp.js');
+var leadCalls = require('./lib/lead-calls.js');
 var matchWhatsapp = require('./lib/match-whatsapp.js');
 var bookerNudgeEmail = require('./lib/booker-nudge-email.js');
 // apex/www (mygplink.com.au) still serve the LEGACY site until the DNS cutover — only
@@ -11530,6 +11531,12 @@ const CRON_SCHEDULES = {
   // anywhere up to an hour late. Cheap — one list query per run; per-lead work
   // happens only when a step is actually due. Keep in sync with vercel.json.
   'consult-nudge': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
+  // Every 5 min: Hazel (Retell AI) rings fresh qualified GP leads. A lead is
+  // callable 3 minutes after the form, while they still have the ad open, so a
+  // slower tick would land the first attempt up to an hour late. Cheap — one
+  // list query, a pure decision per lead, at most LEAD_CALLS_PER_RUN calls —
+  // and a no-op until LEAD_CALLS_ENABLED=true. Keep in sync with vercel.json.
+  'lead-calls': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
   // Meta Conversions API for CRM: report bookings/signups back to Meta (lib/meta-capi.js).
   'meta-lead-stages': { schedule: '50 * * * *', cadenceMinutes: 60 },
   // Post-onboarding drop-off chase (career_start / career_cv), both channels.
@@ -30396,6 +30403,514 @@ async function listSiteEnquiryRows(status, kind) {
   return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
+// ── Outbound AI phone calls — "Hazel" on Retell ─────────────────────────────
+// The pure rules live in lib/lead-calls.js (who to ring and when, the prompt
+// variables, the webhook signature, folding a finished call into the lead,
+// Calendly slot picking). This section binds them to env, Supabase and HTTP:
+//   placeLeadCall        POST Retell /v2/create-phone-call, stamp consult.ai_call
+//   handleRetellWebhook  POST /api/webhooks/retell  (call_started/ended/analyzed)
+//   handleRetellTool     POST /api/retell/tools/<name> — the tools Hazel calls
+//                        mid-conversation (check-availability, book-consult,
+//                        send-booking-link, mark-outcome)
+//   GET /api/cron/lead-calls and /api/ceo/lead-calls* live in the router.
+// Config is read per request (leadCalls.parseLeadCallConfig(process.env)),
+// never at module load, so flipping LEAD_CALLS_ENABLED needs no redeploy and
+// tests can vary it per run. Nothing here throws to the router: Retell retries
+// every non-2xx webhook (which cannot fix a lead we could not find) and the
+// LLM reads a tool reply verbatim, so every failure becomes a logged skip or a
+// plain English sentence telling Hazel what to do next.
+
+function retellApiBase() { return String(process.env.RETELL_API_URL || 'https://api.retellai.com').replace(/\/+$/, ''); }
+function calendlyApiBase() { return String(process.env.CALENDLY_API_BASE || 'https://api.calendly.com').replace(/\/+$/, ''); }
+
+// Plain-text reply for the Retell tool endpoints — Retell hands the body to
+// the LLM word for word, so a sentence beats JSON there.
+function sendText(res, status, text) {
+  const body = String(text == null ? '' : text);
+  res.writeHead(status, {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+    ...SECURITY_HEADERS
+  });
+  res.end(body);
+}
+
+// One site_enquiries row by id — the lead a Retell call names in its metadata.
+async function findSiteEnquiryById(id) {
+  const key = String(id || '').trim();
+  if (!key) return null;
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries', 'select=*&id=eq.' + encodeURIComponent(key) + '&limit=1', { method: 'GET' });
+    return r.ok && Array.isArray(r.data) && r.data[0] ? r.data[0] : null;
+  }
+  const rows = Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [];
+  return rows.find((row) => String(row.id) === key) || null;
+}
+
+// Merge a patch into consult.ai_call (plus any other consult keys) on a FRESH
+// read of the row, so a tool's stamp never clobbers what the webhook or
+// ensureLeadBookedCallAt wrote a moment earlier. `callId` says which call the
+// stamp belongs to: when consult.ai_call is for a different call (the webhook
+// beat the cron's stamp, or the call was placed by hand) a minimal ai_call for
+// THIS call is created first. Returns the new consult, or null when nothing
+// was written.
+async function stampLeadAiCall(rowId, callId, aiPatch, consultPatch, nowIso) {
+  try {
+    const row = await findSiteEnquiryById(rowId);
+    if (!row || !row.metadata || !row.metadata.consult) return null;
+    const consult = row.metadata.consult;
+    const id = String(callId || '');
+    let ai = consult.ai_call && String(consult.ai_call.call_id || '') === id ? Object.assign({}, consult.ai_call) : null;
+    if (!ai) {
+      ai = {
+        call_id: id,
+        attempt: (Array.isArray(consult.ai_calls) ? consult.ai_calls.length : 0) + 1,
+        started_at: nowIso || new Date().toISOString(),
+        status: 'ongoing'
+      };
+    }
+    Object.assign(ai, aiPatch || {});
+    const next = Object.assign({}, consult, consultPatch || {}, { ai_call: ai });
+    const md = Object.assign({}, row.metadata, { consult: next });
+    const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (!ok) { console.warn('[lead-calls] ai_call stamp failed for lead', row.id); return null; }
+    row.metadata = md;
+    return next;
+  } catch (e) {
+    console.error('[lead-calls] stampLeadAiCall error:', e && e.message);
+    return null;
+  }
+}
+
+// Place one outbound call. A registered call is written onto the lead
+// (consult.ai_call) so the next cron tick sees it in progress; a placement
+// that FAILED is recorded as a completed attempt so retry spacing and the
+// attempt cap still apply (a number Retell cannot dial is not rung every five
+// minutes for ever). `opts.persist === false` (the CEO test call) skips every
+// lead write. Resolves { ok, call_id, error } — never throws.
+async function placeLeadCall(row, decision, cfg, opts) {
+  const o = opts || {};
+  const nowIso = o.nowIso || new Date().toISOString();
+  const nowMs = Date.parse(nowIso) || Date.now();
+  const source = o.source || 'lead-calls-cron';
+  const attempt = Number(decision && decision.attempt) || 1;
+  const rowId = String((row && row.id) || '');
+  const metadata = { enquiry_id: rowId, attempt: attempt, source: source };
+  if (o.test) metadata.test = true;
+  // Retell's idempotency key must match ^[A-Za-z0-9_-]+$; our ids are uuids
+  // but a local-mode id can be anything, so anything else becomes '_'.
+  const idemKey = String(o.idempotencyKey || ('lead-' + (rowId || 'x') + '-a' + attempt)).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 120);
+  const body = {
+    from_number: decision.from,
+    to_number: decision.phone,
+    override_agent_id: cfg.agentId,
+    idempotency_key: idemKey,
+    metadata: metadata,
+    retell_llm_dynamic_variables: leadCalls.buildLeadCallVariables({
+      row, nowMs, tz: decision.tz, country: decision.country, attempt,
+      directorName: cfg.directorName, agentName: cfg.agentName
+    })
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, 15000);
+  let result;
+  try {
+    const resp = await fetch(retellApiBase() + '/v2/create-phone-call', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Authorization': 'Bearer ' + cfg.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const raw = await resp.text().catch(function () { return ''; });
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (e) { data = null; }
+    if (resp.ok && data && data.call_id) {
+      result = { ok: true, call_id: String(data.call_id), status: String(data.call_status || 'registered'), agent_id: String(data.agent_id || cfg.agentId) };
+    } else {
+      result = { ok: false, error: ('retell ' + resp.status + ' ' + String((data && (data.message || data.error)) || raw || '')).trim().slice(0, 160) };
+    }
+  } catch (e) {
+    result = { ok: false, error: e && e.name === 'AbortError' ? 'retell timeout' : ('retell ' + String((e && e.message) || 'error')).slice(0, 160) };
+  } finally { clearTimeout(timer); }
+
+  if (result.ok) console.log('[lead-calls] placed call', result.call_id, 'lead', rowId, 'attempt', attempt, 'to', maskPhone(decision.phone), 'from', decision.from, '(' + source + ')');
+  else console.warn('[lead-calls] call NOT placed for lead', rowId, 'attempt', attempt, ':', result.error);
+  if (o.persist === false || !rowId) return result;
+
+  try {
+    const consult = (row.metadata && row.metadata.consult) || {};
+    const next = Object.assign({}, consult);
+    let ai;
+    if (result.ok) {
+      ai = { call_id: result.call_id, status: 'registered', attempt, started_at: nowIso, from_number: decision.from, to_number: decision.phone, agent_id: result.agent_id };
+    } else {
+      ai = { call_id: '', status: 'failed', outcome: 'failed', attempt, started_at: nowIso, completed_at: nowIso, error: String(result.error || '').slice(0, 160) };
+      const hist = Array.isArray(consult.ai_calls) ? consult.ai_calls.slice() : [];
+      hist.push(Object.assign({}, ai));
+      next.ai_calls = hist.slice(-10);
+    }
+    next.ai_call = ai;
+    const md = Object.assign({}, row.metadata, { consult: next });
+    const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+    if (ok) row.metadata = md;
+    else console.warn('[lead-calls] ai_call stamp failed for lead', rowId, '(call', result.call_id || 'not placed', ')');
+  } catch (e) {
+    console.error('[lead-calls] stamp error for lead', rowId, ':', e && e.message);
+  }
+  return result;
+}
+
+// The lead a Retell call belongs to: the enquiry id the cron put in the call's
+// metadata, else the number that was dialled. A CEO test call (metadata.test)
+// is never joined to a lead, even when the owner's own number is on one.
+async function resolveLeadForRetellCall(call) {
+  const c = call || {};
+  const meta = (c.metadata && typeof c.metadata === 'object') ? c.metadata : {};
+  if (meta.test === true || meta.test === 'true') return null;
+  if (meta.enquiry_id) {
+    const byId = await findSiteEnquiryById(meta.enquiry_id);
+    if (byId) return byId;
+  }
+  if (c.to_number) return await findConsultLeadByPhone(c.to_number);
+  return null;
+}
+
+const LEAD_CALL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function leadCallMsToIso(ms) { const n = Number(ms); return Number.isFinite(n) && n > 0 ? new Date(n).toISOString() : null; }
+
+// Full call record (transcript, recording, analysis, cost) → lead_calls,
+// keyed by call_id so call_ended, call_analyzed and their retries converge on
+// one row. Supabase only; a failed write is logged, never fatal — the lead's
+// own consult.ai_call already carries the outcome.
+async function upsertLeadCallRecord(call, outcome, enquiryId, nowIso) {
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    const c = call || {};
+    const analysis = (c.call_analysis && typeof c.call_analysis === 'object') ? c.call_analysis : null;
+    const startIso = leadCallMsToIso(c.start_timestamp);
+    const endIso = leadCallMsToIso(c.end_timestamp);
+    const durationMs = Number.isFinite(Number(c.duration_ms)) ? Number(c.duration_ms)
+      : (startIso && endIso ? Number(c.end_timestamp) - Number(c.start_timestamp) : NaN);
+    const cost = c.call_cost && Number.isFinite(Number(c.call_cost.combined_cost)) ? Math.round(Number(c.call_cost.combined_cost)) : null;
+    const rec = {
+      call_id: String(c.call_id || ''),
+      enquiry_id: LEAD_CALL_UUID_RE.test(String(enquiryId || '')) ? String(enquiryId) : null,
+      direction: String(c.direction || 'outbound'),
+      from_number: String(c.from_number || ''),
+      to_number: String(c.to_number || ''),
+      agent_id: String(c.agent_id || ''),
+      status: String(c.call_status || ''),
+      outcome: String(outcome || ''),
+      disconnection_reason: String(c.disconnection_reason || ''),
+      started_at: startIso,
+      ended_at: endIso,
+      duration_s: Number.isFinite(durationMs) ? Math.round(durationMs / 1000) : null,
+      summary: analysis && analysis.call_summary ? String(analysis.call_summary) : null,
+      sentiment: analysis && analysis.user_sentiment ? String(analysis.user_sentiment) : null,
+      transcript: c.transcript ? String(c.transcript) : null,
+      recording_url: c.recording_url ? String(c.recording_url) : null,
+      analysis: analysis,
+      cost_cents: cost,
+      updated_at: nowIso
+    };
+    if (!rec.call_id) return;
+    const r = await supabaseDbRequest('lead_calls', 'on_conflict=call_id', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: [rec]
+    });
+    if (!r.ok) console.warn('[lead-calls] lead_calls upsert failed', r.status, JSON.stringify(r.data || '').slice(0, 200));
+  } catch (e) {
+    console.error('[lead-calls] lead_calls upsert error:', e && e.message);
+  }
+}
+
+// Retell webhook. Folds call_started / call_ended / call_analyzed into the
+// lead (leadCalls.applyCallEventToConsult is idempotent, so Retell's retries
+// are harmless) and keeps the full record in lead_calls. Always 204 once the
+// signature passes — a non-2xx only makes Retell retry.
+async function handleRetellWebhook(req, res) {
+  let raw;
+  try { raw = await readRawBody(req, 2 * 1024 * 1024); }
+  catch (e) { sendJson(res, 413, { ok: false, error: 'Payload too large' }); return; }
+  try {
+    const cfg = leadCalls.parseLeadCallConfig(process.env);
+    if (!cfg.apiKey) { sendJson(res, 503, { ok: false, error: 'RETELL_API_KEY not configured' }); return; }
+    if (!leadCalls.verifyRetellSignature(raw, req.headers['x-retell-signature'], cfg.apiKey, Date.now())) {
+      console.warn('[lead-calls] webhook rejected: bad signature');
+      sendJson(res, 401, { ok: false, error: 'Invalid signature' });
+      return;
+    }
+    let payload = null;
+    try { payload = JSON.parse(raw.toString('utf8') || '{}'); } catch (e) { payload = null; }
+    const event = String((payload && payload.event) || '');
+    const call = (payload && payload.call && typeof payload.call === 'object') ? payload.call : null;
+    if (!call || !call.call_id || ['call_started', 'call_ended', 'call_analyzed'].indexOf(event) === -1) {
+      res.writeHead(204); res.end();
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    let row = null;
+    try { row = await resolveLeadForRetellCall(call); }
+    catch (e) { console.warn('[lead-calls] webhook lead lookup failed:', e && e.message); }
+    let outcome = '';
+    if (row && row.metadata && row.metadata.consult) {
+      const next = leadCalls.applyCallEventToConsult(row.metadata.consult, event, call, nowIso);
+      if (next) {
+        const md = Object.assign({}, row.metadata, { consult: next });
+        const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+        if (ok) row.metadata = md;
+        else console.warn('[lead-calls] webhook: lead write failed for', row.id, event, call.call_id);
+      }
+      const ai = row.metadata.consult.ai_call;
+      if (ai && ai.call_id === call.call_id && ai.outcome) outcome = ai.outcome;
+      console.log('[lead-calls] webhook', event, call.call_id, 'lead', row.id, next ? 'applied' : 'already applied', outcome ? 'outcome=' + outcome : '');
+    } else {
+      console.log('[lead-calls] webhook', event, call.call_id, 'no lead matched');
+    }
+    if (event === 'call_ended' || event === 'call_analyzed') {
+      await upsertLeadCallRecord(call, outcome || leadCalls.outcomeFromCall(call), row ? row.id : '', nowIso);
+    }
+  } catch (e) {
+    console.error('[lead-calls] webhook error:', e && e.message);
+  }
+  if (!res.headersSent) { res.writeHead(204); res.end(); }
+}
+
+// ── Hazel's tools ────────────────────────────────────────────────────────────
+// Retell POSTs { name, call, args } to each tool; the reply body goes straight
+// back to the LLM as the tool result, so every branch answers in plain English
+// that says what Hazel should do next.
+
+const LEAD_CALL_TOOL_NAMES = ['check-availability', 'book-consult', 'send-booking-link', 'mark-outcome'];
+const LEAD_CALL_NO_LEAD_TEXT = 'Lead record not found; continue the call and offer to send the booking link by email.';
+const LEAD_CALL_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LEAD_CALL_TOOL_OUTCOMES = ['callback_requested', 'not_interested', 'not_a_gp', 'wrong_number', 'already_booked'];
+
+// Shared front half of every tool call: body, signature, payload, lead.
+// Responds itself (and returns null) when the request cannot proceed.
+async function readRetellToolRequest(req, res) {
+  let raw;
+  try { raw = await readRawBody(req, 2 * 1024 * 1024); }
+  catch (e) { sendText(res, 413, 'Request too large.'); return null; }
+  const cfg = leadCalls.parseLeadCallConfig(process.env);
+  if (!cfg.apiKey) { sendText(res, 503, 'Tool is not configured.'); return null; }
+  if (!leadCalls.verifyRetellSignature(raw, req.headers['x-retell-signature'], cfg.apiKey, Date.now())) {
+    console.warn('[lead-calls] tool rejected: bad signature');
+    sendText(res, 401, 'Invalid signature.');
+    return null;
+  }
+  let payload = null;
+  try { payload = JSON.parse(raw.toString('utf8') || '{}'); } catch (e) { payload = null; }
+  const call = (payload && payload.call && typeof payload.call === 'object') ? payload.call : {};
+  const args = (payload && payload.args && typeof payload.args === 'object') ? payload.args : {};
+  let row = null;
+  try { row = await resolveLeadForRetellCall(call); }
+  catch (e) { console.warn('[lead-calls] tool lead lookup failed:', e && e.message); }
+  return { cfg, call, args, row };
+}
+
+async function handleRetellTool(req, res, name) {
+  try {
+    if (LEAD_CALL_TOOL_NAMES.indexOf(name) === -1) { sendText(res, 404, 'Unknown tool.'); return; }
+    const ctx = await readRetellToolRequest(req, res);
+    if (!ctx) return;
+    if (!ctx.row || !ctx.row.metadata || !ctx.row.metadata.consult) {
+      console.log('[lead-calls] tool', name, 'call', ctx.call.call_id || '?', 'no lead matched');
+      sendText(res, 200, LEAD_CALL_NO_LEAD_TEXT);
+      return;
+    }
+    ctx.nowIso = new Date().toISOString();
+    ctx.consult = ctx.row.metadata.consult;
+    ctx.tz = interviewMeetings.gpTzForCountry(ctx.consult.country || ctx.row.state);
+    let text;
+    if (name === 'check-availability') text = await leadCallToolCheckAvailability(ctx);
+    else if (name === 'book-consult') text = await leadCallToolBookConsult(ctx);
+    else if (name === 'send-booking-link') text = await leadCallToolSendBookingLink(ctx);
+    else text = await leadCallToolMarkOutcome(ctx);
+    sendText(res, 200, text);
+  } catch (e) {
+    console.error('[lead-calls] tool', name, 'error:', e && e.message);
+    if (!res.headersSent) sendText(res, 200, 'That did not work on our side. Apologise briefly and offer to send the booking link instead.');
+  }
+}
+
+// Calendly v2 with the server token; 10 s timeout; never throws. `raw` is kept
+// for the "was that slot just taken?" check, never shown to the LLM.
+async function calendlyApiFetch(path, options) {
+  const o = options || {};
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, 10000);
+  try {
+    const resp = await fetch(calendlyApiBase() + path, {
+      method: o.method || 'GET',
+      signal: controller.signal,
+      headers: { 'Authorization': 'Bearer ' + CALENDLY_API_TOKEN, 'Content-Type': 'application/json' },
+      body: o.body !== undefined ? JSON.stringify(o.body) : undefined
+    });
+    const raw = await resp.text().catch(function () { return ''; });
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (e) { data = null; }
+    return { ok: resp.ok, status: resp.status, data, raw };
+  } catch (e) {
+    return { ok: false, status: 0, data: null, raw: String((e && e.message) || 'fetch error') };
+  } finally { clearTimeout(timer); }
+}
+
+function calendlyEventTypeUuid() {
+  return String(CALENDLY_EVENT_TYPE_URI || '').split('/').filter(Boolean).pop() || '';
+}
+
+// check-availability { preferred_day?, time_of_day? } → up to three open
+// times in the doctor's own timezone, each with the slot_id book-consult needs.
+async function leadCallToolCheckAvailability(ctx) {
+  if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) return 'Calendar lookup is not available right now; offer to send the booking link instead.';
+  const nowMs = Date.now();
+  const preferredDay = String(ctx.args.preferred_day || '').trim().slice(0, 40);
+  const timeOfDay = String(ctx.args.time_of_day || 'any').trim().toLowerCase();
+  const windows = leadCalls.calendlyAvailabilityWindows(nowMs, 14);
+  let available = [];
+  let picked = [];
+  for (const w of windows) {
+    const r = await calendlyApiFetch('/event_type_available_times?event_type=' + encodeURIComponent(CALENDLY_EVENT_TYPE_URI) +
+      '&start_time=' + encodeURIComponent(w.start_time) + '&end_time=' + encodeURIComponent(w.end_time));
+    if (!r.ok) { console.warn('[lead-calls] calendly availability failed', r.status, String(r.raw || '').slice(0, 200)); continue; }
+    available = available.concat(Array.isArray(r.data && r.data.collection) ? r.data.collection : []);
+    picked = leadCalls.pickSlots(available, { tz: ctx.tz, nowMs, preferredDay, timeOfDay, limit: 3 });
+    if (picked.length >= 3) break;
+  }
+  if (!picked.length) return 'No open times match in the next two weeks. Ask for a different day or time of day and check again, or offer to send the booking link.';
+  const lines = picked.map((s, i) => (i + 1) + '. ' + s.spoken + ' — slot_id ' + s.start_time);
+  return 'Open times, shown in the doctor\'s local time (' + ctx.tz + '):\n' + lines.join('\n') +
+    '\nOffer two of these. To book, call book_consult with the slot_id exactly as written.';
+}
+
+// book-consult { slot_id, email? } → Calendly invitee, then the same booking
+// stamp + WhatsApp confirmation the Calendly webhook path gives every booker.
+async function leadCallToolBookConsult(ctx) {
+  if (ctx.consult.call_booked) return 'This doctor already has a call booked; no need to book again.';
+  if (!CALENDLY_API_TOKEN || !CALENDLY_EVENT_TYPE_URI) return 'Booking is not available right now; offer to send the booking link instead.';
+  const slotId = String(ctx.args.slot_id || '').trim();
+  const slotMs = Date.parse(slotId);
+  if (!slotId || !Number.isFinite(slotMs)) return 'That slot_id is not valid. Check availability again and use a slot_id exactly as written.';
+  if (slotMs < Date.now()) return 'That time has already passed. Check availability again and offer another slot.';
+  const argEmail = String(ctx.args.email || '').trim().toLowerCase();
+  const email = LEAD_CALL_EMAIL_RE.test(argEmail) ? argEmail : String(ctx.row.email || '').trim().toLowerCase();
+  if (!LEAD_CALL_EMAIL_RE.test(email)) return 'No email address on file. Ask the doctor for their email, then call book_consult again with it.';
+  const phone = normalizePhone(ctx.row.phone || '') || String(ctx.call.to_number || '');
+  // Required custom questions must be answered or Calendly rejects the booking.
+  let customQuestions = [];
+  const etUuid = calendlyEventTypeUuid();
+  if (etUuid) {
+    const et = await calendlyApiFetch('/event_types/' + encodeURIComponent(etUuid));
+    if (et.ok && et.data && et.data.resource && Array.isArray(et.data.resource.custom_questions)) customQuestions = et.data.resource.custom_questions;
+    else console.warn('[lead-calls] calendly event_type lookup failed', et.status, '— booking without custom answers');
+  }
+  const body = leadCalls.buildCalendlyInviteeBody({
+    eventTypeUri: CALENDLY_EVENT_TYPE_URI, startTime: slotId, name: ctx.row.name, email, tz: ctx.tz, phone,
+    customQuestions, locationKind: String(process.env.CALENDLY_LOCATION_KIND || '').trim(), agentName: ctx.cfg.agentName
+  });
+  const r = await calendlyApiFetch('/invitees', { method: 'POST', body });
+  if (!r.ok) {
+    console.warn('[lead-calls] calendly booking failed for lead', ctx.row.id, r.status, String(r.raw || '').slice(0, 300));
+    if (r.status >= 400 && r.status < 500 && /start_time|availab|already|taken|conflict|slot/i.test(String(r.raw || ''))) {
+      return 'That time was just taken. Check availability again and offer another slot.';
+    }
+    return 'Booking failed on our side. Apologise briefly and offer to send the booking link instead.';
+  }
+  await ensureLeadBookedCallAt(email, slotId, ctx.nowIso, phone, null);
+  // ensureLeadBookedCallAt joins by email then phone; if neither led back to
+  // THIS row (booked under a second address on a lead with no phone), stamp
+  // the booking here so the chase stops and the Leads tab tells the truth.
+  const fresh = await findSiteEnquiryById(ctx.row.id);
+  const consultPatch = fresh && fresh.metadata && fresh.metadata.consult && fresh.metadata.consult.call_booked
+    ? null : { call_booked: true, call_booked_at: ctx.nowIso, call_at: slotId, booking_email: email };
+  await stampLeadAiCall(ctx.row.id, ctx.call.call_id, { tool_outcome: 'booked', booked_slot: slotId }, consultPatch, ctx.nowIso);
+  console.log('[lead-calls] booked', slotId, 'for lead', ctx.row.id, 'via call', ctx.call.call_id);
+  return 'Booked for ' + leadCalls.formatSlotForSpeech(slotId, ctx.tz) + ' (' + ctx.tz + '). A confirmation with the Zoom link is being sent to ' + email + ' and by WhatsApp.';
+}
+
+// Booking link for a lead with no magic-link token (a plain website enquiry):
+// the sendConsultMagicLinkEmail shell with the generic /start page.
+async function sendConsultGenericBookingLinkEmail(row) {
+  const displayName = consultLead.consultDisplayName(row.name);
+  const bookUrl = CONSULT_START_BASE + '/start#book';
+  const unsubUrl = buildMarketingUnsubUrl(row.email);
+  const body = 'Hi ' + displayName + ',\n\n' +
+    'Thanks for your time on the phone. As promised, here is the link to book your free 30-minute call — we’ll answer your questions about registration, visas, timing and pay, with no obligation.';
+  return sendEmail({
+    to: row.email,
+    subject: 'Your GP Link booking link',
+    category: 'marketing',
+    html: buildCareerEmailHtml({
+      title: 'Book your free GP Link call',
+      body,
+      ctaText: 'Pick a time',
+      ctaUrl: bookUrl,
+      footer: 'Questions in the meantime? Just reply to this email.<br><br>' +
+        '<a href="' + unsubUrl + '" style="color:#8a94a6;font-size:11px;text-decoration:underline">Unsubscribe from these emails</a>'
+    }),
+    text: body + '\n\nBook here: ' + bookUrl,
+    from: { email: GP_OWNER_EMAIL, name: 'GP Link' }
+  });
+}
+
+// send-booking-link → the magic-link email plus the next unsent pre-booking
+// WhatsApp (both marker-guarded, so the cron never re-sends them). The stamp
+// is written only when something actually went: link_sent is terminal for the
+// call cron, and a lead who got nothing must stay ringable.
+async function leadCallToolSendBookingLink(ctx) {
+  const row = ctx.row;
+  const consult = ctx.consult;
+  const email = String(row.email || '').trim();
+  let emailOk = false;
+  if (LEAD_CALL_EMAIL_RE.test(email)) {
+    try {
+      const r = consult.token ? await sendConsultMagicLinkEmail(row) : await sendConsultGenericBookingLinkEmail(row);
+      emailOk = !!(r && r.ok);
+      if (!emailOk) console.warn('[lead-calls] booking-link email failed for lead', row.id, ':', (r && r.error) || 'unknown');
+    } catch (e) { console.warn('[lead-calls] booking-link email error for lead', row.id, ':', e && e.message); }
+  }
+  let waOk = false;
+  const waSent = (consult.wa && typeof consult.wa === 'object') ? consult.wa : {};
+  const waKind = consultWhatsapp.NOT_BOOKED_WA_KINDS.find((k) => !waSent[k]);
+  if (waKind) {
+    const w = await maybeSendConsultWa(row, waKind);
+    waOk = !!(w && w.ok);
+  }
+  if (!emailOk && !waOk) return 'Could not send the link right now; tell the doctor it will follow shortly.';
+  await stampLeadAiCall(row.id, ctx.call.call_id, { tool_outcome: 'link_sent' }, null, ctx.nowIso);
+  console.log('[lead-calls] booking link sent for lead', row.id, 'email=' + emailOk, 'wa=' + waOk);
+  if (emailOk) return 'Booking link sent by email to ' + email + (waOk ? ' and by WhatsApp.' : '.');
+  return 'Booking link sent by WhatsApp' + (email ? '; the email to ' + email + ' could not be sent.' : '.');
+}
+
+// mark-outcome { outcome, callback_hours?, note? } → stamped on the call now
+// so the webhook's outcome (and the next cron decision) honour it even if the
+// transcript model reads the conversation differently.
+async function leadCallToolMarkOutcome(ctx) {
+  const outcome = String(ctx.args.outcome || '').trim().toLowerCase();
+  if (LEAD_CALL_TOOL_OUTCOMES.indexOf(outcome) === -1) return 'Unknown outcome. Use one of: ' + LEAD_CALL_TOOL_OUTCOMES.join(', ') + '.';
+  const note = String(ctx.args.note || '').trim().slice(0, 300);
+  const aiPatch = { tool_outcome: outcome };
+  if (note) aiPatch.note = note;
+  const consultPatch = {};
+  if (outcome === 'callback_requested') {
+    const hrs = Number(ctx.args.callback_hours);
+    const h = Number.isFinite(hrs) && hrs > 0 ? Math.min(hrs, 24 * 14) : 24;
+    aiPatch.callback_at = new Date(Date.now() + h * 3600000).toISOString();
+    if (note) aiPatch.callback_note = note;
+  }
+  // Not interested, or not a GP at all: the chase stops on every channel —
+  // the consult-nudge cron and the next call attempt both honour `stopped`.
+  // A wrong number only ends the calling (terminal outcome); the email and
+  // WhatsApp sequence may still reach the person who actually enquired.
+  if ((outcome === 'not_interested' || outcome === 'not_a_gp') && !ctx.consult.stopped) consultPatch.stopped = 'not_interested';
+  await stampLeadAiCall(ctx.row.id, ctx.call.call_id, aiPatch, consultPatch, ctx.nowIso);
+  console.log('[lead-calls] outcome', outcome, 'for lead', ctx.row.id, 'via call', ctx.call.call_id);
+  return 'Noted.';
+}
+// ── End outbound AI phone calls ─────────────────────────────────────────────
+
 // ── Phase 6 E1 (audit B3/B4): admin CSV exports + lead/archive browser ──────
 // RFC 4180 CSV: quote any field containing a comma, double-quote, CR or LF;
 // double interior quotes; everything else passes through unquoted. CRLF line
@@ -44506,6 +45021,15 @@ async function handleApi(req, res, pathname) {
     return handleCalendlyWebhook(req, res);
   }
 
+  // Retell (Hazel's outbound AI calls) — external origin, must be before
+  // same-origin enforcement. Both are HMAC-signed by Retell (X-Retell-Signature).
+  if (req.method === 'POST' && pathname === '/api/webhooks/retell') {
+    return handleRetellWebhook(req, res);
+  }
+  if (req.method === 'POST' && pathname.startsWith('/api/retell/tools/')) {
+    return handleRetellTool(req, res, pathname.slice('/api/retell/tools/'.length).replace(/\/+$/, ''));
+  }
+
   // Zoom scheduling webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/zoom') {
     return handleZoomSchedulingWebhook(req, res);
@@ -46901,6 +47425,77 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, scanned: cnScanned, sent: cnSent, stopped: cnStopped, skipped: cnSkipped, paged: cnPaged, partial: cnPartial });
     } catch (e) {
       console.error('[ConsultNudge] cron failed:', e.message);
+      sendJson(res, 500, { ok: false, error: 'Internal error' });
+    }
+    return;
+  }
+
+  // ── Every 5 min: Hazel rings fresh qualified GP leads (lib/lead-calls.js) ──
+  // One list query per run; the decision per lead is pure (local calling
+  // hours, attempt cap, retry spacing, terminal outcomes), and at most
+  // LEAD_CALLS_PER_RUN calls are placed per tick so a backlog never bursts.
+  // A placed call is stamped on the lead as consult.ai_call; the Retell
+  // webhook finishes the record. Silent no-op until LEAD_CALLS_ENABLED=true.
+  if (req.method === 'GET' && pathname === '/api/cron/lead-calls') {
+    var lcSecret = String(process.env.CRON_SECRET || '').trim();
+    var lcAuth = req.headers['authorization'] || '';
+    if (!lcSecret || lcAuth !== 'Bearer ' + lcSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var lcStart = Date.now();
+    var LC_TIME_BUDGET_MS = 45000;
+    var lcCfg = leadCalls.parseLeadCallConfig(process.env);
+    if (!lcCfg.enabled) {
+      res.gpCronDetail = 'disabled';
+      await recordCronRun('lead-calls', 'ok', 'disabled', Date.now() - lcStart);
+      sendJson(res, 200, { ok: true, disabled: true });
+      return;
+    }
+    var lcScanned = 0, lcCalled = 0, lcPartial = false;
+    var lcSkipped = {};
+    var lcSeenEmails = new Set();
+    var lcSkip = function (reason) { lcSkipped[reason] = (lcSkipped[reason] || 0) + 1; };
+    // Test-only override: the call window follows the lead's wall clock, so
+    // the endpoint test would pass or fail with the time of day. Honoured ONLY
+    // under NODE_ENV=test — production always respects local calling hours.
+    var lcIgnoreHours = NODE_ENV === 'test' && String(process.env.LEAD_CALLS_IGNORE_HOURS || '').trim().toLowerCase() === 'true';
+    try {
+      if (!lcCfg.apiKey || !lcCfg.agentId) {
+        res.gpCronDetail = 'RETELL_API_KEY / RETELL_AGENT_ID missing';
+        await recordCronRun('lead-calls', 'error', res.gpCronDetail, Date.now() - lcStart);
+        sendJson(res, 503, { ok: false, error: 'Retell is not configured' });
+        return;
+      }
+      var lcRows = await listSiteEnquiryRows('', 'gp');
+      for (var lcRow of lcRows) {
+        if (Date.now() - lcStart > LC_TIME_BUDGET_MS) { lcPartial = true; break; }
+        var lcMeta = lcRow && lcRow.metadata;
+        if (!lcMeta || lcRow.kind !== 'gp' || !lcMeta.consult) continue;
+        // Same rule as consult-nudge: one person, one sequence — the list is
+        // newest first, so the first row per email wins and older duplicates
+        // are never rung separately.
+        var lcEmailLower = String(lcRow.email || '').trim().toLowerCase();
+        if (lcEmailLower) {
+          if (lcSeenEmails.has(lcEmailLower)) { lcSkip('duplicate_email'); continue; }
+          lcSeenEmails.add(lcEmailLower);
+        }
+        lcScanned++;
+        // ignoreHours is honoured only under NODE_ENV=test (lcIgnoreHours above):
+        // the endpoint test would otherwise pass or fail with the time of day.
+        var lcDecision = leadCalls.leadCallDecision({ row: lcRow, nowMs: Date.now(), cfg: lcCfg, ignoreHours: lcIgnoreHours });
+        if (lcDecision.action !== 'call') { lcSkip(lcDecision.reason); continue; }
+        // Keep scanning past the cap so the counts stay truthful; the leads
+        // left over are rung on the next tick.
+        if (lcCalled >= lcCfg.perRun) { lcSkip('per_run_cap'); continue; }
+        var lcRes = await placeLeadCall(lcRow, lcDecision, lcCfg, { source: 'lead-calls-cron' });
+        if (lcRes && lcRes.ok) lcCalled++;
+        else lcSkip('place_failed');
+      }
+      res.gpCronDetail = 'called ' + lcCalled + ' of ' + lcScanned + ' scanned' + (lcPartial ? ' (partial)' : '');
+      await recordCronRun('lead-calls', 'ok', res.gpCronDetail, Date.now() - lcStart);
+      sendJson(res, 200, { ok: true, called: lcCalled, scanned: lcScanned, skipped: lcSkipped, partial: lcPartial });
+    } catch (e) {
+      console.error('[lead-calls] cron failed:', e && e.message);
+      res.gpCronDetail = String((e && e.message) || 'error').slice(0, 200);
+      await recordCronRun('lead-calls', 'error', res.gpCronDetail, Date.now() - lcStart);
       sendJson(res, 500, { ok: false, error: 'Internal error' });
     }
     return;
@@ -53095,10 +53690,143 @@ async function handleApi(req, res, pathname) {
         last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
         wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
         email_bounced: c.email_bounced === true,
-        stopped: c.stopped || ''
+        stopped: c.stopped || '',
+        // Hazel's latest outbound call (lib/lead-calls.js): what happened,
+        // which attempt, and her one-line summary once the call was analysed.
+        ai_call: c.ai_call ? {
+          status: c.ai_call.status || '',
+          outcome: c.ai_call.outcome || '',
+          outcome_label: (leadCalls.OUTCOMES[c.ai_call.outcome] || {}).label || '',
+          attempt: Number(c.ai_call.attempt) || 1,
+          attempts: Array.isArray(c.ai_calls) ? c.ai_calls.length : 0,
+          last_at: c.ai_call.completed_at || c.ai_call.started_at || '',
+          duration_s: Number(c.ai_call.duration_s) || 0,
+          summary: String(c.ai_call.summary || '').slice(0, 200)
+        } : null,
       };
     });
     sendJson(res, 200, { ok: true, leads: clPage, total: clTotal, counts: clCounts, offset: clOffset, limit: clLimit });
+    return;
+  }
+
+  // ── POST /api/ceo/lead-calls/test — ring ONE number with Hazel ─────────────
+  // Owner's dry run before leads are dialled: a throwaway row (never written
+  // anywhere) so the prompt, the from-number and the webhook can be heard
+  // end to end. metadata.test makes the webhook skip the lead join.
+  if (pathname === '/api/ceo/lead-calls/test' && req.method === 'POST') {
+    var lctCtx = requireCeoSession(req, res);
+    if (!lctCtx) return;
+    var lctBody = await readJsonBody(req).catch(function () { return null; });
+    var lctCfg = leadCalls.parseLeadCallConfig(process.env);
+    var lctPhone = leadCalls.normalizeE164(lctBody && lctBody.to_number);
+    if (!lctPhone) { sendJson(res, 400, { ok: false, message: 'to_number must be an international number, e.g. +447700900123.' }); return; }
+    var lctCountry = String((lctBody && lctBody.country) || '').trim().toLowerCase() || leadCalls.countryFromDialCode(lctPhone) || 'uk';
+    if (leadCalls.SUPPORTED_COUNTRIES.indexOf(lctCountry) === -1) { sendJson(res, 400, { ok: false, message: 'country must be uk, ie, nz or au.' }); return; }
+    var lctFrom = leadCalls.fromNumberForCountry(lctCountry, lctCfg.fromNumbers);
+    var lctMissing = [];
+    if (!lctCfg.apiKey) lctMissing.push('RETELL_API_KEY');
+    if (!lctCfg.agentId) lctMissing.push('RETELL_AGENT_ID');
+    if (!lctFrom) lctMissing.push(lctCountry === 'au' || lctCountry === 'nz' ? 'RETELL_FROM_NUMBER_AU' : 'RETELL_FROM_NUMBER_UK');
+    if (lctMissing.length) { sendJson(res, 503, { ok: false, message: 'Not configured: ' + lctMissing.join(', ') + '.' }); return; }
+    var lctNow = new Date();
+    var lctRow = {
+      id: 'test', kind: 'gp',
+      name: String((lctBody && lctBody.name) || 'Test Doctor').trim().slice(0, 80),
+      email: String((lctBody && lctBody.email) || '').trim().slice(0, 120),
+      phone: lctPhone, state: lctCountry,
+      created_at: new Date(lctNow.getTime() - 10 * 60000).toISOString(),
+      metadata: { source: 'ceo_test', consult: { qualified: true, country: lctCountry } }
+    };
+    var lctDecision = { phone: lctPhone, country: lctCountry, tz: interviewMeetings.gpTzForCountry(lctCountry), from: lctFrom, attempt: 1 };
+    var lctRes = await placeLeadCall(lctRow, lctDecision, lctCfg, {
+      source: 'ceo-test', test: true, persist: false, nowIso: lctNow.toISOString(),
+      idempotencyKey: 'ceo-test-' + lctNow.getTime()
+    });
+    if (!lctRes.ok) { sendJson(res, 502, { ok: false, message: 'Retell did not accept the call: ' + lctRes.error }); return; }
+    sendJson(res, 200, { ok: true, call_id: lctRes.call_id });
+    return;
+  }
+
+  // ── GET /api/ceo/lead-calls?limit=50 — recent Hazel calls (lead_calls) ─────
+  if (pathname === '/api/ceo/lead-calls' && req.method === 'GET') {
+    var lclCtx = requireCeoSession(req, res);
+    if (!lclCtx) return;
+    var lclLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 200));
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, calls: [] }); return; }
+    var lclR = await supabaseDbRequest('lead_calls',
+      'select=call_id,enquiry_id,to_number,outcome,status,started_at,duration_s,summary,sentiment,recording_url&order=started_at.desc.nullslast&limit=' + lclLimit);
+    if (!lclR.ok) { sendJson(res, 500, { ok: false, message: 'Could not load calls.' }); return; }
+    sendJson(res, 200, { ok: true, calls: Array.isArray(lclR.data) ? lclR.data : [] });
+    return;
+  }
+
+  // ── GET /api/ceo/lead-calls/calendly-check — read-only Calendly diagnostic ──
+  // Confirms booking-by-API will work (token valid, event type reachable, slots
+  // visible, which custom questions are required) without anyone reading a
+  // secret: booleans for config, and the token never appears in the response.
+  // Each probe reports its own ok/status so one failure does not hide the rest.
+  if (pathname === '/api/ceo/lead-calls/calendly-check' && req.method === 'GET') {
+    var lccCtx = requireCeoSession(req, res);
+    if (!lccCtx) return;
+    var lccScrub = function (s) {
+      var t = String(s || '');
+      if (CALENDLY_API_TOKEN) t = t.split(CALENDLY_API_TOKEN).join('[token]');
+      return t.slice(0, 160);
+    };
+    var lccFail = function (r) {
+      return { ok: false, status: r.status, error_short: lccScrub((r.data && (r.data.message || r.data.title)) || r.raw || 'request failed') };
+    };
+    var lccOut = {
+      ok: true,
+      token_configured: !!CALENDLY_API_TOKEN,
+      event_type_configured: !!CALENDLY_EVENT_TYPE_URI,
+      me: null, event_type: null, availability: null
+    };
+    if (CALENDLY_API_TOKEN) {
+      var lccMe = await calendlyApiFetch('/users/me');
+      var lccMeRes = lccMe.ok && lccMe.data && lccMe.data.resource ? lccMe.data.resource : null;
+      lccOut.me = lccMeRes
+        ? { ok: true, status: lccMe.status, user_name: String(lccMeRes.name || ''), timezone: String(lccMeRes.timezone || '') }
+        : lccFail(lccMe);
+      var lccUuid = calendlyEventTypeUuid();
+      if (lccUuid) {
+        var lccEt = await calendlyApiFetch('/event_types/' + encodeURIComponent(lccUuid));
+        var lccEtRes = lccEt.ok && lccEt.data && lccEt.data.resource ? lccEt.data.resource : null;
+        lccOut.event_type = lccEtRes
+          ? {
+            ok: true, status: lccEt.status,
+            name: String(lccEtRes.name || ''),
+            duration: Number(lccEtRes.duration) || 0,
+            active: lccEtRes.active === true,
+            kind: String(lccEtRes.kind || ''),
+            locations: (Array.isArray(lccEtRes.locations) ? lccEtRes.locations : []).map(function (l) { return String((l && l.kind) || ''); }),
+            custom_questions: (Array.isArray(lccEtRes.custom_questions) ? lccEtRes.custom_questions : []).map(function (q) {
+              return { name: String((q && q.name) || ''), type: String((q && q.type) || ''), position: Number(q && q.position) || 0, required: !!(q && q.required), enabled: !(q && q.enabled === false) };
+            })
+          }
+          : lccFail(lccEt);
+        var lccNowMs = Date.now();
+        var lccWin = leadCalls.calendlyAvailabilityWindows(lccNowMs, 3)[0];
+        var lccAv = await calendlyApiFetch('/event_type_available_times?event_type=' + encodeURIComponent(CALENDLY_EVENT_TYPE_URI) +
+          '&start_time=' + encodeURIComponent(lccWin.start_time) + '&end_time=' + encodeURIComponent(lccWin.end_time));
+        if (lccAv.ok && lccAv.data && Array.isArray(lccAv.data.collection)) {
+          var lccSlots = lccAv.data.collection;
+          var lccStatuses = [];
+          lccSlots.forEach(function (s) { var st = String((s && s.status) || ''); if (st && lccStatuses.indexOf(st) === -1) lccStatuses.push(st); });
+          lccOut.availability = {
+            ok: true, status: lccAv.status,
+            window: { start_time: lccWin.start_time, end_time: lccWin.end_time },
+            slot_count: lccSlots.length,
+            first_slot: lccSlots.length ? String(lccSlots[0].start_time || '') : '',
+            statuses: lccStatuses,
+            spoken: leadCalls.pickSlots(lccSlots, { tz: 'Europe/London', nowMs: lccNowMs, limit: 3 }).map(function (s) { return s.spoken + ' — ' + s.start_time; })
+          };
+        } else {
+          lccOut.availability = lccFail(lccAv);
+        }
+      }
+    }
+    sendJson(res, 200, lccOut);
     return;
   }
 
