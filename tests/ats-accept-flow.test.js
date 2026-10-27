@@ -51,6 +51,10 @@ const GP4 = { userId: 'u-acc-gp-4', email: 'degraded-placed@gplink-test.local' }
 // Owner 2026-10-27: accept WITH the agreed interview time — booked on the spot,
 // no availability request to the practice.
 const GP5 = { userId: 'u-acc-gp-5', email: 'manual-interview@gplink-test.local' };
+// Owner 2026-10-27 (same evening): a double-posted accept booked twice and the
+// doctor got every confirmation twice — two concurrent accepts must yield ONE
+// booking and ONE set of messages.
+const GP6 = { userId: 'u-acc-gp-6', email: 'race-interview@gplink-test.local' };
 const RSO_ID = 'rso-accept-1';
 const NOW = new Date().toISOString();
 
@@ -68,14 +72,16 @@ const db = {
     { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
     { user_id: GP3.userId, email: GP3.email, first_name: 'Placed', last_name: 'Doctor', registration_country: 'nz' },
     { user_id: GP4.userId, email: GP4.email, first_name: 'Degraded', last_name: 'Doctor', registration_country: 'uk' },
-    { user_id: GP5.userId, email: GP5.email, first_name: 'Manual', last_name: 'Doctor', registration_country: 'uk' }
+    { user_id: GP5.userId, email: GP5.email, first_name: 'Manual', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: GP6.userId, email: GP6.email, first_name: 'Race', last_name: 'Doctor', registration_country: 'uk' }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP3.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP4.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: GP5.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    { user_id: GP5.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+    { user_id: GP6.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   push_subscriptions: [
     { id: 'ps-acc-1', user_id: GP.userId, email: GP.email, endpoint: 'https://push.example.test/acc-1', p256dh: 'p256dh-acc-1', auth: 'auth-acc-1', created_at: NOW },
@@ -86,7 +92,8 @@ const db = {
     { id: 'case-acc-1', user_id: GP.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
     { id: 'case-acc-2', user_id: GP2.userId, status: 'active', assigned_rso: null, assigned_va: null },
     { id: 'case-acc-3', user_id: GP3.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
-    { id: 'case-acc-5', user_id: GP5.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null }
+    { id: 'case-acc-5', user_id: GP5.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
+    { id: 'case-acc-6', user_id: GP6.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null }
   ],
   rso_team: [
     { user_id: RSO_ID, name: 'Priya Test', email: 'priya@gplink-test.local', phone: '', active: true, calendly_event_url: '' }
@@ -109,6 +116,8 @@ const db = {
     { id: 'app-acc-manual', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     // …and the same with the operator's own zone sent alongside (interview_tz).
     { id: 'app-acc-manual-tz', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
+    // Two accepts for THIS one fire at the same instant.
+    { id: 'app-acc-race', user_id: GP6.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     // Hardening fixtures (review round):
     { id: 'app-acc-hired', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rh', status: 'placement_secured', ats_stage: 'hired', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     { id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rs', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
@@ -632,9 +641,91 @@ describe('accept WITH the agreed interview time — books it, skips the availabi
     // Both scripts changed → both cache keys bumped (and the CSS key may never
     // fall behind the candidates key — see tests/ats-endpoints.test.js).
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027b');
-    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261027b');
-    expect(html).toContain('/css/ceo-ats.css?v=20261027b');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027c');
+    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261027c');
+    expect(html).toContain('/css/ceo-ats.css?v=20261027c');
+  });
+});
+
+// Owner 2026-10-27, same evening: "why was she sent the doubletick message
+// twice at the same time?" Production showed ONE interview row but TWO full
+// accept-and-book runs 0.8 s apart (two 'practice_accept' stage events, two
+// booking stage events 6 ms apart): the candidate drawer re-renders into the
+// same panel element and used to ADD another delegated click listener on every
+// render, so one click ran N handlers → N confirm dialogs → N POSTs. Both
+// requests passed the already-booked check before either had saved, so both
+// created a Zoom meeting and both sent every confirmation. Two fixes, both
+// pinned here: the drawer replaces its listener instead of stacking, and the
+// booking write is conditional (status=neq.booked) so only ONE concurrent
+// request can win — the loser cleans up its Zoom/GCal and sends nothing.
+describe('two accepts for the same interview at the same instant book ONCE and message ONCE', () => {
+  const ymd = new Date(Date.now() + 12 * 86400000).toISOString().slice(0, 10);
+  const raceApp = () => db.gp_applications.find((a) => a.id === 'app-acc-race');
+  const raceCalls = () => db.scheduled_calls.filter((s) => s.application_id === 'app-acc-race' && s.meeting_kind === 'interview' && s.status !== 'cancelled');
+
+  it('exactly one booked row, exactly one set of confirmations, the loser reports already:true', async () => {
+    const before = resendCalls.length;
+    const body = { interview_local: ymd + 'T09:30', interview_tz: 'Asia/Tokyo' };
+    const [r1, r2] = await Promise.all([
+      atsPost('/api/ats/application/accept?id=app-acc-race', body),
+      atsPost('/api/ats/application/accept?id=app-acc-race', body)
+    ]);
+    for (const r of [r1, r2]) {
+      expect(r.status).toBe(200);
+      expect(r.body.ok).toBe(true);
+      expect(r.body.interview).toBeTruthy();
+      expect(r.body.interview.ok).toBe(true);
+      expect(r.body.interview.scheduled_at).toBe(ymd + 'T00:30:00.000Z');
+    }
+    // One of the two actually booked; the other was told it was already done.
+    const fresh = [r1, r2].filter((r) => r.body.interview.already === false);
+    const dup = [r1, r2].filter((r) => r.body.interview.already === true);
+    expect(fresh.length).toBe(1);
+    expect(dup.length).toBe(1);
+
+    // ONE interview row for the application, booked at the typed time — the
+    // duplicate row (if both inserted) was converged away.
+    const rows = raceCalls();
+    expect(rows.length).toBe(1);
+    expect(rows[0].status).toBe('booked');
+    expect(rows[0].scheduled_at).toBe(ymd + 'T00:30:00.000Z');
+    expect(raceApp().revealed).toBe(true);
+    expect(raceApp().status).toBe('interview_scheduled');
+
+    // ONE confirmation to the doctor and ONE to the practice — not two.
+    const sends = resendCalls.slice(before).map((c) => c.body || {});
+    const gpConfirms = sends.filter((b) => String(b.subject || '').startsWith('Your interview is confirmed') && [].concat(b.to).includes(GP6.email));
+    expect(gpConfirms.length).toBe(1);
+    const practiceConfirms = sends.filter((b) => String(b.subject || '') === 'Interview confirmed, Race Doctor');
+    expect(practiceConfirms.length).toBe(1);
+  });
+
+  it('the drawer replaces its delegated listeners instead of stacking one per render', () => {
+    const read = (rel) => fs.readFileSync(new URL('../' + rel, import.meta.url), 'utf8');
+    const cand = read('js/ceo-ats-candidates.js');
+    expect(cand).toContain("if (host.__atsDetailClick) host.removeEventListener('click', host.__atsDetailClick);");
+    expect(cand).toContain("host.addEventListener('click', host.__atsDetailClick = function (e) {");
+    expect(cand).toContain("if (host.__atsDetailChange) host.removeEventListener('change', host.__atsDetailChange);");
+    expect(cand).toContain("host.addEventListener('change', host.__atsDetailChange = function (e) {");
+    // No other bare delegated listener on the panel is added per render.
+    expect(cand.match(/host\.addEventListener\('(click|change)', function/g)).toBeNull();
+    const html = read('pages/ceo-dashboard.html');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027c');
+    expect(html).toContain('/css/ceo-ats.css?v=20261027c');
+  });
+
+  it('the booking write is conditional and every booking caller handles the loser', () => {
+    const srv = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+    expect(srv).toContain("'id=eq.' + encodeURIComponent(meetingRow.id) + '&status=neq.booked'");
+    expect(srv).toMatch(/&status=neq\.booked', \{\s*method: 'PATCH', headers: \{ Prefer: 'return=representation' \}/);
+    expect(srv).toContain("throw _interviewAlreadyBookedError(meetingRow.id);");
+    expect(srv).toContain("if (bookErr && bookErr.code === 'already_booked') {");
+    // The three callers: staff accept-with-time, staff slot book, GP self-book.
+    expect(srv).toContain("if (booked && booked.error === 'already_booked') {");
+    expect(srv).toContain("if (bkBooked.error === 'already_booked') {");
+    expect(srv).toContain("if (cbBooked.error === 'already_booked') {");
+    // And the interview-row creator converges a racing duplicate insert.
+    expect(srv).toContain('return await _dedupeInterviewRowForApplication(appId, saved);');
   });
 });
 

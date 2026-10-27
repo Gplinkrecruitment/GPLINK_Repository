@@ -43314,7 +43314,51 @@ async function ensureInterviewRowForApplication(appId, ctx, actorLabel) {
   // scheduled_calls.correlation_token is TEXT NOT NULL UNIQUE with no default
   // (see /api/ats/interview/request above) — every insert needs a fresh one.
   newRow.correlation_token = generateCorrelationToken();
-  return await insertScheduledCallRow(newRow);
+  var saved = await insertScheduledCallRow(newRow);
+  if (!saved) return null;
+  // Two callers can race past the find above and BOTH insert (the 2026-10-27
+  // double-posted accept). Converge on the oldest open interview row for the
+  // application: if ours is not it, drop ours (still a bare 'invited' row)
+  // and hand back the survivor, so both racers go on to book the SAME row and
+  // the conditional booking write in _bookInterviewSlot lets only one through.
+  return await _dedupeInterviewRowForApplication(appId, saved);
+}
+
+async function _dedupeInterviewRowForApplication(appId, saved) {
+  try {
+    var rows;
+    if (isSupabaseDbConfigured()) {
+      var r = await supabaseDbRequest('scheduled_calls',
+        'select=id,status,scheduled_at,zoom_join_url,created_at&application_id=eq.' + encodeURIComponent(appId)
+        + '&meeting_kind=eq.interview&status=neq.cancelled&order=created_at.asc,id.asc&limit=5');
+      rows = (r.ok && Array.isArray(r.data)) ? r.data : [];
+    } else {
+      rows = (dbState.scheduledCalls || []).filter(function (x) {
+        return String(x.application_id) === String(appId) && x.meeting_kind === 'interview' && x.status !== 'cancelled';
+      }).sort(function (a, b) {
+        return String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id));
+      });
+    }
+    if (rows.length < 2) return saved;
+    var survivor = rows[0];
+    if (String(survivor.id) === String(saved.id)) return saved;
+    // Ours lost. The status guard means a row that somehow got booked in the
+    // meantime is never deleted — it would simply be left as a second row.
+    if (isSupabaseDbConfigured()) {
+      await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(saved.id) + '&status=eq.invited',
+        { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    } else {
+      dbState.scheduledCalls = (dbState.scheduledCalls || []).filter(function (x) {
+        return !(String(x.id) === String(saved.id) && x.status === 'invited');
+      });
+      saveDbState();
+    }
+    console.warn('[interview] duplicate interview row for application', appId, 'removed:', saved.id, '→ using', survivor.id);
+    return survivor;
+  } catch (e) {
+    console.warn('[interview] interview row dedupe skipped:', e && e.message);
+    return saved;
+  }
 }
 
 // Shared "the practice wants this candidate" business event, used by BOTH the
@@ -43555,6 +43599,16 @@ async function bookManualInterviewForAcceptedApplication(appId, ctx, manual, act
       };
     }
     var booked = await _bookInterviewSlot(row, ctx, manual.slotStartUtc, Date.now(), actorEmail || '', { manual: true });
+    // A concurrent request (a double-posted accept) booked this row first —
+    // report ITS booking as already done; nothing was sent from here.
+    if (booked && booked.error === 'already_booked') {
+      var raced = await _interviewRowCurrent(row);
+      return {
+        ok: true, already: true, interview_id: row.id, scheduled_at: raced.scheduled_at || '', zoom_join_url: raced.zoom_join_url || '',
+        when_label: raced.scheduled_at ? _manualInterviewWhenLabel(raced.scheduled_at, entryTz) : '',
+        practice_when_label: raced.scheduled_at ? _manualInterviewWhenLabel(raced.scheduled_at, manual.practiceTz) : ''
+      };
+    }
     if (!booked || booked.error) return { ok: false, error: (booked && booked.error) || 'booking_failed', message: fallbackMsg };
     // Serverless: the confirmations must finish before the response goes out,
     // or the function can be frozen with the doctor's email still in flight.
@@ -54093,6 +54147,14 @@ async function handleApi(req, res, pathname) {
 
     const cbBooked = await _bookInterviewSlot(cbRow, cbCtx, cbSlotStart, Date.now(), cbEmail || '', { gpViewerTz: cbViewerTz });
     if (cbBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, error: 'slot_taken' }); return; }
+    // A double-tap on Confirm: the first tap booked it, this one lost the
+    // conditional write — same response as the already-booked check above,
+    // and no second set of confirmations.
+    if (cbBooked.error === 'already_booked') {
+      const cbRaced = await _interviewRowCurrent(cbRow);
+      sendJson(res, 200, { ok: true, already: true, booked: { scheduled_at: cbRaced.scheduled_at || '', zoom_join_url: cbRaced.zoom_join_url || '' } });
+      return;
+    }
 
     // Vercel rule: a serverless function can be frozen the instant the
     // response is sent, so — unlike the admin book path, which fires the
@@ -81799,6 +81861,13 @@ Return ONLY valid JSON with no markdown formatting:
 
     var bkBooked = await _bookInterviewSlot(bkRow, bkCtx, bkSlotStart, bkNow.getTime(), ctxBK.email || '');
     if (bkBooked.error === 'slot_taken') { sendJson(res, 409, { ok: false, message: 'slot no longer available' }); return; }
+    // Lost a race with a concurrent booking of the same row (double-click):
+    // hand back that booking, exactly like the already-booked check above.
+    if (bkBooked.error === 'already_booked') {
+      var bkRaced = await _interviewRowCurrent(bkRow);
+      sendJson(res, 200, { ok: true, interview_id: bkRow.id, scheduled_at: bkRaced.scheduled_at || '', zoom_join_url: bkRaced.zoom_join_url || '', already: true });
+      return;
+    }
 
     // Fire-and-forget exactly as before this refactor — the admin response
     // must not wait on the confirmation emails.
@@ -84797,6 +84866,25 @@ function _interviewRowIsAlreadyBooked(row) {
   return st !== 'invited' && st !== 'cancelled';
 }
 
+// Thrown inside _bookInterviewSlot when the conditional booking write matched
+// nothing — another request booked this row first. The catch turns it into
+// { error: 'already_booked' } after cleaning up this side's Zoom/GCal.
+function _interviewAlreadyBookedError(rowId) {
+  var e = new Error('interview ' + rowId + ' was booked by a concurrent request');
+  e.code = 'already_booked';
+  return e;
+}
+
+// The current booked state of a row, for the "already booked" responses —
+// re-read in Supabase mode (the in-memory copy is stale by definition), the
+// live object in local mode.
+async function _interviewRowCurrent(row) {
+  if (!row) return null;
+  if (!isSupabaseDbConfigured()) return row;
+  var fresh = await resolveFullInterviewRow({ id: row.id });
+  return fresh || row;
+}
+
 async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actorEmail, bookOpts) {
   var now = nowMs ? new Date(nowMs) : new Date();
   // The device tz the booking viewer (the GP) saw the slot times in — already
@@ -84887,8 +84975,17 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     // reminder label. No new column, no migration.
     if (gpViewerTz) patch.timezone = gpViewerTz;
     if (isSupabaseDbConfigured()) {
-      var bookPatchRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id), {
-        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      // CONDITIONAL write — only a row that is not yet booked can be booked.
+      // Two requests for the same interview that both passed
+      // _interviewRowIsAlreadyBooked before either had saved (a stacked drawer
+      // listener double-posting the accept, a doctor double-tapping Confirm)
+      // used to BOTH land here: two Zoom meetings, two sets of confirmations
+      // to everyone, last writer wins (owner report 2026-10-27). With the
+      // status filter exactly one PATCH matches; the other updates zero rows,
+      // cleans up its own Zoom/GCal in the catch below and reports
+      // already_booked — and sends nothing.
+      var bookPatchRes = await supabaseDbRequest('scheduled_calls', 'id=eq.' + encodeURIComponent(meetingRow.id) + '&status=neq.booked', {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
       });
       // The result was previously unchecked, which is what let the failure
       // above go silent. A booking that did not save must NEVER report success:
@@ -84899,7 +84996,13 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
         throw new Error('interview booking did not persist (scheduled_calls PATCH '
           + (bookPatchRes && bookPatchRes.status) + ') for call ' + meetingRow.id);
       }
+      if (!Array.isArray(bookPatchRes.data) || bookPatchRes.data.length === 0) {
+        throw _interviewAlreadyBookedError(meetingRow.id);
+      }
     } else {
+      // Local mode: meetingRow IS the live dbState object, so a concurrent
+      // booking that already flipped it is visible here.
+      if (String(meetingRow.status || '') === 'booked') throw _interviewAlreadyBookedError(meetingRow.id);
       Object.assign(meetingRow, patch);
       saveDbState();
     }
@@ -84920,6 +85023,13 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
     if (gcal && gcal.id) {
       try { await gcalDeleteEvent(gcal.id); }
       catch (cleanupErr) { console.error('[interview] orphaned GCal event cleanup failed:', cleanupErr && cleanupErr.message); }
+    }
+    // Lost the race to a concurrent booking of the same row: not an error for
+    // the caller, just "already booked" — our Zoom/GCal are cleaned up above
+    // and NO confirmations go out from this side.
+    if (bookErr && bookErr.code === 'already_booked') {
+      console.warn('[interview] concurrent booking detected for call', meetingRow.id, '— this request sent nothing');
+      return { error: 'already_booked' };
     }
     throw bookErr;
   }

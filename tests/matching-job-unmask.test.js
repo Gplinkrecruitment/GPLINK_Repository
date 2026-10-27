@@ -309,7 +309,10 @@ describe('AI Matching Task 7 — source wiring', () => {
     // row stayed 'invited', so detect-no-shows could never complete it either.
     const idx = serverSrc.indexOf('async function _bookInterviewSlot');
     expect(idx).toBeGreaterThan(-1);
-    const fnSrc = serverSrc.slice(idx, idx + 6000);
+    // Window widened 6000 → 9000 on 2026-10-27: the function gained the
+    // manual-slot waiver and the conditional (race-safe) booking write, both
+    // commented, which pushed the persist check past the old window.
+    const fnSrc = serverSrc.slice(idx, idx + 9000);
     // null, never '' — NULLs don't collide in a unique index.
     expect(fnSrc).toContain("zoom_meeting_id: String(zoom.id || '') || null");
     expect(fnSrc).toContain("zoom_meeting_uuid: String(zoom.uuid || '') || null");

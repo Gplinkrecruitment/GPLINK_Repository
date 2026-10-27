@@ -2826,7 +2826,17 @@
     var sched = host.querySelector('#ats-cand-schedule');
     if (sched) sched.addEventListener('click', function () { openScheduleModal(c); });
     // delegated click: comms-scan + add-to-job + offer buttons (all may be re-rendered).
-    host.addEventListener('click', function (e) {
+    //
+    // `host` is the ONE persistent panel element. Every render — and every
+    // post-action refresh, since each action calls atsOpenCandidate again —
+    // used to add ANOTHER copy of this listener without removing the last, so
+    // after N refreshes a single click ran N handlers: N confirm dialogs, N
+    // POSTs. Harmless while every action was idempotent; the moment
+    // "Practice accepted" could book an interview it double-booked (two Zoom
+    // meetings, two confirmation emails + WhatsApps to the doctor, owner
+    // report 2026-10-27). Replace the previous listener, never stack.
+    if (host.__atsDetailClick) host.removeEventListener('click', host.__atsDetailClick);
+    host.addEventListener('click', host.__atsDetailClick = function (e) {
       if (!e.target.closest) return;
       if (e.target.closest('#ats-comms-scan')) { runCommsScan(c.case_id); return; }
       if (e.target.closest('#ats-add-job')) { openAddJobModal(c); return; }
@@ -2930,7 +2940,9 @@
         window.atsOpenCandidate(c.case_id); // reload to refresh the pill/score (or revert on failure)
       });
     }
-    host.addEventListener('change', function (e) {
+    // Same replace-never-stack rule as the click listener above.
+    if (host.__atsDetailChange) host.removeEventListener('change', host.__atsDetailChange);
+    host.addEventListener('change', host.__atsDetailChange = function (e) {
       var sel = e.target.closest ? e.target.closest('.ats-app-stage') : null;
       if (!sel) return;
       var appId = sel.getAttribute('data-app-id');
