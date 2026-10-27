@@ -1004,9 +1004,16 @@
           // "Practice accepted" (Task 12) — hidden once the acceptance is
           // already recorded (revealed / client_approved / interview_ready),
           // mirroring ceo-ats-candidates.js's gating.
+          // Owner 2026-10-27: an OPTIONAL interview time next to it (the
+          // practice's local time). Filled in, the accept books the interview
+          // on the spot instead of emailing the practice for availability —
+          // same body the candidates drawer sends (interview_local).
           (c.revealed === true || c.practice_submission_status === 'client_approved' || c.practice_submission_status === 'interview_ready'
             ? ''
-            : '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>') +
+            : '<label for="atsJobAcceptWhen">Interview date &amp; time (optional, practice local time)</label>' +
+              '<input type="datetime-local" id="atsJobAcceptWhen" step="900">' +
+              '<div class="cc-sub" style="font-size:11px;margin:-4px 0 8px">Leave blank to ask the practice for availability as usual; enter it to book the interview now and skip that email.</div>' +
+              '<button class="ats-btn ats-btn-primary" id="atsJobAcceptBtn" data-ats="accept-application" data-id="' + A.esc(String(id)) + '" style="background:#16a34a;border-color:#16a34a">✅ Practice accepted — reveal &amp; congratulate</button>') +
           '<label>Internal notes</label>' +
           '<textarea id="atsJobDrawerNotes" placeholder="Add a note about this candidate…">' + A.esc(c.ats_notes || '') + '</textarea>' +
         '</div>' +
@@ -1087,10 +1094,29 @@
   /* -------------------- practice accepted → reveal + congratulate -------------------- */
   function onAcceptApplication() {
     if (!drawerCardId) return;
-    if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
-    A.api('/api/ats/application/accept?id=' + encodeURIComponent(drawerCardId), { method: 'POST' }).then(function (d) {
-      if (!d || !d.ok) { A.toast((d && d.message) || 'Could not record the practice\'s acceptance'); return; }
-      A.toast(d.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+    var whenEl = document.getElementById('atsJobAcceptWhen');
+    var interviewLocal = whenEl && whenEl.value ? String(whenEl.value) : '';
+    var whenLabel = '';
+    if (interviewLocal) {
+      try { whenLabel = new Date(interviewLocal).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); } catch (e) { whenLabel = interviewLocal; }
+    }
+    var confirmMsg = interviewLocal
+      ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + ' (practice local time). The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
+      : 'This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?';
+    if (!window.confirm(confirmMsg)) return;
+    var opts = { method: 'POST' };
+    if (interviewLocal) opts.body = { interview_local: interviewLocal };
+    A.api('/api/ats/application/accept?id=' + encodeURIComponent(drawerCardId), opts).then(function (d) {
+      if (!d || !d.ok) { A.toast((d && (d.message || d.error)) || 'Could not record the practice\'s acceptance'); return; }
+      var iv = d.interview;
+      if (iv && iv.ok) {
+        A.toast((iv.already ? 'An interview was already booked' : 'Practice acceptance recorded and the interview is booked') +
+          (iv.when_label ? ' for ' + iv.when_label : '') + ' — the GP and the practice have been sent the confirmation.');
+      } else if (iv && !iv.ok) {
+        A.toast(iv.message || 'Practice acceptance recorded, but the interview could not be booked — book it from the candidate\'s Interview line.');
+      } else {
+        A.toast(d.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+      }
       closeDrawer();
       if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
     }).catch(function () { A.toast('Could not record the practice\'s acceptance'); });

@@ -43292,6 +43292,120 @@ async function resolveFullInterviewRow(ref) {
   return ref; // local-mode rows are never column-filtered — already the full row.
 }
 
+// ---- Manual interview time on "Practice accepted" (owner 2026-10-27) --------
+// The owner often agrees the interview time with the practice on the phone
+// while recording the acceptance. Until now the drawer could only record the
+// acceptance, after which the interview line sat on "Waiting for the practice
+// to share their availability" until someone emailed the practice for times
+// and the doctor picked one. With the time already agreed, that whole loop is
+// friction — so POST /api/ats/application/accept takes an OPTIONAL interview
+// time and books it straight away: no availability request to the practice,
+// no "your times are ready" email to the doctor; both get the usual booking
+// confirmations (Zoom link + calendar invite) instead.
+//
+// Two body shapes:
+//   interview_local — "YYYY-MM-DDTHH:MM" from the drawer's datetime-local
+//                     field, read as the PRACTICE's wall-clock time (the time
+//                     the practice said), anchored in the practice's zone the
+//                     same way its availability windows are;
+//   interview_at    — an ISO instant, for API callers.
+// No body / neither field = the classic accept, unchanged.
+//
+// Resolves { ok:true, slotStartUtc:'' } when no time was sent,
+// { ok:true, slotStartUtc, practiceTz, when } when it parses, and
+// { ok:false, status, error, message } for a bad time or a doctor at the
+// monthly interview cap (checked HERE, before anything is written, the same
+// rule as POST /api/ats/interview/book).
+function parseManualInterviewTime(body, ctx, nowMs) {
+  var practiceTz = interviewMeetings.practiceTzForLocation(
+    (ctx && ctx.practiceName) || '', ctx && ctx.practiceState, ctx && ctx.practiceCity);
+  var rawAt = (body && body.interview_at != null) ? String(body.interview_at).trim() : '';
+  var rawLocal = (body && body.interview_local != null) ? String(body.interview_local).trim() : '';
+  if (!rawAt && !rawLocal) return { ok: true, slotStartUtc: '', practiceTz: practiceTz };
+  var unreadable = { ok: false, status: 400, error: 'invalid_interview_time', message: 'That interview time could not be read — please enter the date and time again.' };
+  var when = null;
+  if (rawAt) {
+    when = new Date(rawAt);
+  } else {
+    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/.exec(rawLocal);
+    if (!m) return unreadable;
+    var hh = Number(m[2]), mm = Number(m[3]);
+    if (hh > 23 || mm > 59) return unreadable;
+    try { when = interviewScheduler.wallTimeToUtc(m[1], hh * 60 + mm, practiceTz); } catch (e) { when = null; }
+  }
+  if (!when || !Number.isFinite(when.getTime())) return unreadable;
+  var now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (when.getTime() <= now) {
+    return { ok: false, status: 400, error: 'invalid_interview_time', message: 'That interview time has already passed — please pick a time in the future.' };
+  }
+  if (when.getTime() > now + 366 * 86400000) {
+    return { ok: false, status: 400, error: 'invalid_interview_time', message: 'That interview is more than a year away — please check the date.' };
+  }
+  return { ok: true, slotStartUtc: when.toISOString(), practiceTz: practiceTz, when: when };
+}
+
+async function prepareManualInterviewForAccept(body, ctx, nowMs) {
+  var parsed = parseManualInterviewTime(body, ctx, nowMs);
+  if (!parsed.ok || !parsed.slotStartUtc) return parsed;
+  var capWindow = currentInterviewMonthWindow(new Date());
+  var capCount = await countMonthlyCareerInterviews(ctx && ctx.userId, capWindow.start, capWindow.end);
+  if (capCount >= INTERVIEW_MONTHLY_CAP) {
+    var resetsLabel = capWindow.end.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+    return {
+      ok: false, status: 409, error: 'interview_cap', resetsAt: capWindow.end.toISOString(),
+      message: 'This GP has used all ' + INTERVIEW_MONTHLY_CAP + ' interviews this month (resets ' + resetsLabel + ') — record the acceptance without a date, or wait.'
+    };
+  }
+  return parsed;
+}
+
+// Readable label for the drawer's toast — the time in the practice's zone,
+// which is the time staff typed.
+function _manualInterviewWhenLabel(slotStartUtc, tz) {
+  try {
+    return new Intl.DateTimeFormat('en-AU', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(slotStartUtc));
+  } catch (e) { return new Date(slotStartUtc).toUTCString(); }
+}
+
+// Books the staff-entered time for an application whose acceptance has just
+// been recorded. Creates the interview row if the application has none (the
+// same row the availability flow would have used), then books through
+// _bookInterviewSlot with the computed-slot check waived — Zoom + calendar +
+// stage move + "booking IS acceptance" + the GP/practice/RSO confirmations all
+// run exactly as for a picked slot. An interview that already exists (booked,
+// sat or missed) is returned as-is, never overwritten.
+//
+// Never throws: the acceptance is already on file by the time this runs and
+// must not be reported as failed because the booking half did not go through
+// — the caller passes the result back so the drawer can say "accepted, but
+// book the interview from the Interview line".
+async function bookManualInterviewForAcceptedApplication(appId, ctx, manual, actorEmail) {
+  var fallbackMsg = 'The acceptance was recorded, but the interview could not be booked — book it from the Interview line.';
+  try {
+    var ref = await ensureInterviewRowForApplication(appId, ctx, 'practice_accept');
+    var row = await resolveFullInterviewRow(ref);
+    if (!row) return { ok: false, error: 'interview_row', message: fallbackMsg };
+    if (_interviewRowIsAlreadyBooked(row)) {
+      return {
+        ok: true, already: true, interview_id: row.id, scheduled_at: row.scheduled_at, zoom_join_url: row.zoom_join_url || '',
+        when_label: _manualInterviewWhenLabel(row.scheduled_at, manual.practiceTz)
+      };
+    }
+    var booked = await _bookInterviewSlot(row, ctx, manual.slotStartUtc, Date.now(), actorEmail || '', { manual: true });
+    if (!booked || booked.error) return { ok: false, error: (booked && booked.error) || 'booking_failed', message: fallbackMsg };
+    // Serverless: the confirmations must finish before the response goes out,
+    // or the function can be frozen with the doctor's email still in flight.
+    await booked.notifyPromise;
+    return {
+      ok: true, already: false, interview_id: row.id, scheduled_at: booked.booked.scheduled_at, zoom_join_url: booked.booked.zoom_join_url || '',
+      when_label: _manualInterviewWhenLabel(booked.booked.scheduled_at, manual.practiceTz)
+    };
+  } catch (e) {
+    console.error('[ats accept] manual interview booking failed for app', appId, ':', e && e.message);
+    return { ok: false, error: 'booking_failed', message: fallbackMsg };
+  }
+}
+
 // Validates a practice's proposed interview-availability windows (the shape
 // the scheduler consumes — lib/interview-scheduler.js `overrides`): 1..10
 // entries, real calendar dates from today through +60 days, integer minute
@@ -80569,12 +80683,22 @@ Return ONLY valid JSON with no markdown formatting:
   // signal, drops an in-app-offer record so the offer page has something to
   // show, forwards the kanban to 'offer', and congratulates the GP with the
   // "Secure My Interview" email.
+  //
+  // Optional body { interview_local | interview_at } (owner 2026-10-27): the
+  // time the practice already agreed to — books the interview on the spot and
+  // skips the availability request. See parseManualInterviewTime.
   if (pathname === '/api/ats/application/accept' && req.method === 'POST') {
     var ctxAC = requireAtsSession(req, res); if (!ctxAC) return;
     var acAppId = String(url.searchParams.get('id') || '').trim();
     if (!acAppId) { sendJson(res, 400, { ok: false, message: 'id required.' }); return; }
+    // The classic click posts no body — readJsonBody resolves {} for that.
+    var bodyAC; try { bodyAC = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     var acCtx = await atsGetApplicationContext(acAppId);
     if (!acCtx) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    // A bad time or a doctor at the interview cap is refused BEFORE anything
+    // is written, so the accept and the booking never half-succeed.
+    var acManual = await prepareManualInterviewForAccept(bodyAC, acCtx, Date.now());
+    if (!acManual.ok) { sendJson(res, acManual.status || 400, { ok: false, error: acManual.error, message: acManual.message, resetsAt: acManual.resetsAt }); return; }
 
     // Reveal + record the in-app offer via the shared "practice wants this
     // candidate" core (also used by the public practice-decision approve
@@ -80585,12 +80709,15 @@ Return ONLY valid JSON with no markdown formatting:
       sentBy: ctxAC.email || '',
       notes: 'Practice accepted — interview invitation'
     });
-    if (acReveal.status === 'already') { sendJson(res, 200, { ok: true, already: true }); return; }
+    // Already accepted: nothing to change — unless a time came with it, in
+    // which case the booking below still goes ahead (idempotent on its own).
+    var acAlready = acReveal.status === 'already';
+    if (acAlready && !acManual.slotStartUtc) { sendJson(res, 200, { ok: true, already: true }); return; }
     if (acReveal.status === 'migration_required') {
       sendJson(res, 503, { ok: false, error: 'pipeline_migration_required', message: 'The database is missing the reveal column — run migration 20260705100000, then try again.' });
       return;
     }
-    if (acReveal.status !== 'ok') {
+    if (!acAlready && acReveal.status !== 'ok') {
       sendJson(res, 502, { ok: false, message: 'Could not record the acceptance — nothing was changed. Please try again.' });
       return;
     }
@@ -80606,16 +80733,27 @@ Return ONLY valid JSON with no markdown formatting:
     // goes out (owner call 2026-07-28). This now matches the practice's own
     // POST /api/practice/application/decision, which already targeted
     // 'interview' — the two routes record the same event and disagreed.
-    var acTarget = atsPracticeUtil.planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'interview');
+    var acTarget = acAlready ? '' : atsPracticeUtil.planAtsStageReconciliation((acCtx.app && acCtx.app.ats_stage) || '', 'interview');
     if (acTarget) await atsUpdateApplicationStageRow(acAppId, acTarget, undefined, 'practice_accept');
+
+    // Staff gave the agreed interview time → book it now. Nothing is emailed
+    // to the practice asking for availability and the doctor is not asked to
+    // pick a slot; both get the booking confirmation instead. Never throws.
+    var acInterview = acManual.slotStartUtc
+      ? await bookManualInterviewForAcceptedApplication(acAppId, acCtx, acManual, ctxAC.email || '')
+      : null;
 
     // Owner (2026-07-23): the congratulations-and-book email waits for the
     // practice's interview times — this records the acceptance; the invite sends
     // once times land (skips here when none exist yet). Guarded/awaited.
-    await maybeSendInterviewBookingInvite(acAppId)
-      .catch(function (e) { console.error('[ats accept] booking invite failed for app', acAppId, ':', e && e.message); });
+    // Pointless once the interview is booked (and it would skip on no windows
+    // anyway), so only the classic path runs it.
+    if (!acInterview || !acInterview.ok) {
+      await maybeSendInterviewBookingInvite(acAppId)
+        .catch(function (e) { console.error('[ats accept] booking invite failed for app', acAppId, ':', e && e.message); });
+    }
 
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, already: acAlready, interview: acInterview });
     return;
   }
 
@@ -84535,8 +84673,17 @@ async function _bookInterviewSlot(meetingRow, appCtx, slotStartUtc, nowMs, actor
   // re-check disagrees with what they were just shown and a legitimate pick
   // 409s as "slot taken". The GP book path passes their device tz; the admin
   // path passes none and keeps the country-derived guess on both sides.
-  var slotResult = await _interviewComputeSlots(meetingRow, appCtx, now, 500, meetingRow.id, gpViewerTz);
-  var slotValid = slotResult.slots.some(function (s) { return s.startUtc === slotStartUtc; });
+  //
+  // bookOpts.manual (POST /api/ats/application/accept with an interview time,
+  // owner 2026-10-27): staff typed the time the practice already agreed to, so
+  // there are no practice windows, no "times ready" step and nothing to
+  // validate the pick against — the computed-slot check is skipped. The time
+  // itself was validated by the caller (parseable, in the future).
+  var slotValid = !!(bookOpts && bookOpts.manual === true);
+  if (!slotValid) {
+    var slotResult = await _interviewComputeSlots(meetingRow, appCtx, now, 500, meetingRow.id, gpViewerTz);
+    slotValid = slotResult.slots.some(function (s) { return s.startUtc === slotStartUtc; });
+  }
   if (!slotValid) return { error: 'slot_taken' };
 
   // Partial-failure handling: the side-effects below — Zoom create → GCal create →

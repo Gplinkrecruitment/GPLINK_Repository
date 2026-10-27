@@ -1377,18 +1377,85 @@
     // reveals the practice identity and emails the GP a congratulations.
     if (isWithdrawn(a)) return '';
     if (st === 'client_approved' || st === 'interview_ready' || offerStatus === 'accepted') return '';
-    return ' <button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-accept-application" data-ats="accept-application" data-app-id="' + ATS.escAttr(String(a.id)) + '" style="margin-left:8px">✅ Practice accepted</button>';
+    // The button sits in its own box so the click can swap it for the inline
+    // accept form (optional interview time) and Cancel can put it back.
+    return ' <span class="ats-accept-box" data-accept-app-id="' + ATS.escAttr(String(a.id)) + '">' + acceptButtonHtml(a.id) + '</span>';
+  }
+  function acceptButtonHtml(appId) {
+    return '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-accept-application" data-ats="accept-application" data-app-id="' + ATS.escAttr(String(appId)) + '" style="margin-left:8px">✅ Practice accepted</button>';
+  }
+  function acceptBoxFor(appId) {
+    var host = panel();
+    return host ? host.querySelector('.ats-accept-box[data-accept-app-id="' + String(appId).replace(/"/g, '') + '"]') : null;
+  }
+
+  // Owner 2026-10-27: "I should be able to approve manually and have the
+  // option to also enter the interview date, which then bypasses the email
+  // asking for interview availabilities." The button opens a small inline
+  // form: an OPTIONAL date-and-time (the practice's local time — the time the
+  // practice actually said) plus Confirm / Cancel. Left blank, the accept is
+  // exactly what it always was (record the acceptance, then wait on the
+  // practice's availability). Filled in, the server books the interview on
+  // the spot: no availability request to the practice, no "pick a time" step
+  // for the doctor — both receive the booking confirmation instead.
+  function openAcceptForm(appId) {
+    var box = acceptBoxFor(appId);
+    if (!box) return;
+    // Earliest selectable value = now, in the browser's local clock (the
+    // datetime-local input has no notion of zones; the server does).
+    var minLocal = '';
+    try { minLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); } catch (e) { minLocal = ''; }
+    box.innerHTML =
+      '<div class="ats-accept-form" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:8px">' +
+        '<label style="font-size:11px;color:var(--ats-dim);display:flex;align-items:center;gap:6px">Interview date &amp; time (optional, practice local time)' +
+          '<input type="datetime-local" class="ats-accept-when" step="900"' + (minLocal ? ' min="' + ATS.escAttr(minLocal) + '"' : '') + ' style="font-size:12px"></label>' +
+        '<button type="button" class="ats-btn ats-btn-primary ats-btn-sm ats-accept-confirm" data-app-id="' + ATS.escAttr(String(appId)) + '">Confirm practice accepted</button>' +
+        '<button type="button" class="ats-btn ats-btn-ghost ats-btn-sm ats-accept-cancel" data-app-id="' + ATS.escAttr(String(appId)) + '">Cancel</button>' +
+        '<span style="flex-basis:100%;font-size:11px;color:var(--ats-dim)">Leave the time blank to ask the practice for their availability as usual. Enter it to book the interview now and skip that email.</span>' +
+      '</div>';
+    var when = box.querySelector('.ats-accept-when');
+    if (when) { try { when.focus(); } catch (e) {} }
+  }
+
+  function closeAcceptForm(appId) {
+    var box = acceptBoxFor(appId);
+    if (box) box.innerHTML = acceptButtonHtml(appId);
   }
 
   function acceptApplication(appId, c) {
-    if (!window.confirm('This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?')) return;
-    ATS.api('/api/ats/application/accept?id=' + encodeURIComponent(appId), { method: 'POST' }).then(function (res) {
+    var box = acceptBoxFor(appId);
+    var whenEl = box ? box.querySelector('.ats-accept-when') : null;
+    var interviewLocal = whenEl && whenEl.value ? String(whenEl.value) : '';
+    var whenLabel = '';
+    if (interviewLocal) {
+      try { whenLabel = new Date(interviewLocal).toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); } catch (e) { whenLabel = interviewLocal; }
+    }
+    var confirmMsg = interviewLocal
+      ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + ' (practice local time). The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
+      : 'This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?';
+    if (!window.confirm(confirmMsg)) return;
+    var confirmBtn = box ? box.querySelector('.ats-accept-confirm') : null;
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…'; }
+    var opts = { method: 'POST' };
+    if (interviewLocal) opts.body = { interview_local: interviewLocal };
+    ATS.api('/api/ats/application/accept?id=' + encodeURIComponent(appId), opts).then(function (res) {
       if (res && res.ok) {
-        ATS.toast(res.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
+        var iv = res.interview;
+        var msg;
+        if (iv && iv.ok) {
+          msg = (iv.already ? 'An interview was already booked' : 'Practice acceptance recorded and the interview is booked') +
+            (iv.when_label ? ' for ' + iv.when_label : '') + ' — the GP and the practice have been sent the confirmation.';
+        } else if (iv && !iv.ok) {
+          msg = iv.message || 'Practice acceptance recorded, but the interview could not be booked — book it from the Interview line.';
+        } else {
+          msg = res.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.';
+        }
+        ATS.toast(msg);
         if (window.refreshPipelineWidget) window.refreshPipelineWidget();
         window.atsOpenCandidate(c.case_id);
       } else {
-        ATS.toast((res && (res.error || res.message)) || 'Could not record the practice\'s acceptance.');
+        ATS.toast((res && (res.message || res.error)) || 'Could not record the practice\'s acceptance.');
+        if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm practice accepted'; }
       }
     });
   }
@@ -2759,8 +2826,15 @@
       if (submitBtn) { submitOffer(submitBtn.getAttribute('data-app-id'), c); return; }
       var withdrawBtn = e.target.closest('.ats-offer-withdraw');
       if (withdrawBtn) { withdrawOffer(withdrawBtn.getAttribute('data-app-id'), c); return; }
+      // "Practice accepted" — opens the inline form (optional interview time);
+      // its own Confirm / Cancel buttons carry distinct classes so the
+      // closest('.ats-accept-application') above never matches them.
       var acceptBtn = e.target.closest('.ats-accept-application');
-      if (acceptBtn) { acceptApplication(acceptBtn.getAttribute('data-app-id'), c); return; }
+      if (acceptBtn) { openAcceptForm(acceptBtn.getAttribute('data-app-id')); return; }
+      var acceptConfirmBtn = e.target.closest('.ats-accept-confirm');
+      if (acceptConfirmBtn) { acceptApplication(acceptConfirmBtn.getAttribute('data-app-id'), c); return; }
+      var acceptCancelBtn = e.target.closest('.ats-accept-cancel');
+      if (acceptCancelBtn) { closeAcceptForm(acceptCancelBtn.getAttribute('data-app-id')); return; }
       // A completed interview whose summary is waiting on a Zoom re-read.
       var intFetchBtn = e.target.closest('.ats-int-fetch-summary');
       if (intFetchBtn) { fetchInterviewSummary(intFetchBtn, c); return; }

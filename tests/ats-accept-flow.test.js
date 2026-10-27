@@ -48,6 +48,9 @@ const GP = { userId: 'u-acc-gp-1', email: 'gp-accept@gplink-test.local' };
 const GP2 = { userId: 'u-acc-gp-2', email: 'other-accept@gplink-test.local' };
 const GP3 = { userId: 'u-acc-gp-3', email: 'admin-placed@gplink-test.local' };
 const GP4 = { userId: 'u-acc-gp-4', email: 'degraded-placed@gplink-test.local' };
+// Owner 2026-10-27: accept WITH the agreed interview time — booked on the spot,
+// no availability request to the practice.
+const GP5 = { userId: 'u-acc-gp-5', email: 'manual-interview@gplink-test.local' };
 const RSO_ID = 'rso-accept-1';
 const NOW = new Date().toISOString();
 
@@ -64,13 +67,15 @@ const db = {
     { user_id: GP.userId, email: GP.email, first_name: 'Accepted', last_name: 'Doctor', registration_country: 'uk' },
     { user_id: GP2.userId, email: GP2.email, first_name: 'Other', last_name: 'Doctor', registration_country: 'ie' },
     { user_id: GP3.userId, email: GP3.email, first_name: 'Placed', last_name: 'Doctor', registration_country: 'nz' },
-    { user_id: GP4.userId, email: GP4.email, first_name: 'Degraded', last_name: 'Doctor', registration_country: 'uk' }
+    { user_id: GP4.userId, email: GP4.email, first_name: 'Degraded', last_name: 'Doctor', registration_country: 'uk' },
+    { user_id: GP5.userId, email: GP5.email, first_name: 'Manual', last_name: 'Doctor', registration_country: 'uk' }
   ],
   user_state: [
     { user_id: GP.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP2.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
     { user_id: GP3.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
-    { user_id: GP4.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
+    { user_id: GP4.userId, state: { gp_onboarding_complete: true }, updated_at: NOW },
+    { user_id: GP5.userId, state: { gp_onboarding_complete: true }, updated_at: NOW }
   ],
   push_subscriptions: [
     { id: 'ps-acc-1', user_id: GP.userId, email: GP.email, endpoint: 'https://push.example.test/acc-1', p256dh: 'p256dh-acc-1', auth: 'auth-acc-1', created_at: NOW },
@@ -80,7 +85,8 @@ const db = {
   registration_cases: [
     { id: 'case-acc-1', user_id: GP.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
     { id: 'case-acc-2', user_id: GP2.userId, status: 'active', assigned_rso: null, assigned_va: null },
-    { id: 'case-acc-3', user_id: GP3.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null }
+    { id: 'case-acc-3', user_id: GP3.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null },
+    { id: 'case-acc-5', user_id: GP5.userId, status: 'active', assigned_rso: RSO_ID, assigned_va: null }
   ],
   rso_team: [
     { user_id: RSO_ID, name: 'Priya Test', email: 'priya@gplink-test.local', phone: '', active: true, calendly_event_url: '' }
@@ -99,6 +105,8 @@ const db = {
   gp_applications: [
     { id: 'app-acc-1', user_id: GP.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     { id: 'app-acc-2', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'pending_va_submission' },
+    // Owner 2026-10-27: accept + agreed interview time in one go.
+    { id: 'app-acc-manual', user_id: GP5.userId, career_role_id: 'role-1', provider_role_id: 'ats_r1', status: 'applied', ats_stage: 'reviewing', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     // Hardening fixtures (review round):
     { id: 'app-acc-hired', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rh', status: 'placement_secured', ats_stage: 'hired', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
     { id: 'app-acc-stomp', user_id: GP2.userId, career_role_id: 'role-1', provider_role_id: 'ats_rs', status: 'offered', ats_stage: 'offer', applied_at: NOW, revealed: false, practice_submission_status: 'submitted_to_practice' },
@@ -459,6 +467,134 @@ describe('Admin apply (POST /api/ats/application) auto-reveals + records offer (
     expect(my.body.revealed).toBe(true);
     expect(my.body.interviewBookable).toBe(true);
     expect(my.body.practiceName).toBe('Greenslopes Family Medical');
+  });
+});
+
+// Owner 2026-10-27: "I should be able to approve manually and have the option
+// to also enter the interview date, which then bypasses the email sent asking
+// for interview availabilities." The accept takes an optional practice-local
+// time (interview_local, the datetime-local shape) and books the interview on
+// the spot — no "Interview availability — Dr …" request to the practice, no
+// "your times are ready" invite to the doctor; both get the booking
+// confirmation instead. Role-1 sits in Brisbane (QLD, no DST), so 10:00
+// practice-local is 00:00Z on the same date.
+describe('accept WITH the agreed interview time — books it, skips the availability request', () => {
+  const inTenDays = new Date(Date.now() + 10 * 86400000);
+  const ymd = inTenDays.toISOString().slice(0, 10);
+  const interviewLocal = ymd + 'T10:00';
+  const expectedUtc = ymd + 'T00:00:00.000Z';
+  const manualApp = () => db.gp_applications.find((a) => a.id === 'app-acc-manual');
+  const manualCalls = () => db.scheduled_calls.filter((s) => s.application_id === 'app-acc-manual' && s.meeting_kind === 'interview');
+
+  it('refuses an unreadable time with 400 and writes nothing', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-manual', { interview_local: 'next tuesday 10am' });
+    expect(r.status).toBe(400);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.error).toBe('invalid_interview_time');
+    expect(manualApp().revealed).toBe(false);
+    expect(manualApp().practice_submission_status).toBe('submitted_to_practice');
+    expect(db.ats_offers.some((o) => o.application_id === 'app-acc-manual')).toBe(false);
+    expect(manualCalls().length).toBe(0);
+    expect(resendCalls.length).toBe(before);
+  });
+
+  it('refuses a time in the past with 400 and writes nothing', async () => {
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-manual', { interview_local: '2020-01-06T10:00' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('invalid_interview_time');
+    expect(manualApp().revealed).toBe(false);
+    expect(manualCalls().length).toBe(0);
+  });
+
+  it('records the acceptance AND books the interview at the practice-local time — confirmations out, no availability request', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-manual', { interview_local: interviewLocal });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(false);
+    expect(r.body.interview).toBeTruthy();
+    expect(r.body.interview.ok).toBe(true);
+    expect(r.body.interview.already).toBe(false);
+    expect(r.body.interview.scheduled_at).toBe(expectedUtc);
+    expect(String(r.body.interview.when_label)).toContain('10:00');
+
+    // The acceptance itself — exactly what the classic click records.
+    const app = manualApp();
+    expect(app.revealed).toBe(true);
+    expect(app.practice_submission_status).toBe('client_approved');
+    expect(app.ats_stage).toBe('interview');
+    expect(db.ats_stage_events.some((e) => e.application_id === 'app-acc-manual' && e.actor === 'practice_accept' && e.to_stage === 'interview')).toBe(true);
+    // Booking IS acceptance (owner rule 2026-07-23): the invitation offer flips
+    // to accepted and the application reads interview_scheduled — the doctor
+    // is never asked to pick a time.
+    expect(app.status).toBe('interview_scheduled');
+    const offer = db.ats_offers.find((o) => o.application_id === 'app-acc-manual');
+    expect(offer).toBeTruthy();
+    expect(offer.status).toBe('accepted');
+    expect(app.booking_invite_sent_at).toBeFalsy();
+
+    // The interview row: created by the accept itself, booked at the typed time.
+    const calls = manualCalls();
+    expect(calls.length).toBe(1);
+    const call = calls[0];
+    expect(call.status).toBe('booked');
+    expect(call.scheduled_at).toBe(expectedUtc);
+    expect(call.created_by).toBe('practice_accept');
+    expect(call.host_kind).toBe('ceo');
+    expect(call.correlation_token).toBeTruthy();
+    expect(call.user_id).toBe(GP5.userId);
+
+    // Emails: the booking confirmations to the doctor and the practice — and
+    // NOT the "Interview availability — Dr …" request to the practice.
+    const sends = resendCalls.slice(before).map((c) => c.body || {});
+    const subjects = sends.map((b) => String(b.subject || ''));
+    expect(subjects.some((s) => /^Interview availability/.test(s))).toBe(false);
+    const gpMail = sends.find((b) => String(b.subject || '').startsWith('Your interview is confirmed'));
+    expect(gpMail).toBeTruthy();
+    expect([].concat(gpMail.to)).toContain(GP5.email);
+    const practiceMail = sends.find((b) => String(b.subject || '').startsWith('Interview confirmed, '));
+    expect(practiceMail).toBeTruthy();
+    expect([].concat(practiceMail.to)).toContain('anna@greenslopes-test.local');
+  });
+
+  it('a second accept with a time is idempotent — the existing booking comes back, nothing is rewritten or re-sent', async () => {
+    const before = resendCalls.length;
+    const r = await atsPost('/api/ats/application/accept?id=app-acc-manual', { interview_local: ymd + 'T15:00' });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+    expect(r.body.already).toBe(true);
+    expect(r.body.interview.ok).toBe(true);
+    expect(r.body.interview.already).toBe(true);
+    expect(r.body.interview.scheduled_at).toBe(expectedUtc); // the ORIGINAL time, not 15:00
+    expect(manualCalls().length).toBe(1);
+    expect(manualCalls()[0].scheduled_at).toBe(expectedUtc);
+    expect(resendCalls.length).toBe(before);
+  });
+
+  it('the classic accept (no body) is untouched — no interview row, no booking', async () => {
+    // app-acc-1 was accepted earlier in this file without a time.
+    expect(db.scheduled_calls.filter((s) => s.application_id === 'app-acc-1' && s.created_by === 'practice_accept').length).toBe(0);
+  });
+
+  it('both CEO drawers offer the optional time and post it as interview_local', () => {
+    const read = (rel) => fs.readFileSync(new URL('../' + rel, import.meta.url), 'utf8');
+    const cand = read('js/ceo-ats-candidates.js');
+    expect(cand).toContain('function openAcceptForm');
+    expect(cand).toContain('class="ats-accept-when"');
+    expect(cand).toContain('type="datetime-local"');
+    expect(cand).toMatch(/function acceptApplication\(appId, c\)[\s\S]{0,2500}interview_local: interviewLocal/);
+    expect(cand).toContain("closest('.ats-accept-confirm')");
+    expect(cand).toContain("closest('.ats-accept-cancel')");
+    const jobs = read('js/ceo-ats-jobs.js');
+    expect(jobs).toContain('id="atsJobAcceptWhen"');
+    expect(jobs).toMatch(/function onAcceptApplication\(\)[\s\S]{0,2500}interview_local: interviewLocal/);
+    // Both scripts changed → both cache keys bumped (and the CSS key may never
+    // fall behind the candidates key — see tests/ats-endpoints.test.js).
+    const html = read('pages/ceo-dashboard.html');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261027a');
+    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261027a');
+    expect(html).toContain('/css/ceo-ats.css?v=20261027a');
   });
 });
 
