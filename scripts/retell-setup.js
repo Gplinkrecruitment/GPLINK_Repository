@@ -153,7 +153,7 @@ function buildTools(appBaseUrl, transferNumber) {
       "I'll send that over to you now.",
       {}, []),
     customTool(base, 'mark_outcome', 'mark-outcome',
-      'Record how the call went when it did not end in a booking: callback_requested (also pass callback_hours if they said when), not_interested, not_a_gp, wrong_number, already_booked. Call once, just before ending.',
+      'Record how the call went when it did not end in a booking. Call once, just before ending. Outcomes: callback_requested (they asked to be rung back, or a trainee more than three months from finishing; pass callback_hours if they said when); not_interested (the doctor who enquired does not want to go ahead); not_a_gp (the person who enquired turns out not to be a GP, AND confirms they did enquire); wrong_number (the person on the line is not the doctor you asked for, does not know what this is about, or says they never enquired; use this even if they also say they are not a doctor); already_booked (they already have a call booked).',
       null,
       {
         outcome: { type: 'string', enum: OUTCOME_CHOICES, description: 'How the call ended.' },

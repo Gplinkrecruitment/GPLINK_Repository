@@ -60,7 +60,7 @@
       },
       "temperature": 0.3
     },
-    "start_speaker": "user",
+    "start_speaker": "agent",
     "begin_after_user_silence_ms": 2500,
     "tool_call_strict_mode": true,
     "default_dynamic_variables": {
@@ -83,7 +83,8 @@
     "kb_config": {
       "top_k": 2,
       "filter_score": 0.7
-    }
+    },
+    "begin_message": "Hi, is this Doctor {{first_name}}?"
   },
   "post_call_analysis_data": [
     {

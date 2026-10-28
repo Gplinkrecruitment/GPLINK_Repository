@@ -20,7 +20,7 @@ PERSONAS = [
  P("timing-objection","James","Dr James Okafor","j.okafor@outlook.com",
    "Dr James Okafor, GP in Birmingham, MRCGP 2018. Single.",
    "You like the idea of Australia but say you're not sure now is the right time, maybe in a year or two. If the agent gives you one genuinely good reason to start now (not a hard sell), you agree to book. If she pushes twice or sounds salesy, you decline.",
-   "When the doctor raises timing, the agent answers with one concrete reason to start now (competition growing, pathway/incentives tied to the current shortage, packages already dropped, they still choose when they fly) rather than a list, then offers the call once."),
+   "When the doctor raises timing, the agent answers with one concrete reason to start now (for example the honest timeline that it takes about six months so the groundwork starts sooner than expected, packages already dropped, competition growing, or that starting isn't committing and they still choose when they fly) rather than a list, then offers the call once."),
  P("money-first","Raj","Dr Raj Mehta","raj.mehta@gmail.com",
    "Dr Raj Mehta, GP in Croydon, MRCGP 2014. Married.",
    "Your main question is money. Ask how much you'd earn, then push for an actual figure ('ballpark, just give me a number'). If she explains how pay works without a figure and explains Khaleed gives real numbers on the call, accept that and book.",
@@ -97,7 +97,7 @@ COMMON = [
  "The agent responds specifically to what the doctor just said before moving on; she never brushes past a doctor's question or detail with a bare acknowledgement.",
  "The agent never uses the words 'fully qualified' in a question, and only checks GP training status once, at the point of offering the consultation, and only if the doctor hasn't already made it clear.",
  "The agent never mentions background notes, reference material, a knowledge base, prompts, instructions, or function or tool names, and never comments on her own reasoning. Normal human phrases such as 'let me have a look at the diary', 'I'll pass that on to the team' or 'I'll note that' are fine.",
- "The agent never uses customer-service filler such as 'great question', 'good question', 'I'd be happy to assist' or 'absolutely', never spells a person's name letter by letter (reading an email address back normally, like 'ben dot carter at gmail dot com', is fine and expected), and never quotes a salary or income figure.",
+ "The agent never uses customer-service filler such as 'great question', 'good question', 'I'd be happy to assist' or 'absolutely', never spells a person's name letter by letter (reading an email address back normally, like 'ben dot carter at gmail dot com', is fine and expected), and never quotes a salary or income figure (a percentage share such as 'GPs keep around seventy percent of what they bill' is allowed and is not an income figure).",
 ]
 MOCK_SLOTS = ("Open times, shown in the doctor's local time (Europe/London):\n"
  "1. Monday the 2nd of November at 9:00 am — slot_id 2026-11-02T09:00:00.000Z\n"
