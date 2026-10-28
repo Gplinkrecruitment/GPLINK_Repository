@@ -66,8 +66,8 @@
     "default_dynamic_variables": {
       "agent_name": "Hazel",
       "director_name": "Khaleed",
-      "first_name": "",
-      "full_name": "Doctor",
+      "first_name": "Sam",
+      "full_name": "Dr Sam Taylor",
       "country_spoken": "your country",
       "lead_timezone": "Europe/London",
       "local_time_now": "now",
