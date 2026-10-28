@@ -53,7 +53,7 @@
     "model_config": {
       "type": "cascading",
       "primary": {
-        "model": "claude-5.5-sonnet"
+        "model": "claude-5.5-opus"
       },
       "backup": {
         "model": "claude-5.5-haiku"
