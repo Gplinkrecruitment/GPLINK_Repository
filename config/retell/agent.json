@@ -83,8 +83,8 @@
       "knowledge_base_739075eafc9595c7"
     ],
     "kb_config": {
-      "top_k": 3,
-      "filter_score": 0.6
+      "top_k": 2,
+      "filter_score": 0.75
     }
   },
   "post_call_analysis_data": [
