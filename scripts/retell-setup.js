@@ -119,9 +119,11 @@ function customTool(base, name, pathName, description, executionMessage, propert
     url: base + '/api/retell/tools/' + pathName,
     method: 'POST',
     timeout_ms: 20000,
-    speak_during_execution: true,
-    execution_message_type: 'static_text',
-    execution_message_description: executionMessage,
+    // Only tools with a natural spoken bridge ("let me just have a look at the
+    // diary") speak while they run; the rest stay silent so Hazel never
+    // narrates housekeeping ("I'll send that over", "let me note that down").
+    speak_during_execution: Boolean(executionMessage),
+    ...(executionMessage ? { execution_message_type: 'static_text', execution_message_description: executionMessage } : {}),
     speak_after_execution: true,
     parameters: { type: 'object', properties: properties || {}, required: required || [] }
   };
@@ -152,7 +154,7 @@ function buildTools(appBaseUrl, transferNumber) {
       {}, []),
     customTool(base, 'mark_outcome', 'mark-outcome',
       'Record how the call went when it did not end in a booking: callback_requested (also pass callback_hours if they said when), not_interested, not_a_gp, wrong_number, already_booked. Call once, just before ending.',
-      'Right, let me just note that down.',
+      null,
       {
         outcome: { type: 'string', enum: OUTCOME_CHOICES, description: 'How the call ended.' },
         callback_hours: { type: 'number', description: 'Hours from now the doctor asked to be rung back, if they said when.' },
