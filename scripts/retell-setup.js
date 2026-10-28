@@ -143,7 +143,7 @@ function buildTools(appBaseUrl, transferNumber) {
       }, []),
     customTool(base, 'book_consult', 'book-consult',
       'Book the consultation at a slot_id returned by check_availability, exactly as written, once the doctor has clearly chosen it. Confirm the email first if it is not on file.',
-      'Popping that in now.',
+      null,
       {
         slot_id: { type: 'string', description: 'The slot_id exactly as returned by check_availability.' },
         email: { type: 'string', description: 'Email address for the invitation, only if there is none on file or the doctor gave a different one.' }
