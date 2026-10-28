@@ -20,7 +20,7 @@
     "voice_speed": 1.0,
     "volume": 1.0,
     "enable_dynamic_voice_speed": true,
-    "responsiveness": 1.0,
+    "responsiveness": 0.85,
     "interruption_sensitivity": 0.55,
     "enable_dynamic_responsiveness": true,
     "voicemail_option": {
