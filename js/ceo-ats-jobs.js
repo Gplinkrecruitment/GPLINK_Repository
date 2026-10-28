@@ -1120,11 +1120,19 @@
     var confirmMsg = interviewLocal
       ? 'This reveals the practice\'s real name/address to the GP, records the acceptance and BOOKS the interview for ' + whenLabel + (tz.name ? ' (your local time, ' + tz.label + ')' : ' (practice local time)') + '. The practice will NOT be emailed for availability — the GP and the practice both get the booking confirmation. Continue?'
       : 'This reveals the practice\'s real name/address to the GP, records an offer, and emails them to secure an interview. Continue?';
+    // One request per click: the button is disabled for the whole round trip,
+    // so a second click (or a stacked handler) can never post the accept
+    // twice. The server is race-safe as well; this is the first line.
+    var acceptBtn = el('atsJobAcceptBtn');
+    if (acceptBtn && acceptBtn.disabled) return;
     if (!window.confirm(confirmMsg)) return;
+    var acceptBtnHtml = acceptBtn ? acceptBtn.innerHTML : '';
+    if (acceptBtn) { acceptBtn.disabled = true; acceptBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…'; }
+    var restoreAcceptBtn = function () { if (acceptBtn) { acceptBtn.disabled = false; acceptBtn.innerHTML = acceptBtnHtml; } };
     var opts = { method: 'POST' };
     if (interviewLocal) opts.body = { interview_local: interviewLocal, interview_tz: tz.name };
     A.api('/api/ats/application/accept?id=' + encodeURIComponent(drawerCardId), opts).then(function (d) {
-      if (!d || !d.ok) { A.toast((d && (d.message || d.error)) || 'Could not record the practice\'s acceptance'); return; }
+      if (!d || !d.ok) { restoreAcceptBtn(); A.toast((d && (d.message || d.error)) || 'Could not record the practice\'s acceptance'); return; }
       var iv = d.interview;
       if (iv && iv.ok) {
         A.toast((iv.already ? 'An interview was already booked' : 'Practice acceptance recorded and the interview is booked') +
@@ -1136,7 +1144,7 @@
       }
       closeDrawer();
       if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
-    }).catch(function () { A.toast('Could not record the practice\'s acceptance'); });
+    }).catch(function () { restoreAcceptBtn(); A.toast('Could not record the practice\'s acceptance'); });
   }
 
   /* -------------------- book interview -------------------- */

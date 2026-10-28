@@ -50,6 +50,8 @@ const db = {
     { user_id: 'u-forward-9', email: 'forward.nine@example.com', first_name: 'Forward', last_name: 'Nine', registration_country: 'uk' },
     // phone drives the "your interview times are ready" WhatsApp template.
     { user_id: 'u-congrats-10', email: 'congrats.ten@example.com', first_name: 'Congrats', last_name: 'Ten', registration_country: 'uk', phone: '+447700900010' },
+    // 2026-10-27 family: two approve clicks that land together.
+    { user_id: 'u-race-12', email: 'race.twelve@example.com', first_name: 'Race', last_name: 'Twelve', registration_country: 'uk', phone: '+447700900012' },
     { user_id: 'u-nowin-11', email: 'nowin.eleven@example.com', first_name: 'Nowin', last_name: 'Eleven', registration_country: 'uk' }
   ],
   user_state: [],
@@ -73,6 +75,7 @@ const db = {
     // stage guard.
     { id: 'app-tok-9', user_id: 'u-forward-9', career_role_id: 'role-1', status: 'applied', ats_stage: 'offer', practice_action_token: 'tok-test-forward9', applied_at: NOW },
     { id: 'app-tok-10', user_id: 'u-congrats-10', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-congrats10', applied_at: NOW },
+    { id: 'app-tok-12', user_id: 'u-race-12', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-race-0012', applied_at: NOW },
     // Owner (2026-07-23): approving now REQUIRES interview windows in the same
     // request — this fixture drives the "approve without windows → 400" gate.
     { id: 'app-tok-11', user_id: 'u-nowin-11', career_role_id: 'role-1', status: 'applied', practice_action_token: 'tok-test-nowin11', applied_at: NOW }
@@ -236,10 +239,10 @@ function userCookie(email, userId) {
   return 'gp_session=' + encodeURIComponent(payload + '.' + sig);
 }
 
-function httpReq(method, p, { body, cookie } = {}) {
+function httpReq(method, p, { body, cookie, headers: extraHeaders } = {}) {
   return new Promise((resolve, reject) => {
     const data = body !== undefined ? JSON.stringify(body) : null;
-    const headers = {};
+    const headers = Object.assign({}, extraHeaders || {});
     if (cookie) headers.Cookie = cookie;
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
@@ -476,6 +479,48 @@ describe('POST /api/practice/application/decision — approve', () => {
 // handler (unlike the ops notify email, which is best-effort), so it is
 // guaranteed to already be in resendCaptured by the time the HTTP response
 // lands.
+// 2026-10-27: a double-posted accept sent every interview confirmation twice.
+// The same read-then-write gap sat under the congratulations email: two
+// approve clicks that land together both read booking_invite_sent_at as NULL.
+// The stamp is now a conditional write, so the pair produces ONE congrats
+// email, ONE "times ready" WhatsApp and still ONE interview row.
+describe('two approve clicks that land together congratulate the GP ONCE', () => {
+  it('one congrats email, one times-ready WhatsApp, one interview row', async () => {
+    const emailsBefore = resendCaptured.length;
+    const waBefore = doubletickCaptured.length;
+    const body = { token: 'tok-test-race-0012', action: 'approve', windows: [{ date: AVAIL_DATE_1, fromMin: 540, toMin: 600 }] };
+    // Its own client IP (honoured off-platform), so this pair spends none of
+    // the shared per-IP budget the rate-limit test below counts on.
+    const headers = { 'x-forwarded-for': '203.0.113.12' };
+    const [r1, r2] = await Promise.all([
+      httpReq('POST', '/api/practice/application/decision', { body, headers }),
+      httpReq('POST', '/api/practice/application/decision', { body, headers })
+    ]);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(r1.body.decision).toBe('approved');
+    expect(r2.body.decision).toBe('approved');
+
+    const congrats = resendCaptured.slice(emailsBefore).filter((m) => m && m.to
+      && [].concat(m.to).includes('race.twelve@example.com')
+      && String(m.subject || '').includes('Congratulations'));
+    expect(congrats.length).toBe(1);
+
+    const timesReady = doubletickCaptured.slice(waBefore).filter((c) => String(c.path).includes('/whatsapp/message/template')
+      && c.body && c.body.messages && c.body.messages[0]
+      && c.body.messages[0].content.templateName === 'gp_link_interview_times_ready'
+      && String(c.body.messages[0].to).includes('447700900012'));
+    expect(timesReady.length).toBe(1);
+
+    const rows = db.scheduled_calls.filter((r) => r.meeting_kind === 'interview' && r.application_id === 'app-tok-12' && r.status !== 'cancelled');
+    expect(rows.length).toBe(1);
+    expect(rows[0].practice_availability_windows).toHaveLength(1);
+    const app = db.gp_applications.find((a) => a.id === 'app-tok-12');
+    expect(typeof app.booking_invite_sent_at).toBe('string');
+    expect(app.practice_decision).toBe('approved');
+  });
+});
+
 describe('POST /api/practice/application/decision — approve sends the GP congrats/booking email', () => {
   it('fresh approve WITH windows sends exactly one congrats email, saves the windows, and stamps the one-shot invite', async () => {
     const res = await httpReq('POST', '/api/practice/application/decision', {

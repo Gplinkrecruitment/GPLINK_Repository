@@ -42760,6 +42760,29 @@ async function sendGpCongratsEmail(userId, applicationId, practiceName) {
   ]);
 }
 
+// The one-shot claim behind maybeSendInterviewBookingInvite: PATCH
+// gp_applications.booking_invite_sent_at ONLY where it is still NULL, with the
+// matched rows returned, so the write itself decides which of two concurrent
+// callers sends. Returns the stamped row, 'already_sent' when another caller
+// got there first, or null when the write failed. Local mode checks and
+// stamps in one synchronous step for the same reason.
+async function claimApplicationBookingInviteStamp(id, stampIso) {
+  if (isSupabaseDbConfigured()) {
+    var r = await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(id) + '&booking_invite_sent_at=is.null', {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: { booking_invite_sent_at: stampIso, updated_at: stampIso }
+    });
+    if (!r || !r.ok) return null;
+    return (Array.isArray(r.data) && r.data[0]) ? r.data[0] : 'already_sent';
+  }
+  var a = (dbState.atsApplications || []).find(function (x) { return String(x.id) === String(id); });
+  if (!a) return null;
+  if (a.booking_invite_sent_at) return 'already_sent';
+  a.booking_invite_sent_at = stampIso;
+  a.updated_at = stampIso;
+  saveDbState();
+  return a;
+}
+
 // Owner (2026-07-23): the GP's congratulations-and-book email must fire EXACTLY
 // once per application — at the first moment BOTH the practice's approval AND
 // their interview availability exist — so the doctor can book straight from the
@@ -42805,8 +42828,17 @@ async function maybeSendInterviewBookingInvite(applicationId) {
 
   // Write-then-send: stamp FIRST so a concurrent caller short-circuits on
   // 'already_sent', then NULL it back if the congrats send genuinely throws.
+  //
+  // The stamp is a CONDITIONAL write (booking_invite_sent_at must still be
+  // NULL) because the read above is not a lock: two callers arriving together
+  // — a practice double-submitting its times, a double-posted staff accept,
+  // the 2026-10-27 family of duplicate sends — both read NULL, and an
+  // unconditional stamp let BOTH send the congratulations email and the
+  // WhatsApp nudge. Now exactly one PATCH matches; the other updates nothing
+  // and reports already_sent having sent nothing.
   var stampIso = new Date().toISOString();
-  var stamped = await patchApplicationDecisionFields(id, { booking_invite_sent_at: stampIso, updated_at: stampIso });
+  var stamped = await claimApplicationBookingInviteStamp(id, stampIso);
+  if (stamped === 'already_sent') return { ok: false, skipped: 'already_sent' };
   if (!stamped) return { ok: false, skipped: 'stamp_failed' };
 
   try {
@@ -77314,6 +77346,27 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 409, { ok: false, code: 'not_booked', message: 'No booked interview on this application — there is no link to re-send.' });
       return;
     }
+    // Cooldown claim (never on a dry run): a CONDITIONAL stamp on the row is
+    // the lock, so two re-sends fired together, or one fired twice inside the
+    // window, deliver ONE set of messages. force:true skips the wait but still
+    // stamps, so the next accidental double is caught as well.
+    var rlForce = !!(rlBody && rlBody.force === true);
+    var rlClaim = null;
+    if (!rlDryRun) {
+      rlClaim = await claimInterviewResendSlot(rlRow, rlForce);
+      if (rlClaim.status === 'recently_resent') {
+        sendJson(res, 409, {
+          ok: false, code: 'recently_resent', interview_id: rlRow.id,
+          resent_at: rlClaim.resentAt || null, retry_after_seconds: rlClaim.retryAfterSeconds,
+          message: 'This interview\'s link was already re-sent ' + rlClaim.agoLabel + ' — nothing was sent. Wait ' + rlClaim.waitLabel + ', or pass force:true to send it again now.'
+        });
+        return;
+      }
+      if (rlClaim.status !== 'ok') {
+        sendJson(res, 502, { ok: false, code: 'claim_failed', message: 'Could not record the re-send on the interview — nothing was sent. Please try again.' });
+        return;
+      }
+    }
     var rlResult = await resendInterviewConfirmation(rlRow, rlCtx, {
       dryRun: rlDryRun,
       includeGp: !(rlBody && rlBody.include_gp === false),
@@ -77322,10 +77375,10 @@ Return ONLY valid JSON with no markdown formatting:
     });
     if (!rlDryRun) {
       await logAdminAction(req, { email: rlActor }, 'interview_confirmation_resent', {
-        targetType: 'application', targetId: rlAppId, detail: { interview_id: rlRow.id, sent: rlResult.sent, link: rlResult.link }
+        targetType: 'application', targetId: rlAppId, detail: { interview_id: rlRow.id, sent: rlResult.sent, link: rlResult.link, force: rlForce, resend_count: rlClaim.resendCount }
       }).catch(function () {});
     }
-    sendJson(res, 200, Object.assign({ ok: true, dry_run: rlDryRun, interview_id: rlRow.id }, rlResult));
+    sendJson(res, 200, Object.assign({ ok: true, dry_run: rlDryRun, interview_id: rlRow.id, resend_count: rlClaim ? rlClaim.resendCount : undefined }, rlResult));
     return;
   }
 
@@ -85681,6 +85734,64 @@ async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, 
   return { ok: !!(tpl && tpl.ok) || !!textOut.ok, text_accepted: !!textOut.ok, text_error: textOut.error || '', template_sent: !!(tpl && tpl.ok), template_error: (tpl && (tpl.error || tpl.status)) || '' };
 }
 
+// How long after one re-send of a booked interview's link the route refuses a
+// second one (unless force:true). Long enough to swallow a double-click or a
+// double-posted form, short enough never to get in the way of a real repeat.
+var INTERVIEW_RESEND_COOLDOWN_MS = 10 * 60 * 1000;
+
+// Claims the right to re-send a booked interview's confirmation. The claim is
+// a CONDITIONAL stamp on the row — scheduled_calls.invite_sent_at and
+// resend_count, which interview rows never used (consult rows keep their own
+// invite there) — so the write itself is the lock: two re-sends fired
+// together, or one fired twice inside the cooldown, produce ONE set of
+// messages. Step 1 claims a row never re-sent; step 2 claims one whose last
+// re-send is older than the cooldown; a row matching neither was re-sent
+// recently. force skips the cooldown but still stamps, so the next accidental
+// double is caught too. Returns { status:'ok', resendCount } |
+// { status:'recently_resent', resentAt, retryAfterSeconds, agoLabel, waitLabel } |
+// { status:'error' }.
+async function claimInterviewResendSlot(row, force) {
+  var nowMs = Date.now();
+  var nowIso = new Date(nowMs).toISOString();
+  var resendCount = (Number(row && row.resend_count) || 0) + 1;
+  var stamp = { invite_sent_at: nowIso, resend_count: resendCount, updated_at: nowIso };
+  var recently = function (resentAt) {
+    var atMs = Date.parse(resentAt || '');
+    var ago = Number.isFinite(atMs) ? Math.max(0, nowMs - atMs) : 0;
+    var waitSec = Math.max(1, Math.ceil((INTERVIEW_RESEND_COOLDOWN_MS - ago) / 1000));
+    var agoMin = Math.round(ago / 60000);
+    var waitMin = Math.max(1, Math.ceil(waitSec / 60));
+    return {
+      status: 'recently_resent', resentAt: resentAt || null, retryAfterSeconds: waitSec,
+      agoLabel: agoMin < 1 ? 'moments ago' : agoMin + ' minute' + (agoMin === 1 ? '' : 's') + ' ago',
+      waitLabel: waitMin + ' minute' + (waitMin === 1 ? '' : 's')
+    };
+  };
+  if (isSupabaseDbConfigured()) {
+    var base = 'id=eq.' + encodeURIComponent(row.id);
+    var cutoffIso = new Date(nowMs - INTERVIEW_RESEND_COOLDOWN_MS).toISOString();
+    var attempts = force ? [base] : [base + '&invite_sent_at=is.null', base + '&invite_sent_at=lt.' + encodeURIComponent(cutoffIso)];
+    for (var i = 0; i < attempts.length; i++) {
+      var r = await supabaseDbRequest('scheduled_calls', attempts[i], {
+        method: 'PATCH', headers: { Prefer: 'return=representation' }, body: stamp
+      });
+      if (!r || !r.ok) return { status: 'error' };
+      if (Array.isArray(r.data) && r.data.length) return { status: 'ok', resendCount: resendCount };
+    }
+    // Neither claim matched: another re-send stamped the row inside the cooldown.
+    var cur = await _interviewRowCurrent(row);
+    return recently(cur && cur.invite_sent_at);
+  }
+  // Local mode: the live dbState row — check and stamp in one synchronous
+  // step, for the same reason the PATCH above is conditional.
+  var live = (dbState.scheduledCalls || []).find(function (x) { return String(x.id) === String(row.id); }) || row;
+  var lastMs = Date.parse(live.invite_sent_at || '');
+  if (!force && Number.isFinite(lastMs) && nowMs - lastMs < INTERVIEW_RESEND_COOLDOWN_MS) return recently(live.invite_sent_at);
+  Object.assign(live, stamp);
+  saveDbState();
+  return { status: 'ok', resendCount: resendCount };
+}
+
 // Re-send the booking confirmation for a BOOKED interview with the link stored
 // on its row (owner 2026-10-27: after the double-booked confirmation left two
 // different Zoom links in the doctor's and the practice's inboxes, one
@@ -85688,8 +85799,10 @@ async function sendInterviewWhatsappNoteAndTemplate(toPhone, text, templateKey, 
 // link in this one"). Email carries an UPDATED calendar invite (same UID as
 // the original, SEQUENCE 1) so the recipient's calendar replaces the earlier
 // event's link instead of adding a second event; WhatsApp goes as note +
-// template (see sendInterviewWhatsappNoteAndTemplate). Changes nothing on the
-// row. opts: { dryRun, includeGp, includePractice, whatsapp }.
+// template (see sendInterviewWhatsappNoteAndTemplate). Leaves the booking
+// itself untouched — the route stamps invite_sent_at / resend_count as its
+// cooldown record (claimInterviewResendSlot) before calling this.
+// opts: { dryRun, includeGp, includePractice, whatsapp }.
 async function resendInterviewConfirmation(row, ctx, opts) {
   opts = opts || {};
   var dryRun = opts.dryRun === true;
