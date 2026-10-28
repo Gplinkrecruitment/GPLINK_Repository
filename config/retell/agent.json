@@ -1,5 +1,5 @@
 {
-  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet.",
+  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet. 2026-10-29: knowledge base DETACHED from the call (retrieved chunks were spoken about as \"pasted background\" by both models); core facts now live inline in hazel-prompt.md \"What you know\". KB knowledge_base_739075eafc9595c7 kept in Retell for reference.",
   "agent_name": "Hazel — GP Link leads",
   "agent": {
     "voice_id": "",
@@ -58,7 +58,7 @@
       "backup": {
         "model": "claude-5.5-haiku"
       },
-      "temperature": 0.5
+      "temperature": 0.3
     },
     "start_speaker": "user",
     "begin_after_user_silence_ms": 2500,
@@ -79,12 +79,10 @@
       "attempt": "1",
       "system_timezone": "Europe/London"
     },
-    "knowledge_base_ids": [
-      "knowledge_base_739075eafc9595c7"
-    ],
+    "knowledge_base_ids": [],
     "kb_config": {
-      "top_k": 1,
-      "filter_score": 0.85
+      "top_k": 2,
+      "filter_score": 0.7
     }
   },
   "post_call_analysis_data": [
