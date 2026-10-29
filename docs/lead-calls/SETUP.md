@@ -27,6 +27,8 @@ for you by `scripts/retell-setup.js` once the key is in place.
 
 ## 3. Twilio numbers and SIP trunk (20 minutes, plus approval wait)
 
+> 2026-10-29: UK-only launch first. Follow docs/lead-calls/TWILIO-UK-SETUP.md (UK mobile number, one trunk); the Australian number below can be added later on the same trunk.
+
 Retell's own numbers can only dial the US, so the UK and Australian numbers come
 from Twilio and are connected to Retell over a SIP trunk.
 
