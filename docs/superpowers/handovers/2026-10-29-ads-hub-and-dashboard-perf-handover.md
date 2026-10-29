@@ -176,6 +176,11 @@ Root causes found and fixed — all in the inline script of `pages/ceo-dashboard
 - A real model run costs about US$0.20 (Opus 5.5 at $4/$20 per MTok, ~8k in / ~8k out).
 
 ## 6. Traps
+- **Never prefix a class with `ad-` on this dashboard.** EasyList (uBlock Origin, AdBlock Plus,
+  Brave, AdGuard) carries generic cosmetic filters `##.ad-card`, `##.ad-summary`, `##.ad-field`;
+  on 2026-10-29 the owner's browser hid every section of the Ads hub below the header because
+  `.ad-card` wrapped them all. Everything is `mk-*` now, `#soc-hub-root`, `data-live-id`.
+  Check a new class name against `https://easylist.to/easylist/easylist.txt` (`^##\.name$`).
 - `node server.js` does not listen when `NODE_ENV=test`; boot through `createServer()`
   (as the tests do) for a local run. macOS has no `timeout` command.
 - The CEO surface answers 404, not 401, to a caller on a host outside
