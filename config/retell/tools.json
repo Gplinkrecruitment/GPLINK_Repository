@@ -71,7 +71,7 @@
   {
     "type": "end_call",
     "name": "end_call",
-    "description": "Hang up once the conversation has finished, after you have already said goodbye. Pass no message.",
+    "description": "Hang up. Pass your one sentence of thanks and goodbye as the message; it is spoken before the line drops, so do not say a goodbye separately.",
     "speak_after_execution": true
   }
 ]

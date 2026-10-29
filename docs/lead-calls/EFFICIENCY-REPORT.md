@@ -76,17 +76,18 @@ Measured from the bill of a real 3-minute test call on Opus:
 |---|---|---|
 | Claude Opus 5.5 | $0.128 | Sonnet would be $0.064 |
 | ElevenLabs voice (v4 turbo) | $0.080 | Your Zee clone |
-| LLM token surcharge | $0.060 | Flat, charged once the average request is over about 4,000 tokens. Hazel's script plus tool definitions is about 4,100 tokens on the very first turn, so this applies to every call. Getting under it would mean cutting the script to roughly half, which would cost more bookings than it saves. |
+| LLM token surcharge | $0.06 to $0.15 | Not flat: it is the LLM cost multiplied by (average request tokens divided by 4,000, minus 1). Verified to the cent on two bills. With the full script the first request is already about 8,000 tokens and the average over a 5-minute call is about 8,500, so the LLM line effectively doubles: Opus $0.128 becomes about $0.27 a minute. On your 29 October test (5 min 26 s) the surcharge was $0.149 a minute, more than Opus itself. |
 | Retell voice engine | $0.055 | Fixed |
 | Background voice cancellation | $0.005 | Keep |
 | Knowledge base | $0.005 | Now off |
 | Haiku backup model | $0.003 | Keep (fallback if Opus is down) |
 | Post-call analysis | $0.021 per call | Keep, it feeds the learning loop |
-| Total | about $0.36 per minute | a 4-minute call is about $1.45 |
+| Total | about $0.42 per minute with the full script on Opus | your 29 October test call cost $2.31 for 5 min 26 s |
 
 Levers, in order of value:
-- Shorter calls. The new script reaches the booking offer by turn four or five; every minute saved is $0.36. Target under four minutes for a booked call.
-- Sonnet instead of Opus saves $0.064/min (18%). In the simulations Sonnet booked 43% against Opus 47% and lost doctors entirely in 10 calls against 6. One extra booking per hundred calls is worth far more than the $26 saved per hundred 4-minute calls, so Opus stays. Re-test if Retell adds a cheaper Opus tier.
+- Shorter calls. The new script reaches the booking offer by turn four or five; every minute saved is about $0.42. Target under four minutes for a booked call.
+- Sonnet instead of Opus. Because the surcharge multiplies the LLM price, the real gap is larger than the headline: with the full script Opus costs about $0.27 a minute for the LLM line and Sonnet about $0.14, so Sonnet saves about $0.14 a minute, roughly a third of the whole call (about $0.70 on a 5-minute call). In the simulations Sonnet booked 43% against Opus 47% and lost doctors entirely in 10 calls against 6, within noise on 50 calls. Opus stays for now because that is your call; if you want Sonnet, say so and I will switch it and run the 20-call suite on it.
+- Shorter script. Every 1,000 tokens trimmed from the script saves about 12% of the LLM line. The script is about 4,300 tokens; a careful edit could take 800 to 1,000 out without losing an answer. Worth doing once the wording has settled.
 - Knowledge base off: saves $0.005/min and removes the "knowledge base dump" leak. Facts live in the script.
 - Simulation spend: $0.50 per simulated call. The daily routine only spends on days with a change (about $10). Avoid 1,000-call runs; 50 targeted calls per change is plenty.
 - Telephony is extra when live: UK mobile numbers via Retell or Twilio are about $0.015 to $0.03 a minute outbound.
