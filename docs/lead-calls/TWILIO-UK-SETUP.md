@@ -1,5 +1,7 @@
 # Twilio for Hazel, UK calling only (29 October 2026)
 
+> Status 30 October 2026: DONE through to the Retell import. Twilio Primary Customer Profile approved; UK mobile bundle BU455c6a1ff50e16ad49226a016c988831 approved; number **+44 7862 121872** (PNceb0067197e9da584057f8914591fd39) on trunk `gplink-retell` (TK0a7add8f4e4d14e87d05b7dc8eaee4c6, domain gplink-retell.pstn.twilio.com, credential user gplinkretell, Retell IPs 18.98.16.120/30 allow-listed, origination sip:sip.retellai.com); SMS webhook set to /api/webhooks/twilio-sms; imported into Retell as "Hazel UK outbound" bound to Hazel for inbound and outbound. Remaining: Vercel variables (below), first real test call, soft launch.
+
 Hazel phones UK GPs from a UK mobile number. Retell cannot sell UK numbers, so the number comes from Twilio and is connected to Retell over an Elastic SIP trunk. Cost: the number is USD 2.50 a month, calls to UK mobiles are USD 0.0265 a minute (about 6 percent of what a Hazel minute costs). Australia can be added later with the same trunk.
 
 There are two ways to do this. Either way, step 1 is yours.
@@ -47,9 +49,9 @@ Rotate the Auth Token afterwards (Console, Account, API keys and tokens) if you 
 ## Vercel environment variables (after the number is imported)
 
 ```
-RETELL_FROM_NUMBER_UK=+447...
+RETELL_FROM_NUMBER_UK=+447862121872
 LEAD_CALLS_DIRECTOR_NAME=Khaleed
-LEAD_CALLS_TEST_NUMBERS=+61...        # your mobile, for the soft launch
+LEAD_CALLS_TEST_NUMBERS=+61406281243  # your mobile, for the soft launch
 LEAD_CALLS_ENABLED=true
 TWILIO_AUTH_TOKEN=...                 # only for the SMS webhook below (use the rotated token)
 TWILIO_SMS_FORWARD_TO=hello@mygplink.com.au
