@@ -20,7 +20,7 @@
 
 How to read this: "judge pass" is strict (one "fair enough" fails a call), and the simulated doctors are deliberately harder than average (sceptical, analytical, pressing for figures). Samples are small, so differences under ten points are noise. The clear movements: "I can't" fell from 70 to 39 across the same 50 calls and "I won't guess" from 8 to 1; doctors lost entirely fell from 6 to 3; rule breaks per call roughly halved against the previous script while bookings held or improved. Doctors who said they would rather pick a time from a link got it in 7 of 8 cases.
 
-What is live now: agent version 44 (Opus, new script, knowledge base off, new settings). Version 40 is one click away in the Retell dashboard if you want to roll back.
+What is live now (updated later on 29 October): agent version 47, Claude Sonnet 5.5, chosen by the owner after hearing it, with the final script (no echoing, no website as a booking route, single goodbye, ambience off). Measured on the owner's Sonnet test call: $0.29 a minute, model latency 1.07 s against 1.43 s on Opus. Sonnet's 20-call regression baseline: 6 of 20 judge-pass, 5 of 14 bookings (Opus: 11 of 20, 5 of 14). Known Sonnet residuals for the daily review to watch: sending the booking link to trainees more than three months out, "fair enough" style openers, the occasional "fully qualified". Version 46 (Opus, same script) is the rollback. Note: Retell offers no Opus 4.8; its Claude models are Sonnet 4.0/4.5/4.6/5/5.5, Opus 5/5.5 and Haiku 4.5/5.5.
 
 ## 2. What 300 simulated calls on the previous script found
 
