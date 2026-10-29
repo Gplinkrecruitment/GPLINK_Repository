@@ -17,7 +17,7 @@
  *
  * Registers window.loadSocialTab() for the master-tab switcher. #panel-social
  * is persistent; this module scaffolds it ONCE and only ever repaints
- * #soc-ads-root, so the drafts editor (its own root) keeps unsaved edits.
+ * #soc-hub-root, so the drafts editor (its own root) keeps unsaved edits.
  * ========================================================================== */
 (function () {
   'use strict';
@@ -33,7 +33,7 @@
   var ADS_MANAGER = 'https://adsmanager.facebook.com/adsmanager/manage/ads?act=';
 
   function panel() { return document.getElementById('panel-social'); }
-  function adsRoot() { return document.getElementById('soc-ads-root'); }
+  function adsRoot() { return document.getElementById('soc-hub-root'); }
 
   // ── formatting ───────────────────────────────────────────────────────────
   function money(v, dp) {
@@ -48,10 +48,10 @@
   function delta(p, goodWhen, label) {
     if (p === null || p === undefined || !isFinite(Number(p))) return '';
     var n = Number(p);
-    if (n === 0) return '<span class="ad-delta flat">no change' + (label ? ' ' + esc(label) : '') + '</span>';
+    if (n === 0) return '<span class="mk-delta flat">no change' + (label ? ' ' + esc(label) : '') + '</span>';
     var good = goodWhen === 'down' ? n < 0 : goodWhen === 'up' ? n > 0 : null;
     var cls = good === null ? 'flat' : (good ? 'good' : 'bad');
-    return '<span class="ad-delta ' + cls + '">' + (n > 0 ? '▲' : '▼') + ' ' + Math.abs(n) + '%' + (label ? ' ' + esc(label) : '') + '</span>';
+    return '<span class="mk-delta ' + cls + '">' + (n > 0 ? '▲' : '▼') + ' ' + Math.abs(n) + '%' + (label ? ' ' + esc(label) : '') + '</span>';
   }
   function when(iso) {
     if (!iso) return '';
@@ -73,13 +73,13 @@
   function scaffold() {
     var p = panel();
     if (!p) return false;
-    if (!state.scaffolded || !document.getElementById('soc-ads-root')) {
+    if (!state.scaffolded || !document.getElementById('soc-hub-root')) {
       p.innerHTML = '<div class="soc-shell">' +
         '<div class="soc-switch" role="tablist">' +
           '<button type="button" class="soc-switch-btn active" data-view="ads" role="tab">Ads</button>' +
           '<button type="button" class="soc-switch-btn" data-view="organic" role="tab">Organic posts</button>' +
         '</div>' +
-        '<div id="soc-ads-root"></div>' +
+        '<div id="soc-hub-root"></div>' +
         '<div id="soc-organic-root" style="display:none"></div>' +
       '</div>';
       state.scaffolded = true;
@@ -97,7 +97,7 @@
     if (!p) return;
     var btns = p.querySelectorAll('.soc-switch-btn');
     for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-view') === state.view);
-    var ar = document.getElementById('soc-ads-root');
+    var ar = document.getElementById('soc-hub-root');
     var orr = document.getElementById('soc-organic-root');
     if (ar) ar.style.display = state.view === 'ads' ? '' : 'none';
     if (orr) orr.style.display = state.view === 'organic' ? '' : 'none';
@@ -184,7 +184,7 @@
             'Add <code>META_ADS_ACCESS_TOKEN</code> in Vercel (a System User token with ads_read, ads_management and pages_manage_ads, ad account and Page assigned), then redeploy. '
           : '') +
         (d.credential_error ? 'The token looks invalid or expired. Re-mint it as a System User token. ' : '') +
-        '<details class="ad-errdetail"><summary>Meta\'s exact wording</summary>' + esc((d.problems || []).join(' ')) + '</details></div>';
+        '<details class="mk-errdetail"><summary>Meta\'s exact wording</summary>' + esc((d.problems || []).join(' ')) + '</details></div>';
     } else if (d.problems && d.problems.length) {
       out += '<div class="soc-note"><strong>Some numbers are missing.</strong> ' + esc(d.problems.join(' ')) + '</div>';
     }
@@ -203,15 +203,15 @@
       var cls = c.ok === true ? 'ok' : c.ok === false ? 'bad' : 'unknown';
       return '<li class="' + cls + '"><b>' + mark + '</b> ' + esc(c.detail) + '</li>';
     }).join('');
-    return '<div class="ad-health"><div class="ad-health-head"><strong>Connection check</strong>' +
+    return '<div class="mk-health"><div class="mk-health-head"><strong>Connection check</strong>' +
       (h.token_source ? '<span class="soc-when">token from ' + esc(h.token_source) + '</span>' : '') +
       '<button type="button" class="soc-btn" data-act="health-close">Close</button></div><ul>' + rows + '</ul></div>';
   }
 
   // ── 1. today's summary ───────────────────────────────────────────────────
   function tile(label, value, extra, title) {
-    return '<div class="ad-kpi"' + (title ? ' title="' + esc(title) + '"' : '') + '><span class="ad-kpi-label">' + esc(label) + '</span>' +
-      '<b class="ad-kpi-value">' + value + '</b>' + (extra ? '<span class="ad-kpi-extra">' + extra + '</span>' : '') + '</div>';
+    return '<div class="mk-kpi"' + (title ? ' title="' + esc(title) + '"' : '') + '><span class="mk-kpi-label">' + esc(label) + '</span>' +
+      '<b class="mk-kpi-value">' + value + '</b>' + (extra ? '<span class="mk-kpi-extra">' + extra + '</span>' : '') + '</div>';
   }
 
   function summarySection(d, s, review) {
@@ -225,27 +225,27 @@
     var f30 = f.d30 || {};
     var r = d.review || null;
 
-    var html = '<section class="ad-card ad-summary"><div class="ad-card-head"><h3>Today\'s summary</h3>' +
-      '<span class="ad-meta">' + (r
+    var html = '<section class="mk-card mk-summary"><div class="mk-card-head"><h3>Today\'s summary</h3>' +
+      '<span class="mk-meta">' + (r
         ? esc((r.kind === 'daily' ? 'Morning review' : 'Review') + ' · ' + when(r.created_at) + ' · ' + (r.model || ''))
         : (d.last_run && d.last_run.error ? 'Last attempt failed · ' + esc(when(d.last_run.created_at)) : 'No review yet')) + '</span></div>';
 
     if (d.configured && d.snapshot_source !== 'funnel_only') {
-      html += '<div class="ad-kpi-row"><div class="ad-kpi-group-label">Yesterday</div>' +
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Yesterday</div>' +
         tile('Spend', money(y.spend), delta(yva.spend, null, 'vs 7-day avg'), 'Average of the last 7 days: ' + money(yva.avg_spend)) +
         tile('Leads', int(y.leads), delta(yva.leads, 'up', 'vs 7-day avg'), 'Average of the last 7 days: ' + num(yva.avg_leads, 1)) +
         tile('Cost per lead', money(y.cost_per_lead)) +
         tile('Link clicks', int(y.link_clicks)) +
       '</div>';
-      html += '<div class="ad-kpi-row"><div class="ad-kpi-group-label">Last 7 days</div>' +
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Last 7 days</div>' +
         tile('Spend', money(w.spend), delta(wow.spend, null, 'vs week before')) +
         tile('Leads (Meta)', int(w.leads), delta(wow.leads, 'up', 'vs week before')) +
         tile('Cost per lead', money(w.cost_per_lead), delta(wow.cost_per_lead, 'down', 'vs week before')) +
-        tile('Booked calls (app)', int(f7.booked), f7.leads ? '<span class="ad-kpi-extra">' + int(f7.leads) + ' leads reached the app</span>' : '') +
+        tile('Booked calls (app)', int(f7.booked), f7.leads ? '<span class="mk-kpi-extra">' + int(f7.leads) + ' leads reached the app</span>' : '') +
         tile('Cost per booking', money(f7.cost_per_booking), '', 'Spend ÷ bookings, last 7 days. The number that decides which ads stay.') +
-        tile('Frequency', num(w.frequency), (Number(w.frequency) > 3 ? '<span class="ad-delta bad">above the 3.0 rule</span>' : ''), 'Average times each person saw an ad in 7 days') +
+        tile('Frequency', num(w.frequency), (Number(w.frequency) > 3 ? '<span class="mk-delta bad">above the 3.0 rule</span>' : ''), 'Average times each person saw an ad in 7 days') +
       '</div>';
-      html += '<div class="ad-kpi-row"><div class="ad-kpi-group-label">Last 30 days</div>' +
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">Last 30 days</div>' +
         tile('Spend', money((t.last_30d || {}).spend)) +
         tile('Leads (Meta)', int((t.last_30d || {}).leads)) +
         tile('Cost per lead', money((t.last_30d || {}).cost_per_lead)) +
@@ -255,19 +255,19 @@
       '</div>';
       html += sparkline(s.daily || []);
     } else {
-      html += '<div class="ad-kpi-row"><div class="ad-kpi-group-label">App funnel (Meta leads)</div>' +
+      html += '<div class="mk-kpi-row"><div class="mk-kpi-group-label">App funnel (Meta leads)</div>' +
         tile('Leads, 7 days', int(f7.leads)) + tile('Booked, 7 days', int(f7.booked)) +
         tile('Leads, 30 days', int(f30.leads)) + tile('Booked, 30 days', int(f30.booked)) + tile('Signed up, 30 days', int(f30.signed_up)) +
       '</div>';
     }
 
     if (review) {
-      html += '<div class="ad-review">' +
-        (review.headline ? '<p class="ad-review-headline">' + esc(review.headline) + '</p>' : '') +
-        (review.summary ? '<p class="ad-review-summary">' + esc(review.summary).replace(/\n+/g, '<br>') + '</p>' : '') +
-        ((review.actions_today || []).length ? '<div class="ad-actions"><h4>What to do today</h4><ol>' +
+      html += '<div class="mk-review">' +
+        (review.headline ? '<p class="mk-review-headline">' + esc(review.headline) + '</p>' : '') +
+        (review.summary ? '<p class="mk-review-summary">' + esc(review.summary).replace(/\n+/g, '<br>') + '</p>' : '') +
+        ((review.actions_today || []).length ? '<div class="mk-actions"><h4>What to do today</h4><ol>' +
           review.actions_today.map(function (a) {
-            return '<li><strong>' + esc(a.action) + '</strong>' + whereBadge(a.where) + (a.why ? '<div class="ad-why">' + esc(a.why) + '</div>' : '') + '</li>';
+            return '<li><strong>' + esc(a.action) + '</strong>' + whereBadge(a.where) + (a.why ? '<div class="mk-why">' + esc(a.why) + '</div>' : '') + '</li>';
           }).join('') + '</ol></div>' : '') +
       '</div>';
     } else if (d.last_run && d.last_run.error) {
@@ -297,40 +297,40 @@
     daily.forEach(function (x, i) {
       var bh = (Number(x.spend) || 0) / maxSpend * innerH;
       var bx = padL + i * slot + slot * 0.15;
-      bars += '<rect x="' + bx.toFixed(1) + '" y="' + (top + innerH - bh).toFixed(1) + '" width="' + (slot * 0.7).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2" class="ad-spark-bar"><title>' + esc(dayLabel(x.date)) + ': ' + esc(money(x.spend)) + ', ' + esc(int(x.leads)) + ' leads</title></rect>';
+      bars += '<rect x="' + bx.toFixed(1) + '" y="' + (top + innerH - bh).toFixed(1) + '" width="' + (slot * 0.7).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2" class="mk-spark-bar"><title>' + esc(dayLabel(x.date)) + ': ' + esc(money(x.spend)) + ', ' + esc(int(x.leads)) + ' leads</title></rect>';
       var cx = padL + i * slot + slot / 2;
       var cy = top + innerH - (Number(x.leads) || 0) / maxLeads * innerH;
       path += (i ? ' L' : 'M') + cx.toFixed(1) + ' ' + cy.toFixed(1);
-      dots += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" class="ad-spark-dot"><title>' + esc(dayLabel(x.date)) + ': ' + esc(int(x.leads)) + ' leads</title></circle>';
+      dots += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" class="mk-spark-dot"><title>' + esc(dayLabel(x.date)) + ': ' + esc(int(x.leads)) + ' leads</title></circle>';
     });
-    return '<div class="ad-spark"><svg viewBox="0 0 ' + Wd + ' ' + Hd + '" preserveAspectRatio="none" aria-label="Daily spend and leads, last 14 days">' +
-      bars + '<path d="' + path + '" class="ad-spark-line"/>' + dots +
-      '<text x="' + padL + '" y="' + (Hd - 8) + '" class="ad-spark-label">' + esc(dayLabel(daily[0].date)) + '</text>' +
-      '<text x="' + (Wd - padR) + '" y="' + (Hd - 8) + '" class="ad-spark-label" text-anchor="end">' + esc(dayLabel(daily[n - 1].date)) + '</text>' +
-      '<text x="4" y="' + (top + 10) + '" class="ad-spark-label">' + esc(money(maxSpend, 0)) + '</text>' +
-      '</svg><div class="ad-spark-legend"><span><i class="bar"></i> spend per day</span><span><i class="dot"></i> leads per day</span></div></div>';
+    return '<div class="mk-spark"><svg viewBox="0 0 ' + Wd + ' ' + Hd + '" preserveAspectRatio="none" aria-label="Daily spend and leads, last 14 days">' +
+      bars + '<path d="' + path + '" class="mk-spark-line"/>' + dots +
+      '<text x="' + padL + '" y="' + (Hd - 8) + '" class="mk-spark-label">' + esc(dayLabel(daily[0].date)) + '</text>' +
+      '<text x="' + (Wd - padR) + '" y="' + (Hd - 8) + '" class="mk-spark-label" text-anchor="end">' + esc(dayLabel(daily[n - 1].date)) + '</text>' +
+      '<text x="4" y="' + (top + 10) + '" class="mk-spark-label">' + esc(money(maxSpend, 0)) + '</text>' +
+      '</svg><div class="mk-spark-legend"><span><i class="bar"></i> spend per day</span><span><i class="dot"></i> leads per day</span></div></div>';
   }
 
   // ── 2. live creatives ────────────────────────────────────────────────────
   function liveSection(d, s, review) {
     var ads = s.ads || [];
     if (!d.configured || !ads.length) {
-      return '<section class="ad-card"><div class="ad-card-head"><h3>Creatives running now</h3></div>' +
+      return '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running now</h3></div>' +
         '<div class="ats-empty">' + (d.configured ? 'No ads were returned for the campaign.' : 'Connect Meta to see the live creatives.') + '</div></section>';
     }
     var verdicts = {};
     ((review && review.ad_verdicts) || []).forEach(function (v) { verdicts[String(v.ad_id)] = v; });
     var live = ads.filter(function (a) { return a.effective_status === 'ACTIVE'; });
     var rest = ads.filter(function (a) { return a.effective_status !== 'ACTIVE'; });
-    var html = '<section class="ad-card"><div class="ad-card-head"><h3>Creatives running now <span class="ats-count-chip">' + live.length + '</span></h3>' +
-      '<span class="ad-meta">' + (s.adsets || []).filter(function (x) { return x.effective_status === 'ACTIVE'; }).map(function (x) {
+    var html = '<section class="mk-card"><div class="mk-card-head"><h3>Creatives running now <span class="ats-count-chip">' + live.length + '</span></h3>' +
+      '<span class="mk-meta">' + (s.adsets || []).filter(function (x) { return x.effective_status === 'ACTIVE'; }).map(function (x) {
         return esc(x.name) + ' · ' + money(x.daily_budget, 0) + '/day · ' + esc(goalLabel(x.optimization_goal));
       }).join(' · ') + '</span></div>';
-    html += '<div class="ad-live-grid">' + live.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
+    html += '<div class="mk-live-grid">' + live.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
     if (rest.length) {
-      html += '<div class="ad-paused-toggle"><button type="button" class="soc-btn" data-act="toggle-paused">' +
+      html += '<div class="mk-paused-toggle"><button type="button" class="soc-btn" data-act="toggle-paused">' +
         (state.showPaused ? 'Hide' : 'Show') + ' ' + rest.length + ' paused / other ad' + (rest.length === 1 ? '' : 's') + '</button></div>';
-      if (state.showPaused) html += '<div class="ad-live-grid is-paused">' + rest.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
+      if (state.showPaused) html += '<div class="mk-live-grid is-paused">' + rest.map(function (a) { return liveCard(a, verdicts[a.id], d); }).join('') + '</div>';
     }
     return html + '</section>';
   }
@@ -353,17 +353,17 @@
     var img = c.image_url
       ? '<img loading="lazy" src="/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(c.image_url) + '" alt="" onerror="this.style.display=\'none\'; this.parentNode.classList.add(\'no-img\')">'
       : '';
-    return '<article class="ad-live-card" data-ad="' + esc(a.id) + '">' +
-      '<div class="ad-live-img' + (img ? '' : ' no-img') + '">' + img +
-        '<div class="ad-live-img-fallback"><span>' + esc(c.headline || a.name) + '</span></div>' +
-        (verdict ? '<span class="ad-verdict ats-pill ' + verdictMod(verdict.verdict) + '">' + esc(verdict.verdict) + '</span>' : '') +
+    return '<article class="mk-live-card" data-live-id="' + esc(a.id) + '">' +
+      '<div class="mk-live-img' + (img ? '' : ' no-img') + '">' + img +
+        '<div class="mk-live-img-fallback"><span>' + esc(c.headline || a.name) + '</span></div>' +
+        (verdict ? '<span class="mk-verdict ats-pill ' + verdictMod(verdict.verdict) + '">' + esc(verdict.verdict) + '</span>' : '') +
       '</div>' +
-      '<div class="ad-live-body">' +
-        '<div class="ad-live-title">' + esc(c.headline || a.name) + '</div>' +
-        '<div class="ad-live-sub">' + pill(statusLabel(a.effective_status), statusMod(a.effective_status)) + ' ' + esc(a.name) +
+      '<div class="mk-live-body">' +
+        '<div class="mk-live-title">' + esc(c.headline || a.name) + '</div>' +
+        '<div class="mk-live-sub">' + pill(statusLabel(a.effective_status), statusMod(a.effective_status)) + ' ' + esc(a.name) +
           (a.days_live !== null && a.days_live !== undefined ? ' · live ' + a.days_live + ' day' + (a.days_live === 1 ? '' : 's') : '') +
           (c.cta_label ? ' · ' + esc(c.cta_label) : '') + '</div>' +
-        '<table class="ad-metrics"><thead><tr><th></th><th>Yest.</th><th>7 days</th><th>30 days</th></tr></thead><tbody>' +
+        '<table class="mk-metrics"><thead><tr><th></th><th>Yest.</th><th>7 days</th><th>30 days</th></tr></thead><tbody>' +
           metricRow('Spend', a, function (m) { return money(m.spend, 0); }) +
           metricRow('Leads', a, function (m) { return int(m.leads); }) +
           metricRow('Cost per lead', a, function (m) { return money(m.cost_per_lead, 0); }) +
@@ -371,12 +371,12 @@
           metricRow('Click → lead', a, function (m) { return pct(m.click_to_lead_pct); }) +
           metricRow('Frequency', a, function (m) { return num(m.frequency, 1); }) +
         '</tbody></table>' +
-        '<div class="ad-funnel"><strong>App, 30 days:</strong> ' + int(f30.leads) + ' lead' + (f30.leads === 1 ? '' : 's') + ' · ' + int(f30.booked) + ' booked · cost per booking ' + money(f30.cost_per_booking, 0) +
+        '<div class="mk-funnel"><strong>App, 30 days:</strong> ' + int(f30.leads) + ' lead' + (f30.leads === 1 ? '' : 's') + ' · ' + int(f30.booked) + ' booked · cost per booking ' + money(f30.cost_per_booking, 0) +
           (f7.leads ? '<span class="soc-when"> (7 days: ' + int(f7.leads) + ' lead' + (f7.leads === 1 ? '' : 's') + ', ' + int(f7.booked) + ' booked)</span>' : '') + '</div>' +
-        (flags.length ? '<ul class="ad-flags">' + flags.map(function (fl) { return '<li class="' + esc(fl.level) + '">' + esc(fl.label) + '</li>'; }).join('') + '</ul>' : '') +
-        (verdict ? '<div class="ad-verdict-reason"><strong>' + esc(verdict.verdict) + ':</strong> ' + esc(verdict.reason) + '</div>' : '') +
-        '<details class="ad-copy"><summary>Copy</summary>' +
-          '<div class="ad-copy-text">' + esc(c.primary_text || '').replace(/\n/g, '<br>') + '</div>' +
+        (flags.length ? '<ul class="mk-flags">' + flags.map(function (fl) { return '<li class="' + esc(fl.level) + '">' + esc(fl.label) + '</li>'; }).join('') + '</ul>' : '') +
+        (verdict ? '<div class="mk-verdict-reason"><strong>' + esc(verdict.verdict) + ':</strong> ' + esc(verdict.reason) + '</div>' : '') +
+        '<details class="mk-copy"><summary>Copy</summary>' +
+          '<div class="mk-copy-text">' + esc(c.primary_text || '').replace(/\n/g, '<br>') + '</div>' +
           (c.description ? '<div class="soc-when">Description: ' + esc(c.description) + '</div>' : '') +
           '<div class="soc-when"><a href="' + esc(ADS_MANAGER + d.defaults.account_id + '&selected_ad_ids=' + a.id) + '" target="_blank" rel="noopener">Open in Ads Manager ↗</a></div>' +
         '</details>' +
@@ -386,23 +386,23 @@
   // ── 3. improvements ──────────────────────────────────────────────────────
   function improvementsSection(d, review) {
     var imps = (review && review.improvements) || [];
-    var html = '<section class="ad-card ad-improve"><div class="ad-card-head"><h3>Suggested improvements</h3>' +
-      '<span class="ad-meta">' + (imps.length ? 'From this morning\'s review. Tick the ones to build into the next ads.' : '') + '</span></div>';
+    var html = '<section class="mk-card mk-improve"><div class="mk-card-head"><h3>Suggested improvements</h3>' +
+      '<span class="mk-meta">' + (imps.length ? 'From this morning\'s review. Tick the ones to build into the next ads.' : '') + '</span></div>';
     if (!imps.length) {
       html += '<div class="ats-empty">' + (review ? 'The review listed no improvements.' : 'Run a review to get improvements.') + '</div>';
     } else {
-      html += '<ul class="ad-imps">' + imps.map(function (x) {
-        return '<li class="ad-imp"><label><input type="checkbox" class="ad-imp-check" value="' + esc(x.id) + '" checked>' +
-          '<span class="ad-imp-body"><span class="ad-imp-title">' + esc(x.title) + ' ' + pill(x.applies_to.replace('_', ' '), 'blue') +
+      html += '<ul class="mk-imps">' + imps.map(function (x) {
+        return '<li class="mk-imp"><label><input type="checkbox" class="mk-imp-check" value="' + esc(x.id) + '" checked>' +
+          '<span class="mk-imp-body"><span class="mk-imp-title">' + esc(x.title) + ' ' + pill(x.applies_to.replace('_', ' '), 'blue') +
           (x.priority === 1 ? ' ' + pill('do first', 'red') : '') + '</span>' +
-          '<span class="ad-imp-change">' + esc(x.change) + '</span>' +
-          (x.evidence ? '<span class="ad-imp-evidence">Evidence: ' + esc(x.evidence) + '</span>' : '') +
+          '<span class="mk-imp-change">' + esc(x.change) + '</span>' +
+          (x.evidence ? '<span class="mk-imp-evidence">Evidence: ' + esc(x.evidence) + '</span>' : '') +
           '</span></label></li>';
       }).join('') + '</ul>';
     }
-    html += '<div class="ad-generate">' +
-      '<label>Write <select id="adGenCount" class="soc-select"><option>2</option><option selected>3</option><option>4</option></select> new ads</label>' +
-      '<input type="text" id="adGenInstr" class="ad-input" placeholder="Optional steer, e.g. “two after-led angles, one about eConsults”" maxlength="400">' +
+    html += '<div class="mk-generate">' +
+      '<label>Write <select id="mkGenCount" class="soc-select"><option>2</option><option selected>3</option><option>4</option></select> new ads</label>' +
+      '<input type="text" id="mkGenInstr" class="mk-input" placeholder="Optional steer, e.g. “two after-led angles, one about eConsults”" maxlength="400">' +
       '<button type="button" class="btn-primary" data-act="generate"' + (state.busy.generate || !d.anthropic_configured ? ' disabled' : '') + '>' +
         (state.busy.generate ? 'Writing… (about a minute)' : 'Generate new ads') + '</button>' +
       '<span class="soc-when">The model writes complete ads (image line, headline, three paragraphs, photo brief) applying the ticked improvements. They land below as drafts for you to edit.</span>' +
@@ -454,10 +454,10 @@
   function generate() {
     if (state.busy.generate) return;
     var ids = [];
-    var boxes = document.querySelectorAll('#soc-ads-root .ad-imp-check:checked');
+    var boxes = document.querySelectorAll('#soc-hub-root .mk-imp-check:checked');
     for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
-    var count = Number((document.getElementById('adGenCount') || {}).value) || 3;
-    var instr = String((document.getElementById('adGenInstr') || {}).value || '').trim();
+    var count = Number((document.getElementById('mkGenCount') || {}).value) || 3;
+    var instr = String((document.getElementById('mkGenInstr') || {}).value || '').trim();
     if (!ids.length && !instr && !window.confirm('No improvements are ticked and no steer is given. Write ' + count + ' ads from the account rules alone?')) return;
     state.busy.generate = true; render();
     A.toast('Writing ' + count + ' ads… about a minute.');

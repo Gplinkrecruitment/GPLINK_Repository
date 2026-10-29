@@ -31,7 +31,7 @@
   function root() { return document.getElementById('soc-drafts-root'); }
   function drafts() { return (state.data && state.data.drafts) || []; }
   function byId(id) { return drafts().find(function (d) { return String(d.id) === String(id); }) || null; }
-  function cardEl(id) { var r = root(); return r ? r.querySelector('.ad-draft[data-id="' + id + '"]') : null; }
+  function cardEl(id) { var r = root(); return r ? r.querySelector('.mk-draft[data-id="' + id + '"]') : null; }
   function card(id) { if (!state.cards[id]) state.cards[id] = {}; return state.cards[id]; }
   function money(v) { return window.AdsHub ? window.AdsHub.money(v) : String(v); }
   function when(v) { return window.AdsHub ? window.AdsHub.when(v) : String(v); }
@@ -73,8 +73,8 @@
     if (!r) return;
     var c = counts();
     var list = drafts().filter(inFilter);
-    var html = '<section class="ad-card ad-drafts"><div class="ad-card-head"><h3>New ads <span class="ats-count-chip">' + drafts().length + '</span></h3>' +
-      '<div class="ad-filters">' +
+    var html = '<section class="mk-card mk-drafts"><div class="mk-card-head"><h3>New ads <span class="ats-count-chip">' + drafts().length + '</span></h3>' +
+      '<div class="mk-filters">' +
         filterBtn('working', 'Working on', c.working) + filterBtn('queued', 'Scheduled', c.queued) + filterBtn('live', 'Live', c.live) + filterBtn('archived', 'Archived', c.archived) +
         '<button type="button" class="soc-btn" data-act="new-blank">+ Blank draft</button>' +
       '</div></div>';
@@ -83,7 +83,7 @@
         ? 'Nothing being worked on. Generate ads from the improvements above, or start a blank draft.'
         : 'Nothing here.') + '</div>';
     } else {
-      html += '<div class="ad-draft-list">' + list.map(cardHtml).join('') + '</div>';
+      html += '<div class="mk-draft-list">' + list.map(cardHtml).join('') + '</div>';
     }
     html += '</section>';
     r.innerHTML = html;
@@ -103,11 +103,11 @@
   function field(label, name, value, opts) {
     var o = opts || {};
     var ro = o.readonly ? ' readonly' : '';
-    var count = o.max ? '<span class="ad-count" data-count-for="' + name + '">' + String(value || '').length + '/' + o.max + '</span>' : '';
+    var count = o.max ? '<span class="mk-count" data-count-for="' + name + '">' + String(value || '').length + '/' + o.max + '</span>' : '';
     if (o.textarea) {
-      return '<label class="ad-field"><span>' + esc(label) + count + '</span><textarea name="' + name + '" rows="' + (o.rows || 6) + '"' + ro + '>' + esc(value || '') + '</textarea></label>';
+      return '<label class="mk-field"><span>' + esc(label) + count + '</span><textarea name="' + name + '" rows="' + (o.rows || 6) + '"' + ro + '>' + esc(value || '') + '</textarea></label>';
     }
-    return '<label class="ad-field"><span>' + esc(label) + count + '</span><input type="text" name="' + name + '" value="' + esc(value || '') + '"' + ro + (o.max ? ' maxlength="' + (o.max * 3) + '"' : '') + '></label>';
+    return '<label class="mk-field"><span>' + esc(label) + count + '</span><input type="text" name="' + name + '" value="' + esc(value || '') + '"' + ro + (o.max ? ' maxlength="' + (o.max * 3) + '"' : '') + '></label>';
   }
 
   function cardHtml(d) {
@@ -124,14 +124,14 @@
     var warnings = d.warnings || [];
     var hist = Array.isArray(d.history) ? d.history : [];
 
-    var html = '<article class="ad-draft' + (locked ? ' is-locked' : '') + (state.flashId === d.id ? ' is-new' : '') + '" data-id="' + esc(d.id) + '">';
+    var html = '<article class="mk-draft' + (locked ? ' is-locked' : '') + (state.flashId === d.id ? ' is-new' : '') + '" data-id="' + esc(d.id) + '">';
     // ── left: creative
-    html += '<div class="ad-draft-visual">' +
-      '<div class="ad-canvas-wrap"><canvas width="' + W + '" height="' + H + '" aria-label="Creative preview"></canvas>' +
-        '<div class="ad-canvas-hint" data-role="canvas-hint"></div></div>' +
+    html += '<div class="mk-draft-visual">' +
+      '<div class="mk-canvas-wrap"><canvas width="' + W + '" height="' + H + '" aria-label="Creative preview"></canvas>' +
+        '<div class="mk-canvas-hint" data-role="canvas-hint"></div></div>' +
       (locked ? '' :
-        '<div class="ad-photo-controls">' +
-          '<label class="soc-btn ad-file-btn">Upload photo<input type="file" accept="image/*" data-role="photo-file" hidden></label>' +
+        '<div class="mk-photo-controls">' +
+          '<label class="soc-btn mk-file-btn">Upload photo<input type="file" accept="image/*" data-role="photo-file" hidden></label>' +
           '<button type="button" class="soc-btn" data-act="photo-lib">From ad account</button>' +
           (data.higgsfield_configured
             ? '<button type="button" class="soc-btn now" data-act="gen-photo" title="Generate a photograph from the photo brief with Higgsfield (about a minute)">' + (state.busy['gp-' + d.id] ? 'Generating…' : 'Generate photo') + '</button>'
@@ -139,42 +139,42 @@
           (d.image_prompt ? '<button type="button" class="soc-btn" data-act="copy-brief" title="Copy the photo brief for Higgsfield / any image tool">Copy photo brief</button>' : '') +
         '</div>' +
         (data.higgsfield_configured ? '' : '<div class="soc-when">Add HIGGSFIELD_API_KEY in Vercel to generate photos from the brief here.</div>') +
-        '<div class="ad-photo-lib" data-role="photo-lib" hidden></div>' +
-        '<div class="ad-layout-controls">' +
+        '<div class="mk-photo-lib" data-role="photo-lib" hidden></div>' +
+        '<div class="mk-layout-controls">' +
           '<label><input type="radio" name="placement-' + esc(d.id) + '" value="bottom"' + (layout.placement !== 'top' ? ' checked' : '') + '> Headline at the foot (dark photo)</label>' +
           '<label><input type="radio" name="placement-' + esc(d.id) + '" value="top"' + (layout.placement === 'top' ? ' checked' : '') + '> Headline at the top (light wall)</label>' +
-          '<label class="ad-focus">Crop focus <input type="range" name="focus" min="0" max="100" value="' + Math.round((Number(layout.focus) || 0.5) * 100) + '"></label>' +
+          '<label class="mk-focus">Crop focus <input type="range" name="focus" min="0" max="100" value="' + Math.round((Number(layout.focus) || 0.5) * 100) + '"></label>' +
         '</div>') +
-      (d.image_prompt ? '<details class="ad-brief"><summary>Photo brief</summary><div>' + esc(d.image_prompt) + '</div></details>' : '') +
+      (d.image_prompt ? '<details class="mk-brief"><summary>Photo brief</summary><div>' + esc(d.image_prompt) + '</div></details>' : '') +
       (d.image_path ? '<div class="soc-when">Saved creative: <a href="/api/ceo/ads/image?id=' + esc(d.id) + '&kind=creative&v=' + imgV + '" download="' + esc((d.angle || 'creative') + '.jpg') + '">download 1080×1350</a></div>' : '<div class="soc-when">No creative saved yet.</div>') +
     '</div>';
 
     // ── right: copy + actions
-    html += '<div class="ad-draft-body">' +
-      '<div class="ad-draft-top">' + statusPill(d) + (d.angle ? pill(d.angle, 'muted') : '') +
+    html += '<div class="mk-draft-body">' +
+      '<div class="mk-draft-top">' + statusPill(d) + (d.angle ? pill(d.angle, 'muted') : '') +
         (d.improvements && d.improvements.length ? '<span class="soc-when">applies ' + esc(d.improvements.join(', ')) + '</span>' : '') +
-        '<span class="soc-when ad-draft-when">' + esc(when(d.updated_at || d.created_at)) + '</span></div>' +
-      (d.rationale ? '<div class="ad-rationale">' + esc(d.rationale) + '</div>' : '') +
-      '<div class="ad-fields">' +
+        '<span class="soc-when mk-draft-when">' + esc(when(d.updated_at || d.created_at)) + '</span></div>' +
+      (d.rationale ? '<div class="mk-rationale">' + esc(d.rationale) + '</div>' : '') +
+      '<div class="mk-fields">' +
         field('Image headline', 'image_headline', d.image_headline, { readonly: locked, max: 45 }) +
         field('Image sub-line', 'image_sub', d.image_sub, { readonly: locked, max: 90 }) +
         field('Headline (Ads Manager)', 'headline', d.headline, { readonly: locked, max: 40 }) +
         field('Primary text', 'primary_text', d.primary_text, { readonly: locked, textarea: true, rows: 9 }) +
         field('Description', 'description', d.description, { readonly: locked, max: 30 }) +
-        '<div class="ad-field-row">' +
-          '<label class="ad-field"><span>Ad name (slug)</span><input type="text" name="angle" value="' + esc(d.angle || '') + '"' + (locked ? ' readonly' : '') + '></label>' +
-          '<label class="ad-field"><span>Button</span><select name="cta"' + (locked ? ' disabled' : '') + '>' + ctas.map(function (o) {
+        '<div class="mk-field-row">' +
+          '<label class="mk-field"><span>Ad name (slug)</span><input type="text" name="angle" value="' + esc(d.angle || '') + '"' + (locked ? ' readonly' : '') + '></label>' +
+          '<label class="mk-field"><span>Button</span><select name="cta"' + (locked ? ' disabled' : '') + '>' + ctas.map(function (o) {
             return '<option value="' + esc(o.value) + '"' + (o.value === d.cta ? ' selected' : '') + '>' + esc(o.label) + '</option>';
           }).join('') + '</select></label>' +
         '</div>' +
       '</div>' +
-      (problems.length ? '<ul class="ad-problems">' + problems.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '') +
-      (warnings.length ? '<ul class="ad-warnings">' + warnings.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '') +
-      '<div class="ad-unsaved" data-role="unsaved" hidden>Unsaved changes</div>';
+      (problems.length ? '<ul class="mk-problems">' + problems.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '') +
+      (warnings.length ? '<ul class="mk-warnings">' + warnings.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' : '') +
+      '<div class="mk-unsaved" data-role="unsaved" hidden>Unsaved changes</div>';
 
     if (!locked) {
-      html += '<div class="ad-iterate">' +
-        '<input type="text" name="instruction" class="ad-input" placeholder="Ask the model to change it, e.g. “make paragraph one about eConsults, keep the rest”" maxlength="600">' +
+      html += '<div class="mk-iterate">' +
+        '<input type="text" name="instruction" class="mk-input" placeholder="Ask the model to change it, e.g. “make paragraph one about eConsults, keep the rest”" maxlength="600">' +
         '<button type="button" class="soc-btn" data-act="iterate"' + (state.busy['it-' + d.id] ? ' disabled' : '') + '>' + (state.busy['it-' + d.id] ? 'Rewriting…' : 'Ask the model') + '</button>' +
       '</div>';
     }
@@ -186,20 +186,20 @@
         (data.launch_disabled ? '<br>Launching is switched off (ADS_LAUNCH_DISABLED), so it will wait.' : '') + '</div>';
     } else if (d.status === 'failed') {
       html += '<div class="soc-warn"><strong>Could not create the ad on Meta.</strong> ' + esc(d.launch_error || '') +
-        '<div class="ad-kit"><button type="button" class="soc-btn" data-act="kit">Show manual kit (add it in Ads Manager)</button><textarea data-role="kit" rows="10" readonly hidden></textarea></div></div>';
+        '<div class="mk-kit"><button type="button" class="soc-btn" data-act="kit">Show manual kit (add it in Ads Manager)</button><textarea data-role="kit" rows="10" readonly hidden></textarea></div></div>';
     } else if (d.status === 'live') {
-      html += '<div class="soc-note ad-live-note"><strong>Live on Meta</strong> since ' + esc(when(d.launched_at)) + ' · ad id ' + esc(d.meta_ad_id || '') +
+      html += '<div class="soc-note mk-live-note"><strong>Live on Meta</strong> since ' + esc(when(d.launched_at)) + ' · ad id ' + esc(d.meta_ad_id || '') +
         ' · <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=' + esc(data.defaults.account_id) + '&selected_ad_ids=' + esc(d.meta_ad_id || '') + '" target="_blank" rel="noopener">open in Ads Manager ↗</a>' +
         '<br>Creatives cannot be edited once live. Use <em>Duplicate</em> to make a changed version.</div>';
     }
 
     // actions
-    html += '<div class="ad-draft-actions">';
+    html += '<div class="mk-draft-actions">';
     if (!locked) {
       html += '<button type="button" class="soc-btn ok" data-act="save">Save</button>';
       if (d.status === 'draft') html += '<button type="button" class="soc-btn" data-act="ready" title="Mark the copy and creative as good to go">Mark ready</button>';
       if (d.status === 'ready' || d.status === 'draft' || d.status === 'failed') {
-        html += '<span class="ad-schedule">' +
+        html += '<span class="mk-schedule">' +
           '<select name="adset_id" class="soc-select">' + adsets.map(function (x) {
             return '<option value="' + esc(x.id) + '"' + (String(x.id) === String(d.adset_id || data.defaults.adset_id) ? ' selected' : '') + '>' + esc(x.name) + (x.effective_status === 'ACTIVE' ? ' (live)' : x.effective_status ? ' (' + esc(x.effective_status.toLowerCase().replace(/_/g, ' ')) + ')' : '') + '</option>';
           }).join('') + '</select>' +
@@ -217,7 +217,7 @@
     html += '</div>';
 
     if (hist.length) {
-      html += '<details class="ad-history"><summary>History (' + hist.length + ')</summary><ul>' + hist.slice().reverse().map(function (h) {
+      html += '<details class="mk-history"><summary>History (' + hist.length + ')</summary><ul>' + hist.slice().reverse().map(function (h) {
         return '<li><span class="soc-when">' + esc(when(h.at)) + (h.by ? ' · ' + esc(h.by) : '') + '</span>' +
           (h.instruction ? '<div><strong>Asked:</strong> ' + esc(h.instruction) + '</div>' : '') +
           (h.change_note ? '<div><strong>Changed:</strong> ' + esc(h.change_note) + '</div>' : '') +
@@ -435,7 +435,7 @@
 
   // ── events ───────────────────────────────────────────────────────────────
   function onInput(e) {
-    var el = e.target.closest ? e.target.closest('.ad-draft') : null;
+    var el = e.target.closest ? e.target.closest('.mk-draft') : null;
     if (!el) return;
     var id = el.getAttribute('data-id');
     var name = e.target.getAttribute('name') || '';
@@ -445,7 +445,7 @@
     if (name !== 'instruction' && name !== 'launch_at' && name !== 'adset_id') markDirty(id, true);
   }
   function onChange(e) {
-    var el = e.target.closest ? e.target.closest('.ad-draft') : null;
+    var el = e.target.closest ? e.target.closest('.mk-draft') : null;
     if (!el) return;
     var id = el.getAttribute('data-id');
     if (e.target.getAttribute('data-role') === 'photo-file') return pickFile(id, e.target.files && e.target.files[0]);
@@ -465,7 +465,7 @@
     var act = btn.getAttribute('data-act');
     if (act === 'filter') { state.filter = btn.getAttribute('data-filter'); paint(); return; }
     if (act === 'new-blank') return newBlank();
-    var el = btn.closest('.ad-draft');
+    var el = btn.closest('.mk-draft');
     if (!el) return;
     var id = el.getAttribute('data-id');
     if (state.busy[id]) return;
@@ -595,7 +595,7 @@
   // repainted from the server's copy so the composer loads it like any stored photo.
   function generatePhoto(id) {
     var el = cardEl(id);
-    var briefBox = el && el.querySelector('.ad-brief div');
+    var briefBox = el && el.querySelector('.mk-brief div');
     var d = byId(id) || {};
     if (!d.image_prompt && !(briefBox && briefBox.textContent)) { A.toast('This draft has no photo brief. Ask the model for one first.', 'error'); return; }
     if (!window.confirm('Generate a photograph from this ad\'s brief with Higgsfield? It uses your Higgsfield credits and takes about a minute.')) return;
@@ -671,8 +671,8 @@
     });
     ready.then(function (photos) {
       if (!photos.length) { box.innerHTML = '<div class="soc-when">No photos in the ad account.</div>'; return; }
-      box.innerHTML = '<div class="ad-photo-grid">' + photos.slice(0, 60).map(function (p) {
-        return '<button type="button" class="ad-photo-thumb" data-act="photo-pick" data-url="' + esc(p.url) + '" data-hash="' + esc(p.hash) + '" data-name="' + esc(p.name || '') + '" title="' + esc(p.name || '') + ' ' + esc(p.width + '×' + p.height) + '">' +
+      box.innerHTML = '<div class="mk-photo-grid">' + photos.slice(0, 60).map(function (p) {
+        return '<button type="button" class="mk-photo-thumb" data-act="photo-pick" data-url="' + esc(p.url) + '" data-hash="' + esc(p.hash) + '" data-name="' + esc(p.name || '') + '" title="' + esc(p.name || '') + ' ' + esc(p.width + '×' + p.height) + '">' +
           '<img src="/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(p.url) + '" loading="lazy" alt=""></button>';
       }).join('') + '</div>';
     }, function (err) { box.innerHTML = '<div class="soc-err">' + esc(err.message) + '</div>'; });

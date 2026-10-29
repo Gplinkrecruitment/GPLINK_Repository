@@ -79,9 +79,9 @@ describe('CEO Social tab wiring', () => {
 
   it('the hub scaffolds the two roots once and the sub-modules target them', () => {
     // #panel-social is persistent; the hub writes the scaffold ONCE and only
-    // repaints #soc-ads-root, so the drafts editor keeps unsaved edits and the
+    // repaints #soc-hub-root, so the drafts editor keeps unsaved edits and the
     // organic module's once-only click binding stays valid.
-    expect(social).toContain("id=\"soc-ads-root\"");
+    expect(social).toContain("id=\"soc-hub-root\"");
     expect(social).toContain("id=\"soc-organic-root\"");
     expect(organic).toContain("getElementById('soc-organic-root')");
     expect(organic).not.toContain("getElementById('panel-social')");
