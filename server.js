@@ -30628,6 +30628,56 @@ async function upsertLeadCallRecord(call, outcome, enquiryId, nowIso) {
 // lead (leadCalls.applyCallEventToConsult is idempotent, so Retell's retries
 // are harmless) and keeps the full record in lead_calls. Always 204 once the
 // signature passes — a non-2xx only makes Retell retry.
+// POST /api/webhooks/twilio-sms — a GP texted the number Hazel calls from.
+// Twilio has no inbox, so: verify Twilio's signature (TWILIO_AUTH_TOKEN),
+// forward the text to the owner by email, and answer the sender once a day
+// with a short TwiML reply pointing them to WhatsApp or email. Opt-out words
+// (STOP etc.) are forwarded but never answered. 503 while the token is unset.
+const twilioSms = require('./lib/twilio-sms');
+const TWILIO_SMS_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+async function handleTwilioSms(req, res) {
+  const authToken = String(process.env.TWILIO_AUTH_TOKEN || '').trim();
+  if (!authToken) {
+    console.warn('[twilio-sms] TWILIO_AUTH_TOKEN not set — webhook disabled');
+    sendJson(res, 503, { ok: false, error: 'Webhook not configured' });
+    return;
+  }
+  let raw;
+  try { raw = await readRawBody(req, 64 * 1024); }
+  catch (e) { sendJson(res, 413, { ok: false, error: 'Payload too large' }); return; }
+  const params = twilioSms.parseFormBody(raw);
+  const url = twilioSms.publicUrl(process.env.APP_BASE_URL || 'https://app.mygplink.com.au', req.url);
+  if (!twilioSms.verifyTwilioSignature(url, params, req.headers['x-twilio-signature'], authToken)) {
+    console.warn('[twilio-sms] rejected: bad signature from IP:', getClientIp(req));
+    sendJson(res, 401, { ok: false, error: 'Invalid signature' });
+    return;
+  }
+  const ip = getClientIp(req);
+  if (!(await checkRateLimitWindow('twilio_sms:' + ip, 60, 60 * 1000))) {
+    sendJson(res, 429, { ok: false, error: 'Too many requests' });
+    return;
+  }
+  const from = String(params.From || '').slice(0, 32);
+  const body = String(params.Body || '').slice(0, 1600);
+  const optOut = twilioSms.isOptOut(body);
+  try {
+    const mail = twilioSms.forwardEmail({ from, to: params.To, body, messageSid: params.MessageSid, numMedia: params.NumMedia, receivedAt: new Date() });
+    const to = String(process.env.TWILIO_SMS_FORWARD_TO || '').trim() || GP_OWNER_EMAIL;
+    const sent = await sendGmailEmail({ from: GP_OWNER_EMAIL, fromName: 'GP Link', to, subject: mail.subject + (optOut ? ' (opt-out)' : ''), bodyText: mail.bodyText });
+    if (!sent || !sent.ok) console.warn('[twilio-sms] forward email failed:', sent && sent.error);
+  } catch (e) {
+    console.warn('[twilio-sms] forward email error:', e && e.message);
+  }
+  // One auto-reply per sender per day, never to an opt-out.
+  let reply = '';
+  if (!optOut && from && (await checkRateLimitWindow('twilio_sms_reply:' + from, 1, TWILIO_SMS_REPLY_WINDOW_MS))) {
+    reply = twilioSms.autoReplyText({ whatsapp: HAZEL_WHATSAPP_NUMBER, email: GP_OWNER_EMAIL });
+  }
+  const xml = twilioSms.twiml(reply);
+  res.writeHead(200, { 'Content-Type': 'text/xml; charset=utf-8', 'Content-Length': Buffer.byteLength(xml), 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+  res.end(xml);
+}
+
 async function handleRetellWebhook(req, res) {
   let raw;
   try { raw = await readRawBody(req, 2 * 1024 * 1024); }
@@ -45028,6 +45078,11 @@ async function handleApi(req, res, pathname) {
   }
   if (req.method === 'POST' && pathname.startsWith('/api/retell/tools/')) {
     return handleRetellTool(req, res, pathname.slice('/api/retell/tools/'.length).replace(/\/+$/, ''));
+  }
+  // Texts to Hazel's Twilio number — external origin, must be before
+  // same-origin enforcement. Signed by Twilio (X-Twilio-Signature).
+  if (req.method === 'POST' && pathname === '/api/webhooks/twilio-sms') {
+    return handleTwilioSms(req, res);
   }
 
   // Zoom scheduling webhook — external origin, must be before same-origin enforcement

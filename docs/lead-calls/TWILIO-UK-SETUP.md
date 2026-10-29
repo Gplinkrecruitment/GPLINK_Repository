@@ -10,6 +10,15 @@ There are two ways to do this. Either way, step 1 is yours.
 2. Upgrade out of trial: Console, Billing, add a payment method and top up (USD 20 is plenty to start; the number is 2.50 a month and a 5-minute call is about 13 cents).
 3. Then choose path A or path B.
 
+## Step 2 (you, 5 minutes): the Primary Customer Profile
+
+Twilio will not sell a number or create a trunk until the account's identity check is approved, and this profile can only be created in the Console (the API only creates reseller sub-profiles). Console, Account (top right), Trust Hub, Customer Profiles, Create, Business:
+
+- Business name `GP Link Recruitment Australia Pty Ltd`; address `60A Erina Valley Road, Erina NSW 2250, Australia`
+- Business type Corporation (or Private Company if offered); industry Professional Services; registration ACN `693259737`; regions of operation Asia Pacific (add Europe if offered); website `https://www.mygplink.com.au`
+- Authorised representative Khaleed Ibanez, CEO, `+61406281243`, `hello@mygplink.com.au`
+- Notifications by email; accept the terms; submit. Approval usually lands within a business day or two.
+
 ## Path A (me, via the API): paste two values
 
 From the Console home page copy the **Account SID** (starts with AC) and the **Auth Token** (click to reveal), and paste them in the chat. I will then:
@@ -42,8 +51,14 @@ RETELL_FROM_NUMBER_UK=+447...
 LEAD_CALLS_DIRECTOR_NAME=Khaleed
 LEAD_CALLS_TEST_NUMBERS=+61...        # your mobile, for the soft launch
 LEAD_CALLS_ENABLED=true
+TWILIO_AUTH_TOKEN=...                 # only for the SMS webhook below (use the rotated token)
+TWILIO_SMS_FORWARD_TO=hello@mygplink.com.au
 ```
-Twilio's own credentials are not needed by the app: Retell places the calls and the app only talks to Retell.
+Retell places the calls, so the app never needs Twilio for voice. The Auth Token is used only to verify texts.
+
+## Texts to the UK number
+
+Twilio has no inbox, so the app handles texts: `POST /api/webhooks/twilio-sms` (set as the number's SMS webhook when the number is bought) verifies Twilio's signature, emails the text to `TWILIO_SMS_FORWARD_TO` (subject "Text to Hazel's number from +44..."), and replies once per sender per day: "Hi, this is GP Link. This number is our call line and texts here aren't read straight away. For anything about GP work in Australia, message us on WhatsApp at +61494391968 or email hello@mygplink.com.au and we'll come straight back to you." Opt-out words (STOP and the like) are forwarded but never answered. Code: `lib/twilio-sms.js`, handler `handleTwilioSms` in `server.js`, tests `tests/twilio-sms-lib.test.js`.
 
 ## Then
 
