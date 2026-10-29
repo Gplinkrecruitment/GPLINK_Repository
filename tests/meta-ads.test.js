@@ -593,12 +593,28 @@ describe('buildSnapshot', () => {
     const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: stub.impl, leadRows: fx.leadRows, now: NOW });
     expect(r.ok).toBe(false);
     expect(r.configured).toBe(true);
-    expect(r.problems).toEqual(['Ads: Unsupported get request. Object with ID \'' + CAMPAIGN + '\' does not exist (code 100)']);
+    // Grouped: one line per distinct error naming the reads it hit, then the token in use.
+    expect(r.problems[0]).toBe('Ads failed: Unsupported get request. Object with ID \'' + CAMPAIGN + '\' does not exist (code 100)');
+    expect(r.problems[1]).toMatch(/^Token in use: META_ADS_ACCESS_TOKEN\.$/);
+    expect(r.problems).toHaveLength(2);
     expect(r.credential_error).toBe(false);
     expect(r.permission_error).toBe(false);
     expect(r.snapshot.ads).toEqual([]);
     expect(r.snapshot.adsets).toHaveLength(2);
     expect(r.snapshot.errors).toEqual(r.problems);
+  });
+
+  it('collapses nine reads failing for one reason into one line plus the token in use', async () => {
+    // The owner's first production load: the fallback CRM token has no ads_read,
+    // so every read fails with the same paragraph. Nine copies on screen was the bug.
+    const stub = graphStub(snapshotHandler(() => graphError('Unsupported get request. Object with ID \'' + CAMPAIGN + '\' does not exist, cannot be loaded due to missing permissions', 100)));
+    const cfg = meta.adsConfig({ META_CAPI_ACCESS_TOKEN: 'capi-token' });
+    const r = await meta.buildSnapshot({ config: cfg, fetchImpl: stub.impl, now: NOW });
+    expect(r.ok).toBe(false);
+    expect(r.problems).toHaveLength(2);
+    expect(r.problems[0]).toMatch(/^Every read failed: Unsupported get request/);
+    expect(r.problems[1]).toBe('Token in use: META_CAPI_ACCESS_TOKEN.');
+    expect(r.permission_error).toBe(true);
   });
 
   it('names a credential or permission failure on the ads read', async () => {
@@ -620,7 +636,8 @@ describe('buildSnapshot', () => {
     }));
     const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: stub.impl, leadRows: fx.leadRows, now: NOW });
     expect(r.ok).toBe(true);
-    expect(r.problems).toEqual(['Insights (last 7 days): Insights temporarily unavailable (code 2)']);
+    expect(r.problems[0]).toBe('Insights (last 7 days) failed: Insights temporarily unavailable (code 2)');
+    expect(r.problems[1]).toMatch(/^Token in use: /);
     expect(r.snapshot.errors).toEqual(r.problems);
     expect(r.snapshot.ads).toHaveLength(9);
     r.snapshot.ads.forEach((a) => expect(a.metrics.last_7d).toEqual(meta.emptyMetrics()));
@@ -652,7 +669,8 @@ describe('buildSnapshot', () => {
     };
     const r = await meta.buildSnapshot({ config: TOKEN_CFG, fetchImpl: throwing, now: NOW });
     expect(r.ok).toBe(true);
-    expect(r.problems).toEqual(['Ad sets: Could not reach Meta: socket hang up']);
+    expect(r.problems[0]).toBe('Ad sets failed: Could not reach Meta: socket hang up');
+    expect(r.problems[1]).toMatch(/^Token in use: /);
     expect(r.snapshot.adsets).toEqual([]);
     expect(r.snapshot.ads[0].adset_name).toBe('');
   });

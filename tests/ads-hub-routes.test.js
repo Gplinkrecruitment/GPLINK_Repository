@@ -118,6 +118,16 @@ describe('the page without a Meta token', () => {
     expect(r.json.message).toMatch(/Meta is not connected/);
     expect(r.json.review.error).toMatch(/Meta is not connected/);
   });
+  it('generating a photo without a Higgsfield key is a plain message, and the page says so', async () => {
+    const page = await req('GET', '/api/ceo/ads', { headers: ceo() });
+    expect(page.json.higgsfield_configured).toBe(false);
+    const draft = await req('POST', '/api/ceo/ads/drafts/create', { headers: ceo(), body: { angle: 'photo-test', image_prompt: 'A UK reception desk at 7:55am' } });
+    const r = await req('POST', '/api/ceo/ads/draft/generate-photo', { headers: ceo(), body: { id: draft.json.draft.id } });
+    expect(r.status).toBe(200);
+    expect(r.json.ok).toBe(false);
+    expect(r.json.message).toMatch(/HIGGSFIELD_API_KEY/);
+    expect((await req('POST', '/api/ceo/ads/draft/generate-photo', { headers: ceo(), body: { id: 'nope' } })).status).toBe(404);
+  });
   it('health says what is missing', async () => {
     const r = await req('GET', '/api/ceo/ads/health', { headers: ceo() });
     expect(r.json.configured).toBe(false);

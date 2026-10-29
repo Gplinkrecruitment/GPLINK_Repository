@@ -57,7 +57,8 @@ tags, the download link for the composed image) for Ads Manager.
 1. **Set `META_ADS_ACCESS_TOKEN` in Vercel (production).** Business Settings → System Users →
    the GP Link system user → *Assign assets*: the ad account `1668035273758338` (Manage) and
    the Page `769864969547691` (Manage) → *Generate token* with `ads_read`, `ads_management`,
-   `pages_manage_ads` (and `leads_retrieval` is harmless). No redeploy needed. Until it is set
+   `pages_manage_ads` (and `leads_retrieval` is harmless). **Then redeploy** (Vercel →
+   Deployments → ⋯ → Redeploy): serverless functions read env at deploy time. Until it is set
    the page shows the app's own lead funnel only and says so in red. The code falls back to
    `META_CAPI_ACCESS_TOKEN` (the CRM stage-feed System User token) — it *may* already carry
    `ads_read`; the **Check connection** button on the page says exactly what the active token
@@ -65,6 +66,17 @@ tags, the download link for the composed image) for Ads Manager.
 2. Click **Run review now** once; the morning cron then takes over.
 3. The first launch from the page is the real test of ad creation (see §4.1). Watch the card:
    it either shows the Meta ad id with an Ads Manager link, or the exact error and the kit.
+
+4. **Photos from the brief (optional): `HIGGSFIELD_API_KEY`** in Vercel, value `KEY_ID:KEY_SECRET`
+   from console.higgsfield.ai → API keys. The draft card then shows **Generate photo**, which
+   posts the brief to `api.higgsfield.ai` (SOUL, 4:5), waits (about a minute), and stores the
+   result as the draft's photo (`lib/higgsfield.js`, `POST /api/ceo/ads/draft/generate-photo`).
+   Their result URLs expire after 7 days, which is why the bytes are copied into our bucket.
+   Two things the docs disagree on are handled in code: the quickstart path is
+   `/higgsfield-ai/soul/v2/standard`, the OpenAPI spec says `/higgsfield-ai/soul/standard`
+   (tried in that order; a 404 falls through), and the optional fields `aspect_ratio`,
+   `resolution`, `num_images` are dropped on a 400 that names one. **Untested against a real
+   key** (none available in this session); `tests/higgsfield.test.js` covers the client logic.
 
 Optional: `ADS_LAUNCH_DISABLED=true` holds every launch (drafts still schedule);
 `ADS_REVIEW_MODEL` overrides the model (default `claude-opus-5-5`); `META_ADS_DEFAULT_ADSET_ID`,
@@ -141,9 +153,16 @@ Root causes found and fixed — all in the inline script of `pages/ceo-dashboard
    run refreshes them.
 4. The model sometimes calls link clicks "form opens" (correct for lead ads) — fine, but the
    KPI tiles say "Link clicks". If the owner finds that confusing, rename the tile.
-5. Not browser-tested in this session (no browser available): the canvas composer was written
-   against the build.py layout and the fonts load from `/media/fonts/`; verify once on
-   production that the preview draws with Figtree (open a draft, type an image headline).
+5. **Browser-verified 2026-10-29 in headless Chrome 156** (driven over the DevTools protocol
+   against a local boot of the real server seeded with the real Opus review and the fixture
+   snapshot): the tab loads, the summary and verdicts render, a photo uploaded into a draft
+   composes with the headline in Figtree, Save stores the 1080x1350 creative and the server
+   serves it back. That run caught one real bug, fixed the same day: the page's
+   `img-src` CSP does not allow `*.fbcdn.net`, so the live creatives' Meta images were
+   blocked; they now go through `/api/ceo/ads/photo-proxy`. The driver script is in the job
+   tmp (`verify/cdp.js`); the pattern (createServer + listen, cookie via Network.setCookie,
+   `--host-resolver-rules` for the super-admin host) is the way to screenshot the CEO
+   dashboard without a browser session.
 
 ---
 
@@ -157,6 +176,10 @@ Root causes found and fixed — all in the inline script of `pages/ceo-dashboard
 - A real model run costs about US$0.20 (Opus 5.5 at $4/$20 per MTok, ~8k in / ~8k out).
 
 ## 6. Traps
+- `node server.js` does not listen when `NODE_ENV=test`; boot through `createServer()`
+  (as the tests do) for a local run. macOS has no `timeout` command.
+- The CEO surface answers 404, not 401, to a caller on a host outside
+  `SUPER_ADMIN_ALLOWED_HOSTS` (and to no session), so a bare curl of a CEO route proves nothing.
 - `exec_sql` takes `{"query": ...}` and returns 204 with no body; PostgREST's schema cache can
   lag a new table by seconds — `NOTIFY pgrst, 'reload schema'` then re-read.
 - `js/*` and `css/*` are immutable-cached for a year: bump `?v=` on every change

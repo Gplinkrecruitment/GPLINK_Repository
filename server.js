@@ -13747,6 +13747,7 @@ async function readMigrationLedger() {
 // (ad_reviews, ad_drafts — migration 20261029120000_ads_hub.sql) and HTTP.
 const metaAds = require('./lib/meta-ads.js');
 const adsReview = require('./lib/ads-review.js');
+const higgsfield = require('./lib/higgsfield.js');
 const ADS_REVIEW_MODEL = String(process.env.ADS_REVIEW_MODEL || adsReview.DEFAULT_MODEL).trim() || adsReview.DEFAULT_MODEL;
 // Folder inside the social-creatives bucket; served through /api/ceo/ads/image.
 const ADS_IMAGE_PREFIX = 'ad-drafts';
@@ -14055,6 +14056,7 @@ async function adsPagePayload(opts) {
     launch_disabled: cfg.launchDisabled,
     anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
     model: ADS_REVIEW_MODEL,
+    higgsfield_configured: higgsfield.higgsfieldConfig(process.env).configured,
     defaults: { adset_id: cfg.adsetId, lead_form_id: cfg.leadFormId, page_id: cfg.pageId, campaign_id: cfg.campaignId, account_id: cfg.accountId, time_zone: cfg.timeZone },
     cta_options: metaAds.CTA_OPTIONS,
     problems: [],
@@ -47354,6 +47356,39 @@ async function handleApi(req, res, pathname) {
     adsItRow.problems = metaAds.draftProblems(adsItRow);
     adsItRow.warnings = metaAds.draftWarnings(adsItRow);
     sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, warnings: adsItRes.warnings });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/generate-photo — a photograph from the draft's brief
+  // via Higgsfield, copied into our storage (their URL expires in days).
+  if (pathname === '/api/ceo/ads/draft/generate-photo' && req.method === 'POST') {
+    var adsGpCtx = requireCeoSession(req, res);
+    if (!adsGpCtx) return;
+    var adsGpBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsGpId = String(adsGpBody.id || '').trim();
+    var adsGpDraft = adsGpId ? await adsReadDraft(adsGpId) : null;
+    if (!adsGpDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsGpDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; duplicate it to make a new version.' }); return; }
+    var adsGpCfg = higgsfield.higgsfieldConfig(process.env);
+    if (!adsGpCfg.configured) { sendJson(res, 200, { ok: false, message: higgsfield.configProblems(adsGpCfg)[0] }); return; }
+    var adsGpPrompt = String(adsGpBody.prompt || adsGpDraft.image_prompt || '').trim().slice(0, 1500);
+    if (!adsGpPrompt) { sendJson(res, 400, { ok: false, message: 'This draft has no photo brief yet; write one in the Photo brief box or ask the model.' }); return; }
+    var adsGpRes = await higgsfield.generatePhoto({ config: adsGpCfg, prompt: adsGpPrompt, aspectRatio: '4:5', maxWaitMs: 170000 });
+    if (!adsGpRes.ok) {
+      sendJson(res, 200, { ok: false, message: adsGpRes.auth
+        ? 'Higgsfield rejected the key (' + adsGpRes.error + '). Check HIGGSFIELD_API_KEY is KEY_ID:KEY_SECRET from console.higgsfield.ai.'
+        : String(adsGpRes.error || 'Higgsfield failed.') });
+      return;
+    }
+    var adsGpDataUrl = 'data:' + (adsGpRes.contentType.split(';')[0] || 'image/jpeg') + ';base64,' + adsGpRes.buffer.toString('base64');
+    var adsGpStore = await adsStoreImage(adsGpId, 'photo', adsGpDataUrl);
+    if (!adsGpStore.ok) { sendJson(res, 500, { ok: false, message: 'Generated, but could not store the photo: ' + adsGpStore.error }); return; }
+    var adsGpLayout = Object.assign({}, adsGpDraft.layout || {}, { photo_source: 'higgsfield', photo_request_id: adsGpRes.requestId, photo_prompt: adsGpPrompt });
+    delete adsGpLayout.photo_url; delete adsGpLayout.photo_hash; delete adsGpLayout.photo_name;
+    var adsGpSaved = await adsPatchDraft(adsGpId, { photo_path: adsGpStore.path, image_prompt: adsGpPrompt, layout: adsGpLayout, meta_image_hash: null, meta_creative_id: null });
+    var adsGpRow = (adsGpSaved.ok && adsGpSaved.row) || await adsReadDraft(adsGpId);
+    adsGpRow.problems = metaAds.draftProblems(adsGpRow); adsGpRow.warnings = metaAds.draftWarnings(adsGpRow);
+    sendJson(res, 200, { ok: true, draft: adsGpRow, request_id: adsGpRes.requestId });
     return;
   }
 

@@ -178,9 +178,13 @@
         'assign the ad account (' + esc(d.defaults.account_id) + ') and the Page, then Generate token with <code>ads_read</code>, <code>ads_management</code>, <code>pages_manage_ads</code>. ' +
         'Reading needs ads_read; launching ads from this page needs the other two. Redeploy is not required — the next load picks it up.</div>';
     } else if (d.snapshot_source === 'error') {
-      out += '<div class="soc-warn"><strong>Meta refused the read.</strong> ' + esc((d.problems || []).join(' ')) +
-        (d.credential_error ? ' The token looks invalid or expired — re-mint it as a System User token.' : '') +
-        (d.permission_error ? ' The token lacks ads_read on this ad account.' : '') + '</div>';
+      out += '<div class="soc-warn"><strong>Meta refused the read.</strong> ' +
+        (d.permission_error
+          ? 'The token the app is using (<code>' + esc(d.token_source || 'META_CAPI_ACCESS_TOKEN') + '</code>) cannot read the ad account: it has no <code>ads_read</code> on ad account ' + esc(d.defaults.account_id) + '. ' +
+            'Add <code>META_ADS_ACCESS_TOKEN</code> in Vercel (a System User token with ads_read, ads_management and pages_manage_ads, ad account and Page assigned), then redeploy. '
+          : '') +
+        (d.credential_error ? 'The token looks invalid or expired. Re-mint it as a System User token. ' : '') +
+        '<details class="ad-errdetail"><summary>Meta\'s exact wording</summary>' + esc((d.problems || []).join(' ')) + '</details></div>';
     } else if (d.problems && d.problems.length) {
       out += '<div class="soc-note"><strong>Some numbers are missing.</strong> ' + esc(d.problems.join(' ')) + '</div>';
     }
@@ -343,8 +347,11 @@
     var f30 = (a.funnel && a.funnel.d30) || {};
     var f7 = (a.funnel && a.funnel.d7) || {};
     var flags = a.flags || [];
+    // Meta's CDN (*.fbcdn.net) is not in the page's img-src CSP, so a direct
+    // <img> is blocked by the browser (seen in headless Chrome, 2026-10-29).
+    // The same-origin proxy serves the bytes instead.
     var img = c.image_url
-      ? '<img loading="lazy" src="' + esc(c.image_url) + '" alt="" onerror="this.style.display=\'none\'; this.parentNode.classList.add(\'no-img\')">'
+      ? '<img loading="lazy" src="/api/ceo/ads/photo-proxy?url=' + encodeURIComponent(c.image_url) + '" alt="" onerror="this.style.display=\'none\'; this.parentNode.classList.add(\'no-img\')">'
       : '';
     return '<article class="ad-live-card" data-ad="' + esc(a.id) + '">' +
       '<div class="ad-live-img' + (img ? '' : ' no-img') + '">' + img +

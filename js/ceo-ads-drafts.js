@@ -133,8 +133,12 @@
         '<div class="ad-photo-controls">' +
           '<label class="soc-btn ad-file-btn">Upload photo<input type="file" accept="image/*" data-role="photo-file" hidden></label>' +
           '<button type="button" class="soc-btn" data-act="photo-lib">From ad account</button>' +
+          (data.higgsfield_configured
+            ? '<button type="button" class="soc-btn now" data-act="gen-photo" title="Generate a photograph from the photo brief with Higgsfield (about a minute)">' + (state.busy['gp-' + d.id] ? 'Generating…' : 'Generate photo') + '</button>'
+            : '') +
           (d.image_prompt ? '<button type="button" class="soc-btn" data-act="copy-brief" title="Copy the photo brief for Higgsfield / any image tool">Copy photo brief</button>' : '') +
         '</div>' +
+        (data.higgsfield_configured ? '' : '<div class="soc-when">Add HIGGSFIELD_API_KEY in Vercel to generate photos from the brief here.</div>') +
         '<div class="ad-photo-lib" data-role="photo-lib" hidden></div>' +
         '<div class="ad-layout-controls">' +
           '<label><input type="radio" name="placement-' + esc(d.id) + '" value="bottom"' + (layout.placement !== 'top' ? ' checked' : '') + '> Headline at the foot (dark photo)</label>' +
@@ -476,6 +480,7 @@
     if (act === 'photo-lib') return photoLib(id);
     if (act === 'photo-pick') return pickLibrary(id, btn.getAttribute('data-url'), btn.getAttribute('data-hash'), btn.getAttribute('data-name'));
     if (act === 'copy-brief') return copyBrief(id);
+    if (act === 'gen-photo') return generatePhoto(id);
     if (act === 'kit') return showKit(id);
     if (act === 'duplicate') return duplicate(id);
   }
@@ -584,6 +589,27 @@
     }
     kit.hidden = !kit.hidden;
     if (!kit.hidden) { kit.focus(); kit.select(); }
+  }
+
+  // Higgsfield writes the photo straight into the draft's storage; the card is
+  // repainted from the server's copy so the composer loads it like any stored photo.
+  function generatePhoto(id) {
+    var el = cardEl(id);
+    var briefBox = el && el.querySelector('.ad-brief div');
+    var d = byId(id) || {};
+    if (!d.image_prompt && !(briefBox && briefBox.textContent)) { A.toast('This draft has no photo brief. Ask the model for one first.', 'error'); return; }
+    if (!window.confirm('Generate a photograph from this ad\'s brief with Higgsfield? It uses your Higgsfield credits and takes about a minute.')) return;
+    state.busy['gp-' + id] = true;
+    setBusy(id, true, 'Generating the photo… about a minute.');
+    A.api('/api/ceo/ads/draft/generate-photo', { method: 'POST', body: { id: id } }).then(function (r) {
+      state.busy['gp-' + id] = false;
+      setBusy(id, false);
+      if (!r || !r.ok) { A.toast((r && r.message) || 'Could not generate the photo.', 'error'); return; }
+      var st = card(id);
+      st.photoImg = null; st.photoKind = null; st.photoMeta = null;
+      paintCard(r.draft);
+      A.toast('Photo generated. Adjust the crop if needed, then Save to compose the creative.');
+    });
   }
 
   function copyBrief(id) {
