@@ -458,7 +458,9 @@ describe('after-action refreshes repaint in place', () => {
   });
 
   it('every modified bundle carries the 20261029b buster (js/* is immutable-cached for a year)', () => {
-    ['ceo-ats-shared', 'ceo-ats-candidates', 'ceo-ats-jobs', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-ats-leads', 'ceo-ats-contracts', 'ceo-review-queue']
+    ['ceo-ats-shared', 'ceo-ats-candidates', 'ceo-ats-jobs', 'ceo-ats-practices', 'ceo-ats-meetings', 'ceo-ats-matching', 'ceo-ats-contracts', 'ceo-review-queue']
       .forEach((f) => expect(html).toContain('<script src="/js/' + f + '.js?v=20261029b"></script>'));
+    // The Leads tab was rebuilt on 2026-10-30 (around Hazel) and bumped again.
+    expect(html).toContain('<script src="/js/ceo-ats-leads.js?v=20261030a"></script>');
   });
 });

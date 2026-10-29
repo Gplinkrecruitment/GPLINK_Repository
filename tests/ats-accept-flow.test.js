@@ -664,7 +664,7 @@ describe('accept WITH the agreed interview time — books it, skips the availabi
     const html = read('pages/ceo-dashboard.html');
     expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
     expect(html).toContain('/js/ceo-ats-jobs.js?v=20261029b');
-    expect(html).toContain('/css/ceo-ats.css?v=20261029a');
+    expect(html).toContain('/css/ceo-ats.css?v=20261030a');
   });
 });
 
@@ -732,7 +732,7 @@ describe('two accepts for the same interview at the same instant book ONCE and m
     expect(cand.match(/host\.addEventListener\('(click|change)', function/g)).toBeNull();
     const html = read('pages/ceo-dashboard.html');
     expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
-    expect(html).toContain('/css/ceo-ats.css?v=20261029a');
+    expect(html).toContain('/css/ceo-ats.css?v=20261030a');
   });
 
   it('the booking write is conditional and every booking caller handles the loser', () => {

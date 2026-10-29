@@ -63,6 +63,15 @@ verified data shapes, and what is still broken.
   `max_tokens`) and §4.1 before "fixing" a launch error (1815089 is the Page terms check, not
   a bug).
 
+- **Leads tab / Hazel (the Retell lead caller) on the CEO dashboard / "will Hazel ring this
+  lead?" / call-backs, pause, do-not-call, ring now** →
+  [`docs/superpowers/handovers/2026-10-30-leads-tab-hazel-handover.md`](docs/superpowers/handovers/2026-10-30-leads-tab-hazel-handover.md)
+  — live as of 2026-10-30. **Read §3 before touching `leadCallDecision`**: only four
+  `consult.stopped` values stop the phone (an exhausted email chase does not), a due call-back
+  waives the age/attempt/spacing guards but never consent or local hours, and `call_back_at` is
+  consumed on every placement so a bad number cannot loop. Hazel is still not rung in prod
+  until the owner sets `LEAD_CALLS_ENABLED`, the from-number and `LEAD_CALLS_MAX_LEAD_AGE_DAYS` (§5).
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules

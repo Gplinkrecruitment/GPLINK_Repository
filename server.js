@@ -30925,6 +30925,10 @@ async function placeLeadCall(row, decision, cfg, opts) {
       next.ai_calls = hist.slice(-10);
     }
     next.ai_call = ai;
+    // An owner-scheduled call-back is consumed by this attempt, placed or not:
+    // a due call-back waives the retry spacing, so leaving it set on a number
+    // Retell cannot dial would have the cron retrying every five minutes.
+    if (next.call_back_at) { next.call_back_done_at = next.call_back_at; delete next.call_back_at; }
     const md = Object.assign({}, row.metadata, { consult: next });
     const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
     if (ok) row.metadata = md;
@@ -31282,6 +31286,305 @@ async function leadCallToolMarkOutcome(ctx) {
   await stampLeadAiCall(ctx.row.id, ctx.call.call_id, aiPatch, consultPatch, ctx.nowIso);
   console.log('[lead-calls] outcome', outcome, 'for lead', ctx.row.id, 'via call', ctx.call.call_id);
   return 'Noted.';
+}
+
+// ── CEO Leads tab: projection, filters, detail, owner actions ───────────────
+// One projected lead = the row's own facts + its stage (lib leadStage) + what
+// Hazel will do next (lib leadCallPlan). PRIVACY: metadata also holds ip and
+// user_agent, so every field is named here — never spread raw metadata.
+const CEO_LEAD_NO_CONTACT_OUTCOMES = ['voicemail', 'no_answer', 'failed'];
+
+function ceoLeadLastCall(ai) {
+  if (!ai) return null;
+  return {
+    status: String(ai.status || ''),
+    outcome: String(ai.outcome || ''),
+    outcome_label: (leadCalls.OUTCOMES[ai.outcome] || {}).label || (ai.status === 'registered' || ai.status === 'ongoing' ? 'In progress' : ''),
+    tool_outcome: String(ai.tool_outcome || ''),
+    attempt: Number(ai.attempt) || 1,
+    started_at: ai.started_at || '',
+    completed_at: ai.completed_at || '',
+    duration_s: Number(ai.duration_s) || 0,
+    sentiment: String(ai.sentiment || ''),
+    summary: String(ai.summary || '').slice(0, 300),
+    note: String(ai.note || '').slice(0, 300),
+    callback_note: String(ai.callback_note || '').slice(0, 160),
+    callback_at: ai.callback_at || '',
+    gp_status: String(ai.gp_status || ''),
+    timeframe: String(ai.timeframe || '').slice(0, 160),
+    notes: String(ai.notes || '').slice(0, 400),
+    has_recording: !!ai.recording_url,
+    error: String(ai.error || '').slice(0, 160)
+  };
+}
+
+function ceoLeadProjection(r, nowMs, cfg) {
+  const meta = (r && r.metadata) || {};
+  const c = meta.consult || {};
+  const nudges = Array.isArray(c.nudges) ? c.nudges : [];
+  const lastNudge = nudges.length ? nudges[nudges.length - 1] : null;
+  const ai = c.ai_call || null;
+  const hist = Array.isArray(c.ai_calls) ? c.ai_calls : [];
+  const stage = leadCalls.leadStage(r);
+  const plan = leadCalls.leadCallPlan({ row: r, nowMs, cfg });
+  const spoke = hist.some((h) => h && Number(h.duration_s) > 0 && CEO_LEAD_NO_CONTACT_OUTCOMES.indexOf(h.outcome) === -1);
+  const bookedByHazel = !!((ai && ai.tool_outcome === 'booked') || hist.some((h) => h && h.outcome === 'booked')
+    || (c.booking_utm && c.booking_utm.source === 'ai_call'));
+  const createdMs = Date.parse((r && r.created_at) || '');
+  const country = String((r && r.state) || c.country || '');
+  return {
+    id: (r && r.id) || '',
+    name: (r && r.name) || '',
+    email: (r && r.email) || '',
+    phone: (r && r.phone) || '',
+    country,
+    tz: interviewMeetings.gpTzForCountry(country.toLowerCase()),
+    created_at: (r && r.created_at) || '',
+    age_days: Number.isFinite(createdMs) ? Math.max(0, Math.floor((nowMs - createdMs) / 86400000)) : null,
+    status: (r && r.status) || '',
+    source: meta.source || '',
+    qualified: c.qualified === true,
+    screened_out: c.screened_out === true,
+    // Distinct from screened_out: they booked the Calendly link direct and
+    // were never asked the screening questions (handleCalendlyInviteeCreated).
+    not_screened: c.not_screened === true,
+    call_booked: c.call_booked === true,
+    call_booked_at: c.call_booked_at || '',
+    call_at: c.call_at || '',
+    call_completed_at: c.call_completed_at || '',
+    booked_via: c.call_booked ? (bookedByHazel ? 'hazel' : (c.booked_via === 'phone_match' ? 'phone_match' : 'calendly')) : '',
+    // The start form stores the question on the row itself; a question typed
+    // at booking time lands in consult.call_question. Either is "they asked us".
+    call_question: c.call_question || (r && r.message) || '',
+    // Steps whose email leg actually went — a bounced or WhatsApp-only step
+    // is on the record but was not an email (entries before 2026-09-08
+    // carry no `email` field and were all emails).
+    nudges_sent: nudges.filter((n) => n && (n.email == null || n.email === 'sent')).length,
+    last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
+    wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
+    email_bounced: c.email_bounced === true,
+    stopped: c.stopped || '',
+    stopped_label: leadCalls.STOP_REASON_LABELS[c.stopped] || '',
+    calls_paused: c.calls_paused === true,
+    call_back_at: c.call_back_at || '',
+    stage,
+    hazel: {
+      state: plan.state, label: plan.label, detail: plan.detail, due_at: plan.due_at, reason: plan.reason,
+      attempts: hist.length,
+      max_attempts: cfg.maxAttempts,
+      spoke,
+      booked: bookedByHazel,
+      last: ceoLeadLastCall(ai)
+    }
+  };
+}
+
+// What the Leads tab says about the dialler itself: booleans for config
+// (never a value), the limits that decide "will she ring", the last cron run.
+async function ceoHazelStatus(cfg) {
+  let lastRun = _localCronRuns['lead-calls'] || null;
+  if (!lastRun && isSupabaseDbConfigured()) {
+    try {
+      const r = await supabaseDbRequest('runtime_kv', 'select=value&key=eq.cron_last_run_lead-calls&limit=1');
+      const row = r.ok && Array.isArray(r.data) ? r.data[0] : null;
+      if (row && row.value) lastRun = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+    } catch (e) { lastRun = null; }
+  }
+  return {
+    enabled: cfg.enabled,
+    configured: !!(cfg.apiKey && cfg.agentId),
+    from_uk: !!cfg.fromNumbers.uk,
+    from_au: !!cfg.fromNumbers.au,
+    max_lead_age_days: Math.round(cfg.maxLeadAgeMs / 86400000),
+    max_attempts: cfg.maxAttempts,
+    retry_after_min: Math.round(cfg.retryAfterMs / 60000),
+    per_run: cfg.perRun,
+    test_mode: cfg.testNumbers.length > 0,
+    test_numbers: cfg.testNumbers.length,
+    last_run: lastRun && lastRun.at ? { at: lastRun.at, status: lastRun.status || '', detail: String(lastRun.detail || '').slice(0, 200) } : null
+  };
+}
+
+// Stage chips. Legacy keys (qualified / converted) still answer so a browser
+// on an older copy of the tab keeps working until it reloads.
+const CEO_LEAD_STAGE_FILTERS = {
+  all:           () => true,
+  open:          (p) => p.stage.key === 'open',
+  booked:        (p) => p.stage.key === 'booked',
+  signed_up:     (p) => p.stage.key === 'signed_up',
+  burnt:         (p) => p.stage.key === 'burnt',
+  not_qualified: (p) => p.stage.key === 'not_qualified',
+  unscreened:    (p) => p.stage.key === 'unscreened',
+  qualified:     (p) => p.qualified,
+  converted:     (p) => p.stage.key === 'signed_up'
+};
+// The Hazel dimension (independent of stage).
+const CEO_LEAD_HAZEL_FILTERS = {
+  any:         () => true,
+  queued:      (p) => p.hazel.state === 'queued',
+  scheduled:   (p) => p.hazel.state === 'scheduled' || p.hazel.state === 'retry',
+  in_progress: (p) => p.hazel.state === 'in_progress',
+  called:      (p) => p.hazel.attempts > 0 || !!p.hazel.last,
+  spoke:       (p) => p.hazel.spoke,
+  booked:      (p) => p.hazel.booked,
+  link_sent:   (p) => !!p.hazel.last && p.hazel.last.outcome === 'link_sent',
+  no_answer:   (p) => !!p.hazel.last && CEO_LEAD_NO_CONTACT_OUTCOMES.indexOf(p.hazel.last.outcome) !== -1,
+  gave_up:     (p) => p.hazel.state === 'gave_up',
+  burnt:       (p) => p.hazel.state === 'burnt',
+  blocked:     (p) => p.hazel.state === 'blocked' || p.hazel.state === 'paused',
+  not_called:  (p) => p.hazel.attempts === 0 && !p.hazel.last
+};
+
+// Post-call analysis fields Hazel's agent is configured to extract
+// (config/retell/agent.json post_call_analysis_data) — projected by name.
+const CEO_LEAD_ANALYSIS_KEYS = ['outcome', 'callback_time', 'gp_status', 'training_finish', 'timeframe', 'objections',
+  'objection_handled', 'lost_booking_reason', 'unanswered_questions', 'agent_slips', 'notes'];
+function ceoLeadLearned(analysis) {
+  const a = (analysis && typeof analysis === 'object') ? analysis : {};
+  const custom = (a.custom_analysis_data && typeof a.custom_analysis_data === 'object') ? a.custom_analysis_data : {};
+  const out = {};
+  CEO_LEAD_ANALYSIS_KEYS.forEach((k) => {
+    const v = custom[k];
+    if (v == null || v === '' || v === 'none' || v === 'unknown') return;
+    out[k] = String(v).slice(0, 400);
+  });
+  if (a.call_successful != null) out.call_successful = a.call_successful === true;
+  return out;
+}
+
+// Every attempt for one lead, newest first: the lead's own compact history
+// (always present, local DB included) overlaid with the full lead_calls row
+// (transcript, recording, analysis) where one exists.
+async function ceoLeadCallHistory(row) {
+  const c = (row && row.metadata && row.metadata.consult) || {};
+  const byId = {};
+  const list = [];
+  const add = (h) => {
+    const id = String((h && h.call_id) || '') || ('attempt-' + (list.length + 1));
+    const base = byId[id] || { call_id: id };
+    Object.assign(base, h);
+    if (!byId[id]) { byId[id] = base; list.push(base); }
+  };
+  (Array.isArray(c.ai_calls) ? c.ai_calls : []).forEach((h) => {
+    if (!h) return;
+    add({
+      call_id: String(h.call_id || ''), attempt: Number(h.attempt) || 0, outcome: String(h.outcome || ''),
+      started_at: h.started_at || '', completed_at: h.completed_at || '', duration_s: Number(h.duration_s) || 0,
+      summary: String(h.summary || ''), sentiment: String(h.sentiment || ''), disconnection_reason: String(h.disconnection_reason || ''),
+      callback_note: String(h.callback_note || ''), gp_status: String(h.gp_status || ''), timeframe: String(h.timeframe || ''),
+      notes: String(h.notes || ''), recording_url: String(h.recording_url || ''), error: String(h.error || ''), transcript: '', learned: {}
+    });
+  });
+  // The live/latest call may not be in the history yet (placed, not ended).
+  if (c.ai_call && c.ai_call.call_id && !byId[c.ai_call.call_id]) {
+    const a = c.ai_call;
+    add({ call_id: String(a.call_id), attempt: Number(a.attempt) || 0, outcome: String(a.outcome || ''), status: String(a.status || ''),
+      started_at: a.started_at || '', completed_at: a.completed_at || '', duration_s: Number(a.duration_s) || 0,
+      summary: String(a.summary || ''), sentiment: String(a.sentiment || ''), note: String(a.note || ''), transcript: '', learned: {} });
+  } else if (c.ai_call && c.ai_call.call_id && c.ai_call.note) {
+    byId[c.ai_call.call_id].note = String(c.ai_call.note);
+  }
+  if (isSupabaseDbConfigured() && LEAD_CALL_UUID_RE.test(String((row && row.id) || ''))) {
+    try {
+      const r = await supabaseDbRequest('lead_calls',
+        'select=call_id,outcome,status,disconnection_reason,started_at,ended_at,duration_s,summary,sentiment,transcript,recording_url,analysis,cost_cents'
+        + '&enquiry_id=eq.' + encodeURIComponent(String(row.id)) + '&order=started_at.desc.nullslast&limit=20');
+      (r.ok && Array.isArray(r.data) ? r.data : []).forEach((lc) => {
+        if (!lc || !lc.call_id) return;
+        add({
+          call_id: String(lc.call_id), outcome: String(lc.outcome || byId[lc.call_id] && byId[lc.call_id].outcome || ''),
+          status: String(lc.status || ''), disconnection_reason: String(lc.disconnection_reason || ''),
+          started_at: lc.started_at || (byId[lc.call_id] && byId[lc.call_id].started_at) || '', ended_at: lc.ended_at || '',
+          duration_s: Number(lc.duration_s) || (byId[lc.call_id] && byId[lc.call_id].duration_s) || 0,
+          summary: String(lc.summary || (byId[lc.call_id] && byId[lc.call_id].summary) || ''),
+          sentiment: String(lc.sentiment || ''), transcript: String(lc.transcript || ''),
+          recording_url: String(lc.recording_url || ''), cost_cents: Number.isFinite(Number(lc.cost_cents)) ? Number(lc.cost_cents) : null,
+          learned: ceoLeadLearned(lc.analysis)
+        });
+      });
+    } catch (e) { console.warn('[ceo-leads] lead_calls read failed for', row.id, ':', e && e.message); }
+  }
+  list.forEach((h) => { h.outcome_label = (leadCalls.OUTCOMES[h.outcome] || {}).label || (h.status === 'registered' || h.status === 'ongoing' ? 'In progress' : ''); });
+  return list.sort((a, b) => (Date.parse(b.started_at || '') || 0) - (Date.parse(a.started_at || '') || 0));
+}
+
+function ceoLeadChase(row) {
+  const c = (row && row.metadata && row.metadata.consult) || {};
+  const nudges = (Array.isArray(c.nudges) ? c.nudges : []).map((n) => ({
+    seq: String((n && n.seq) || ''), step: Number(n && n.step) || 0, sent_at: (n && n.sent_at) || '', email: String((n && n.email) || 'sent')
+  }));
+  const wa = (c.wa && typeof c.wa === 'object') ? c.wa : {};
+  const whatsapp = Object.keys(wa).filter((k) => wa[k] && wa[k].sent_at).map((k) => ({ kind: k, sent_at: wa[k].sent_at }));
+  return { nudges, whatsapp };
+}
+
+// Ring this lead now (owner's button). Consent, the number, the dry-run
+// allow-list and "already on a call" are enforced here; everything the
+// automatic dialler uses to pace ITSELF (lead age, attempt cap, retry spacing,
+// calling hours) is the owner's call — the page shows the doctor's local time
+// before they confirm. Resolves { status, body }.
+async function ceoLeadCallNow(row) {
+  const cfg = leadCalls.parseLeadCallConfig(process.env);
+  const consult = (row.metadata && row.metadata.consult) || {};
+  const missing = [];
+  if (!cfg.apiKey) missing.push('RETELL_API_KEY');
+  if (!cfg.agentId) missing.push('RETELL_AGENT_ID');
+  if (missing.length) return { status: 503, body: { ok: false, message: 'Hazel is not set up yet: ' + missing.join(', ') + ' missing.' } };
+  const phone = leadCalls.leadPhoneE164(row);
+  if (!phone) return { status: 400, body: { ok: false, message: 'No usable phone number on this lead (it needs the country code, e.g. +44).' } };
+  const country = String(consult.country || row.state || '').toLowerCase() || leadCalls.countryFromDialCode(phone);
+  if (leadCalls.SUPPORTED_COUNTRIES.indexOf(country) === -1 || !leadCalls.countryFromDialCode(phone)) {
+    return { status: 400, body: { ok: false, message: 'Hazel only rings UK, Irish, Australian and New Zealand numbers.' } };
+  }
+  if (cfg.testNumbers.length && cfg.testNumbers.indexOf(phone) === -1) {
+    return { status: 409, body: { ok: false, message: 'Test mode is on: only the numbers in LEAD_CALLS_TEST_NUMBERS can be rung.' } };
+  }
+  if (consult.stopped === 'do_not_call') return { status: 409, body: { ok: false, message: 'This doctor asked not to be called.' } };
+  const ai = consult.ai_call;
+  if (ai && !ai.completed_at && ai.call_id) {
+    const startedMs = Date.parse(ai.started_at || '');
+    if (Number.isFinite(startedMs) && Date.now() - startedMs < 15 * 60000) {
+      return { status: 409, body: { ok: false, message: 'A call to this doctor is already in progress.' } };
+    }
+  }
+  const from = leadCalls.fromNumberForCountry(country, cfg.fromNumbers);
+  if (!from) {
+    return { status: 503, body: { ok: false, message: 'No outbound number is set up for ' + (country === 'au' || country === 'nz' ? 'Australia/NZ (RETELL_FROM_NUMBER_AU)' : 'the UK/Ireland (RETELL_FROM_NUMBER_UK)') + '.' } };
+  }
+  const decision = { phone, country, tz: interviewMeetings.gpTzForCountry(country), from, attempt: leadCalls.attemptsSoFar(consult) + 1 };
+  const result = await placeLeadCall(row, decision, cfg, { source: 'ceo-manual' });
+  if (!result.ok) return { status: 502, body: { ok: false, message: 'Retell did not accept the call: ' + result.error } };
+  return { status: 200, body: { ok: true, call_id: result.call_id } };
+}
+
+// Owner switches on one lead: pause / resume Hazel, schedule or clear a
+// call-back, or mark "do not call". Resolves { status, body }.
+const CEO_LEAD_HAZEL_ACTIONS = ['pause', 'resume', 'schedule', 'unschedule', 'do_not_call'];
+async function ceoLeadHazelAction(row, body, nowMs) {
+  const action = String((body && body.action) || '').trim().toLowerCase();
+  if (CEO_LEAD_HAZEL_ACTIONS.indexOf(action) === -1) {
+    return { status: 400, body: { ok: false, message: 'action must be one of ' + CEO_LEAD_HAZEL_ACTIONS.join(', ') + '.' } };
+  }
+  const consult = Object.assign({}, (row.metadata && row.metadata.consult) || {});
+  if (!consult.country && row.state) consult.country = String(row.state).toLowerCase();
+  if (action === 'pause') { consult.calls_paused = true; consult.calls_paused_at = new Date(nowMs).toISOString(); }
+  if (action === 'resume') { delete consult.calls_paused; delete consult.calls_paused_at; }
+  if (action === 'schedule') {
+    const atMs = Date.parse(String((body && body.at) || ''));
+    if (!Number.isFinite(atMs)) return { status: 400, body: { ok: false, message: 'at must be a date and time.' } };
+    if (atMs < nowMs - 60000) return { status: 400, body: { ok: false, message: 'That time has already passed.' } };
+    if (atMs > nowMs + 366 * 86400000) return { status: 400, body: { ok: false, message: 'Call-backs can be scheduled up to a year ahead.' } };
+    if (consult.stopped === 'do_not_call') return { status: 409, body: { ok: false, message: 'This doctor asked not to be called.' } };
+    consult.call_back_at = new Date(Math.max(atMs, nowMs)).toISOString();
+    delete consult.calls_paused; delete consult.calls_paused_at;
+  }
+  if (action === 'unschedule') delete consult.call_back_at;
+  if (action === 'do_not_call') { consult.stopped = 'do_not_call'; delete consult.call_back_at; }
+  const md = Object.assign({}, row.metadata || {}, { consult });
+  const ok = await updateSiteEnquiryRow(row.id, { metadata: md });
+  if (!ok) return { status: 500, body: { ok: false, message: 'Could not save the change.' } };
+  row.metadata = md;
+  return { status: 200, body: { ok: true } };
 }
 // ── End outbound AI phone calls ─────────────────────────────────────────────
 
@@ -54450,77 +54753,85 @@ async function handleApi(req, res, pathname) {
     if (!clCtx) return;
     const clQ = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const clFilterRaw = String(url.searchParams.get('filter') || 'all').trim().toLowerCase();
-    const CL_FILTERS = {
-      all:           () => true,
-      qualified:     (r) => _clConsult(r).qualified === true,
-      booked:        (r) => _clConsult(r).call_booked === true,
-      converted:     (r) => r && r.status === 'converted',
-      not_qualified: (r) => _clConsult(r).qualified !== true
-    };
-    const clFilter = Object.prototype.hasOwnProperty.call(CL_FILTERS, clFilterRaw) ? clFilterRaw : 'all';
+    const clFilter = Object.prototype.hasOwnProperty.call(CEO_LEAD_STAGE_FILTERS, clFilterRaw) ? clFilterRaw : 'all';
+    const clHazelRaw = String(url.searchParams.get('hazel') || 'any').trim().toLowerCase();
+    const clHazel = Object.prototype.hasOwnProperty.call(CEO_LEAD_HAZEL_FILTERS, clHazelRaw) ? clHazelRaw : 'any';
     const clLimit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 200));
     const clOffset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0);
+    const clNow = Date.now();
+    const clCfg = leadCalls.parseLeadCallConfig(process.env);
 
     let clRows = await listSiteEnquiryRows('', 'gp'); // already newest-first
     if (clQ) {
       clRows = clRows.filter((r) =>
         String((r && r.name) || '').toLowerCase().indexOf(clQ) !== -1
-        || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1);
+        || String((r && r.email) || '').toLowerCase().indexOf(clQ) !== -1
+        || String((r && r.phone) || '').replace(/[^\d+]/g, '').indexOf(clQ.replace(/[^\d+]/g, '') || '\u0000') !== -1);
     }
+    const clAll = clRows.map((r) => ceoLeadProjection(r, clNow, clCfg));
     // Chip counts are computed over the q-filtered set (not the page) so the
-    // numbers stay truthful while a search is active.
+    // numbers stay truthful while a search is active; the Hazel counts are
+    // over the stage-filtered set, since that select narrows the chip.
     const clCounts = {};
-    Object.keys(CL_FILTERS).forEach((k) => { clCounts[k] = clRows.filter(CL_FILTERS[k]).length; });
-
-    const clMatched = clRows.filter(CL_FILTERS[clFilter]);
+    ['all', 'open', 'booked', 'signed_up', 'burnt', 'not_qualified', 'unscreened'].forEach((k) => { clCounts[k] = clAll.filter(CEO_LEAD_STAGE_FILTERS[k]).length; });
+    const clStaged = clAll.filter(CEO_LEAD_STAGE_FILTERS[clFilter]);
+    const clHazelCounts = {};
+    Object.keys(CEO_LEAD_HAZEL_FILTERS).forEach((k) => { clHazelCounts[k] = clStaged.filter(CEO_LEAD_HAZEL_FILTERS[k]).length; });
+    const clMatched = clStaged.filter(CEO_LEAD_HAZEL_FILTERS[clHazel]);
     const clTotal = clMatched.length;
-    const clPage = clMatched.slice(clOffset, clOffset + clLimit).map((r) => {
-      const meta = (r && r.metadata) || {};
-      const c = meta.consult || {};
-      const nudges = Array.isArray(c.nudges) ? c.nudges : [];
-      const lastNudge = nudges.length ? nudges[nudges.length - 1] : null;
-      return {
-        id: (r && r.id) || '',
-        name: (r && r.name) || '',
-        email: (r && r.email) || '',
-        phone: (r && r.phone) || '',
-        country: (r && r.state) || '',
-        created_at: (r && r.created_at) || '',
-        status: (r && r.status) || '',
-        source: meta.source || '',
-        qualified: c.qualified === true,
-        screened_out: c.screened_out === true,
-        // Distinct from screened_out: they booked the Calendly link direct and
-        // were never asked the screening questions (handleCalendlyInviteeCreated).
-        not_screened: c.not_screened === true,
-        call_booked: c.call_booked === true,
-        call_booked_at: c.call_booked_at || '',
-        // The start form stores the question on the row itself; a question typed
-        // at booking time lands in consult.call_question. Either is "they asked us".
-        call_question: c.call_question || (r && r.message) || '',
-        // Steps whose email leg actually went — a bounced or WhatsApp-only step
-        // is on the record but was not an email (entries before 2026-09-08
-        // carry no `email` field and were all emails).
-        nudges_sent: nudges.filter((n) => n && (n.email == null || n.email === 'sent')).length,
-        last_nudge_at: (lastNudge && lastNudge.sent_at) || '',
-        wa_sent: Object.keys(c.wa && typeof c.wa === 'object' ? c.wa : {}).filter((k) => c.wa[k] && c.wa[k].sent_at).length,
-        email_bounced: c.email_bounced === true,
-        stopped: c.stopped || '',
-        // Hazel's latest outbound call (lib/lead-calls.js): what happened,
-        // which attempt, and her one-line summary once the call was analysed.
-        ai_call: c.ai_call ? {
-          status: c.ai_call.status || '',
-          outcome: c.ai_call.outcome || '',
-          outcome_label: (leadCalls.OUTCOMES[c.ai_call.outcome] || {}).label || '',
-          attempt: Number(c.ai_call.attempt) || 1,
-          attempts: Array.isArray(c.ai_calls) ? c.ai_calls.length : 0,
-          last_at: c.ai_call.completed_at || c.ai_call.started_at || '',
-          duration_s: Number(c.ai_call.duration_s) || 0,
-          summary: String(c.ai_call.summary || '').slice(0, 200)
-        } : null,
-      };
+    const clPage = clMatched.slice(clOffset, clOffset + clLimit);
+    // Headline tiles: over every lead the search matches, whatever chip is on.
+    const clTiles = {
+      open: clCounts.open,
+      queued: clAll.filter(CEO_LEAD_HAZEL_FILTERS.queued).length,
+      scheduled: clAll.filter(CEO_LEAD_HAZEL_FILTERS.scheduled).length,
+      called: clAll.filter(CEO_LEAD_HAZEL_FILTERS.called).length,
+      booked_by_hazel: clAll.filter(CEO_LEAD_HAZEL_FILTERS.booked).length,
+      burnt: clCounts.burnt
+    };
+    const clHazelStatus = await ceoHazelStatus(clCfg);
+    sendJson(res, 200, {
+      ok: true, leads: clPage, total: clTotal, counts: clCounts, hazel_counts: clHazelCounts, tiles: clTiles,
+      offset: clOffset, limit: clLimit, now: new Date(clNow).toISOString(), hazel: clHazelStatus
     });
-    sendJson(res, 200, { ok: true, leads: clPage, total: clTotal, counts: clCounts, offset: clOffset, limit: clLimit });
+    return;
+  }
+
+  // ── /api/ceo/leads/:id — one lead in full, and the owner's Hazel actions ──
+  //   GET  /api/ceo/leads/:id        projection + every call (transcript,
+  //                                  recording, what Hazel learned) + chase log
+  //   POST /api/ceo/leads/:id/call   ring them now with Hazel
+  //   POST /api/ceo/leads/:id/hazel  { action: pause|resume|schedule|unschedule|do_not_call, at? }
+  const clOneM = /^\/api\/ceo\/leads\/([^/]+)(?:\/(call|hazel))?$/.exec(pathname);
+  if (clOneM && ((req.method === 'GET' && !clOneM[2]) || (req.method === 'POST' && clOneM[2]))) {
+    const cloCtx = requireCeoSession(req, res);
+    if (!cloCtx) return;
+    let cloId = '';
+    try { cloId = decodeURIComponent(clOneM[1]); } catch (e) { cloId = clOneM[1]; }
+    const cloRow = await findSiteEnquiryById(cloId);
+    if (!cloRow || cloRow.kind !== 'gp') { sendJson(res, 404, { ok: false, message: 'Lead not found.' }); return; }
+    const cloNow = Date.now();
+    const cloCfg = leadCalls.parseLeadCallConfig(process.env);
+    if (req.method === 'GET') {
+      const cloCalls = await ceoLeadCallHistory(cloRow);
+      sendJson(res, 200, {
+        ok: true,
+        lead: ceoLeadProjection(cloRow, cloNow, cloCfg),
+        calls: cloCalls,
+        chase: ceoLeadChase(cloRow),
+        now: new Date(cloNow).toISOString()
+      });
+      return;
+    }
+    const cloBody = await readJsonBody(req).catch(function () { return null; });
+    const cloOut = clOneM[2] === 'call'
+      ? await ceoLeadCallNow(cloRow)
+      : await ceoLeadHazelAction(cloRow, cloBody, cloNow);
+    if (cloOut.body && cloOut.body.ok) {
+      const cloFresh = (await findSiteEnquiryById(cloId)) || cloRow;
+      cloOut.body.lead = ceoLeadProjection(cloFresh, cloNow, cloCfg);
+    }
+    sendJson(res, cloOut.status, cloOut.body);
     return;
   }
 
