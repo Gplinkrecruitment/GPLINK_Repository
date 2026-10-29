@@ -1,6 +1,6 @@
 {
-  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet. 2026-10-29: knowledge base DETACHED from the call (retrieved chunks were spoken about as \"pasted background\" by both models); core facts now live inline in hazel-prompt.md \"What you know\". KB knowledge_base_739075eafc9595c7 kept in Retell for reference. 2026-10-29: voice = custom_voice_7112d5c56a91537e456c91a429, cloned from the 8 ORIGINAL samples behind the owner's ElevenLabs \"Zee\" (same voice notes); the earlier v2 clone was made from Zee TTS output (copy of a copy). voice_model eleven_multilingual_v2 to match ElevenLabs rendering. Voice v4 2026-10-29: custom_voice_6725cb4eb1b17ab0ed9175cf59 cloned from LOSSLESS FLAC of the 8 raw iPhone notes Zee was built from (\"Audio Message copy 7\" excluded, as in Zee). ElevenLabs instant clones cannot be shared outside the workspace, so Retell can never use Zee itself; only a Professional Voice Clone can be. Voice v5 2026-10-29: custom_voice_0055a05d45a4f8a9474cb6799e cloned from the 8 Zee source notes after ElevenLabs audio isolation (background noise removed); voice_temperature 0.8 for sentence-to-sentence consistency.",
-  "agent_name": "Hazel — GP Link leads",
+  "_comment": "Hazel, the GP Link outbound lead-calling agent on Retell. scripts/retell-setup.js builds the Response Engine from `llm` + config/retell/hazel-prompt.md and the Agent from `agent` (+ voice_id from state.json, webhook_url from APP_BASE_URL). Edit here, then run `node scripts/retell-setup.js update`. 2026-10-28: stt fast + no boosted keywords + responsiveness 1.0 (latency), contact memory on, KB attached, Cartesia fallback voice (Retell forbids fallback from the main voice provider). Retell offers only standard tier for claude-5.5-sonnet. 2026-10-29: knowledge base DETACHED from the call (retrieved chunks were spoken about as \"pasted background\" by both models); core facts now live inline in hazel-prompt.md \"What you know\". KB knowledge_base_739075eafc9595c7 kept in Retell for reference. 2026-10-29: voice = custom_voice_7112d5c56a91537e456c91a429, cloned from the 8 ORIGINAL samples behind the owner's ElevenLabs \"Zee\" (same voice notes); the earlier v2 clone was made from Zee TTS output (copy of a copy). voice_model eleven_multilingual_v2 to match ElevenLabs rendering. Voice v4 2026-10-29: custom_voice_6725cb4eb1b17ab0ed9175cf59 cloned from LOSSLESS FLAC of the 8 raw iPhone notes Zee was built from (\"Audio Message copy 7\" excluded, as in Zee). ElevenLabs instant clones cannot be shared outside the workspace, so Retell can never use Zee itself; only a Professional Voice Clone can be. Voice v5 2026-10-29: custom_voice_0055a05d45a4f8a9474cb6799e cloned from the 8 Zee source notes after ElevenLabs audio isolation (background noise removed); voice_temperature 0.8 for sentence-to-sentence consistency. | 2026-10-29: live agent v44 (LLM v44, claude-5.5-opus primary, haiku backup, KB detached). Script = hazel-prompt.md, tools = tools.json, post-call fields = post-call-analysis.json. Agent settings added: enable_dnc_detection true, backchannel_words [yeah, mm-hmm, right, okay, sure], ambient_sound call-center @0.3, reminder_trigger_ms 12000 x1, pronunciation AHPRA /\u02c8\u00e6pr\u0259/ Khaleed /k\u0251\u02d0\u02c8li\u02d0d/, voice custom_voice_329189c412da1fb63680188943 eleven_v4_turbo temp 1.0.",
+  "agent_name": "Hazel \u2014 GP Link leads",
   "agent": {
     "voice_id": "",
     "voice_model": "eleven_multilingual_v2",
@@ -116,12 +116,21 @@
     {
       "type": "enum",
       "name": "gp_status",
-      "description": "Whether they are a fully qualified GP (gp), still in GP training (trainee), not a GP at all (not_a_gp), or it never came up (unknown).",
+      "description": "Whether they are a practising GP (gp), still in GP training (trainee), not a GP at all (not_a_gp), or it never came up (unknown).",
       "choices": [
         "gp",
         "trainee",
         "not_a_gp",
         "unknown"
+      ]
+    },
+    {
+      "type": "string",
+      "name": "training_finish",
+      "description": "If still in training, when they said they finish, in their words. Empty otherwise.",
+      "examples": [
+        "February next year",
+        "in about eight months"
       ]
     },
     {
@@ -132,6 +141,52 @@
         "early next year",
         "as soon as possible",
         "in two years once the kids finish school"
+      ]
+    },
+    {
+      "type": "string",
+      "name": "objections",
+      "description": "Comma-separated list of the concerns or objections the doctor raised, from: timing, partner, money, moving_costs, remote, city_only, part_time, english_test, old_mrcgp, overseas_trained, other_agency, scam, in_writing, process, family_school, elderly_parents, undecided_country, ai_suspicion, none.",
+      "examples": [
+        "timing, partner",
+        "money",
+        "none"
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "objection_handled",
+      "description": "For the main concern raised: did the agent answer it with a specific reason or workaround (handled), only partly or vaguely (partly), ignore it or just repeat the offer (ignored), or no concern was raised (none).",
+      "choices": [
+        "handled",
+        "partly",
+        "ignored",
+        "none"
+      ]
+    },
+    {
+      "type": "string",
+      "name": "lost_booking_reason",
+      "description": "If the doctor was a practising GP (or within three months of finishing) and did not end up booked or sent the link, one sentence on what the agent said or failed to say that cost the booking. Empty if booked, link sent, or not a bookable doctor.",
+      "examples": [
+        "Doctor asked for written info first; agent offered a time instead of saying it is in the confirmation email."
+      ]
+    },
+    {
+      "type": "string",
+      "name": "unanswered_questions",
+      "description": "Questions the doctor asked that the agent did not answer or answered wrongly, each in a few words, comma-separated. Empty if none.",
+      "examples": [
+        "school fees for dependants, whether Perth has openings"
+      ]
+    },
+    {
+      "type": "string",
+      "name": "agent_slips",
+      "description": "Any of these the agent did: repeated a question, asked two questions at once, used filler like 'great question', mentioned rules or tools, said 'fully qualified', asked whether they are a GP, quoted a salary figure, claimed anyone is fully booked, gave a second goodbye. Comma-separated short labels, or 'none'.",
+      "examples": [
+        "repeated question, two questions at once",
+        "none"
       ]
     },
     {

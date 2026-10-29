@@ -1,0 +1,77 @@
+[
+  {
+    "type": "custom",
+    "name": "check_availability",
+    "description": "Open consultation times, already in the doctor's local time. Call when they're open to booking, and again if they want a different day or time of day.",
+    "url": "https://app.mygplink.com.au/api/retell/tools/check-availability",
+    "method": "POST",
+    "speak_during_execution": true,
+    "speak_after_execution": true,
+    "execution_message_type": "static_text",
+    "execution_message_description": "Let me just have a look at the diary.",
+    "timeout_ms": 20000,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "preferred_day": {"type": "string", "description": "'today', 'tomorrow', a weekday or YYYY-MM-DD, only if the doctor said one."},
+        "time_of_day": {"type": "string", "enum": ["morning", "afternoon", "evening", "any"], "description": "Their preferred part of the day, local time."}
+      }
+    }
+  },
+  {
+    "type": "custom",
+    "name": "book_consult",
+    "description": "Book the slot_id from check_availability, exactly as written, once the doctor has chosen it.",
+    "url": "https://app.mygplink.com.au/api/retell/tools/book-consult",
+    "method": "POST",
+    "speak_during_execution": false,
+    "speak_after_execution": true,
+    "timeout_ms": 20000,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "slot_id": {"type": "string", "description": "Exactly as returned by check_availability."},
+        "email": {"type": "string", "description": "Only if none is on file or the doctor gave a different one."}
+      },
+      "required": ["slot_id"]
+    }
+  },
+  {
+    "type": "custom",
+    "name": "send_booking_link",
+    "description": "Email and WhatsApp the self-service booking link: nothing suits, they'd rather pick a time themselves, they're busy, or booking failed. Never for a trainee finishing more than three months from now (they get the app sign-up from the team instead).",
+    "url": "https://app.mygplink.com.au/api/retell/tools/send-booking-link",
+    "method": "POST",
+    "speak_during_execution": false,
+    "speak_after_execution": true,
+    "execution_message_type": "static_text",
+    "timeout_ms": 20000,
+    "parameters": {"type": "object", "properties": {}}
+  },
+  {
+    "type": "custom",
+    "name": "mark_outcome",
+    "description": "Record a call that didn't end in a booking; call once, just before ending. callback_requested: they asked to be rung back (pass callback_hours if they said when), or a trainee finishing more than three months away. not_interested: the doctor declined. not_a_gp: they enquired but aren't a GP. wrong_number: not the doctor asked for, or never enquired and isn't a doctor (a doctor who forgot the form is not a wrong number). already_booked: they already have a call booked.",
+    "url": "https://app.mygplink.com.au/api/retell/tools/mark-outcome",
+    "method": "POST",
+    "speak_during_execution": false,
+    "speak_after_execution": true,
+    "execution_message_type": "static_text",
+    "timeout_ms": 20000,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "outcome": {"type": "string", "enum": ["callback_requested", "not_interested", "not_a_gp", "wrong_number", "already_booked"]},
+        "callback_hours": {"type": "number", "description": "Hours from now they asked to be rung back, if given."},
+        "note": {"type": "string", "description": "One sentence for the team."}
+      },
+      "required": ["outcome"]
+    }
+  },
+  {
+    "type": "end_call",
+    "name": "end_call",
+    "description": "Hang up once the conversation has finished, after you have already said goodbye. Pass no message.",
+    "speak_after_execution": true
+  }
+]
