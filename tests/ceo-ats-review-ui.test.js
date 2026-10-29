@@ -118,11 +118,11 @@ describe('CEO Jobs review screen (Task 4 — combined review)', () => {
       : jobsSrc.indexOf('/* ====', submitStart + 10);
     const submit = jobsSrc.slice(submitStart, submitEnd);
     expect(submit).toMatch(/wasPendingReview = o\.approval_status === 'pending'/);
-    expect(submit).toMatch(/if \(wasPendingReview\) \{ fetchAndRenderJobList\(\); \} else \{ atsOpenJobBoard\(currentBoardJobId\); \}/);
+    expect(submit).toMatch(/if \(wasPendingReview\) \{ fetchAndRenderJobList\(\); \} else \{ atsOpenJobBoard\(currentBoardJobId, \{ quiet: true \}\); \}/);
   });
 
   it('bumps the ceo-ats-jobs.js cache-buster', () => {
-    expect(ceoHtmlSrc).toMatch(/ceo-ats-jobs\.js\?v=20261029a/);
+    expect(ceoHtmlSrc).toMatch(/ceo-ats-jobs\.js\?v=20261029b/);
   });
 });
 

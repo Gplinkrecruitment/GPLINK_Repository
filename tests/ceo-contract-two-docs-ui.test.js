@@ -73,7 +73,7 @@ describe('candidate drawer — upload mini-form (contract + optional letter of o
     expect(c).toBeGreaterThan(b);
     // Gating + reload exactly as before.
     expect(fn).toContain('if (ATS.refreshContractsAlert) ATS.refreshContractsAlert();');
-    expect(fn).toContain('window.atsOpenCandidate(c.case_id);');
+    expect(fn).toContain('window.atsOpenCandidate(c.case_id, { quiet: true });'); // in-place reload (2026-10-29)
     expect(fn).toContain('CONTRACT_MAX_BYTES');
     expect(CANDS).toMatch(/function canFileContract\(a\) \{\s*if \(ATS\.isConsultant && ATS\.isConsultant\(\)\) return false;/);
   });
@@ -239,8 +239,8 @@ describe('highlighter keeps discrepancy indexes when a quote belongs to the othe
 
 describe('cache-busters', () => {
   it('bumps candidates JS, contracts JS and the ATS CSS to 20260914b (CSS ≥ candidates JS)', () => {
-    expect(DASH).toContain('/js/ceo-ats-candidates.js?v=20261029a');
-    expect(DASH).toContain('/js/ceo-ats-contracts.js?v=20260914b');
+    expect(DASH).toContain('/js/ceo-ats-candidates.js?v=20261029b');
+    expect(DASH).toContain('/js/ceo-ats-contracts.js?v=20261029b');
     expect(DASH).toContain('/css/ceo-ats.css?v=20261029a');
     expect(DASH).not.toContain('/js/ceo-ats-candidates.js?v=20260914a');
     expect(DASH).not.toContain('/js/ceo-ats-contracts.js?v=20260914a');

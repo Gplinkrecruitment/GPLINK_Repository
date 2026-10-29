@@ -121,7 +121,8 @@ describe('the CEO console reports failures the same way', () => {
   });
 
   it('keeps the SWR cache invalidation it would have got from apiFetch', () => {
-    expect(handler).toMatch(/gpSwrPurge\(\)/);
+    // 2026-10-29: targeted (gpSwrInvalidate) rather than a namespace purge.
+    expect(handler).toMatch(/gpSwrInvalidate\(path\)/);
     expect(handler).toMatch(/refreshGpDocuments\(\)/);
   });
 });

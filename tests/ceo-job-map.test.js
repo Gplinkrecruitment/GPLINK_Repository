@@ -345,9 +345,9 @@ describe('Jobs map styling', () => {
 
 describe('cache busting', () => {
   it('bumps every asset that changed, or browsers keep the old ones for an hour', () => {
-    expect(CEO_HTML).toContain('/js/ceo-ats-jobs.js?v=20261029a');   // Esri tile swap here
+    expect(CEO_HTML).toContain('/js/ceo-ats-jobs.js?v=20261029b');   // Esri tile swap here
     expect(CEO_HTML).not.toContain('/js/ceo-ats-jobs.js?v=20260805c');
-    expect(CEO_HTML).toContain('/js/ceo-ats-practices.js?v=20260810c'); // map removed here
+    expect(CEO_HTML).toContain('/js/ceo-ats-practices.js?v=20261029b'); // map removed here
     expect(CEO_HTML).not.toContain('/js/ceo-ats-practices.js?v=20260809a');
     expect(CEO_HTML).toContain('/css/ceo-ats.css?v=20261029a');
     expect(CEO_HTML).not.toContain('/css/ceo-ats.css?v=20260805e');

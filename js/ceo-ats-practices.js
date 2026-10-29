@@ -70,16 +70,25 @@
   }
 
   // ==================== DIRECTORY ====================
-  function loadPracticesTab() {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes — revalidate the directory in the background (same search term,
+  // no "Loading…" placeholder) and leave an open practice detail untouched.
+  function loadPracticesTab(opts) {
     var panel = panelEl();
     if (!panel) return;
     ensureDelegation();
-    currentQuery = '';
-    panel.innerHTML = ATS.loadingHtml('Loading practices…');
-    // SWR: paint the cached directory instantly, then repaint from the network.
-    ATS.swr('/api/ats/practices', function (d) {
+    var quiet = !!(opts && opts.quiet) && !!panel.children.length;
+    if (quiet && !panel.querySelector('#atsPracSearch')) return; // a practice detail is open — leave it
+    if (!quiet) {
+      currentQuery = '';
+      panel.innerHTML = ATS.loadingHtml('Loading practices…');
+    }
+    var path = '/api/ats/practices' + (quiet && currentQuery ? '?q=' + encodeURIComponent(currentQuery) : '');
+    // SWR: paint the cached directory instantly, then repaint from the network
+    // (a quiet revalidation skips the cached paint — it is already on screen).
+    ATS.swr(path, function (d) {
       renderDirectory(panel, d || {});
-    });
+    }, { skipCache: quiet });
   }
 
   // "Part of <Corporation>" line on a member practice's card. Plain text (no
@@ -386,12 +395,18 @@
   }
 
   // ==================== DETAIL ====================
-  function openPractice(id) {
+  // opts.quiet (owner 2026-10-29): a post-action repaint keeps the card on
+  // screen (no "Loading practice…" placeholder), does not scroll to the top,
+  // and restores the scroll position. The first open is unchanged.
+  function openPractice(id, opts) {
+    var quiet = !!(opts && opts.quiet);
+    var keepY = quiet ? (window.pageYOffset || 0) : null;
     var panel = panelEl();
     if (!panel) return;
     ensureDelegation();
-    panel.innerHTML = ATS.loadingHtml('Loading practice…');
+    if (!quiet) panel.innerHTML = ATS.loadingHtml('Loading practice…');
     ATS.api('/api/ats/practice?id=' + encodeURIComponent(id)).then(function (d) {
+      if (quiet && !(currentPractice && String(currentPractice.id) === String(id))) return; // moved on mid-flight
       if (!d || !d.ok || !d.practice) {
         panel.innerHTML =
           '<div class="ats-board-head"><button class="ats-back-btn" data-ats="back-list">‹ All practices</button></div>' +
@@ -399,7 +414,8 @@
         return;
       }
       currentPractice = d.practice;
-      renderDetail(panel, d);
+      renderDetail(panel, d, quiet);
+      if (quiet && keepY != null && window.scrollTo) window.scrollTo(0, keepY);
     });
   }
 
@@ -641,7 +657,7 @@
     ATS.api('/api/ats/practice?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: { stage: stage } }).then(function (d) {
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update the stage'); return; }
       ATS.toast('Stage updated');
-      openPractice(p.id);
+      openPractice(p.id, { quiet: true });
     });
   }
 
@@ -789,7 +805,7 @@
           return;
         }
         ATS.toast('Contract uploaded');
-        openPractice(p.id); // re-fetch so the new row, timestamp + status pill render
+        openPractice(p.id, { quiet: true }); // re-fetch so the new row, timestamp + status pill render
       });
     };
     reader.readAsDataURL(file);
@@ -823,7 +839,7 @@
     '</div>';
   }
 
-  function renderDetail(panel, d) {
+  function renderDetail(panel, d, quiet) {
     var p = d.practice || {};
     var jobs = d.jobs || [];
     var cands = d.candidates || [];
@@ -905,7 +921,7 @@
         '</div>' +
       '</div>';
 
-    if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!quiet && window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // ==================== MODALS (add / edit) ====================
@@ -1115,12 +1131,12 @@
     if (secondaryKey(cur.secondary_contacts) !== secondaryKey(p.secondary_contacts)) {
       body.secondary_contacts = cur.secondary_contacts;
     }
-    if (!hasKeys(body)) { closeModal(); openPractice(p.id); return; }
+    if (!hasKeys(body)) { closeModal(); openPractice(p.id, { quiet: true }); return; }
     ATS.api('/api/ats/practice?id=' + encodeURIComponent(p.id), { method: 'PATCH', body: body }).then(function (d) {
       if (!d || !d.ok) { ATS.toast((d && d.message) || 'Could not update practice'); return; }
       closeModal();
       ATS.toast('Practice updated');
-      openPractice(p.id);
+      openPractice(p.id, { quiet: true });
     });
   }
 

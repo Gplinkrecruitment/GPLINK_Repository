@@ -442,9 +442,13 @@
   window.__ceoContractDomHighlight = applyDomHighlights;
   window.__ceoContractJump = jumpToDiscrepancy;
 
-  window.loadContractsTab = function () {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes — refetch in the background; the open card (state.expanded) and
+  // its loaded documents survive because render() keys off state, not the DOM.
+  window.loadContractsTab = function (opts) {
     var el = panel();
     if (!el) return;
+    if (opts && opts.quiet && document.getElementById('contracts-list')) { fetchAndRender(true); return; }
     el.innerHTML = scaffold();
     wireEvents(el);
     fetchAndRender();
@@ -465,9 +469,9 @@
   /* =====================================================================
    *  DATA FETCH + RENDER
    * ===================================================================== */
-  function fetchAndRender() {
+  function fetchAndRender(quiet) {
     var el = document.getElementById('contracts-list');
-    if (el) el.innerHTML = ATS.loadingHtml('Loading contracts…');
+    if (el && !quiet) el.innerHTML = ATS.loadingHtml('Loading contracts…');
     ATS.swr('/api/ceo/contracts', function (d) {
       var listEl = document.getElementById('contracts-list');
       if (!listEl) return;

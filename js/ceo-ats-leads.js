@@ -83,9 +83,12 @@
   /* =====================================================================
    *  PUBLIC ENTRY POINT
    * ===================================================================== */
-  window.loadLeadsTab = function () {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes — refetch the first page in the background, list stays on screen.
+  window.loadLeadsTab = function (opts) {
     var el = panel();
     if (!el) return;
+    if (opts && opts.quiet && document.getElementById('lead-list')) { fetchAndRender(false, true); return; }
     el.innerHTML = scaffold();
     wireEvents(el);
     fetchAndRender();
@@ -156,9 +159,10 @@
   // server paginates (limit/offset, total returned), so without this the tab
   // silently showed only the newest 100 leads once a filter matched more —
   // older leads were unreachable from any UI (a real risk after the GP blast).
-  function fetchAndRender(append) {
+  // quiet = a background revalidation: no placeholder over the current rows.
+  function fetchAndRender(append, quiet) {
     var listEl = document.getElementById('lead-list');
-    if (!append && listEl) listEl.innerHTML = ATS.loadingHtml('Loading leads…');
+    if (!append && !quiet && listEl) listEl.innerHTML = ATS.loadingHtml('Loading leads…');
     var offset = append ? state.loaded.length : 0;
     var qs = '?filter=' + encodeURIComponent(state.filter) +
       (state.q ? '&q=' + encodeURIComponent(state.q) : '') +

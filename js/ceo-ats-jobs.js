@@ -197,6 +197,10 @@
 
   var jmapDataPromise = null;   // one fetch shared across re-renders
   var jmapL = null, jmapMap = null, jmapCluster = null;
+  // Bound ONCE per map instance: every tab visit used to add another
+  // ResizeObserver + window resize listener on top of the last, all calling
+  // invalidateSize on a map that had already been removed.
+  var jmapResizeObs = null, jmapResizeFix = null;
   var jmapAll = [], jmapActivePin = null, jmapOpenId = '';
 
   function jmapLoadCss(href) {
@@ -439,7 +443,10 @@
       // invalidateSize still left an unpainted column down the right edge.
       var fix = function () { try { jmapMap.invalidateSize(); } catch (e) { /* removed */ } };
       [0, 120, 350, 800].forEach(function (ms) { setTimeout(fix, ms); });
-      if (typeof ResizeObserver === 'function') { try { new ResizeObserver(fix).observe(shell); } catch (e) { /* unsupported */ } }
+      if (jmapResizeObs) { try { jmapResizeObs.disconnect(); } catch (e) { /* already gone */ } jmapResizeObs = null; }
+      if (jmapResizeFix) window.removeEventListener('resize', jmapResizeFix);
+      jmapResizeFix = fix;
+      if (typeof ResizeObserver === 'function') { try { jmapResizeObs = new ResizeObserver(fix); jmapResizeObs.observe(shell); } catch (e) { /* unsupported */ } }
       window.addEventListener('resize', fix);
     }).catch(jmapFail);
   }
@@ -447,7 +454,16 @@
   /* ============================================================
    * JOBS LIST VIEW
    * ========================================================== */
-  function loadJobsTab() {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes — revalidate the list in the background. No shell rebuild, no map
+  // rebuild, and a pipeline board / review screen that is open stays open.
+  var jobSearchTimer = null;
+  function loadJobsTab(opts) {
+    if (opts && opts.quiet && panelEl() && panelEl().children.length) {
+      if (!el('atsJobsListView')) return; // a board or review screen is open — leave it
+      fetchAndRenderJobList({ quiet: true });
+      return;
+    }
     currentBoardJobId = null;
     boardData = null;
     var panel = panelEl();
@@ -460,7 +476,11 @@
     jmapBoot();
 
     on('atsAddJobBtn', 'click', openAddJobModal);
-    on('ats-job-search', 'input', fetchAndRenderJobList);
+    // Debounced: this used to fetch /api/ats/jobs on every keystroke.
+    on('ats-job-search', 'input', function () {
+      if (jobSearchTimer) clearTimeout(jobSearchTimer);
+      jobSearchTimer = setTimeout(function () { fetchAndRenderJobList(); }, 250);
+    });
     on('atsJobStateFilter', 'change', fetchAndRenderJobList);
     on('atsJobOpenFilter', 'change', fetchAndRenderJobList);
 
@@ -524,9 +544,12 @@
     return '/api/ats/jobs' + (qs.length ? '?' + qs.join('&') : '');
   }
 
-  function fetchAndRenderJobList() {
+  // opts.quiet — keep the rows on screen while the fresh list is fetched (the
+  // filter <select>s also call this with an Event, which carries no .quiet).
+  function fetchAndRenderJobList(opts) {
+    var quiet = !!(opts && opts.quiet === true);
     var listEl = el('atsJobList');
-    if (listEl) listEl.innerHTML = A.loadingHtml('Loading jobs…');
+    if (listEl && !quiet) listEl.innerHTML = A.loadingHtml('Loading jobs…');
     var f = currentJobFilters();
     A.swr(buildJobsPath(f), function (d) {
       var list = el('atsJobList');
@@ -538,7 +561,7 @@
       jmapRenderPins(); // pins narrow with the list, never independently of it
       if (!jobs.length) { list.innerHTML = A.emptyHtml('No jobs match your search.'); return; }
       list.innerHTML = jobs.map(jobCardHtml).join('');
-    });
+    }, { skipCache: quiet });
   }
 
   function statusPill(status) {
@@ -625,11 +648,16 @@
   /* ============================================================
    * PIPELINE BOARD VIEW
    * ========================================================== */
-  function atsOpenJobBoard(jobId) {
+  // opts.quiet (owner 2026-10-29): a post-action repaint keeps the board on
+  // screen (no "Loading pipeline…" placeholder) and restores the scroll
+  // position once the fresh columns are drawn. The first open is unchanged.
+  function atsOpenJobBoard(jobId, opts) {
+    var quiet = !!(opts && opts.quiet);
+    var keepY = quiet ? (window.pageYOffset || 0) : null;
     currentBoardJobId = jobId;
     var panel = panelEl();
     if (!panel) return;
-    panel.innerHTML = A.loadingHtml('Loading pipeline…');
+    if (!quiet) panel.innerHTML = A.loadingHtml('Loading pipeline…');
     A.api('/api/ats/job/pipeline?id=' + encodeURIComponent(jobId)).then(function (d) {
       if (currentBoardJobId !== jobId) return; // user navigated away mid-fetch
       var p = panelEl();
@@ -642,6 +670,7 @@
       }
       boardData = d;
       renderBoardView();
+      if (quiet && keepY != null && window.scrollTo) window.scrollTo(0, keepY);
     });
   }
 
@@ -797,7 +826,7 @@
     A.api('/api/ats/application?id=' + encodeURIComponent(id), { method: 'PATCH', body: { match_extend: true } }).then(function (d) {
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not extend the match window'); return; }
       A.toast('Match window extended 5 days');
-      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
+      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId, { quiet: true });
     });
   }
 
@@ -1088,7 +1117,7 @@
       if (!d || !d.ok) { A.toast((d && d.message) || 'Could not save candidate'); return; }
       A.toast('Candidate saved');
       closeDrawer();
-      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
+      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId, { quiet: true });
     });
   }
 
@@ -1143,7 +1172,7 @@
         A.toast(d.already ? 'Already accepted — nothing to change.' : 'Practice acceptance recorded — the GP has been notified.');
       }
       closeDrawer();
-      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId);
+      if (currentBoardJobId) atsOpenJobBoard(currentBoardJobId, { quiet: true });
     }).catch(function () { restoreAcceptBtn(); A.toast('Could not record the practice\'s acceptance'); });
   }
 
@@ -1325,7 +1354,7 @@
       if (d.notified) {
         A.toast(d.already ? 'Invitation sent' : 'Shortlisted — the doctor has been invited');
         closeAddCandidateModal();
-        atsOpenJobBoard(currentBoardJobId); // repaint with the new card
+        atsOpenJobBoard(currentBoardJobId, { quiet: true }); // repaint with the new card
         return;
       }
       // Added, but the doctor was NOT told. Say why, in the modal, and leave it
@@ -1858,7 +1887,7 @@
       A.toast((newMasked ? 'Saved · ' + newMasked : 'Job settings saved') + redirectedSuffix(d));
       // A pending job (Task 4 combined review) has no candidates yet — saving
       // refreshes the jobs list instead of opening the empty pipeline board.
-      if (wasPendingReview) { fetchAndRenderJobList(); } else { atsOpenJobBoard(currentBoardJobId); }
+      if (wasPendingReview) { fetchAndRenderJobList(); } else { atsOpenJobBoard(currentBoardJobId, { quiet: true }); }
     }).catch(function () { reenableSave(); jsError('Could not save job settings'); });
   }
 

@@ -82,9 +82,12 @@
   /* =====================================================================
    *  PUBLIC ENTRY POINT
    * ===================================================================== */
-  window.loadMeetingsTab = function () {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes — refetch in the background, keep the list on screen meanwhile.
+  window.loadMeetingsTab = function (opts) {
     var el = panel();
     if (!el) return;
+    if (opts && opts.quiet && document.getElementById('mtg-list')) { fetchAndRender(true); return; }
     el.innerHTML = scaffold();
     wireEvents(el);
     fetchAndRender();
@@ -162,9 +165,9 @@
   /* =====================================================================
    *  DATA FETCH + RENDER
    * ===================================================================== */
-  function fetchAndRender() {
+  function fetchAndRender(quiet) {
     var listEl = document.getElementById('mtg-list');
-    if (listEl) listEl.innerHTML = ATS.loadingHtml('Loading meetings…');
+    if (listEl && !quiet) listEl.innerHTML = ATS.loadingHtml('Loading meetings…');
     ATS.swr('/api/ceo/meetings?kind=' + encodeURIComponent(state.kind), function (d) {
       var el = document.getElementById('mtg-list');
       if (!el) return;

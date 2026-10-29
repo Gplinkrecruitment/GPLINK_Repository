@@ -45,9 +45,15 @@
   // Fetch JSON from a same-origin endpoint. Returns parsed body or { ok:false }.
   function api(path, opts) {
     opts = opts || {};
-    // Any mutation invalidates the SWR cache namespace (see gpSwr in the CEO
-    // dashboard's inline script) — converted views revalidate on next paint.
-    if (window.__gpSwr && opts.method && opts.method !== 'GET') { try { window.__gpSwr.purge(); } catch (e) { /* ignore */ } }
+    // A mutation drops only the SWR entries for the resource family it touched
+    // (plus the dashboard + review queue) — see __gpSwr.invalidate in the CEO
+    // dashboard's inline script. It used to purge the WHOLE namespace, so one
+    // small save made every tab a cold AU→US round trip again (owner 2026-10-29:
+    // "extremely slow loading times when I click through"). Unrelated views keep
+    // their cached paint; every swr() view still revalidates over the network.
+    if (window.__gpSwr && opts.method && opts.method !== 'GET') {
+      try { if (window.__gpSwr.invalidate) window.__gpSwr.invalidate(path); } catch (e) { /* ignore */ }
+    }
     var init = { method: opts.method || 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
     if (opts.body !== undefined) {
       init.headers['Content-Type'] = 'application/json';
@@ -63,9 +69,12 @@
   // payload (if any), then with the network result. Storage lives in the CEO
   // dashboard's window.__gpSwr helpers (sessionStorage); when absent (module
   // loaded standalone) this degrades to a plain network fetch.
-  function swr(path, onData) {
+  // opts.skipCache — a quiet revalidation of a view that is already painted
+  // (the cache IS what is on screen): go straight to the network and repaint
+  // once, not twice. The result is still written to the cache as usual.
+  function swr(path, onData, opts) {
     var S = window.__gpSwr;
-    var cached = S ? S.read(path) : null;
+    var cached = (S && !(opts && opts.skipCache)) ? S.read(path) : null;
     if (cached) { try { onData(cached, true); } catch (e) { /* ignore */ } }
     return api(path).then(function (d) {
       if (S) { if (d && d.ok) S.write(path, d); else S.drop(path); }
@@ -84,6 +93,42 @@
     root.appendChild(t);
     requestAnimationFrame(function () { t.classList.add('show'); });
     setTimeout(function () { t.classList.remove('show'); setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300); }, type === 'error' ? 8000 : 2600);
+  }
+
+  // Owner 2026-10-29: the "Export CSV" controls were bare <a href="/api/admin/
+  // export…"> links. When the server answered with JSON instead of a file
+  // (expired session → 401, bad entity → 400, 500) the browser NAVIGATED the
+  // whole dashboard to that JSON — "the entire page refreshing … taking me out
+  // of the page I was on". Fetch the export ourselves, check it really is a CSV,
+  // and hand it over as a Blob download; on any failure show the server's
+  // message as a toast and stay exactly where we are.
+  function downloadCsv(url, fallbackName) {
+    return fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'text/csv, application/json' } }).then(function (r) {
+      var ct = String(r.headers.get('content-type') || '').toLowerCase();
+      if (!r.ok || ct.indexOf('text/csv') === -1) {
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          throw new Error((b && (b.message || b.error)) || ('export failed (HTTP ' + r.status + ')'));
+        });
+      }
+      var name = fallbackName || 'export.csv';
+      var cd = String(r.headers.get('content-disposition') || '');
+      var m = /filename="?([^";]+)"?/i.exec(cd);
+      if (m && m[1]) name = m[1];
+      return r.blob().then(function (blob) {
+        var objUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = objUrl;
+        a.download = name;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); URL.revokeObjectURL(objUrl); }, 1500);
+        return true;
+      });
+    }).catch(function (e) {
+      toast('Export failed: ' + ((e && e.message) || 'network error'), 'error');
+      return false;
+    });
   }
 
   // Overlay host (drawers / modals) rendered into #atsOverlayRoot.
@@ -115,10 +160,13 @@
   window.ATS = {
     esc: esc, escAttr: escAttr, initials: initials, avatarColor: avatarColor,
     flag: flag, countryLabel: countryLabel, bandClass: bandClass, bandLabel: bandLabel,
-    api: api, swr: swr, toast: toast, setOverlay: setOverlay,
+    api: api, swr: swr, toast: toast, setOverlay: setOverlay, downloadCsv: downloadCsv,
     loadingHtml: loadingHtml, emptyHtml: emptyHtml, intentChip: intentChip,
     role: role, isConsultant: isConsultant,
-    activeTab: 'registration'
+    activeTab: 'registration',
+    // tab name -> ms timestamp of the last time its loader (or a drill-in
+    // opener via skipLoad) was asked to fill the panel. Drives quiet re-entry.
+    tabLoadedAt: {}
   };
 
   // -------------------- master-tab switcher --------------------
@@ -126,13 +174,22 @@
   // tabs whose loaders (window.loadRsoTab / window.loadTechnicalTab) are bridged onto
   // the CEO dashboard's loadRsoOversight() / loadTechnical() inside ceo-dashboard.html.
   var MASTER_PANELS = ['registration', 'rso', 'candidates', 'jobs', 'practices', 'matching', 'meetings', 'leads', 'contracts', 'social', 'technical'];
+  // A tab revisited within this window is re-entered QUIETLY: its loader is
+  // told { quiet: true } and must not paint a placeholder, wipe the panel, or
+  // close an open drill-in — it revalidates in the background and repaints only
+  // a list/scaffold that is actually on screen. Older than this and the tab
+  // reloads in full as before.
+  var QUIET_REENTRY_MS = 5 * 60 * 1000;
   // Toggle the active tab + panel visibility. skipLoad=true leaves rendering to a
   // deep-link opener (so a drill-in profile/board isn't clobbered by the list loader).
-  function setActiveTab(name, skipLoad) {
+  // force=true (hash navigation only) reloads even when the tab is unchanged,
+  // so browser back from #candidate=<id> to #candidates still shows the list.
+  function setActiveTab(name, skipLoad, force) {
     // Consultants are ATS-only: the Registration tab is hidden for them, so a
     // deep-link/hash pointing at it lands on Candidates instead (the server
     // 403s all Registration data for consultants anyway — this is cosmetic).
     if (name === 'registration' && isConsultant()) name = 'candidates';
+    var sameTab = window.ATS.activeTab === name;
     window.ATS.activeTab = name;
     var tabs = document.querySelectorAll('#masterTabs .ats-master-tab');
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i].getAttribute('data-mtab') === name);
@@ -140,14 +197,34 @@
       var el = document.getElementById('panel-' + k);
       if (el) el.style.display = (k === name) ? '' : 'none';
     });
-    if (!skipLoad && name !== 'registration') {
-      var fn = window['load' + name.charAt(0).toUpperCase() + name.slice(1) + 'Tab'];
-      if (typeof fn === 'function') { try { fn(); } catch (e) { console.error('[ATS] tab load failed', name, e); } }
+    var loadedAt = window.ATS.tabLoadedAt || (window.ATS.tabLoadedAt = {});
+    if (skipLoad) {
+      // A drill-in opener is about to fill the panel with fresh content, so the
+      // tab counts as loaded now (a later re-entry stays quiet and keeps it).
+      loadedAt[name] = Date.now();
+      return;
     }
+    // Owner 2026-10-29: re-clicking the tab you are already on used to re-run
+    // its loader — placeholder, refetch, scroll to top, open drill-in gone.
+    // Nothing is stale on a tab that is already showing; do nothing.
+    if (sameTab && loadedAt[name] && !force) return;
+    var fn = window['load' + name.charAt(0).toUpperCase() + name.slice(1) + 'Tab'];
+    if (typeof fn !== 'function') return;
+    var quiet = !force && !!loadedAt[name] && (Date.now() - loadedAt[name]) < QUIET_REENTRY_MS;
+    loadedAt[name] = Date.now();
+    try {
+      // Every loader, the Social hub included, takes { quiet } and decides for
+      // itself what a quiet re-entry means (keep what is on screen, revalidate).
+      if (quiet) fn({ quiet: true });
+      else fn();
+    } catch (e) { console.error('[ATS] tab load failed', name, e); }
   }
   function showMaster(name) {
     if (!name) return;
+    var unchanged = window.ATS.activeTab === name;
     setActiveTab(name, false);
+    // Same tab: no history rewrite, no scroll — leave the owner where they are.
+    if (unchanged) return;
     try { if (('' + (location.hash || '')).replace('#', '') !== name) history.replaceState(null, '', '#' + name); } catch (e) { /* ignore */ }
     if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -182,8 +259,8 @@
     }
     if (h.indexOf('board=') === 0) { drill('jobs', 'atsOpenJobBoard', h.split('=')[1]); return true; }
     if (h.indexOf('practice=') === 0) { drill('practices', 'atsOpenPractice', h.split('=')[1]); return true; }
-    if (h === 'meetings') { setActiveTab('meetings', false); return true; }
-    if (MASTER_PANELS.indexOf(h) !== -1) { setActiveTab(h, false); return true; }
+    if (h === 'meetings') { setActiveTab('meetings', false, true); return true; }
+    if (MASTER_PANELS.indexOf(h) !== -1) { setActiveTab(h, false, true); return true; }
     return false;
   }
 
@@ -196,11 +273,29 @@
       showMaster(item.getAttribute('data-mtab'));
     });
     window.addEventListener('hashchange', applyHash);
-    // Populate the count chips once (lightweight). SWR: cached counts paint
-    // instantly, then the network result overwrites them.
-    swr('/api/ceo/candidates', function (d) { var el = document.getElementById('masterCandCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.candidates ? d.candidates.length : ''); });
-    swr('/api/ats/jobs', function (d) { var el = document.getElementById('masterJobsCount'); if (el && d && d.ok) el.textContent = d.open_count != null ? d.open_count : (d.jobs ? d.jobs.length : ''); });
-    swr('/api/ats/practices', function (d) { var el = document.getElementById('masterPracCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.practices ? d.practices.length : ''); });
+    // Populate the count chips. None of these endpoints has a counts-only
+    // variant (each one builds the full list and reports total/open_count over
+    // it — checked in server.js 2026-10-29), so the three list fetches are
+    // heavy. SWR: a cached count paints synchronously at boot; the network
+    // revalidation is deferred until the browser is idle so it never competes
+    // with the first paint of whichever tab the owner actually opened (each
+    // tab's own list fetch updates its chip too).
+    var chipPaint = {
+      '/api/ceo/candidates': function (d) { var el = document.getElementById('masterCandCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.candidates ? d.candidates.length : ''); },
+      '/api/ats/jobs': function (d) { var el = document.getElementById('masterJobsCount'); if (el && d && d.ok) el.textContent = d.open_count != null ? d.open_count : (d.jobs ? d.jobs.length : ''); },
+      '/api/ats/practices': function (d) { var el = document.getElementById('masterPracCount'); if (el && d && d.ok) el.textContent = d.total != null ? d.total : (d.practices ? d.practices.length : ''); }
+    };
+    Object.keys(chipPaint).forEach(function (path) {
+      var cached = window.__gpSwr ? window.__gpSwr.read(path) : null;
+      if (cached) { try { chipPaint[path](cached); } catch (e) { /* ignore */ } }
+    });
+    function whenIdle(fn) {
+      if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(function () { fn(); }, { timeout: 3000 });
+      else setTimeout(fn, 3000);
+    }
+    whenIdle(function () {
+      Object.keys(chipPaint).forEach(function (path) { swr(path, chipPaint[path]); });
+    });
     // Contracts is an ALERT, not a count: a contract landing means somebody is
     // waiting on the CEO, so it gets a red "!" that stays until every one is
     // actioned (submitted to the GP / returned to the practice). Setting the
@@ -223,7 +318,9 @@
         }
       });
     };
-    window.ATS.refreshContractsAlert();
+    // Boot: same idle deferral as the chips above (it is a full contracts list
+    // fetch); after an action the callers invoke it directly, right away.
+    whenIdle(function () { window.ATS.refreshContractsAlert(); });
     // Same idea for the monthly social review: a month sitting unapproved means
     // the owner is the blocker, so the dot shows without opening the tab.
     if (typeof window.ATS_refreshSocialAlert === 'function') window.ATS_refreshSocialAlert();

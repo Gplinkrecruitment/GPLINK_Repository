@@ -662,8 +662,8 @@ describe('accept WITH the agreed interview time — books it, skips the availabi
     // Both scripts changed → both cache keys bumped (and the CSS key may never
     // fall behind the candidates key — see tests/ats-endpoints.test.js).
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029a');
-    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261029a');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
+    expect(html).toContain('/js/ceo-ats-jobs.js?v=20261029b');
     expect(html).toContain('/css/ceo-ats.css?v=20261029a');
   });
 });
@@ -731,7 +731,7 @@ describe('two accepts for the same interview at the same instant book ONCE and m
     // No other bare delegated listener on the panel is added per render.
     expect(cand.match(/host\.addEventListener\('(click|change)', function/g)).toBeNull();
     const html = read('pages/ceo-dashboard.html');
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029a');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
     expect(html).toContain('/css/ceo-ats.css?v=20261029a');
   });
 
@@ -766,7 +766,7 @@ describe('two accepts for the same interview at the same instant book ONCE and m
     expect(jobs).toContain("acceptBtn.disabled = true; acceptBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…';");
     const cand = read('js/ceo-ats-candidates.js');
     expect(cand).toContain("if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = interviewLocal ? 'Booking…' : 'Recording…'; }");
-    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-jobs.js?v=20261029a');
+    expect(read('pages/ceo-dashboard.html')).toContain('/js/ceo-ats-jobs.js?v=20261029b');
   });
 });
 

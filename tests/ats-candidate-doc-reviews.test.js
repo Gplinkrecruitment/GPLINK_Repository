@@ -356,7 +356,8 @@ describe('candidate profile — "Documents to review" card', () => {
     expect(js).toContain("var reviewBtn = e.target.closest('.ats-doc-review');");
     expect(js).toContain("if (reviewBtn) { openDocReview(reviewBtn.getAttribute('data-task-id'), c); return; }");
     expect(js).toContain('window.ceoReviewFlaggedDoc(taskId, {');
-    expect(js).toContain('onDone: function () { if (c && c.case_id) window.atsOpenCandidate(c.case_id); }');
+    // Quiet (2026-10-29): the profile re-renders in place after a decision, no placeholder / scroll-to-top.
+    expect(js).toContain('onDone: function () { if (c && c.case_id) window.atsOpenCandidate(c.case_id, { quiet: true }); }');
     // Graceful when the modal is not on the page (script loaded elsewhere).
     expect(js).toContain("if (typeof window.ceoReviewFlaggedDoc !== 'function')");
   });
@@ -381,7 +382,7 @@ describe('ceo-dashboard.html — review modal accepts a profile caller', () => {
     expect(fn).toContain('refreshGpDetailTasks();');
   });
   it('the candidates script is cache-busted so the deployed page loads the new card', () => {
-    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029a');
+    expect(html).toContain('/js/ceo-ats-candidates.js?v=20261029b');
     expect(html).not.toContain('/js/ceo-ats-candidates.js?v=20260902a');
   });
 });

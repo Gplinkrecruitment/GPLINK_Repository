@@ -928,9 +928,13 @@
   var panelWired = false;
   var searchDebounce = null;
 
-  function loadMatchingTab() {
+  // opts.quiet (owner 2026-10-29): the tab was visited within the last few
+  // minutes — refetch the board in the background and keep the expanded row,
+  // selection and search exactly as they are (renderBoard preserves focus).
+  function loadMatchingTab(opts) {
     var panel = panelEl();
     if (!panel) return;
+    if (opts && opts.quiet && state.boardData && panel.children.length) { fetchBoard(); return; }
     state.expandedId = null;
     state.selection = {};
     state.suggFind = '';
@@ -1259,10 +1263,11 @@
         renderBoard();
         return;
       }
-      // The ranking call is a GET, so nothing purged the stale-while-revalidate
-      // cache: without this the pre-ranking board (and its "Run AI ranking"
-      // button) flashes back until the network answers.
-      if (window.__gpSwr) { try { window.__gpSwr.purge(); } catch (e) { /* ignore */ } }
+      // The ranking call is a GET, so nothing invalidated the stale-while-
+      // revalidate cache: without this the pre-ranking board (and its "Run AI
+      // ranking" button) flashes back until the network answers. Drop the
+      // matching family only — the other tabs' caches are unaffected.
+      if (window.__gpSwr && window.__gpSwr.invalidate) { try { window.__gpSwr.invalidate('/api/ats/matching/board'); } catch (e) { /* ignore */ } }
       fetchBoard();
     });
   }

@@ -54,6 +54,15 @@ verified data shapes, and what is still broken.
   Open: Cold's cost per lead has doubled and no lead has arrived since 27 Sep (§10.1), and
   §6.2 — rebuilding Warm around the instant form — is an active disagreement with the owner.
 
+- **Social tab / Ads hub (daily Meta ad review, live creatives, new ads written and launched from
+  the page) / CEO dashboard "slow tabs" and "page reloads"** →
+  [`docs/superpowers/handovers/2026-10-29-ads-hub-and-dashboard-perf-handover.md`](docs/superpowers/handovers/2026-10-29-ads-hub-and-dashboard-perf-handover.md)
+  — live as of 2026-10-29; tables applied to prod. **Nothing reads Meta until the owner sets
+  `META_ADS_ACCESS_TOKEN`** (§2); the page says so and has a Check connection button. Read §3
+  before touching the model call (structured output rejects `maxItems`; thinking eats
+  `max_tokens`) and §4.1 before "fixing" a launch error (1815089 is the Page terms check, not
+  a bug).
+
 Older handovers in `docs/superpowers/handovers/` are historical unless listed above.
 
 ## Non-Negotiable Rules

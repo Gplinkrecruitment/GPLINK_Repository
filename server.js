@@ -11539,6 +11539,10 @@ const CRON_SCHEDULES = {
   'lead-calls': { schedule: '*/5 * * * *', cadenceMinutes: 5 },
   // Meta Conversions API for CRM: report bookings/signups back to Meta (lib/meta-capi.js).
   'meta-lead-stages': { schedule: '50 * * * *', cadenceMinutes: 60 },
+  // Ads hub: the morning Meta review (21:30 UTC ≈ 08:30 Melbourne AEDT) and
+  // the launcher that creates scheduled ads. Keep in sync with vercel.json.
+  'ads-daily-review': { schedule: '30 21 * * *', cadenceMinutes: 1440 },
+  'ads-launch': { schedule: '*/15 * * * *', cadenceMinutes: 15 },
   // Post-onboarding drop-off chase (career_start / career_cv), both channels.
   'dropoff-nudge': { schedule: '40 * * * *', cadenceMinutes: 60 },
   // Automatic AI document review — decides uploaded qualification docs,
@@ -13731,6 +13735,374 @@ async function readMigrationLedger() {
     rows: Array.isArray(dbState.schemaMigrations) ? dbState.schemaMigrations.slice() : [],
     tableMissing: false
   };
+}
+
+// ── Ads hub (CEO dashboard → Social tab → Ads) ──────────────────────────────
+// The Meta campaign on one page: a morning summary written by the model from
+// the real numbers, the creatives that are live with their cost per booking,
+// the model's suggested improvements, and new ads drafted on the page,
+// iterated, composed into a creative, scheduled and launched into the live ad
+// set. Reads and Meta writes live in lib/meta-ads.js; the model side in
+// lib/ads-review.js. This section binds them to env, storage, the two tables
+// (ad_reviews, ad_drafts — migration 20261029120000_ads_hub.sql) and HTTP.
+const metaAds = require('./lib/meta-ads.js');
+const adsReview = require('./lib/ads-review.js');
+const ADS_REVIEW_MODEL = String(process.env.ADS_REVIEW_MODEL || adsReview.DEFAULT_MODEL).trim() || adsReview.DEFAULT_MODEL;
+// Folder inside the social-creatives bucket; served through /api/ceo/ads/image.
+const ADS_IMAGE_PREFIX = 'ad-drafts';
+const ADS_DRAFT_TEXT_FIELDS = ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt', 'rationale'];
+
+function _adsLocalReviews() { if (!Array.isArray(dbState.adReviews)) dbState.adReviews = []; return dbState.adReviews; }
+function _adsLocalDrafts() { if (!Array.isArray(dbState.adDrafts)) dbState.adDrafts = []; return dbState.adDrafts; }
+function _adsLocalImages() { if (!dbState.adImages || typeof dbState.adImages !== 'object') dbState.adImages = {}; return dbState.adImages; }
+function _adsNewId() { return crypto.randomUUID(); }
+function _adsNowIso() { return new Date().toISOString(); }
+
+// Calendar day in the social timezone, which is what "today's review" means.
+function adsLocalDay(now) {
+  const tz = metaAds.adsConfig(process.env).timeZone;
+  const parts = socialCampaign.wallClockPartsInZone(new Date(now || Date.now()), tz);
+  if (!parts) return new Date(now || Date.now()).toISOString().slice(0, 10);
+  return parts.year + '-' + String(parts.month).padStart(2, '0') + '-' + String(parts.day).padStart(2, '0');
+}
+
+// The review row without its snapshot (which can be hundreds of KB).
+const ADS_REVIEW_LIGHT = 'id,review_date,kind,review,model,input_tokens,output_tokens,error,created_by,created_at';
+function _adsLightReview(row) {
+  if (!row) return null;
+  const out = {};
+  ADS_REVIEW_LIGHT.split(',').forEach(function (k) { out[k] = row[k] === undefined ? null : row[k]; });
+  return out;
+}
+
+async function adsListReviews(opts) {
+  const o = opts || {};
+  const limit = Math.max(1, Math.min(50, Number(o.limit) || 10));
+  if (!isSupabaseDbConfigured()) {
+    let rows = _adsLocalReviews().slice().sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
+    if (o.kinds) rows = rows.filter(function (r) { return o.kinds.indexOf(r.kind) !== -1; });
+    if (o.reviewDate) rows = rows.filter(function (r) { return r.review_date === o.reviewDate; });
+    if (o.okOnly) rows = rows.filter(function (r) { return !r.error; });
+    return { ok: true, rows: rows.slice(0, limit).map(o.withSnapshot ? function (r) { return r; } : _adsLightReview) };
+  }
+  let q = 'select=' + (o.withSnapshot ? '*' : ADS_REVIEW_LIGHT) + '&order=created_at.desc&limit=' + limit;
+  if (o.kinds) q += '&kind=in.(' + o.kinds.map(encodeURIComponent).join(',') + ')';
+  if (o.reviewDate) q += '&review_date=eq.' + encodeURIComponent(o.reviewDate);
+  if (o.okOnly) q += '&error=is.null';
+  const r = await supabaseDbRequest('ad_reviews', q);
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), rows: [] };
+  return { ok: true, rows: Array.isArray(r.data) ? r.data : [] };
+}
+
+async function adsInsertReview(row) {
+  const r0 = Object.assign({ created_at: _adsNowIso() }, row);
+  if (!isSupabaseDbConfigured()) {
+    r0.id = r0.id || _adsNewId();
+    _adsLocalReviews().push(r0);
+    saveDbState();
+    return { ok: true, row: r0 };
+  }
+  const r = await supabaseDbRequest('ad_reviews', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [r0] });
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : r0 };
+}
+
+async function adsListDrafts() {
+  if (!isSupabaseDbConfigured()) {
+    return { ok: true, rows: _adsLocalDrafts().slice().sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); }) };
+  }
+  const r = await supabaseDbRequest('ad_drafts', 'select=*&order=created_at.desc&limit=200');
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), rows: [] };
+  return { ok: true, rows: Array.isArray(r.data) ? r.data : [] };
+}
+
+async function adsReadDraft(id) {
+  if (!isSupabaseDbConfigured()) {
+    return _adsLocalDrafts().find(function (d) { return String(d.id) === String(id); }) || null;
+  }
+  const r = await supabaseDbRequest('ad_drafts', 'select=*&id=eq.' + encodeURIComponent(id) + '&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+  return r.data[0];
+}
+
+async function adsInsertDraft(row) {
+  const now = _adsNowIso();
+  const r0 = Object.assign({
+    status: 'draft', headline: '', primary_text: '', description: '', image_headline: '', image_sub: '',
+    cta: 'BOOK_TRAVEL', layout: {}, improvements: [], history: [], launch_attempts: 0,
+    created_at: now, updated_at: now
+  }, row);
+  if (!isSupabaseDbConfigured()) {
+    r0.id = r0.id || _adsNewId();
+    _adsLocalDrafts().push(r0);
+    saveDbState();
+    return { ok: true, row: r0 };
+  }
+  const r = await supabaseDbRequest('ad_drafts', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [r0] });
+  if (!r.ok) return { ok: false, tableMissing: _socTableMissing(r), error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : r0 };
+}
+
+async function adsPatchDraft(id, patch) {
+  const body = Object.assign({}, patch, { updated_at: _adsNowIso() });
+  if (!isSupabaseDbConfigured()) {
+    const row = _adsLocalDrafts().find(function (d) { return String(d.id) === String(id); });
+    if (!row) return { ok: false, status: 404 };
+    Object.assign(row, body);
+    saveDbState();
+    return { ok: true, row: row };
+  }
+  const r = await supabaseDbRequest('ad_drafts', 'id=eq.' + encodeURIComponent(id),
+    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: body });
+  if (!r.ok) return { ok: false, status: r.status, error: r.data };
+  return { ok: true, row: Array.isArray(r.data) ? r.data[0] : null };
+}
+
+// GP leads from the last 31 days, for the per-ad booking funnel. Narrow select
+// on purpose: the join needs created_at, status and metadata, nothing personal.
+async function adsLeadRows(now) {
+  const since = new Date(Number(now || Date.now()) - 31 * 86400000).toISOString();
+  if (isSupabaseDbConfigured()) {
+    const r = await supabaseDbRequest('site_enquiries',
+      'select=id,created_at,status,metadata&kind=eq.gp&created_at=gte.' + encodeURIComponent(since) + '&order=created_at.desc&limit=2000');
+    return r.ok && Array.isArray(r.data) ? r.data : [];
+  }
+  return (Array.isArray(dbState.siteEnquiries) ? dbState.siteEnquiries : [])
+    .filter(function (r) { return r && r.kind === 'gp' && String(r.created_at || '') >= since; });
+}
+
+async function adsBuildLiveSnapshot(now) {
+  const leadRows = await adsLeadRows(now);
+  const cfg = metaAds.adsConfig(process.env);
+  const result = await metaAds.buildSnapshot({ config: cfg, leadRows: leadRows, now: now });
+  return result;
+}
+
+// One review run: live numbers → the model → one ad_reviews row. The row is
+// written even when the model fails, so the page still has today's numbers and
+// says plainly why there is no commentary.
+async function adsRunReview(opts) {
+  const o = opts || {};
+  const now = Number(o.now || Date.now());
+  const live = await adsBuildLiveSnapshot(now);
+  const prev = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1 });
+  const previousReview = prev.ok && prev.rows[0] ? prev.rows[0].review : null;
+  const row = {
+    review_date: adsLocalDay(now),
+    kind: o.kind === 'daily' ? 'daily' : 'manual',
+    snapshot: live.snapshot,
+    review: {},
+    model: ADS_REVIEW_MODEL,
+    created_by: o.actor || 'ceo',
+    error: null
+  };
+  if (!live.ok && !live.configured) {
+    row.error = 'Meta is not connected: ' + (live.problems || []).join(' ');
+  } else if (!live.ok) {
+    row.error = 'Could not read the campaign from Meta: ' + (live.problems || []).join(' ');
+  } else if (!process.env.ANTHROPIC_API_KEY) {
+    row.error = 'ANTHROPIC_API_KEY is not set, so no review could be written.';
+  } else if (!(await checkAnthropicBudget())) {
+    row.error = 'The daily AI budget is used up; the review will run again tomorrow.';
+  } else {
+    const r = await adsReview.runDailyReview({
+      snapshot: live.snapshot, previousReview: previousReview, today: row.review_date, model: ADS_REVIEW_MODEL
+    });
+    if (r.ok) {
+      row.review = r.review;
+      row.model = r.model || ADS_REVIEW_MODEL;
+      row.input_tokens = r.usage.input_tokens;
+      row.output_tokens = r.usage.output_tokens;
+      recordAnthropicSpend(r.usage.input_tokens, r.usage.output_tokens, r.usage.cache_read_input_tokens, r.usage.cache_creation_input_tokens);
+    } else {
+      row.error = 'The model call failed: ' + String(r.error || 'unknown error');
+      if (r.usage) {
+        row.input_tokens = r.usage.input_tokens;
+        row.output_tokens = r.usage.output_tokens;
+        recordAnthropicSpend(r.usage.input_tokens || 0, r.usage.output_tokens || 0);
+      }
+    }
+  }
+  const ins = await adsInsertReview(row);
+  if (!ins.ok) return { ok: false, tableMissing: ins.tableMissing, error: 'Could not store the review.', live: live, row: row };
+  return { ok: !row.error, row: ins.row, live: live };
+}
+
+// Daily cron: once per local day, skipped if the morning run already happened
+// (the cron may fire twice around a deploy, and a manual run earlier that day
+// does not count — the owner expects the scheduled one regardless).
+async function runAdsDailyReview(opts) {
+  const now = Number((opts && opts.now) || Date.now());
+  const today = adsLocalDay(now);
+  const existing = await adsListReviews({ kinds: ['daily'], reviewDate: today, limit: 1 });
+  if (existing.ok && existing.rows.length) return { ok: true, skipped: true, reason: 'already ran today', review_date: today };
+  const r = await adsRunReview({ kind: 'daily', actor: 'cron', now: now });
+  return { ok: r.ok, skipped: false, review_date: today, error: r.row && r.row.error, id: r.row && r.row.id };
+}
+
+function adsDraftFromBrief(brief, opts) {
+  const b = brief || {};
+  const o = opts || {};
+  const cfg = metaAds.adsConfig(process.env);
+  return {
+    status: 'draft',
+    angle: b.angle || null,
+    headline: b.headline || '',
+    primary_text: b.primary_text || '',
+    description: b.description || '',
+    image_headline: b.image_headline || '',
+    image_sub: b.image_sub || '',
+    image_prompt: b.image_prompt || null,
+    layout: { placement: 'bottom', focus: 0.5 },
+    cta: 'BOOK_TRAVEL',
+    rationale: b.rationale || null,
+    improvements: Array.isArray(b.improvements_applied) ? b.improvements_applied : [],
+    history: [],
+    review_id: o.reviewId || null,
+    adset_id: o.adsetId || cfg.adsetId,
+    created_by: o.actor || 'ceo'
+  };
+}
+
+// Images: a data URL in, a bucket path out. Local mode keeps the data URL in
+// memory so the route tests can round-trip without storage.
+async function adsStoreImage(draftId, kind, dataUrl) {
+  const safeKind = kind === 'photo' ? 'photo' : 'creative';
+  const path = ADS_IMAGE_PREFIX + '/' + sanitizeStoragePathSegment(String(draftId), 80) + '/' + safeKind + '-' + Date.now() + '.jpg';
+  if (!isSupabaseDbConfigured()) {
+    const parsed = parseDataUrlPayload(dataUrl);
+    if (!parsed) return { ok: false, error: 'Not a valid image.' };
+    _adsLocalImages()[path] = dataUrl;
+    saveDbState();
+    return { ok: true, path: path, bytes: parsed.buffer.length };
+  }
+  const parsed = parseDataUrlPayload(dataUrl);
+  if (!parsed) return { ok: false, error: 'Not a valid image.' };
+  const up = await supabaseStorageUploadBuffer(SOCIAL_BUCKET, path, parsed.buffer, parsed.mimeType || 'image/jpeg');
+  if (!up) return { ok: false, error: 'Storage upload failed.' };
+  return { ok: true, path: path, bytes: parsed.buffer.length };
+}
+
+async function adsFetchImageBytes(path) {
+  if (!path) return { ok: false };
+  if (!isSupabaseDbConfigured()) {
+    const dataUrl = _adsLocalImages()[path];
+    const parsed = dataUrl ? parseDataUrlPayload(dataUrl) : null;
+    if (!parsed) return { ok: false };
+    return { ok: true, buffer: parsed.buffer, contentType: parsed.mimeType || 'image/jpeg' };
+  }
+  return socialFetchCreativeBytes(path);
+}
+
+// Launch whatever is due (cron) or one draft (the "Launch now" button).
+async function runAdsLaunch(opts) {
+  const o = opts || {};
+  const now = Number(o.now || Date.now());
+  const cfg = metaAds.adsConfig(process.env);
+  const out = { ok: true, attempted: 0, launched: 0, failed: 0, held: 0, details: [] };
+  let targets = [];
+  if (o.draftId) {
+    const one = await adsReadDraft(o.draftId);
+    if (one) targets = [one];
+  } else {
+    const list = await adsListDrafts();
+    if (!list.ok) return { ok: false, tableMissing: list.tableMissing, attempted: 0, launched: 0, failed: 0, held: 0, details: [] };
+    targets = metaAds.selectDueDrafts(list.rows, new Date(now).toISOString(), 3);
+  }
+  for (const d of targets) {
+    out.attempted++;
+    let imageBytes = null;
+    if (!d.meta_image_hash && d.image_path) {
+      const img = await adsFetchImageBytes(d.image_path);
+      if (img.ok) imageBytes = img.buffer;
+    }
+    if (d.status === 'scheduled') await adsPatchDraft(d.id, { status: 'launching' });
+    const res = await metaAds.launchDraft(d, { config: cfg, imageBytes: imageBytes, now: now, status: 'ACTIVE' });
+    const patch = Object.assign({}, res.patch);
+    if (res.ok) {
+      out.launched++;
+    } else if (res.held) {
+      // The kill switch is not a failed attempt: leave it scheduled, untouched.
+      out.held++;
+      delete patch.launch_attempts;
+      patch.status = d.status === 'launching' ? 'scheduled' : d.status;
+    } else {
+      const attempts = Number(patch.launch_attempts) || 0;
+      const giveUp = res.step === 'validate' || res.step === 'config' || attempts >= metaAds.MAX_LAUNCH_ATTEMPTS;
+      patch.status = giveUp ? 'failed' : 'scheduled';
+      if (giveUp) out.failed++;
+    }
+    const saved = await adsPatchDraft(d.id, patch);
+    out.details.push({
+      id: d.id, ok: res.ok, step: res.step, error: res.error || null, held: !!res.held,
+      status: patch.status, meta_ad_id: patch.meta_ad_id || d.meta_ad_id || null,
+      draft: saved.ok ? saved.row : null
+    });
+  }
+  return out;
+}
+
+// What the page needs in one round trip. Stored snapshot by default (fast);
+// `live` forces the nine Meta reads.
+async function adsPagePayload(opts) {
+  const o = opts || {};
+  const cfg = metaAds.adsConfig(process.env);
+  const now = Number(o.now || Date.now());
+  const payload = {
+    ok: true,
+    configured: !!cfg.token,
+    token_source: cfg.tokenSource,
+    launch_disabled: cfg.launchDisabled,
+    anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
+    model: ADS_REVIEW_MODEL,
+    defaults: { adset_id: cfg.adsetId, lead_form_id: cfg.leadFormId, page_id: cfg.pageId, campaign_id: cfg.campaignId, account_id: cfg.accountId, time_zone: cfg.timeZone },
+    cta_options: metaAds.CTA_OPTIONS,
+    problems: [],
+    snapshot: null,
+    snapshot_source: 'none',
+    snapshot_at: null,
+    review: null,
+    drafts: []
+  };
+
+  const latestReview = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1 });
+  if (!latestReview.ok && latestReview.tableMissing) {
+    return { ok: false, table_missing: true, message: 'The ads tables do not exist yet — migration 20261029120000_ads_hub.sql has not been applied.' };
+  }
+  payload.review = latestReview.ok && latestReview.rows[0] ? latestReview.rows[0] : null;
+  const lastRun = await adsListReviews({ kinds: ['daily', 'manual'], limit: 1 });
+  payload.last_run = lastRun.ok && lastRun.rows[0] ? lastRun.rows[0] : null;
+
+  let snapshotRow = null;
+  if (!o.live) {
+    const latestAny = await adsListReviews({ withSnapshot: true, limit: 1 });
+    snapshotRow = latestAny.ok && latestAny.rows[0] && latestAny.rows[0].snapshot && latestAny.rows[0].snapshot.fetched_at
+      ? latestAny.rows[0] : null;
+  }
+  if (snapshotRow) {
+    payload.snapshot = snapshotRow.snapshot;
+    payload.snapshot_source = 'stored';
+    payload.snapshot_at = snapshotRow.snapshot.fetched_at;
+  } else {
+    const live = await adsBuildLiveSnapshot(now);
+    payload.snapshot = live.snapshot;
+    payload.snapshot_source = live.ok ? 'live' : (cfg.token ? 'error' : 'funnel_only');
+    payload.snapshot_at = live.snapshot.fetched_at;
+    payload.problems = live.problems || [];
+    payload.credential_error = !!live.credential_error;
+    payload.permission_error = !!live.permission_error;
+    if (live.ok && o.store !== false) {
+      await adsInsertReview({ review_date: adsLocalDay(now), kind: 'snapshot', snapshot: live.snapshot, review: {}, created_by: o.actor || 'ceo' });
+    }
+  }
+  const drafts = await adsListDrafts();
+  payload.drafts = drafts.ok ? drafts.rows : [];
+  if (!drafts.ok && drafts.tableMissing) payload.problems.push('ad_drafts table is missing.');
+  payload.drafts.forEach(function (d) {
+    d.problems = metaAds.draftProblems(d);
+    d.warnings = metaAds.draftWarnings(d);
+  });
+  return payload;
 }
 
 async function checkAnthropicBudget() {
@@ -46700,6 +47072,382 @@ async function handleApi(req, res, pathname) {
     await recordCronRun('social-campaign-open', socOpenRes.ok ? 'ok' : 'error',
       String(socOpenRes.detail || ''), 0);
     sendJson(res, 200, socOpenRes);
+    return;
+  }
+
+  // ── Ads hub (CEO dashboard → Social tab → Ads) ──────────────────────────
+  // GET /api/ceo/ads — everything the page needs in one call. Stored snapshot
+  // unless ?live=1; the morning review; the drafts. Table missing → 503 with a
+  // message naming the migration, never an empty page.
+  if (pathname === '/api/ceo/ads' && req.method === 'GET') {
+    var adsGetCtx = requireCeoSession(req, res);
+    if (!adsGetCtx) return;
+    var adsGetPayload = await adsPagePayload({ live: url.searchParams.get('live') === '1', actor: adsGetCtx.email || 'ceo' });
+    sendJson(res, adsGetPayload.ok ? 200 : (adsGetPayload.table_missing ? 503 : 500), adsGetPayload);
+    return;
+  }
+
+  // POST /api/ceo/ads/refresh — pull live numbers now and keep them.
+  if (pathname === '/api/ceo/ads/refresh' && req.method === 'POST') {
+    var adsRefCtx = requireCeoSession(req, res);
+    if (!adsRefCtx) return;
+    var adsRefPayload = await adsPagePayload({ live: true, actor: adsRefCtx.email || 'ceo' });
+    sendJson(res, adsRefPayload.ok ? 200 : (adsRefPayload.table_missing ? 503 : 500), adsRefPayload);
+    return;
+  }
+
+  // POST /api/ceo/ads/review — run the model now (a 'manual' review row).
+  if (pathname === '/api/ceo/ads/review' && req.method === 'POST') {
+    var adsRevCtx = requireCeoSession(req, res);
+    if (!adsRevCtx) return;
+    var adsRevRes = await adsRunReview({ kind: 'manual', actor: adsRevCtx.email || 'ceo' });
+    if (!adsRevRes.ok && adsRevRes.tableMissing) {
+      sendJson(res, 503, { ok: false, table_missing: true, message: 'The ads tables do not exist yet — migration 20261029120000_ads_hub.sql has not been applied.' });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: adsRevRes.ok,
+      message: adsRevRes.row && adsRevRes.row.error ? adsRevRes.row.error : null,
+      review: _adsLightReview(adsRevRes.row),
+      snapshot: adsRevRes.row ? adsRevRes.row.snapshot : null,
+      snapshot_source: 'live'
+    });
+    return;
+  }
+
+  // GET /api/ceo/ads/health — what the Meta token can actually do.
+  if (pathname === '/api/ceo/ads/health' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsHealth = await metaAds.checkHealth({ config: metaAds.adsConfig(process.env) });
+    sendJson(res, 200, Object.assign({ ok: true }, adsHealth));
+    return;
+  }
+
+  // GET /api/ceo/ads/photos — the ad account's uploaded photographs.
+  if (pathname === '/api/ceo/ads/photos' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsPhCfg = metaAds.adsConfig(process.env);
+    if (!adsPhCfg.token) { sendJson(res, 200, { ok: false, message: metaAds.configProblems(adsPhCfg)[0], photos: [] }); return; }
+    var adsPhRes = await metaAds.fetchImageLibrary({ config: adsPhCfg });
+    if (!adsPhRes.ok) { sendJson(res, 200, { ok: false, message: metaAds.explainMetaError(adsPhRes), photos: [] }); return; }
+    sendJson(res, 200, {
+      ok: true,
+      photos: (adsPhRes.data || []).filter(function (p) { return p && p.url; }).map(function (p) {
+        return { hash: p.hash, name: p.name, url: p.url, width: p.width, height: p.height, created_time: p.created_time };
+      })
+    });
+    return;
+  }
+
+  // GET /api/ceo/ads/photo-proxy?url= — a Meta CDN image on our origin, so the
+  // composer's canvas is not tainted by a cross-origin draw. Host-allowlisted.
+  if (pathname === '/api/ceo/ads/photo-proxy' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsPxUrl = String(url.searchParams.get('url') || '').trim();
+    var adsPxHost = '';
+    try { adsPxHost = new URL(adsPxUrl).hostname; } catch (e) { adsPxHost = ''; }
+    if (!/^https:/i.test(adsPxUrl) || !/(\.fbcdn\.net|\.facebook\.com|\.fbsbx\.com)$/i.test(adsPxHost)) {
+      sendJson(res, 400, { ok: false, message: 'Only Meta image hosts can be proxied.' });
+      return;
+    }
+    var adsPxResp = await fetch(adsPxUrl, { headers: { Accept: 'image/*' } }).catch(function () { return null; });
+    if (!adsPxResp || !adsPxResp.ok) { sendJson(res, 502, { ok: false, message: 'Meta did not return that image.' }); return; }
+    var adsPxType = String(adsPxResp.headers.get('content-type') || 'image/jpeg');
+    if (!/^image\//i.test(adsPxType)) { sendJson(res, 502, { ok: false, message: 'That URL is not an image.' }); return; }
+    var adsPxBuf = Buffer.from(await adsPxResp.arrayBuffer());
+    res.writeHead(200, { 'Content-Type': adsPxType, 'Content-Length': adsPxBuf.length, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+    res.end(adsPxBuf);
+    return;
+  }
+
+  // GET /api/ceo/ads/image?id=&kind=photo|creative — a draft's stored image.
+  if (pathname === '/api/ceo/ads/image' && req.method === 'GET') {
+    if (!requireCeoSession(req, res)) return;
+    var adsImgId = String(url.searchParams.get('id') || '').trim();
+    var adsImgKind = url.searchParams.get('kind') === 'photo' ? 'photo' : 'creative';
+    var adsImgDraft = adsImgId ? await adsReadDraft(adsImgId) : null;
+    var adsImgPath = adsImgDraft ? (adsImgKind === 'photo' ? adsImgDraft.photo_path : adsImgDraft.image_path) : null;
+    if (!adsImgPath) { sendJson(res, 404, { ok: false, message: 'No image.' }); return; }
+    var adsImgBytes = await adsFetchImageBytes(adsImgPath);
+    if (!adsImgBytes.ok) { sendJson(res, 502, { ok: false, message: 'Image unavailable.' }); return; }
+    res.writeHead(200, {
+      'Content-Type': adsImgBytes.contentType || 'image/jpeg',
+      'Content-Length': adsImgBytes.buffer.length,
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(adsImgBytes.buffer);
+    return;
+  }
+
+  // POST /api/ceo/ads/drafts/generate — the model writes N new ads that apply
+  // the chosen improvements from the latest review.
+  if (pathname === '/api/ceo/ads/drafts/generate' && req.method === 'POST') {
+    var adsGenCtx = requireCeoSession(req, res);
+    if (!adsGenCtx) return;
+    var adsGenBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set.' }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.' }); return; }
+    var adsGenLatest = await adsListReviews({ kinds: ['daily', 'manual'], okOnly: true, limit: 1, withSnapshot: true });
+    if (!adsGenLatest.ok && adsGenLatest.tableMissing) { sendJson(res, 503, { ok: false, table_missing: true, message: 'The ads tables do not exist yet.' }); return; }
+    var adsGenReviewRow = adsGenLatest.ok && adsGenLatest.rows[0] ? adsGenLatest.rows[0] : null;
+    var adsGenReview = adsGenReviewRow ? adsGenReviewRow.review : null;
+    var adsGenWanted = Array.isArray(adsGenBody.improvement_ids) ? adsGenBody.improvement_ids.map(String) : null;
+    var adsGenImps = ((adsGenReview && adsGenReview.improvements) || []).filter(function (x) {
+      return !adsGenWanted || adsGenWanted.indexOf(String(x.id)) !== -1;
+    });
+    var adsGenSnapshot = adsGenReviewRow && adsGenReviewRow.snapshot && adsGenReviewRow.snapshot.fetched_at
+      ? adsGenReviewRow.snapshot
+      : (await adsBuildLiveSnapshot()).snapshot;
+    var adsGenExisting = await adsListDrafts();
+    var adsGenRes = await adsReview.generateBriefs({
+      snapshot: adsGenSnapshot,
+      review: adsGenReview,
+      improvements: adsGenImps,
+      count: Math.max(1, Math.min(6, Number(adsGenBody.count) || 3)),
+      instructions: String(adsGenBody.instructions || '').slice(0, 2000),
+      existingDrafts: (adsGenExisting.rows || []).filter(function (d) { return d.status !== 'archived'; }),
+      model: ADS_REVIEW_MODEL
+    });
+    if (!adsGenRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsGenRes.error || 'unknown error') }); return; }
+    recordAnthropicSpend(adsGenRes.usage.input_tokens, adsGenRes.usage.output_tokens, adsGenRes.usage.cache_read_input_tokens, adsGenRes.usage.cache_creation_input_tokens);
+    var adsGenCreated = [];
+    for (var adsGenI = 0; adsGenI < adsGenRes.briefs.length; adsGenI++) {
+      var adsGenRow = adsDraftFromBrief(adsGenRes.briefs[adsGenI], {
+        reviewId: adsGenReviewRow ? adsGenReviewRow.id : null,
+        adsetId: metaAds.adsConfig(process.env).adsetId,
+        actor: adsGenCtx.email || 'ceo'
+      });
+      var adsGenIns = await adsInsertDraft(adsGenRow);
+      if (adsGenIns.ok) {
+        adsGenIns.row.problems = metaAds.draftProblems(adsGenIns.row);
+        adsGenIns.row.warnings = metaAds.draftWarnings(adsGenIns.row);
+        adsGenCreated.push(adsGenIns.row);
+      }
+    }
+    sendJson(res, 200, { ok: true, drafts: adsGenCreated, model: adsGenRes.model, warnings: adsGenRes.warnings });
+    return;
+  }
+
+  // POST /api/ceo/ads/drafts/create — a blank draft to write by hand.
+  if (pathname === '/api/ceo/ads/drafts/create' && req.method === 'POST') {
+    var adsNewCtx = requireCeoSession(req, res);
+    if (!adsNewCtx) return;
+    var adsNewBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsNewRow = adsDraftFromBrief({
+      angle: String(adsNewBody.angle || 'new-ad').slice(0, 40),
+      headline: String(adsNewBody.headline || ''), primary_text: String(adsNewBody.primary_text || ''),
+      description: String(adsNewBody.description || 'UK-trained GPs. Free 30-minute call.'),
+      image_headline: String(adsNewBody.image_headline || adsNewBody.headline || ''), image_sub: String(adsNewBody.image_sub || ''),
+      image_prompt: String(adsNewBody.image_prompt || ''), rationale: 'Written by hand.'
+    }, { actor: adsNewCtx.email || 'ceo', adsetId: metaAds.adsConfig(process.env).adsetId });
+    var adsNewIns = await adsInsertDraft(adsNewRow);
+    if (!adsNewIns.ok) { sendJson(res, adsNewIns.tableMissing ? 503 : 500, { ok: false, message: 'Could not create the draft.' }); return; }
+    adsNewIns.row.problems = metaAds.draftProblems(adsNewIns.row);
+    adsNewIns.row.warnings = metaAds.draftWarnings(adsNewIns.row);
+    sendJson(res, 200, { ok: true, draft: adsNewIns.row });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft — edit one draft on the page (copy, layout, CTA,
+  // ad set, status draft/ready/archived, and the two images as data URLs).
+  if (pathname === '/api/ceo/ads/draft' && req.method === 'POST') {
+    var adsUpCtx = requireCeoSession(req, res);
+    if (!adsUpCtx) return;
+    var adsUpBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsUpId = String(adsUpBody.id || '').trim();
+    if (!adsUpId) { sendJson(res, 400, { ok: false, message: 'id is required.' }); return; }
+    var adsUpDraft = await adsReadDraft(adsUpId);
+    if (!adsUpDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsUpDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live on Meta; creatives cannot be edited. Duplicate it into a new draft instead.' }); return; }
+    var adsUpPatch = {};
+    ADS_DRAFT_TEXT_FIELDS.forEach(function (f) {
+      if (Object.prototype.hasOwnProperty.call(adsUpBody, f)) adsUpPatch[f] = String(adsUpBody[f] == null ? '' : adsUpBody[f]).slice(0, f === 'primary_text' ? 5000 : 1200);
+    });
+    if (adsUpBody.cta !== undefined) {
+      if (!metaAds.CTA_OPTIONS.some(function (o) { return o.value === adsUpBody.cta; })) { sendJson(res, 400, { ok: false, message: 'Unknown call to action.' }); return; }
+      adsUpPatch.cta = adsUpBody.cta;
+    }
+    if (adsUpBody.adset_id !== undefined) {
+      if (!/^\d+$/.test(String(adsUpBody.adset_id))) { sendJson(res, 400, { ok: false, message: 'adset_id must be numeric.' }); return; }
+      adsUpPatch.adset_id = String(adsUpBody.adset_id);
+    }
+    if (adsUpBody.layout && typeof adsUpBody.layout === 'object') {
+      var adsUpLayout = Object.assign({}, adsUpDraft.layout || {});
+      ['placement', 'focus', 'photo_url', 'photo_hash', 'photo_name'].forEach(function (k) {
+        if (adsUpBody.layout[k] !== undefined) adsUpLayout[k] = k === 'focus' ? Math.max(0, Math.min(1, Number(adsUpBody.layout[k]) || 0.5)) : String(adsUpBody.layout[k]).slice(0, 2000);
+      });
+      adsUpPatch.layout = adsUpLayout;
+    }
+    if (adsUpBody.status !== undefined) {
+      if (['draft', 'ready', 'archived'].indexOf(adsUpBody.status) === -1) { sendJson(res, 400, { ok: false, message: 'status must be draft, ready or archived.' }); return; }
+      adsUpPatch.status = adsUpBody.status;
+      if (adsUpBody.status !== 'ready') { adsUpPatch.launch_at = null; }
+    }
+    if (adsUpBody.photo_data_url) {
+      var adsUpPhoto = await adsStoreImage(adsUpId, 'photo', String(adsUpBody.photo_data_url));
+      if (!adsUpPhoto.ok) { sendJson(res, 400, { ok: false, message: 'Photo: ' + adsUpPhoto.error }); return; }
+      adsUpPatch.photo_path = adsUpPhoto.path;
+    }
+    if (adsUpBody.image_data_url) {
+      var adsUpImg = await adsStoreImage(adsUpId, 'creative', String(adsUpBody.image_data_url));
+      if (!adsUpImg.ok) { sendJson(res, 400, { ok: false, message: 'Creative: ' + adsUpImg.error }); return; }
+      adsUpPatch.image_path = adsUpImg.path;
+      adsUpPatch.image_width = Number(adsUpBody.image_width) || null;
+      adsUpPatch.image_height = Number(adsUpBody.image_height) || null;
+      // A new creative is a new upload on Meta: forget the old hash so a
+      // launch does not reuse the previous picture.
+      adsUpPatch.meta_image_hash = null;
+      adsUpPatch.meta_creative_id = null;
+    } else {
+      // Copy changed → the creative Meta would be sent is stale too.
+      var adsUpCopyChanged = ['headline', 'primary_text', 'description'].some(function (f) {
+        return adsUpPatch[f] !== undefined && adsUpPatch[f] !== String(adsUpDraft[f] || '');
+      });
+      if (adsUpCopyChanged || adsUpPatch.cta) adsUpPatch.meta_creative_id = null;
+    }
+    if (adsUpBody.note) {
+      var adsUpHist = Array.isArray(adsUpDraft.history) ? adsUpDraft.history.slice() : [];
+      adsUpHist.push({ at: _adsNowIso(), by: adsUpCtx.email || 'ceo', note: String(adsUpBody.note).slice(0, 500) });
+      adsUpPatch.history = adsUpHist.slice(-40);
+    }
+    var adsUpRes = await adsPatchDraft(adsUpId, adsUpPatch);
+    if (!adsUpRes.ok) { sendJson(res, adsUpRes.status || 500, { ok: false, message: 'Could not save.' }); return; }
+    var adsUpRow = adsUpRes.row || await adsReadDraft(adsUpId);
+    adsUpRow.problems = metaAds.draftProblems(adsUpRow);
+    adsUpRow.warnings = metaAds.draftWarnings(adsUpRow);
+    sendJson(res, 200, { ok: true, draft: adsUpRow });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/iterate — "change it like this": the model revises
+  // the draft from one instruction; the previous copy goes into history.
+  if (pathname === '/api/ceo/ads/draft/iterate' && req.method === 'POST') {
+    var adsItCtx = requireCeoSession(req, res);
+    if (!adsItCtx) return;
+    var adsItBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsItId = String(adsItBody.id || '').trim();
+    var adsItInstr = String(adsItBody.instruction || '').trim().slice(0, 1500);
+    if (!adsItId || !adsItInstr) { sendJson(res, 400, { ok: false, message: 'id and instruction are required.' }); return; }
+    var adsItDraft = await adsReadDraft(adsItId);
+    if (!adsItDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsItDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; duplicate it into a new draft to change it.' }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: false, message: 'ANTHROPIC_API_KEY is not set.' }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: false, message: 'The daily AI budget is used up; try again tomorrow.' }); return; }
+    var adsItRes = await adsReview.iterateDraft({ draft: adsItDraft, instruction: adsItInstr, model: ADS_REVIEW_MODEL });
+    if (!adsItRes.ok) { sendJson(res, 200, { ok: false, message: 'The model call failed: ' + String(adsItRes.error || 'unknown error') }); return; }
+    recordAnthropicSpend(adsItRes.usage.input_tokens, adsItRes.usage.output_tokens, adsItRes.usage.cache_read_input_tokens, adsItRes.usage.cache_creation_input_tokens);
+    var adsItHist = Array.isArray(adsItDraft.history) ? adsItDraft.history.slice() : [];
+    var adsItBefore = {};
+    ['angle', 'headline', 'primary_text', 'description', 'image_headline', 'image_sub', 'image_prompt'].forEach(function (f) { adsItBefore[f] = adsItDraft[f] || ''; });
+    adsItHist.push({ at: _adsNowIso(), by: adsItCtx.email || 'ceo', instruction: adsItInstr, change_note: adsItRes.change_note, before: adsItBefore });
+    var adsItPatch = {
+      angle: adsItRes.revised.angle, headline: adsItRes.revised.headline, primary_text: adsItRes.revised.primary_text,
+      description: adsItRes.revised.description, image_headline: adsItRes.revised.image_headline, image_sub: adsItRes.revised.image_sub,
+      image_prompt: adsItRes.revised.image_prompt, history: adsItHist.slice(-40),
+      // The composed creative carries the OLD image headline until it is re-composed.
+      meta_creative_id: null
+    };
+    var adsItSaved = await adsPatchDraft(adsItId, adsItPatch);
+    if (!adsItSaved.ok) { sendJson(res, 500, { ok: false, message: 'Could not save the revision.' }); return; }
+    var adsItRow = adsItSaved.row || await adsReadDraft(adsItId);
+    adsItRow.problems = metaAds.draftProblems(adsItRow);
+    adsItRow.warnings = metaAds.draftWarnings(adsItRow);
+    sendJson(res, 200, { ok: true, draft: adsItRow, change_note: adsItRes.change_note, warnings: adsItRes.warnings });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/schedule — pick the ad set and the launch time.
+  if (pathname === '/api/ceo/ads/draft/schedule' && req.method === 'POST') {
+    var adsSchCtx = requireCeoSession(req, res);
+    if (!adsSchCtx) return;
+    var adsSchBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsSchId = String(adsSchBody.id || '').trim();
+    var adsSchDraft = adsSchId ? await adsReadDraft(adsSchId) : null;
+    if (!adsSchDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsSchDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is already live.' }); return; }
+    var adsSchAt = Date.parse(String(adsSchBody.launch_at || ''));
+    if (!Number.isFinite(adsSchAt)) { sendJson(res, 400, { ok: false, message: 'launch_at must be a valid date-time.' }); return; }
+    if (adsSchAt < Date.now() - 5 * 60000) { sendJson(res, 400, { ok: false, message: 'The launch time is in the past.' }); return; }
+    var adsSchPatch = { launch_at: new Date(adsSchAt).toISOString(), status: 'scheduled', launch_error: null, launch_attempts: 0 };
+    if (adsSchBody.adset_id !== undefined) {
+      if (!/^\d+$/.test(String(adsSchBody.adset_id))) { sendJson(res, 400, { ok: false, message: 'adset_id must be numeric.' }); return; }
+      adsSchPatch.adset_id = String(adsSchBody.adset_id);
+    }
+    var adsSchProblems = metaAds.draftProblems(Object.assign({}, adsSchDraft, adsSchPatch));
+    if (adsSchProblems.length) { sendJson(res, 400, { ok: false, message: adsSchProblems.join(' '), problems: adsSchProblems }); return; }
+    var adsSchRes = await adsPatchDraft(adsSchId, adsSchPatch);
+    if (!adsSchRes.ok) { sendJson(res, 500, { ok: false, message: 'Could not schedule.' }); return; }
+    var adsSchRow = adsSchRes.row || await adsReadDraft(adsSchId);
+    adsSchRow.problems = []; adsSchRow.warnings = metaAds.draftWarnings(adsSchRow);
+    sendJson(res, 200, { ok: true, draft: adsSchRow, launch_disabled: metaAds.adsConfig(process.env).launchDisabled });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/unschedule — back to ready, keeps everything else.
+  if (pathname === '/api/ceo/ads/draft/unschedule' && req.method === 'POST') {
+    if (!requireCeoSession(req, res)) return;
+    var adsUnBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsUnId = String(adsUnBody.id || '').trim();
+    var adsUnDraft = adsUnId ? await adsReadDraft(adsUnId) : null;
+    if (!adsUnDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsUnDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is live; pause it in Ads Manager.' }); return; }
+    var adsUnRes = await adsPatchDraft(adsUnId, { status: 'ready', launch_at: null, launch_error: null });
+    var adsUnRow = (adsUnRes.ok && adsUnRes.row) || await adsReadDraft(adsUnId);
+    adsUnRow.problems = metaAds.draftProblems(adsUnRow); adsUnRow.warnings = metaAds.draftWarnings(adsUnRow);
+    sendJson(res, 200, { ok: !!adsUnRes.ok, draft: adsUnRow });
+    return;
+  }
+
+  // POST /api/ceo/ads/draft/launch-now — create the ad on Meta right now.
+  if (pathname === '/api/ceo/ads/draft/launch-now' && req.method === 'POST') {
+    var adsLnCtx = requireCeoSession(req, res);
+    if (!adsLnCtx) return;
+    var adsLnBody = await readJsonBody(req).catch(function () { return null; }) || {};
+    var adsLnId = String(adsLnBody.id || '').trim();
+    var adsLnDraft = adsLnId ? await adsReadDraft(adsLnId) : null;
+    if (!adsLnDraft) { sendJson(res, 404, { ok: false, message: 'Draft not found.' }); return; }
+    if (adsLnDraft.status === 'live') { sendJson(res, 409, { ok: false, message: 'This ad is already live.' }); return; }
+    var adsLnPre = metaAds.draftProblems(adsLnDraft);
+    if (adsLnPre.length) { sendJson(res, 400, { ok: false, message: adsLnPre.join(' '), problems: adsLnPre }); return; }
+    await adsPatchDraft(adsLnId, { status: 'scheduled', launch_at: adsLnDraft.launch_at || _adsNowIso(), launch_attempts: 0, launch_error: null });
+    var adsLnRes = await runAdsLaunch({ draftId: adsLnId });
+    var adsLnDetail = (adsLnRes.details || [])[0] || null;
+    var adsLnRow = (adsLnDetail && adsLnDetail.draft) || await adsReadDraft(adsLnId);
+    adsLnRow.problems = metaAds.draftProblems(adsLnRow); adsLnRow.warnings = metaAds.draftWarnings(adsLnRow);
+    sendJson(res, 200, {
+      ok: !!(adsLnDetail && adsLnDetail.ok),
+      held: !!(adsLnDetail && adsLnDetail.held),
+      step: adsLnDetail ? adsLnDetail.step : null,
+      message: adsLnDetail ? adsLnDetail.error : 'Nothing was attempted.',
+      meta_ad_id: adsLnDetail ? adsLnDetail.meta_ad_id : null,
+      manual_kit: metaAds.manualKit(adsLnRow, metaAds.adsConfig(process.env)),
+      draft: adsLnRow
+    });
+    return;
+  }
+
+  // GET /api/cron/ads-daily-review — the morning review.
+  if (req.method === 'GET' && pathname === '/api/cron/ads-daily-review') {
+    var adsCrToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(adsCrToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var adsCrStart = Date.now();
+    var adsCrRes = await runAdsDailyReview({});
+    await recordCronRun('ads-daily-review', adsCrRes.ok ? 'ok' : 'error',
+      (adsCrRes.skipped ? 'skipped: ' + adsCrRes.reason : ('review ' + (adsCrRes.id || '?') + (adsCrRes.error ? ' error=' + adsCrRes.error : ''))), Date.now() - adsCrStart);
+    sendJson(res, 200, adsCrRes);
+    return;
+  }
+
+  // GET /api/cron/ads-launch — creates whatever is due.
+  if (req.method === 'GET' && pathname === '/api/cron/ads-launch') {
+    var adsLcToken = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    if (!isValidCronSecret(adsLcToken)) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    var adsLcStart = Date.now();
+    var adsLcRes = await runAdsLaunch({});
+    await recordCronRun('ads-launch', adsLcRes.ok ? 'ok' : 'error',
+      'attempted=' + adsLcRes.attempted + ' launched=' + adsLcRes.launched + ' failed=' + adsLcRes.failed + ' held=' + adsLcRes.held, Date.now() - adsLcStart);
+    sendJson(res, 200, adsLcRes);
     return;
   }
 

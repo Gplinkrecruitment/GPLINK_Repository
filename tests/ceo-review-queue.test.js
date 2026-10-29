@@ -551,9 +551,9 @@ describe('review queue wiring', () => {
   const server = read('server.js');
 
   it('the dashboard loads the queue script (cache-busted) and bumps every changed file', () => {
-    expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261012b"></script>');
-    expect(dash).toContain('/js/ceo-ats-shared.js?v=20261001a');
-    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261029a');
+    expect(dash).toContain('<script src="/js/ceo-review-queue.js?v=20261029b"></script>');
+    expect(dash).toContain('/js/ceo-ats-shared.js?v=20261029b');
+    expect(dash).toContain('/js/ceo-ats-candidates.js?v=20261029b');
     expect(dash).toContain('/css/ceo-ats.css?v=20261029a');
     expect(dash).not.toContain('/js/ceo-ats-shared.js?v=20260816b');
     expect(dash).not.toContain('/js/ceo-ats-candidates.js?v=20260914c');
