@@ -30566,7 +30566,10 @@ function buildConsultLeadRow(input) {
   });
   const consult = {
     qualified,
-    is_gp: input.isGp === true,
+    // Tri-state: the /start form stopped asking the GP question (2026-08-18), so
+    // 'not asked' must stay null; a stored false would make the dialler skip every
+    // website lead as not qualified (found 2026-10-31).
+    is_gp: input.isGp === true ? true : (input.isGp === false ? false : null),
     country: input.country || 'other',
     call_booked: false,
     nudges: []
@@ -54688,7 +54691,7 @@ async function handleApi(req, res, pathname) {
       );
       const consult = Object.assign({}, known.metadata.consult, {
         qualified: reScreened,
-        is_gp: validated.value.isGp === true,
+        is_gp: validated.value.isGp === true ? true : (validated.value.isGp === false ? false : null),
         country: validated.value.country || 'other'
       });
       // Newly qualified (they corrected their country) needs a token to book

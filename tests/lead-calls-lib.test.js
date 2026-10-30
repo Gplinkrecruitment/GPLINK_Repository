@@ -432,3 +432,13 @@ describe('pickSlots offers only hour and half-hour starts', () => {
     expect(picked).toEqual(['2026-11-07T13:30:00Z', '2026-11-07T14:00:00Z']);
   });
 });
+
+describe('website leads that never answered the GP question', () => {
+  it('are called when qualified, even if is_gp was stored as false', () => {
+    const row = { id: 'w1', kind: 'gp', phone: '+447700900123', created_at: new Date(Date.now() - 10 * 60000).toISOString(),
+      metadata: { source: 'site_start_form', consult: { qualified: true, is_gp: false, country: 'uk', call_booked: false } } };
+    const cfg = parseLeadCallConfig({ LEAD_CALLS_ENABLED: 'true', RETELL_API_KEY: 'k', RETELL_AGENT_ID: 'a', RETELL_FROM_NUMBER_UK: '+447000000000' });
+    const d = leadCallDecision({ row, nowMs: Date.now(), cfg, ignoreHours: true });
+    expect(d.action).toBe('call');
+  });
+});
