@@ -291,6 +291,9 @@ describe('Calendly slots', () => {
       { question: 'Where are you based?', answer: 'Booked over the phone with Hazel from GP Link.', position: 2 }
     ]);
     expect(body.tracking.utm_source).toBe('ai_call');
+    // Calendly rejects a partial tracking object, so every key must be present.
+    expect(Object.keys(body.tracking).sort()).toEqual(['salesforce_uuid', 'utm_campaign', 'utm_content', 'utm_medium', 'utm_source', 'utm_term']);
+    expect(body.tracking.utm_content).toBeNull();
     expect(body.location).toBeUndefined();
   });
 });

@@ -30848,16 +30848,24 @@ async function leadCallToolBookConsult(ctx) {
   if (!LEAD_CALL_EMAIL_RE.test(email)) return 'No email address on file. Ask the doctor for their email, then call book_consult again with it.';
   const phone = normalizePhone(ctx.row.phone || '') || String(ctx.call.to_number || '');
   // Required custom questions must be answered or Calendly rejects the booking.
+  // Calendly's Scheduling API also insists the booking names the event type's
+  // location (400 "invalid location choice" without it), so take it from the
+  // event type when CALENDLY_LOCATION_KIND is not set and there is one choice.
   let customQuestions = [];
+  let locationKind = String(process.env.CALENDLY_LOCATION_KIND || '').trim();
   const etUuid = calendlyEventTypeUuid();
   if (etUuid) {
     const et = await calendlyApiFetch('/event_types/' + encodeURIComponent(etUuid));
-    if (et.ok && et.data && et.data.resource && Array.isArray(et.data.resource.custom_questions)) customQuestions = et.data.resource.custom_questions;
+    const etRes = et.ok && et.data && et.data.resource ? et.data.resource : null;
+    if (etRes && Array.isArray(etRes.custom_questions)) customQuestions = etRes.custom_questions;
     else console.warn('[lead-calls] calendly event_type lookup failed', et.status, '— booking without custom answers');
+    if (!locationKind && etRes && Array.isArray(etRes.locations) && etRes.locations.length === 1 && etRes.locations[0] && etRes.locations[0].kind && etRes.pooling_type !== 'round_robin') {
+      locationKind = String(etRes.locations[0].kind);
+    }
   }
   const body = leadCalls.buildCalendlyInviteeBody({
     eventTypeUri: CALENDLY_EVENT_TYPE_URI, startTime: slotId, name: ctx.row.name, email, tz: ctx.tz, phone,
-    customQuestions, locationKind: String(process.env.CALENDLY_LOCATION_KIND || '').trim(), agentName: ctx.cfg.agentName
+    customQuestions, locationKind, agentName: ctx.cfg.agentName
   });
   const r = await calendlyApiFetch('/invitees', { method: 'POST', body });
   if (!r.ok) {
