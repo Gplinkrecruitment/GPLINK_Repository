@@ -437,3 +437,68 @@ describe('Zoho tab, Start switch and the placed-doctor exclusions', () => {
     expect(cron.json.skipped.converted).toBe(2);
   });
 });
+
+describe('WhatsApp to the imported Zoho leads and their replies', () => {
+  const WA = '/api/cron/zoho-whatsapp';
+  it('counts without sending, then sends once per eligible lead and records it', async () => {
+    // Seed two fresh imported leads; Zara (from the switch test) and Ben are stopped/named, Priya is placed.
+    testUtils.__seedSiteEnquiriesForTest((readDb().siteEnquiries || []).concat([
+      { id: 'zoho_wa_1', kind: 'gp', name: 'Dr Omar Haddad', email: 'omar@example.co.uk', phone: '+447700900801', state: 'uk', status: 'new', created_at: '2025-08-01T00:00:00.000Z',
+        metadata: { source: 'zoho_import', zoho_candidate_id: 'cand_omar', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [], nudges_disabled: 'not_booked', token: 'tok-omar' } } },
+      { id: 'zoho_wa_2', kind: 'gp', name: 'Dr Lena Fischer', email: 'lena@example.co.uk', phone: '+447700900802', state: 'uk', status: 'new', created_at: '2025-08-02T00:00:00.000Z',
+        metadata: { source: 'zoho_import', zoho_candidate_id: 'cand_lena', consult: { qualified: true, is_gp: null, country: 'uk', call_booked: false, nudges: [{ seq: 'not_booked', step: 0, email: 'none', sent_at: '2026-10-30T19:40:00.000Z' }], nudges_disabled: 'not_booked', token: 'tok-lena' } } }
+    ]));
+    const before = dtTemplates.length;
+    const dry = await httpReq('GET', WA, { headers: CRON_AUTH });
+    expect(dry.json).toMatchObject({ ok: true, dry_run: true, template: 'gp_link_reengage_hayley', sent: 0 });
+    // Zara (seeded earlier, never messaged) and Omar are eligible; Lena already had the accidental note.
+    expect(dry.json.counts).toMatchObject({ already_messaged: 1, eligible: 2 });
+    expect(dry.json.counts.stopped).toBeGreaterThanOrEqual(1);
+    expect(dtTemplates.length).toBe(before);
+
+    const run = await httpReq('GET', WA + '?confirm=1&limit=50', { headers: CRON_AUTH });
+    expect(run.json).toMatchObject({ ok: true, sent: 2, failed: 0 });
+    expect(dtTemplates.length).toBe(before + 2);
+    const m = dtTemplates.slice(before).map((x) => x.messages[0]).find((x) => x.to === '+447700900801');
+    expect(m).toBeTruthy();
+    expect(m.content.templateName).toBe('gp_link_reengage_hayley');
+    expect(m.content.templateData.body.placeholders).toEqual(['Omar']);
+    const omar = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_1');
+    expect(omar.metadata.consult.zoho_wa_template).toBe('gp_link_reengage_hayley');
+    expect(omar.metadata.consult.nudges).toEqual([expect.objectContaining({ seq: 'zoho_wa', step: 0, wa: 'sent' })]);
+    // Never twice.
+    const again = await httpReq('GET', WA + '?confirm=1', { headers: CRON_AUTH });
+    expect(again.json).toMatchObject({ sent: 0 });
+    expect(again.json.counts.already_messaged).toBe(3);
+  });
+
+  it('"Yes, call me" from a messaged lead books Hayley\'s call straight away, even before Start', async () => {
+    await ceo('POST', '/api/ceo/leads/zoho', { enabled: false });
+    const textsBefore = dtTexts.length;
+    const r = await hook('+447700900801', { type: 'BUTTON', button: { text: 'Yes, call me' } });
+    expect(r.json).toEqual({ ok: true, action: 'zoho_lead_yes' });
+    const omar = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_1');
+    expect(omar.metadata.consult.call_back_at).toBeTruthy();
+    expect(omar.metadata.consult.call_back_by).toBe('whatsapp_reply');
+    expect(dtTexts[textsBefore].content.text).toContain('Hayley from GP Link will ring you');
+    expect(dtTexts[textsBefore].content.text).toContain('/start?lead=tok-omar#book');
+    // The dialler treats it as a due owner call-back: Zoho switch off, lead 15
+    // months old, still rings (or waits only for the call already in flight);
+    // the two other imported leads stay behind the Start button.
+    const cron = await httpReq('GET', '/api/cron/lead-calls', { headers: CRON_AUTH });
+    expect(cron.json.skipped.zoho_not_started).toBe(2);
+    expect(cron.json.called === 1 || cron.json.skipped.another_call_in_progress === 1).toBe(true);
+    const plan = (await ceo('GET', '/api/ceo/leads?source=zoho')).json.leads.find((l) => l.id === 'zoho_wa_1');
+    expect(['in_progress', 'scheduled', 'queued']).toContain(plan.hazel.state);
+  });
+
+  it('"Not right now" and STOP from a messaged lead are recorded and never reach the dialler', async () => {
+    const r = await hook('+447700900802', { type: 'TEXT', text: 'Not right now thanks' });
+    expect(r.json).toEqual({ ok: true, action: 'zoho_lead_no' });
+    const lena = (readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_2');
+    expect(lena.metadata.consult).toMatchObject({ stopped: 'not_interested', stop_reason: 'whatsapp_reply' });
+    const s = await hook('+447700900802', { type: 'TEXT', text: 'STOP' });
+    expect(s.json).toEqual({ ok: true, action: 'zoho_lead_stop' });
+    expect((readDb().siteEnquiries || []).find((x) => x.id === 'zoho_wa_2').metadata.consult.stopped).toBe('unsubscribed');
+  });
+});

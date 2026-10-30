@@ -16604,6 +16604,37 @@ async function handleDoubleTickWebhook(req, res) {
   // them within minutes; "Not right now" and STOP are recorded and never reach the
   // help queue. A question from them falls through as a known person — the
   // classifier may not drop it.
+  // A reply from an imported Zoho LEAD we messaged (runZohoLeadWhatsApp): "yes"
+  // books Hayley's call right away (an owner call-back, which rings in the next
+  // window even before the Zoho Start button and whatever the lead's age), "no"
+  // marks them not interested, STOP unsubscribes; a question carries on to the
+  // human queue as a known person.
+  if (consultLeadReply && String((consultLeadReply.metadata && consultLeadReply.metadata.source) || '') === 'zoho_import') {
+    try {
+      const zlKind = zohoReengage.classifyReengageReply(messageBody);
+      const zlC = consultLeadReply.metadata.consult || {};
+      const zlFirst = leadCalls.firstNameOf(consultLeadReply.name);
+      const zlNow = new Date().toISOString();
+      if (zlKind === 'stop' || zlKind === 'no' || zlKind === 'yes') {
+        const zlPatch = zlKind === 'yes'
+          ? { stopped: 'replied', call_back_at: zlNow, call_back_note: 'Replied "' + String(messageBody || '').slice(0, 80) + '" to our WhatsApp', call_back_by: 'whatsapp_reply' }
+          : (zlKind === 'no' ? { stopped: 'not_interested', stop_reason: 'whatsapp_reply' } : { stopped: 'unsubscribed', unsubscribe_reason: 'whatsapp_stop' });
+        const zlMd = Object.assign({}, consultLeadReply.metadata, { consult: Object.assign({}, zlC, zlPatch, { zoho_wa_reply: String(messageBody || '').slice(0, 200), zoho_wa_replied_at: zlNow }) });
+        await updateSiteEnquiryRow(consultLeadReply.id, { metadata: zlMd });
+        if (zlKind !== 'stop') {
+          const zlCfg = leadCalls.parseLeadCallConfig(process.env);
+          await sendWhatsappText(fromPhone, zohoReengage.replyText(zlKind, {
+            first: zlFirst, fromNumber: leadCalls.fromNumberForCountry('uk', zlCfg.fromNumbers) || '',
+            bookUrl: zlC.token ? CONSULT_START_BASE + '/start?lead=' + encodeURIComponent(zlC.token) + '#book' : ''
+          })).catch(() => {});
+        }
+        console.log('[zoho-wa] reply', zlKind, 'from', maskPhone(fromPhone), 'lead', consultLeadReply.id);
+        sendJson(res, 200, { ok: true, action: 'zoho_lead_' + zlKind });
+        return;
+      }
+    } catch (e) { console.error('[zoho-wa] reply handling failed:', e && e.message); }
+  }
+
   let reengaged = null;
   if (!consultLeadReply) {
     reengaged = await handleZohoReengageReply(fromPhone, messageBody, contactName)
@@ -30980,6 +31011,59 @@ async function excludeKnownDoctorsFromLeads(opts) {
       if (ok) { out.stopped++; entry.stopped_now = true; }
     }
     out.touched.push(entry);
+  }
+  return out;
+}
+
+// WhatsApp to the imported Zoho LEADS (site_enquiries source zoho_import) — the
+// owner's 2026-10-31 call after an accidental 25-message run produced a booking:
+// message everyone first, let Hayley ring the ones who do not book or reply.
+// Never: a stopped lead (placed/registered doctors are stopped by the exclusion
+// sweep, which runs again here first), a booked one, or anyone already sent a
+// note (the 25 from the accident, or an earlier batch). Each send is a nudges
+// entry on the lead (seq 'zoho_wa'), so the Leads tab's chase column shows it
+// and a re-run can never double-send.
+async function runZohoLeadWhatsApp(opts) {
+  const o = opts || {};
+  const template = String(o.template || zohoReengage.TEMPLATE_NAME).trim();
+  const limit = Math.max(0, Number(o.limit) || 0);
+  const exclusions = o.dryRun ? null : await excludeKnownDoctorsFromLeads({ confirm: true });
+  const rows = await listSiteEnquiryRows('', 'gp');
+  const counts = { zoho_total: 0, stopped: 0, booked: 0, already_messaged: 0, not_uk_mobile: 0, eligible: 0 };
+  const eligible = [];
+  for (const r of rows) {
+    const c = r && r.metadata && r.metadata.consult;
+    if (!c || String(r.metadata.source || '') !== 'zoho_import') continue;
+    counts.zoho_total++;
+    if (c.stopped || r.status === 'converted') { counts.stopped++; continue; }
+    if (c.call_booked) { counts.booked++; continue; }
+    if ((Array.isArray(c.nudges) && c.nudges.length) || c.zoho_wa_sent_at) { counts.already_messaged++; continue; }
+    const phone = zohoReengage.ukMobileE164(r.phone);
+    if (!phone) { counts.not_uk_mobile++; continue; }
+    counts.eligible++;
+    eligible.push({ row: r, phone });
+  }
+  const out = { ok: true, dry_run: !!o.dryRun, template, counts, batch_size: limit ? Math.min(limit, eligible.length) : eligible.length, sent: 0, failed: 0, exclusions_stopped: exclusions ? exclusions.stopped : null };
+  if (o.dryRun) return out;
+  if (!DOUBLETICK_API_KEY) return Object.assign(out, { ok: false, error: 'DOUBLETICK_API_KEY is not set' });
+  const batch = limit ? eligible.slice(0, limit) : eligible;
+  for (const item of batch) {
+    const r = item.row; const c = r.metadata.consult;
+    const first = leadCalls.firstNameOf(r.name);
+    const res = await sendDoubleTickTemplateTo(item.phone, template, [first === 'there' ? 'Doctor' : first]);
+    if (!(res && res.ok)) {
+      out.failed++; out.last_error = String((res && (res.error || res.skipped || res.status)) || 'send failed');
+      if (out.failed >= 3 && out.sent === 0) { out.ok = false; break; }
+      continue;
+    }
+    const sentAt = new Date().toISOString();
+    const md = Object.assign({}, r.metadata, { consult: Object.assign({}, c, {
+      zoho_wa_sent_at: sentAt, zoho_wa_template: template,
+      nudges: (Array.isArray(c.nudges) ? c.nudges : []).concat([{ seq: 'zoho_wa', step: 0, wa: 'sent', template, sent_at: sentAt }])
+    }) });
+    const ok = await updateSiteEnquiryRow(r.id, { metadata: md });
+    if (!ok) console.error('[zoho-wa] sent but could not record on lead', r.id);
+    out.sent++;
   }
   return out;
 }
@@ -49039,6 +49123,23 @@ async function handleApi(req, res, pathname) {
         if (c.call_booked && Date.parse(c.call_booked_at || '') >= zaSince) zaOut.all_recent.booked_since++;
       });
       sendJson(res, 200, Object.assign({ ok: true, since: new Date(zaSince).toISOString() }, zaOut));
+    } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
+    return;
+  }
+
+  // Message the imported Zoho leads (runZohoLeadWhatsApp). Manual, CRON_SECRET:
+  // ?confirm=1 sends up to &limit= (default 100) per call; without it, counts.
+  if (req.method === 'GET' && pathname === '/api/cron/zoho-whatsapp') {
+    var zwSecret = String(process.env.CRON_SECRET || '').trim();
+    var zwAuth = req.headers['authorization'] || '';
+    if (!zwSecret || zwAuth !== 'Bearer ' + zwSecret) { sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return; }
+    try {
+      var zwRes = await runZohoLeadWhatsApp({
+        dryRun: url.searchParams.get('confirm') !== '1',
+        limit: Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 300)),
+        template: url.searchParams.get('template') || undefined
+      });
+      sendJson(res, zwRes.ok ? 200 : 502, zwRes);
     } catch (e) { sendJson(res, 500, { ok: false, error: e && e.message }); }
     return;
   }
