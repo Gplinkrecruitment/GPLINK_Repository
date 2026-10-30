@@ -5,16 +5,26 @@
     "description": "Open consultation times, already in the doctor's local time. Call when they're open to booking, and again if they want a different day or time of day.",
     "url": "https://app.mygplink.com.au/api/retell/tools/check-availability",
     "method": "POST",
-    "speak_during_execution": true,
+    "speak_during_execution": false,
     "speak_after_execution": true,
-    "execution_message_type": "static_text",
-    "execution_message_description": "Let me just have a look at the diary.",
     "timeout_ms": 20000,
     "parameters": {
       "type": "object",
       "properties": {
-        "preferred_day": {"type": "string", "description": "'today', 'tomorrow', a weekday or YYYY-MM-DD, only if the doctor said one."},
-        "time_of_day": {"type": "string", "enum": ["morning", "afternoon", "evening", "any"], "description": "Their preferred part of the day, local time."}
+        "preferred_day": {
+          "type": "string",
+          "description": "'today', 'tomorrow', a weekday or YYYY-MM-DD, only if the doctor said one."
+        },
+        "time_of_day": {
+          "type": "string",
+          "enum": [
+            "morning",
+            "afternoon",
+            "evening",
+            "any"
+          ],
+          "description": "Their preferred part of the day, local time."
+        }
       }
     }
   },
@@ -30,10 +40,18 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "slot_id": {"type": "string", "description": "Exactly as returned by check_availability."},
-        "email": {"type": "string", "description": "Only if none is on file or the doctor gave a different one."}
+        "slot_id": {
+          "type": "string",
+          "description": "Exactly as returned by check_availability."
+        },
+        "email": {
+          "type": "string",
+          "description": "Only if none is on file or the doctor gave a different one."
+        }
       },
-      "required": ["slot_id"]
+      "required": [
+        "slot_id"
+      ]
     }
   },
   {
@@ -46,7 +64,10 @@
     "speak_after_execution": true,
     "execution_message_type": "static_text",
     "timeout_ms": 20000,
-    "parameters": {"type": "object", "properties": {}}
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
   },
   {
     "type": "custom",
@@ -61,11 +82,28 @@
     "parameters": {
       "type": "object",
       "properties": {
-        "outcome": {"type": "string", "enum": ["callback_requested", "not_interested", "not_a_gp", "wrong_number", "already_booked"]},
-        "callback_hours": {"type": "number", "description": "Hours from now they asked to be rung back, if given."},
-        "note": {"type": "string", "description": "One sentence for the team."}
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "callback_requested",
+            "not_interested",
+            "not_a_gp",
+            "wrong_number",
+            "already_booked"
+          ]
+        },
+        "callback_hours": {
+          "type": "number",
+          "description": "Hours from now they asked to be rung back, if given."
+        },
+        "note": {
+          "type": "string",
+          "description": "One sentence for the team."
+        }
       },
-      "required": ["outcome"]
+      "required": [
+        "outcome"
+      ]
     }
   },
   {
