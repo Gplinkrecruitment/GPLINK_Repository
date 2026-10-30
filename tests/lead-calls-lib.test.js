@@ -422,3 +422,13 @@ describe('leadCallPlan — what Hazel will do next, in words', () => {
     expect(plan({ consult: { ai_call: { call_id: 'c', status: 'ongoing', started_at: new Date(TUE_11_UTC - 60000).toISOString() } } })).toMatchObject({ state: 'in_progress', label: 'On the phone now' });
   });
 });
+
+describe('pickSlots offers only hour and half-hour starts', () => {
+  it('drops Calendly 5-minute increments like 1:35 and 1:40', () => {
+    const nowMs = Date.parse('2026-11-02T09:00:00Z');
+    const avail = ['2026-11-07T13:30:00Z', '2026-11-07T13:35:00Z', '2026-11-07T13:40:00Z', '2026-11-07T14:00:00Z', '2026-11-07T14:05:00Z']
+      .map((start_time) => ({ status: 'available', start_time }));
+    const picked = pickSlots(avail, { tz: 'Europe/London', nowMs, limit: 3 }).map((s) => s.start_time);
+    expect(picked).toEqual(['2026-11-07T13:30:00Z', '2026-11-07T14:00:00Z']);
+  });
+});
