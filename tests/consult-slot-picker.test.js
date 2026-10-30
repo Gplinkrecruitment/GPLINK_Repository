@@ -85,9 +85,16 @@ function startCalendlyStub() {
           // Both 7-day windows get the same list; the server must dedupe.
           return send(200, { collection: stubSlots() });
         }
+        if (req.method === 'GET' && u.pathname === '/users/me') return send(200, { resource: { uri: 'https://api.calendly.com/users/U1' } });
+        if (req.method === 'GET' && u.pathname === '/event_types') {
+          return send(200, { collection: [
+            { uri: 'https://api.calendly.com/event_types/ET123', name: 'GP Registration Assistance', active: true, scheduling_url: 'https://calendly.com/hello-mygplink/gp-registration-assistance' },
+            { uri: 'https://api.calendly.com/event_types/ET30', name: 'Finding The Perfect Australian Practice', active: true, scheduling_url: 'https://calendly.com/hello-mygplink/30min/' }
+          ] });
+        }
         if (req.method === 'GET' && u.pathname.startsWith('/event_types/')) {
           return send(200, { resource: {
-            uri: 'https://api.calendly.com/event_types/ET123', name: 'Finding The Perfect Australian Practice', duration: 30,
+            uri: 'https://api.calendly.com/event_types/' + u.pathname.split('/').pop(), name: 'Finding The Perfect Australian Practice', duration: 30,
             locations: [{ kind: 'zoom_conference' }], pooling_type: null,
             custom_questions: [{ name: 'Please share anything that will help prepare for our meeting.', type: 'text', position: 0, required: false, enabled: true }]
           } });
@@ -132,7 +139,10 @@ beforeAll(async () => {
   process.env.DB_FILE_PATH = DB_FILE;
   process.env.CALENDLY_API_BASE = 'http://127.0.0.1:' + calendlyPort;
   process.env.CALENDLY_API_TOKEN = 'cal_test';
+  // Production shape: Hazel's event type is NOT the consult. The picker must
+  // find the consult (ET30) by the scheduling link, never book ET123.
   process.env.CALENDLY_EVENT_TYPE_URI = 'https://api.calendly.com/event_types/ET123';
+  delete process.env.CONSULT_CALENDLY_EVENT_TYPE_URI;
   process.env.CONSULT_WHATSAPP_ENABLED = 'false';
 
   const mod = await import('../server.js');
@@ -173,7 +183,17 @@ describe('GET /api/public/consult-lead/slots', () => {
     starts.forEach((s) => expect(new Date(s).getUTCMinutes() % 30).toBe(0));
     const avail = calendlyRequests.filter((q) => q.path === '/event_type_available_times');
     expect(avail.length).toBe(2);
-    expect(avail[0].query.event_type).toBe('https://api.calendly.com/event_types/ET123');
+    // The consult event, matched by scheduling_url — not Hazel's ET123.
+    expect(avail[0].query.event_type).toBe('https://api.calendly.com/event_types/ET30');
+    expect(avail[1].query.event_type).toBe('https://api.calendly.com/event_types/ET30');
+  });
+
+  it('looks the consult event type up once, then reuses it', async () => {
+    await request('GET', '/api/public/consult-lead/slots?token=' + TOKEN);
+    const seen = (p) => calendlyRequests.filter((q) => q.path === p).length;
+    // beforeEach cleared the request log; the hour-long cache was filled by an
+    // earlier test, so neither lookup call should appear again.
+    expect(seen('/users/me') + seen('/event_types')).toBe(0);
   });
 
   it('serves the second call from cache without asking Calendly again', async () => {
@@ -208,7 +228,7 @@ describe('POST /api/public/consult-lead/book', () => {
 
     expect(calendlyInvitees.length).toBe(1);
     const inv = calendlyInvitees[0];
-    expect(inv.event_type).toBe('https://api.calendly.com/event_types/ET123');
+    expect(inv.event_type).toBe('https://api.calendly.com/event_types/ET30');
     expect(inv.start_time).toBe(pick);
     expect(inv.invitee).toMatchObject({ name: 'Aisha Khan', first_name: 'Aisha', last_name: 'Khan', email: 'aisha@example.co.uk', timezone: 'Europe/London' });
     // The ad's tags travel with the booking; utm_content names the path; every
@@ -276,6 +296,8 @@ describe('the page and the short address', () => {
       expect(r.raw, id).toContain('id="' + id + '"');
     }
     expect(r.raw).toContain('/api/public/consult-lead/slots?token=');
+    expect(r.raw).toContain('prefetchSlots(tokenParam)');
+    expect(r.raw).toContain('id="slotWait"');
     expect(r.raw).toContain("post('/api/public/consult-lead/book'");
   });
 });
